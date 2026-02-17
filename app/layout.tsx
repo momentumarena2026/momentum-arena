@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Momentum Arena | Cricket & Football Turf in Mathura",
+  title: "Momentum Arena | Turf & Courts in Mathura",
   description:
-    "Momentum Arena is a premium multi-sport facility in Mathura offering Cricket, Football, Pickleball and Badminton courts. Opening soon. Pre-book your slot today.",
+    "Momentum Arena is a premium multi-sport facility in Mathura offering Cricket, Football, Pickleball and Badminton courts. Opening soon.",
 };
 
 
