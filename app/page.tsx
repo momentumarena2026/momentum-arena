@@ -128,7 +128,7 @@ export default function Home() {
           </a>
 
           <a
-            href="https://instagram.com/momentumarena"
+            href="https://instagram.com/momentumarena_"
             target="_blank"
             className="border border-black px-10 py-4 rounded-full"
           >
