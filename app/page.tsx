@@ -5,7 +5,7 @@ export default function Home() {
     <main className="bg-black text-white">
 
       {/* HERO */}
-      <section className="min-h-screen flex flex-col justify-center items-center text-center px-6">
+      <section className="min-h-screen flex flex-col justify-center items-center text-center px-6 relative">
         {/* Coming Soon Badge */}
         <div className="absolute top-10 left-1/2 -translate-x-1/2">
           <div className="px-6 py-2 rounded-full border border-white/30 
@@ -15,9 +15,16 @@ export default function Home() {
           </div>
         </div>
 
-        <h1 className="text-5xl md:text-7xl font-bold mb-6">
-          Momentum Arena
-        </h1>
+        {/* Logo */}
+          <div className="hover:scale-105 transition-all duration-300">
+            <Image
+              src="/blackLogo.png"
+              alt="Momentum Arena Logo"
+              width={500}
+              height={500}
+              priority
+            />
+          </div>
 
         <p className="text-xl md:text-2xl text-gray-300 mb-6">
           Cricket • Football • Pickleball • Badminton
