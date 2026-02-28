@@ -49,6 +49,21 @@ export default function Home() {
           >
             Follow on Instagram
           </a>
+
+          <a
+            href="https://whatsapp.com/channel/0029VbCQo4S8fewv3rjVp03X"
+            className="bg-green-500 hover:bg-green-600 text-black font-semibold px-8 py-4 rounded-full transition"
+          >
+            Follow our WhatsApp Channel
+          </a>
+
+          <a
+            href="https://www.youtube.com/@momentum_arena"
+            target="_blank"
+            className="border border-white px-8 py-4 rounded-full hover:bg-white hover:text-black transition"
+          >
+            Follow on Youtube
+          </a>
         </div>
       </section>
 
@@ -140,6 +155,21 @@ export default function Home() {
             className="border border-black px-10 py-4 rounded-full"
           >
             See Construction Updates
+          </a>
+
+          <a
+            href="https://whatsapp.com/channel/0029VbCQo4S8fewv3rjVp03X"
+            className="bg-black text-white px-10 py-4 rounded-full font-semibold"
+          >
+            Follow our WhatsApp Channel
+          </a>
+
+          <a
+            href="https://www.youtube.com/@momentum_arena"
+            target="_blank"
+            className="border border-black px-10 py-4 rounded-full"
+          >
+            Follow on Youtube
           </a>
         </div>
       </section>
