@@ -2,4 +2,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://momentumarena.com/sitemap.xml
+Sitemap: https://momentumarena.in/sitemap.xml

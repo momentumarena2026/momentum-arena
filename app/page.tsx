@@ -5,11 +5,11 @@ export default function Home() {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
-    "@id": "https://momentumarena.com/#organization",
+    "@id": "https://momentumarena.in/#organization",
     "name": "Momentum Arena",
     "image": "/logo.png",
     "description": "Momentum Arena is Mathura's premier multi-sport facility offering professional Cricket, Football, Pickleball and Badminton courts with spectator seating and cafeteria",
-    "url": "https://momentumarena.com",
+    "url": "https://momentumarena.in",
     "telephone": "+91-6396177261",
     "priceRange": "₹₹",
     "address": {
