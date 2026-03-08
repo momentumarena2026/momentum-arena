@@ -14,7 +14,7 @@ export default function Home() {
     "priceRange": "₹₹",
     "address": {
       "@type": "PostalAddress",
-      "streetAddress": "Khasra no. 293/5, Mouja Ganeshra, Radhapuram Road",
+      "streetAddress": "Momentum Arena, Khasra no. 293/5, Mouja Ganeshra, Radhapuram Road",
       "addressLocality": "Mathura",
       "addressRegion": "Uttar Pradesh",
       "postalCode": "281004",
