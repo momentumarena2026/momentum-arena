@@ -87,9 +87,7 @@ export const metadata: Metadata = {
     "ICBM": "27.509167, 77.638917",
   },
   verification: {
-    // Add your verification codes here when you get them
-    // google: 'your-google-verification-code',
-    // yandex: 'your-yandex-verification-code',
+    google: 'plgoY81Iqkkwh00zqWUIQWsc2T7JzsbkQT87g4BzxCc',
   },
 };
 
