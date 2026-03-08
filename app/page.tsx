@@ -14,10 +14,10 @@ export default function Home() {
     "priceRange": "₹₹",
     "address": {
       "@type": "PostalAddress",
-      "streetAddress": "Mathura",
+      "streetAddress": "Khasra no. 293/5, Mouja Ganeshra, Radhapuram Road",
       "addressLocality": "Mathura",
       "addressRegion": "Uttar Pradesh",
-      "postalCode": "281001",
+      "postalCode": "281004",
       "addressCountry": "IN"
     },
     "geo": {
@@ -318,7 +318,7 @@ export default function Home() {
                 <div className="space-y-3">
                   <p className="flex items-start gap-3 text-gray-300">
                     <span className="text-green-500 mt-1">📍</span>
-                    <span>Mathura, Uttar Pradesh 281001</span>
+                    <span>Khasra no. 293/5, Mouja Ganeshra<br />Radhapuram Road<br />Mathura, Uttar Pradesh 281004</span>
                   </p>
                   <p className="flex items-start gap-3 text-gray-300">
                     <span className="text-green-500 mt-1">📞</span>
