@@ -54,7 +54,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/logo.png",
+        url: "/icon.png",
         width: 1200,
         height: 630,
         alt: "Momentum Arena - Multi-Sport Facility in Mathura",
@@ -66,7 +66,7 @@ export const metadata: Metadata = {
     title: "Momentum Arena | Sports Facility in Mathura",
     description:
       "Book Cricket, Football, Pickleball & Badminton courts in Mathura. Premium facility with cafeteria & parking. Coming Soon!",
-    images: ["/logo.png"],
+    images: ["/icon.png"],
     creator: "@momentumarena_",
   },
   robots: {

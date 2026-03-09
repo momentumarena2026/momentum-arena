@@ -7,7 +7,13 @@ export default function Home() {
     "@type": "LocalBusiness",
     "@id": "https://momentumarena.in/#organization",
     "name": "Momentum Arena",
-    "image": "/logo.png",
+    "image": "https://momentumarena.in/icon.png",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://momentumarena.in/icon.png",
+      "width": 512,
+      "height": 512
+    },
     "description": "Momentum Arena is Mathura's premier multi-sport facility offering professional Cricket, Football, Pickleball and Badminton courts with spectator seating and cafeteria",
     "url": "https://momentumarena.in",
     "telephone": "+91-6396177261",
@@ -102,11 +108,43 @@ export default function Home() {
     ]
   };
 
+  const organizationSchema = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Momentum Arena",
+    "url": "https://momentumarena.in",
+    "logo": "https://momentumarena.in/icon.png",
+    "image": "https://momentumarena.in/icon.png",
+    "description": "Mathura's premier multi-sport facility",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "Khasra no. 293/5, Mouja Ganeshra, Radhapuram Road",
+      "addressLocality": "Mathura",
+      "addressRegion": "Uttar Pradesh",
+      "postalCode": "281004",
+      "addressCountry": "IN"
+    },
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "telephone": "+91-6396177261",
+      "contactType": "customer service"
+    },
+    "sameAs": [
+      "https://instagram.com/momentumarena_",
+      "https://www.youtube.com/@momentum_arena",
+      "https://whatsapp.com/channel/0029VbCQo4S8fewv3rjVp03X"
+    ]
+  };
+
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
       />
       <main className="bg-black text-white">
 
