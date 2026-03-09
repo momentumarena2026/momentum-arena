@@ -1,10 +1,15 @@
 {
   "redirects": [
     {
-      "source": "https://www.momentumarena.in/:path*",
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.momentumarena.in"
+        }
+      ],
       "destination": "https://momentumarena.in/:path*",
-      "permanent": true,
-      "statusCode": 301
+      "permanent": true
     }
   ],
   "headers": [
