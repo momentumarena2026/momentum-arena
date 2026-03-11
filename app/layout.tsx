@@ -87,7 +87,7 @@ export const metadata: Metadata = {
     "ICBM": "27.509167, 77.638917",
   },
   verification: {
-    google: 'plgoY81Iqkkwh00zqWUIQWsc2T7JzsbkQT87g4BzxCc',
+    google: '8wO7NFJxDxbxsAfrEg_n-t6J5g_eE5DHJKYSdQNGSSM',
   },
 };
 
