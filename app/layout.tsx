@@ -48,7 +48,7 @@ export const metadata: Metadata = {
     title: "Momentum Arena | Premier Sports Facility in Mathura, UP",
     description:
       "Mathura's best sports destination with Cricket, Football, Pickleball & Badminton courts. Spectator seating, cafeteria & parking. Book now!",
-    url: "https://momentumarena.in",
+    url: "https://momentumarena.com",
     siteName: "Momentum Arena",
     locale: "en_IN",
     type: "website",

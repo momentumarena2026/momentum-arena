@@ -3,7 +3,7 @@ import { MetadataRoute } from 'next'
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
-      url: 'https://momentumarena.in',
+      url: 'https://momentumarena.com',
       lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 1,
