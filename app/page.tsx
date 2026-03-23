@@ -158,14 +158,7 @@ export default function Home() {
                           tracking-widest font-medium">
             COMING SOON
           </div>
-          <Link
-            href="/login"
-            className="px-5 py-2 md:px-6 md:py-2.5 rounded-full bg-green-600 hover:bg-green-700
-                       text-white text-xs md:text-sm font-semibold tracking-wide
-                       transition-all duration-300 hover:scale-105"
-          >
-            Login
-          </Link>
+          {/* Login button hidden for now */}
         </div>
 
         {/* Logo */}
