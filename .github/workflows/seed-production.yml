@@ -9,10 +9,20 @@ jobs:
   seed:
     name: Seed Production Database
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty! Add PRODUCTION_DATABASE_URL to repository secrets."
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars)"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -28,10 +38,6 @@ jobs:
 
       - name: Push schema to production DB
         run: npx prisma db push --accept-data-loss --skip-generate
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.DATABASE_URL }}
 
       - name: Seed production database
         run: npx tsx prisma/seed.ts
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.DATABASE_URL }}
