@@ -1,16 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+// Font is set via CSS (Arial, Helvetica, sans-serif)
+import { SessionProvider } from "next-auth/react";
+import { auth } from "@/lib/auth";
+import { ChatWidgetWrapper } from "@/components/chatbot/chat-widget-wrapper";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Momentum Arena Mathura | Cricket, Football, Pickleball & Badminton Turf Booking",
@@ -92,17 +86,26 @@ export const metadata: Metadata = {
 };
 
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script src="https://checkout.razorpay.com/v1/checkout.js" async />
+      </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className="antialiased"
+        style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
       >
-        {children}
+        <SessionProvider session={session}>
+          {children}
+          <ChatWidgetWrapper />
+        </SessionProvider>
       </body>
     </html>
   );

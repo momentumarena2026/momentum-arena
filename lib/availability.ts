@@ -1,0 +1,180 @@
+import { CourtZone, BookingStatus } from "@prisma/client";
+import { db } from "./db";
+import { zonesOverlap, getAllSlotHours, isWeekend } from "./court-config";
+
+export type SlotStatus = "available" | "booked" | "locked" | "blocked";
+
+export interface SlotAvailability {
+  hour: number;
+  status: SlotStatus;
+  price: number; // in paise
+}
+
+// Get availability for all slots on a given date for a specific court config
+export async function getSlotAvailability(
+  courtConfigId: string,
+  date: Date
+): Promise<SlotAvailability[]> {
+  const config = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+  });
+  if (!config) throw new Error("Court config not found");
+
+  const dateOnly = new Date(date.toISOString().split("T")[0]);
+  const now = new Date();
+
+  // Fetch all active bookings for this date whose configs overlap with our zones
+  const allBookings = await db.booking.findMany({
+    where: {
+      date: dateOnly,
+      OR: [
+        { status: "CONFIRMED" },
+        {
+          status: "LOCKED",
+          lockExpiresAt: { gt: now },
+        },
+      ],
+    },
+    include: {
+      courtConfig: true,
+      slots: true,
+    },
+  });
+
+  // Filter bookings that overlap with our zones
+  const conflictingBookings = allBookings.filter((b) =>
+    zonesOverlap(b.courtConfig.zones as CourtZone[], config.zones as CourtZone[])
+  );
+
+  // Build set of occupied hours
+  const occupiedHours = new Map<number, SlotStatus>();
+  for (const booking of conflictingBookings) {
+    for (const slot of booking.slots) {
+      occupiedHours.set(
+        slot.startHour,
+        booking.status === "CONFIRMED" ? "booked" : "locked"
+      );
+    }
+  }
+
+  // Check admin slot blocks
+  const slotBlocks = await db.slotBlock.findMany({
+    where: {
+      date: dateOnly,
+      OR: [
+        { courtConfigId: courtConfigId },
+        { sport: config.sport },
+        { courtConfigId: null, sport: null }, // global blocks
+      ],
+    },
+  });
+
+  const blockedHours = new Set<number>();
+  for (const block of slotBlocks) {
+    if (block.startHour === null) {
+      // Entire day blocked
+      getAllSlotHours().forEach((h) => blockedHours.add(h));
+    } else {
+      blockedHours.add(block.startHour);
+    }
+  }
+
+  // Also check if any overlapping configs have zone-level blocks
+  // by checking blocks on configs that share zones
+  const overlappingConfigBlocks = await db.slotBlock.findMany({
+    where: {
+      date: dateOnly,
+      courtConfigId: { not: null },
+      courtConfig: {
+        zones: { hasSome: config.zones },
+      },
+    },
+  });
+  for (const block of overlappingConfigBlocks) {
+    if (block.startHour === null) {
+      getAllSlotHours().forEach((h) => blockedHours.add(h));
+    } else {
+      blockedHours.add(block.startHour);
+    }
+  }
+
+  // Get pricing for this config
+  const prices = await getSlotPrices(courtConfigId, date);
+
+  // Build availability array
+  const hours = getAllSlotHours();
+  return hours.map((hour) => {
+    let status: SlotStatus = "available";
+    if (blockedHours.has(hour)) {
+      status = "blocked";
+    } else if (occupiedHours.has(hour)) {
+      status = occupiedHours.get(hour)!;
+    }
+
+    return {
+      hour,
+      status,
+      price: prices.get(hour) ?? 0,
+    };
+  });
+}
+
+// Get prices for each hour slot based on pricing rules and time classifications
+async function getSlotPrices(
+  courtConfigId: string,
+  date: Date
+): Promise<Map<number, number>> {
+  const dayType = isWeekend(date) ? "WEEKEND" : "WEEKDAY";
+
+  // Get time classifications for this day type
+  const classifications = await db.timeClassification.findMany({
+    where: { dayType },
+    orderBy: { startHour: "asc" },
+  });
+
+  // Get pricing rules for this config
+  const pricingRules = await db.pricingRule.findMany({
+    where: { courtConfigId },
+  });
+
+  const priceMap = new Map<number, number>();
+  const hours = getAllSlotHours();
+
+  for (const hour of hours) {
+    // Find which time type this hour falls into
+    let timeType: "PEAK" | "OFF_PEAK" = "OFF_PEAK";
+    for (const c of classifications) {
+      if (hour >= c.startHour && hour < c.endHour) {
+        timeType = c.timeType;
+        break;
+      }
+    }
+
+    // Find matching pricing rule
+    const rule = pricingRules.find(
+      (r) => r.dayType === dayType && r.timeType === timeType
+    );
+    priceMap.set(hour, rule?.pricePerSlot ?? 0);
+  }
+
+  return priceMap;
+}
+
+// Check if specific slots are available for a config (used during booking)
+export async function checkSlotsAvailable(
+  courtConfigId: string,
+  date: Date,
+  hours: number[]
+): Promise<{ available: boolean; conflicts: number[] }> {
+  const availability = await getSlotAvailability(courtConfigId, date);
+  const conflicts: number[] = [];
+
+  for (const hour of hours) {
+    const slot = availability.find((s) => s.hour === hour);
+    if (!slot || slot.status !== "available") {
+      conflicts.push(hour);
+    }
+  }
+
+  return { available: conflicts.length === 0, conflicts };
+}

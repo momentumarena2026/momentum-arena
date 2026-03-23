@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { FaWhatsapp, FaInstagram, FaYoutube } from "react-icons/fa";
 
 export default function Home() {
@@ -150,13 +151,21 @@ export default function Home() {
 
       {/* HERO */}
       <section className="min-h-screen flex flex-col justify-center items-center text-center px-6 py-20 relative">
-        {/* Coming Soon Badge */}
-        <div className="absolute top-6 md:top-10 left-1/2 -translate-x-1/2 z-10">
-          <div className="px-4 py-2 md:px-6 md:py-2 rounded-full border border-white/30 
-                          text-white text-xs md:text-sm 
+        {/* Top Bar */}
+        <div className="absolute top-6 md:top-10 left-0 right-0 px-6 md:px-10 flex items-center justify-between z-10">
+          <div className="px-4 py-2 md:px-6 md:py-2 rounded-full border border-white/30
+                          text-white text-xs md:text-sm
                           tracking-widest font-medium">
             COMING SOON
           </div>
+          <Link
+            href="/login"
+            className="px-5 py-2 md:px-6 md:py-2.5 rounded-full bg-green-600 hover:bg-green-700
+                       text-white text-xs md:text-sm font-semibold tracking-wide
+                       transition-all duration-300 hover:scale-105"
+          >
+            Login
+          </Link>
         </div>
 
         {/* Logo */}

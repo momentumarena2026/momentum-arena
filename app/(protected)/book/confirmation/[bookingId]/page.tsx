@@ -1,0 +1,198 @@
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { redirect, notFound } from "next/navigation";
+import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
+import { formatPrice } from "@/lib/pricing";
+import Link from "next/link";
+import {
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Calendar,
+  MapPin,
+  Receipt,
+  ArrowRight,
+} from "lucide-react";
+
+export default async function ConfirmationPage({
+  params,
+}: {
+  params: Promise<{ bookingId: string }>;
+}) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+
+  const { bookingId } = await params;
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId, userId: session.user.id },
+    include: {
+      courtConfig: true,
+      slots: { orderBy: { startHour: "asc" } },
+      payment: true,
+    },
+  });
+
+  if (!booking) notFound();
+
+  const sportInfo = SPORT_INFO[booking.courtConfig.sport];
+  const sizeInfo = SIZE_INFO[booking.courtConfig.size];
+
+  const statusConfig = {
+    CONFIRMED: {
+      icon: CheckCircle2,
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10 border-emerald-500/30",
+      title: "Booking Confirmed!",
+      subtitle: "Your court has been reserved successfully.",
+    },
+    LOCKED: {
+      icon: Clock,
+      color: "text-yellow-400",
+      bg: "bg-yellow-500/10 border-yellow-500/30",
+      title: "Awaiting Payment",
+      subtitle: "Complete payment to confirm your booking.",
+    },
+    CANCELLED: {
+      icon: XCircle,
+      color: "text-red-400",
+      bg: "bg-red-500/10 border-red-500/30",
+      title: "Booking Cancelled",
+      subtitle: booking.payment?.refundReason
+        ? `Reason: ${booking.payment.refundReason}`
+        : "This booking has been cancelled.",
+    },
+  };
+
+  const status = statusConfig[booking.status];
+  const StatusIcon = status.icon;
+
+  const paymentLabel = {
+    RAZORPAY: "Online (Razorpay)",
+    UPI_QR: "UPI QR",
+    CASH: "Cash at Venue",
+  };
+
+  const paymentStatusLabel = {
+    PENDING: { text: "Pending", color: "text-yellow-400" },
+    COMPLETED: { text: "Paid", color: "text-emerald-400" },
+    REFUNDED: { text: "Refunded", color: "text-blue-400" },
+    FAILED: { text: "Failed", color: "text-red-400" },
+  };
+
+  return (
+    <div className="mx-auto max-w-lg space-y-6">
+      {/* Status Header */}
+      <div className={`rounded-2xl border p-6 text-center ${status.bg}`}>
+        <StatusIcon className={`mx-auto h-12 w-12 ${status.color}`} />
+        <h1 className="mt-3 text-xl font-bold text-white">{status.title}</h1>
+        <p className="mt-1 text-sm text-zinc-400">{status.subtitle}</p>
+      </div>
+
+      {/* Booking Details */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
+        <div className="flex items-center justify-between text-xs text-zinc-500">
+          <span>Booking ID</span>
+          <span className="font-mono">{booking.id}</span>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-zinc-800 p-2">
+              <Calendar className="h-4 w-4 text-zinc-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">
+                {booking.date.toLocaleDateString("en-IN", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              </p>
+              <p className="text-xs text-zinc-400">
+                {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-zinc-800 p-2">
+              <MapPin className="h-4 w-4 text-zinc-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">
+                {sportInfo.name} — {sizeInfo.name}
+              </p>
+              <p className="text-xs text-zinc-400">{booking.courtConfig.label}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-zinc-800 p-2">
+              <Receipt className="h-4 w-4 text-zinc-400" />
+            </div>
+            <div className="flex-1 space-y-1">
+              {booking.originalAmount && booking.discountAmount > 0 && (
+                <>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-500">Original</span>
+                    <span className="text-zinc-500 line-through">{formatPrice(booking.originalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-emerald-400">Discount</span>
+                    <span className="text-emerald-400">-{formatPrice(booking.discountAmount)}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-white">
+                  {formatPrice(booking.totalAmount)}
+                </p>
+                {booking.payment && (
+                  <span className={`text-xs ${paymentStatusLabel[booking.payment.status].color}`}>
+                    {paymentStatusLabel[booking.payment.status].text}
+                  </span>
+                )}
+              </div>
+              {booking.payment?.isPartialPayment && booking.payment.advanceAmount && (
+                <div className="space-y-0.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-emerald-400">Advance Paid</span>
+                    <span className="text-emerald-400">{formatPrice(booking.payment.advanceAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-yellow-400">Due at Venue</span>
+                    <span className="text-yellow-400">{formatPrice(booking.payment.remainingAmount || 0)}</span>
+                  </div>
+                </div>
+              )}
+              {booking.payment && (
+                <p className="text-xs text-zinc-400">
+                  via {paymentLabel[booking.payment.method]}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-3">
+        <Link
+          href="/bookings"
+          className="flex-1 rounded-xl border border-zinc-700 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+        >
+          My Bookings
+        </Link>
+        <Link
+          href="/book"
+          className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-center text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+        >
+          Book Another
+          <ArrowRight className="ml-1 inline h-4 w-4" />
+        </Link>
+      </div>
+    </div>
+  );
+}

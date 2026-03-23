@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum Sport {
+  CRICKET
+  FOOTBALL
+  PICKLEBALL
+  BADMINTON
+}
+
+enum ConfigSize {
+  SMALL
+  MEDIUM
+  LARGE
+  XL
+  FULL
+  SHARED
+}
+
+enum CourtZone {
+  LEATHER_1
+  BOX_A
+  BOX_B
+  LEATHER_2
+  SHARED_COURT
+}
+
+enum BookingStatus {
+  LOCKED
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  RAZORPAY
+  UPI_QR
+  CASH
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  REFUNDED
+  FAILED
+}
+
+enum DayType {
+  WEEKDAY
+  WEEKEND
+}
+
+enum TimeType {
+  PEAK
+  OFF_PEAK
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FLAT
+}
+
+enum BannerPlacement {
+  BOOK_PAGE
+  SLOT_SELECTION
+  CHECKOUT
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  phone         String?   @unique
+  emailVerified DateTime?
+  phoneVerified DateTime?
+  image         String?
+  role          UserRole  @default(CUSTOMER)
+  accounts      Account[]
+  sessions      Session[]
+  bookings      Booking[]
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  attempts   Int      @default(0)
+
+  @@unique([identifier, token])
+}
+
+model RateLimit {
+  id         String   @id @default(cuid())
+  identifier String
+  action     String
+  count      Int      @default(1)
+  windowStart DateTime @default(now())
+
+  @@unique([identifier, action])
+}
+
+model CourtConfig {
+  id        String      @id @default(cuid())
+  sport     Sport
+  size      ConfigSize
+  label     String
+  position  String
+  widthFt   Int
+  lengthFt  Int         @default(90)
+  zones     CourtZone[]
+  isActive  Boolean     @default(true)
+
+  bookings   Booking[]
+  prices     PricingRule[]
+  slotBlocks SlotBlock[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sport, size, position])
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  courtConfigId String
+  courtConfig   CourtConfig   @relation(fields: [courtConfigId], references: [id])
+  date          DateTime      @db.Date
+  status        BookingStatus @default(LOCKED)
+  lockedAt       DateTime?
+  lockExpiresAt  DateTime?
+  totalAmount    Int
+  originalAmount Int?
+  discountAmount Int          @default(0)
+  discountCodeId String?
+
+  slots   BookingSlot[]
+  payment Payment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courtConfigId, date, status])
+  @@index([userId])
+  @@index([lockExpiresAt])
+  @@index([date, status])
+}
+
+model BookingSlot {
+  id        String  @id @default(cuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  startHour Int
+  price     Int
+
+  @@unique([bookingId, startHour])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  bookingId         String        @unique
+  booking           Booking       @relation(fields: [bookingId], references: [id])
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  amount            Int
+
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+
+  isPartialPayment Boolean @default(false)
+  advanceAmount    Int?
+  remainingAmount  Int?
+
+  confirmedBy  String?
+  confirmedAt  DateTime?
+  refundedBy   String?
+  refundedAt   DateTime?
+  refundReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PricingRule {
+  id            String      @id @default(cuid())
+  courtConfigId String
+  courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
+  dayType       DayType
+  timeType      TimeType
+  pricePerSlot  Int
+
+  @@unique([courtConfigId, dayType, timeType])
+}
+
+model TimeClassification {
+  id        String   @id @default(cuid())
+  startHour Int
+  endHour   Int
+  dayType   DayType
+  timeType  TimeType
+
+  @@unique([startHour, dayType])
+}
+
+model SlotBlock {
+  id            String       @id @default(cuid())
+  courtConfigId String?
+  courtConfig   CourtConfig? @relation(fields: [courtConfigId], references: [id])
+  sport         Sport?
+  date          DateTime     @db.Date
+  startHour     Int?
+  reason        String?
+  blockedBy     String
+
+  createdAt DateTime @default(now())
+
+  @@index([date, courtConfigId])
+  @@index([date, sport])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  bookingId String
+  channel   String
+  status    String
+  sentAt    DateTime?
+  error     String?
+
+  createdAt DateTime @default(now())
+}
+
+model PromoBanner {
+  id              String            @id @default(cuid())
+  title           String
+  description     String
+  discountInfo    String?
+  imageUrl        String?
+  placement       BannerPlacement[]
+  razorpayOfferId String?
+  isActive        Boolean           @default(true)
+  startsAt        DateTime
+  endsAt          DateTime
+  createdBy       String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DiscountCode {
+  id              String        @id @default(cuid())
+  code            String        @unique
+  type            DiscountType
+  value           Int
+  maxUses         Int?
+  usedCount       Int           @default(0)
+  maxUsesPerUser  Int           @default(1)
+  minBookingAmount Int?
+  sportFilter     Sport[]
+  validFrom       DateTime
+  validUntil      DateTime
+  isSystemCode    Boolean       @default(false)
+  isActive        Boolean       @default(true)
+  createdBy       String
+
+  usages    DiscountUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DiscountUsage {
+  id             String       @id @default(cuid())
+  discountCodeId String
+  discountCode   DiscountCode @relation(fields: [discountCodeId], references: [id])
+  userId         String
+  bookingId      String       @unique
+  discountAmount Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([discountCodeId, userId, bookingId])
+  @@index([userId])
+}
+
+model FAQEntry {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String   @db.Text
+  keywords  String[]
+  category  String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
