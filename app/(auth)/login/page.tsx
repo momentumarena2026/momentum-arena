@@ -39,19 +39,19 @@ function SendOtpForm() {
 
       <div className="space-y-2">
         <Label htmlFor="identifier" className="text-zinc-300">
-          Email or Phone Number
+          Email Address
         </Label>
         <Input
           id="identifier"
           name="identifier"
-          type="text"
-          placeholder="you@example.com or +91XXXXXXXXXX"
+          type="email"
+          placeholder="you@example.com"
           required
           autoFocus
           className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
         />
         <p className="text-xs text-zinc-500">
-          Enter your email address or phone number with country code
+          Enter your email address to receive a login OTP
         </p>
       </div>
 
@@ -142,7 +142,7 @@ function VerifyOtpForm({
           onClick={() => window.location.reload()}
           className="text-zinc-400 hover:text-zinc-300 transition-colors"
         >
-          Change number/email
+          Change email
         </button>
 
         {!showResend ? (

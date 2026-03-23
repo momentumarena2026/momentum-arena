@@ -1,17 +1,51 @@
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import { formatPrice } from "@/lib/pricing";
+import Link from "next/link";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Calendar,
+  Clock,
+  ArrowRight,
+  Ticket,
+  History,
+  Plus,
+} from "lucide-react";
+import {
+  MdSportsCricket,
+  MdSportsSoccer,
+  MdSportsTennis,
+  MdSportsHandball,
+} from "react-icons/md";
 
 export default async function DashboardPage() {
   const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [upcomingBookings, totalBookings] = await Promise.all([
+    db.booking.findMany({
+      where: {
+        userId: session.user.id,
+        status: "CONFIRMED",
+        date: { gte: today },
+      },
+      include: {
+        courtConfig: true,
+        slots: { orderBy: { startHour: "asc" } },
+      },
+      orderBy: { date: "asc" },
+      take: 3,
+    }),
+    db.booking.count({
+      where: { userId: session.user.id },
+    }),
+  ]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold text-white">Dashboard</h1>
         <p className="text-zinc-400 mt-1">
@@ -19,43 +53,121 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card className="bg-zinc-950 border-zinc-800">
-          <CardHeader>
-            <CardTitle className="text-white">My Bookings</CardTitle>
-            <CardDescription className="text-zinc-400">
-              Your upcoming court reservations
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-zinc-500">No upcoming bookings</p>
-          </CardContent>
-        </Card>
+      {/* Quick Action */}
+      <Link
+        href="/book"
+        className="group flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/10 to-transparent p-5 transition-all hover:border-emerald-500/40"
+      >
+        <div className="flex items-center gap-4">
+          <div className="rounded-xl bg-emerald-500/20 p-3">
+            <Plus className="h-6 w-6 text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-lg font-semibold text-white">Book a Court</p>
+            <p className="text-sm text-zinc-400">
+              Cricket, Football, Pickleball, Badminton
+            </p>
+          </div>
+        </div>
+        <ArrowRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-emerald-400" />
+      </Link>
 
-        <Card className="bg-zinc-950 border-zinc-800">
-          <CardHeader>
-            <CardTitle className="text-white">Book a Court</CardTitle>
-            <CardDescription className="text-zinc-400">
-              Reserve your spot for Cricket, Football, Pickleball, or Badminton
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-zinc-500">Booking coming soon</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-zinc-950 border-zinc-800">
-          <CardHeader>
-            <CardTitle className="text-white">Booking History</CardTitle>
-            <CardDescription className="text-zinc-400">
-              View your past bookings and receipts
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-zinc-500">No past bookings</p>
-          </CardContent>
-        </Card>
+      {/* Stats Row */}
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+          <div className="flex items-center gap-2 text-zinc-500">
+            <Ticket className="h-4 w-4" />
+            <span className="text-xs">Upcoming</span>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-white">
+            {upcomingBookings.length}
+          </p>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+          <div className="flex items-center gap-2 text-zinc-500">
+            <History className="h-4 w-4" />
+            <span className="text-xs">Total Bookings</span>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-white">{totalBookings}</p>
+        </div>
+        <Link
+          href="/bookings"
+          className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 hover:border-zinc-700 transition-colors col-span-2 sm:col-span-1"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-zinc-500">View All</p>
+              <p className="mt-2 text-sm font-medium text-emerald-400">
+                My Bookings →
+              </p>
+            </div>
+            <Calendar className="h-8 w-8 text-zinc-700" />
+          </div>
+        </Link>
       </div>
+
+      {/* Upcoming Bookings */}
+      {upcomingBookings.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-medium text-zinc-500 uppercase tracking-wider">
+            Upcoming Bookings
+          </h2>
+          <div className="space-y-3">
+            {upcomingBookings.map((booking) => {
+              const sportInfo = SPORT_INFO[booking.courtConfig.sport];
+
+              return (
+                <Link
+                  key={booking.id}
+                  href={`/book/confirmation/${booking.id}`}
+                  className="group flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-all hover:border-zinc-700"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-lg bg-zinc-800 p-2">
+                      {booking.courtConfig.sport === "CRICKET" && (
+                        <MdSportsCricket className="h-5 w-5 text-emerald-400" />
+                      )}
+                      {booking.courtConfig.sport === "FOOTBALL" && (
+                        <MdSportsSoccer className="h-5 w-5 text-blue-400" />
+                      )}
+                      {booking.courtConfig.sport === "PICKLEBALL" && (
+                        <MdSportsTennis className="h-5 w-5 text-yellow-400" />
+                      )}
+                      {booking.courtConfig.sport === "BADMINTON" && (
+                        <MdSportsHandball className="h-5 w-5 text-purple-400" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium text-white">
+                        {sportInfo.name} — {booking.courtConfig.label}
+                      </p>
+                      <div className="mt-1 flex items-center gap-3 text-xs text-zinc-400">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {booking.date.toLocaleDateString("en-IN", {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          })}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {booking.slots
+                            .map((s) => formatHour(s.startHour))
+                            .join(", ")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-sm font-semibold text-emerald-400">
+                    {formatPrice(booking.totalAmount)}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

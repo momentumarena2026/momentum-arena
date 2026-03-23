@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 // Font is set via CSS (Arial, Helvetica, sans-serif)
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/lib/auth";
+import { ChatWidgetWrapper } from "@/components/chatbot/chat-widget-wrapper";
 import "./globals.css";
 
 
@@ -94,11 +95,17 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script src="https://checkout.razorpay.com/v1/checkout.js" async />
+      </head>
       <body
         className="antialiased"
         style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
       >
-        <SessionProvider session={session}>{children}</SessionProvider>
+        <SessionProvider session={session}>
+          {children}
+          <ChatWidgetWrapper />
+        </SessionProvider>
       </body>
     </html>
   );

@@ -26,9 +26,15 @@ export default async function ProtectedLayout({
             </Link>
 
             <div className="flex items-center gap-4">
-              <span className="text-sm text-zinc-400">
+              <Link
+                href="/profile"
+                className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
+                  {(session.user.name?.charAt(0) || session.user.email?.charAt(0) || "?").toUpperCase()}
+                </div>
                 {session.user.name || session.user.email}
-              </span>
+              </Link>
               <form
                 action={async () => {
                   "use server";

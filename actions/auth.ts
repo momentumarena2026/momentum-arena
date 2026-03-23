@@ -14,12 +14,6 @@ const EmailSchema = z.object({
   identifier: z.string().email("Please enter a valid email address"),
 });
 
-const PhoneSchema = z.object({
-  identifier: z
-    .string()
-    .regex(/^\+?[1-9]\d{9,14}$/, "Please enter a valid phone number with country code (e.g. +91XXXXXXXXXX)"),
-});
-
 const OtpSchema = z.object({
   code: z.string().length(6, "OTP must be 6 digits"),
 });
@@ -33,32 +27,20 @@ export type OtpState = {
   attemptsRemaining?: number;
 };
 
-function detectType(identifier: string): "email" | "phone" {
-  return identifier.includes("@") ? "email" : "phone";
-}
-
 export async function sendOtp(
   _prevState: OtpState,
   formData: FormData
 ): Promise<OtpState> {
   const identifier = (formData.get("identifier") as string)?.trim();
   if (!identifier) {
-    return { error: "Please enter your email or phone number", step: "input" };
+    return { error: "Please enter your email address", step: "input" };
   }
 
-  const type = detectType(identifier);
+  const type = "email" as const;
 
-  // Validate based on type
-  if (type === "email") {
-    const result = EmailSchema.safeParse({ identifier });
-    if (!result.success) {
-      return { error: result.error.issues[0].message, step: "input" };
-    }
-  } else {
-    const result = PhoneSchema.safeParse({ identifier });
-    if (!result.success) {
-      return { error: result.error.issues[0].message, step: "input" };
-    }
+  const result = EmailSchema.safeParse({ identifier });
+  if (!result.success) {
+    return { error: result.error.issues[0].message, step: "input" };
   }
 
   const otpResult = await sendOtpToUser(identifier, type);
@@ -79,7 +61,7 @@ export async function resendOtp(
   formData: FormData
 ): Promise<OtpState> {
   const identifier = formData.get("identifier") as string;
-  const type = (formData.get("type") as "email" | "phone") || detectType(identifier);
+  const type = "email" as const;
 
   const otpResult = await resendOtpToUser(identifier, type);
   if (!otpResult.success) {
@@ -123,32 +105,17 @@ export async function verifyOtpAndLogin(
     };
   }
 
-  // Find or create user
-  let user;
-  if (type === "email") {
-    user = await db.user.findUnique({ where: { email: identifier } });
-    if (!user) {
-      user = await db.user.create({
-        data: { email: identifier, emailVerified: new Date() },
-      });
-    } else if (!user.emailVerified) {
-      await db.user.update({
-        where: { id: user.id },
-        data: { emailVerified: new Date() },
-      });
-    }
-  } else {
-    user = await db.user.findUnique({ where: { phone: identifier } });
-    if (!user) {
-      user = await db.user.create({
-        data: { phone: identifier, phoneVerified: new Date() },
-      });
-    } else if (!user.phoneVerified) {
-      await db.user.update({
-        where: { id: user.id },
-        data: { phoneVerified: new Date() },
-      });
-    }
+  // Find or create user (email-only)
+  let user = await db.user.findUnique({ where: { email: identifier } });
+  if (!user) {
+    user = await db.user.create({
+      data: { email: identifier, emailVerified: new Date() },
+    });
+  } else if (!user.emailVerified) {
+    await db.user.update({
+      where: { id: user.id },
+      data: { emailVerified: new Date() },
+    });
   }
 
   try {
