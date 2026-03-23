@@ -132,8 +132,11 @@ export async function sendOtp(
     }
     return { success: true };
   } else {
-    console.warn("SMS OTP not available yet (DLT pending). Use email instead.");
-    return { success: false, error: "SMS OTP is not available yet. Please use email." };
+    const sent = await sendSmsOtp(identifier, otp);
+    if (!sent) {
+      return { success: false, error: "Failed to send SMS OTP. Please try again." };
+    }
+    return { success: true };
   }
 }
 
@@ -227,6 +230,34 @@ export async function resendOtp(
 }
 
 // --- Helpers ---
+
+async function sendSmsOtp(phone: string, otp: string): Promise<boolean> {
+  try {
+    // MSG91 OTP SMS API
+    const response = await fetch("https://control.msg91.com/api/v5/otp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authkey: MSG91_AUTH_KEY!,
+      },
+      body: JSON.stringify({
+        mobile: phone.replace("+", ""),
+        otp,
+        template_id: process.env.MSG91_SMS_TEMPLATE_ID || process.env.MSG91_TEMPLATE_ID || "",
+        otp_length: 6,
+        otp_expiry: OTP_EXPIRY_MINUTES,
+      }),
+    });
+
+    const data = await response.json();
+    console.log("MSG91 SMS response:", JSON.stringify(data));
+
+    return data.type === "success" || data.type === "otp_sent";
+  } catch (error) {
+    console.error("MSG91 SMS send error:", error);
+    return false;
+  }
+}
 
 async function sendEmailOtp(email: string, otp: string): Promise<boolean> {
   try {
