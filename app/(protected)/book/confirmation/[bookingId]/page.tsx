@@ -12,6 +12,7 @@ import {
   MapPin,
   Receipt,
   ArrowRight,
+  Download,
 } from "lucide-react";
 
 export default async function ConfirmationPage({
@@ -176,6 +177,17 @@ export default async function ConfirmationPage({
           </div>
         </div>
       </div>
+
+      {/* Download Invoice */}
+      {booking.status === "CONFIRMED" && booking.payment?.status === "COMPLETED" && (
+        <a
+          href={`/api/invoice?bookingId=${booking.id}`}
+          className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
+        >
+          <Download className="h-4 w-4" />
+          Download Invoice (GST)
+        </a>
+      )}
 
       {/* Actions */}
       <div className="flex gap-3">

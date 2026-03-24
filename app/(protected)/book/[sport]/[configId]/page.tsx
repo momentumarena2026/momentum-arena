@@ -61,7 +61,13 @@ export default async function SlotSelectionPage({
       </div>
 
       {/* Client-side slot selection */}
-      <SlotSelectionClient configId={configId} sport={sport} />
+      <SlotSelectionClient
+        configId={configId}
+        sport={sport}
+        sportName={sportInfo.name}
+        courtLabel={config.label}
+        courtSize={sizeInfo.name}
+      />
     </div>
   );
 }

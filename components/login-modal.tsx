@@ -12,7 +12,7 @@ import {
   type PasswordLoginState,
   type ForgotPasswordState,
 } from "@/actions/auth";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -563,6 +563,27 @@ export function LoginModal({
 
 export function LoginButton() {
   const [showLogin, setShowLogin] = useState(false);
+  const { data: session, status } = useSession();
+
+  // Show nothing while loading to avoid flash
+  if (status === "loading") return null;
+
+  // If logged in, show username linking to dashboard
+  if (session?.user) {
+    return (
+      <a
+        href="/dashboard"
+        className="flex items-center gap-2 px-4 py-2 md:px-5 md:py-2.5 rounded-full bg-green-600 hover:bg-green-700
+                   text-white text-xs md:text-sm font-semibold tracking-wide
+                   transition-all duration-300 hover:scale-105"
+      >
+        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
+          {(session.user.name?.charAt(0) || session.user.email?.charAt(0) || "?").toUpperCase()}
+        </div>
+        {session.user.name || session.user.email?.split("@")[0]}
+      </a>
+    );
+  }
 
   return (
     <>

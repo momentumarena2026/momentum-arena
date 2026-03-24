@@ -66,7 +66,7 @@ export function SetPasswordModal() {
                   id="sp-password"
                   name="password"
                   type="password"
-                  placeholder="Min 8 characters"
+                  placeholder="Min 10 chars, letters, numbers & special"
                   required
                   autoFocus
                   className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
