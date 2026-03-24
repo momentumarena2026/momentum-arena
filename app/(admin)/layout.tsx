@@ -14,6 +14,7 @@ import {
   Megaphone,
   HelpCircle,
   Shield,
+  CreditCard,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -26,6 +27,7 @@ const adminNavItems = [
   { href: "/admin/discounts", label: "Discounts", icon: Ticket, permission: "MANAGE_DISCOUNTS" },
   { href: "/admin/banners", label: "Banners", icon: Megaphone, permission: "MANAGE_BANNERS" },
   { href: "/admin/faqs", label: "FAQs", icon: HelpCircle, permission: "MANAGE_FAQS" },
+  { href: "/admin/razorpay", label: "Razorpay", icon: CreditCard, permission: "VIEW_RAZORPAY" },
   { href: "/admin/admin-users", label: "Admin Users", icon: Shield, permission: "MANAGE_ADMIN_USERS" },
 ];
 

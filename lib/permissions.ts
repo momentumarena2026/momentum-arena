@@ -10,6 +10,7 @@ export const ALL_PERMISSIONS = [
   "MANAGE_BANNERS",
   "MANAGE_FAQS",
   "VIEW_ANALYTICS",
+  "VIEW_RAZORPAY",
   "MANAGE_ADMIN_USERS",
 ] as const;
 
@@ -29,6 +30,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_BANNERS: "Manage Banners",
   MANAGE_FAQS: "Manage FAQs",
   VIEW_ANALYTICS: "View Analytics",
+  VIEW_RAZORPAY: "View Razorpay Dashboard",
   MANAGE_ADMIN_USERS: "Manage Admin Users",
 };
 

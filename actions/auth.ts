@@ -259,11 +259,22 @@ export async function setPassword(
 
   const user = await db.user.findUnique({
     where: { id: session.user.id },
-    select: { emailVerified: true },
+    select: { emailVerified: true, accounts: { where: { provider: "google" }, select: { id: true } } },
   });
 
-  if (!user?.emailVerified) {
+  // Email is verified if emailVerified is set OR user has a Google account linked
+  const isEmailVerified = !!user?.emailVerified || (user?.accounts?.length ?? 0) > 0;
+
+  if (!isEmailVerified) {
     return { error: "Please verify your email first by logging in with OTP." };
+  }
+
+  // If email wasn't marked as verified yet (Google user), mark it now
+  if (!user?.emailVerified) {
+    await db.user.update({
+      where: { id: session.user.id },
+      data: { emailVerified: new Date() },
+    });
   }
 
   const passwordHash = await hashPassword(password);

@@ -20,9 +20,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id as string;
         token.userType = user.userType || "customer";
         token.phone = user.phone;
-        token.needsPasswordSetup = user.needsPasswordSetup;
         token.adminRole = user.adminRole;
         token.permissions = user.permissions;
+
+        // Always check DB for needsPasswordSetup (handles Google, OTP, and password logins)
+        if (token.userType === "customer") {
+          const dbUser = await db.user.findUnique({
+            where: { id: user.id as string },
+            select: { passwordHash: true },
+          });
+          token.needsPasswordSetup = !dbUser?.passwordHash;
+        } else {
+          token.needsPasswordSetup = false;
+        }
       }
 
       // Allow session updates (e.g., after setting password)
@@ -72,13 +82,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       profile(profile) {
+        // Only return fields that exist in the User model
+        // userType and needsPasswordSetup are set in the JWT callback
         return {
           id: profile.sub,
           name: profile.name,
           email: profile.email,
           image: profile.picture,
-          userType: "customer" as const,
-          needsPasswordSetup: true, // Will be rechecked on JWT creation
         };
       },
     }),
