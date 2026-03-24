@@ -19,6 +19,50 @@ interface BatchLockResult {
   lockExpiresAt?: string;
 }
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 500;
+
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function lockWithRetry(
+  userId: string,
+  configId: string,
+  date: Date,
+  slots: number[],
+  slotPrices: { hour: number; price: number }[]
+): Promise<LockResult> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const result = await createSlotLock(
+        userId,
+        configId,
+        date,
+        slots,
+        slotPrices
+      );
+      return result;
+    } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : String(error);
+      // Retry on deadlock/write conflict errors
+      if (
+        msg.includes("deadlock") ||
+        msg.includes("write conflict") ||
+        msg.includes("could not serialize")
+      ) {
+        if (attempt < MAX_RETRIES - 1) {
+          await sleep(RETRY_DELAY_MS * (attempt + 1));
+          continue;
+        }
+      }
+      throw error;
+    }
+  }
+  return { success: false, error: "Failed after retries" };
+}
+
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -29,7 +73,10 @@ export async function POST(request: Request) {
     const { items } = (await request.json()) as { items: BatchLockItem[] };
 
     if (!items || items.length === 0) {
-      return NextResponse.json({ error: "No items provided" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No items provided" },
+        { status: 400 }
+      );
     }
 
     if (items.length > 10) {
@@ -41,18 +88,24 @@ export async function POST(request: Request) {
 
     const results: BatchLockResult[] = [];
 
-    // Process each item sequentially to avoid race conditions between cart items
-    for (const item of items) {
+    // Process each item sequentially with delay to avoid serializable transaction deadlocks
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+
+      // Small delay between locks to let previous transaction commit
+      if (i > 0) {
+        await sleep(300);
+      }
+
       try {
         const date = new Date(item.date);
 
-        // Get slot prices for the date
         const slotPrices = await getSlotPricesForDate(item.configId, date);
         const selectedPrices = slotPrices
           .filter((sp) => item.slots.includes(sp.hour))
           .map((sp) => ({ hour: sp.hour, price: sp.price }));
 
-        const lockResult: LockResult = await createSlotLock(
+        const lockResult = await lockWithRetry(
           session.user.id,
           item.configId,
           date,
