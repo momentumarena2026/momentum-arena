@@ -184,8 +184,8 @@ export async function GET(request: Request) {
   }
   y += 4;
 
-  // From section (right side)
-  const fromY = contentTop + 18;
+  // From section (right side) — positioned well below the divider line
+  const fromY = contentTop + 26;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.text("From:", pageWidth / 2 + 10, fromY);
@@ -347,22 +347,20 @@ export async function GET(request: Request) {
     y += 8;
   }
 
-  // Terms
-  y += 5;
+  // Terms — placed at a fixed safe position above the letterhead footer
+  const termsMaxY = letterheadImage ? 237 : pageHeight - 30;
+  const termsY = Math.min(y + 5, termsMaxY - 18); // Ensure enough room for 3 lines
+
   doc.setDrawColor(200, 200, 200);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 6;
+  doc.line(margin, termsY, pageWidth - margin, termsY);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
+  doc.setFontSize(7);
   doc.setTextColor(80, 80, 80);
-  doc.text("Terms & Conditions:", margin, y);
-  y += 4;
+  doc.text("Terms & Conditions:", margin, termsY + 4);
   doc.setFont("helvetica", "normal");
-  doc.text("1. This is a computer-generated invoice and does not require a signature.", margin, y);
-  y += 3.5;
-  doc.text("2. All prices are inclusive of 18% GST (9% CGST + 9% SGST).", margin, y);
-  y += 3.5;
-  doc.text("3. Cancellation and refund policies apply as per Momentum Arena's terms.", margin, y);
+  doc.text("1. This is a computer-generated invoice and does not require a signature.", margin, termsY + 7.5);
+  doc.text("2. All prices are inclusive of 18% GST (9% CGST + 9% SGST).", margin, termsY + 11);
+  doc.text("3. Cancellation and refund policies apply as per Momentum Arena's terms.", margin, termsY + 14.5);
 
   // Generate PDF buffer
   const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
