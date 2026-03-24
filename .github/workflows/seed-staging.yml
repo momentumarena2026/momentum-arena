@@ -1,16 +1,16 @@
-name: Seed Production DB
+name: Seed Staging DB
 
 on:
   push:
     branches:
-      - main
+      - development
 
 jobs:
   seed:
-    name: Seed Production Database
+    name: Seed Staging Database
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+      DATABASE_URL: ${{ secrets.STAGING_DB_URL }}
 
     steps:
       - name: Checkout code
@@ -19,7 +19,7 @@ jobs:
       - name: Verify DATABASE_URL is set
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            echo "::error::DATABASE_URL is empty! Add PRODUCTION_DB_URL to repository secrets."
+            echo "::error::DATABASE_URL is empty! Add STAGING_DB_URL to repository secrets."
             exit 1
           fi
           echo "DATABASE_URL is set (${#DATABASE_URL} chars)"
@@ -36,8 +36,8 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Push schema to production DB
+      - name: Push schema to staging DB
         run: npx prisma db push --accept-data-loss --skip-generate
 
-      - name: Seed production database
+      - name: Seed staging database
         run: npx tsx prisma/seed.ts
