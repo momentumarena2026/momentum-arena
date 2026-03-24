@@ -2,28 +2,31 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { auth, signOut } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import {
   LayoutDashboard,
   CalendarCheck,
-  DollarSign,
+  IndianRupee,
   CalendarOff,
   Dumbbell,
   Users,
   Ticket,
   Megaphone,
   HelpCircle,
+  Shield,
 } from "lucide-react";
 
 const adminNavItems = [
-  { href: "/admin", label: "Overview", icon: LayoutDashboard },
-  { href: "/admin/bookings", label: "Bookings", icon: CalendarCheck },
-  { href: "/admin/pricing", label: "Pricing", icon: DollarSign },
-  { href: "/admin/slots", label: "Slot Blocks", icon: CalendarOff },
-  { href: "/admin/sports", label: "Sports", icon: Dumbbell },
-  { href: "/admin/users", label: "Users", icon: Users },
-  { href: "/admin/discounts", label: "Discounts", icon: Ticket },
-  { href: "/admin/banners", label: "Banners", icon: Megaphone },
-  { href: "/admin/faqs", label: "FAQs", icon: HelpCircle },
+  { href: "/admin", label: "Overview", icon: LayoutDashboard, permission: null },
+  { href: "/admin/bookings", label: "Bookings", icon: CalendarCheck, permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/pricing", label: "Pricing", icon: IndianRupee, permission: "MANAGE_PRICING" },
+  { href: "/admin/slots", label: "Slot Blocks", icon: CalendarOff, permission: "MANAGE_SLOTS" },
+  { href: "/admin/sports", label: "Sports", icon: Dumbbell, permission: "MANAGE_SPORTS" },
+  { href: "/admin/users", label: "Users", icon: Users, permission: "MANAGE_USERS" },
+  { href: "/admin/discounts", label: "Discounts", icon: Ticket, permission: "MANAGE_DISCOUNTS" },
+  { href: "/admin/banners", label: "Banners", icon: Megaphone, permission: "MANAGE_BANNERS" },
+  { href: "/admin/faqs", label: "FAQs", icon: HelpCircle, permission: "MANAGE_FAQS" },
+  { href: "/admin/admin-users", label: "Admin Users", icon: Shield, permission: "MANAGE_ADMIN_USERS" },
 ];
 
 export default async function AdminLayout({
@@ -32,8 +35,18 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  if (!session?.user) redirect("/login");
-  if (session.user.role !== "ADMIN") redirect("/dashboard");
+  if (!session?.user) redirect("/godmode");
+  if (session.user.userType !== "admin") redirect("/godmode");
+
+  const userPermissions = session.user.permissions || [];
+  const isSuperadmin = session.user.adminRole === "SUPERADMIN";
+
+  // Filter nav items based on permissions
+  const visibleNavItems = adminNavItems.filter((item) => {
+    if (!item.permission) return true; // Overview always visible
+    if (isSuperadmin) return true; // Superadmin sees everything
+    return hasPermission(userPermissions, item.permission);
+  });
 
   return (
     <div className="min-h-screen bg-black">
@@ -50,24 +63,21 @@ export default async function AdminLayout({
                 />
               </Link>
               <span className="rounded-md bg-red-600/20 px-2 py-1 text-xs font-medium text-red-400 border border-red-600/30">
-                Admin
+                {isSuperadmin ? "Superadmin" : "Admin"}
               </span>
             </div>
 
             <div className="flex items-center gap-4">
               <Link
-                href="/dashboard"
-                className="text-sm text-zinc-400 hover:text-zinc-300"
+                href="/admin/profile"
+                className="text-sm text-zinc-400 hover:text-white transition-colors"
               >
-                User Dashboard
-              </Link>
-              <span className="text-sm text-zinc-400">
                 {session.user.name || session.user.email}
-              </span>
+              </Link>
               <form
                 action={async () => {
                   "use server";
-                  await signOut({ redirectTo: "/" });
+                  await signOut({ redirectTo: "/godmode" });
                 }}
               >
                 <button
@@ -86,7 +96,7 @@ export default async function AdminLayout({
       <div className="border-b border-zinc-800 bg-zinc-950/50">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex gap-1 overflow-x-auto py-2">
-            {adminNavItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               return (
                 <Link

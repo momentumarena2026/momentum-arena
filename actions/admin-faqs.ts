@@ -1,15 +1,12 @@
 "use server";
 
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
 async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
-    throw new Error("Unauthorized");
-  }
-  return session.user.id;
+  const user = await requireAdminBase("MANAGE_FAQS");
+  return user.id;
 }
 
 const faqSchema = z.object({

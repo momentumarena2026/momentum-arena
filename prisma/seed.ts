@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { COURT_CONFIGS } from "../lib/court-config";
+import { hashPassword } from "../lib/password";
+import { ALL_PERMISSIONS } from "../lib/permissions";
 
 const prisma = new PrismaClient();
 
@@ -170,6 +172,24 @@ async function main() {
     }
   }
   console.log(`Seeded ${FAQ_ENTRIES.length} FAQ entries`);
+
+  // Seed superadmin user "gamelord"
+  const superadminPassword = await hashPassword("burninhell@26");
+  await prisma.adminUser.upsert({
+    where: { username: "gamelord" },
+    update: {
+      permissions: [...ALL_PERMISSIONS],
+    },
+    create: {
+      username: "gamelord",
+      email: "y12.nakul@gmail.com",
+      passwordHash: superadminPassword,
+      role: "SUPERADMIN",
+      permissions: [...ALL_PERMISSIONS],
+      isDeletable: false,
+    },
+  });
+  console.log("Seeded superadmin user: gamelord");
 }
 
 main()

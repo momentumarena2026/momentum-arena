@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { auth, signOut } from "@/lib/auth";
+import { SetPasswordWrapper } from "@/components/set-password-wrapper";
 
 export default async function ProtectedLayout({
   children,
@@ -55,6 +56,7 @@ export default async function ProtectedLayout({
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>
+      <SetPasswordWrapper />
     </div>
   );
 }

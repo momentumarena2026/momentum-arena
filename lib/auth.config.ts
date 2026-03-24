@@ -6,28 +6,52 @@ export default {
     signIn: "/login",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    jwt({ token, user }) {
       if (user) {
         token.id = user.id as string;
-        token.role = (user as { role: string }).role;
+        token.userType = (user as { userType?: string }).userType || "customer";
         token.phone = (user as { phone?: string }).phone;
+        token.needsPasswordSetup = (user as { needsPasswordSetup?: boolean }).needsPasswordSetup;
+        token.adminRole = (user as { adminRole?: string }).adminRole;
+        token.permissions = (user as { permissions?: string[] }).permissions;
       }
       return token;
     },
-    async session({ session, token }) {
+    session({ session, token }) {
       if (token) {
-        (session.user as { id: string }).id = token.id as string;
-        (session.user as { role: string }).role = token.role as string;
-        (session.user as { phone?: string }).phone = token.phone as string;
+        (session.user as Record<string, unknown>).id = token.id;
+        (session.user as Record<string, unknown>).userType = token.userType;
+        (session.user as Record<string, unknown>).phone = token.phone;
+        (session.user as Record<string, unknown>).needsPasswordSetup = token.needsPasswordSetup;
+        (session.user as Record<string, unknown>).adminRole = token.adminRole;
+        (session.user as Record<string, unknown>).permissions = token.permissions;
       }
       return session;
     },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      const isAdmin = auth?.user?.role === "ADMIN";
+      const userType = (auth as { user?: { userType?: string } })?.user
+        ?.userType;
       const { pathname } = nextUrl;
 
-      // Protected routes
+      // Admin dashboard routes — require admin session
+      if (pathname.startsWith("/admin")) {
+        if (!isLoggedIn) return false;
+        if (userType !== "admin")
+          return Response.redirect(new URL("/dashboard", nextUrl));
+        return true;
+      }
+
+      // Godmode login page — allow unauthenticated or non-admin users
+      if (pathname.startsWith("/godmode")) {
+        if (isLoggedIn && userType === "admin") {
+          if (pathname.startsWith("/godmode/setup-password")) return true;
+          return Response.redirect(new URL("/admin", nextUrl));
+        }
+        return true;
+      }
+
+      // Protected customer routes
       if (
         pathname.startsWith("/dashboard") ||
         pathname.startsWith("/book") ||
@@ -37,17 +61,9 @@ export default {
         return isLoggedIn;
       }
 
-      // Admin routes
-      if (pathname.startsWith("/admin")) {
-        if (!isLoggedIn) return false;
-        if (!isAdmin)
-          return Response.redirect(new URL("/dashboard", nextUrl));
-        return true;
-      }
-
-      // Auth pages — redirect away if already logged in
+      // Auth pages — redirect away if already logged in as customer
       if (pathname === "/login") {
-        if (isLoggedIn)
+        if (isLoggedIn && userType === "customer")
           return Response.redirect(new URL("/dashboard", nextUrl));
       }
 

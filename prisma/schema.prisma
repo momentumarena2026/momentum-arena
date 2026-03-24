@@ -76,6 +76,11 @@ enum BannerPlacement {
   CHECKOUT
 }
 
+enum AdminRole {
+  SUPERADMIN
+  ADMIN
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -84,6 +89,8 @@ model User {
   emailVerified DateTime?
   phoneVerified DateTime?
   image         String?
+  passwordHash  String?
+  passwordSetAt DateTime?
   role          UserRole  @default(CUSTOMER)
   accounts      Account[]
   sessions      Session[]
@@ -337,4 +344,19 @@ model FAQEntry {
   updatedAt DateTime @updatedAt
 
   @@index([category])
+}
+
+model AdminUser {
+  id                String    @id @default(cuid())
+  username          String    @unique
+  email             String    @unique
+  passwordHash      String
+  role              AdminRole @default(ADMIN)
+  permissions       String[]
+  isDeletable       Boolean   @default(true)
+  inviteToken       String?   @unique
+  inviteTokenExpiry DateTime?
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }

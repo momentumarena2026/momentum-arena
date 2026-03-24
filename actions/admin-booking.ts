@@ -1,15 +1,12 @@
 "use server";
 
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendBookingConfirmation } from "@/lib/notifications";
+import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
 async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
-    throw new Error("Unauthorized");
-  }
-  return session.user.id;
+  const user = await requireAdminBase("MANAGE_BOOKINGS");
+  return user.id;
 }
 
 export async function confirmCashPayment(bookingId: string) {
@@ -143,7 +140,9 @@ export async function getAdminBookings(filters?: {
 }
 
 export async function getAdminStats() {
-  await requireAdmin();
+  // Stats viewable by any admin (no specific permission required)
+  const { requireAdmin: requireAdminNoPermission } = await import("@/lib/admin-auth");
+  await requireAdminNoPermission();
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);

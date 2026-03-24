@@ -1,16 +1,13 @@
 "use server";
 
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { DiscountType, Sport } from "@prisma/client";
+import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
 async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
-    throw new Error("Unauthorized");
-  }
-  return session.user.id;
+  const user = await requireAdminBase("MANAGE_DISCOUNTS");
+  return user.id;
 }
 
 const discountSchema = z.object({

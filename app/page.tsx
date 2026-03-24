@@ -1,6 +1,6 @@
 import Image from "next/image";
-import Link from "next/link";
 import { FaWhatsapp, FaInstagram, FaYoutube } from "react-icons/fa";
+import { LoginButton } from "@/components/login-modal";
 
 export default function Home() {
   const jsonLd = {
@@ -158,7 +158,7 @@ export default function Home() {
                           tracking-widest font-medium">
             COMING SOON
           </div>
-          {/* Login button hidden for now */}
+          <LoginButton />
         </div>
 
         {/* Logo */}
