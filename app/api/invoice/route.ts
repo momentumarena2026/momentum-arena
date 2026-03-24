@@ -334,7 +334,7 @@ export async function GET(request: Request) {
   doc.setTextColor(80, 80, 80);
   const totalRupees = Math.round(totalAmountPaise / 100);
   doc.text(`Amount in words: ${numberToWords(totalRupees)}`, margin, y);
-  y += 10;
+  y += 6;
 
   // Partial payment info
   if (booking.payment?.isPartialPayment) {
@@ -344,23 +344,24 @@ export async function GET(request: Request) {
     doc.text(`Advance Paid: ${formatPrice(booking.payment.advanceAmount || 0)}`, margin, y);
     y += 5;
     doc.text(`Due at Venue: ${formatPrice(booking.payment.remainingAmount || 0)}`, margin, y);
-    y += 8;
+    y += 6;
   }
 
-  // Terms — placed at a fixed safe position above the letterhead footer
-  const termsMaxY = letterheadImage ? 237 : pageHeight - 30;
-  const termsY = Math.min(y + 5, termsMaxY - 18); // Ensure enough room for 3 lines
+  // Terms — fixed position well above the letterhead footer green curves
+  // The letterhead footer green area starts at ~y=225mm
+  const footerStart = letterheadImage ? 215 : pageHeight - 30;
+  const termsY = Math.min(y + 3, footerStart - 20);
 
   doc.setDrawColor(200, 200, 200);
-  doc.line(margin, termsY, pageWidth - margin, termsY);
+  doc.line(margin, termsY, pageWidth / 2 + 20, termsY);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(80, 80, 80);
-  doc.text("Terms & Conditions:", margin, termsY + 4);
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 100, 100);
+  doc.text("Terms & Conditions:", margin, termsY + 3.5);
   doc.setFont("helvetica", "normal");
-  doc.text("1. This is a computer-generated invoice and does not require a signature.", margin, termsY + 7.5);
-  doc.text("2. All prices are inclusive of 18% GST (9% CGST + 9% SGST).", margin, termsY + 11);
-  doc.text("3. Cancellation and refund policies apply as per Momentum Arena's terms.", margin, termsY + 14.5);
+  doc.text("1. Computer-generated invoice. No signature required.", margin, termsY + 6.5);
+  doc.text("2. All prices inclusive of 18% GST (9% CGST + 9% SGST).", margin, termsY + 9.5);
+  doc.text("3. Cancellation & refund per Momentum Arena terms.", margin, termsY + 12.5);
 
   // Generate PDF buffer
   const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
