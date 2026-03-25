@@ -3,13 +3,26 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { confirmCashPayment, confirmUpiPayment, refundBooking } from "@/actions/admin-booking";
-import { CheckCircle2, RotateCcw, Loader2 } from "lucide-react";
+import { CheckCircle2, RotateCcw, Loader2, Pencil, Clock } from "lucide-react";
+import { EditSlotsModal } from "@/components/admin/edit-slots-modal";
+import { EditBookingModal } from "@/components/admin/edit-booking-modal";
 
 interface AdminBookingActionsProps {
   bookingId: string;
   bookingStatus: string;
   paymentMethod: string | null;
   paymentStatus: string | null;
+  isAdminCreated: boolean;
+  courtConfigId: string;
+  date: string;
+  currentSlots: number[];
+  sport: string;
+  courtConfigs: {
+    id: string;
+    label: string;
+    size: string;
+    position: string;
+  }[];
 }
 
 export function AdminBookingActions({
@@ -17,6 +30,12 @@ export function AdminBookingActions({
   bookingStatus,
   paymentMethod,
   paymentStatus,
+  isAdminCreated,
+  courtConfigId,
+  date,
+  currentSlots,
+  sport,
+  courtConfigs,
 }: AdminBookingActionsProps) {
   const router = useRouter();
   const [processing, setProcessing] = useState<string | null>(null);
@@ -24,6 +43,11 @@ export function AdminBookingActions({
   const [showRefund, setShowRefund] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [showEditSlots, setShowEditSlots] = useState(false);
+  const [showEditBooking, setShowEditBooking] = useState(false);
+
+  const canEditSlots = bookingStatus === "CONFIRMED";
+  const canEditBooking = bookingStatus === "CONFIRMED" && isAdminCreated;
 
   const canConfirmPayment =
     bookingStatus === "CONFIRMED" &&
@@ -104,6 +128,26 @@ export function AdminBookingActions({
           </button>
         )}
 
+        {canEditSlots && (
+          <button
+            onClick={() => setShowEditSlots(true)}
+            className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 hover:bg-blue-500/20"
+          >
+            <Clock className="h-4 w-4" />
+            Edit Slots
+          </button>
+        )}
+
+        {canEditBooking && (
+          <button
+            onClick={() => setShowEditBooking(true)}
+            className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-400 hover:bg-amber-500/20"
+          >
+            <Pencil className="h-4 w-4" />
+            Edit Booking
+          </button>
+        )}
+
         {canRefund && !showRefund && (
           <button
             onClick={() => setShowRefund(true)}
@@ -150,6 +194,36 @@ export function AdminBookingActions({
           </div>
         </div>
       )}
+
+      <EditSlotsModal
+        bookingId={bookingId}
+        courtConfigId={courtConfigId}
+        date={date}
+        currentSlots={currentSlots}
+        isOpen={showEditSlots}
+        onClose={() => setShowEditSlots(false)}
+        onSuccess={() => {
+          setShowEditSlots(false);
+          setSuccessMsg("Slots updated successfully!");
+          router.refresh();
+        }}
+      />
+
+      <EditBookingModal
+        bookingId={bookingId}
+        currentCourtConfigId={courtConfigId}
+        currentDate={date}
+        currentSlots={currentSlots}
+        sport={sport}
+        courtConfigs={courtConfigs}
+        isOpen={showEditBooking}
+        onClose={() => setShowEditBooking(false)}
+        onSuccess={() => {
+          setShowEditBooking(false);
+          setSuccessMsg("Booking updated successfully!");
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

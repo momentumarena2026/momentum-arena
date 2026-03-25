@@ -47,6 +47,7 @@ enum PaymentMethod {
   RAZORPAY
   UPI_QR
   CASH
+  FREE
 }
 
 enum PaymentStatus {
@@ -183,8 +184,12 @@ model Booking {
   discountAmount Int          @default(0)
   discountCodeId String?
 
-  slots   BookingSlot[]
-  payment Payment?
+  createdByAdminId String?
+  createdByAdmin   AdminUser? @relation("BookingCreatedByAdmin", fields: [createdByAdminId], references: [id])
+
+  slots       BookingSlot[]
+  payment     Payment?
+  editHistory BookingEditHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -360,4 +365,29 @@ model AdminUser {
   lastLoginAt       DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+
+  createdBookings Booking[] @relation("BookingCreatedByAdmin")
+}
+
+model BookingEditHistory {
+  id            String   @id @default(cuid())
+  bookingId     String
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  adminId       String
+  adminUsername  String
+  editType      String   // CREATED | SLOTS_CHANGED | DATE_CHANGED | COURT_CHANGED
+
+  previousDate          DateTime? @db.Date
+  newDate               DateTime? @db.Date
+  previousSlots         Int[]
+  newSlots              Int[]
+  previousCourtConfigId String?
+  newCourtConfigId      String?
+  previousAmount        Int?
+  newAmount             Int?
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
 }

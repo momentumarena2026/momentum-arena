@@ -5,6 +5,7 @@ import { formatPrice } from "@/lib/pricing";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin } from "lucide-react";
 import { AdminBookingActions } from "./admin-actions";
+import { BookingEditHistory } from "@/components/admin/booking-edit-history";
 
 export default async function AdminBookingDetailPage({
   params,
@@ -20,10 +21,18 @@ export default async function AdminBookingDetailPage({
       courtConfig: true,
       slots: { orderBy: { startHour: "asc" } },
       payment: true,
+      editHistory: { orderBy: { createdAt: "desc" } },
     },
   });
 
   if (!booking) notFound();
+
+  // Fetch all court configs for the same sport (for the edit booking modal)
+  const courtConfigs = await db.courtConfig.findMany({
+    where: { sport: booking.courtConfig.sport, isActive: true },
+    select: { id: true, label: true, size: true, position: true },
+    orderBy: { position: "asc" },
+  });
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
@@ -40,17 +49,24 @@ export default async function AdminBookingDetailPage({
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Booking Detail</h1>
-        <span
-          className={`rounded-full border px-3 py-1 text-xs font-medium ${
-            booking.status === "CONFIRMED"
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-              : booking.status === "LOCKED"
-              ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-              : "border-red-500/30 bg-red-500/10 text-red-400"
-          }`}
-        >
-          {booking.status}
-        </span>
+        <div className="flex items-center gap-2">
+          {booking.createdByAdminId && (
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+              Created by Admin
+            </span>
+          )}
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-medium ${
+              booking.status === "CONFIRMED"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                : booking.status === "LOCKED"
+                ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                : "border-red-500/30 bg-red-500/10 text-red-400"
+            }`}
+          >
+            {booking.status}
+          </span>
+        </div>
       </div>
 
       {/* User Info */}
@@ -182,7 +198,25 @@ export default async function AdminBookingDetailPage({
         bookingStatus={booking.status}
         paymentMethod={booking.payment?.method || null}
         paymentStatus={booking.payment?.status || null}
+        isAdminCreated={!!booking.createdByAdminId}
+        courtConfigId={booking.courtConfigId}
+        date={booking.date.toISOString().split("T")[0]}
+        currentSlots={booking.slots.map((s) => s.startHour)}
+        sport={booking.courtConfig.sport}
+        courtConfigs={courtConfigs}
       />
+
+      {/* Edit History */}
+      {booking.editHistory.length > 0 && (
+        <BookingEditHistory
+          history={booking.editHistory.map((h) => ({
+            ...h,
+            previousDate: h.previousDate?.toISOString() ?? null,
+            newDate: h.newDate?.toISOString() ?? null,
+            createdAt: h.createdAt.toISOString(),
+          }))}
+        />
+      )}
     </div>
   );
 }

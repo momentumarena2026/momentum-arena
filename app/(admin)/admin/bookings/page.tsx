@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Search,
   Calendar,
+  Plus,
 } from "lucide-react";
 
 export default async function AdminBookingsPage({
@@ -109,6 +110,13 @@ export default async function AdminBookingsPage({
           <h1 className="text-2xl font-bold text-white">All Bookings</h1>
           <p className="mt-1 text-zinc-400">{total} total bookings</p>
         </div>
+        <Link
+          href="/admin/bookings/create"
+          className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Create Booking
+        </Link>
       </div>
 
       {/* Filters */}
@@ -257,6 +265,11 @@ export default async function AdminBookingsPage({
                                   booking.user.email ||
                                   booking.user.phone}
                               </p>
+                              {booking.createdByAdminId && (
+                                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                                  Admin
+                                </span>
+                              )}
                               {booking.payment && (
                                 <span
                                   className={`rounded-full border px-2 py-0.5 text-[10px] ${
