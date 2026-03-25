@@ -279,7 +279,7 @@ async function sendEmailOtp(email: string, otp: string): Promise<boolean> {
         ],
         from: { email: "noreply@momentumarena.com" },
         domain: "momentumarena.com",
-        template_id: "global_otp",
+        template_id: "login_otp_45",
       }),
     });
 

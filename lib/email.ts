@@ -64,24 +64,49 @@ export async function sendAdminInviteEmail(
   const baseUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
   const setupUrl = `${baseUrl}/godmode/setup-password?token=${inviteToken}`;
 
-  return sendEmail({
-    to: [{ email, name: username }],
-    subject: "You've been invited to Momentum Arena Admin",
-    body: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #10b981;">Welcome to Momentum Arena Admin</h2>
-        <p>Hi ${username},</p>
-        <p>You've been invited as an admin. Click the link below to set your password and get started:</p>
-        <p style="margin: 24px 0;">
-          <a href="${setupUrl}" style="background: #10b981; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-            Set Your Password
-          </a>
-        </p>
-        <p style="color: #666; font-size: 14px;">This link expires in 48 hours.</p>
-        <p style="color: #666; font-size: 14px;">If you didn't expect this invitation, please ignore this email.</p>
-      </div>
-    `,
-  });
+  if (isDev && !MSG91_AUTH_KEY) {
+    console.log(`\n📧 [DEV] Admin invite email to ${email}:`);
+    console.log(`   Username: ${username}`);
+    console.log(`   Setup URL: ${setupUrl}\n`);
+    return true;
+  }
+
+  if (!MSG91_AUTH_KEY) {
+    console.error("MSG91_AUTH_KEY not set, cannot send admin invite email");
+    return false;
+  }
+
+  try {
+    const response = await fetch(MSG91_EMAIL_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authkey: MSG91_AUTH_KEY,
+      },
+      body: JSON.stringify({
+        recipients: [
+          {
+            to: [{ email, name: username }],
+            variables: {
+              username,
+              email,
+              role: "Admin",
+              set_password_link: setupUrl,
+            },
+          },
+        ],
+        from: { email: "noreply@momentumarena.com", name: "Momentum Arena" },
+        domain: "momentumarena.com",
+        template_id: "admin_password_3",
+      }),
+    });
+
+    const data = await response.json();
+    return response.ok || data.status === "success";
+  } catch (error) {
+    console.error("Admin invite email send error:", error);
+    return false;
+  }
 }
 
 export async function sendSuperadminPasswordNotification(
