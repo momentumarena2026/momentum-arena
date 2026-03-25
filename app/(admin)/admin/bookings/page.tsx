@@ -1,6 +1,7 @@
 import { DateFilterInput } from "@/components/admin/date-filter-input";
 import { getAdminBookings } from "@/actions/admin-booking";
 import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import type { Sport } from "@prisma/client";
 import { formatPrice } from "@/lib/pricing";
 import Link from "next/link";
 import {
@@ -204,7 +205,7 @@ export default async function AdminBookingsPage({
                   : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
               }`}
             >
-              {SPORT_INFO[sport]?.name || sport}
+              {SPORT_INFO[sport as Sport]?.name || sport}
             </Link>
           ))}
         </div>
