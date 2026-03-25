@@ -198,6 +198,7 @@ export default async function AdminBookingDetailPage({
         bookingStatus={booking.status}
         paymentMethod={booking.payment?.method || null}
         paymentStatus={booking.payment?.status || null}
+        paymentAmount={booking.payment?.amount || null}
         isAdminCreated={!!booking.createdByAdminId}
         courtConfigId={booking.courtConfigId}
         date={booking.date.toISOString().split("T")[0]}

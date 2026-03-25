@@ -55,7 +55,43 @@ export async function confirmUpiPayment(bookingId: string) {
   return { success: true };
 }
 
-export async function refundBooking(bookingId: string, reason: string) {
+export async function cancelBooking(bookingId: string, reason: string) {
+  const adminId = await requireAdmin();
+
+  if (!reason.trim()) {
+    return { success: false, error: "Cancellation reason is required" };
+  }
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true, slots: true },
+  });
+
+  if (!booking) {
+    return { success: false, error: "Booking not found" };
+  }
+
+  if (booking.status === "CANCELLED") {
+    return { success: false, error: "Booking is already cancelled" };
+  }
+
+  // Cancel booking — frees the slot, no refund
+  await db.$transaction([
+    db.booking.update({
+      where: { id: bookingId },
+      data: { status: "CANCELLED" },
+    }),
+  ]);
+
+  return { success: true };
+}
+
+export async function refundBooking(
+  bookingId: string,
+  reason: string,
+  refundMethod?: "ORIGINAL" | "CASH" | "UPI" | "BANK_TRANSFER",
+  refundAmount?: number
+) {
   const adminId = await requireAdmin();
 
   if (!reason.trim()) {
@@ -64,31 +100,39 @@ export async function refundBooking(bookingId: string, reason: string) {
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
-    include: { payment: true },
+    include: { payment: true, slots: true },
   });
 
   if (!booking) {
     return { success: false, error: "Booking not found" };
   }
 
+  if (!booking.payment) {
+    return { success: false, error: "No payment found for this booking" };
+  }
+
+  if (booking.payment.status === "REFUNDED") {
+    return { success: false, error: "Payment is already refunded" };
+  }
+
+  const actualRefundAmount = refundAmount ?? booking.payment.amount;
+  const isPartialRefund = actualRefundAmount < booking.payment.amount;
+  const refundMethodStr = refundMethod || "ORIGINAL";
+
   await db.$transaction([
     db.booking.update({
       where: { id: bookingId },
       data: { status: "CANCELLED" },
     }),
-    ...(booking.payment
-      ? [
-          db.payment.update({
-            where: { id: booking.payment.id },
-            data: {
-              status: "REFUNDED",
-              refundedBy: adminId,
-              refundedAt: new Date(),
-              refundReason: reason,
-            },
-          }),
-        ]
-      : []),
+    db.payment.update({
+      where: { id: booking.payment.id },
+      data: {
+        status: "REFUNDED",
+        refundedBy: adminId,
+        refundedAt: new Date(),
+        refundReason: `[${refundMethodStr}]${isPartialRefund ? ` [Partial: ₹${(actualRefundAmount / 100).toFixed(0)}]` : ""} ${reason}`,
+      },
+    }),
   ]);
 
   return { success: true };
