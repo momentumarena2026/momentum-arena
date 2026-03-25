@@ -19,12 +19,12 @@ export default {
     },
     session({ session, token }) {
       if (token) {
-        (session.user as Record<string, unknown>).id = token.id;
-        (session.user as Record<string, unknown>).userType = token.userType;
-        (session.user as Record<string, unknown>).phone = token.phone;
-        (session.user as Record<string, unknown>).needsPasswordSetup = token.needsPasswordSetup;
-        (session.user as Record<string, unknown>).adminRole = token.adminRole;
-        (session.user as Record<string, unknown>).permissions = token.permissions;
+        (session.user as unknown as Record<string, unknown>).id = token.id;
+        (session.user as unknown as Record<string, unknown>).userType = token.userType;
+        (session.user as unknown as Record<string, unknown>).phone = token.phone;
+        (session.user as unknown as Record<string, unknown>).needsPasswordSetup = token.needsPasswordSetup;
+        (session.user as unknown as Record<string, unknown>).adminRole = token.adminRole;
+        (session.user as unknown as Record<string, unknown>).permissions = token.permissions;
       }
       return session;
     },

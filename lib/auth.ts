@@ -38,7 +38,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Allow session updates (e.g., after setting password)
       if (trigger === "update") {
         const dbUser = await db.user.findUnique({
-          where: { id: token.id },
+          where: { id: token.id as string },
           select: { passwordHash: true },
         });
         if (dbUser) {
@@ -50,12 +50,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       if (token) {
-        session.user.id = token.id;
-        session.user.userType = token.userType;
-        session.user.phone = token.phone;
-        session.user.needsPasswordSetup = token.needsPasswordSetup;
-        session.user.adminRole = token.adminRole;
-        session.user.permissions = token.permissions;
+        session.user.id = token.id as string;
+        session.user.userType = token.userType as "customer" | "admin";
+        session.user.phone = token.phone as string | undefined;
+        session.user.needsPasswordSetup = token.needsPasswordSetup as boolean | undefined;
+        session.user.adminRole = token.adminRole as "SUPERADMIN" | "ADMIN" | undefined;
+        session.user.permissions = token.permissions as string[] | undefined;
       }
       return session;
     },

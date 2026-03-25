@@ -572,7 +572,7 @@ export function LoginButton() {
 
   // If logged in, show username linking to appropriate dashboard
   if (session?.user) {
-    const isAdmin = (session.user as Record<string, unknown>).userType === "admin";
+    const isAdmin = (session.user as unknown as Record<string, unknown>).userType === "admin";
     const dashboardUrl = isAdmin ? "/godmode" : "/dashboard";
     return (
       <a
