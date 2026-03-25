@@ -15,6 +15,24 @@ export const COURT_CONFIGS: CourtConfigDef[] = [
   // Cricket — all sizes
   {
     sport: "CRICKET",
+    size: "XS",
+    label: "Leather Pitch 1",
+    position: "LP1",
+    widthFt: 10,
+    lengthFt: 90,
+    zones: ["LEATHER_1"],
+  },
+  {
+    sport: "CRICKET",
+    size: "XS",
+    label: "Leather Pitch 2",
+    position: "LP2",
+    widthFt: 10,
+    lengthFt: 90,
+    zones: ["LEATHER_2"],
+  },
+  {
+    sport: "CRICKET",
     size: "SMALL",
     label: "Small (Lane A)",
     position: "A",
@@ -241,6 +259,7 @@ export const SIZE_INFO: Record<
   ConfigSize,
   { name: string; description: string }
 > = {
+  XS: { name: "Extra Small", description: "Leather pitch (10ft x 90ft)" },
   SMALL: { name: "Small", description: "Single box lane (30ft x 90ft)" },
   MEDIUM: {
     name: "Medium",

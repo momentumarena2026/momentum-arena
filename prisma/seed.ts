@@ -67,6 +67,12 @@ async function main() {
   const configs = await prisma.courtConfig.findMany();
   const defaultPrices: Record<string, Record<string, number>> = {
     // size -> "dayType_timeType" -> price in paise
+    XS: {
+      WEEKDAY_OFF_PEAK: 50000, // ₹500
+      WEEKDAY_PEAK: 80000, // ₹800
+      WEEKEND_PEAK: 100000, // ₹1000
+      WEEKEND_OFF_PEAK: 80000, // ₹800
+    },
     SMALL: {
       WEEKDAY_OFF_PEAK: 80000, // ₹800
       WEEKDAY_PEAK: 120000, // ₹1200

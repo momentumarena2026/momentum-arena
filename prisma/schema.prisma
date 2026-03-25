@@ -20,6 +20,7 @@ enum Sport {
 }
 
 enum ConfigSize {
+  XS
   SMALL
   MEDIUM
   LARGE
