@@ -239,7 +239,7 @@ export default function Home() {
         </nav>
 
         {/* HERO */}
-        <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-16 overflow-hidden">
+        <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-16">
           {/* Background gradient */}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-emerald-900/20 via-black to-black" />
 
