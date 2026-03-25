@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { Suspense, useActionState, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   setupAdminPassword,
@@ -20,6 +20,22 @@ import {
 import Link from "next/link";
 
 export default function SetupPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <Card className="w-full max-w-sm bg-zinc-950 border-zinc-800">
+          <CardContent className="p-8 text-center text-zinc-400">
+            Loading...
+          </CardContent>
+        </Card>
+      }
+    >
+      <SetupPasswordContent />
+    </Suspense>
+  );
+}
+
+function SetupPasswordContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
   const [username, setUsername] = useState<string | null>(null);
