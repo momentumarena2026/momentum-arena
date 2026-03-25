@@ -7,25 +7,39 @@ interface CourtDiagramProps {
   size?: "sm" | "md" | "lg";
 }
 
+// Court is 80ft wide x 90ft long
+// Zone widths: LP1=10ft, Lane A=30ft, Lane B=30ft, LP2=10ft = 80ft total
+const COURT_WIDTH = 80;
+const COURT_HEIGHT = 90;
+
 const zonePositions: Record<string, { x: number; width: number; label: string }> = {
-  LEATHER_1: { x: 0, width: 12.5, label: "LP1" },
-  BOX_A: { x: 12.5, width: 37.5, label: "Lane A" },
-  BOX_B: { x: 50, width: 37.5, label: "Lane B" },
-  LEATHER_2: { x: 87.5, width: 12.5, label: "LP2" },
+  LEATHER_1: { x: 0, width: 10, label: "LP1" },
+  BOX_A: { x: 10, width: 30, label: "Lane A" },
+  BOX_B: { x: 40, width: 30, label: "Lane B" },
+  LEATHER_2: { x: 70, width: 10, label: "LP2" },
 };
 
 export function CourtDiagram({ highlightedZones, size = "md" }: CourtDiagramProps) {
-  const heights = { sm: 60, md: 100, lg: 140 };
-  const h = heights[size];
+  const maxWidths = { sm: 120, md: 200, lg: 280 };
+  const padding = 4;
 
   return (
     <svg
-      viewBox={`0 0 200 ${h}`}
+      viewBox={`0 0 ${COURT_WIDTH + padding * 2} ${COURT_HEIGHT + padding * 2 + (size === "lg" ? 10 : 0)}`}
       className="w-full"
-      style={{ maxWidth: size === "sm" ? 160 : size === "md" ? 240 : 320 }}
+      style={{ maxWidth: maxWidths[size] }}
     >
       {/* Background */}
-      <rect x="0" y="0" width="200" height={h} rx="4" fill="#1a1a1a" stroke="#333" strokeWidth="1" />
+      <rect
+        x="0"
+        y="0"
+        width={COURT_WIDTH + padding * 2}
+        height={COURT_HEIGHT + padding * 2}
+        rx="3"
+        fill="#1a1a1a"
+        stroke="#333"
+        strokeWidth="0.5"
+      />
 
       {/* Zones */}
       {Object.entries(zonePositions).map(([zone, pos]) => {
@@ -33,24 +47,24 @@ export function CourtDiagram({ highlightedZones, size = "md" }: CourtDiagramProp
         return (
           <g key={zone}>
             <rect
-              x={pos.x * 2}
-              y="4"
-              width={pos.width * 2}
-              height={h - 8}
-              rx="2"
+              x={pos.x + padding}
+              y={padding}
+              width={pos.width}
+              height={COURT_HEIGHT}
+              rx="1"
               fill={isHighlighted ? "#10b981" : "#2a2a2a"}
               opacity={isHighlighted ? 0.4 : 0.3}
               stroke={isHighlighted ? "#10b981" : "#444"}
-              strokeWidth="1"
+              strokeWidth="0.5"
             />
             {size !== "sm" && (
               <text
-                x={pos.x * 2 + pos.width}
-                y={h / 2}
+                x={pos.x + pos.width / 2 + padding}
+                y={COURT_HEIGHT / 2 + padding}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill={isHighlighted ? "#10b981" : "#666"}
-                fontSize={size === "lg" ? "10" : "8"}
+                fontSize={size === "lg" ? "7" : "5.5"}
                 fontWeight={isHighlighted ? "bold" : "normal"}
               >
                 {pos.label}
@@ -60,25 +74,42 @@ export function CourtDiagram({ highlightedZones, size = "md" }: CourtDiagramProp
         );
       })}
 
-      {/* Net lines */}
-      {[25, 100, 175].map((x) => (
+      {/* Zone divider lines */}
+      {[10, 40, 70].map((x) => (
         <line
           key={x}
-          x1={x}
-          y1="4"
-          x2={x}
-          y2={h - 4}
+          x1={x + padding}
+          y1={padding}
+          x2={x + padding}
+          y2={COURT_HEIGHT + padding}
           stroke="#555"
-          strokeWidth="1"
-          strokeDasharray="3,3"
+          strokeWidth="0.5"
+          strokeDasharray="2,2"
         />
       ))}
 
       {/* Dimension labels for lg */}
       {size === "lg" && (
         <>
-          <text x="100" y={h - 2} textAnchor="middle" fill="#666" fontSize="7">
+          <text
+            x={COURT_WIDTH / 2 + padding}
+            y={COURT_HEIGHT + padding * 2 + 6}
+            textAnchor="middle"
+            fill="#666"
+            fontSize="5"
+          >
             80 ft
+          </text>
+          <text
+            x={padding - 1}
+            y={COURT_HEIGHT / 2 + padding}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="#666"
+            fontSize="5"
+            transform={`rotate(-90, ${padding - 1}, ${COURT_HEIGHT / 2 + padding})`}
+          >
+            90 ft
           </text>
         </>
       )}
@@ -89,17 +120,44 @@ export function CourtDiagram({ highlightedZones, size = "md" }: CourtDiagramProp
 // Shared court diagram for Pickleball/Badminton
 export function SharedCourtDiagram({ sport }: { sport: "PICKLEBALL" | "BADMINTON" }) {
   const color = sport === "PICKLEBALL" ? "#eab308" : "#a855f7";
+  // Pickleball: 20 x 44 ft, Badminton: 20 x 44 ft
+  const w = 20;
+  const h = 44;
+  const pad = 4;
 
   return (
-    <svg viewBox="0 0 120 80" className="w-full" style={{ maxWidth: 200 }}>
-      <rect x="0" y="0" width="120" height="80" rx="4" fill="#1a1a1a" stroke="#333" strokeWidth="1" />
-      <rect x="10" y="10" width="100" height="60" rx="2" fill={color} opacity="0.2" stroke={color} strokeWidth="1" />
+    <svg
+      viewBox={`0 0 ${w + pad * 2} ${h + pad * 2 + 8}`}
+      className="w-full"
+      style={{ maxWidth: 140 }}
+    >
+      <rect
+        x="0"
+        y="0"
+        width={w + pad * 2}
+        height={h + pad * 2}
+        rx="2"
+        fill="#1a1a1a"
+        stroke="#333"
+        strokeWidth="0.5"
+      />
+      <rect
+        x={pad}
+        y={pad}
+        width={w}
+        height={h}
+        rx="1"
+        fill={color}
+        opacity="0.2"
+        stroke={color}
+        strokeWidth="0.5"
+      />
       {/* Center line */}
-      <line x1="60" y1="10" x2="60" y2="70" stroke={color} strokeWidth="1" opacity="0.5" />
+      <line x1={pad} y1={h / 2 + pad} x2={w + pad} y2={h / 2 + pad} stroke={color} strokeWidth="0.5" opacity="0.5" />
       {/* Net */}
-      <line x1="10" y1="40" x2="110" y2="40" stroke="#fff" strokeWidth="1.5" opacity="0.4" />
-      <text x="60" y="76" textAnchor="middle" fill="#666" fontSize="7">
-        {sport === "PICKLEBALL" ? "20 x 44 ft" : "20 x 44 ft"}
+      <line x1={pad} y1={h / 2 + pad} x2={w + pad} y2={h / 2 + pad} stroke="#fff" strokeWidth="1" opacity="0.4" />
+      <text x={w / 2 + pad} y={h + pad * 2 + 5} textAnchor="middle" fill="#666" fontSize="4">
+        20 x 44 ft
       </text>
     </svg>
   );
