@@ -9,7 +9,35 @@ export interface LockResult {
   conflicts?: number[];
 }
 
-// Create a slot lock with serializable transaction to prevent race conditions
+/**
+ * Generate a stable advisory lock key from configId + date + hour.
+ * PostgreSQL advisory locks use bigint keys.
+ * We hash the string to a 32-bit integer to stay within range.
+ */
+function advisoryLockKey(configId: string, date: string, hour: number): number {
+  const str = `${configId}:${date}:${hour}`;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash + char) | 0; // Convert to 32-bit int
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Create a slot lock using PostgreSQL advisory locks.
+ *
+ * Advisory locks provide a lightweight mutex that:
+ * - Never deadlock (they use a simple wait queue)
+ * - Don't conflict with row-level locks
+ * - Are automatically released when the session/transaction ends
+ *
+ * Flow:
+ * 1. Acquire advisory locks for all requested hours
+ * 2. Check availability (simple SELECT, no serializable needed)
+ * 3. Create booking with LOCKED status
+ * 4. Advisory locks auto-release when transaction commits
+ */
 export async function createSlotLock(
   userId: string,
   courtConfigId: string,
@@ -18,20 +46,34 @@ export async function createSlotLock(
   slotPrices: { hour: number; price: number }[]
 ): Promise<LockResult> {
   const dateOnly = new Date(date.toISOString().split("T")[0]);
+  const dateStr = date.toISOString().split("T")[0];
   const now = new Date();
   const lockExpiry = new Date(now.getTime() + LOCK_TTL_MINUTES * 60 * 1000);
 
   try {
     const result = await db.$transaction(
       async (tx) => {
-        // Get the config we're trying to book
+        // 1. Acquire advisory locks for all requested hours (sorted to prevent any ordering issues)
+        const sortedHours = [...hours].sort((a, b) => a - b);
+        for (const hour of sortedHours) {
+          const lockKey = advisoryLockKey(courtConfigId, dateStr, hour);
+          // pg_advisory_xact_lock waits until lock is available and auto-releases on commit/rollback
+          await tx.$queryRawUnsafe(
+            `SELECT pg_advisory_xact_lock($1)`,
+            lockKey
+          );
+        }
+
+        // 2. Get the court config
         const config = await tx.courtConfig.findUnique({
           where: { id: courtConfigId },
         });
         if (!config) throw new Error("Court config not found");
-        if (!config.isActive) throw new Error("This court is currently unavailable");
+        if (!config.isActive)
+          throw new Error("This court is currently unavailable");
 
-        // Find all active bookings on this date with overlapping zones
+        // 3. Find all active bookings on this date with overlapping zones
+        //    No serializable isolation needed — advisory lock prevents concurrent writes
         const activeBookings = await tx.booking.findMany({
           where: {
             date: dateOnly,
@@ -53,7 +95,7 @@ export async function createSlotLock(
           )
         );
 
-        // Check for hour conflicts
+        // 4. Check for hour conflicts
         const occupiedHours = new Set<number>();
         for (const booking of conflicting) {
           for (const slot of booking.slots) {
@@ -66,7 +108,7 @@ export async function createSlotLock(
           throw new Error(`CONFLICTS:${conflicts.join(",")}`);
         }
 
-        // Check admin blocks
+        // 5. Check admin blocks
         const blocks = await tx.slotBlock.findMany({
           where: {
             date: dateOnly,
@@ -89,7 +131,7 @@ export async function createSlotLock(
           }
         }
 
-        // Cancel any existing locks by this user for same config+date
+        // 6. Cancel any existing locks by this user for same config+date
         await tx.booking.updateMany({
           where: {
             userId,
@@ -100,10 +142,10 @@ export async function createSlotLock(
           data: { status: "CANCELLED" },
         });
 
-        // Calculate total
+        // 7. Calculate total
         const totalAmount = slotPrices.reduce((sum, s) => sum + s.price, 0);
 
-        // Create the locked booking
+        // 8. Create the locked booking
         const booking = await tx.booking.create({
           data: {
             userId,
@@ -123,10 +165,10 @@ export async function createSlotLock(
         });
 
         return booking.id;
+        // Advisory locks auto-release here when transaction commits
       },
       {
-        isolationLevel: "Serializable",
-        timeout: 10000,
+        timeout: 15000, // 15 second timeout (no serializable needed)
       }
     );
 
@@ -149,6 +191,72 @@ export async function createSlotLock(
 
     return { success: false, error: message };
   }
+}
+
+/**
+ * Lock multiple cart items in a single operation.
+ * Each item gets its own advisory locks but they're processed
+ * in a coordinated way to avoid conflicts.
+ */
+export async function createBatchSlotLocks(
+  userId: string,
+  items: {
+    itemId: string;
+    configId: string;
+    date: Date;
+    hours: number[];
+    slotPrices: { hour: number; price: number }[];
+  }[]
+): Promise<{
+  results: {
+    itemId: string;
+    status: "locked" | "conflict";
+    bookingId?: string;
+    lockExpiresAt?: string;
+    error?: string;
+    conflictingHours?: number[];
+  }[];
+}> {
+  const results: {
+    itemId: string;
+    status: "locked" | "conflict";
+    bookingId?: string;
+    lockExpiresAt?: string;
+    error?: string;
+    conflictingHours?: number[];
+  }[] = [];
+
+  // Process items sequentially — each gets its own transaction with advisory locks
+  // No delays or retries needed since advisory locks wait (no deadlocks)
+  for (const item of items) {
+    const lockResult = await createSlotLock(
+      userId,
+      item.configId,
+      item.date,
+      item.hours,
+      item.slotPrices
+    );
+
+    if (lockResult.success && lockResult.bookingId) {
+      results.push({
+        itemId: item.itemId,
+        status: "locked",
+        bookingId: lockResult.bookingId,
+        lockExpiresAt: new Date(
+          Date.now() + LOCK_TTL_MINUTES * 60 * 1000
+        ).toISOString(),
+      });
+    } else {
+      results.push({
+        itemId: item.itemId,
+        status: "conflict",
+        error: lockResult.error || "Failed to lock slots",
+        conflictingHours: lockResult.conflicts,
+      });
+    }
+  }
+
+  return { results };
 }
 
 // Release a slot lock (user abandoned checkout)
