@@ -25,11 +25,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // Always check DB for needsPasswordSetup (handles Google, OTP, and password logins)
         if (token.userType === "customer") {
-          const dbUser = await db.user.findUnique({
-            where: { id: user.id as string },
-            select: { passwordHash: true },
-          });
-          token.needsPasswordSetup = !dbUser?.passwordHash;
+          try {
+            const dbUser = await db.user.findUnique({
+              where: { id: user.id as string },
+              select: { passwordHash: true },
+            });
+            token.needsPasswordSetup = !dbUser?.passwordHash;
+          } catch {
+            token.needsPasswordSetup = true;
+          }
         } else {
           token.needsPasswordSetup = false;
         }
@@ -37,12 +41,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       // Allow session updates (e.g., after setting password)
       if (trigger === "update") {
-        const dbUser = await db.user.findUnique({
-          where: { id: token.id as string },
-          select: { passwordHash: true },
-        });
-        if (dbUser) {
-          token.needsPasswordSetup = !dbUser.passwordHash;
+        try {
+          const dbUser = await db.user.findUnique({
+            where: { id: token.id as string },
+            select: { passwordHash: true },
+          });
+          if (dbUser) {
+            token.needsPasswordSetup = !dbUser.passwordHash;
+          }
+        } catch {
+          // DB unavailable, keep existing token value
         }
       }
 
@@ -62,15 +70,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async signIn({ user, account }) {
       // For Google sign-in, mark email as verified and check password setup
       if (account?.provider === "google" && user.email) {
-        const dbUser = await db.user.findUnique({
-          where: { email: user.email },
-          select: { id: true, emailVerified: true, passwordHash: true },
-        });
-        if (dbUser && !dbUser.emailVerified) {
-          await db.user.update({
-            where: { id: dbUser.id },
-            data: { emailVerified: new Date() },
+        try {
+          const dbUser = await db.user.findUnique({
+            where: { email: user.email },
+            select: { id: true, emailVerified: true, passwordHash: true },
           });
+          if (dbUser && !dbUser.emailVerified) {
+            await db.user.update({
+              where: { id: dbUser.id },
+              data: { emailVerified: new Date() },
+            });
+          }
+        } catch {
+          // DB error shouldn't block sign-in
         }
       }
       return true;

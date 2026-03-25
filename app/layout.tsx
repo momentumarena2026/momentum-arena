@@ -91,7 +91,12 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
+  let session = null;
+  try {
+    session = await auth();
+  } catch {
+    // Auth failure should not crash the entire app
+  }
 
   return (
     <html lang="en" suppressHydrationWarning>
