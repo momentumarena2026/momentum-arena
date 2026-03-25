@@ -1,18 +1,18 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { createRazorpayOrder, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 
-export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
+export async function POST(request: NextRequest) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { bookingId, offerId, isAdvance } = await request.json();
 
   const booking = await db.booking.findUnique({
-    where: { id: bookingId, userId: session.user.id, status: "LOCKED" },
+    where: { id: bookingId, userId, status: "LOCKED" },
   });
 
   if (!booking) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   sendOtp,
   verifyOtpAndLogin,
@@ -534,15 +535,15 @@ export function LoginModal({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative z-10 w-full max-w-md"
+        className="relative z-10 w-full max-w-md my-auto"
       >
         <button
           type="button"
@@ -553,11 +554,12 @@ export function LoginModal({
         >
           ✕
         </button>
-        <Card className="w-full bg-zinc-950 border-zinc-800">
+        <Card className="w-full bg-zinc-950 border-zinc-800 max-h-[90vh] overflow-y-auto">
           <LoginContent />
         </Card>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -568,19 +570,23 @@ export function LoginButton() {
   // Show nothing while loading to avoid flash
   if (status === "loading") return null;
 
-  // If logged in, show username linking to dashboard
+  // If logged in, show username linking to appropriate dashboard
   if (session?.user) {
+    const isAdmin = (session.user as Record<string, unknown>).userType === "admin";
+    const dashboardUrl = isAdmin ? "/godmode" : "/dashboard";
     return (
       <a
-        href="/dashboard"
-        className="flex items-center gap-2 px-4 py-2 md:px-5 md:py-2.5 rounded-full bg-green-600 hover:bg-green-700
+        href={dashboardUrl}
+        className="flex items-center gap-2 px-3 py-2 md:px-5 md:py-2.5 rounded-full bg-green-600 hover:bg-green-700
                    text-white text-xs md:text-sm font-semibold tracking-wide
-                   transition-all duration-300 hover:scale-105"
+                   transition-all duration-300 hover:scale-105 max-w-[150px] sm:max-w-none"
       >
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
+        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
           {(session.user.name?.charAt(0) || session.user.email?.charAt(0) || "?").toUpperCase()}
         </div>
-        {session.user.name || session.user.email?.split("@")[0]}
+        <span className="truncate">
+          {session.user.name || session.user.email?.split("@")[0]}
+        </span>
       </a>
     );
   }

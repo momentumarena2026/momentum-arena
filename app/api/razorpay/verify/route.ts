@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
 import { sendBookingConfirmation } from "@/lib/notifications";
 
-export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
+export async function POST(request: NextRequest) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     include: { booking: true },
   });
 
-  if (!payment || payment.booking.userId !== session.user.id) {
+  if (!payment || payment.booking.userId !== userId) {
     return NextResponse.json({ error: "Payment not found" }, { status: 404 });
   }
 

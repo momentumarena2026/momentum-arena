@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { getSlotAvailability } from "@/lib/availability";
 
-export async function GET(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
+export async function GET(request: NextRequest) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -58,9 +58,8 @@ export async function createSlotLock(
         for (const hour of sortedHours) {
           const lockKey = advisoryLockKey(courtConfigId, dateStr, hour);
           // pg_advisory_xact_lock waits until lock is available and auto-releases on commit/rollback
-          await tx.$queryRawUnsafe(
-            `SELECT pg_advisory_xact_lock($1)`,
-            lockKey
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(${lockKey})`
           );
         }
 
@@ -191,72 +190,6 @@ export async function createSlotLock(
 
     return { success: false, error: message };
   }
-}
-
-/**
- * Lock multiple cart items in a single operation.
- * Each item gets its own advisory locks but they're processed
- * in a coordinated way to avoid conflicts.
- */
-export async function createBatchSlotLocks(
-  userId: string,
-  items: {
-    itemId: string;
-    configId: string;
-    date: Date;
-    hours: number[];
-    slotPrices: { hour: number; price: number }[];
-  }[]
-): Promise<{
-  results: {
-    itemId: string;
-    status: "locked" | "conflict";
-    bookingId?: string;
-    lockExpiresAt?: string;
-    error?: string;
-    conflictingHours?: number[];
-  }[];
-}> {
-  const results: {
-    itemId: string;
-    status: "locked" | "conflict";
-    bookingId?: string;
-    lockExpiresAt?: string;
-    error?: string;
-    conflictingHours?: number[];
-  }[] = [];
-
-  // Process items sequentially — each gets its own transaction with advisory locks
-  // No delays or retries needed since advisory locks wait (no deadlocks)
-  for (const item of items) {
-    const lockResult = await createSlotLock(
-      userId,
-      item.configId,
-      item.date,
-      item.hours,
-      item.slotPrices
-    );
-
-    if (lockResult.success && lockResult.bookingId) {
-      results.push({
-        itemId: item.itemId,
-        status: "locked",
-        bookingId: lockResult.bookingId,
-        lockExpiresAt: new Date(
-          Date.now() + LOCK_TTL_MINUTES * 60 * 1000
-        ).toISOString(),
-      });
-    } else {
-      results.push({
-        itemId: item.itemId,
-        status: "conflict",
-        error: lockResult.error || "Failed to lock slots",
-        conflictingHours: lockResult.conflicts,
-      });
-    }
-  }
-
-  return { results };
 }
 
 // Release a slot lock (user abandoned checkout)

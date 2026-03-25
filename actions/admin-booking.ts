@@ -129,7 +129,7 @@ export async function getAdminBookings(filters?: {
         slots: { orderBy: { startHour: "asc" } },
         payment: true,
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       skip,
       take: limit,
     }),

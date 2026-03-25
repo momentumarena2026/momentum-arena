@@ -101,11 +101,20 @@ export async function getSlotAvailability(
   // Get pricing for this config
   const prices = await getSlotPrices(courtConfigId, date);
 
+  // Check if the requested date is today — block past hours
+  const today = new Date().toISOString().split("T")[0];
+  const isToday = dateOnly.toISOString().split("T")[0] === today;
+  const currentHour = new Date().getHours();
+
   // Build availability array
   const hours = getAllSlotHours();
   return hours.map((hour) => {
     let status: SlotStatus = "available";
-    if (blockedHours.has(hour)) {
+
+    // Block past hours on today's date
+    if (isToday && hour <= currentHour) {
+      status = "blocked";
+    } else if (blockedHours.has(hour)) {
       status = "blocked";
     } else if (occupiedHours.has(hour)) {
       status = occupiedHours.get(hour)!;

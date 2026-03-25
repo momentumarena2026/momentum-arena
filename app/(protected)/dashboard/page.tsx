@@ -10,6 +10,7 @@ import {
   Ticket,
   History,
   Plus,
+  User,
 } from "lucide-react";
 import {
   MdSportsCricket,
@@ -70,6 +71,25 @@ export default async function DashboardPage() {
           </div>
         </div>
         <ArrowRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-emerald-400" />
+      </Link>
+
+      {/* My Profile */}
+      <Link
+        href="/profile"
+        className="group flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900 p-5 transition-all hover:border-zinc-700"
+      >
+        <div className="flex items-center gap-4">
+          <div className="rounded-xl bg-zinc-800 p-3">
+            <User className="h-6 w-6 text-zinc-400" />
+          </div>
+          <div>
+            <p className="text-lg font-semibold text-white">My Profile</p>
+            <p className="text-sm text-zinc-400">
+              View and edit your account details
+            </p>
+          </div>
+        </div>
+        <ArrowRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
       </Link>
 
       {/* Stats Row */}

@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { createSlotLock } from "@/lib/slot-lock";
 import { getSlotPricesForDate } from "@/lib/pricing";
 
-export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
+export async function POST(request: NextRequest) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   });
 
   const result = await createSlotLock(
-    session.user.id,
+    userId,
     courtConfigId,
     bookingDate,
     hours,
