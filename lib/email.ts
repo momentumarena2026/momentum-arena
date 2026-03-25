@@ -88,10 +88,10 @@ export async function sendAdminInviteEmail(
           {
             to: [{ email, name: username }],
             variables: {
-              username,
-              email,
-              role: "Admin",
-              set_password_link: setupUrl,
+              USERNAME: username,
+              EMAIL: email,
+              ROLE: "Admin",
+              SET_PASSWORD_LINK: setupUrl,
             },
           },
         ],
