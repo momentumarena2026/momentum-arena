@@ -36,8 +36,8 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Push schema to staging DB
-        run: npx prisma db push --accept-data-loss --skip-generate
+      - name: Push schema to staging DB (force reset)
+        run: npx prisma db push --force-reset --skip-generate
 
       - name: Seed staging database
         run: npx tsx prisma/seed.ts
