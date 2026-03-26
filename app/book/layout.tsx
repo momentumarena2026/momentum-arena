@@ -28,13 +28,13 @@ export default async function BookLayout({
               </Link>
               <Link
                 href="/book"
-                className="text-sm font-medium text-zinc-300 hover:text-emerald-400 transition"
+                className="hidden md:flex text-sm font-medium text-zinc-300 hover:text-emerald-400 transition"
               >
                 🏟️ Sports
               </Link>
               <Link
                 href="/cafe"
-                className="text-sm font-medium text-zinc-300 hover:text-amber-400 transition"
+                className="hidden md:flex text-sm font-medium text-zinc-300 hover:text-amber-400 transition"
               >
                 ☕ Cafe
               </Link>
