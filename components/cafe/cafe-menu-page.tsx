@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { CafeCartDrawer } from "./cafe-cart-drawer";
-import { Search, X } from "lucide-react";
+import { Search, X, Coffee, UtensilsCrossed, IceCreamCone, Package, Sandwich } from "lucide-react";
 
 interface MenuItem {
   id: string;
@@ -26,6 +26,22 @@ const CATEGORY_LABELS: Record<string, string> = {
   COMBOS: "Combos",
 };
 
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  SNACKS: <Sandwich className="w-4 h-4" />,
+  BEVERAGES: <Coffee className="w-4 h-4" />,
+  MEALS: <UtensilsCrossed className="w-4 h-4" />,
+  DESSERTS: <IceCreamCone className="w-4 h-4" />,
+  COMBOS: <Package className="w-4 h-4" />,
+};
+
+const CATEGORY_EMOJIS: Record<string, string> = {
+  SNACKS: "🍿",
+  BEVERAGES: "☕",
+  MEALS: "🍛",
+  DESSERTS: "🍰",
+  COMBOS: "🍱",
+};
+
 const CATEGORY_ORDER = ["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"];
 
 export function CafeMenuPage({
@@ -39,11 +55,10 @@ export function CafeMenuPage({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const tabsRef = useRef<HTMLDivElement>(null);
-  const { items: cartItems, addItem, updateQuantity, totalItems } = useCafeCart();
+  const { items: cartItems, addItem, updateQuantity, totalItems, totalAmount } = useCafeCart();
 
   const categories = CATEGORY_ORDER.filter((c) => groupedItems[c]?.length > 0);
 
-  // Fuzzy search — matches name, description, tags, category
   const allItems = useMemo(
     () => Object.values(groupedItems).flat(),
     [groupedItems]
@@ -64,21 +79,18 @@ export function CafeMenuPage({
           item.isVeg ? "veg vegetarian" : "non-veg nonveg",
         ].join(" ");
 
-        // Score: each token that matches adds to score
         let score = 0;
         let allTokensMatch = true;
         for (const token of tokens) {
           if (searchFields.includes(token)) {
-            score += 10; // exact substring match
+            score += 10;
           } else {
-            // Fuzzy: check if token chars appear in order
             let fi = 0;
             let matched = 0;
             for (const ch of token) {
               const idx = searchFields.indexOf(ch, fi);
               if (idx >= 0) { fi = idx + 1; matched++; }
             }
-            // Require at least 70% of chars to match in order
             if (matched >= token.length * 0.7 && token.length >= 2) {
               score += 3;
             } else {
@@ -95,7 +107,6 @@ export function CafeMenuPage({
 
   const isSearching = searchQuery.trim().length > 0;
 
-  // Group search results by category for display
   const searchGrouped = useMemo(() => {
     if (!searchResults) return {};
     const grouped: Record<string, MenuItem[]> = {};
@@ -141,7 +152,7 @@ export function CafeMenuPage({
     setActiveCategory(cat);
     const el = sectionRefs.current[cat];
     if (el) {
-      const offset = 120;
+      const offset = 140;
       const top = el.getBoundingClientRect().top + window.scrollY - offset;
       window.scrollTo({ top, behavior: "smooth" });
     }
@@ -152,249 +163,264 @@ export function CafeMenuPage({
   }
 
   return (
-    <div className="min-h-screen pb-24">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Cafe Menu</h1>
-        <p className="text-zinc-400 text-sm mt-1">
-          Order food and beverages at Momentum Arena
-        </p>
+    <div className="min-h-screen bg-black pb-28">
+      {/* Hero header */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-amber-900/40 via-black to-black border-b border-amber-800/20">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-4 left-10 text-6xl">☕</div>
+          <div className="absolute top-8 right-20 text-5xl">🍛</div>
+          <div className="absolute bottom-4 left-1/3 text-4xl">🍿</div>
+          <div className="absolute bottom-2 right-10 text-5xl">🍰</div>
+        </div>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 relative z-10">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-3xl">☕</span>
+            <h1 className="text-3xl sm:text-4xl font-bold text-white">Momentum Cafe</h1>
+          </div>
+          <p className="text-amber-200/60 text-sm sm:text-base max-w-lg">
+            Fuel your game! Snacks, beverages & meals — served fresh at the arena.
+          </p>
+        </div>
       </div>
 
-      {/* Search bar */}
-      <div className="mb-4 relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search food, beverages, snacks..."
-          className="w-full pl-10 pr-10 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-emerald-600 transition-colors"
-        />
-        {searchQuery && (
-          <button
-            onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Search results info */}
-      {isSearching && (
-        <div className="mb-4 text-sm text-zinc-400">
-          {searchResults && searchResults.length > 0 ? (
-            <span>{searchResults.length} item{searchResults.length !== 1 ? "s" : ""} found for &ldquo;{searchQuery}&rdquo;</span>
-          ) : (
-            <span className="text-red-400">No items found for &ldquo;{searchQuery}&rdquo;</span>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+        {/* Search bar */}
+        <div className="mt-6 mb-2 relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search food, beverages, snacks..."
+            className="w-full pl-11 pr-10 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-amber-600/50 focus:ring-1 focus:ring-amber-600/20 transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
           )}
         </div>
-      )}
 
-      {/* Category tabs */}
-      <div
-        ref={tabsRef}
-        className="sticky top-16 z-30 bg-black/90 backdrop-blur-md border-b border-zinc-800 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8"
-      >
-        <div className="flex gap-1 overflow-x-auto py-3 scrollbar-hide">
-          {displayCategories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => scrollToCategory(cat)}
-              className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                activeCategory === cat
-                  ? "bg-emerald-600 text-white"
-                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
-              }`}
-            >
-              {CATEGORY_LABELS[cat] || cat}
-              {isSearching && searchGrouped[cat] && (
-                <span className="ml-1 text-xs opacity-70">({searchGrouped[cat].length})</span>
-              )}
-            </button>
-          ))}
+        {/* Search results info */}
+        {isSearching && (
+          <div className="mb-3 text-sm text-zinc-400 px-1">
+            {searchResults && searchResults.length > 0 ? (
+              <span>{searchResults.length} item{searchResults.length !== 1 ? "s" : ""} found for &ldquo;{searchQuery}&rdquo;</span>
+            ) : (
+              <span className="text-red-400">No items found for &ldquo;{searchQuery}&rdquo;</span>
+            )}
+          </div>
+        )}
+
+        {/* Category tabs — sticky */}
+        <div
+          ref={tabsRef}
+          className="sticky top-[64px] z-30 bg-black/95 backdrop-blur-md border-b border-zinc-800/50 -mx-4 px-4 sm:-mx-6 sm:px-6"
+        >
+          <div className="flex gap-2 overflow-x-auto py-3 scrollbar-hide max-w-5xl mx-auto">
+            {displayCategories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => scrollToCategory(cat)}
+                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                  activeCategory === cat
+                    ? "bg-amber-600 text-white shadow-lg shadow-amber-900/20"
+                    : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800"
+                }`}
+              >
+                {CATEGORY_ICONS[cat]}
+                {CATEGORY_LABELS[cat] || cat}
+                {isSearching && searchGrouped[cat] && (
+                  <span className="ml-0.5 text-xs opacity-70">({searchGrouped[cat].length})</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Menu sections */}
-      <div className="mt-6 space-y-10">
-        {displayCategories.map((cat) => (
-          <div
-            key={cat}
-            ref={(el) => {
-              sectionRefs.current[cat] = el;
-            }}
-            data-category={cat}
-          >
-            <h2 className="text-xl font-bold text-white mb-4">
-              {CATEGORY_LABELS[cat] || cat}
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {(displayGrouped[cat] || []).map((item) => {
-                const qty = getCartQuantity(item.id);
-                return (
-                  <div
-                    key={item.id}
-                    className={`relative bg-zinc-900 border rounded-xl overflow-hidden transition-colors ${
-                      item.isAvailable
-                        ? "border-zinc-800 hover:border-zinc-700"
-                        : "border-zinc-800/50 opacity-60"
-                    }`}
-                  >
-                    {/* Image or placeholder */}
-                    {item.image ? (
-                      <div className="h-40 bg-zinc-800 overflow-hidden">
-                        <img
-                          src={item.image}
-                          alt={item.name}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <div className="h-32 bg-zinc-800/50 flex items-center justify-center text-4xl">
-                        {item.category === "BEVERAGES"
-                          ? "☕"
-                          : item.category === "DESSERTS"
-                            ? "🍰"
-                            : item.category === "COMBOS"
-                              ? "🍱"
-                              : "🍽️"}
-                      </div>
-                    )}
+        {/* Menu sections */}
+        <div className="mt-6 space-y-10">
+          {displayCategories.map((cat) => (
+            <div
+              key={cat}
+              ref={(el) => {
+                sectionRefs.current[cat] = el;
+              }}
+              data-category={cat}
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-2xl">{CATEGORY_EMOJIS[cat] || "🍽️"}</span>
+                <h2 className="text-xl font-bold text-white">
+                  {CATEGORY_LABELS[cat] || cat}
+                </h2>
+                <span className="text-xs text-zinc-500 ml-1">
+                  ({(displayGrouped[cat] || []).length} items)
+                </span>
+              </div>
 
-                    {/* Tags */}
-                    {item.tags.length > 0 && (
-                      <div className="absolute top-2 right-2 flex gap-1">
-                        {item.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="bg-emerald-600/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-full"
-                          >
-                            {tag}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {(displayGrouped[cat] || []).map((item) => {
+                  const qty = getCartQuantity(item.id);
+                  return (
+                    <div
+                      key={item.id}
+                      className={`group relative bg-zinc-900/70 border rounded-xl overflow-hidden transition-all ${
+                        item.isAvailable
+                          ? "border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900"
+                          : "border-zinc-800/40 opacity-50"
+                      }`}
+                    >
+                      {/* Image */}
+                      {item.image ? (
+                        <div className="h-36 bg-zinc-800 overflow-hidden">
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-28 bg-gradient-to-br from-zinc-800/80 to-zinc-900 flex items-center justify-center">
+                          <span className="text-4xl opacity-40">
+                            {CATEGORY_EMOJIS[item.category] || "🍽️"}
                           </span>
-                        ))}
-                      </div>
-                    )}
+                        </div>
+                      )}
 
-                    {/* Content */}
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                      {/* Tags */}
+                      {item.tags.length > 0 && (
+                        <div className="absolute top-2 right-2 flex gap-1">
+                          {item.tags.map((tag) => (
                             <span
-                              className={`inline-block w-3.5 h-3.5 border-2 rounded-sm flex-shrink-0 ${
-                                item.isVeg
-                                  ? "border-green-500"
-                                  : "border-red-500"
-                              } flex items-center justify-center`}
+                              key={tag}
+                              className="bg-amber-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur-sm"
                             >
-                              <span
-                                className={`block w-1.5 h-1.5 rounded-full ${
-                                  item.isVeg ? "bg-green-500" : "bg-red-500"
-                                }`}
-                              />
+                              {tag}
                             </span>
-                            <h3 className="font-semibold text-white text-sm truncate">
-                              {item.name}
-                            </h3>
-                          </div>
-                          {item.description && (
-                            <p className="text-zinc-500 text-xs mt-1 line-clamp-2">
-                              {item.description}
-                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Veg/Non-veg badge */}
+                      <div className="absolute top-2 left-2">
+                        <span
+                          className={`inline-flex items-center justify-center w-5 h-5 border-2 rounded-sm ${
+                            item.isVeg
+                              ? "border-green-500 bg-black/60"
+                              : "border-red-500 bg-black/60"
+                          }`}
+                        >
+                          <span
+                            className={`block w-2 h-2 rounded-full ${
+                              item.isVeg ? "bg-green-500" : "bg-red-500"
+                            }`}
+                          />
+                        </span>
+                      </div>
+
+                      {/* Content */}
+                      <div className="p-3.5">
+                        <h3 className="font-semibold text-white text-sm leading-tight">
+                          {item.name}
+                        </h3>
+                        {item.description && (
+                          <p className="text-zinc-500 text-xs mt-1 line-clamp-2 leading-relaxed">
+                            {item.description}
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-between mt-3">
+                          <span className="text-amber-400 font-bold text-sm">
+                            {formatPrice(item.price)}
+                          </span>
+
+                          {!item.isAvailable ? (
+                            <span className="text-[11px] text-zinc-600 italic bg-zinc-800 px-2 py-1 rounded">
+                              Unavailable
+                            </span>
+                          ) : qty === 0 ? (
+                            <button
+                              onClick={() =>
+                                addItem({
+                                  itemId: item.id,
+                                  name: item.name,
+                                  price: item.price,
+                                  image: item.image || undefined,
+                                  isVeg: item.isVeg,
+                                  category: item.category,
+                                })
+                              }
+                              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors uppercase tracking-wide"
+                            >
+                              Add
+                            </button>
+                          ) : (
+                            <div className="flex items-center bg-amber-600 rounded-lg overflow-hidden">
+                              <button
+                                onClick={() => updateQuantity(item.id, qty - 1)}
+                                className="text-white font-bold px-2.5 py-1.5 hover:bg-amber-700 transition-colors text-sm"
+                              >
+                                −
+                              </button>
+                              <span className="text-white font-bold text-xs min-w-[24px] text-center">
+                                {qty}
+                              </span>
+                              <button
+                                onClick={() => updateQuantity(item.id, qty + 1)}
+                                className="text-white font-bold px-2.5 py-1.5 hover:bg-amber-700 transition-colors text-sm"
+                              >
+                                +
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="text-white font-bold text-sm">
-                          {formatPrice(item.price)}
-                        </span>
-
-                        {!item.isAvailable ? (
-                          <span className="text-xs text-zinc-500 italic">
-                            Currently Unavailable
-                          </span>
-                        ) : qty === 0 ? (
-                          <button
-                            onClick={() =>
-                              addItem({
-                                itemId: item.id,
-                                name: item.name,
-                                price: item.price,
-                                image: item.image || undefined,
-                                isVeg: item.isVeg,
-                                category: item.category,
-                              })
-                            }
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-1.5 rounded-lg transition-colors"
-                          >
-                            ADD
-                          </button>
-                        ) : (
-                          <div className="flex items-center gap-2 bg-emerald-600 rounded-lg">
-                            <button
-                              onClick={() =>
-                                updateQuantity(item.id, qty - 1)
-                              }
-                              className="text-white font-bold px-3 py-1.5 hover:bg-emerald-700 rounded-l-lg transition-colors"
-                            >
-                              -
-                            </button>
-                            <span className="text-white font-bold text-sm min-w-[20px] text-center">
-                              {qty}
-                            </span>
-                            <button
-                              onClick={() =>
-                                updateQuantity(item.id, qty + 1)
-                              }
-                              className="text-white font-bold px-3 py-1.5 hover:bg-emerald-700 rounded-r-lg transition-colors"
-                            >
-                              +
-                            </button>
-                          </div>
-                        )}
-                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
+          ))}
+        </div>
+
+        {categories.length === 0 && (
+          <div className="text-center py-20">
+            <span className="text-6xl block mb-4">🍽️</span>
+            <p className="text-zinc-400 text-lg font-medium">Menu coming soon!</p>
+            <p className="text-zinc-600 text-sm mt-1">Our chef is preparing something special.</p>
           </div>
-        ))}
+        )}
       </div>
 
-      {categories.length === 0 && (
-        <div className="text-center py-20">
-          <p className="text-zinc-500 text-lg">No menu items available yet.</p>
-          <p className="text-zinc-600 text-sm mt-1">Check back soon!</p>
-        </div>
-      )}
-
-      {/* Floating cart button */}
+      {/* Floating cart bar */}
       {totalItems > 0 && (
-        <button
-          onClick={() => setCartOpen(true)}
-          className="fixed bottom-6 right-6 z-40 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-900/30 rounded-full px-6 py-3 flex items-center gap-3 transition-all hover:scale-105"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"
-            />
-          </svg>
-          <span className="font-bold">{totalItems} item{totalItems > 1 ? "s" : ""}</span>
-          <span className="text-emerald-200">|</span>
-          <span className="font-bold">View Cart</span>
-        </button>
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-md border-t border-zinc-800">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6">
+            <button
+              onClick={() => setCartOpen(true)}
+              className="w-full flex items-center justify-between bg-amber-600 hover:bg-amber-700 text-white rounded-xl px-5 py-3.5 my-3 transition-all hover:shadow-lg hover:shadow-amber-900/20"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-700/50 rounded-lg p-1.5">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+                  </svg>
+                </div>
+                <span className="font-bold text-sm">
+                  {totalItems} item{totalItems > 1 ? "s" : ""}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold">{formatPrice(totalAmount)}</span>
+                <span className="text-amber-200 text-sm">View Cart →</span>
+              </div>
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Cart drawer */}
