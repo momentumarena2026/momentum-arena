@@ -14,7 +14,7 @@ export default async function CheckoutPage({
   searchParams: Promise<{ bookingId?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  if (!session?.user?.id) redirect("/book?error=login_required");
 
   const { bookingId } = await searchParams;
   if (!bookingId) redirect("/book");

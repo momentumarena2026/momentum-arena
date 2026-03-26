@@ -51,14 +51,18 @@ export default {
         return true;
       }
 
-      // Protected customer routes
+      // Protected customer routes (book is public for browsing)
       if (
         pathname.startsWith("/dashboard") ||
-        pathname.startsWith("/book") ||
         pathname.startsWith("/bookings") ||
         pathname.startsWith("/profile")
       ) {
         return isLoggedIn;
+      }
+
+      // Book routes — allow everyone (auth handled inline at checkout)
+      if (pathname.startsWith("/book")) {
+        return true;
       }
 
       // Auth pages — redirect away if already logged in as customer
