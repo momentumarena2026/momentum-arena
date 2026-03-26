@@ -125,6 +125,30 @@ export async function getCafeOrderStats() {
   };
 }
 
+export async function getLiveCafeOrders() {
+  await requireCafeAdmin();
+
+  const orders = await db.cafeOrder.findMany({
+    where: {
+      status: { in: ["PENDING", "PREPARING", "READY"] },
+    },
+    include: {
+      items: { include: { cafeItem: { select: { name: true, isVeg: true } } } },
+      user: { select: { id: true, name: true, email: true, phone: true } },
+      payment: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const grouped = {
+    PENDING: orders.filter((o) => o.status === "PENDING"),
+    PREPARING: orders.filter((o) => o.status === "PREPARING"),
+    READY: orders.filter((o) => o.status === "READY"),
+  };
+
+  return grouped;
+}
+
 const STATUS_PIPELINE: Record<CafeOrderStatus, CafeOrderStatus[]> = {
   PENDING: ["PREPARING", "CANCELLED"],
   PREPARING: ["READY", "CANCELLED"],
