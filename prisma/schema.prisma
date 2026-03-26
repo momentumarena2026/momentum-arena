@@ -83,6 +83,57 @@ enum AdminRole {
   ADMIN
 }
 
+// ===========================
+// UNIFIED COUPON SYSTEM
+// ===========================
+
+enum CouponScope {
+  SPORTS
+  CAFE
+  BOTH
+}
+
+enum CouponConditionType {
+  MIN_AMOUNT
+  FIRST_PURCHASE
+  USER_GROUP
+  SPORT_SPECIFIC
+  CATEGORY_SPECIFIC
+  TIME_WINDOW
+  BIRTHDAY
+  REFERRAL
+}
+
+enum UserGroupType {
+  FIRST_TIME
+  PREMIUM_PLAYER
+  FREQUENT_VISITOR
+  BIRTHDAY_MONTH
+  CUSTOM
+}
+
+// ===========================
+// REWARD POINTS
+// ===========================
+
+enum RewardTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum PointsTransactionType {
+  EARNED_BOOKING
+  EARNED_CAFE
+  EARNED_REFERRAL
+  EARNED_BONUS
+  REDEEMED_BOOKING
+  REDEEMED_CAFE
+  EXPIRED
+  ADJUSTMENT
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -98,6 +149,12 @@ model User {
   sessions      Session[]
   bookings      Booking[]
   cafeOrders    CafeOrder[]
+  referralCode  String?   @unique
+  referredBy    String?
+  birthday      DateTime?
+
+  rewardBalance RewardPointsBalance?
+
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -184,6 +241,9 @@ model Booking {
   originalAmount Int?
   discountAmount Int          @default(0)
   discountCodeId String?
+
+  rewardPointsUsed   Int @default(0)
+  rewardPointsEarned Int @default(0)
 
   createdByAdminId String?
   createdByAdmin   AdminUser? @relation("BookingCreatedByAdmin", fields: [createdByAdminId], references: [id])
@@ -447,6 +507,10 @@ model CafeOrder {
   discountAmount   Int             @default(0)
   discountCodeId   String?
   note             String?
+  tableNumber      Int?
+  rewardPointsUsed   Int @default(0)
+  rewardPointsEarned Int @default(0)
+
   createdByAdminId String?
   createdByAdmin   AdminUser?      @relation("CafeOrderCreatedByAdmin", fields: [createdByAdminId], references: [id])
 
@@ -551,4 +615,152 @@ model CafeOrderEditHistory {
   createdAt DateTime @default(now())
 
   @@index([orderId])
+}
+
+// ===========================
+// UNIFIED COUPON SYSTEM
+// ===========================
+
+model Coupon {
+  id              String             @id @default(cuid())
+  code            String             @unique
+  description     String?
+  scope           CouponScope        @default(BOTH)
+  type            DiscountType
+  value           Int                // basis points (percentage) or paise (flat)
+  maxDiscount     Int?               // cap on discount amount in paise (for percentage)
+  maxUses         Int?               // null = unlimited
+  usedCount       Int                @default(0)
+  maxUsesPerUser  Int                @default(1)
+  minAmount       Int?               // minimum order/booking amount in paise
+
+  // Filters
+  sportFilter     Sport[]
+  categoryFilter  CafeItemCategory[]
+  userGroupFilter UserGroupType[]
+
+  // Behavior
+  isStackable     Boolean            @default(false)
+  stackGroup      String?
+  isPublic        Boolean            @default(true)   // visible on customer coupon page
+  isSystemCode    Boolean            @default(false)  // auto-applied (new user, referral, etc.)
+
+  validFrom       DateTime
+  validUntil      DateTime
+  isActive        Boolean            @default(true)
+  createdBy       String
+
+  conditions CouponCondition[]
+  usages     CouponUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scope, isActive])
+  @@index([code])
+}
+
+model CouponCondition {
+  id             String              @id @default(cuid())
+  couponId       String
+  coupon         Coupon              @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  conditionType  CouponConditionType
+  conditionValue String              // JSON-encoded value
+
+  @@index([couponId])
+}
+
+model CouponUsage {
+  id             String  @id @default(cuid())
+  couponId       String
+  coupon         Coupon  @relation(fields: [couponId], references: [id])
+  userId         String
+  bookingId      String?
+  cafeOrderId    String?
+  discountAmount Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([couponId, userId, bookingId])
+  @@index([userId])
+  @@index([couponId])
+}
+
+// ===========================
+// REWARD POINTS SYSTEM
+// ===========================
+
+model RewardPointsBalance {
+  id             String      @id @default(cuid())
+  userId         String      @unique
+  user           User        @relation(fields: [userId], references: [id])
+  totalEarned    Int         @default(0)
+  totalRedeemed  Int         @default(0)
+  currentBalance Int         @default(0)
+  tier           RewardTier  @default(BRONZE)
+
+  transactions PointsTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PointsTransaction {
+  id          String                @id @default(cuid())
+  balanceId   String
+  balance     RewardPointsBalance   @relation(fields: [balanceId], references: [id])
+  userId      String
+  type        PointsTransactionType
+  points      Int                   // positive = earn, negative = redeem
+  description String
+  bookingId   String?
+  cafeOrderId String?
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([balanceId])
+  @@index([expiresAt])
+}
+
+model RewardConfig {
+  id                 String @id @default(cuid())
+
+  // Earn rates (points per 100 paise / ₹1)
+  sportsEarnRate     Int    @default(1)
+  cafeEarnRate       Int    @default(2)
+  referralBonus      Int    @default(100)
+
+  // Redemption
+  pointsPerRupee     Int    @default(10)   // 10 points = ₹1
+  minRedeemPoints    Int    @default(100)
+  maxRedeemPercent   Int    @default(5000) // 5000 basis points = 50%
+
+  // Tier thresholds (lifetime earned points)
+  silverThreshold    Int    @default(500)
+  goldThreshold      Int    @default(2000)
+  platinumThreshold  Int    @default(5000)
+
+  // Tier multipliers (basis points: 10000 = 1x)
+  bronzeMultiplier   Int    @default(10000) // 1x
+  silverMultiplier   Int    @default(12500) // 1.25x
+  goldMultiplier     Int    @default(15000) // 1.5x
+  platinumMultiplier Int    @default(20000) // 2x
+
+  // Expiry
+  pointsExpiryDays  Int    @default(365)   // 0 = no expiry
+
+  updatedAt DateTime @updatedAt
+}
+
+// ===========================
+// CAFE SETTINGS
+// ===========================
+
+model CafeSettings {
+  id          String @id @default(cuid())
+  totalTables Int    @default(10)
+
+  updatedAt DateTime @updatedAt
 }
