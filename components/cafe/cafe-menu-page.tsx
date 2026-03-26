@@ -174,7 +174,7 @@ export function CafeMenuPage({
         </div>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 relative z-10">
           <div className="flex items-center gap-3 mb-2">
-            <a href="/"><img src="/blackLogo.png" alt="Momentum Arena" className="h-20 w-auto" /></a>
+            <a href="/"><img src="/blackLogo.png" alt="Momentum Arena" className="h-[120px] w-auto" /></a>
             <div>
               <h1 className="text-3xl sm:text-4xl font-bold text-white">Momentum Cafe ☕</h1>
               <p className="text-amber-200/60 text-sm sm:text-base max-w-lg">
