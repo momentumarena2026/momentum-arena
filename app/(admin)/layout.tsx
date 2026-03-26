@@ -15,6 +15,9 @@ import {
   HelpCircle,
   Shield,
   CreditCard,
+  Coffee,
+  ClipboardList,
+  BadgePercent,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -29,6 +32,9 @@ const adminNavItems = [
   { href: "/admin/faqs", label: "FAQs", icon: HelpCircle, permission: "MANAGE_FAQS" },
   { href: "/admin/razorpay", label: "Razorpay", icon: CreditCard, permission: "VIEW_RAZORPAY" },
   { href: "/admin/admin-users", label: "Admin Users", icon: Shield, permission: "MANAGE_ADMIN_USERS" },
+  { href: "/admin/cafe-menu", label: "Cafe Menu", icon: Coffee, permission: "MANAGE_CAFE_MENU" },
+  { href: "/admin/cafe-orders", label: "Cafe Orders", icon: ClipboardList, permission: "MANAGE_CAFE_ORDERS" },
+  { href: "/admin/cafe-coupons", label: "Cafe Coupons", icon: BadgePercent, permission: "MANAGE_CAFE_DISCOUNTS" },
 ];
 
 export default async function AdminLayout({

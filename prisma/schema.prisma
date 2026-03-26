@@ -97,6 +97,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   bookings      Booking[]
+  cafeOrders    CafeOrder[]
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -366,7 +367,8 @@ model AdminUser {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  createdBookings Booking[] @relation("BookingCreatedByAdmin")
+  createdBookings   Booking[]   @relation("BookingCreatedByAdmin")
+  createdCafeOrders CafeOrder[] @relation("CafeOrderCreatedByAdmin")
 }
 
 model BookingEditHistory {
@@ -390,4 +392,163 @@ model BookingEditHistory {
   createdAt DateTime @default(now())
 
   @@index([bookingId])
+}
+
+// ===========================
+// CAFE ORDERING SYSTEM
+// ===========================
+
+enum CafeOrderStatus {
+  PENDING
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum CafeItemCategory {
+  SNACKS
+  BEVERAGES
+  MEALS
+  DESSERTS
+  COMBOS
+}
+
+model CafeItem {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  category    CafeItemCategory
+  price       Int              // in paise
+  image       String?
+  isVeg       Boolean          @default(true)
+  isAvailable Boolean          @default(true)
+  sortOrder   Int              @default(0)
+  tags        String[]         // "Bestseller", "New", "Spicy", etc.
+
+  orderItems CafeOrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, isAvailable])
+}
+
+model CafeOrder {
+  id               String          @id @default(cuid())
+  userId           String?
+  user             User?           @relation(fields: [userId], references: [id])
+  guestName        String?
+  guestPhone       String?
+  orderNumber      String          @unique
+  status           CafeOrderStatus @default(PENDING)
+  totalAmount      Int
+  originalAmount   Int?
+  discountAmount   Int             @default(0)
+  discountCodeId   String?
+  note             String?
+  createdByAdminId String?
+  createdByAdmin   AdminUser?      @relation("CafeOrderCreatedByAdmin", fields: [createdByAdminId], references: [id])
+
+  items       CafeOrderItem[]
+  payment     CafePayment?
+  editHistory CafeOrderEditHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([orderNumber])
+}
+
+model CafeOrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      CafeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  cafeItemId String
+  cafeItem   CafeItem  @relation(fields: [cafeItemId], references: [id])
+  itemName   String    // snapshot of name at time of order
+  quantity   Int
+  unitPrice  Int       // paise
+  totalPrice Int       // quantity * unitPrice
+
+  @@index([orderId])
+}
+
+model CafePayment {
+  id                String        @id @default(cuid())
+  orderId           String        @unique
+  order             CafeOrder     @relation(fields: [orderId], references: [id])
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  amount            Int
+
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+
+  confirmedBy  String?
+  confirmedAt  DateTime?
+  refundedBy   String?
+  refundedAt   DateTime?
+  refundReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CafeDiscount {
+  id             String             @id @default(cuid())
+  code           String             @unique
+  type           DiscountType
+  value          Int                // percentage (basis points) or flat (paise)
+  maxUses        Int?
+  usedCount      Int                @default(0)
+  maxUsesPerUser Int                @default(1)
+  minOrderAmount Int?               // minimum order in paise
+  categoryFilter CafeItemCategory[]
+  validFrom      DateTime
+  validUntil     DateTime
+  isActive       Boolean            @default(true)
+  createdBy      String
+
+  usages CafeDiscountUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CafeDiscountUsage {
+  id             String       @id @default(cuid())
+  discountId     String
+  discount       CafeDiscount @relation(fields: [discountId], references: [id])
+  userId         String
+  orderId        String       @unique
+  discountAmount Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([discountId, userId, orderId])
+  @@index([userId])
+}
+
+model CafeOrderEditHistory {
+  id            String    @id @default(cuid())
+  orderId       String
+  order         CafeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  adminId       String
+  adminUsername  String
+  editType      String    // ITEMS_ADDED | ITEMS_REMOVED | QUANTITY_CHANGED | STATUS_CHANGED | ORDER_CANCELLED | ORDER_CREATED
+
+  previousItems  Json?
+  newItems       Json?
+  previousAmount Int?
+  newAmount      Int?
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
 }

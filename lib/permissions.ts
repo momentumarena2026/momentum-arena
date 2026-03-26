@@ -12,6 +12,9 @@ export const ALL_PERMISSIONS = [
   "VIEW_ANALYTICS",
   "VIEW_RAZORPAY",
   "MANAGE_ADMIN_USERS",
+  "MANAGE_CAFE_MENU",
+  "MANAGE_CAFE_ORDERS",
+  "MANAGE_CAFE_DISCOUNTS",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -32,6 +35,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   VIEW_ANALYTICS: "View Analytics",
   VIEW_RAZORPAY: "View Razorpay Dashboard",
   MANAGE_ADMIN_USERS: "Manage Admin Users",
+  MANAGE_CAFE_MENU: "Manage Cafe Menu",
+  MANAGE_CAFE_ORDERS: "Manage Cafe Orders",
+  MANAGE_CAFE_DISCOUNTS: "Manage Cafe Coupons",
 };
 
 export function hasPermission(
