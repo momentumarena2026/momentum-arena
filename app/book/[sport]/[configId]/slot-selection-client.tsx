@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
 import { SlotGrid } from "@/components/booking/slot-grid";
+import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
 import type { SlotAvailability } from "@/lib/availability";
 import { Loader2 } from "lucide-react";
@@ -20,6 +22,7 @@ export function SlotSelectionClient({
   configId,
 }: SlotSelectionClientProps) {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -28,36 +31,48 @@ export function SlotSelectionClient({
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
 
-  // Fetch availability when date changes
   useEffect(() => {
-    setLoading(true);
+    async function fetchSlots() {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/availability?configId=${configId}&date=${selectedDate}`
+        );
+        const data = await res.json();
+        setSlots(data.slots || []);
+      } catch {
+        setSlots([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchSlots();
     setSelectedHours([]);
-    setError(null);
-
-    fetch(`/api/availability?configId=${configId}&date=${selectedDate}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setSlots(data.slots);
-        }
-      })
-      .catch(() => setError("Failed to load availability"))
-      .finally(() => setLoading(false));
   }, [configId, selectedDate]);
 
-  const selectedSlotPrices = slots
-    .filter((s) => selectedHours.includes(s.hour))
-    .map((s) => ({ startHour: s.hour, price: s.price }));
-
+  const selectedSlotPrices = slots.filter((s) =>
+    selectedHours.includes(s.hour)
+  );
   const total = selectedSlotPrices.reduce((sum, s) => sum + s.price, 0);
 
   const handleProceed = async () => {
     if (selectedHours.length === 0) return;
+
+    // If not logged in, show inline auth
+    if (!session?.user) {
+      setShowAuth(true);
+      return;
+    }
+
+    await lockAndCheckout();
+  };
+
+  const lockAndCheckout = async () => {
     setBooking(true);
     setError(null);
+    setShowAuth(false);
 
     try {
       const formData = new FormData();
@@ -88,6 +103,11 @@ export function SlotSelectionClient({
     }
   };
 
+  const handleAuthenticated = () => {
+    // User just logged in via inline auth — proceed with lock
+    lockAndCheckout();
+  };
+
   return (
     <div className="space-y-6">
       <DatePicker selectedDate={selectedDate} onDateChange={setSelectedDate} />
@@ -109,10 +129,15 @@ export function SlotSelectionClient({
         />
       )}
 
-      {selectedHours.length > 0 && (
+      {/* Inline auth for guests */}
+      {showAuth && !session?.user && (
+        <CheckoutAuth onAuthenticated={handleAuthenticated} />
+      )}
+
+      {selectedHours.length > 0 && !showAuth && (
         <button
           onClick={handleProceed}
-          disabled={booking}
+          disabled={booking || status === "loading"}
           className="w-full rounded-xl bg-emerald-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
         >
           {booking ? (

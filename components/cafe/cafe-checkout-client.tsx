@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { createCafeOrder, validateCafeCoupon } from "@/actions/cafe-orders";
+import { CheckoutAuth } from "@/components/checkout-auth";
 
 type PaymentMethod = "RAZORPAY" | "UPI_QR" | "CASH";
 
@@ -17,10 +19,13 @@ declare global {
   }
 }
 
-export function CafeCheckoutClient({ isLoggedIn }: { isLoggedIn?: boolean }) {
+export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn?: boolean }) {
   const router = useRouter();
+  const { data: session } = useSession();
+  const isLoggedIn = initialLoggedIn || !!session?.user;
   const { items, totalAmount, clearCart } = useCafeCart();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(isLoggedIn ? "RAZORPAY" : "CASH");
+  const [showAuth, setShowAuth] = useState(false);
   const [note, setNote] = useState("");
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
@@ -81,8 +86,16 @@ export function CafeCheckoutClient({ isLoggedIn }: { isLoggedIn?: boolean }) {
 
   async function handlePlaceOrder() {
     if (items.length === 0) return;
+
+    // If Razorpay selected and not logged in, show inline auth
+    if (paymentMethod === "RAZORPAY" && !isLoggedIn && !session?.user) {
+      setShowAuth(true);
+      return;
+    }
+
     setLoading(true);
     setError("");
+    setShowAuth(false);
 
     try {
       // Create the order
@@ -402,16 +415,23 @@ export function CafeCheckoutClient({ isLoggedIn }: { isLoggedIn?: boolean }) {
         </div>
       )}
 
+      {/* Inline auth for Razorpay guests */}
+      {showAuth && (
+        <CheckoutAuth onAuthenticated={() => { setShowAuth(false); handlePlaceOrder(); }} />
+      )}
+
       {/* Place Order */}
-      <button
-        onClick={handlePlaceOrder}
-        disabled={loading}
-        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors"
-      >
-        {loading
-          ? "Processing..."
-          : `Place Order - ${formatPrice(finalAmount)}`}
-      </button>
+      {!showAuth && (
+        <button
+          onClick={handlePlaceOrder}
+          disabled={loading}
+          className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors"
+        >
+          {loading
+            ? "Processing..."
+            : `Place Order - ${formatPrice(finalAmount)}`}
+        </button>
+      )}
 
       <button
         onClick={() => router.push("/cafe")}
