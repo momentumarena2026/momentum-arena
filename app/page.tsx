@@ -214,25 +214,19 @@ export default function Home() {
                 className="h-16 sm:h-20 md:h-24 w-auto"
               />
             </Link>
-            <div className="hidden md:flex items-center gap-8">
-              <a
-                href="#sports"
-                className="text-sm text-zinc-400 hover:text-white transition"
+            <div className="flex items-center gap-6">
+              <Link
+                href="/book"
+                className="text-sm font-medium text-zinc-300 hover:text-emerald-400 transition flex items-center gap-1.5"
               >
-                Sports
-              </a>
-              <a
-                href="#facilities"
-                className="text-sm text-zinc-400 hover:text-white transition"
+                🏟️ Sports
+              </Link>
+              <Link
+                href="/cafe"
+                className="text-sm font-medium text-zinc-300 hover:text-amber-400 transition flex items-center gap-1.5"
               >
-                Facilities
-              </a>
-              <a
-                href="#location"
-                className="text-sm text-zinc-400 hover:text-white transition"
-              >
-                Location
-              </a>
+                ☕ Cafe
+              </Link>
             </div>
             <LoginButton />
           </div>
