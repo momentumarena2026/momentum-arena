@@ -123,7 +123,7 @@ export async function createCafeOrder(data: {
       await db.cafeDiscountUsage.create({
         data: {
           discountId: discountCodeId,
-          userId,
+          userId: userId || undefined,
           orderId: order.id,
           discountAmount,
         },
