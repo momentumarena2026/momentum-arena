@@ -198,7 +198,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
 
   if (items.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto text-center py-20">
+      <div className="min-h-screen bg-black max-w-2xl mx-auto text-center py-20 px-4">
         <div className="text-5xl mb-4">🛒</div>
         <h2 className="text-xl font-bold text-white mb-2">Cart is Empty</h2>
         <p className="text-zinc-400 mb-6">
@@ -215,7 +215,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-black max-w-2xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-white mb-6">Checkout</h1>
 
       {/* Guest Info (if not logged in) */}

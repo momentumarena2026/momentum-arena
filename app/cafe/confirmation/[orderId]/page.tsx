@@ -41,7 +41,7 @@ export default async function CafeConfirmationPage({
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-black max-w-2xl mx-auto px-4 py-8">
       {/* Success icon */}
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-900/30 border border-emerald-700 mb-4">

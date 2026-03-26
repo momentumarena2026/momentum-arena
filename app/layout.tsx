@@ -111,7 +111,7 @@ export default async function RootLayout({
         <script src="https://checkout.razorpay.com/v1/checkout.js" async />
       </head>
       <body
-        className={`antialiased ${michroma.className}`}
+        className={`antialiased bg-black text-white ${michroma.className}`}
       >
         <SessionProvider session={session}>
           {children}

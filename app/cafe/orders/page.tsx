@@ -19,7 +19,7 @@ export default async function CafeOrdersPage() {
   const orders = await getMyCafeOrders();
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="min-h-screen bg-black max-w-3xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-white">My Cafe Orders</h1>
         <Link
