@@ -75,6 +75,7 @@ export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
 
   async function handleGoogleLogin() {
     setLoading(true);
+    // Selection is saved in sessionStorage by the parent — it will restore after redirect
     await signIn("google", { callbackUrl: window.location.href });
   }
 

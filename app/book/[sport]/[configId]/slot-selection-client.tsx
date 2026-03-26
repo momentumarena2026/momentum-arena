@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
@@ -33,6 +33,28 @@ export function SlotSelectionClient({
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
+  const pendingAuthRef = useRef(false);
+  const storageKey = `slot_selection_${configId}`;
+
+  // Save selection to sessionStorage whenever it changes
+  useEffect(() => {
+    if (selectedHours.length > 0) {
+      sessionStorage.setItem(storageKey, JSON.stringify({ date: selectedDate, hours: selectedHours }));
+    }
+  }, [selectedHours, selectedDate, storageKey]);
+
+  // Restore selection from sessionStorage on mount (e.g. after Google OAuth redirect)
+  useEffect(() => {
+    const saved = sessionStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const { date, hours } = JSON.parse(saved);
+        if (date === selectedDate && Array.isArray(hours) && hours.length > 0) {
+          setSelectedHours(hours);
+        }
+      } catch { /* ignore */ }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     async function fetchSlots() {
@@ -50,8 +72,18 @@ export function SlotSelectionClient({
       }
     }
     fetchSlots();
-    setSelectedHours([]);
+    // Only clear selection when date actually changes, not on re-render
   }, [configId, selectedDate]);
+
+  // After auth completes and session is available, auto-proceed to lock
+  useEffect(() => {
+    if (pendingAuthRef.current && session?.user && selectedHours.length > 0) {
+      pendingAuthRef.current = false;
+      setShowAuth(false);
+      // Small delay to let session cookie propagate
+      setTimeout(() => lockAndCheckout(), 500);
+    }
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedSlotPrices = slots.filter((s) =>
     selectedHours.includes(s.hour)
@@ -88,6 +120,7 @@ export function SlotSelectionClient({
       const data = await res.json();
 
       if (data.success && data.bookingId) {
+        sessionStorage.removeItem(storageKey);
         router.push(`/book/checkout?bookingId=${data.bookingId}`);
       } else {
         setError(data.error || "Failed to lock slots");
@@ -105,13 +138,25 @@ export function SlotSelectionClient({
   };
 
   const handleAuthenticated = () => {
-    // User just logged in via inline auth — proceed with lock
-    lockAndCheckout();
+    // User just logged in — mark pending so useEffect picks it up when session updates
+    pendingAuthRef.current = true;
+    // Also try directly in case session is already updated
+    setTimeout(() => {
+      if (pendingAuthRef.current) {
+        pendingAuthRef.current = false;
+        setShowAuth(false);
+        lockAndCheckout();
+      }
+    }, 1000);
   };
 
   return (
     <div className="space-y-6">
-      <DatePicker selectedDate={selectedDate} onDateChange={setSelectedDate} />
+      <DatePicker selectedDate={selectedDate} onDateChange={(date) => {
+        setSelectedDate(date);
+        setSelectedHours([]);
+        sessionStorage.removeItem(storageKey);
+      }} />
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
