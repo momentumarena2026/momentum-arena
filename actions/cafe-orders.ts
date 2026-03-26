@@ -22,6 +22,7 @@ export async function createCafeOrder(data: {
   note?: string;
   guestName?: string;
   guestPhone?: string;
+  tableNumber?: number;
 }) {
   const userId = await getOptionalCustomerId();
 
@@ -95,6 +96,7 @@ export async function createCafeOrder(data: {
         userId: userId || null,
         guestName: !userId ? (data.guestName?.trim() || "Guest") : null,
         guestPhone: !userId ? (data.guestPhone?.trim() || null) : null,
+        tableNumber: data.tableNumber || null,
         status: "PENDING",
         totalAmount,
         originalAmount,
