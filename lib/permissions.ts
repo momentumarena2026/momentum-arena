@@ -15,6 +15,8 @@ export const ALL_PERMISSIONS = [
   "MANAGE_CAFE_MENU",
   "MANAGE_CAFE_ORDERS",
   "MANAGE_CAFE_DISCOUNTS",
+  "MANAGE_REWARDS",
+  "MANAGE_COUPONS",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -38,6 +40,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_CAFE_MENU: "Manage Cafe Menu",
   MANAGE_CAFE_ORDERS: "Manage Cafe Orders",
   MANAGE_CAFE_DISCOUNTS: "Manage Cafe Coupons",
+  MANAGE_REWARDS: "Manage Reward Points",
+  MANAGE_COUPONS: "Manage Unified Coupons",
 };
 
 export function hasPermission(
