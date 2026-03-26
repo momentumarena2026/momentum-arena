@@ -1,7 +1,8 @@
 import crypto from "crypto";
 
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID!;
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET!;
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_SUZFLnB96J47Lz";
+const RAZORPAY_KEY_SECRET =
+  process.env.RAZORPAY_KEY_SECRET || "M5l0M9QuMexe1uamZmmjD7h0";
 
 export { RAZORPAY_KEY_ID };
 
