@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { LoginButton } from "@/components/login-modal";
+import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function BookLayout({
   children,
@@ -51,19 +52,7 @@ export default async function BookLayout({
                     </div>
                     <span className="hidden sm:inline">{session.user.name || session.user.email}</span>
                   </Link>
-                  <form
-                    action={async () => {
-                      "use server";
-                      await signOut({ redirectTo: "/" });
-                    }}
-                  >
-                    <button
-                      type="submit"
-                      className="rounded-md bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
-                    >
-                      Sign Out
-                    </button>
-                  </form>
+                  <SignOutButton />
                 </>
               ) : (
                 <LoginButton />

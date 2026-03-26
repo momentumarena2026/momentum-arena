@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { SetPasswordWrapper } from "@/components/set-password-wrapper";
+import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function ProtectedLayout({
   children,
@@ -37,19 +38,7 @@ export default async function ProtectedLayout({
                 </div>
                 {session.user.name || session.user.email}
               </Link>
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut({ redirectTo: "/" });
-                }}
-              >
-                <button
-                  type="submit"
-                  className="rounded-md bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
-                >
-                  Sign Out
-                </button>
-              </form>
+              <SignOutButton />
             </div>
           </div>
         </div>

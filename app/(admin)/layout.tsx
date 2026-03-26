@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
+import { SignOutButton } from "@/components/sign-out-button";
 import { hasPermission } from "@/lib/permissions";
 import {
   LayoutDashboard,
@@ -83,19 +84,7 @@ export default async function AdminLayout({
               >
                 {session.user.name || session.user.email}
               </Link>
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut({ redirectTo: "/godmode" });
-                }}
-              >
-                <button
-                  type="submit"
-                  className="rounded-md bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
-                >
-                  Sign Out
-                </button>
-              </form>
+              <SignOutButton redirectTo="/godmode" />
             </div>
           </div>
         </div>
