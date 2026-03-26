@@ -53,18 +53,42 @@ export default function NotFound() {
           />
         </div>
 
-        {/* 404 with cricket ball animation */}
-        <div className="relative mb-6 animate-fade-in-up">
-          <h1 className="text-[120px] sm:text-[160px] font-black text-transparent bg-clip-text bg-gradient-to-b from-zinc-600 to-zinc-800 leading-none select-none">
+        {/* 404 with spinning cricket ball */}
+        <div className="relative mb-6 animate-fade-in-up flex items-center justify-center gap-0">
+          <span className="text-[120px] sm:text-[160px] font-black text-transparent bg-clip-text bg-gradient-to-b from-zinc-500 to-zinc-700 leading-none select-none">
             4
-            <span className="relative inline-block">
-              {/* The "0" is replaced by a spinning ball */}
-              <span className="inline-block animate-spin-slow text-[100px] sm:text-[140px]">
-                🏏
-              </span>
-            </span>
+          </span>
+          <div className="relative w-[100px] h-[120px] sm:w-[140px] sm:h-[160px] flex items-center justify-center">
+            {/* Spinning cricket ball */}
+            <div className="animate-spin-slow">
+              <svg width="90" height="90" viewBox="0 0 90 90" className="sm:w-[120px] sm:h-[120px]" fill="none">
+                <circle cx="45" cy="45" r="42" fill="#dc2626" stroke="#991b1b" strokeWidth="2"/>
+                <path d="M20 30 Q45 15 70 30" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+                <path d="M20 60 Q45 75 70 60" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+                <line x1="22" y1="33" x2="22" y2="28" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="30" y1="27" x2="30" y2="23" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="38" y1="24" x2="38" y2="20" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="45" y1="23" x2="45" y2="19" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="52" y1="24" x2="52" y2="20" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="60" y1="27" x2="60" y2="23" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="68" y1="33" x2="68" y2="28" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="22" y1="57" x2="22" y2="62" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="30" y1="63" x2="30" y2="67" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="38" y1="66" x2="38" y2="70" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="45" y1="67" x2="45" y2="71" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="52" y1="66" x2="52" y2="70" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="60" y1="63" x2="60" y2="67" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="68" y1="57" x2="68" y2="62" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </div>
+            {/* Glow effect behind ball */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-red-500/20 blur-xl animate-pulse" />
+            </div>
+          </div>
+          <span className="text-[120px] sm:text-[160px] font-black text-transparent bg-clip-text bg-gradient-to-b from-zinc-500 to-zinc-700 leading-none select-none">
             4
-          </h1>
+          </span>
         </div>
 
         {/* Message */}
