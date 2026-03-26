@@ -169,23 +169,28 @@ function drawBackground(doc: jsPDF, pw: number, ph: number) {
   doc.rect(0, 0, pw, ph, "F");
 
   // Subtle texture
+  // @ts-expect-error jsPDF GState
   doc.setGState(new doc.GState({ opacity: 0.03 }));
   for (let i = 0; i < pw; i += 8) {
     doc.setFillColor(180, 120, 60);
     doc.rect(i, 0, 4, ph, "F");
   }
+  // @ts-expect-error jsPDF GState
   doc.setGState(new doc.GState({ opacity: 0.02 }));
   for (let i = -ph; i < pw; i += 30) {
     doc.setFillColor(255, 180, 80);
     doc.rect(i, 0, 12, ph, "F");
   }
+  // @ts-expect-error jsPDF GState
   doc.setGState(new doc.GState({ opacity: 1 }));
 
   // Corner glow
+  // @ts-expect-error jsPDF GState
   doc.setGState(new doc.GState({ opacity: 0.06 }));
   doc.setFillColor(...C.amber);
   doc.circle(-20, -20, 80, "F");
   doc.circle(pw + 20, ph + 20, 80, "F");
+  // @ts-expect-error jsPDF GState
   doc.setGState(new doc.GState({ opacity: 1 }));
 
   // Top/bottom amber bars
@@ -349,9 +354,11 @@ export async function GET() {
     // Category header — amber bar
     doc.setFillColor(...C.amberDark);
     doc.roundedRect(margin, y, cw, 10, 1.5, 1.5, "F");
+    // @ts-expect-error jsPDF GState
     doc.setGState(new doc.GState({ opacity: 0.3 }));
     doc.setFillColor(...C.amber);
     doc.roundedRect(margin, y, cw, 5, 1.5, 1.5, "F");
+    // @ts-expect-error jsPDF GState
     doc.setGState(new doc.GState({ opacity: 1 }));
 
     // Category icon on left
@@ -408,7 +415,7 @@ export async function GET() {
 
       // Tags
       let tx = margin + 11 + doc.getTextWidth(item.name) + 2;
-      if (item.isPopular) {
+      if (item.tags.includes("Popular")) {
         doc.setFontSize(5.5);
         doc.setFillColor(...C.amber);
         const tw = doc.getTextWidth("POPULAR") + 3;
@@ -418,7 +425,7 @@ export async function GET() {
         doc.text("POPULAR", tx + 1.5, y + 2.5);
         tx += tw + 1.5;
       }
-      if (item.isBestseller) {
+      if (item.tags.includes("Bestseller")) {
         doc.setFontSize(5.5);
         doc.setFillColor(220, 50, 50);
         const tw = doc.getTextWidth("BESTSELLER") + 3;

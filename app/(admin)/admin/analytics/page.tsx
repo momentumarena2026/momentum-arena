@@ -19,7 +19,7 @@ export default async function AnalyticsPage() {
         </p>
       </div>
       <AnalyticsDashboard
-        initialKPI={kpiResult.success ? kpiResult.data : null}
+        initialKPI={kpiResult.success && kpiResult.data ? kpiResult.data : null}
         defaultDateFrom={dateFrom}
         defaultDateTo={dateTo}
       />

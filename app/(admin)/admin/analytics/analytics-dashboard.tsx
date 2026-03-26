@@ -385,8 +385,8 @@ export function AnalyticsDashboard({
                   content={({ active, payload, label }) => (
                     <ChartTooltip
                       active={active}
-                      payload={payload as Array<{ name: string; value: number; color: string }>}
-                      label={label}
+                      payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
+                      label={typeof label === "number" ? String(label) : label}
                     />
                   )}
                 />
@@ -454,7 +454,7 @@ export function AnalyticsDashboard({
                     cy="50%"
                     outerRadius={100}
                     label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
+                      `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                     }
                     labelLine={{ stroke: "#a1a1aa" }}
                   >
@@ -469,7 +469,7 @@ export function AnalyticsDashboard({
                     content={({ active, payload }) => (
                       <ChartTooltip
                         active={active}
-                        payload={payload as Array<{ name: string; value: number; color: string }>}
+                        payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
                       />
                     )}
                   />
@@ -496,7 +496,7 @@ export function AnalyticsDashboard({
                     cy="50%"
                     outerRadius={100}
                     label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
+                      `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                     }
                     labelLine={{ stroke: "#a1a1aa" }}
                   >
@@ -511,7 +511,7 @@ export function AnalyticsDashboard({
                     content={({ active, payload }) => (
                       <ChartTooltip
                         active={active}
-                        payload={payload as Array<{ name: string; value: number; color: string }>}
+                        payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
                       />
                     )}
                   />
@@ -551,7 +551,7 @@ export function AnalyticsDashboard({
                     content={({ active, payload, label }) => (
                       <ChartTooltip
                         active={active}
-                        payload={payload as Array<{ name: string; value: number; color: string }>}
+                        payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
                         label={typeof label === "number" ? formatHour(label) : label}
                         formatter={(v) => `${v} bookings`}
                       />
@@ -587,7 +587,7 @@ export function AnalyticsDashboard({
                     innerRadius={60}
                     outerRadius={100}
                     label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
+                      `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                     }
                     labelLine={{ stroke: "#a1a1aa" }}
                   >
@@ -602,7 +602,7 @@ export function AnalyticsDashboard({
                     content={({ active, payload }) => (
                       <ChartTooltip
                         active={active}
-                        payload={payload as Array<{ name: string; value: number; color: string }>}
+                        payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
                       />
                     )}
                   />
