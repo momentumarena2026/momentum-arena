@@ -214,16 +214,16 @@ export default function Home() {
                 className="h-16 sm:h-20 md:h-24 w-auto"
               />
             </Link>
-            <div className="flex items-center gap-6">
+            <div className="hidden md:flex items-center gap-8">
               <Link
                 href="/book"
-                className="text-sm font-medium text-zinc-300 hover:text-emerald-400 transition flex items-center gap-1.5"
+                className="text-base font-semibold text-zinc-300 hover:text-emerald-400 transition flex items-center gap-2"
               >
                 🏟️ Sports
               </Link>
               <Link
                 href="/cafe"
-                className="text-sm font-medium text-zinc-300 hover:text-amber-400 transition flex items-center gap-1.5"
+                className="text-base font-semibold text-zinc-300 hover:text-amber-400 transition flex items-center gap-2"
               >
                 ☕ Cafe
               </Link>
@@ -260,10 +260,10 @@ export default function Home() {
               />
             </div>
 
-            <h1 className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight mb-4 leading-tight px-2">
-              MATHURA&apos;S PREMIER
-              <br />
-              <span className="bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">
+            <h1 className="text-xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-black tracking-tight mb-4 leading-tight px-2 whitespace-nowrap">
+              <span className="block sm:inline">MATHURA&apos;S PREMIER</span>
+              <br className="hidden sm:block" />
+              <span className="block sm:inline bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">
                 MULTI-SPORT ARENA
               </span>
             </h1>
@@ -537,7 +537,7 @@ export default function Home() {
         </section>
 
         {/* FOOTER */}
-        <footer className="border-t border-zinc-900 py-8">
+        <footer className="border-t border-zinc-900 py-8 pb-24 md:pb-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-zinc-600 text-sm">
               &copy; 2026 Momentum Arena &bull; Mathura, UP
@@ -570,6 +570,40 @@ export default function Home() {
           </div>
         </footer>
       </main>
+
+      {/* Mobile bottom tab navigation */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-black/95 backdrop-blur-md border-t border-zinc-800">
+        <div className="flex items-center justify-around py-2.5">
+          <Link
+            href="/"
+            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-white transition"
+          >
+            <span className="text-lg">🏠</span>
+            <span className="text-[10px] font-medium">Home</span>
+          </Link>
+          <Link
+            href="/book"
+            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-emerald-400 transition"
+          >
+            <span className="text-lg">🏟️</span>
+            <span className="text-[10px] font-medium">Sports</span>
+          </Link>
+          <Link
+            href="/cafe"
+            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-amber-400 transition"
+          >
+            <span className="text-lg">☕</span>
+            <span className="text-[10px] font-medium">Cafe</span>
+          </Link>
+          <Link
+            href="/dashboard"
+            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-white transition"
+          >
+            <span className="text-lg">👤</span>
+            <span className="text-[10px] font-medium">Account</span>
+          </Link>
+        </div>
+      </div>
     </>
   );
 }
