@@ -7,6 +7,7 @@ import { DatePicker } from "@/components/booking/date-picker";
 import { SlotGrid } from "@/components/booking/slot-grid";
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
+import { formatHour } from "@/lib/court-config";
 import type { SlotAvailability } from "@/lib/availability";
 import { Loader2 } from "lucide-react";
 
@@ -134,21 +135,38 @@ export function SlotSelectionClient({
         <CheckoutAuth onAuthenticated={handleAuthenticated} />
       )}
 
+      {/* Bottom spacer for mobile fixed bar */}
       {selectedHours.length > 0 && !showAuth && (
-        <button
-          onClick={handleProceed}
-          disabled={booking || status === "loading"}
-          className="w-full rounded-xl bg-emerald-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
-        >
-          {booking ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Locking slots...
-            </span>
-          ) : (
-            `Pay Now — ${formatPrice(total)}`
-          )}
-        </button>
+        <div className="h-36 md:h-0" />
+      )}
+
+      {selectedHours.length > 0 && !showAuth && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 md:relative md:bottom-auto md:left-auto md:right-auto md:z-auto bg-black/95 backdrop-blur-md border-t border-zinc-800 md:border-0 md:bg-transparent md:backdrop-blur-none p-4 md:p-0">
+          {/* Slot summary */}
+          <div className="flex items-center justify-between mb-2 md:mb-3 text-sm">
+            <div className="flex items-center gap-2 text-zinc-400 overflow-hidden">
+              <span className="font-medium text-white flex-shrink-0">{selectedHours.length} slot{selectedHours.length > 1 ? "s" : ""}</span>
+              <span className="truncate text-xs">
+                {selectedHours.sort((a, b) => a - b).map((h) => formatHour(h)).join(", ")}
+              </span>
+            </div>
+            <span className="text-emerald-400 font-bold flex-shrink-0">{formatPrice(total)}</span>
+          </div>
+          <button
+            onClick={handleProceed}
+            disabled={booking || status === "loading"}
+            className="w-full rounded-xl bg-emerald-600 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {booking ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Locking slots...
+              </span>
+            ) : (
+              "Pay Now"
+            )}
+          </button>
+        </div>
       )}
     </div>
   );
