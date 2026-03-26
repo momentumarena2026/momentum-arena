@@ -64,25 +64,31 @@ export function CafeMenuPage({
           item.isVeg ? "veg vegetarian" : "non-veg nonveg",
         ].join(" ");
 
-        // Score: each token that matches adds to score, partial matches count less
+        // Score: each token that matches adds to score
         let score = 0;
+        let allTokensMatch = true;
         for (const token of tokens) {
           if (searchFields.includes(token)) {
-            score += 10; // exact word match
-          } else if (searchFields.split("").some((_, i) => searchFields.slice(i).startsWith(token))) {
-            score += 5; // substring match
+            score += 10; // exact substring match
           } else {
-            // Fuzzy: check if token chars appear in order (elastic-style)
+            // Fuzzy: check if token chars appear in order
             let fi = 0;
+            let matched = 0;
             for (const ch of token) {
               const idx = searchFields.indexOf(ch, fi);
-              if (idx >= 0) { fi = idx + 1; score += 0.5; }
+              if (idx >= 0) { fi = idx + 1; matched++; }
+            }
+            // Require at least 70% of chars to match in order
+            if (matched >= token.length * 0.7 && token.length >= 2) {
+              score += 3;
+            } else {
+              allTokensMatch = false;
             }
           }
         }
-        return { item, score };
+        return { item, score, allTokensMatch };
       })
-      .filter((r) => r.score > 0)
+      .filter((r) => r.score > 0 && r.allTokensMatch)
       .sort((a, b) => b.score - a.score)
       .map((r) => r.item);
   }, [searchQuery, allItems]);
