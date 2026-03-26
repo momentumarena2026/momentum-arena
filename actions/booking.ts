@@ -129,7 +129,7 @@ export async function initiateRazorpayPayment(
     return {
       success: true,
       razorpayOrderId: order.id,
-      razorpayKeyId: process.env.RAZORPAY_KEY_ID || "rzp_test_SUZFLnB96J47Lz",
+      razorpayKeyId: process.env.RAZORPAY_KEY_ID!,
       amount: booking.totalAmount,
       bookingId,
     };

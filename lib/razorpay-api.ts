@@ -1,8 +1,7 @@
 // Razorpay REST API wrapper for dashboard data fetching
 
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_SUZFLnB96J47Lz";
-const RAZORPAY_KEY_SECRET =
-  process.env.RAZORPAY_KEY_SECRET || "M5l0M9QuMexe1uamZmmjD7h0";
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID!;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET!;
 const RAZORPAY_API_BASE = "https://api.razorpay.com/v1";
 
 // --- Types ---
