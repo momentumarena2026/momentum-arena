@@ -7,6 +7,9 @@ import { PaymentMethod } from "@prisma/client";
 async function requireCustomer() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  // Verify this is a customer user (not an admin)
+  const user = await db.user.findUnique({ where: { id: session.user.id } });
+  if (!user) throw new Error("Customer account not found. Admin users should use the admin order page.");
   return session.user.id;
 }
 
