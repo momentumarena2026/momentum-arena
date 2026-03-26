@@ -67,9 +67,6 @@ function numberToWords(num: number): string {
 
 export async function GET(request: Request) {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { searchParams } = new URL(request.url);
   const orderId = searchParams.get("orderId");
@@ -91,8 +88,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  // Allow owner or admin
-  if (order.userId !== session.user.id && session.user.userType !== "admin") {
+  // Allow: guest order (no userId), order owner, or admin
+  const isGuest = !order.userId;
+  const isOwner = session?.user?.id && order.userId === session.user.id;
+  const isAdmin = (session?.user as { userType?: string })?.userType === "admin";
+  if (!isGuest && !isOwner && !isAdmin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
