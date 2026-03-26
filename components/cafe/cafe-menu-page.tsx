@@ -174,12 +174,14 @@ export function CafeMenuPage({
         </div>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 relative z-10">
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-3xl">☕</span>
-            <h1 className="text-3xl sm:text-4xl font-bold text-white">Momentum Cafe</h1>
+            <img src="/blackLogo.png" alt="Momentum Arena" className="h-12 w-auto" />
+            <div>
+              <h1 className="text-3xl sm:text-4xl font-bold text-white">Momentum Cafe</h1>
+              <p className="text-amber-200/60 text-sm sm:text-base max-w-lg">
+                Fuel your game! Snacks, beverages & meals — served fresh at the arena.
+              </p>
+            </div>
           </div>
-          <p className="text-amber-200/60 text-sm sm:text-base max-w-lg">
-            Fuel your game! Snacks, beverages & meals — served fresh at the arena.
-          </p>
         </div>
       </div>
 
