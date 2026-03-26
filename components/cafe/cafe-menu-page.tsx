@@ -146,7 +146,7 @@ export function CafeMenuPage({
     setActiveCategory(cat);
     const el = sectionRefs.current[cat];
     if (el) {
-      const offset = 140;
+      const offset = 160;
       const top = el.getBoundingClientRect().top + window.scrollY - offset;
       window.scrollTo({ top, behavior: "smooth" });
     }
@@ -166,22 +166,24 @@ export function CafeMenuPage({
           <div className="absolute bottom-4 left-1/3 text-4xl">🍿</div>
           <div className="absolute bottom-2 right-10 text-5xl">🍰</div>
         </div>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 relative z-10">
-          <div className="flex items-center gap-3 mb-2">
-            <a href="/" className="flex-shrink-0"><img src="/blackLogo.png" alt="Momentum Arena" className="h-24 w-auto" /></a>
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-white">Momentum Cafe ☕</h1>
-              <p className="text-amber-200/60 text-sm sm:text-base max-w-lg">
-                Fuel your game! Snacks, beverages & meals — served fresh at the arena.
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-8 relative z-10">
+          <div className="flex items-center gap-3">
+            <a href="/" className="flex-shrink-0"><img src="/blackLogo.png" alt="Momentum Arena" className="h-14 sm:h-24 w-auto" /></a>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-3xl md:text-4xl font-bold text-white truncate">Momentum Cafe ☕</h1>
+              <p className="text-amber-200/60 text-xs sm:text-sm max-w-lg truncate">
+                Snacks, beverages & meals — served fresh at the arena.
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6">
-        {/* Search bar */}
-        <div className="mt-6 mb-2 relative">
+      {/* Sticky search + category tabs */}
+      <div className="sticky top-0 z-30 bg-black/95 backdrop-blur-md border-b border-zinc-800/50">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          {/* Search bar */}
+          <div className="pt-3 pb-2 relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <input
             ref={searchInputRef}
@@ -212,12 +214,11 @@ export function CafeMenuPage({
           </div>
         )}
 
-        {/* Category tabs — sticky */}
+        {/* Category tabs */}
         <div
           ref={tabsRef}
-          className="sticky top-[64px] z-30 bg-black/95 backdrop-blur-md border-b border-zinc-800/50 -mx-4 px-4 sm:-mx-6 sm:px-6"
         >
-          <div className="flex gap-2 overflow-x-auto py-3 scrollbar-hide max-w-5xl mx-auto">
+          <div className="flex gap-2 overflow-x-auto py-2 pb-3 scrollbar-hide">
             {displayCategories.map((cat) => (
               <button
                 key={cat}
@@ -237,7 +238,10 @@ export function CafeMenuPage({
             ))}
           </div>
         </div>
+        </div>
+      </div>
 
+      <div className="max-w-5xl mx-auto px-4 sm:px-6">
         {/* Menu sections */}
         <div className="mt-6 space-y-10">
           {displayCategories.map((cat) => (
