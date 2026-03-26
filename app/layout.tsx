@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
-// Font is set via CSS (Arial, Helvetica, sans-serif)
+import { Michroma } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
+
+const michroma = Michroma({
+  weight: "400",
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-michroma",
+});
 import { auth } from "@/lib/auth";
 import { ChatWidgetWrapper } from "@/components/chatbot/chat-widget-wrapper";
 import "./globals.css";
@@ -99,13 +106,12 @@ export default async function RootLayout({
   }
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={michroma.variable}>
       <head>
         <script src="https://checkout.razorpay.com/v1/checkout.js" async />
       </head>
       <body
-        className="antialiased"
-        style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+        className={`antialiased ${michroma.className}`}
       >
         <SessionProvider session={session}>
           {children}
