@@ -489,10 +489,10 @@ export default function Home() {
                 </div>
 
                 {/* Social links */}
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   <a
                     href="https://wa.me/916396177261"
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-full text-sm font-semibold transition"
+                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1ebe57] text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-green-900/20"
                   >
                     <FaWhatsapp className="text-lg" />
                     WhatsApp
@@ -501,7 +501,8 @@ export default function Home() {
                     href="https://instagram.com/momentumarena_"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-zinc-300 px-5 py-2.5 rounded-full text-sm font-semibold transition"
+                    className="flex items-center gap-2 text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-pink-900/20"
+                    style={{ background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)" }}
                   >
                     <FaInstagram className="text-lg" />
                     Instagram
@@ -510,7 +511,7 @@ export default function Home() {
                     href="https://www.youtube.com/@momentum_arena"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 border border-zinc-700 hover:border-red-500 text-zinc-300 hover:text-red-400 px-5 py-2.5 rounded-full text-sm font-semibold transition"
+                    className="flex items-center gap-2 bg-[#FF0000] hover:bg-[#cc0000] text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-red-900/20"
                   >
                     <FaYoutube className="text-lg" />
                     YouTube
@@ -541,28 +542,29 @@ export default function Home() {
             <p className="text-zinc-600 text-sm">
               &copy; 2026 Momentum Arena &bull; Mathura, UP
             </p>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <a
                 href="https://wa.me/916396177261"
-                className="text-zinc-600 hover:text-green-500 transition"
+                className="flex items-center justify-center w-9 h-9 rounded-full bg-[#25D366] hover:bg-[#1ebe57] text-white transition shadow-sm"
               >
-                <FaWhatsapp className="text-lg" />
+                <FaWhatsapp className="text-base" />
               </a>
               <a
                 href="https://instagram.com/momentumarena_"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-zinc-600 hover:text-pink-500 transition"
+                className="flex items-center justify-center w-9 h-9 rounded-full text-white transition shadow-sm"
+                style={{ background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)" }}
               >
-                <FaInstagram className="text-lg" />
+                <FaInstagram className="text-base" />
               </a>
               <a
                 href="https://www.youtube.com/@momentum_arena"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-zinc-600 hover:text-red-500 transition"
+                className="flex items-center justify-center w-9 h-9 rounded-full bg-[#FF0000] hover:bg-[#cc0000] text-white transition shadow-sm"
               >
-                <FaYoutube className="text-lg" />
+                <FaYoutube className="text-base" />
               </a>
             </div>
           </div>
