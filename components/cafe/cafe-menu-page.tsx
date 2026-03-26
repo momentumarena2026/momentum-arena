@@ -165,7 +165,7 @@ export function CafeMenuPage({
   return (
     <div className="min-h-screen bg-black pb-28">
       {/* Hero header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-amber-900/40 via-black to-black border-b border-amber-800/20">
+      <div className="relative overflow-hidden bg-gradient-to-br from-emerald-900/30 via-black to-black border-b border-emerald-800/20">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-4 left-10 text-6xl">☕</div>
           <div className="absolute top-8 right-20 text-5xl">🍛</div>
@@ -174,12 +174,14 @@ export function CafeMenuPage({
         </div>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 relative z-10">
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-3xl">☕</span>
-            <h1 className="text-3xl sm:text-4xl font-bold text-white">Momentum Cafe</h1>
+            <img src="/blackLogo.png" alt="Momentum Arena" className="h-12 w-auto" />
+            <div>
+              <h1 className="text-3xl sm:text-4xl font-bold text-white">Momentum Cafe</h1>
+              <p className="text-emerald-400/60 text-sm sm:text-base max-w-lg">
+                Fuel your game! Snacks, beverages & meals — served fresh at the arena.
+              </p>
+            </div>
           </div>
-          <p className="text-amber-200/60 text-sm sm:text-base max-w-lg">
-            Fuel your game! Snacks, beverages & meals — served fresh at the arena.
-          </p>
         </div>
       </div>
 
@@ -193,7 +195,7 @@ export function CafeMenuPage({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search food, beverages, snacks..."
-            className="w-full pl-11 pr-10 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-amber-600/50 focus:ring-1 focus:ring-amber-600/20 transition-all"
+            className="w-full pl-11 pr-10 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-emerald-600/50 focus:ring-1 focus:ring-emerald-600/20 transition-all"
           />
           {searchQuery && (
             <button
@@ -228,7 +230,7 @@ export function CafeMenuPage({
                 onClick={() => scrollToCategory(cat)}
                 className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
                   activeCategory === cat
-                    ? "bg-amber-600 text-white shadow-lg shadow-amber-900/20"
+                    ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20"
                     : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800"
                 }`}
               >
@@ -354,15 +356,15 @@ export function CafeMenuPage({
                                   category: item.category,
                                 })
                               }
-                              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors uppercase tracking-wide"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors uppercase tracking-wide"
                             >
                               Add
                             </button>
                           ) : (
-                            <div className="flex items-center bg-amber-600 rounded-lg overflow-hidden">
+                            <div className="flex items-center bg-emerald-600 rounded-lg overflow-hidden">
                               <button
                                 onClick={() => updateQuantity(item.id, qty - 1)}
-                                className="text-white font-bold px-2.5 py-1.5 hover:bg-amber-700 transition-colors text-sm"
+                                className="text-white font-bold px-2.5 py-1.5 hover:bg-emerald-700 transition-colors text-sm"
                               >
                                 −
                               </button>
@@ -371,7 +373,7 @@ export function CafeMenuPage({
                               </span>
                               <button
                                 onClick={() => updateQuantity(item.id, qty + 1)}
-                                className="text-white font-bold px-2.5 py-1.5 hover:bg-amber-700 transition-colors text-sm"
+                                className="text-white font-bold px-2.5 py-1.5 hover:bg-emerald-700 transition-colors text-sm"
                               >
                                 +
                               </button>
@@ -402,10 +404,10 @@ export function CafeMenuPage({
           <div className="max-w-5xl mx-auto px-4 sm:px-6">
             <button
               onClick={() => setCartOpen(true)}
-              className="w-full flex items-center justify-between bg-amber-600 hover:bg-amber-700 text-white rounded-xl px-5 py-3.5 my-3 transition-all hover:shadow-lg hover:shadow-amber-900/20"
+              className="w-full flex items-center justify-between bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-5 py-3.5 my-3 transition-all hover:shadow-lg hover:shadow-emerald-900/20"
             >
               <div className="flex items-center gap-3">
-                <div className="bg-amber-700/50 rounded-lg p-1.5">
+                <div className="bg-emerald-700/50 rounded-lg p-1.5">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
                   </svg>
@@ -416,7 +418,7 @@ export function CafeMenuPage({
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-bold">{formatPrice(totalAmount)}</span>
-                <span className="text-amber-200 text-sm">View Cart →</span>
+                <span className="text-emerald-200 text-sm">View Cart →</span>
               </div>
             </button>
           </div>
