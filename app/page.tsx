@@ -369,7 +369,14 @@ export default function Home() {
                 href="/cafe"
                 className="group relative overflow-hidden rounded-2xl h-48 sm:h-56 border border-zinc-800 transition-all duration-500 hover:border-amber-400 hover:shadow-amber-500/20 block"
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-amber-900/80 via-amber-800/60 to-orange-900/80" />
+                {/* Background image */}
+                <img
+                  src="/cafe.jpg"
+                  alt="Cafeteria at Momentum Arena"
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                />
+                {/* Gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent" />
                 <div className="absolute inset-0 flex items-center justify-between px-8 sm:px-12">
                   <div>
                     <div className="text-4xl md:text-5xl mb-2">☕</div>
