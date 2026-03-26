@@ -120,14 +120,6 @@ export async function createCafeOrder(data: {
 
     // Record discount usage if applied
     if (discountCodeId && discountAmount > 0) {
-      await db.cafeDiscountUsage.create({
-        data: {
-          discountId: discountCodeId,
-          userId: userId || undefined,
-          orderId: order.id,
-          discountAmount,
-        },
-      });
       await db.cafeDiscount.update({
         where: { id: discountCodeId },
         data: { usedCount: { increment: 1 } },
