@@ -71,13 +71,7 @@ export function CafeMenuPage({
 
     return allItems
       .map((item) => {
-        const searchFields = [
-          item.name.toLowerCase(),
-          (item.description || "").toLowerCase(),
-          item.tags.join(" ").toLowerCase(),
-          (CATEGORY_LABELS[item.category] || item.category).toLowerCase(),
-          item.isVeg ? "veg vegetarian" : "non-veg nonveg",
-        ].join(" ");
+        const searchFields = item.name.toLowerCase();
 
         let score = 0;
         let allTokensMatch = true;
