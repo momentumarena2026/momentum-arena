@@ -1,0 +1,317 @@
+"use server";
+
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { CouponScope } from "@prisma/client";
+
+export interface CouponValidationResult {
+  valid: boolean;
+  discountAmount?: number;
+  error?: string;
+  couponId?: string;
+}
+
+interface ValidateCouponContext {
+  scope: "SPORTS" | "CAFE";
+  amount: number;
+  userId?: string;
+  sport?: string;
+  categories?: string[];
+}
+
+export async function validateCoupon(
+  code: string,
+  context: ValidateCouponContext
+): Promise<CouponValidationResult> {
+  try {
+    const upperCode = code.toUpperCase().trim();
+    const now = new Date();
+
+    // 1. Find coupon case-insensitive
+    const coupon = await db.coupon.findFirst({
+      where: { code: upperCode },
+      include: { conditions: true },
+    });
+
+    if (!coupon) {
+      return { valid: false, error: "Invalid coupon code" };
+    }
+
+    // 2. Check isActive, validFrom <= now <= validUntil
+    if (!coupon.isActive) {
+      return { valid: false, error: "This coupon is no longer active" };
+    }
+    if (now < coupon.validFrom) {
+      return { valid: false, error: "This coupon is not yet valid" };
+    }
+    if (now > coupon.validUntil) {
+      return { valid: false, error: "This coupon has expired" };
+    }
+
+    // 3. Check scope matches (BOTH matches everything)
+    if (coupon.scope !== "BOTH" && coupon.scope !== context.scope) {
+      return {
+        valid: false,
+        error: `This coupon is only valid for ${coupon.scope.toLowerCase()}`,
+      };
+    }
+
+    // 4. Check maxUses (usedCount < maxUses or null)
+    if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+      return { valid: false, error: "This coupon has reached its usage limit" };
+    }
+
+    // 5. If userId: check per-user usage < maxUsesPerUser
+    if (context.userId) {
+      const userUsageCount = await db.couponUsage.count({
+        where: {
+          couponId: coupon.id,
+          userId: context.userId,
+        },
+      });
+      if (userUsageCount >= coupon.maxUsesPerUser) {
+        return { valid: false, error: "You have already used this coupon the maximum number of times" };
+      }
+    }
+
+    // 6. Check sportFilter (if non-empty, context.sport must be in array)
+    if (coupon.sportFilter.length > 0) {
+      if (!context.sport || !coupon.sportFilter.includes(context.sport as never)) {
+        return { valid: false, error: "This coupon is not valid for this sport" };
+      }
+    }
+
+    // 7. Check categoryFilter (if non-empty, context.categories must intersect)
+    if (coupon.categoryFilter.length > 0) {
+      if (
+        !context.categories ||
+        !context.categories.some((cat) =>
+          coupon.categoryFilter.includes(cat as never)
+        )
+      ) {
+        return { valid: false, error: "This coupon is not valid for these items" };
+      }
+    }
+
+    // 8. Check userGroupFilter
+    if (coupon.userGroupFilter.length > 0) {
+      if (!context.userId) {
+        return { valid: false, error: "You must be logged in to use this coupon" };
+      }
+
+      const user = await db.user.findUnique({
+        where: { id: context.userId },
+        select: { birthday: true },
+      });
+
+      let matchesAnyGroup = false;
+
+      for (const group of coupon.userGroupFilter) {
+        switch (group) {
+          case "FIRST_TIME": {
+            const [bookingCount, orderCount] = await Promise.all([
+              db.booking.count({
+                where: { userId: context.userId, status: "CONFIRMED" },
+              }),
+              db.cafeOrder.count({
+                where: { userId: context.userId, status: "COMPLETED" },
+              }),
+            ]);
+            if (bookingCount === 0 && orderCount === 0) matchesAnyGroup = true;
+            break;
+          }
+          case "PREMIUM_PLAYER": {
+            const confirmedBookings = await db.booking.count({
+              where: { userId: context.userId, status: "CONFIRMED" },
+            });
+            if (confirmedBookings >= 10) matchesAnyGroup = true;
+            break;
+          }
+          case "FREQUENT_VISITOR": {
+            const completedOrders = await db.cafeOrder.count({
+              where: { userId: context.userId, status: "COMPLETED" },
+            });
+            if (completedOrders >= 5) matchesAnyGroup = true;
+            break;
+          }
+          case "BIRTHDAY_MONTH": {
+            if (user?.birthday) {
+              const birthMonth = user.birthday.getMonth();
+              const currentMonth = now.getMonth();
+              if (birthMonth === currentMonth) matchesAnyGroup = true;
+            }
+            break;
+          }
+          case "CUSTOM":
+            // Custom groups pass through — admin manages eligibility manually
+            matchesAnyGroup = true;
+            break;
+        }
+        if (matchesAnyGroup) break;
+      }
+
+      if (!matchesAnyGroup) {
+        return { valid: false, error: "You are not eligible for this coupon" };
+      }
+    }
+
+    // 9. Check conditions (CouponCondition[])
+    for (const condition of coupon.conditions) {
+      const condValue = JSON.parse(condition.conditionValue);
+
+      switch (condition.conditionType) {
+        case "MIN_AMOUNT": {
+          const minAmount = condValue.minAmount as number;
+          if (context.amount < minAmount) {
+            return {
+              valid: false,
+              error: `Minimum order amount is ₹${(minAmount / 100).toLocaleString("en-IN")}`,
+            };
+          }
+          break;
+        }
+        case "TIME_WINDOW": {
+          const { startHour, endHour } = condValue as {
+            startHour: number;
+            endHour: number;
+          };
+          const currentHour = now.getHours();
+          if (startHour <= endHour) {
+            if (currentHour < startHour || currentHour >= endHour) {
+              return {
+                valid: false,
+                error: `This coupon is only valid between ${startHour}:00 and ${endHour}:00`,
+              };
+            }
+          } else {
+            // Wraps midnight, e.g., 22-06
+            if (currentHour < startHour && currentHour >= endHour) {
+              return {
+                valid: false,
+                error: `This coupon is only valid between ${startHour}:00 and ${endHour}:00`,
+              };
+            }
+          }
+          break;
+        }
+        case "FIRST_PURCHASE": {
+          if (!context.userId) {
+            return { valid: false, error: "You must be logged in to use this coupon" };
+          }
+          const priorUsage = await db.couponUsage.count({
+            where: { userId: context.userId },
+          });
+          if (priorUsage > 0) {
+            return { valid: false, error: "This coupon is only valid for first-time purchases" };
+          }
+          break;
+        }
+        // Additional condition types handled at filter level (SPORT_SPECIFIC,
+        // CATEGORY_SPECIFIC, USER_GROUP, BIRTHDAY, REFERRAL) are already
+        // covered by sportFilter, categoryFilter, and userGroupFilter above.
+        default:
+          break;
+      }
+    }
+
+    // Check minAmount on coupon itself
+    if (coupon.minAmount !== null && context.amount < coupon.minAmount) {
+      return {
+        valid: false,
+        error: `Minimum amount is ₹${(coupon.minAmount / 100).toLocaleString("en-IN")}`,
+      };
+    }
+
+    // 10. Calculate discount
+    let discountAmount: number;
+    if (coupon.type === "PERCENTAGE") {
+      discountAmount = Math.floor((context.amount * coupon.value) / 10000);
+      if (coupon.maxDiscount !== null) {
+        discountAmount = Math.min(discountAmount, coupon.maxDiscount);
+      }
+    } else {
+      // FLAT
+      discountAmount = coupon.value;
+    }
+
+    // Cap at total amount
+    discountAmount = Math.min(discountAmount, context.amount);
+
+    return {
+      valid: true,
+      discountAmount,
+      couponId: coupon.id,
+    };
+  } catch (error) {
+    console.error("Coupon validation error:", error);
+    return { valid: false, error: "Failed to validate coupon" };
+  }
+}
+
+export async function applyCoupon(
+  couponId: string,
+  userId: string,
+  context: {
+    bookingId?: string;
+    cafeOrderId?: string;
+    discountAmount: number;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const result = await db.$transaction(
+      async (tx) => {
+        // Re-validate the coupon inside the transaction
+        const coupon = await tx.coupon.findUnique({
+          where: { id: couponId },
+        });
+
+        if (!coupon || !coupon.isActive) {
+          throw new Error("Coupon is no longer active");
+        }
+
+        const now = new Date();
+        if (now < coupon.validFrom || now > coupon.validUntil) {
+          throw new Error("Coupon has expired");
+        }
+
+        if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+          throw new Error("Coupon usage limit reached");
+        }
+
+        const userUsageCount = await tx.couponUsage.count({
+          where: { couponId: coupon.id, userId },
+        });
+        if (userUsageCount >= coupon.maxUsesPerUser) {
+          throw new Error("Per-user usage limit reached");
+        }
+
+        // Increment usedCount
+        await tx.coupon.update({
+          where: { id: couponId },
+          data: { usedCount: { increment: 1 } },
+        });
+
+        // Create CouponUsage record
+        await tx.couponUsage.create({
+          data: {
+            couponId,
+            userId,
+            bookingId: context.bookingId || null,
+            cafeOrderId: context.cafeOrderId || null,
+            discountAmount: context.discountAmount,
+          },
+        });
+
+        return { success: true };
+      },
+      { isolationLevel: "Serializable", timeout: 10000 }
+    );
+
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to apply coupon",
+    };
+  }
+}
