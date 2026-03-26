@@ -66,8 +66,9 @@ export default async function AdminLayout({
                 <Image
                   src="/blackLogo.png"
                   alt="Momentum Arena"
-                  width={200}
-                  height={65}
+                  width={240}
+                  height={80}
+                  className="h-24 w-auto"
                 />
               </Link>
               <span className="rounded-md bg-red-600/20 px-2 py-1 text-xs font-medium text-red-400 border border-red-600/30">
