@@ -362,6 +362,30 @@ export default function Home() {
                 );
               })}
             </div>
+
+            {/* Cafe Card */}
+            <div className="mt-6">
+              <Link
+                href="/cafe"
+                className="group relative overflow-hidden rounded-2xl h-48 sm:h-56 border border-zinc-800 transition-all duration-500 hover:border-amber-400 hover:shadow-amber-500/20 block"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-900/80 via-amber-800/60 to-orange-900/80" />
+                <div className="absolute inset-0 flex items-center justify-between px-8 sm:px-12">
+                  <div>
+                    <div className="text-4xl md:text-5xl mb-2">☕</div>
+                    <h3 className="text-2xl md:text-3xl font-black text-white mb-1">
+                      Cafeteria
+                    </h3>
+                    <p className="text-sm md:text-base text-white/70">
+                      Snacks, Beverages &amp; Meals
+                    </p>
+                  </div>
+                  <div className="px-5 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-sm font-semibold text-white opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                    Order Now &rarr;
+                  </div>
+                </div>
+              </Link>
+            </div>
           </div>
         </section>
 

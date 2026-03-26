@@ -68,10 +68,11 @@ export default async function ConfirmationPage({
   const status = statusConfig[booking.status];
   const StatusIcon = status.icon;
 
-  const paymentLabel = {
+  const paymentLabel: Record<string, string> = {
     RAZORPAY: "Online (Razorpay)",
     UPI_QR: "UPI QR",
     CASH: "Cash at Venue",
+    FREE: "Complimentary",
   };
 
   const paymentStatusLabel = {
