@@ -18,8 +18,6 @@ export default async function CafeConfirmationPage({
   params: Promise<{ orderId: string }>;
 }) {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-
   const { orderId } = await params;
 
   const order = await db.cafeOrder.findUnique({
@@ -30,7 +28,8 @@ export default async function CafeConfirmationPage({
     },
   });
 
-  if (!order || order.userId !== session.user.id) {
+  // Allow access if: guest order (no userId), or logged-in user's own order
+  if (!order || (order.userId && session?.user?.id !== order.userId)) {
     redirect("/cafe");
   }
 

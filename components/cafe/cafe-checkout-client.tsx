@@ -17,11 +17,13 @@ declare global {
   }
 }
 
-export function CafeCheckoutClient() {
+export function CafeCheckoutClient({ isLoggedIn }: { isLoggedIn?: boolean }) {
   const router = useRouter();
   const { items, totalAmount, clearCart } = useCafeCart();
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("RAZORPAY");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(isLoggedIn ? "RAZORPAY" : "CASH");
   const [note, setNote] = useState("");
+  const [guestName, setGuestName] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{
@@ -92,6 +94,8 @@ export function CafeCheckoutClient() {
         paymentMethod,
         discountCode: appliedCoupon?.code,
         note: note.trim() || undefined,
+        guestName: !isLoggedIn ? guestName.trim() || undefined : undefined,
+        guestPhone: !isLoggedIn ? guestPhone.trim() || undefined : undefined,
       });
 
       if (!result.success || !result.orderId) {
@@ -200,6 +204,32 @@ export function CafeCheckoutClient() {
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold text-white mb-6">Checkout</h1>
+
+      {/* Guest Info (if not logged in) */}
+      {!isLoggedIn && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4">
+          <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">
+            Your Details (Optional)
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              type="text"
+              value={guestName}
+              onChange={(e) => setGuestName(e.target.value)}
+              placeholder="Your name"
+              className="rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600"
+            />
+            <input
+              type="tel"
+              value={guestPhone}
+              onChange={(e) => setGuestPhone(e.target.value)}
+              placeholder="Phone number"
+              className="rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600"
+            />
+          </div>
+          <p className="text-xs text-zinc-500 mt-2">For order reference only. No account required.</p>
+        </div>
+      )}
 
       {/* Order Summary */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4">

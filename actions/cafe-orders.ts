@@ -4,13 +4,15 @@ import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PaymentMethod } from "@prisma/client";
 
-async function requireCustomer() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-  // Verify this is a customer user (not an admin)
-  const user = await db.user.findUnique({ where: { id: session.user.id } });
-  if (!user) throw new Error("Customer account not found. Admin users should use the admin order page.");
-  return session.user.id;
+async function getOptionalCustomerId(): Promise<string | null> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return null;
+    const user = await db.user.findUnique({ where: { id: session.user.id } });
+    return user ? user.id : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function createCafeOrder(data: {
@@ -18,8 +20,10 @@ export async function createCafeOrder(data: {
   paymentMethod: PaymentMethod;
   discountCode?: string;
   note?: string;
+  guestName?: string;
+  guestPhone?: string;
 }) {
-  const userId = await requireCustomer();
+  const userId = await getOptionalCustomerId();
 
   try {
     if (!data.items || data.items.length === 0) {
@@ -88,7 +92,9 @@ export async function createCafeOrder(data: {
     const order = await db.cafeOrder.create({
       data: {
         orderNumber,
-        userId,
+        userId: userId || null,
+        guestName: !userId ? (data.guestName?.trim() || "Guest") : null,
+        guestPhone: !userId ? (data.guestPhone?.trim() || null) : null,
         status: "PENDING",
         totalAmount,
         originalAmount,
@@ -230,7 +236,8 @@ export async function validateCafeCoupon(
 }
 
 export async function getMyCafeOrders() {
-  const userId = await requireCustomer();
+  const userId = await getOptionalCustomerId();
+  if (!userId) return [];
 
   const orders = await db.cafeOrder.findMany({
     where: { userId },

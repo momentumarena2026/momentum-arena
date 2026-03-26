@@ -14,7 +14,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default async function CafeOrdersPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  if (!session?.user?.id) redirect("/cafe");
 
   const orders = await getMyCafeOrders();
 
