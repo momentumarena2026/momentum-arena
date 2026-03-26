@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { CafeCartDrawer } from "./cafe-cart-drawer";
+import { Search, X } from "lucide-react";
 
 interface MenuItem {
   id: string;
@@ -34,11 +35,75 @@ export function CafeMenuPage({
 }) {
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [cartOpen, setCartOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const tabsRef = useRef<HTMLDivElement>(null);
   const { items: cartItems, addItem, updateQuantity, totalItems } = useCafeCart();
 
   const categories = CATEGORY_ORDER.filter((c) => groupedItems[c]?.length > 0);
+
+  // Fuzzy search — matches name, description, tags, category
+  const allItems = useMemo(
+    () => Object.values(groupedItems).flat(),
+    [groupedItems]
+  );
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return null;
+    const query = searchQuery.toLowerCase().trim();
+    const tokens = query.split(/\s+/);
+
+    return allItems
+      .map((item) => {
+        const searchFields = [
+          item.name.toLowerCase(),
+          (item.description || "").toLowerCase(),
+          item.tags.join(" ").toLowerCase(),
+          (CATEGORY_LABELS[item.category] || item.category).toLowerCase(),
+          item.isVeg ? "veg vegetarian" : "non-veg nonveg",
+        ].join(" ");
+
+        // Score: each token that matches adds to score, partial matches count less
+        let score = 0;
+        for (const token of tokens) {
+          if (searchFields.includes(token)) {
+            score += 10; // exact word match
+          } else if (searchFields.split("").some((_, i) => searchFields.slice(i).startsWith(token))) {
+            score += 5; // substring match
+          } else {
+            // Fuzzy: check if token chars appear in order (elastic-style)
+            let fi = 0;
+            for (const ch of token) {
+              const idx = searchFields.indexOf(ch, fi);
+              if (idx >= 0) { fi = idx + 1; score += 0.5; }
+            }
+          }
+        }
+        return { item, score };
+      })
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((r) => r.item);
+  }, [searchQuery, allItems]);
+
+  const isSearching = searchQuery.trim().length > 0;
+
+  // Group search results by category for display
+  const searchGrouped = useMemo(() => {
+    if (!searchResults) return {};
+    const grouped: Record<string, MenuItem[]> = {};
+    for (const item of searchResults) {
+      if (!grouped[item.category]) grouped[item.category] = [];
+      grouped[item.category].push(item);
+    }
+    return grouped;
+  }, [searchResults]);
+
+  const displayGrouped = isSearching ? searchGrouped : groupedItems;
+  const displayCategories = isSearching
+    ? CATEGORY_ORDER.filter((c) => searchGrouped[c]?.length > 0)
+    : categories;
 
   useEffect(() => {
     if (categories.length > 0 && !activeCategory) {
@@ -89,13 +154,45 @@ export function CafeMenuPage({
         </p>
       </div>
 
+      {/* Search bar */}
+      <div className="mb-4 relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+        <input
+          ref={searchInputRef}
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search food, beverages, snacks..."
+          className="w-full pl-10 pr-10 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-emerald-600 transition-colors"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Search results info */}
+      {isSearching && (
+        <div className="mb-4 text-sm text-zinc-400">
+          {searchResults && searchResults.length > 0 ? (
+            <span>{searchResults.length} item{searchResults.length !== 1 ? "s" : ""} found for &ldquo;{searchQuery}&rdquo;</span>
+          ) : (
+            <span className="text-red-400">No items found for &ldquo;{searchQuery}&rdquo;</span>
+          )}
+        </div>
+      )}
+
       {/* Category tabs */}
       <div
         ref={tabsRef}
         className="sticky top-16 z-30 bg-black/90 backdrop-blur-md border-b border-zinc-800 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8"
       >
         <div className="flex gap-1 overflow-x-auto py-3 scrollbar-hide">
-          {categories.map((cat) => (
+          {displayCategories.map((cat) => (
             <button
               key={cat}
               onClick={() => scrollToCategory(cat)}
@@ -106,6 +203,9 @@ export function CafeMenuPage({
               }`}
             >
               {CATEGORY_LABELS[cat] || cat}
+              {isSearching && searchGrouped[cat] && (
+                <span className="ml-1 text-xs opacity-70">({searchGrouped[cat].length})</span>
+              )}
             </button>
           ))}
         </div>
@@ -113,7 +213,7 @@ export function CafeMenuPage({
 
       {/* Menu sections */}
       <div className="mt-6 space-y-10">
-        {categories.map((cat) => (
+        {displayCategories.map((cat) => (
           <div
             key={cat}
             ref={(el) => {
@@ -125,7 +225,7 @@ export function CafeMenuPage({
               {CATEGORY_LABELS[cat] || cat}
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {groupedItems[cat].map((item) => {
+              {(displayGrouped[cat] || []).map((item) => {
                 const qty = getCartQuantity(item.id);
                 return (
                   <div

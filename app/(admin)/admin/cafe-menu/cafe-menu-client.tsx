@@ -19,6 +19,7 @@ import {
   IceCreamCone,
   Sandwich,
   Package,
+  Search,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 
@@ -56,6 +57,7 @@ const EMPTY_FORM = {
 export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
   const router = useRouter();
   const [activeCategory, setActiveCategory] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<CafeItemRow | null>(null);
   const [saving, setSaving] = useState(false);
@@ -63,10 +65,43 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
 
-  const filteredItems =
+  // Category filter
+  const categoryFiltered =
     activeCategory === "ALL"
       ? items
       : items.filter((i) => i.category === activeCategory);
+
+  // Fuzzy search filter
+  const filteredItems = searchQuery.trim()
+    ? categoryFiltered.filter((item) => {
+        const query = searchQuery.toLowerCase().trim();
+        const tokens = query.split(/\s+/);
+        const searchText = [
+          item.name,
+          item.description || "",
+          item.tags.join(" "),
+          item.category,
+          item.isVeg ? "veg vegetarian" : "non-veg nonveg",
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return tokens.every(
+          (token) =>
+            searchText.includes(token) ||
+            // Fuzzy: check if all chars appear in order
+            (() => {
+              let idx = 0;
+              for (const ch of token) {
+                idx = searchText.indexOf(ch, idx);
+                if (idx < 0) return false;
+                idx++;
+              }
+              return true;
+            })()
+        );
+      })
+    : categoryFiltered;
 
   // Group filtered items by category for display
   const grouped: Record<string, CafeItemRow[]> = {};
@@ -167,6 +202,32 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
 
   return (
     <div className="space-y-4">
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search menu items by name, description, tags..."
+          className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-emerald-600 transition-colors"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {searchQuery && (
+        <p className="text-xs text-zinc-400">
+          {filteredItems.length} item{filteredItems.length !== 1 ? "s" : ""} found
+        </p>
+      )}
+
       {/* Category tabs + Add button */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2 flex-wrap">
