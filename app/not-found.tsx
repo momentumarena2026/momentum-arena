@@ -47,8 +47,8 @@ export default function NotFound() {
           <Image
             src="/blackLogo.png"
             alt="Momentum Arena"
-            width={120}
-            height={40}
+            width={200}
+            height={65}
             className="mx-auto opacity-60"
           />
         </div>

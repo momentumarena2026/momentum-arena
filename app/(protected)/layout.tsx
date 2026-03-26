@@ -21,8 +21,8 @@ export default async function ProtectedLayout({
               <Image
                 src="/blackLogo.png"
                 alt="Momentum Arena"
-                width={140}
-                height={45}
+                width={200}
+                height={65}
               />
             </Link>
 

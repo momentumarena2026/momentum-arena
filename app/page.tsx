@@ -211,7 +211,7 @@ export default function Home() {
                 alt="Momentum Arena"
                 width={200}
                 height={65}
-                className="h-12 sm:h-14 md:h-16 w-auto"
+                className="h-14 sm:h-16 md:h-20 w-auto"
               />
             </Link>
             <div className="hidden md:flex items-center gap-8">
