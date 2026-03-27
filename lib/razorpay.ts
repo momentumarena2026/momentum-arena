@@ -1,8 +1,11 @@
 import crypto from "crypto";
 
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_SUZFLnB96J47Lz";
-const RAZORPAY_KEY_SECRET =
-  process.env.RAZORPAY_KEY_SECRET || "M5l0M9QuMexe1uamZmmjD7h0";
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
+
+if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+  console.warn("WARNING: RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not set. Razorpay payments will fail.");
+}
 
 export { RAZORPAY_KEY_ID };
 

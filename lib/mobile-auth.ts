@@ -2,7 +2,11 @@ import jwt from "jsonwebtoken";
 import { NextRequest } from "next/server";
 import { db } from "./db";
 
-const JWT_SECRET = process.env.AUTH_SECRET || "fallback-secret";
+function getJwtSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error("AUTH_SECRET environment variable is required");
+  return secret;
+}
 const JWT_EXPIRES_IN = "30d"; // 30 day sessions
 
 export interface MobileTokenPayload {
@@ -14,7 +18,7 @@ export interface MobileTokenPayload {
 export function signMobileToken(userId: string, email: string): string {
   return jwt.sign(
     { userId, email, type: "mobile" } satisfies MobileTokenPayload,
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: JWT_EXPIRES_IN }
   );
 }

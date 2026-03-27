@@ -129,7 +129,7 @@ export async function initiateRazorpayPayment(
     return {
       success: true,
       razorpayOrderId: order.id,
-      razorpayKeyId: process.env.RAZORPAY_KEY_ID || "rzp_test_SUZFLnB96J47Lz",
+      razorpayKeyId: process.env.RAZORPAY_KEY_ID || "",
       amount: booking.totalAmount,
       bookingId,
     };
@@ -161,8 +161,18 @@ export async function confirmRazorpayPayment(
     return { success: false, error: "Payment not found" };
   }
 
-  // In production, verify signature here
-  // const isValid = verifyRazorpaySignature(payment.razorpayOrderId!, razorpayPaymentId, razorpaySignature);
+  // Verify Razorpay payment signature
+  if (payment.razorpayOrderId) {
+    const { verifyRazorpaySignature } = await import("@/lib/razorpay");
+    const isValid = verifyRazorpaySignature(
+      payment.razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature
+    );
+    if (!isValid) {
+      return { success: false, error: "Payment signature verification failed" };
+    }
+  }
 
   await db.$transaction([
     db.payment.update({

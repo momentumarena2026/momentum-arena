@@ -3,12 +3,11 @@ const MSG91_EMAIL_API = "https://control.msg91.com/api/v5/email/send";
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Superadmin recovery email addresses
-export const SUPERADMIN_RECOVERY_EMAILS = [
-  "y12.nakul@gmail.com",
-  "tangrianand@gmail.com",
-  "saxenautkarsh193@gmail.com",
-];
+// Superadmin recovery email addresses — loaded from env var
+export const SUPERADMIN_RECOVERY_EMAILS = (
+  process.env.SUPERADMIN_RECOVERY_EMAILS ||
+  "y12.nakul@gmail.com,tangrianand@gmail.com,saxenautkarsh193@gmail.com"
+).split(",").map((e) => e.trim()).filter(Boolean);
 
 interface SendEmailOptions {
   to: { email: string; name?: string }[];
@@ -110,8 +109,9 @@ export async function sendAdminInviteEmail(
 }
 
 export async function sendSuperadminPasswordNotification(
-  newPassword: string
+  _newPassword?: string
 ): Promise<boolean> {
+  void _newPassword; // Password is NOT included in email for security
   const results = await Promise.allSettled(
     SUPERADMIN_RECOVERY_EMAILS.map((email) =>
       sendEmail({
@@ -119,10 +119,10 @@ export async function sendSuperadminPasswordNotification(
         subject: "Momentum Arena - Superadmin Password Changed",
         body: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #ef4444;">Superadmin Password Changed</h2>
-            <p>The superadmin (gamelord) password has been updated.</p>
-            <p><strong>New password:</strong> ${newPassword}</p>
-            <p style="color: #666; font-size: 14px;">Keep this secure. This email was sent to all recovery addresses.</p>
+            <h2 style="color: #ef4444;">⚠️ Superadmin Password Changed</h2>
+            <p>The superadmin (<strong>gamelord</strong>) password was changed at <strong>${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</strong>.</p>
+            <p>If you did not make this change, please contact the admin team immediately and reset the password via the admin dashboard.</p>
+            <p style="color: #666; font-size: 14px;">This is an automated security notification sent to all recovery addresses.</p>
           </div>
         `,
       })
