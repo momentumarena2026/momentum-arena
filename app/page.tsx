@@ -82,6 +82,11 @@ const facilities = [
     title: "Ample Parking",
     desc: "Spacious parking area for hassle-free arrivals.",
   },
+  {
+    icon: "🚻",
+    title: "Clean Washrooms",
+    desc: "Separate, well-maintained male and female washrooms for your comfort.",
+  },
 ];
 
 export default function Home() {
@@ -234,10 +239,15 @@ export default function Home() {
 
         {/* HERO */}
         <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-16">
-          {/* Background gradient */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-emerald-900/20 via-black to-black" />
+          {/* Animated gradient background */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/30 via-black to-black" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-amber-900/15 via-transparent to-transparent" />
 
-          {/* Subtle grid pattern */}
+          {/* Animated floating orbs */}
+          <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-1/3 right-1/4 w-64 h-64 bg-amber-500/8 rounded-full blur-3xl animate-pulse delay-1000" style={{ animationDelay: "2s" }} />
+
+          {/* Grid pattern */}
           <div
             className="absolute inset-0 opacity-[0.03]"
             style={{
@@ -248,14 +258,15 @@ export default function Home() {
           />
 
           <div className="relative z-10 max-w-4xl mx-auto">
-            {/* Logo */}
-            <div className="mb-8 mx-auto w-48 sm:w-64 md:w-80 hover:scale-105 transition-transform duration-500">
+            {/* Logo with glow */}
+            <div className="mb-8 mx-auto w-48 sm:w-64 md:w-80 hover:scale-105 transition-transform duration-500 relative">
+              <div className="absolute inset-0 bg-emerald-500/20 blur-3xl rounded-full scale-75" />
               <Image
                 src="/blackLogo.png"
                 alt="Momentum Arena Logo"
                 width={400}
                 height={400}
-                className="w-full h-auto"
+                className="w-full h-auto relative"
                 priority
               />
             </div>
@@ -263,7 +274,7 @@ export default function Home() {
             <h1 className="text-xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-black tracking-tight mb-4 leading-tight px-2 whitespace-nowrap">
               <span className="block sm:inline">MATHURA&apos;S PREMIER</span>
               <br className="hidden sm:block" />
-              <span className="block sm:inline bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">
+              <span className="block sm:inline bg-gradient-to-r from-emerald-400 via-emerald-500 to-amber-400 bg-clip-text text-transparent">
                 MULTI-SPORT ARENA
               </span>
             </h1>
@@ -272,30 +283,27 @@ export default function Home() {
               Cricket &bull; Football &bull; Pickleball &bull; Badminton
             </p>
 
-            <p className="text-sm md:text-base text-zinc-500 mb-10">
-              Professional courts &bull; Floodlights &bull; Open 5 AM &ndash; 1
-              AM
+            <p className="text-sm md:text-base text-zinc-500 mb-8">
+              Professional courts &bull; Floodlights &bull; Cafeteria &bull; Open 5 AM &ndash; 1 AM
             </p>
 
-            <a
-              href="#sports"
-              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-4 rounded-full text-base md:text-lg transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/25"
-            >
-              Book Your Court Now
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+            <div className="flex items-center justify-center gap-4 flex-wrap">
+              <a
+                href="#sports"
+                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-4 rounded-full text-base md:text-lg transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/25"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </a>
+                🏟️ Book a Court
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </a>
+              <a
+                href="#cafe"
+                className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-bold px-8 py-4 rounded-full text-base md:text-lg transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-amber-500/25"
+              >
+                ☕ Order Food
+              </a>
+            </div>
           </div>
 
           {/* Scroll indicator */}
@@ -357,36 +365,55 @@ export default function Home() {
               })}
             </div>
 
-            {/* Cafe Card */}
-            <div className="mt-6">
-              <Link
-                href="/cafe"
-                className="group relative overflow-hidden rounded-2xl h-48 sm:h-56 border border-zinc-800 transition-all duration-500 hover:border-amber-400 hover:shadow-amber-500/20 block"
-              >
-                {/* Background image */}
-                <img
-                  src="/cafe.jpg"
-                  alt="Cafeteria at Momentum Arena"
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                />
-                {/* Gradient overlay */}
-                <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent" />
-                <div className="absolute inset-0 flex items-center justify-between px-8 sm:px-12">
-                  <div>
-                    <div className="text-4xl md:text-5xl mb-2">☕</div>
-                    <h3 className="text-2xl md:text-3xl font-black text-white mb-1">
-                      Cafeteria
-                    </h3>
-                    <p className="text-sm md:text-base text-white/70">
-                      Snacks, Beverages &amp; Meals
-                    </p>
-                  </div>
-                  <div className="px-5 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-sm font-semibold text-white opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
-                    Order Now &rarr;
-                  </div>
-                </div>
-              </Link>
+          </div>
+        </section>
+
+        {/* CAFE SECTION */}
+        <section id="cafe" className="py-16 md:py-24 bg-gradient-to-b from-black via-amber-950/10 to-black scroll-mt-16">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-5xl font-black mb-3">
+                <span className="bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">MOMENTUM CAFE</span> ☕
+              </h2>
+              <p className="text-zinc-500 text-base md:text-lg">
+                Fuel your game with fresh snacks, beverages &amp; meals
+              </p>
             </div>
+
+            <Link
+              href="/cafe"
+              className="group relative overflow-hidden rounded-3xl h-72 sm:h-80 md:h-96 border-2 border-amber-500/30 transition-all duration-500 hover:border-amber-400 hover:shadow-2xl hover:shadow-amber-500/20 block"
+            >
+              {/* Background image */}
+              <img
+                src="/cafe.jpg"
+                alt="Cafeteria at Momentum Arena"
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              />
+              {/* Gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-r from-amber-900/40 to-transparent" />
+
+              {/* Content */}
+              <div className="absolute inset-0 flex flex-col items-center justify-end p-8 sm:p-12 text-center">
+                <div className="text-5xl md:text-6xl mb-4 group-hover:scale-110 transition-transform duration-300">☕</div>
+                <h3 className="text-3xl md:text-4xl font-black text-white mb-2">
+                  Order Now
+                </h3>
+                <p className="text-base md:text-lg text-white/70 mb-6 max-w-md">
+                  Snacks, fresh beverages, hot meals &amp; combos — served at the arena
+                </p>
+                <div className="flex gap-3 flex-wrap justify-center">
+                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🍿 Snacks</span>
+                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🥤 Beverages</span>
+                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🍛 Meals</span>
+                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🍰 Desserts</span>
+                </div>
+                <div className="mt-6 px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-600 text-black font-bold text-base transition-all duration-300 group-hover:scale-105 group-hover:shadow-lg group-hover:shadow-amber-500/30">
+                  Browse Menu &amp; Order &rarr;
+                </div>
+              </div>
+            </Link>
           </div>
         </section>
 
@@ -488,34 +515,50 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Social links */}
-                <div className="flex flex-wrap gap-3">
+                {/* Contact via WhatsApp */}
+                <div>
                   <a
                     href="https://wa.me/916396177261"
-                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1ebe57] text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-green-900/20"
+                    className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#1ebe57] text-white px-6 py-3 rounded-full text-sm font-bold transition shadow-lg shadow-green-900/20 hover:scale-105"
                   >
-                    <FaWhatsapp className="text-lg" />
-                    WhatsApp
+                    <FaWhatsapp className="text-xl" />
+                    Contact Us on WhatsApp
                   </a>
-                  <a
-                    href="https://instagram.com/momentumarena_"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-pink-900/20"
-                    style={{ background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)" }}
-                  >
-                    <FaInstagram className="text-lg" />
-                    Instagram
-                  </a>
-                  <a
-                    href="https://www.youtube.com/@momentum_arena"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 bg-[#FF0000] hover:bg-[#cc0000] text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-red-900/20"
-                  >
-                    <FaYoutube className="text-lg" />
-                    YouTube
-                  </a>
+                </div>
+
+                {/* Follow Us */}
+                <div>
+                  <h4 className="font-semibold text-white mb-3">Follow Us</h4>
+                  <div className="flex flex-wrap gap-3">
+                    <a
+                      href="https://whatsapp.com/channel/0029VbCQo4S8fewv3rjVp03X"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1ebe57] text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-green-900/20"
+                    >
+                      <FaWhatsapp className="text-lg" />
+                      WhatsApp Channel
+                    </a>
+                    <a
+                      href="https://instagram.com/momentumarena_"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-pink-900/20"
+                      style={{ background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)" }}
+                    >
+                      <FaInstagram className="text-lg" />
+                      Instagram
+                    </a>
+                    <a
+                      href="https://www.youtube.com/@momentum_arena"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 bg-[#FF0000] hover:bg-[#cc0000] text-white px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-lg shadow-red-900/20"
+                    >
+                      <FaYoutube className="text-lg" />
+                      YouTube
+                    </a>
+                  </div>
                 </div>
               </div>
 
