@@ -120,6 +120,7 @@ export default async function CheckoutPage({
       <CheckoutClient
         bookingId={bookingId}
         amount={booking.totalAmount}
+        sport={booking.courtConfig.sport}
         lockExpiresAt={booking.lockExpiresAt!.toISOString()}
         userName={session.user.name || ""}
         userEmail={session.user.email || ""}

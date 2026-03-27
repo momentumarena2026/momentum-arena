@@ -8,13 +8,14 @@ import { AdvancePaymentSelector, type AdvancePaymentMethod } from "@/components/
 import { DiscountInput } from "@/components/booking/discount-input";
 import { UpiQr } from "@/components/payment/upi-qr";
 import { formatPrice } from "@/lib/pricing";
-import { applyDiscountCode } from "@/actions/discount-validation";
+import { validateCoupon, applyCoupon } from "@/actions/coupon-validation";
 import { selectCashPayment } from "@/actions/booking";
 import { Loader2, MapPin, Sparkles } from "lucide-react";
 
 interface CheckoutClientProps {
   bookingId: string;
   amount: number;
+  sport?: string;
   lockExpiresAt: string;
   userName: string;
   userEmail: string;
@@ -30,6 +31,7 @@ interface CheckoutClientProps {
 export function CheckoutClient({
   bookingId,
   amount,
+  sport,
   lockExpiresAt,
   userName,
   userEmail,
@@ -50,19 +52,27 @@ export function CheckoutClient({
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
   const [newUserApplied, setNewUserApplied] = useState(false);
 
-  // Auto-apply new user discount on mount
+  // Auto-apply new user discount on mount via unified coupon system
   useEffect(() => {
     if (newUserDiscount && !discountApplied) {
-      applyDiscountCode(newUserDiscount.code, bookingId).then((result) => {
-        if (result.valid && result.newTotal !== undefined) {
-          setEffectiveAmount(result.newTotal);
+      validateCoupon(newUserDiscount.code, {
+        scope: "SPORTS",
+        amount,
+        sport,
+      }).then(async (result) => {
+        if (result.valid && result.couponId && result.discountAmount) {
+          await applyCoupon(result.couponId, "", {
+            bookingId,
+            discountAmount: result.discountAmount,
+          });
+          setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
           setNewUserApplied(true);
           setDiscountLabel(`New User: ${newUserDiscount.label}`);
         }
       });
     }
-  }, [newUserDiscount, bookingId, discountApplied]);
+  }, [newUserDiscount, bookingId, discountApplied, amount, sport]);
 
   // Advance payment calculation
   const advanceAmount = Math.ceil(effectiveAmount * 0.2);
@@ -209,6 +219,8 @@ export function CheckoutClient({
           <h2 className="mb-2 text-sm font-medium text-zinc-400">Discount Code</h2>
           <DiscountInput
             bookingId={bookingId}
+            bookingAmount={amount}
+            sport={sport}
             disabled={discountApplied}
             disabledMessage={discountLabel || "Discount applied"}
             onDiscountApplied={handleDiscountApplied}

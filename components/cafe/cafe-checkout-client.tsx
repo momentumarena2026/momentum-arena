@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
-import { createCafeOrder, validateCafeCoupon } from "@/actions/cafe-orders";
+import { createCafeOrder } from "@/actions/cafe-orders";
+import { validateCoupon } from "@/actions/coupon-validation";
 import { CheckoutAuth } from "@/components/checkout-auth";
 
 type PaymentMethod = "RAZORPAY" | "UPI_QR" | "CASH";
@@ -51,16 +52,16 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
 
     try {
       const categories = items.map((i) => i.category);
-      const result = await validateCafeCoupon(
-        couponCode.trim(),
-        totalAmount,
-        categories
-      );
+      const result = await validateCoupon(couponCode.trim(), {
+        scope: "CAFE",
+        amount: totalAmount,
+        categories,
+      });
 
-      if (result.valid && result.discount) {
+      if (result.valid && result.discountAmount) {
         setAppliedCoupon({
           code: couponCode.trim().toUpperCase(),
-          discount: result.discount,
+          discount: result.discountAmount,
         });
         setCouponError("");
       } else {

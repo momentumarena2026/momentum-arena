@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { validateDiscountCode, applyDiscountCode } from "@/actions/discount-validation";
+import { validateCoupon, applyCoupon } from "@/actions/coupon-validation";
 import { formatPrice } from "@/lib/pricing";
 import { Ticket, Check, X, Loader2 } from "lucide-react";
 
 interface DiscountInputProps {
   bookingId: string;
+  bookingAmount: number; // paise
+  sport?: string;
+  userId?: string;
   disabled?: boolean;
   disabledMessage?: string;
   onDiscountApplied: (discountAmount: number, newTotal: number, code: string) => void;
@@ -14,6 +17,9 @@ interface DiscountInputProps {
 
 export function DiscountInput({
   bookingId,
+  bookingAmount,
+  sport,
+  userId,
   disabled,
   disabledMessage,
   onDiscountApplied,
@@ -61,26 +67,41 @@ export function DiscountInput({
     setLoading(true);
     setError(null);
 
-    // First validate
-    const validation = await validateDiscountCode(code, bookingId);
-    if (!validation.valid) {
+    // Validate using unified coupon system
+    const validation = await validateCoupon(code, {
+      scope: "SPORTS",
+      amount: bookingAmount,
+      userId: userId || undefined,
+      sport: sport || undefined,
+    });
+
+    if (!validation.valid || !validation.couponId || !validation.discountAmount) {
       setError(validation.error || "Invalid code");
       setLoading(false);
       return;
     }
 
-    // Then apply
-    const result = await applyDiscountCode(code, bookingId);
-    if (result.valid && result.discountAmount && result.newTotal !== undefined) {
-      setApplied({
-        code: result.codeName || code,
-        discountAmount: result.discountAmount,
-        newTotal: result.newTotal,
+    // Apply the coupon
+    if (userId) {
+      const applyResult = await applyCoupon(validation.couponId, userId, {
+        bookingId,
+        discountAmount: validation.discountAmount,
       });
-      onDiscountApplied(result.discountAmount, result.newTotal, result.codeName || code);
-    } else {
-      setError(result.error || "Failed to apply");
+
+      if (!applyResult.success) {
+        setError(applyResult.error || "Failed to apply");
+        setLoading(false);
+        return;
+      }
     }
+
+    const newTotal = bookingAmount - validation.discountAmount;
+    setApplied({
+      code: code.toUpperCase(),
+      discountAmount: validation.discountAmount,
+      newTotal,
+    });
+    onDiscountApplied(validation.discountAmount, newTotal, code.toUpperCase());
     setLoading(false);
   };
 
