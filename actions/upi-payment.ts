@@ -272,6 +272,9 @@ export async function rejectUtr(
 export async function getPendingUtrPayments() {
   await requireAdmin("MANAGE_BOOKINGS");
 
+  // Inline expiry: auto-expire overdue UTR payments before fetching
+  await expireUnverifiedUtrs();
+
   const bookingPayments = await db.payment.findMany({
     where: {
       method: "UPI_QR",
