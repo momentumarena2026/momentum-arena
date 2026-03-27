@@ -38,14 +38,18 @@ export async function adminLogin(
 
   // Rate limit: max 5 attempts per username per 15 minutes
   const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
-  const recentAttempts = await db.rateLimit.count({
-    where: { identifier: `admin:${username}`, createdAt: { gt: fifteenMinAgo } },
+  const rateEntry = await db.rateLimit.findUnique({
+    where: { identifier_action: { identifier: `admin:${username}`, action: "login" } },
   });
-  if (recentAttempts >= 5) {
+  if (rateEntry && rateEntry.windowStart > fifteenMinAgo && rateEntry.count >= 5) {
     return { error: "Too many login attempts. Please try again in 15 minutes." };
   }
-  await db.rateLimit.create({
-    data: { identifier: `admin:${username}`, expiresAt: new Date(Date.now() + 15 * 60 * 1000) },
+  await db.rateLimit.upsert({
+    where: { identifier_action: { identifier: `admin:${username}`, action: "login" } },
+    create: { identifier: `admin:${username}`, action: "login", count: 1, windowStart: new Date() },
+    update: rateEntry && rateEntry.windowStart > fifteenMinAgo
+      ? { count: { increment: 1 } }
+      : { count: 1, windowStart: new Date() },
   });
 
   try {

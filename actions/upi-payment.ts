@@ -285,8 +285,8 @@ export async function getPendingUtrPayments() {
       booking: {
         include: {
           user: { select: { id: true, name: true, email: true, phone: true } },
-          courtConfig: { select: { id: true, name: true, sport: true } },
-          slots: { select: { hour: true } },
+          courtConfig: { select: { id: true, label: true, sport: true, size: true } },
+          slots: { select: { startHour: true } },
         },
       },
     },
@@ -347,12 +347,13 @@ export async function getPendingUtrPayments() {
       booking: {
         id: p.booking.id,
         date: p.booking.date.toISOString(),
-        userName: p.booking.user.name ?? "Unknown",
-        userEmail: p.booking.user.email ?? "",
-        userPhone: p.booking.user.phone ?? "",
+        userName: p.booking.user?.name ?? "Unknown",
+        userEmail: p.booking.user?.email ?? "",
+        userPhone: p.booking.user?.phone ?? "",
         sport: p.booking.courtConfig.sport,
-        courtName: p.booking.courtConfig.name,
-        slots: p.booking.slots.map((s) => s.hour),
+        courtLabel: p.booking.courtConfig.label,
+        courtSize: p.booking.courtConfig.size,
+        slots: p.booking.slots.map((s: { startHour: number }) => s.startHour),
       },
     })),
     cafePayments: cafePayments.map((p) => ({

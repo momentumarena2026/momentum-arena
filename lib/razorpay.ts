@@ -62,7 +62,7 @@ export function verifyRazorpaySignature(
 ): boolean {
   const body = `${orderId}|${paymentId}`;
   const expectedSignature = crypto
-    .createHmac("sha256", RAZORPAY_KEY_SECRET)
+    .createHmac("sha256", RAZORPAY_KEY_SECRET || "")
     .update(body)
     .digest("hex");
   return expectedSignature === signature;

@@ -202,14 +202,18 @@ export async function loginWithPassword(
 
   // Rate limit: max 5 password attempts per email per 15 minutes
   const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
-  const recentAttempts = await db.rateLimit.count({
-    where: { identifier: `pwd:${email}`, createdAt: { gt: fifteenMinAgo } },
+  const rateEntry = await db.rateLimit.findUnique({
+    where: { identifier_action: { identifier: `pwd:${email}`, action: "login" } },
   });
-  if (recentAttempts >= 5) {
+  if (rateEntry && rateEntry.windowStart > fifteenMinAgo && rateEntry.count >= 5) {
     return { error: "Too many login attempts. Please try again in 15 minutes." };
   }
-  await db.rateLimit.create({
-    data: { identifier: `pwd:${email}`, expiresAt: new Date(Date.now() + 15 * 60 * 1000) },
+  await db.rateLimit.upsert({
+    where: { identifier_action: { identifier: `pwd:${email}`, action: "login" } },
+    create: { identifier: `pwd:${email}`, action: "login", count: 1, windowStart: new Date() },
+    update: rateEntry && rateEntry.windowStart > fifteenMinAgo
+      ? { count: { increment: 1 } }
+      : { count: 1, windowStart: new Date() },
   });
 
   // Check if user exists

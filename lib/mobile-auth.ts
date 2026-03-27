@@ -25,7 +25,7 @@ export function signMobileToken(userId: string, email: string): string {
 
 export function verifyMobileToken(token: string): MobileTokenPayload | null {
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as MobileTokenPayload;
+    const payload = jwt.verify(token, getJwtSecret()) as MobileTokenPayload;
     if (payload.type !== "mobile") return null;
     return payload;
   } catch {

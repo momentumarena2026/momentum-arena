@@ -18,7 +18,7 @@ export async function getCafeSettings() {
 // Update cafe settings (admin only)
 export async function updateCafeSettings(data: { totalTables: number }) {
   const session = await adminAuth();
-  if (!session || !hasPermission(session.permissions, "MANAGE_CAFE_MENU")) {
+  if (!session || !hasPermission((session as unknown as { permissions: string[] }).permissions, "MANAGE_CAFE_MENU")) {
     throw new Error("Unauthorized: MANAGE_CAFE_MENU permission required");
   }
 
