@@ -65,11 +65,21 @@ function numberToWords(num: number): string {
   return convert(num) + " Rupees Only";
 }
 
+// Generate HMAC token for guest invoice access
+function generateInvoiceToken(orderId: string): string {
+  const crypto = require("crypto");
+  const secret = process.env.AUTH_SECRET || "invoice-secret";
+  return crypto.createHmac("sha256", secret).update(`cafe-invoice:${orderId}`).digest("hex").slice(0, 16);
+}
+
+export { generateInvoiceToken as generateCafeInvoiceToken };
+
 export async function GET(request: Request) {
   const session = await auth();
 
   const { searchParams } = new URL(request.url);
   const orderId = searchParams.get("orderId");
+  const token = searchParams.get("token");
 
   if (!orderId) {
     return NextResponse.json({ error: "Missing orderId" }, { status: 400 });
@@ -78,7 +88,7 @@ export async function GET(request: Request) {
   const order = await db.cafeOrder.findUnique({
     where: { id: orderId },
     include: {
-      user: true,
+      user: { select: { name: true, email: true, phone: true } },
       items: true,
       payment: true,
     },
@@ -88,11 +98,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  // Allow: guest order (no userId), order owner, or admin
-  const isGuest = !order.userId;
+  // Auth: guest orders need a valid token, logged-in users need to be owner or admin
   const isOwner = session?.user?.id && order.userId === session.user.id;
   const isAdmin = (session?.user as { userType?: string })?.userType === "admin";
-  if (!isGuest && !isOwner && !isAdmin) {
+  const isValidGuestToken = !order.userId && token === generateInvoiceToken(orderId);
+
+  if (!isOwner && !isAdmin && !isValidGuestToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

@@ -83,5 +83,6 @@ export async function getPublicFAQs() {
   return db.fAQEntry.findMany({
     where: { isActive: true },
     orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
+    take: 100, // reasonable cap
   });
 }
