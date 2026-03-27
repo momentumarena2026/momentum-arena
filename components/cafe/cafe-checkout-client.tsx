@@ -7,7 +7,9 @@ import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { createCafeOrder } from "@/actions/cafe-orders";
 import { validateCoupon } from "@/actions/coupon-validation";
+import { submitCafeOrderUtr } from "@/actions/upi-payment";
 import { CheckoutAuth } from "@/components/checkout-auth";
+import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 
 type PaymentMethod = "RAZORPAY" | "UPI_QR" | "CASH";
 
@@ -25,7 +27,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
   const { data: session } = useSession();
   const isLoggedIn = initialLoggedIn || !!session?.user;
   const { items, totalAmount, clearCart } = useCafeCart();
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(isLoggedIn ? "RAZORPAY" : "CASH");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("UPI_QR");
   const [showAuth, setShowAuth] = useState(false);
   const [note, setNote] = useState("");
   const [guestName, setGuestName] = useState("");
@@ -40,6 +42,8 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
   const [tableNumber, setTableNumber] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showQr, setShowQr] = useState(false);
+  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
 
   const finalAmount = appliedCoupon
     ? Math.max(0, totalAmount - appliedCoupon.discount)
@@ -190,13 +194,48 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
         return; // Don't set loading false, Razorpay modal is open
       }
 
-      // For CASH and UPI_QR, order is created directly
+      // For UPI_QR, show QR for UTR entry
+      if (paymentMethod === "UPI_QR") {
+        setCreatedOrderId(result.orderId);
+        setShowQr(true);
+        setLoading(false);
+        return;
+      }
+
+      // For CASH, order is created directly
       clearCart();
       router.push(`/cafe/confirmation/${result.orderId}`);
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
+  }
+
+  // Show UPI QR with UTR entry after order creation
+  if (showQr && createdOrderId) {
+    return (
+      <div className="min-h-screen bg-black max-w-2xl mx-auto py-6 px-4">
+        <h1 className="text-2xl font-bold text-white mb-6">Complete Payment</h1>
+        <UpiQrCheckout
+          amount={finalAmount}
+          onUtrSubmitted={async (utr: string) => {
+            const result = await submitCafeOrderUtr(createdOrderId, utr);
+            if (result.success) {
+              clearCart();
+              router.push(`/cafe/confirmation/${createdOrderId}`);
+            } else {
+              setError(result.error || "Failed to submit UTR");
+              setShowQr(false);
+            }
+          }}
+        />
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-center text-sm text-red-400">
+            {error}
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (items.length === 0) {

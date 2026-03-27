@@ -283,6 +283,12 @@ model Payment {
   razorpayPaymentId String?
   razorpaySignature String?
 
+  // UPI QR payment tracking
+  utrNumber      String?
+  utrSubmittedAt DateTime?
+  utrVerifiedAt  DateTime?
+  utrExpiresAt   DateTime?
+
   isPartialPayment Boolean @default(false)
   advanceAmount    Int?
   remainingAmount  Int?
@@ -295,6 +301,9 @@ model Payment {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, method])
+  @@index([utrExpiresAt])
 }
 
 model PricingRule {
@@ -553,6 +562,12 @@ model CafePayment {
   razorpayPaymentId String?
   razorpaySignature String?
 
+  // UPI QR payment tracking
+  utrNumber      String?
+  utrSubmittedAt DateTime?
+  utrVerifiedAt  DateTime?
+  utrExpiresAt   DateTime?
+
   confirmedBy  String?
   confirmedAt  DateTime?
   refundedBy   String?
@@ -561,6 +576,9 @@ model CafePayment {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, method])
+  @@index([utrExpiresAt])
 }
 
 model CafeDiscount {

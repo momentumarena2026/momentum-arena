@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/cleanup-locks",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/expire-utrs",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

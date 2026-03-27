@@ -6,10 +6,11 @@ import { CountdownTimer } from "@/components/booking/countdown-timer";
 import { PaymentSelector, type PaymentMethodType } from "@/components/payment/payment-selector";
 import { AdvancePaymentSelector, type AdvancePaymentMethod } from "@/components/payment/advance-payment-selector";
 import { DiscountInput } from "@/components/booking/discount-input";
-import { UpiQr } from "@/components/payment/upi-qr";
+import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { formatPrice } from "@/lib/pricing";
 import { validateCoupon, applyCoupon } from "@/actions/coupon-validation";
 import { selectCashPayment } from "@/actions/booking";
+import { submitBookingUtr } from "@/actions/upi-payment";
 import { Loader2, MapPin, Sparkles } from "lucide-react";
 
 interface CheckoutClientProps {
@@ -40,7 +41,7 @@ export function CheckoutClient({
   newUserDiscount,
 }: CheckoutClientProps) {
   const router = useRouter();
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("razorpay");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("upi_qr");
   const [advanceMethod, setAdvanceMethod] = useState<AdvancePaymentMethod>("razorpay");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,10 +128,11 @@ export function CheckoutClient({
         const razorpay = new (window as unknown as { Razorpay: new (opts: typeof options) => { open: () => void } }).Razorpay(options);
         razorpay.open();
       } else if (paymentMethod === "upi_qr") {
-        setShowUpiQr(true);
+        // Show QR with UTR entry — create pending UPI payment first
         const { selectUpiPayment } = await import("@/actions/booking");
         const result = await selectUpiPayment(bookingId);
-        if (!result.success) { setError(result.error || "Failed"); setShowUpiQr(false); }
+        if (!result.success) { setError(result.error || "Failed"); setProcessing(false); return; }
+        setShowUpiQr(true);
       } else if (paymentMethod === "cash") {
         // Cash requires 20% advance
         if (advanceMethod === "razorpay") {
@@ -182,18 +184,25 @@ export function CheckoutClient({
     const upiAmount = paymentMethod === "cash" ? advanceAmount : effectiveAmount;
     return (
       <div className="space-y-4">
-        <UpiQr amount={upiAmount} bookingId={bookingId} />
+        <UpiQrCheckout
+          amount={upiAmount}
+          isAdvance={paymentMethod === "cash"}
+          advanceAmount={paymentMethod === "cash" ? advanceAmount : undefined}
+          onUtrSubmitted={async (utr: string) => {
+            const result = await submitBookingUtr(bookingId, utr);
+            if (result.success) {
+              router.push(`/book/confirmation/${bookingId}`);
+            } else {
+              setError(result.error || "Failed to submit UTR");
+              setShowUpiQr(false);
+            }
+          }}
+        />
         {paymentMethod === "cash" && (
           <p className="text-center text-xs text-yellow-400">
             Paying advance: {formatPrice(advanceAmount)} • Remaining at venue: {formatPrice(remainingAmount)}
           </p>
         )}
-        <button
-          onClick={() => router.push(`/book/confirmation/${bookingId}`)}
-          className="w-full rounded-xl border border-zinc-700 px-4 py-3 text-sm text-zinc-300 hover:bg-zinc-800"
-        >
-          I have sent the screenshot →
-        </button>
       </div>
     );
   }

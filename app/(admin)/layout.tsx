@@ -24,6 +24,7 @@ import {
   Activity,
   Gift,
   Tags,
+  ScanLine,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -40,6 +41,7 @@ const adminNavItems = [
   { href: "/admin/cafe-menu", label: "Cafe Menu", icon: Coffee, permission: "MANAGE_CAFE_MENU" },
   { href: "/admin/cafe-orders", label: "Cafe Orders", icon: ClipboardList, permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/cafe-live", label: "Live Orders", icon: Activity, permission: "MANAGE_CAFE_ORDERS" },
+  { href: "/admin/utr-verify", label: "UTR Verify", icon: ScanLine, permission: "MANAGE_BOOKINGS" },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3, permission: "VIEW_ANALYTICS" },
   { href: "/admin/rewards", label: "Rewards", icon: Gift, permission: "MANAGE_REWARDS" },
   { href: "/admin/coupons", label: "Coupons", icon: Tags, permission: "MANAGE_COUPONS" },

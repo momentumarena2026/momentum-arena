@@ -1,0 +1,208 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { Copy, Check, Clock, AlertTriangle } from "lucide-react";
+import Image from "next/image";
+
+interface UpiQrCheckoutProps {
+  amount: number;
+  onUtrSubmitted: (utr: string) => void;
+  isAdvance?: boolean;
+  advanceAmount?: number;
+}
+
+const UPI_ID = "momentumarena@yesbank";
+const TIMER_DURATION = 30 * 60; // 30 minutes in seconds
+
+export function UpiQrCheckout({
+  amount,
+  onUtrSubmitted,
+  isAdvance,
+  advanceAmount,
+}: UpiQrCheckoutProps) {
+  const [utr, setUtr] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(TIMER_DURATION);
+  const [expired, setExpired] = useState(false);
+
+  const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
+
+  // Countdown timer
+  useEffect(() => {
+    if (expired) return;
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          setExpired(true);
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [expired]);
+
+  const formatTime = (s: number) => {
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const copyUpiId = useCallback(() => {
+    navigator.clipboard.writeText(UPI_ID);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, []);
+
+  const validateUtr = (value: string): boolean => {
+    const trimmed = value.trim();
+    if (trimmed.length < 10 || trimmed.length > 22) return false;
+    return /^[a-zA-Z0-9]+$/.test(trimmed);
+  };
+
+  const handleSubmit = async () => {
+    setError("");
+    const trimmed = utr.trim();
+
+    if (!trimmed) {
+      setError("Please enter the UTR number");
+      return;
+    }
+
+    if (!validateUtr(trimmed)) {
+      setError("UTR must be 10-22 alphanumeric characters");
+      return;
+    }
+
+    if (expired) {
+      setError("Payment window has expired. Please try again.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      onUtrSubmitted(trimmed);
+    } catch {
+      setError("Failed to submit UTR. Please try again.");
+      setSubmitting(false);
+    }
+  };
+
+  if (expired) {
+    return (
+      <div className="flex flex-col items-center rounded-2xl border border-red-500/30 bg-zinc-900 p-8 text-center">
+        <AlertTriangle className="h-12 w-12 text-red-400 mb-4" />
+        <h3 className="text-lg font-semibold text-white mb-2">
+          Payment Window Expired
+        </h3>
+        <p className="text-sm text-zinc-400">
+          The 30-minute payment window has expired. Please go back and try
+          again.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Timer */}
+      <div className="flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5">
+        <Clock className="h-4 w-4 text-amber-400" />
+        <span className="text-sm font-medium text-amber-400">
+          Submit UTR within{" "}
+          <span className="font-mono font-bold">{formatTime(secondsLeft)}</span>{" "}
+          minutes
+        </span>
+      </div>
+
+      {/* QR Code */}
+      <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+        <div className="rounded-xl bg-white p-3">
+          <Image
+            src="/YesPay.png"
+            alt="UPI QR Code - Scan to Pay"
+            width={280}
+            height={280}
+            className="rounded-lg"
+            priority
+          />
+        </div>
+
+        <p className="mt-5 text-3xl font-bold text-emerald-400">
+          Pay &#8377;{(displayAmount / 100).toLocaleString("en-IN")}
+        </p>
+
+        {isAdvance && advanceAmount && (
+          <p className="mt-1 text-xs text-yellow-400">
+            Advance payment &middot; Remaining at venue:
+            &#8377;{((amount - advanceAmount) / 100).toLocaleString("en-IN")}
+          </p>
+        )}
+
+        <p className="mt-2 text-sm text-zinc-400">
+          Scan &amp; pay using any UPI app
+        </p>
+      </div>
+
+      {/* UPI ID */}
+      <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+        <div>
+          <p className="text-xs text-zinc-500">UPI ID</p>
+          <p className="font-mono text-sm font-medium text-zinc-300">
+            {UPI_ID}
+          </p>
+        </div>
+        <button
+          onClick={copyUpiId}
+          className="rounded-lg border border-zinc-700 p-2 transition-colors hover:bg-zinc-800"
+          title="Copy UPI ID"
+        >
+          {copied ? (
+            <Check className="h-4 w-4 text-emerald-400" />
+          ) : (
+            <Copy className="h-4 w-4 text-zinc-400" />
+          )}
+        </button>
+      </div>
+
+      {/* UTR Input Section */}
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-white mb-1.5">
+            Enter UTR / Transaction Reference Number
+          </label>
+          <input
+            type="text"
+            value={utr}
+            onChange={(e) => {
+              setUtr(e.target.value.replace(/[^a-zA-Z0-9]/g, ""));
+              setError("");
+            }}
+            placeholder="e.g. 412345678901"
+            maxLength={22}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white text-base font-mono placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50"
+          />
+          <p className="mt-1.5 text-xs text-zinc-500">
+            Find UTR in your UPI app &rarr; Transaction History &rarr;
+            Transaction Details
+          </p>
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-400">{error}</p>
+        )}
+
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !utr.trim()}
+          className="w-full rounded-xl bg-emerald-600 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {submitting ? "Submitting..." : "Submit UTR"}
+        </button>
+      </div>
+    </div>
+  );
+}
