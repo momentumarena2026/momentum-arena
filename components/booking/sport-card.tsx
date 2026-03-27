@@ -43,14 +43,14 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
 
   if (!isActive) {
     return (
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 opacity-50">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 opacity-50 h-[100px] flex items-center">
         <div className="flex items-center gap-4">
-          <div className="rounded-xl bg-zinc-800 p-3">
+          <div className="rounded-xl bg-zinc-800 p-3 shrink-0">
             <Icon className="h-8 w-8 text-zinc-500" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-lg font-semibold text-zinc-500">{name}</h3>
-            <p className="text-sm text-zinc-600">Currently unavailable</p>
+            <p className="text-sm text-zinc-600 line-clamp-1">Currently unavailable</p>
           </div>
         </div>
       </div>
@@ -60,15 +60,15 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
   return (
     <Link href={`/book/${sport.toLowerCase()}`}>
       <div
-        className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-br ${colorClass} p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20`}
+        className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-br ${colorClass} p-6 h-[100px] flex items-center transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20`}
       >
         <div className="flex items-center gap-4">
-          <div className="rounded-xl bg-black/30 p-3 transition-transform duration-300 group-hover:scale-110">
+          <div className="rounded-xl bg-black/30 p-3 shrink-0 transition-transform duration-300 group-hover:scale-110">
             <Icon className={`h-8 w-8 ${iconColor}`} />
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-lg font-semibold text-white">{name}</h3>
-            <p className="text-sm text-zinc-400">{description}</p>
+            <p className="text-sm text-zinc-400 line-clamp-1">{description}</p>
           </div>
         </div>
         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 transition-transform duration-300 group-hover:translate-x-1 group-hover:text-zinc-400">
