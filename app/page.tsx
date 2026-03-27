@@ -319,7 +319,7 @@ export default function Home() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-5xl font-black mb-3">
-                CHOOSE YOUR SPORT
+                <span className="bg-gradient-to-r from-emerald-400 to-green-500 bg-clip-text text-transparent">CHOOSE YOUR SPORT</span> 🏟️
               </h2>
               <p className="text-zinc-500 text-base md:text-lg">
                 Select a sport to book your court instantly
@@ -436,15 +436,19 @@ export default function Home() {
               {facilities.map((f) => (
                 <div
                   key={f.title}
-                  className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8 hover:border-zinc-700 transition-colors duration-300"
+                  className="group relative overflow-hidden bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8 hover:border-emerald-500/40 transition-all duration-500 hover:shadow-lg hover:shadow-emerald-500/10 hover:-translate-y-1"
                 >
-                  <div className="text-3xl md:text-4xl mb-4">{f.icon}</div>
-                  <h3 className="text-lg md:text-xl font-bold text-white mb-2">
-                    {f.title}
-                  </h3>
-                  <p className="text-sm md:text-base text-zinc-400">
-                    {f.desc}
-                  </p>
+                  {/* Hover glow */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  <div className="relative">
+                    <div className="text-4xl md:text-5xl mb-4 group-hover:scale-110 transition-transform duration-300">{f.icon}</div>
+                    <h3 className="text-lg md:text-xl font-bold text-white mb-2 group-hover:text-emerald-400 transition-colors duration-300">
+                      {f.title}
+                    </h3>
+                    <p className="text-sm md:text-base text-zinc-400">
+                      {f.desc}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -587,7 +591,9 @@ export default function Home() {
             </p>
             <div className="flex items-center gap-3">
               <a
-                href="https://wa.me/916396177261"
+                href="https://whatsapp.com/channel/0029VbCQo4S8fewv3rjVp03X"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex items-center justify-center w-9 h-9 rounded-full bg-[#25D366] hover:bg-[#1ebe57] text-white transition shadow-sm"
               >
                 <FaWhatsapp className="text-base" />
