@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { createCafeOrder } from "@/actions/cafe-orders";
-import { validateCoupon } from "@/actions/coupon-validation";
+import { DiscountInput } from "@/components/booking/discount-input";
 import { submitCafeOrderUtr } from "@/actions/upi-payment";
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
@@ -351,49 +351,15 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
         <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">
           Coupon Code
         </h2>
-        {!appliedCoupon ? (
-          <div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={couponCode}
-                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                placeholder="Enter coupon code"
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
-              />
-              <button
-                onClick={handleApplyCoupon}
-                disabled={couponLoading || !couponCode.trim()}
-                className="bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                {couponLoading ? "..." : "Apply"}
-              </button>
-            </div>
-            {couponError && (
-              <p className="text-red-400 text-xs mt-1">{couponError}</p>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center justify-between bg-emerald-900/30 border border-emerald-800 rounded-lg px-3 py-2">
-            <div>
-              <span className="text-emerald-400 text-sm font-medium">
-                {appliedCoupon.code}
-              </span>
-              <span className="text-emerald-400/70 text-xs ml-2">
-                -{formatPrice(appliedCoupon.discount)}
-              </span>
-            </div>
-            <button
-              onClick={() => {
-                setAppliedCoupon(null);
-                setCouponCode("");
-              }}
-              className="text-zinc-400 hover:text-red-400 text-xs transition-colors"
-            >
-              Remove
-            </button>
-          </div>
-        )}
+        <DiscountInput
+          bookingAmount={totalAmount}
+          scope="CAFE"
+          disabled={!!appliedCoupon}
+          disabledMessage={appliedCoupon ? `${appliedCoupon.code} — ${formatPrice(appliedCoupon.discount)} off` : undefined}
+          onDiscountApplied={(discountAmt, _newTotal, code) => {
+            setAppliedCoupon({ code, discount: discountAmt });
+          }}
+        />
       </div>
 
       {/* Payment Method */}
