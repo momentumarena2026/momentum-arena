@@ -11,7 +11,7 @@ interface UpiQrProps {
   qrImageUrl?: string;
 }
 
-export function UpiQr({ amount, bookingId, qrImageUrl }: UpiQrProps) {
+export function UpiQr({ amount, bookingId, qrImageUrl = "/YesPay.png" }: UpiQrProps) {
   const [copied, setCopied] = useState(false);
   const whatsappNumber = "916396177261";
   const whatsappMessage = encodeURIComponent(
