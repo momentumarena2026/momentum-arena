@@ -36,6 +36,18 @@ export async function adminLogin(
     return { error: "Please enter username and password" };
   }
 
+  // Rate limit: max 5 attempts per username per 15 minutes
+  const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
+  const recentAttempts = await db.rateLimit.count({
+    where: { identifier: `admin:${username}`, createdAt: { gt: fifteenMinAgo } },
+  });
+  if (recentAttempts >= 5) {
+    return { error: "Too many login attempts. Please try again in 15 minutes." };
+  }
+  await db.rateLimit.create({
+    data: { identifier: `admin:${username}`, expiresAt: new Date(Date.now() + 15 * 60 * 1000) },
+  });
+
   try {
     await adminSignIn("admin-credentials", {
       username,
@@ -193,8 +205,11 @@ export async function setupAdminPassword(
     return { error: "Invalid invite link" };
   }
 
-  if (!password || password.length < 8) {
-    return { error: "Password must be at least 8 characters" };
+  if (!password || password.length < 10) {
+    return { error: "Password must be at least 10 characters" };
+  }
+  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password) || !/[^a-zA-Z0-9]/.test(password)) {
+    return { error: "Password must contain letters, numbers, and a special character" };
   }
 
   if (password !== confirmPassword) {
@@ -240,8 +255,11 @@ export async function changeSuperadminPassword(
     return { error: "Please fill in all fields" };
   }
 
-  if (newPassword.length < 8) {
-    return { error: "New password must be at least 8 characters" };
+  if (newPassword.length < 10) {
+    return { error: "New password must be at least 10 characters" };
+  }
+  if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword) || !/[^a-zA-Z0-9]/.test(newPassword)) {
+    return { error: "Password must contain letters, numbers, and a special character" };
   }
 
   if (newPassword !== confirmPassword) {

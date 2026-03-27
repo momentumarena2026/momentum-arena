@@ -57,7 +57,7 @@ export async function GET(request: Request) {
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
     include: {
-      user: true,
+      user: { select: { name: true, email: true, phone: true } },
       courtConfig: true,
       slots: { orderBy: { startHour: "asc" } },
       payment: true,

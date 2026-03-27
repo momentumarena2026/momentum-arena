@@ -474,6 +474,7 @@ export async function GET() {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="Momentum-Arena-Cafe-Menu.pdf"`,
+      "Cache-Control": "public, max-age=3600, s-maxage=3600",
     },
   });
 }

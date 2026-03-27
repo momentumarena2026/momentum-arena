@@ -293,7 +293,7 @@ export async function getTopCustomers(
     const to = new Date(dateTo);
     to.setHours(23, 59, 59, 999);
 
-    // Get sports spending per user
+    // Get sports spending per user (limit to 5000 records to prevent memory issues)
     const sportsPayments = await db.payment.findMany({
       where: {
         status: "COMPLETED",
@@ -305,9 +305,10 @@ export async function getTopCustomers(
           select: { userId: true },
         },
       },
+      take: 5000,
     });
 
-    // Get cafe spending per user
+    // Get cafe spending per user (limit to 5000 records)
     const cafePayments = await db.cafePayment.findMany({
       where: {
         status: "COMPLETED",
@@ -319,6 +320,7 @@ export async function getTopCustomers(
           select: { userId: true },
         },
       },
+      take: 5000,
     });
 
     const customerMap = new Map<

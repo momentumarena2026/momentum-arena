@@ -352,6 +352,8 @@ model Notification {
   error     String?
 
   createdAt DateTime @default(now())
+
+  @@index([bookingId])
 }
 
 model PromoBanner {

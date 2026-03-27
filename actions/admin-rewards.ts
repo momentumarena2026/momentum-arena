@@ -6,7 +6,7 @@ import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { getOrCreateRewardConfig, getOrCreateBalance, recalculateTier } from "@/lib/reward-points";
 
 async function requireAdmin() {
-  const user = await requireAdminBase();
+  const user = await requireAdminBase("MANAGE_REWARDS");
   return user.id;
 }
 

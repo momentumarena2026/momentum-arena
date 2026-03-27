@@ -9,7 +9,8 @@ const MAX_OTP_SENDS_PER_WINDOW = 5;
 const RATE_LIMIT_WINDOW_MINUTES = 15;
 const LOCKOUT_MINUTES = 30;
 
-const isDev = process.env.NODE_ENV === "development";
+// Dev OTP bypass requires EXPLICIT opt-in via ENABLE_DEV_OTP=true
+const isDevOtpEnabled = process.env.ENABLE_DEV_OTP === "true" && process.env.NODE_ENV === "development";
 const DEV_OTP = "123456";
 
 function generateOtp(): string {
@@ -116,7 +117,7 @@ export async function sendOtp(
     };
   }
 
-  if (isDev && !MSG91_AUTH_KEY) {
+  if (isDevOtpEnabled && !MSG91_AUTH_KEY) {
     console.log(`\n🔑 [DEV] OTP for ${identifier}: ${DEV_OTP}\n`);
     await storeOtp(identifier, DEV_OTP);
     return { success: true };
@@ -153,7 +154,7 @@ export async function verifyOtp(
   code: string,
   _type: "email" | "phone"
 ): Promise<VerifyResult> {
-  if (isDev && !MSG91_AUTH_KEY) {
+  if (isDevOtpEnabled && !MSG91_AUTH_KEY) {
     return code === DEV_OTP
       ? { success: true }
       : { success: false, error: "Invalid OTP.", attemptsRemaining: MAX_OTP_ATTEMPTS };

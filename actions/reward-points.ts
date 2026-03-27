@@ -14,6 +14,7 @@ import {
 /**
  * Earn points for a booking or cafe order.
  * Creates a transaction, updates balance, and recalculates tier.
+ * INTERNAL: Should only be called from booking/order confirmation flows.
  */
 export async function earnPoints(
   userId: string,
@@ -21,6 +22,11 @@ export async function earnPoints(
   type: "booking" | "cafe",
   referenceId: string
 ) {
+  // Verify caller is the user or call is server-internal
+  const session = await auth();
+  if (session?.user?.id && session.user.id !== userId) {
+    throw new Error("Cannot earn points for another user");
+  }
   const config = await getOrCreateRewardConfig();
   const balance = await getOrCreateBalance(userId);
 
@@ -89,6 +95,12 @@ export async function redeemPoints(
   type: "booking" | "cafe",
   referenceId: string
 ) {
+  // Verify caller is the user
+  const session = await auth();
+  if (!session?.user?.id || session.user.id !== userId) {
+    return { success: false, error: "Cannot redeem points for another user" };
+  }
+
   if (points <= 0) {
     return { success: false, error: "Points must be positive" };
   }

@@ -200,6 +200,18 @@ export async function loginWithPassword(
     return { error: "Please enter a valid email address" };
   }
 
+  // Rate limit: max 5 password attempts per email per 15 minutes
+  const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
+  const recentAttempts = await db.rateLimit.count({
+    where: { identifier: `pwd:${email}`, createdAt: { gt: fifteenMinAgo } },
+  });
+  if (recentAttempts >= 5) {
+    return { error: "Too many login attempts. Please try again in 15 minutes." };
+  }
+  await db.rateLimit.create({
+    data: { identifier: `pwd:${email}`, expiresAt: new Date(Date.now() + 15 * 60 * 1000) },
+  });
+
   // Check if user exists
   const user = await db.user.findUnique({
     where: { email },
