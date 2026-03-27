@@ -18,24 +18,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id as string;
-        token.userType = user.userType || "customer";
+        token.userType = "customer";
         token.phone = user.phone;
-        token.adminRole = user.adminRole;
-        token.permissions = user.permissions;
 
-        // Always check DB for needsPasswordSetup (handles Google, OTP, and password logins)
-        if (token.userType === "customer") {
-          try {
-            const dbUser = await db.user.findUnique({
-              where: { id: user.id as string },
-              select: { passwordHash: true },
-            });
-            token.needsPasswordSetup = !dbUser?.passwordHash;
-          } catch {
-            token.needsPasswordSetup = true;
-          }
-        } else {
-          token.needsPasswordSetup = false;
+        // Check DB for needsPasswordSetup
+        try {
+          const dbUser = await db.user.findUnique({
+            where: { id: user.id as string },
+            select: { passwordHash: true },
+          });
+          token.needsPasswordSetup = !dbUser?.passwordHash;
+        } catch {
+          token.needsPasswordSetup = true;
         }
       }
 
@@ -59,11 +53,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (token) {
         session.user.id = token.id as string;
-        session.user.userType = token.userType as "customer" | "admin";
+        session.user.userType = "customer";
         session.user.phone = token.phone as string | undefined;
         session.user.needsPasswordSetup = token.needsPasswordSetup as boolean | undefined;
-        session.user.adminRole = token.adminRole as "SUPERADMIN" | "ADMIN" | undefined;
-        session.user.permissions = token.permissions as string[] | undefined;
       }
       return session;
     },
@@ -176,41 +168,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
 
-    // Admin credentials login
-    Credentials({
-      id: "admin-credentials",
-      name: "Admin Login",
-      credentials: {
-        username: { label: "Username", type: "text" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.username || !credentials?.password) return null;
-
-        const username = credentials.username as string;
-        const password = credentials.password as string;
-
-        const admin = await db.adminUser.findUnique({ where: { username } });
-        if (!admin) return null;
-
-        const valid = await verifyPassword(password, admin.passwordHash);
-        if (!valid) return null;
-
-        // Update last login
-        await db.adminUser.update({
-          where: { id: admin.id },
-          data: { lastLoginAt: new Date() },
-        });
-
-        return {
-          id: admin.id,
-          name: admin.username,
-          email: admin.email,
-          userType: "admin" as const,
-          adminRole: admin.role,
-          permissions: admin.permissions,
-        };
-      },
-    }),
+    // Admin auth is handled by separate NextAuth instance at /api/admin-auth
+    // See lib/admin-auth-session.ts
   ],
 });

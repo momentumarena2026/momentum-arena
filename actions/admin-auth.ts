@@ -3,7 +3,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import { AuthError } from "next-auth";
-import { signIn, signOut } from "@/lib/auth";
+import { adminSignIn, adminSignOut } from "@/lib/admin-auth-session";
 import { db } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { requireSuperadmin } from "@/lib/admin-auth";
@@ -37,7 +37,7 @@ export async function adminLogin(
   }
 
   try {
-    await signIn("admin-credentials", {
+    await adminSignIn("admin-credentials", {
       username,
       password,
       redirectTo: "/admin",
@@ -53,7 +53,7 @@ export async function adminLogin(
 }
 
 export async function adminLogout() {
-  await signOut({ redirectTo: "/godmode" });
+  await adminSignOut({ redirectTo: "/godmode" });
 }
 
 // --- Admin User Management (Superadmin only) ---

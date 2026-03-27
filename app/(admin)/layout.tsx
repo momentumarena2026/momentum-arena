@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { auth } from "@/lib/auth";
+import { adminAuth } from "@/lib/admin-auth-session";
 import { SignOutButton } from "@/components/sign-out-button";
 import { hasPermission } from "@/lib/permissions";
 import {
@@ -51,12 +51,18 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await adminAuth();
   if (!session?.user) redirect("/godmode");
-  if (session.user.userType !== "admin") redirect("/godmode");
 
-  const userPermissions = session.user.permissions || [];
-  const isSuperadmin = session.user.adminRole === "SUPERADMIN";
+  const user = session.user as unknown as {
+    id: string;
+    name?: string;
+    adminRole?: string;
+    permissions?: string[];
+  };
+
+  const userPermissions = user.permissions || [];
+  const isSuperadmin = user.adminRole === "SUPERADMIN";
 
   // Filter nav items based on permissions
   const visibleNavItems = adminNavItems.filter((item) => {
@@ -92,7 +98,7 @@ export default async function AdminLayout({
               >
                 {session.user.name || session.user.email}
               </Link>
-              <SignOutButton redirectTo="/godmode" />
+              <SignOutButton isAdmin redirectTo="/godmode" />
             </div>
           </div>
         </div>
