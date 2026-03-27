@@ -2,41 +2,21 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /**
- * Decode JWT payload without verification (Edge runtime compatible).
- * Returns null if token is malformed or expired.
+ * Check if a session cookie has a non-empty value.
+ * Full JWT/session validation happens server-side in requireAdmin()/auth().
+ * Middleware provides defense-in-depth by rejecting clearly invalid cookies.
  */
-function decodeJwtPayload(token: string): { exp?: number } | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf-8")
-    );
-    // Check expiry
-    if (payload.exp && Date.now() / 1000 > payload.exp) {
-      return null; // expired
-    }
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function isValidSessionCookie(cookieValue: string | undefined): boolean {
-  if (!cookieValue) return false;
-  // NextAuth session tokens are JWTs — validate structure and expiry
-  const payload = decodeJwtPayload(cookieValue);
-  return payload !== null;
+function hasValidCookie(cookieValue: string | undefined): boolean {
+  return !!cookieValue && cookieValue.length > 10;
 }
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Admin routes — check admin session cookie validity
+  // Admin routes — check admin session cookie
   if (pathname.startsWith("/admin")) {
     const adminToken = request.cookies.get("admin-session-token")?.value;
-    if (!isValidSessionCookie(adminToken)) {
-      // Clear stale cookie
+    if (!hasValidCookie(adminToken)) {
       const response = NextResponse.redirect(new URL("/godmode", request.url));
       if (adminToken) response.cookies.delete("admin-session-token");
       return response;
@@ -48,7 +28,7 @@ export function middleware(request: NextRequest) {
   if (pathname.startsWith("/godmode")) {
     const adminToken = request.cookies.get("admin-session-token")?.value;
     if (
-      isValidSessionCookie(adminToken) &&
+      hasValidCookie(adminToken) &&
       !pathname.startsWith("/godmode/setup-password")
     ) {
       return NextResponse.redirect(new URL("/admin", request.url));
@@ -56,7 +36,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Protected customer routes — check customer session cookie validity
+  // Protected customer routes — check customer session cookie
   if (
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/bookings") ||
@@ -65,9 +45,8 @@ export function middleware(request: NextRequest) {
     const customerToken =
       request.cookies.get("authjs.session-token")?.value ||
       request.cookies.get("__Secure-authjs.session-token")?.value;
-    if (!isValidSessionCookie(customerToken)) {
-      const response = NextResponse.redirect(new URL("/", request.url));
-      return response;
+    if (!hasValidCookie(customerToken)) {
+      return NextResponse.redirect(new URL("/", request.url));
     }
     return NextResponse.next();
   }
