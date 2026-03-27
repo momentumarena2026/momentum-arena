@@ -84,10 +84,21 @@ export async function submitCafeOrderUtr(
 
   const payment = await db.cafePayment.findFirst({
     where: { orderId },
+    include: { order: { select: { userId: true } } },
   });
 
   if (!payment) {
     return { success: false, error: "Payment not found" };
+  }
+
+  // Verify ownership: if order has a userId, the caller must match
+  // Guest orders (userId is null) can be submitted by anyone with the orderId
+  if (payment.order.userId) {
+    const { auth } = await import("@/lib/auth");
+    const session = await auth();
+    if (!session?.user?.id || session.user.id !== payment.order.userId) {
+      return { success: false, error: "Unauthorized" };
+    }
   }
 
   if (payment.method !== "UPI_QR") {

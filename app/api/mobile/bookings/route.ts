@@ -9,11 +9,14 @@ export async function GET(request: NextRequest) {
   }
 
   const status = request.nextUrl.searchParams.get("status");
+  const page = parseInt(request.nextUrl.searchParams.get("page") || "1");
+  const limit = Math.min(parseInt(request.nextUrl.searchParams.get("limit") || "20"), 50);
+  const skip = (page - 1) * limit;
 
   const bookings = await db.booking.findMany({
     where: {
       userId: user.id,
-      ...(status ? { status: status as any } : {}),
+      ...(status ? { status: status as "CONFIRMED" | "LOCKED" | "CANCELLED" } : {}),
     },
     include: {
       courtConfig: true,
@@ -21,7 +24,9 @@ export async function GET(request: NextRequest) {
       payment: true,
     },
     orderBy: { createdAt: "desc" },
+    take: limit,
+    skip,
   });
 
-  return NextResponse.json(bookings);
+  return NextResponse.json({ bookings, page, limit });
 }

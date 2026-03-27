@@ -80,9 +80,10 @@ export async function createCafeOrder(data: {
       }
     }
 
-    // Generate order number
+    // Generate order number with random suffix to prevent race condition
     const orderCount = await db.cafeOrder.count();
-    const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}`;
+    const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
+    const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}-${rand}`;
 
     // Determine payment status
     const paymentStatus =
@@ -229,10 +230,11 @@ export async function validateCafeCoupon(
   }
 }
 
-export async function getMyCafeOrders() {
+export async function getMyCafeOrders(page = 1, limit = 20) {
   const userId = await getOptionalCustomerId();
   if (!userId) return [];
 
+  const safeLimit = Math.min(limit, 50);
   const orders = await db.cafeOrder.findMany({
     where: { userId },
     include: {
@@ -242,6 +244,8 @@ export async function getMyCafeOrders() {
       payment: true,
     },
     orderBy: { createdAt: "desc" },
+    take: safeLimit,
+    skip: (page - 1) * safeLimit,
   });
 
   return orders;

@@ -23,8 +23,8 @@ export async function getSlotAvailability(
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const now = new Date();
 
-  // Fetch all active bookings for this date whose configs overlap with our zones
-  const allBookings = await db.booking.findMany({
+  // Fetch active bookings for this date, filtered to configs with overlapping zones at DB level
+  const conflictingBookings = await db.booking.findMany({
     where: {
       date: dateOnly,
       OR: [
@@ -34,17 +34,15 @@ export async function getSlotAvailability(
           lockExpiresAt: { gt: now },
         },
       ],
+      courtConfig: {
+        zones: { hasSome: config.zones as CourtZone[] },
+      },
     },
     include: {
       courtConfig: true,
       slots: true,
     },
   });
-
-  // Filter bookings that overlap with our zones
-  const conflictingBookings = allBookings.filter((b) =>
-    zonesOverlap(b.courtConfig.zones as CourtZone[], config.zones as CourtZone[])
-  );
 
   // Build set of occupied hours
   const occupiedHours = new Map<number, SlotStatus>();

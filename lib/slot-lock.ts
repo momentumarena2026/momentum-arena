@@ -58,9 +58,7 @@ export async function createSlotLock(
         for (const hour of sortedHours) {
           const lockKey = advisoryLockKey(courtConfigId, dateStr, hour);
           // pg_advisory_xact_lock waits until lock is available and auto-releases on commit/rollback
-          await tx.$executeRawUnsafe(
-            `SELECT pg_advisory_xact_lock(${lockKey})`
-          );
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
         }
 
         // 2. Get the court config

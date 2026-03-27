@@ -247,9 +247,10 @@ export async function adminCreateCafeOrder(data: {
       };
     });
 
-    // Generate order number
+    // Generate order number with random suffix to prevent race condition
     const orderCount = await db.cafeOrder.count();
-    const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}`;
+    const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
+    const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}-${rand}`;
 
     // Determine payment status
     const paymentStatus =
