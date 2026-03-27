@@ -1,5 +1,6 @@
 import { DateFilterInput } from "@/components/admin/date-filter-input";
 import { getAdminBookings } from "@/actions/admin-booking";
+import { getCalendarData } from "@/actions/admin-calendar";
 import { SPORT_INFO, formatHour } from "@/lib/court-config";
 import type { Sport } from "@prisma/client";
 import { formatPrice } from "@/lib/pricing";
@@ -13,6 +14,7 @@ import {
   Calendar,
   Plus,
 } from "lucide-react";
+import { BookingsPageWrapper } from "./bookings-page-wrapper";
 
 export default async function AdminBookingsPage({
   searchParams,
@@ -26,14 +28,21 @@ export default async function AdminBookingsPage({
 }) {
   const params = await searchParams;
   const page = parseInt(params.page || "1");
+  const today = new Date().toISOString().split("T")[0];
 
-  const { bookings, total, totalPages } = await getAdminBookings({
-    page,
-    status: params.status,
-    sport: params.sport,
-    date: params.date,
-    limit: 20,
-  });
+  // Fetch both list data and calendar data in parallel
+  const [listData, calendarData] = await Promise.all([
+    getAdminBookings({
+      page,
+      status: params.status,
+      sport: params.sport,
+      date: params.date,
+      limit: 20,
+    }),
+    getCalendarData(today),
+  ]);
+
+  const { bookings, total, totalPages } = listData;
 
   const statusIcons = {
     CONFIRMED: {
@@ -65,7 +74,6 @@ export default async function AdminBookingsPage({
 
   const sports = ["CRICKET", "FOOTBALL", "PICKLEBALL", "BADMINTON"];
 
-  // Build URL helper
   function filterUrl(overrides: Record<string, string>) {
     const base: Record<string, string> = {
       status: params.status || "",
@@ -81,7 +89,7 @@ export default async function AdminBookingsPage({
     return `/admin/bookings${qs ? `?${qs}` : ""}`;
   }
 
-  // Group bookings by date for display
+  // Group bookings by date for list view
   const groupedByDate = new Map<string, typeof bookings>();
   for (const b of bookings) {
     const dateKey = b.date.toLocaleDateString("en-IN", {
@@ -94,7 +102,6 @@ export default async function AdminBookingsPage({
     groupedByDate.get(dateKey)!.push(b);
   }
 
-  // Sort bookings within each date group by earliest slot hour
   for (const [, group] of groupedByDate) {
     group.sort((a, b) => {
       const aHour = a.slots[0]?.startHour ?? 99;
@@ -103,7 +110,8 @@ export default async function AdminBookingsPage({
     });
   }
 
-  return (
+  // List view content (passed as children to wrapper)
+  const listViewContent = (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -121,7 +129,6 @@ export default async function AdminBookingsPage({
 
       {/* Filters */}
       <div className="space-y-3">
-        {/* Date filter */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <Calendar className="h-4 w-4" />
@@ -138,11 +145,9 @@ export default async function AdminBookingsPage({
             All Dates
           </Link>
           <Link
-            href={filterUrl({
-              date: new Date().toISOString().split("T")[0],
-            })}
+            href={filterUrl({ date: today })}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              params.date === new Date().toISOString().split("T")[0]
+              params.date === today
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                 : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
             }`}
@@ -151,9 +156,7 @@ export default async function AdminBookingsPage({
           </Link>
           <Link
             href={filterUrl({
-              date: new Date(Date.now() + 86400000)
-                .toISOString()
-                .split("T")[0],
+              date: new Date(Date.now() + 86400000).toISOString().split("T")[0],
             })}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               params.date ===
@@ -164,7 +167,6 @@ export default async function AdminBookingsPage({
           >
             Tomorrow
           </Link>
-          {/* Custom date input — wrapped in a form that navigates on change */}
           <DateFilterInput
             currentDate={params.date || ""}
             status={params.status || ""}
@@ -172,7 +174,6 @@ export default async function AdminBookingsPage({
           />
         </div>
 
-        {/* Status filter */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm text-zinc-400">Status:</span>
           {["", "CONFIRMED", "LOCKED", "CANCELLED"].map((status) => (
@@ -190,7 +191,6 @@ export default async function AdminBookingsPage({
           ))}
         </div>
 
-        {/* Sport filter */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm text-zinc-400">Sport:</span>
           <Link
@@ -219,7 +219,7 @@ export default async function AdminBookingsPage({
         </div>
       </div>
 
-      {/* Bookings grouped by date */}
+      {/* Bookings list */}
       {bookings.length === 0 ? (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-12 text-center">
           <Search className="mx-auto h-12 w-12 text-zinc-600" />
@@ -273,9 +273,7 @@ export default async function AdminBookingsPage({
                               {booking.payment && (
                                 <span
                                   className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                                    paymentStatusColors[
-                                      booking.payment.status
-                                    ]
+                                    paymentStatusColors[booking.payment.status]
                                   }`}
                                 >
                                   {booking.payment.status} •{" "}
@@ -328,5 +326,13 @@ export default async function AdminBookingsPage({
         </div>
       )}
     </div>
+  );
+
+  return (
+    <BookingsPageWrapper
+      calendarData={calendarData}
+      calendarDate={today}
+      listViewContent={listViewContent}
+    />
   );
 }
