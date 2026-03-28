@@ -92,6 +92,8 @@ export async function createAdminUser(
   const username = (formData.get("username") as string)?.trim();
   const email = (formData.get("email") as string)?.trim();
   const permissions = formData.getAll("permissions") as string[];
+  const roleInput = (formData.get("role") as string)?.trim();
+  const role = roleInput === "STAFF" ? "STAFF" : "ADMIN";
 
   const validated = CreateAdminSchema.safeParse({
     username,
@@ -132,8 +134,8 @@ export async function createAdminUser(
       username,
       email,
       passwordHash: tempHash,
-      role: "ADMIN",
-      permissions: filteredPermissions,
+      role: role as "ADMIN" | "STAFF",
+      permissions: role === "STAFF" ? [] : filteredPermissions,
       inviteToken,
       inviteTokenExpiry,
     },

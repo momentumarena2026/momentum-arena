@@ -42,6 +42,7 @@ const adminNavItems = [
   { href: "/admin/cafe-orders", label: "Cafe Orders", icon: ClipboardList, permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/cafe-live", label: "Live Orders", icon: Activity, permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/utr-verify", label: "UTR Verify", icon: ScanLine, permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/checkin", label: "Check-in", icon: ScanLine, permission: "MANAGE_BOOKINGS" },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3, permission: "VIEW_ANALYTICS" },
   { href: "/admin/rewards", label: "Rewards", icon: Gift, permission: "MANAGE_REWARDS" },
   { href: "/admin/coupons", label: "Coupons", icon: Tags, permission: "MANAGE_COUPONS" },
@@ -64,9 +65,14 @@ export default async function AdminLayout({
 
   const userPermissions = user.permissions || [];
   const isSuperadmin = user.adminRole === "SUPERADMIN";
+  const isStaff = user.adminRole === "STAFF";
+
+  // Staff only see a restricted set of nav items
+  const staffAllowedHrefs = ["/admin", "/admin/bookings", "/admin/checkin", "/admin/cafe-live"];
 
   // Filter nav items based on permissions
   const visibleNavItems = adminNavItems.filter((item) => {
+    if (isStaff) return staffAllowedHrefs.includes(item.href);
     if (!item.permission) return true; // Overview always visible
     if (isSuperadmin) return true; // Superadmin sees everything
     return hasPermission(userPermissions, item.permission);
@@ -87,8 +93,14 @@ export default async function AdminLayout({
                   className="h-24 w-auto"
                 />
               </Link>
-              <span className="rounded-md bg-red-600/20 px-2 py-1 text-xs font-medium text-red-400 border border-red-600/30">
-                {isSuperadmin ? "Superadmin" : "Admin"}
+              <span className={`rounded-md px-2 py-1 text-xs font-medium border ${
+                isSuperadmin
+                  ? "bg-red-600/20 text-red-400 border-red-600/30"
+                  : isStaff
+                  ? "bg-blue-600/20 text-blue-400 border-blue-600/30"
+                  : "bg-amber-600/20 text-amber-400 border-amber-600/30"
+              }`}>
+                {isSuperadmin ? "Superadmin" : isStaff ? "Staff" : "Admin"}
               </span>
             </div>
 

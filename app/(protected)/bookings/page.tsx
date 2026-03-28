@@ -24,6 +24,7 @@ export default async function MyBookingsPage() {
       courtConfig: true,
       slots: { orderBy: { startHour: "asc" } },
       payment: true,
+      feedback: { select: { rating: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -162,9 +163,26 @@ export default async function MyBookingsPage() {
                             </p>
                           </div>
                         </div>
-                        <span className="text-sm text-zinc-500">
-                          {formatPrice(booking.totalAmount)}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-zinc-500">
+                            {formatPrice(booking.totalAmount)}
+                          </span>
+                          {booking.status === "CONFIRMED" && booking.date < new Date() && (
+                            booking.feedback ? (
+                              <span className="text-xs text-yellow-400">
+                                {"★".repeat(booking.feedback.rating)}
+                              </span>
+                            ) : (
+                              <Link
+                                href={`/bookings/${booking.id}/feedback`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded px-2 py-0.5"
+                              >
+                                Rate
+                              </Link>
+                            )
+                          )}
+                        </div>
                       </div>
                     </Link>
                   );

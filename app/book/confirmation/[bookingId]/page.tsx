@@ -4,6 +4,7 @@ import { redirect, notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import { CalendarExport } from "./calendar-export";
+import { BookingQR } from "./booking-qr";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -34,6 +35,7 @@ export default async function ConfirmationPage({
       payment: true,
     },
   });
+  // qrToken is on the booking model directly
 
   if (!booking) notFound();
 
@@ -189,6 +191,11 @@ export default async function ConfirmationPage({
           <Download className="h-4 w-4" />
           Download Invoice (GST)
         </a>
+      )}
+
+      {/* QR Check-in */}
+      {booking.status === "CONFIRMED" && booking.qrToken && (
+        <BookingQR qrToken={booking.qrToken} bookingId={booking.id} />
       )}
 
       {/* Calendar Export */}
