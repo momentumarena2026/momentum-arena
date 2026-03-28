@@ -402,17 +402,18 @@ export function SlotSelectionClient({
           </label>
 
           {isRecurring && (
-            <div className="space-y-3 pt-1">
-              {/* Recurring Day Selector */}
-              <div className="space-y-1.5">
-                <label className="text-sm text-zinc-400 flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
-                  Recurring day
-                </label>
+            <div className="space-y-4 pt-2">
+              {/* Step 1: Pick a day */}
+              <div className="space-y-2">
+                <div>
+                  <p className="text-sm font-medium text-white">Which day should this repeat on?</p>
+                  <p className="text-xs text-zinc-500">Your selected slots will be booked on this day every week</p>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((name, idx) => {
                     const isAllowed = recurringConfig.allowedDays.includes(idx);
                     const isSelected = effectiveRecurringDay === idx;
+                    const isToday = new Date(selectedDate).getDay() === idx;
                     if (!isAllowed) return null;
                     return (
                       <button
@@ -425,16 +426,27 @@ export function SlotSelectionClient({
                         }`}
                       >
                         {name}
+                        {isToday && !isSelected && (
+                          <span className="ml-1 text-[10px] text-zinc-600">(selected date)</span>
+                        )}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Weeks Count Selector with Discounts */}
-              <div className="space-y-1.5">
-                <label className="text-sm text-zinc-400">Repeat for</label>
-                <div className="grid grid-cols-3 gap-2">
+              {/* Step 2: How many weeks */}
+              <div className="space-y-2">
+                <div>
+                  <p className="text-sm font-medium text-white">For how many weeks?</p>
+                  <p className="text-xs text-zinc-500">
+                    You&apos;ll pay for all {weeksCount} weeks upfront at checkout
+                    {currentDiscount > 0 && (
+                      <span className="text-emerald-400"> — {currentDiscount}% discount applied!</span>
+                    )}
+                  </p>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
                   {weekOptions.map((w) => {
                     const discount = getDiscountForWeeks(w);
                     const isSelected = weeksCount === w;
@@ -442,16 +454,17 @@ export function SlotSelectionClient({
                       <button
                         key={w}
                         onClick={() => setWeeksCount(w)}
-                        className={`relative rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                        className={`relative rounded-lg border px-2 py-2.5 text-center transition-colors ${
                           isSelected
                             ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
                             : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600"
                         }`}
                       >
-                        {w} wk{w > 1 ? "s" : ""}
+                        <span className="text-sm font-semibold">{w}</span>
+                        <span className="text-[10px] text-zinc-500 ml-0.5">{w === 1 ? "week" : "weeks"}</span>
                         {discount > 0 && (
-                          <span className={`block text-[10px] mt-0.5 ${isSelected ? "text-emerald-300" : "text-emerald-500"}`}>
-                            {discount}% off
+                          <span className={`block text-[10px] font-medium mt-0.5 ${isSelected ? "text-emerald-300" : "text-emerald-500"}`}>
+                            Save {discount}%
                           </span>
                         )}
                       </button>
@@ -460,37 +473,35 @@ export function SlotSelectionClient({
                 </div>
               </div>
 
-              {/* Price Summary */}
-              {currentDiscount > 0 && (
-                <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400">{formatPrice(total)}/wk {"\u00D7"} {weeksCount} weeks</span>
-                    <span className="text-zinc-500 line-through">{formatPrice(total * weeksCount)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-emerald-400 font-medium">{currentDiscount}% recurring discount</span>
-                    <span className="text-emerald-400 font-bold">{formatPrice(discountedTotal)}</span>
-                  </div>
+              {/* Price Breakdown */}
+              <div className="rounded-lg bg-zinc-800/60 border border-zinc-700/50 px-3 py-3 space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <span>{formatPrice(total)} per week {"\u00D7"} {weeksCount} {weeksCount === 1 ? "week" : "weeks"}</span>
+                  <span>{formatPrice(total * weeksCount)}</span>
                 </div>
-              )}
+                {currentDiscount > 0 && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-emerald-400">Recurring discount ({currentDiscount}%)</span>
+                    <span className="text-emerald-400">-{formatPrice(total * weeksCount - discountedTotal)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-t border-zinc-700/50 pt-1.5">
+                  <span className="text-sm font-medium text-white">Total to pay</span>
+                  <span className="text-sm font-bold text-emerald-400">{formatPrice(discountedTotal)}</span>
+                </div>
+              </div>
 
-              {/* Preview Dates */}
-              <div>
-                <p className="text-xs text-zinc-500 mb-2">Upcoming bookings preview:</p>
+              {/* Preview: Dates that will be booked */}
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-zinc-400">Your bookings will be on:</p>
                 <div className="flex flex-wrap gap-1.5">
                   {getRecurringPreviewDates().map((d, i) => (
                     <span key={i} className="rounded-md bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
+                      {i === 0 && <span className="text-emerald-400 mr-1">1st</span>}
                       {d}
                     </span>
                   ))}
                 </div>
-              </div>
-
-              <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 px-3 py-2">
-                <p className="text-xs text-emerald-400 flex items-center gap-1.5">
-                  <RotateCcw className="h-3 w-3" />
-                  All weekly bookings will be created upfront. Full payment at checkout.
-                </p>
               </div>
             </div>
           )}

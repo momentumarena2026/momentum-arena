@@ -30,8 +30,9 @@ export default async function MyBookingsPage() {
         slots: { orderBy: { startHour: "asc" } },
         payment: true,
         feedback: { select: { rating: true } },
+        recurringBooking: { select: { id: true, dayOfWeek: true, status: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { date: "desc" },
     }),
     db.recurringBooking.findMany({
       where: {
@@ -182,13 +183,21 @@ export default async function MyBookingsPage() {
                             <StatusIcon className={`h-5 w-5 ${statusInfo.color}`} />
                           </div>
                           <div>
-                            <p className="font-medium text-white">
-                              {sportInfo.name} — {booking.courtConfig.label}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-white">
+                                {sportInfo.name} — {booking.courtConfig.label}
+                              </p>
+                              {booking.recurringBooking && (
+                                <span className="rounded-full bg-blue-500/10 border border-blue-500/30 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                  Recurring
+                                </span>
+                              )}
+                            </div>
                             <div className="mt-1 flex items-center gap-3 text-xs text-zinc-400">
                               <span className="flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
                                 {booking.date.toLocaleDateString("en-IN", {
+                                  weekday: "short",
                                   day: "numeric",
                                   month: "short",
                                 })}
@@ -237,15 +246,25 @@ export default async function MyBookingsPage() {
                         <div className="flex items-center gap-3">
                           <StatusIcon className={`h-5 w-5 ${statusInfo.color}`} />
                           <div>
-                            <p className="text-sm text-zinc-300">
-                              {sportInfo.name} — {booking.courtConfig.label}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm text-zinc-300">
+                                {sportInfo.name} — {booking.courtConfig.label}
+                              </p>
+                              {booking.recurringBooking && (
+                                <span className="rounded-full bg-blue-500/10 border border-blue-500/30 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                  Recurring
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-zinc-500">
                               {booking.date.toLocaleDateString("en-IN", {
+                                weekday: "short",
                                 day: "numeric",
                                 month: "short",
                                 year: "numeric",
                               })}
+                              {" · "}
+                              {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
                               {" · "}
                               {statusInfo.label}
                             </p>

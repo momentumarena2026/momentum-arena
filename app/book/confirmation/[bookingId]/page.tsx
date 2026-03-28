@@ -15,6 +15,7 @@ import {
   Receipt,
   ArrowRight,
   Download,
+  RefreshCw,
 } from "lucide-react";
 
 export default async function ConfirmationPage({
@@ -27,12 +28,26 @@ export default async function ConfirmationPage({
 
   const { bookingId } = await params;
 
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
   const booking = await db.booking.findUnique({
     where: { id: bookingId, userId: session.user.id },
     include: {
       courtConfig: true,
       slots: { orderBy: { startHour: "asc" } },
       payment: true,
+      recurringBooking: {
+        select: {
+          id: true,
+          dayOfWeek: true,
+          startDate: true,
+          endDate: true,
+          status: true,
+          startHour: true,
+          endHour: true,
+          _count: { select: { bookings: true } },
+        },
+      },
     },
   });
   // qrToken is on the booking model directly
@@ -181,6 +196,48 @@ export default async function ConfirmationPage({
           </div>
         </div>
       </div>
+
+      {/* Recurring Booking Info */}
+      {booking.recurringBooking && (
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-blue-400" />
+            <h3 className="text-sm font-semibold text-blue-400">Part of Recurring Series</h3>
+          </div>
+          <div className="ml-6 space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Repeats every</span>
+              <span className="text-white">{DAY_NAMES[booking.recurringBooking.dayOfWeek]}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Time</span>
+              <span className="text-white">
+                {formatHour(booking.recurringBooking.startHour)} – {formatHour(booking.recurringBooking.endHour)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Total bookings in series</span>
+              <span className="text-white">{booking.recurringBooking._count.bookings}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Series status</span>
+              <span className={`font-medium ${
+                booking.recurringBooking.status === "ACTIVE" ? "text-emerald-400" :
+                booking.recurringBooking.status === "CANCELLED" ? "text-red-400" : "text-yellow-400"
+              }`}>
+                {booking.recurringBooking.status}
+              </span>
+            </div>
+          </div>
+          <Link
+            href="/bookings"
+            className="ml-6 mt-1 inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            View all recurring bookings
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+      )}
 
       {/* Download Invoice */}
       {booking.status === "CONFIRMED" && booking.payment?.status === "COMPLETED" && (
