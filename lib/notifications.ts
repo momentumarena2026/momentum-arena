@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { formatHour, SPORT_INFO, SIZE_INFO } from "./court-config";
-import { formatPrice } from "./pricing";
+import { formatPrice, formatBookingDate } from "./pricing";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 
@@ -40,7 +40,7 @@ async function getBookingDetails(
     sport: booking.courtConfig.sport,
     configSize: booking.courtConfig.size,
     configLabel: booking.courtConfig.label,
-    date: booking.date.toLocaleDateString("en-IN", {
+    date: formatBookingDate(booking.date, {
       weekday: "long",
       year: "numeric",
       month: "long",

@@ -3,7 +3,7 @@ import { getAdminBookings } from "@/actions/admin-booking";
 import { getCalendarData } from "@/actions/admin-calendar";
 import { SPORT_INFO, formatHour } from "@/lib/court-config";
 import type { Sport } from "@prisma/client";
-import { formatPrice } from "@/lib/pricing";
+import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -92,7 +92,7 @@ export default async function AdminBookingsPage({
   // Group bookings by date for list view
   const groupedByDate = new Map<string, typeof bookings>();
   for (const b of bookings) {
-    const dateKey = b.date.toLocaleDateString("en-IN", {
+    const dateKey = formatBookingDate(b.date, {
       weekday: "short",
       day: "numeric",
       month: "short",

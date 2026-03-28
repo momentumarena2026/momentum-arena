@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
-import { formatPrice } from "@/lib/pricing";
+import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { CalendarExport } from "./calendar-export";
 import { BookingQR } from "./booking-qr";
 import Link from "next/link";
@@ -123,7 +123,7 @@ export default async function ConfirmationPage({
             </div>
             <div>
               <p className="text-sm font-medium text-white">
-                {booking.date.toLocaleDateString("en-IN", {
+                {formatBookingDate(booking.date, {
                   weekday: "long",
                   day: "numeric",
                   month: "long",

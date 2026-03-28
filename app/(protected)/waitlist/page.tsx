@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getUserWaitlist } from "@/actions/waitlist";
 import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import { formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import { ArrowLeft, Bell, BellOff, Calendar, Clock } from "lucide-react";
 import { WaitlistCancelButton } from "./waitlist-cancel-button";
@@ -78,7 +79,7 @@ export default async function WaitlistPage() {
                       <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          {new Date(entry.date).toLocaleDateString("en-IN", {
+                          {formatBookingDate(entry.date, {
                             weekday: "short",
                             day: "numeric",
                             month: "short",

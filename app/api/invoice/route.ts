@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { jsPDF } from "jspdf";
 import { formatHour, SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
+import { formatBookingDate } from "@/lib/pricing";
 import fs from "fs";
 import path from "path";
 
@@ -151,7 +152,7 @@ export async function GET(request: Request) {
 
   doc.text(`Invoice No: ${invoiceNo}`, margin, y);
   doc.text(
-    `Date: ${invoiceDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}`,
+    `Date: ${formatBookingDate(invoiceDate, { day: "numeric", month: "long", year: "numeric" })}`,
     pageWidth - margin,
     y,
     { align: "right" }
@@ -208,7 +209,7 @@ export async function GET(request: Request) {
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport as keyof typeof SPORT_INFO];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size as keyof typeof SIZE_INFO];
-  const bookingDate = booking.date.toLocaleDateString("en-IN", {
+  const bookingDate = formatBookingDate(booking.date, {
     weekday: "long",
     day: "numeric",
     month: "long",

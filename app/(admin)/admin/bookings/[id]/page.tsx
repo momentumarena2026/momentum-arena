@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
-import { formatPrice } from "@/lib/pricing";
+import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin } from "lucide-react";
 import { AdminBookingActions } from "./admin-actions";
@@ -107,7 +107,7 @@ export default async function AdminBookingDetailPage({
               <Calendar className="h-3.5 w-3.5" /> Date
             </span>
             <span className="text-white">
-              {booking.date.toLocaleDateString("en-IN", {
+              {formatBookingDate(booking.date, {
                 weekday: "long",
                 day: "numeric",
                 month: "long",

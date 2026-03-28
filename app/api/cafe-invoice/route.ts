@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { jsPDF } from "jspdf";
+import { formatBookingDate } from "@/lib/pricing";
 import fs from "fs";
 import path from "path";
 
@@ -181,7 +182,7 @@ export async function GET(request: Request) {
 
   doc.text(`Invoice No: ${invoiceNo}`, margin, y);
   doc.text(
-    `Date: ${invoiceDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}`,
+    `Date: ${formatBookingDate(invoiceDate, { day: "numeric", month: "long", year: "numeric" })}`,
     pageWidth - margin,
     y,
     { align: "right" }

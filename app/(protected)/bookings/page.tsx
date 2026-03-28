@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { SPORT_INFO, formatHour } from "@/lib/court-config";
-import { formatPrice } from "@/lib/pricing";
+import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -123,7 +123,7 @@ export default async function MyBookingsPage() {
                                 href={`/book/confirmation/${b.id}`}
                                 className="rounded-md bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 hover:text-white transition-colors"
                               >
-                                {new Date(b.date).toLocaleDateString("en-IN", {
+                                {formatBookingDate(b.date, {
                                   day: "numeric",
                                   month: "short",
                                 })}
@@ -196,7 +196,7 @@ export default async function MyBookingsPage() {
                             <div className="mt-1 flex items-center gap-3 text-xs text-zinc-400">
                               <span className="flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
-                                {booking.date.toLocaleDateString("en-IN", {
+                                {formatBookingDate(booking.date, {
                                   weekday: "short",
                                   day: "numeric",
                                   month: "short",
@@ -257,7 +257,7 @@ export default async function MyBookingsPage() {
                               )}
                             </div>
                             <p className="text-xs text-zinc-500">
-                              {booking.date.toLocaleDateString("en-IN", {
+                              {formatBookingDate(booking.date, {
                                 weekday: "short",
                                 day: "numeric",
                                 month: "short",

@@ -2,7 +2,7 @@ import { adminAuth } from "@/lib/admin-auth-session";
 import { redirect } from "next/navigation";
 import { getBookingByQrToken } from "@/actions/checkin";
 import { SPORT_INFO, formatHour } from "@/lib/court-config";
-import { formatPrice } from "@/lib/pricing";
+import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { CheckinClient } from "./checkin-client";
 import { CheckCircle2, XCircle, User, Calendar, Clock, MapPin } from "lucide-react";
 
@@ -87,7 +87,7 @@ export default async function CheckinPage({
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="flex items-center gap-2 text-zinc-300">
             <Calendar className="h-4 w-4 text-zinc-500" />
-            {new Date(booking.date).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+            {formatBookingDate(booking.date, { dateStyle: "medium" })}
           </div>
           <div className="flex items-center gap-2 text-zinc-300">
             <Clock className="h-4 w-4 text-zinc-500" />

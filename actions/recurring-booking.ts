@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkSlotsAvailable } from "@/lib/availability";
-import { getSlotPricesForDate } from "@/lib/pricing";
+import { getSlotPricesForDate, formatBookingDate } from "@/lib/pricing";
 
 const MAX_WEEKS_AHEAD = 4; // Initial bookings created upfront
 const MAX_TOTAL_MONTHS = 3; // Maximum recurrence window
@@ -97,7 +97,7 @@ export async function createRecurringBooking(data: {
 
   const unavailable = availabilityChecks.filter((c) => !c.available);
   if (unavailable.length > 0) {
-    const dateStr = unavailable[0].date.toLocaleDateString("en-IN", {
+    const dateStr = formatBookingDate(unavailable[0].date, {
       weekday: "short",
       day: "numeric",
       month: "short",
