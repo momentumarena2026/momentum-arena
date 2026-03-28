@@ -60,14 +60,12 @@ export function DiscountInput({
       setCouponsLoading(true);
       getAvailableCoupons(scope === "CAFE" ? "CAFE" : "SPORTS")
         .then((result) => {
-          if (result.success) {
-            setCoupons(
-              (result.coupons as CouponItem[]).map((c) => ({
-                ...c,
-                validUntil: c.validUntil ? String(c.validUntil) : null,
-              }))
-            );
-          }
+          setCoupons(
+            result.map((c) => ({
+              ...c,
+              validUntil: c.validUntil ? String(c.validUntil) : null,
+            }))
+          );
         })
         .finally(() => setCouponsLoading(false));
     }
