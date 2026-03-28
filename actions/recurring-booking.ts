@@ -1,0 +1,284 @@
+"use server";
+
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { checkSlotsAvailable } from "@/lib/availability";
+import { getSlotPricesForDate } from "@/lib/pricing";
+
+const MAX_WEEKS_AHEAD = 4; // Initial bookings created upfront
+const MAX_TOTAL_MONTHS = 3; // Maximum recurrence window
+
+export interface RecurringBookingResult {
+  success: boolean;
+  error?: string;
+  recurringBookingId?: string;
+  bookingsCreated?: number;
+}
+
+export async function createRecurringBooking(data: {
+  courtConfigId: string;
+  startHour: number;
+  endHour: number;
+  dayOfWeek: number; // 0=Sunday ... 6=Saturday
+  startDate: string; // ISO date string
+  weeksCount?: number; // Total weeks (null = indefinite, capped at MAX_TOTAL_MONTHS * 4)
+}): Promise<RecurringBookingResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { courtConfigId, startHour, endHour, dayOfWeek, startDate, weeksCount } = data;
+
+  if (startHour >= endHour) {
+    return { success: false, error: "Invalid time range" };
+  }
+
+  if (dayOfWeek < 0 || dayOfWeek > 6) {
+    return { success: false, error: "Invalid day of week" };
+  }
+
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+
+  // Verify the start date matches the day of week
+  if (start.getDay() !== dayOfWeek) {
+    return {
+      success: false,
+      error: "Start date does not match the selected day of week",
+    };
+  }
+
+  // Verify start date is in the future
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (start < today) {
+    return { success: false, error: "Start date must be in the future" };
+  }
+
+  // Calculate end date
+  let endDate: Date | null = null;
+  const totalWeeks = weeksCount
+    ? Math.min(weeksCount, MAX_TOTAL_MONTHS * 4)
+    : null;
+
+  if (totalWeeks) {
+    endDate = new Date(start);
+    endDate.setDate(endDate.getDate() + (totalWeeks - 1) * 7);
+  } else {
+    // Cap at 3 months
+    endDate = new Date(start);
+    endDate.setMonth(endDate.getMonth() + MAX_TOTAL_MONTHS);
+  }
+
+  // Generate hours array for the slots
+  const hours: number[] = [];
+  for (let h = startHour; h < endHour; h++) {
+    hours.push(h);
+  }
+
+  // Check availability for the first 4 occurrences
+  const occurrencesToCheck = Math.min(MAX_WEEKS_AHEAD, totalWeeks || MAX_WEEKS_AHEAD);
+  const availabilityChecks: Array<{ date: Date; available: boolean; conflicts: number[] }> = [];
+
+  for (let i = 0; i < occurrencesToCheck; i++) {
+    const occurrenceDate = new Date(start);
+    occurrenceDate.setDate(occurrenceDate.getDate() + i * 7);
+
+    const { available, conflicts } = await checkSlotsAvailable(
+      courtConfigId,
+      occurrenceDate,
+      hours
+    );
+
+    availabilityChecks.push({ date: occurrenceDate, available, conflicts });
+  }
+
+  const unavailable = availabilityChecks.filter((c) => !c.available);
+  if (unavailable.length > 0) {
+    const dateStr = unavailable[0].date.toLocaleDateString("en-IN", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+    return {
+      success: false,
+      error: `Slots not available on ${dateStr}. Conflicting hours: ${unavailable[0].conflicts.join(", ")}`,
+    };
+  }
+
+  // Create the recurring booking record and initial bookings in a transaction
+  const result = await db.$transaction(async (tx) => {
+    const recurringBooking = await tx.recurringBooking.create({
+      data: {
+        userId: session.user.id!,
+        courtConfigId,
+        startHour,
+        endHour,
+        dayOfWeek,
+        startDate: start,
+        endDate,
+        status: "ACTIVE",
+      },
+    });
+
+    // Create individual bookings for the first 4 weeks
+    let bookingsCreated = 0;
+
+    for (let i = 0; i < occurrencesToCheck; i++) {
+      const bookingDate = new Date(start);
+      bookingDate.setDate(bookingDate.getDate() + i * 7);
+
+      if (endDate && bookingDate > endDate) break;
+
+      // Get slot prices for this date
+      const slotPrices = await getSlotPricesForDate(courtConfigId, bookingDate);
+      const bookingSlots = hours.map((hour) => {
+        const priceData = slotPrices.find((p) => p.hour === hour);
+        return { hour, price: priceData?.price ?? 0 };
+      });
+
+      const totalAmount = bookingSlots.reduce((sum, s) => sum + s.price, 0);
+
+      await tx.booking.create({
+        data: {
+          userId: session.user.id!,
+          courtConfigId,
+          date: bookingDate,
+          status: "CONFIRMED",
+          totalAmount,
+          recurringBookingId: recurringBooking.id,
+          slots: {
+            create: bookingSlots.map((s) => ({
+              startHour: s.hour,
+              price: s.price,
+            })),
+          },
+        },
+      });
+
+      bookingsCreated++;
+    }
+
+    return { recurringBookingId: recurringBooking.id, bookingsCreated };
+  });
+
+  return {
+    success: true,
+    recurringBookingId: result.recurringBookingId,
+    bookingsCreated: result.bookingsCreated,
+  };
+}
+
+export async function cancelRecurringBooking(
+  recurringBookingId: string
+): Promise<RecurringBookingResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const recurringBooking = await db.recurringBooking.findUnique({
+    where: { id: recurringBookingId },
+  });
+
+  if (!recurringBooking) {
+    return { success: false, error: "Recurring booking not found" };
+  }
+
+  if (recurringBooking.userId !== session.user.id) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  if (recurringBooking.status === "CANCELLED") {
+    return { success: false, error: "Already cancelled" };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Cancel all future individual bookings and the recurring record
+  await db.$transaction([
+    db.booking.updateMany({
+      where: {
+        recurringBookingId,
+        date: { gte: today },
+        status: { in: ["LOCKED", "CONFIRMED"] },
+      },
+      data: { status: "CANCELLED" },
+    }),
+    db.recurringBooking.update({
+      where: { id: recurringBookingId },
+      data: { status: "CANCELLED" },
+    }),
+  ]);
+
+  return { success: true };
+}
+
+export async function getUserRecurringBookings() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Not authenticated", bookings: [] };
+  }
+
+  const bookings = await db.recurringBooking.findMany({
+    where: {
+      userId: session.user.id,
+      status: { in: ["ACTIVE", "PAUSED"] },
+    },
+    include: {
+      courtConfig: {
+        select: { sport: true, size: true, label: true },
+      },
+      bookings: {
+        where: {
+          date: { gte: new Date() },
+          status: "CONFIRMED",
+        },
+        orderBy: { date: "asc" },
+        take: 4,
+        select: { id: true, date: true, totalAmount: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return { success: true, bookings };
+}
+
+export async function getRecurringBookingDetails(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Not authenticated", booking: null };
+  }
+
+  const booking = await db.recurringBooking.findUnique({
+    where: { id },
+    include: {
+      courtConfig: {
+        select: { sport: true, size: true, label: true, position: true },
+      },
+      bookings: {
+        orderBy: { date: "asc" },
+        select: {
+          id: true,
+          date: true,
+          status: true,
+          totalAmount: true,
+          slots: { orderBy: { startHour: "asc" } },
+        },
+      },
+    },
+  });
+
+  if (!booking) {
+    return { success: false, error: "Recurring booking not found", booking: null };
+  }
+
+  if (booking.userId !== session.user.id) {
+    return { success: false, error: "Unauthorized", booking: null };
+  }
+
+  return { success: true, booking };
+}

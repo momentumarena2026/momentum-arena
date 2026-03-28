@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
+import { CalendarExport } from "./calendar-export";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -188,6 +189,19 @@ export default async function ConfirmationPage({
           <Download className="h-4 w-4" />
           Download Invoice (GST)
         </a>
+      )}
+
+      {/* Calendar Export */}
+      {booking.status === "CONFIRMED" && booking.slots.length > 0 && (
+        <CalendarExport
+          bookingId={booking.id}
+          bookingDate={booking.date}
+          startHour={booking.slots[0].startHour}
+          endHour={booking.slots[booking.slots.length - 1].startHour + 1}
+          sport={SPORT_INFO[booking.courtConfig.sport].name}
+          courtLabel={booking.courtConfig.label}
+          totalAmount={booking.totalAmount}
+        />
       )}
 
       {/* Actions */}

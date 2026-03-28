@@ -81,6 +81,7 @@ enum BannerPlacement {
 enum AdminRole {
   SUPERADMIN
   ADMIN
+  STAFF
 }
 
 // ===========================
@@ -155,6 +156,12 @@ model User {
 
   rewardBalance RewardPointsBalance?
 
+  // New feature relations
+  feedbacks         Feedback[]
+  waitlistEntries   Waitlist[]
+  recurringBookings RecurringBooking[]
+  wallet            Wallet?
+
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -217,9 +224,11 @@ model CourtConfig {
   zones     CourtZone[]
   isActive  Boolean     @default(true)
 
-  bookings   Booking[]
-  prices     PricingRule[]
-  slotBlocks SlotBlock[]
+  bookings          Booking[]
+  prices            PricingRule[]
+  slotBlocks        SlotBlock[]
+  waitlistEntries   Waitlist[]
+  recurringBookings RecurringBooking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -251,6 +260,20 @@ model Booking {
   slots       BookingSlot[]
   payment     Payment?
   editHistory BookingEditHistory[]
+
+  // QR check-in
+  checkedInAt  DateTime?
+  qrToken      String?   @unique @default(cuid())
+
+  // Booking reminders
+  reminder24SentAt DateTime?
+  reminder2SentAt  DateTime?
+
+  // New feature relations
+  feedback         Feedback?
+  equipmentRentals EquipmentRental[]
+  recurringBookingId String?
+  recurringBooking   RecurringBooking? @relation(fields: [recurringBookingId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -783,4 +806,159 @@ model CafeSettings {
   totalTables Int    @default(10)
 
   updatedAt DateTime @updatedAt
+}
+// ===========================
+// QR CHECK-IN
+// ===========================
+
+// checkedInAt + qrToken added to Booking model via migration
+
+// ===========================
+// POST-MATCH FEEDBACK
+// ===========================
+
+model Feedback {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  rating    Int      // 1-5
+  comment   String?
+  tags      String[] // e.g. ["great_court", "clean", "staff_friendly"]
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([rating])
+}
+
+// ===========================
+// WAITLIST
+// ===========================
+
+enum WaitlistStatus {
+  WAITING
+  NOTIFIED
+  BOOKED
+  EXPIRED
+  CANCELLED
+}
+
+model Waitlist {
+  id            String         @id @default(cuid())
+  userId        String?
+  user          User?          @relation(fields: [userId], references: [id])
+  guestPhone    String?
+  guestEmail    String?
+  courtConfigId String
+  courtConfig   CourtConfig    @relation(fields: [courtConfigId], references: [id])
+  date          DateTime
+  startHour     Int
+  endHour       Int
+  status        WaitlistStatus @default(WAITING)
+  notifiedAt    DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime       @default(now())
+
+  @@index([userId])
+  @@index([courtConfigId, date, status])
+}
+
+// ===========================
+// EQUIPMENT RENTAL
+// ===========================
+
+model Equipment {
+  id             String            @id @default(cuid())
+  name           String
+  sport          Sport?
+  pricePerHour   Int               // paise
+  totalUnits     Int               @default(1)
+  availableUnits Int               @default(1)
+  isActive       Boolean           @default(true)
+  imageUrl       String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  rentals        EquipmentRental[]
+}
+
+model EquipmentRental {
+  id          String    @id @default(cuid())
+  bookingId   String
+  booking     Booking   @relation(fields: [bookingId], references: [id])
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id])
+  quantity    Int       @default(1)
+  totalPrice  Int       // paise
+  createdAt   DateTime  @default(now())
+
+  @@index([bookingId])
+  @@index([equipmentId])
+}
+
+// ===========================
+// RECURRING BOOKINGS
+// ===========================
+
+enum RecurringStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  COMPLETED
+}
+
+model RecurringBooking {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id])
+  courtConfigId String
+  courtConfig   CourtConfig     @relation(fields: [courtConfigId], references: [id])
+  startHour     Int
+  endHour       Int
+  dayOfWeek     Int             // 0=Sun … 6=Sat
+  startDate     DateTime
+  endDate       DateTime?       // null = indefinite (max 3 months enforced in code)
+  status        RecurringStatus @default(ACTIVE)
+  bookings      Booking[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ===========================
+// WALLET
+// ===========================
+
+enum WalletTxType {
+  CREDIT_REFUND
+  CREDIT_TOPUP
+  CREDIT_ADMIN
+  DEBIT_BOOKING
+  DEBIT_CAFE
+}
+
+model Wallet {
+  id           String             @id @default(cuid())
+  userId       String             @unique
+  user         User               @relation(fields: [userId], references: [id])
+  balancePaise Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id              String       @id @default(cuid())
+  walletId        String
+  wallet          Wallet       @relation(fields: [walletId], references: [id])
+  type            WalletTxType
+  amountPaise     Int
+  description     String
+  refBookingId    String?
+  refCafeOrderId  String?
+  createdAt       DateTime     @default(now())
+
+  @@index([walletId])
 }

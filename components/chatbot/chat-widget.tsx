@@ -72,7 +72,7 @@ export function ChatWidget() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-20 md:bottom-24 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 shadow-lg shadow-emerald-900/30 transition-all hover:bg-emerald-700 hover:scale-110"
+          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 shadow-lg shadow-emerald-900/30 transition-all hover:bg-emerald-700 hover:scale-110"
           aria-label="Open FAQ chat"
         >
           <MessageCircle className="h-6 w-6 text-white" />
@@ -81,7 +81,7 @@ export function ChatWidget() {
 
       {/* Chat Panel */}
       {isOpen && (
-        <div className="fixed bottom-20 md:bottom-24 right-6 z-40 flex h-[500px] w-[360px] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50 sm:w-[380px]">
+        <div className="fixed bottom-6 right-6 z-50 flex h-[500px] w-[360px] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50 sm:w-[380px]">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 p-4">
             <div className="flex items-center gap-2">
