@@ -5,8 +5,59 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
-import { Menu, X } from "lucide-react";
-import type { NavGroup } from "./layout";
+import {
+  Menu,
+  X,
+  LayoutDashboard,
+  CalendarCheck,
+  IndianRupee,
+  CalendarOff,
+  Dumbbell,
+  Users,
+  Megaphone,
+  HelpCircle,
+  Shield,
+  CreditCard,
+  Coffee,
+  ClipboardList,
+  BarChart3,
+  CalendarDays,
+  Activity,
+  Gift,
+  Tags,
+  ScanLine,
+  Package,
+  type LucideIcon,
+} from "lucide-react";
+
+// Map href → icon (client-side only, no serialization issues)
+const ICON_MAP: Record<string, LucideIcon> = {
+  "/admin": LayoutDashboard,
+  "/admin/analytics": BarChart3,
+  "/admin/bookings": CalendarCheck,
+  "/admin/checkin": ScanLine,
+  "/admin/utr-verify": ScanLine,
+  "/admin/recurring": CalendarDays,
+  "/admin/sports": Dumbbell,
+  "/admin/equipment": Package,
+  "/admin/pricing": IndianRupee,
+  "/admin/slots": CalendarOff,
+  "/admin/cafe-menu": Coffee,
+  "/admin/cafe-orders": ClipboardList,
+  "/admin/cafe-live": Activity,
+  "/admin/coupons": Tags,
+  "/admin/banners": Megaphone,
+  "/admin/rewards": Gift,
+  "/admin/users": Users,
+  "/admin/admin-users": Shield,
+  "/admin/faqs": HelpCircle,
+  "/admin/razorpay": CreditCard,
+};
+
+interface NavGroup {
+  label: string;
+  items: { href: string; label: string }[];
+}
 
 interface AdminSidebarProps {
   groups: NavGroup[];
@@ -47,7 +98,7 @@ export function AdminSidebar({ groups, userName, roleBadge }: AdminSidebarProps)
             </p>
             <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const Icon = item.icon;
+                const Icon = ICON_MAP[item.href] || LayoutDashboard;
                 const active = isActive(item.href);
                 return (
                   <li key={item.href}>

@@ -5,92 +5,32 @@ import { adminAuth } from "@/lib/admin-auth-session";
 import { SignOutButton } from "@/components/sign-out-button";
 import { hasPermission } from "@/lib/permissions";
 import { AdminSidebar } from "./admin-sidebar";
-import {
-  LayoutDashboard,
-  CalendarCheck,
-  IndianRupee,
-  CalendarOff,
-  Dumbbell,
-  Users,
-  Megaphone,
-  HelpCircle,
-  Shield,
-  CreditCard,
-  Coffee,
-  ClipboardList,
-  BarChart3,
-  CalendarDays,
-  Activity,
-  Gift,
-  Tags,
-  ScanLine,
-  Package,
-} from "lucide-react";
 
-export interface NavGroup {
-  label: string;
-  items: NavItem[];
-}
-
-export interface NavItem {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  permission: string | null;
-}
-
-const adminNavGroups: NavGroup[] = [
-  {
-    label: "General",
-    items: [
-      { href: "/admin", label: "Overview", icon: LayoutDashboard, permission: null },
-      { href: "/admin/analytics", label: "Analytics", icon: BarChart3, permission: "VIEW_ANALYTICS" },
-    ],
-  },
-  {
-    label: "Bookings",
-    items: [
-      { href: "/admin/bookings", label: "Bookings", icon: CalendarCheck, permission: "MANAGE_BOOKINGS" },
-      { href: "/admin/checkin", label: "Check-in", icon: ScanLine, permission: "MANAGE_BOOKINGS" },
-      { href: "/admin/utr-verify", label: "UTR Verify", icon: ScanLine, permission: "MANAGE_BOOKINGS" },
-      { href: "/admin/recurring", label: "Recurring", icon: CalendarDays, permission: "MANAGE_PRICING" },
-    ],
-  },
-  {
-    label: "Courts & Pricing",
-    items: [
-      { href: "/admin/sports", label: "Sports", icon: Dumbbell, permission: "MANAGE_SPORTS" },
-      { href: "/admin/equipment", label: "Equipment", icon: Package, permission: "MANAGE_SPORTS" },
-      { href: "/admin/pricing", label: "Pricing", icon: IndianRupee, permission: "MANAGE_PRICING" },
-      { href: "/admin/slots", label: "Slot Blocks", icon: CalendarOff, permission: "MANAGE_SLOTS" },
-    ],
-  },
-  {
-    label: "Cafe",
-    items: [
-      { href: "/admin/cafe-menu", label: "Menu", icon: Coffee, permission: "MANAGE_CAFE_MENU" },
-      { href: "/admin/cafe-orders", label: "Orders", icon: ClipboardList, permission: "MANAGE_CAFE_ORDERS" },
-      { href: "/admin/cafe-live", label: "Live Orders", icon: Activity, permission: "MANAGE_CAFE_ORDERS" },
-    ],
-  },
-  {
-    label: "Promotions",
-    items: [
-      { href: "/admin/coupons", label: "Coupons", icon: Tags, permission: "MANAGE_COUPONS" },
-      { href: "/admin/banners", label: "Banners", icon: Megaphone, permission: "MANAGE_BANNERS" },
-      { href: "/admin/rewards", label: "Rewards", icon: Gift, permission: "MANAGE_REWARDS" },
-    ],
-  },
-  {
-    label: "Settings",
-    items: [
-      { href: "/admin/users", label: "Users", icon: Users, permission: "MANAGE_USERS" },
-      { href: "/admin/admin-users", label: "Admin Users", icon: Shield, permission: "MANAGE_ADMIN_USERS" },
-      { href: "/admin/faqs", label: "FAQs", icon: HelpCircle, permission: "MANAGE_FAQS" },
-      { href: "/admin/razorpay", label: "Razorpay", icon: CreditCard, permission: "VIEW_RAZORPAY" },
-    ],
-  },
+// All nav items with permission requirements (no icon references — those live in the client component)
+const allNavItems = [
+  { href: "/admin", label: "Overview", group: "General", permission: null },
+  { href: "/admin/analytics", label: "Analytics", group: "General", permission: "VIEW_ANALYTICS" },
+  { href: "/admin/bookings", label: "Bookings", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/checkin", label: "Check-in", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/utr-verify", label: "UTR Verify", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/recurring", label: "Recurring", group: "Bookings", permission: "MANAGE_PRICING" },
+  { href: "/admin/sports", label: "Sports", group: "Courts & Pricing", permission: "MANAGE_SPORTS" },
+  { href: "/admin/equipment", label: "Equipment", group: "Courts & Pricing", permission: "MANAGE_SPORTS" },
+  { href: "/admin/pricing", label: "Pricing", group: "Courts & Pricing", permission: "MANAGE_PRICING" },
+  { href: "/admin/slots", label: "Slot Blocks", group: "Courts & Pricing", permission: "MANAGE_SLOTS" },
+  { href: "/admin/cafe-menu", label: "Menu", group: "Cafe", permission: "MANAGE_CAFE_MENU" },
+  { href: "/admin/cafe-orders", label: "Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
+  { href: "/admin/cafe-live", label: "Live Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
+  { href: "/admin/coupons", label: "Coupons", group: "Promotions", permission: "MANAGE_COUPONS" },
+  { href: "/admin/banners", label: "Banners", group: "Promotions", permission: "MANAGE_BANNERS" },
+  { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
+  { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
+  { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
+  { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },
+  { href: "/admin/razorpay", label: "Razorpay", group: "Settings", permission: "VIEW_RAZORPAY" },
 ];
+
+const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Promotions", "Settings"];
 
 export default async function AdminLayout({
   children,
@@ -111,21 +51,26 @@ export default async function AdminLayout({
   const isSuperadmin = user.adminRole === "SUPERADMIN";
   const isStaff = user.adminRole === "STAFF";
 
-  // Staff only see a restricted set of nav items
   const staffAllowedHrefs = ["/admin", "/admin/bookings", "/admin/checkin", "/admin/cafe-live"];
 
-  // Filter nav groups based on permissions
-  const visibleGroups: NavGroup[] = adminNavGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => {
-        if (isStaff) return staffAllowedHrefs.includes(item.href);
-        if (!item.permission) return true;
-        if (isSuperadmin) return true;
-        return hasPermission(userPermissions, item.permission);
-      }),
-    }))
-    .filter((group) => group.items.length > 0);
+  // Filter items by permissions and build serializable groups
+  const visibleItems = allNavItems.filter((item) => {
+    if (isStaff) return staffAllowedHrefs.includes(item.href);
+    if (!item.permission) return true;
+    if (isSuperadmin) return true;
+    return hasPermission(userPermissions, item.permission);
+  });
+
+  // Group them
+  const groups: { label: string; items: { href: string; label: string }[] }[] = [];
+  for (const groupName of GROUP_ORDER) {
+    const items = visibleItems
+      .filter((i) => i.group === groupName)
+      .map(({ href, label }) => ({ href, label }));
+    if (items.length > 0) {
+      groups.push({ label: groupName, items });
+    }
+  }
 
   const roleBadge = isSuperadmin
     ? { label: "Superadmin", cls: "bg-red-600/20 text-red-400 border-red-600/30" }
@@ -135,7 +80,7 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen bg-black">
-      {/* Top bar — mobile only shows hamburger, desktop shows minimal header */}
+      {/* Top bar — mobile only */}
       <header className="sticky top-0 z-50 border-b border-zinc-800 bg-zinc-950 lg:hidden">
         <div className="flex h-14 items-center justify-between px-4">
           <Link href="/admin">
@@ -159,7 +104,7 @@ export default async function AdminLayout({
       <div className="flex">
         {/* Sidebar */}
         <AdminSidebar
-          groups={visibleGroups}
+          groups={groups}
           userName={session.user.name || session.user.email || "Admin"}
           roleBadge={roleBadge}
         />
