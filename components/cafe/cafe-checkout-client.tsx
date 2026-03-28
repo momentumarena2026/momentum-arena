@@ -32,13 +32,10 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
   const [note, setNote] = useState("");
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
-  const [couponCode, setCouponCode] = useState("");
-  const [couponLoading, setCouponLoading] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{
     code: string;
     discount: number;
   } | null>(null);
-  const [couponError, setCouponError] = useState("");
   const [tableNumber, setTableNumber] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -48,36 +45,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
   const finalAmount = appliedCoupon
     ? Math.max(0, totalAmount - appliedCoupon.discount)
     : totalAmount;
-
-  async function handleApplyCoupon() {
-    if (!couponCode.trim()) return;
-    setCouponLoading(true);
-    setCouponError("");
-
-    try {
-      const categories = items.map((i) => i.category);
-      const result = await validateCoupon(couponCode.trim(), {
-        scope: "CAFE",
-        amount: totalAmount,
-        categories,
-      });
-
-      if (result.valid && result.discountAmount) {
-        setAppliedCoupon({
-          code: couponCode.trim().toUpperCase(),
-          discount: result.discountAmount,
-        });
-        setCouponError("");
-      } else {
-        setCouponError(result.error || "Invalid coupon");
-        setAppliedCoupon(null);
-      }
-    } catch {
-      setCouponError("Failed to validate coupon");
-    } finally {
-      setCouponLoading(false);
-    }
-  }
 
   async function loadRazorpayScript(): Promise<boolean> {
     if (window.Razorpay) return true;
