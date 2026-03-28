@@ -29,6 +29,7 @@ interface EquipmentItem {
 interface CheckoutClientProps {
   bookingId: string;
   amount: number;
+  perWeekAmount?: number;
   sport?: string;
   lockExpiresAt: string;
   userName: string;
@@ -59,6 +60,7 @@ type WalletPaymentMethodType = PaymentMethodType | "wallet";
 export function CheckoutClient({
   bookingId,
   amount,
+  perWeekAmount,
   sport,
   lockExpiresAt,
   userName,
@@ -385,12 +387,17 @@ export function CheckoutClient({
       <CountdownTimer expiresAt={new Date(lockExpiresAt)} onExpired={handleExpired} />
 
       {/* Recurring booking notice */}
-      {recurringEnabled && (
-        <div className="flex items-center gap-2 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
-          <RefreshCw className="h-4 w-4 text-blue-400 shrink-0" />
-          <span className="text-sm text-blue-400">
-            Recurring booking: every week for {recurringWeeksCount} weeks. After payment, your weekly series will be created automatically.
-          </span>
+      {recurringEnabled && recurringWeeksCount && perWeekAmount && (
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-blue-400 shrink-0" />
+            <span className="text-sm font-medium text-blue-400">
+              Recurring booking — {recurringWeeksCount} weeks
+            </span>
+          </div>
+          <p className="text-xs text-blue-400/70 ml-6">
+            {formatPrice(perWeekAmount)}/week × {recurringWeeksCount} weeks = <strong className="text-blue-300">{formatPrice(amount)}</strong> total
+          </p>
         </div>
       )}
 

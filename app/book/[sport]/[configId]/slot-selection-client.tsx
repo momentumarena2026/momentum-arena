@@ -387,7 +387,9 @@ export function SlotSelectionClient({
                 {selectedHours.sort((a, b) => a - b).map((h) => formatHour(h)).join(", ")}
               </span>
             </div>
-            <span className="text-emerald-400 font-bold flex-shrink-0">{formatPrice(total)}</span>
+            <span className="text-emerald-400 font-bold flex-shrink-0">
+              {isRecurring ? formatPrice(total * weeksCount) : formatPrice(total)}
+            </span>
           </div>
           <button
             onClick={handleProceed}

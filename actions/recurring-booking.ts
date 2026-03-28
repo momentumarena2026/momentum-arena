@@ -77,11 +77,12 @@ export async function createRecurringBooking(data: {
     hours.push(h);
   }
 
-  // Check availability for the first 4 occurrences
-  const occurrencesToCheck = Math.min(MAX_WEEKS_AHEAD, totalWeeks || MAX_WEEKS_AHEAD);
+  // Check availability for weeks 2 to N (week 1 is already booked via the normal booking flow)
+  const futureWeeks = (totalWeeks || MAX_WEEKS_AHEAD) - 1; // Skip week 1
+  const weeksToCreate = Math.min(futureWeeks, MAX_WEEKS_AHEAD);
   const availabilityChecks: Array<{ date: Date; available: boolean; conflicts: number[] }> = [];
 
-  for (let i = 0; i < occurrencesToCheck; i++) {
+  for (let i = 1; i <= weeksToCreate; i++) {
     const occurrenceDate = new Date(start);
     occurrenceDate.setDate(occurrenceDate.getDate() + i * 7);
 
@@ -107,7 +108,8 @@ export async function createRecurringBooking(data: {
     };
   }
 
-  // Create the recurring booking record and initial bookings in a transaction
+  // Create the recurring booking record and future bookings in a transaction
+  // Week 1 is the booking already created via normal checkout — we link it after
   const result = await db.$transaction(async (tx) => {
     const recurringBooking = await tx.recurringBooking.create({
       data: {
@@ -122,10 +124,23 @@ export async function createRecurringBooking(data: {
       },
     });
 
-    // Create individual bookings for the first 4 weeks
+    // Link the existing first-week booking to this recurring series
+    await tx.booking.updateMany({
+      where: {
+        userId: session.user.id!,
+        courtConfigId,
+        date: start,
+        status: "CONFIRMED",
+      },
+      data: {
+        recurringBookingId: recurringBooking.id,
+      },
+    });
+
+    // Create individual bookings for weeks 2 onwards
     let bookingsCreated = 0;
 
-    for (let i = 0; i < occurrencesToCheck; i++) {
+    for (let i = 1; i <= weeksToCreate; i++) {
       const bookingDate = new Date(start);
       bookingDate.setDate(bookingDate.getDate() + i * 7);
 
@@ -154,13 +169,15 @@ export async function createRecurringBooking(data: {
               price: s.price,
             })),
           },
+          // Payment is captured in the first booking's payment (bundled recurring payment)
+          // These bookings are CONFIRMED as pre-paid through the series
         },
       });
 
       bookingsCreated++;
     }
 
-    return { recurringBookingId: recurringBooking.id, bookingsCreated };
+    return { recurringBookingId: recurringBooking.id, bookingsCreated: bookingsCreated + 1 }; // +1 for the first week
   });
 
   return {

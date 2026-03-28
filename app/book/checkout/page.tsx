@@ -128,10 +128,22 @@ export default async function CheckoutPage({
               <span className="text-zinc-300">{formatPrice(slot.price)}</span>
             </div>
           ))}
+          {recurringEnabled && recurringWeeksCount && recurringWeeksCount > 1 && (
+            <>
+              <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2 text-sm">
+                <span className="text-zinc-400">Per week</span>
+                <span className="text-zinc-300">{formatPrice(booking.totalAmount)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-zinc-400">× {recurringWeeksCount} weeks</span>
+                <span className="text-zinc-300">{formatPrice(booking.totalAmount * recurringWeeksCount)}</span>
+              </div>
+            </>
+          )}
           <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2">
             <span className="font-semibold text-white">Total</span>
             <span className="text-lg font-bold text-emerald-400">
-              {formatPrice(booking.totalAmount)}
+              {formatPrice(recurringEnabled && recurringWeeksCount ? booking.totalAmount * recurringWeeksCount : booking.totalAmount)}
             </span>
           </div>
         </div>
@@ -140,7 +152,8 @@ export default async function CheckoutPage({
       {/* Payment */}
       <CheckoutClient
         bookingId={bookingId}
-        amount={booking.totalAmount}
+        amount={recurringEnabled && recurringWeeksCount ? booking.totalAmount * recurringWeeksCount : booking.totalAmount}
+        perWeekAmount={recurringEnabled && recurringWeeksCount ? booking.totalAmount : undefined}
         sport={booking.courtConfig.sport}
         lockExpiresAt={booking.lockExpiresAt!.toISOString()}
         userName={session.user.name || ""}
