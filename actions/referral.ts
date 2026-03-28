@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
  * Derives a short, deterministic referral code from a user ID.
  * Uses the last 8 characters of the cuid, uppercased.
  */
-export function deriveReferralCode(userId: string): string {
+export async function deriveReferralCode(userId: string): Promise<string> {
   const clean = userId.replace(/[^a-z0-9]/gi, "");
   return clean.slice(-8).toUpperCase();
 }
@@ -23,7 +23,7 @@ export async function getReferralStats(): Promise<ReferralStats | null> {
   if (!session?.user?.id) return null;
 
   const userId = session.user.id;
-  const referralCode = deriveReferralCode(userId);
+  const referralCode = await deriveReferralCode(userId);
 
   // Find the referral discount code for this user (code = REF-<referralCode>)
   // Referrals are tracked as discount codes created with the pattern "REF<REFERRALCODE>"

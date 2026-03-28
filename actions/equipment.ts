@@ -23,7 +23,7 @@ export async function getAvailableEquipment(
 
   // Get all active equipment matching the sport filter
   const sportFilter = sport
-    ? { OR: [{ sport: null }, { sport }] as const }
+    ? { OR: [{ sport: null as Sport | null }, { sport }] }
     : {};
 
   const allEquipment = await db.equipment.findMany({

@@ -39,7 +39,7 @@ export default async function FeedbackPage({
 
       {/* Booking summary */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 flex items-center gap-3">
-        <span className="text-3xl">{sport.emoji}</span>
+        <span className="text-3xl">{sport.icon === "cricket" ? "🏏" : sport.icon === "football" ? "⚽" : sport.icon === "pickleball" ? "🏓" : "🏸"}</span>
         <div>
           <p className="font-bold text-white">{sport.name} — {booking.courtConfig.label}</p>
           <p className="text-sm text-zinc-400">

@@ -1,15 +1,12 @@
 "use server";
 
-import { auth } from "@/lib/auth";
+import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { Sport } from "@prisma/client";
 
 async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
-    throw new Error("Unauthorized");
-  }
-  return session.user.id;
+  const user = await requireAdminBase();
+  return user.id;
 }
 
 export async function createEquipment(data: {
