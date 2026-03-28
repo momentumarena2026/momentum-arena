@@ -25,6 +25,7 @@ import {
   Gift,
   Tags,
   ScanLine,
+  Package,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -33,6 +34,7 @@ const adminNavItems = [
   { href: "/admin/pricing", label: "Pricing", icon: IndianRupee, permission: "MANAGE_PRICING" },
   { href: "/admin/slots", label: "Slot Blocks", icon: CalendarOff, permission: "MANAGE_SLOTS" },
   { href: "/admin/sports", label: "Sports", icon: Dumbbell, permission: "MANAGE_SPORTS" },
+  { href: "/admin/equipment", label: "Equipment", icon: Package, permission: "MANAGE_SPORTS" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "MANAGE_USERS" },
   { href: "/admin/banners", label: "Banners", icon: Megaphone, permission: "MANAGE_BANNERS" },
   { href: "/admin/faqs", label: "FAQs", icon: HelpCircle, permission: "MANAGE_FAQS" },

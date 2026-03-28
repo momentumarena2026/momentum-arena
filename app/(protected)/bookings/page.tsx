@@ -12,22 +12,44 @@ import {
   XCircle,
   AlertCircle,
   ChevronRight,
+  RefreshCw,
 } from "lucide-react";
+import { RecurringCancelButton } from "./recurring-cancel-button";
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default async function MyBookingsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const bookings = await db.booking.findMany({
-    where: { userId: session.user.id },
-    include: {
-      courtConfig: true,
-      slots: { orderBy: { startHour: "asc" } },
-      payment: true,
-      feedback: { select: { rating: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [bookings, recurringBookings] = await Promise.all([
+    db.booking.findMany({
+      where: { userId: session.user.id },
+      include: {
+        courtConfig: true,
+        slots: { orderBy: { startHour: "asc" } },
+        payment: true,
+        feedback: { select: { rating: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.recurringBooking.findMany({
+      where: {
+        userId: session.user.id,
+        status: { in: ["ACTIVE", "PAUSED"] },
+      },
+      include: {
+        courtConfig: { select: { sport: true, size: true, label: true } },
+        bookings: {
+          where: { date: { gte: new Date() }, status: "CONFIRMED" },
+          orderBy: { date: "asc" },
+          take: 3,
+          select: { id: true, date: true, totalAmount: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   const statusIcons = {
     CONFIRMED: { icon: CheckCircle2, color: "text-emerald-400", label: "Confirmed" },
@@ -57,6 +79,72 @@ export default async function MyBookingsPage() {
           {bookings.length} total booking{bookings.length !== 1 ? "s" : ""}
         </p>
       </div>
+
+      {/* Recurring Bookings Section */}
+      {recurringBookings.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Recurring Series
+          </h2>
+          <div className="space-y-3">
+            {recurringBookings.map((recurring) => {
+              const sportInfo = SPORT_INFO[recurring.courtConfig.sport];
+              return (
+                <div
+                  key={recurring.id}
+                  className="rounded-xl border border-zinc-800 bg-zinc-900 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-lg bg-blue-500/10 p-2 mt-0.5">
+                        <RefreshCw className="h-4 w-4 text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-white">
+                          {sportInfo.name} — {recurring.courtConfig.label}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            Every {DAY_NAMES[recurring.dayOfWeek]}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {formatHour(recurring.startHour)} – {formatHour(recurring.endHour)}
+                          </span>
+                        </div>
+                        {recurring.bookings.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {recurring.bookings.map((b) => (
+                              <Link
+                                key={b.id}
+                                href={`/book/confirmation/${b.id}`}
+                                className="rounded-md bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 hover:text-white transition-colors"
+                              >
+                                {new Date(b.date).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                })}
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
+                        {recurring.status}
+                      </span>
+                      <RecurringCancelButton recurringId={recurring.id} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {bookings.length === 0 ? (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-12 text-center">

@@ -10,7 +10,10 @@ import {
   Ticket,
   History,
   Plus,
+  Bell,
+  Wallet,
   Gift,
+  RefreshCw,
 } from "lucide-react";
 import {
   MdSportsCricket,
@@ -26,7 +29,7 @@ export default async function DashboardPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [upcomingBookings, totalBookings] = await Promise.all([
+  const [upcomingBookings, totalBookings, wallet, waitlistCount] = await Promise.all([
     db.booking.findMany({
       where: {
         userId: session.user.id,
@@ -42,6 +45,10 @@ export default async function DashboardPage() {
     }),
     db.booking.count({
       where: { userId: session.user.id },
+    }),
+    db.wallet.findUnique({ where: { userId: session.user.id } }),
+    db.waitlist.count({
+      where: { userId: session.user.id, status: { in: ["WAITING", "NOTIFIED"] } },
     }),
   ]);
 
@@ -104,6 +111,65 @@ export default async function DashboardPage() {
             </div>
             <Calendar className="h-8 w-8 text-zinc-700" />
           </div>
+        </Link>
+      </div>
+
+      {/* Wallet + Waitlist + Recurring Row */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+        {/* Wallet Card */}
+        <Link
+          href="/wallet"
+          className="group rounded-xl border border-zinc-800 bg-zinc-900 p-4 hover:border-emerald-500/30 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-zinc-500">
+              <Wallet className="h-4 w-4" />
+              <span className="text-xs">Momentum Wallet</span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-zinc-700 group-hover:text-emerald-400 transition-colors" />
+          </div>
+          <p className="mt-2 text-xl font-bold text-white">
+            {wallet ? formatPrice(wallet.balancePaise) : "\u20B90"}
+          </p>
+          <p className="text-xs text-zinc-500 mt-0.5">Top up &amp; pay instantly</p>
+        </Link>
+
+        {/* Waitlist Card */}
+        <Link
+          href="/waitlist"
+          className="group rounded-xl border border-zinc-800 bg-zinc-900 p-4 hover:border-yellow-500/30 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-zinc-500">
+              <Bell className="h-4 w-4" />
+              <span className="text-xs">Waitlist</span>
+            </div>
+            {waitlistCount > 0 && (
+              <span className="rounded-full bg-yellow-500/20 border border-yellow-500/30 px-2 py-0.5 text-xs font-medium text-yellow-400">
+                {waitlistCount}
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-xl font-bold text-white">
+            {waitlistCount > 0 ? `${waitlistCount} active` : "None"}
+          </p>
+          <p className="text-xs text-zinc-500 mt-0.5">Notify me when slots open</p>
+        </Link>
+
+        {/* Recurring Bookings Card */}
+        <Link
+          href="/bookings"
+          className="group rounded-xl border border-zinc-800 bg-zinc-900 p-4 hover:border-zinc-700 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-zinc-500">
+              <RefreshCw className="h-4 w-4" />
+              <span className="text-xs">Recurring</span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-zinc-700 group-hover:text-zinc-400 transition-colors" />
+          </div>
+          <p className="mt-2 text-xl font-bold text-white">Series</p>
+          <p className="text-xs text-zinc-500 mt-0.5">Manage weekly bookings</p>
         </Link>
       </div>
 

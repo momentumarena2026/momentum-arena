@@ -11,12 +11,13 @@ import { CheckoutClient } from "./checkout-client";
 export default async function CheckoutPage({
   searchParams,
 }: {
-  searchParams: Promise<{ bookingId?: string }>;
+  searchParams: Promise<{ bookingId?: string; recurring?: string; weeksCount?: string; dayOfWeek?: string; startDate?: string; startHour?: string; endHour?: string; courtConfigId?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/book?error=login_required");
 
-  const { bookingId } = await searchParams;
+  const params = await searchParams;
+  const { bookingId } = params;
   if (!bookingId) redirect("/book");
 
   const booking = await db.booking.findUnique({
@@ -39,6 +40,20 @@ export default async function CheckoutPage({
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
+
+  // Extract slot info for equipment
+  const slotStartHour = booking.slots.length > 0 ? Math.min(...booking.slots.map((s) => s.startHour)) : undefined;
+  const slotEndHour = booking.slots.length > 0 ? Math.max(...booking.slots.map((s) => s.startHour)) + 1 : undefined;
+  const bookingDateStr = booking.date.toISOString().split("T")[0];
+
+  // Parse recurring params
+  const recurringEnabled = params.recurring === "1";
+  const recurringWeeksCount = params.weeksCount ? parseInt(params.weeksCount) : undefined;
+  const recurringDayOfWeek = params.dayOfWeek !== undefined ? parseInt(params.dayOfWeek) : undefined;
+  const recurringStartDate = params.startDate;
+  const recurringStartHour = params.startHour !== undefined ? parseInt(params.startHour) : undefined;
+  const recurringEndHour = params.endHour !== undefined ? parseInt(params.endHour) : undefined;
+  const recurringCourtConfigId = params.courtConfigId;
 
   // Fetch banners and new user discount in parallel
   const [banners, newUserDiscount] = await Promise.all([
@@ -98,6 +113,12 @@ export default async function CheckoutPage({
               {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
             </span>
           </div>
+          {recurringEnabled && recurringWeeksCount && (
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Recurring</span>
+              <span className="text-emerald-400">Every week {"\u00D7"} {recurringWeeksCount} weeks</span>
+            </div>
+          )}
         </div>
 
         <div className="border-t border-zinc-800 pt-3">
@@ -137,6 +158,16 @@ export default async function CheckoutPage({
               }
             : undefined
         }
+        bookingDate={bookingDateStr}
+        startHour={slotStartHour}
+        endHour={slotEndHour}
+        recurringEnabled={recurringEnabled}
+        recurringWeeksCount={recurringWeeksCount}
+        recurringDayOfWeek={recurringDayOfWeek}
+        recurringStartDate={recurringStartDate}
+        recurringStartHour={recurringStartHour}
+        recurringEndHour={recurringEndHour}
+        recurringCourtConfigId={recurringCourtConfigId}
       />
     </div>
   );

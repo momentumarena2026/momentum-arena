@@ -3,6 +3,8 @@
 import { db } from "@/lib/db";
 import { sendBookingConfirmation } from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
+import { creditWallet } from "@/actions/wallet";
+import { checkAndNotifyWaitlist } from "@/actions/waitlist";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -90,7 +92,8 @@ export async function refundBooking(
   bookingId: string,
   reason: string,
   refundMethod?: "ORIGINAL" | "CASH" | "UPI" | "BANK_TRANSFER",
-  refundAmount?: number
+  refundAmount?: number,
+  refundToWallet = false
 ) {
   const adminId = await requireAdmin();
 
@@ -100,7 +103,7 @@ export async function refundBooking(
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
-    include: { payment: true, slots: true },
+    include: { payment: true, slots: { orderBy: { startHour: "asc" } } },
   });
 
   if (!booking) {
@@ -134,6 +137,36 @@ export async function refundBooking(
       },
     }),
   ]);
+
+  // For CASH or UPI_QR payments, optionally credit the wallet instead of manual refund
+  if (
+    refundToWallet &&
+    booking.payment &&
+    (booking.payment.method === "CASH" || booking.payment.method === "UPI_QR")
+  ) {
+    await creditWallet(
+      booking.userId,
+      booking.totalAmount,
+      `Refund for cancelled booking #${bookingId.slice(-8).toUpperCase()}`,
+      "CREDIT_REFUND",
+      bookingId
+    );
+  }
+
+  // Notify anyone on the waitlist for this slot
+  if (booking.slots.length > 0) {
+    const startHour = Math.min(...booking.slots.map((s) => s.startHour));
+    const endHour = Math.max(...booking.slots.map((s) => s.startHour)) + 1;
+
+    await checkAndNotifyWaitlist(
+      booking.courtConfigId,
+      booking.date,
+      startHour,
+      endHour
+    ).catch((err) => {
+      console.error("Failed to notify waitlist:", err);
+    });
+  }
 
   return { success: true };
 }

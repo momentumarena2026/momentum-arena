@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, Maximize2 } from "lucide-react";
 import { CourtDiagram } from "@/components/booking/court-diagram";
 import { SlotSelectionClient } from "./slot-selection-client";
+import { auth } from "@/lib/auth";
 
 export default async function SlotSelectionPage({
   params,
@@ -13,6 +14,7 @@ export default async function SlotSelectionPage({
   params: Promise<{ sport: string; configId: string }>;
 }) {
   const { sport, configId } = await params;
+  const session = await auth();
 
   const config = await db.courtConfig.findUnique({
     where: { id: configId },
@@ -67,6 +69,8 @@ export default async function SlotSelectionPage({
         sportName={sportInfo.name}
         courtLabel={config.label}
         courtSize={sizeInfo.name}
+        userId={session?.user?.id}
+        userPhone={(session?.user as { phone?: string })?.phone}
       />
     </div>
   );
