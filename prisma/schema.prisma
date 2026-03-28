@@ -900,6 +900,28 @@ model EquipmentRental {
 // RECURRING BOOKINGS
 // ===========================
 
+model RecurringConfig {
+  id        String @id @default(cuid())
+
+  // Discount tiers stored as JSON: [{ weeks: 4, discountPercent: 5 }, { weeks: 8, discountPercent: 10 }, ...]
+  // Sorted by weeks ascending
+  tiers     Json   @default("[]")
+
+  // Allowed recurring days (0=Sun … 6=Sat). Empty = all days allowed
+  allowedDays Json @default("[0,1,2,3,4,5,6]")
+
+  // Max weeks a customer can book recurring
+  maxWeeks  Int    @default(12)
+
+  // Min weeks to qualify for recurring
+  minWeeks  Int    @default(2)
+
+  // Whether recurring bookings are enabled
+  enabled   Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
 enum RecurringStatus {
   ACTIVE
   PAUSED

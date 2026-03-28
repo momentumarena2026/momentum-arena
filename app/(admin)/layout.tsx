@@ -48,6 +48,7 @@ const adminNavItems = [
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3, permission: "VIEW_ANALYTICS" },
   { href: "/admin/rewards", label: "Rewards", icon: Gift, permission: "MANAGE_REWARDS" },
   { href: "/admin/coupons", label: "Coupons", icon: Tags, permission: "MANAGE_COUPONS" },
+  { href: "/admin/recurring", label: "Recurring", icon: CalendarDays, permission: "MANAGE_PRICING" },
 ];
 
 export default async function AdminLayout({

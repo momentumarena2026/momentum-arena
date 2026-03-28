@@ -11,7 +11,7 @@ import { CheckoutClient } from "./checkout-client";
 export default async function CheckoutPage({
   searchParams,
 }: {
-  searchParams: Promise<{ bookingId?: string; recurring?: string; weeksCount?: string; dayOfWeek?: string; startDate?: string; startHour?: string; endHour?: string; courtConfigId?: string }>;
+  searchParams: Promise<{ bookingId?: string; recurring?: string; weeksCount?: string; dayOfWeek?: string; startDate?: string; startHour?: string; endHour?: string; courtConfigId?: string; discountPercent?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/book?error=login_required");
@@ -54,6 +54,16 @@ export default async function CheckoutPage({
   const recurringStartHour = params.startHour !== undefined ? parseInt(params.startHour) : undefined;
   const recurringEndHour = params.endHour !== undefined ? parseInt(params.endHour) : undefined;
   const recurringCourtConfigId = params.courtConfigId;
+  const recurringDiscountPercent = params.discountPercent ? parseInt(params.discountPercent) : 0;
+
+  // Calculate recurring total with discount
+  const recurringGrossTotal = recurringEnabled && recurringWeeksCount
+    ? booking.totalAmount * recurringWeeksCount
+    : booking.totalAmount;
+  const recurringDiscountAmount = recurringEnabled && recurringDiscountPercent > 0
+    ? Math.round(recurringGrossTotal * recurringDiscountPercent / 100)
+    : 0;
+  const recurringNetTotal = recurringGrossTotal - recurringDiscountAmount;
 
   // Fetch banners and new user discount in parallel
   const [banners, newUserDiscount] = await Promise.all([
@@ -135,15 +145,21 @@ export default async function CheckoutPage({
                 <span className="text-zinc-300">{formatPrice(booking.totalAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-zinc-400">× {recurringWeeksCount} weeks</span>
-                <span className="text-zinc-300">{formatPrice(booking.totalAmount * recurringWeeksCount)}</span>
+                <span className="text-zinc-400">{"\u00D7"} {recurringWeeksCount} weeks</span>
+                <span className="text-zinc-300">{formatPrice(recurringGrossTotal)}</span>
               </div>
+              {recurringDiscountPercent > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-emerald-400">Recurring discount ({recurringDiscountPercent}%)</span>
+                  <span className="text-emerald-400">-{formatPrice(recurringDiscountAmount)}</span>
+                </div>
+              )}
             </>
           )}
           <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2">
             <span className="font-semibold text-white">Total</span>
             <span className="text-lg font-bold text-emerald-400">
-              {formatPrice(recurringEnabled && recurringWeeksCount ? booking.totalAmount * recurringWeeksCount : booking.totalAmount)}
+              {formatPrice(recurringEnabled && recurringWeeksCount ? recurringNetTotal : booking.totalAmount)}
             </span>
           </div>
         </div>
@@ -152,8 +168,9 @@ export default async function CheckoutPage({
       {/* Payment */}
       <CheckoutClient
         bookingId={bookingId}
-        amount={recurringEnabled && recurringWeeksCount ? booking.totalAmount * recurringWeeksCount : booking.totalAmount}
+        amount={recurringEnabled && recurringWeeksCount ? recurringNetTotal : booking.totalAmount}
         perWeekAmount={recurringEnabled && recurringWeeksCount ? booking.totalAmount : undefined}
+        recurringDiscountPercent={recurringDiscountPercent || undefined}
         sport={booking.courtConfig.sport}
         lockExpiresAt={booking.lockExpiresAt!.toISOString()}
         userName={session.user.name || ""}

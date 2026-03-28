@@ -30,6 +30,7 @@ interface CheckoutClientProps {
   bookingId: string;
   amount: number;
   perWeekAmount?: number;
+  recurringDiscountPercent?: number;
   sport?: string;
   lockExpiresAt: string;
   userName: string;
@@ -61,6 +62,7 @@ export function CheckoutClient({
   bookingId,
   amount,
   perWeekAmount,
+  recurringDiscountPercent,
   sport,
   lockExpiresAt,
   userName,
@@ -396,7 +398,8 @@ export function CheckoutClient({
             </span>
           </div>
           <p className="text-xs text-blue-400/70 ml-6">
-            {formatPrice(perWeekAmount)}/week × {recurringWeeksCount} weeks = <strong className="text-blue-300">{formatPrice(amount)}</strong> total
+            {formatPrice(perWeekAmount)}/week {"\u00D7"} {recurringWeeksCount} weeks
+            {recurringDiscountPercent ? ` — ${recurringDiscountPercent}% off` : ""} = <strong className="text-blue-300">{formatPrice(amount)}</strong> total
           </p>
         </div>
       )}
