@@ -3,6 +3,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import { AuthError } from "next-auth";
+import { AdminRole } from "@prisma/client";
 import { adminSignIn, adminSignOut } from "@/lib/admin-auth-session";
 import { db } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
@@ -134,7 +135,7 @@ export async function createAdminUser(
       username,
       email,
       passwordHash: tempHash,
-      role: role as "ADMIN" | "STAFF",
+      role: role as AdminRole,
       permissions: role === "STAFF" ? [] : filteredPermissions,
       inviteToken,
       inviteTokenExpiry,
