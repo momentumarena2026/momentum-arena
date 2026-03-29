@@ -9,10 +9,10 @@ import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
 import { formatHour } from "@/lib/court-config";
 import type { SlotAvailability } from "@/lib/availability";
-import { Loader2, Bell, X, CheckCircle, RefreshCw, RotateCcw, Calendar } from "lucide-react";
+import { Loader2, Bell, X, CheckCircle, RefreshCw, Calendar } from "lucide-react";
 import { joinWaitlist } from "@/actions/waitlist";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
-import type { RecurringTier } from "@/actions/admin-recurring";
+import type { RecurringTier, DailyTier } from "@/actions/admin-recurring";
 
 interface SlotSelectionClientProps {
   configId: string;
@@ -54,14 +54,18 @@ export function SlotSelectionClient({
 
   // Recurring booking state
   const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringMode, setRecurringMode] = useState<"weekly" | "daily">("weekly");
   const [weeksCount, setWeeksCount] = useState(4);
-  const [recurringDay, setRecurringDay] = useState<number | null>(null); // null = same as selected date
+  const [daysCount, setDaysCount] = useState(3);
   const [recurringConfig, setRecurringConfig] = useState<{
     enabled: boolean;
     tiers: RecurringTier[];
     allowedDays: number[];
     maxWeeks: number;
     minWeeks: number;
+    dailyTiers: DailyTier[];
+    maxDays: number;
+    minDays: number;
   } | null>(null);
   const [recurringConfigLoading, setRecurringConfigLoading] = useState(true);
 
@@ -83,8 +87,13 @@ export function SlotSelectionClient({
     getPublicRecurringConfig()
       .then((cfg) => {
         setRecurringConfig(cfg);
-        if (cfg && cfg.minWeeks > 1) {
-          setWeeksCount(cfg.tiers.length > 0 ? cfg.tiers[0].weeks : cfg.minWeeks);
+        if (cfg) {
+          if (cfg.minWeeks > 1) {
+            setWeeksCount(cfg.tiers.length > 0 ? cfg.tiers[0].weeks : cfg.minWeeks);
+          }
+          if (cfg.minDays > 1) {
+            setDaysCount(cfg.dailyTiers.length > 0 ? cfg.dailyTiers[0].days : cfg.minDays);
+          }
         }
       })
       .catch(() => setRecurringConfig(null))
@@ -157,6 +166,9 @@ export function SlotSelectionClient({
     await lockAndCheckout();
   };
 
+  // Derive recurring day from selected date (no more day selector)
+  const effectiveRecurringDay = new Date(selectedDate).getDay();
+
   const lockAndCheckout = async () => {
     setBooking(true);
     setError(null);
@@ -179,14 +191,22 @@ export function SlotSelectionClient({
         const params = new URLSearchParams({ bookingId: data.bookingId });
         if (isRecurring && selectedHours.length > 0) {
           params.set("recurring", "1");
-          params.set("weeksCount", String(weeksCount));
+          params.set("mode", recurringMode);
           params.set("dayOfWeek", String(effectiveRecurringDay));
           params.set("startDate", selectedDate);
           params.set("startHour", String(Math.min(...selectedHours)));
           params.set("endHour", String(Math.max(...selectedHours) + 1));
           params.set("courtConfigId", configId);
-          if (currentDiscount > 0) {
-            params.set("discountPercent", String(currentDiscount));
+          if (recurringMode === "weekly") {
+            params.set("weeksCount", String(weeksCount));
+            if (currentDiscount > 0) {
+              params.set("discountPercent", String(currentDiscount));
+            }
+          } else {
+            params.set("daysCount", String(daysCount));
+            if (currentDiscount > 0) {
+              params.set("discountPercent", String(currentDiscount));
+            }
           }
         }
         router.push(`/book/checkout?${params.toString()}`);
@@ -248,51 +268,64 @@ export function SlotSelectionClient({
     if (!selectedDate || !isRecurring) return [];
     const dates: string[] = [];
     const start = new Date(selectedDate);
-    // If recurring day differs from selected date, adjust start to the next occurrence of that day
-    const startDay = start.getDay();
-    const targetDay = recurringDay !== null ? recurringDay : startDay;
-    let adjustedStart = new Date(start);
-    if (targetDay !== startDay) {
-      const diff = (targetDay - startDay + 7) % 7;
-      adjustedStart.setDate(adjustedStart.getDate() + diff);
-    }
-    for (let i = 0; i < weeksCount; i++) {
-      const d = new Date(adjustedStart);
-      d.setDate(d.getDate() + i * 7);
-      dates.push(d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }));
+
+    if (recurringMode === "weekly") {
+      for (let i = 0; i < weeksCount; i++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i * 7);
+        dates.push(d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }));
+      }
+    } else {
+      // Daily mode: consecutive days
+      for (let i = 0; i < daysCount; i++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i);
+        dates.push(d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }));
+      }
     }
     return dates;
-  }, [selectedDate, isRecurring, weeksCount, recurringDay]);
+  }, [selectedDate, isRecurring, recurringMode, weeksCount, daysCount]);
 
   // Calculate recurring discount for current selection
   const getDiscountForWeeks = (weeks: number): number => {
     if (!recurringConfig || !recurringConfig.tiers.length) return 0;
-    // Find the best matching tier (highest weeks <= selected weeks)
     const applicable = recurringConfig.tiers
       .filter((t) => weeks >= t.weeks)
       .sort((a, b) => b.weeks - a.weeks);
     return applicable.length > 0 ? applicable[0].discountPercent : 0;
   };
 
-  const currentDiscount = isRecurring ? getDiscountForWeeks(weeksCount) : 0;
-  const discountedTotal = isRecurring
-    ? Math.round(total * weeksCount * (1 - currentDiscount / 100))
-    : total;
+  const getDiscountForDays = (days: number): number => {
+    if (!recurringConfig || !recurringConfig.dailyTiers.length) return 0;
+    const applicable = recurringConfig.dailyTiers
+      .filter((t) => days >= t.days)
+      .sort((a, b) => b.days - a.days);
+    return applicable.length > 0 ? applicable[0].discountPercent : 0;
+  };
 
-  // Effective recurring day (either explicit selection or derived from date)
-  const effectiveRecurringDay = recurringDay !== null ? recurringDay : new Date(selectedDate).getDay();
+  const currentDiscount = isRecurring
+    ? recurringMode === "weekly"
+      ? getDiscountForWeeks(weeksCount)
+      : getDiscountForDays(daysCount)
+    : 0;
+
+  const recurringCount = recurringMode === "weekly" ? weeksCount : daysCount;
+  const recurringUnit = recurringMode === "weekly" ? "week" : "day";
+  const recurringUnitPlural = recurringMode === "weekly" ? "weeks" : "days";
+
+  const discountedTotal = isRecurring
+    ? Math.round(total * recurringCount * (1 - currentDiscount / 100))
+    : total;
 
   // Generate week options from config
   const weekOptions = (() => {
-    if (!recurringConfig) return [1, 2, 3, 4, 6, 8, 10, 12];
+    if (!recurringConfig) return [2, 3, 4, 6, 8, 10, 12];
     const options: number[] = [];
     for (let w = recurringConfig.minWeeks; w <= recurringConfig.maxWeeks; w++) {
-      // Include tier-specific weeks and standard intervals
       if (recurringConfig.tiers.some((t) => t.weeks === w) || w % 2 === 0 || w <= 4) {
         options.push(w);
       }
     }
-    // Ensure all tier weeks are included
     recurringConfig.tiers.forEach((t) => {
       if (!options.includes(t.weeks) && t.weeks <= recurringConfig.maxWeeks) {
         options.push(t.weeks);
@@ -301,10 +334,30 @@ export function SlotSelectionClient({
     return [...new Set(options)].sort((a, b) => a - b);
   })();
 
+  // Generate day options from config
+  const dayOptions = (() => {
+    if (!recurringConfig) return [3, 5, 7, 10, 14, 21, 30];
+    const options: number[] = [];
+    // Add standard intervals within range
+    const standardDays = [2, 3, 5, 7, 10, 14, 21, 30];
+    for (const d of standardDays) {
+      if (d >= recurringConfig.minDays && d <= recurringConfig.maxDays) {
+        options.push(d);
+      }
+    }
+    // Ensure all tier days are included
+    recurringConfig.dailyTiers.forEach((t) => {
+      if (!options.includes(t.days) && t.days >= recurringConfig.minDays && t.days <= recurringConfig.maxDays) {
+        options.push(t.days);
+      }
+    });
+    return [...new Set(options)].sort((a, b) => a - b);
+  })();
+
   const unavailableSlots = slots.filter((s) => s.status === "booked" || s.status === "locked" || s.status === "blocked");
 
   const handleAuthenticated = () => {
-    // User just logged in — mark pending so useEffect picks it up when session updates
+    // User just logged in -- mark pending so useEffect picks it up when session updates
     pendingAuthRef.current = true;
     // Also try directly in case session is already updated
     setTimeout(() => {
@@ -397,103 +450,154 @@ export function SlotSelectionClient({
             </button>
             <div>
               <p className="text-sm font-medium text-white">Make this recurring</p>
-              <p className="text-xs text-zinc-500">Book this slot every week automatically</p>
+              <p className="text-xs text-zinc-500">
+                {recurringMode === "weekly"
+                  ? "Book this slot every week automatically"
+                  : "Book this slot for consecutive days"}
+              </p>
             </div>
           </label>
 
           {isRecurring && (
             <div className="space-y-4 pt-2">
-              {/* Step 1: Pick a day */}
+              {/* Step 1: Repeat type */}
               <div className="space-y-2">
-                <div>
-                  <p className="text-sm font-medium text-white">Which day should this repeat on?</p>
-                  <p className="text-xs text-zinc-500">Your selected slots will be booked on this day every week</p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((name, idx) => {
-                    const isAllowed = recurringConfig.allowedDays.includes(idx);
-                    const isSelected = effectiveRecurringDay === idx;
-                    const isToday = new Date(selectedDate).getDay() === idx;
-                    if (!isAllowed) return null;
-                    return (
-                      <button
-                        key={idx}
-                        onClick={() => setRecurringDay(idx)}
-                        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                          isSelected
-                            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
-                            : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-                        }`}
-                      >
-                        {name}
-                        {isToday && !isSelected && (
-                          <span className="ml-1 text-[10px] text-zinc-600">(selected date)</span>
-                        )}
-                      </button>
-                    );
-                  })}
+                <p className="text-sm font-medium text-white">Repeat type</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setRecurringMode("weekly")}
+                    className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                      recurringMode === "weekly"
+                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                    }`}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Every Week
+                  </button>
+                  <button
+                    onClick={() => setRecurringMode("daily")}
+                    className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                      recurringMode === "daily"
+                        ? "border-blue-500/50 bg-blue-500/15 text-blue-400"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                    }`}
+                  >
+                    <Calendar className="h-3.5 w-3.5" />
+                    Every Day
+                  </button>
                 </div>
               </div>
 
-              {/* Step 2: How many weeks */}
-              <div className="space-y-2">
-                <div>
-                  <p className="text-sm font-medium text-white">For how many weeks?</p>
-                  <p className="text-xs text-zinc-500">
-                    You&apos;ll pay for all {weeksCount} weeks upfront at checkout
-                    {currentDiscount > 0 && (
-                      <span className="text-emerald-400"> — {currentDiscount}% discount applied!</span>
-                    )}
-                  </p>
+              {/* Step 2: Duration (Weekly) */}
+              {recurringMode === "weekly" && (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-medium text-white">For how long?</p>
+                    <p className="text-xs text-zinc-500">
+                      You&apos;ll pay for all {weeksCount} weeks upfront
+                      {currentDiscount > 0 && (
+                        <span className="text-emerald-400"> — {currentDiscount}% discount applied!</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {weekOptions.map((w) => {
+                      const discount = getDiscountForWeeks(w);
+                      const isSelected = weeksCount === w;
+                      return (
+                        <button
+                          key={w}
+                          onClick={() => setWeeksCount(w)}
+                          className={`relative rounded-lg border px-2 py-2.5 text-center transition-colors ${
+                            isSelected
+                              ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
+                              : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600"
+                          }`}
+                        >
+                          <span className="text-sm font-semibold">{w}</span>
+                          <span className="text-[10px] text-zinc-500 ml-0.5">{w === 1 ? "week" : "weeks"}</span>
+                          {discount > 0 && (
+                            <span className={`block text-[10px] font-medium mt-0.5 ${isSelected ? "text-emerald-300" : "text-emerald-500"}`}>
+                              Save {discount}%
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {weekOptions.map((w) => {
-                    const discount = getDiscountForWeeks(w);
-                    const isSelected = weeksCount === w;
-                    return (
-                      <button
-                        key={w}
-                        onClick={() => setWeeksCount(w)}
-                        className={`relative rounded-lg border px-2 py-2.5 text-center transition-colors ${
-                          isSelected
-                            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
-                            : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600"
-                        }`}
-                      >
-                        <span className="text-sm font-semibold">{w}</span>
-                        <span className="text-[10px] text-zinc-500 ml-0.5">{w === 1 ? "week" : "weeks"}</span>
-                        {discount > 0 && (
-                          <span className={`block text-[10px] font-medium mt-0.5 ${isSelected ? "text-emerald-300" : "text-emerald-500"}`}>
-                            Save {discount}%
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+              )}
+
+              {/* Step 2: Duration (Daily) */}
+              {recurringMode === "daily" && (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-medium text-white">For how many days?</p>
+                    <p className="text-xs text-zinc-500">
+                      Book the same slot for consecutive days
+                      {currentDiscount > 0 && (
+                        <span className="text-blue-400"> — {currentDiscount}% discount applied!</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {dayOptions.map((d) => {
+                      const discount = getDiscountForDays(d);
+                      const isSelected = daysCount === d;
+                      return (
+                        <button
+                          key={d}
+                          onClick={() => setDaysCount(d)}
+                          className={`relative rounded-lg border px-2 py-2.5 text-center transition-colors ${
+                            isSelected
+                              ? "border-blue-500/50 bg-blue-500/15 text-blue-400"
+                              : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600"
+                          }`}
+                        >
+                          <span className="text-sm font-semibold">{d}</span>
+                          <span className="text-[10px] text-zinc-500 ml-0.5">{d === 1 ? "day" : "days"}</span>
+                          {discount > 0 && (
+                            <span className={`block text-[10px] font-medium mt-0.5 ${isSelected ? "text-blue-300" : "text-blue-500"}`}>
+                              Save {discount}%
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Price Breakdown */}
               <div className="rounded-lg bg-zinc-800/60 border border-zinc-700/50 px-3 py-3 space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-zinc-400">
-                  <span>{formatPrice(total)} per week {"\u00D7"} {weeksCount} {weeksCount === 1 ? "week" : "weeks"}</span>
-                  <span>{formatPrice(total * weeksCount)}</span>
+                  <span>
+                    {formatPrice(total)}/{recurringUnit} {"\u00D7"} {recurringCount} {recurringCount === 1 ? recurringUnit : recurringUnitPlural}
+                  </span>
+                  <span>{formatPrice(total * recurringCount)}</span>
                 </div>
                 {currentDiscount > 0 && (
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-emerald-400">Recurring discount ({currentDiscount}%)</span>
-                    <span className="text-emerald-400">-{formatPrice(total * weeksCount - discountedTotal)}</span>
+                    <span className={recurringMode === "weekly" ? "text-emerald-400" : "text-blue-400"}>
+                      Recurring discount ({currentDiscount}%)
+                    </span>
+                    <span className={recurringMode === "weekly" ? "text-emerald-400" : "text-blue-400"}>
+                      -{formatPrice(total * recurringCount - discountedTotal)}
+                    </span>
                   </div>
                 )}
                 <div className="flex items-center justify-between border-t border-zinc-700/50 pt-1.5">
                   <span className="text-sm font-medium text-white">Total to pay</span>
-                  <span className="text-sm font-bold text-emerald-400">{formatPrice(discountedTotal)}</span>
+                  <span className={`text-sm font-bold ${recurringMode === "weekly" ? "text-emerald-400" : "text-blue-400"}`}>
+                    {formatPrice(discountedTotal)}
+                  </span>
                 </div>
               </div>
 
               {/* Preview: Dates that will be booked */}
               <div className="space-y-1.5">
-                <p className="text-xs font-medium text-zinc-400">Your bookings will be on:</p>
+                <p className="text-xs font-medium text-zinc-400">Your bookings:</p>
                 <div className="flex flex-wrap gap-1.5">
                   {getRecurringPreviewDates().map((d, i) => (
                     <span key={i} className="rounded-md bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
@@ -528,7 +632,7 @@ export function SlotSelectionClient({
                 {selectedHours.sort((a, b) => a - b).map((h) => formatHour(h)).join(", ")}
               </span>
             </div>
-            <span className="text-emerald-400 font-bold flex-shrink-0">
+            <span className={`font-bold flex-shrink-0 ${isRecurring && recurringMode === "daily" ? "text-blue-400" : "text-emerald-400"}`}>
               {isRecurring ? formatPrice(discountedTotal) : formatPrice(total)}
             </span>
           </div>
@@ -544,10 +648,10 @@ export function SlotSelectionClient({
               </span>
             ) : isRecurring ? (
               <span className="flex items-center justify-center gap-2">
-                <RefreshCw className="h-4 w-4" />
+                {recurringMode === "weekly" ? <RefreshCw className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
                 {currentDiscount > 0
                 ? `Proceed — ${formatPrice(discountedTotal)} (${currentDiscount}% off)`
-                : `Proceed — ${formatPrice(total)}/week \u00D7 ${weeksCount} weeks`}
+                : `Proceed — ${formatPrice(total)}/${recurringUnit} \u00D7 ${recurringCount} ${recurringUnitPlural}`}
               </span>
             ) : (
               "Pay Now"

@@ -903,7 +903,7 @@ model EquipmentRental {
 model RecurringConfig {
   id        String @id @default(cuid())
 
-  // Discount tiers stored as JSON: [{ weeks: 4, discountPercent: 5 }, { weeks: 8, discountPercent: 10 }, ...]
+  // Weekly discount tiers stored as JSON: [{ weeks: 4, discountPercent: 5 }, { weeks: 8, discountPercent: 10 }, ...]
   // Sorted by weeks ascending
   tiers     Json   @default("[]")
 
@@ -915,6 +915,15 @@ model RecurringConfig {
 
   // Min weeks to qualify for recurring
   minWeeks  Int    @default(2)
+
+  // Daily recurring discount tiers: [{ days: 5, discountPercent: 3 }, { days: 10, discountPercent: 7 }, ...]
+  dailyTiers Json @default("[]")
+
+  // Max consecutive days allowed for daily recurring
+  maxDays   Int    @default(30)
+
+  // Min days for daily recurring
+  minDays   Int    @default(2)
 
   // Whether recurring bookings are enabled
   enabled   Boolean @default(true)
@@ -940,6 +949,7 @@ model RecurringBooking {
   dayOfWeek     Int             // 0=Sun … 6=Sat
   startDate     DateTime
   endDate       DateTime?       // null = indefinite (max 3 months enforced in code)
+  mode          String          @default("weekly") // "weekly" or "daily"
   status        RecurringStatus @default(ACTIVE)
   bookings      Booking[]
   createdAt     DateTime        @default(now())

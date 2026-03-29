@@ -14,7 +14,7 @@ import { submitBookingUtr } from "@/actions/upi-payment";
 import { getAvailableEquipment, addEquipmentToBooking } from "@/actions/equipment";
 import { getWallet, payBookingWithWallet } from "@/actions/wallet";
 import { createRecurringBooking } from "@/actions/recurring-booking";
-import { Loader2, MapPin, Sparkles, Package, Wallet, RefreshCw, CheckCircle, Plus, Minus } from "lucide-react";
+import { Loader2, Sparkles, Package, Wallet, RefreshCw, Calendar, CheckCircle, Plus, Minus } from "lucide-react";
 
 interface EquipmentItem {
   id: string;
@@ -29,7 +29,7 @@ interface EquipmentItem {
 interface CheckoutClientProps {
   bookingId: string;
   amount: number;
-  perWeekAmount?: number;
+  perSessionAmount?: number;
   recurringDiscountPercent?: number;
   sport?: string;
   lockExpiresAt: string;
@@ -48,7 +48,9 @@ interface CheckoutClientProps {
   endHour?: number;
   // Recurring booking info
   recurringEnabled?: boolean;
+  recurringMode?: "weekly" | "daily";
   recurringWeeksCount?: number;
+  recurringDaysCount?: number;
   recurringDayOfWeek?: number;
   recurringStartDate?: string;
   recurringStartHour?: number;
@@ -61,7 +63,7 @@ type WalletPaymentMethodType = PaymentMethodType | "wallet";
 export function CheckoutClient({
   bookingId,
   amount,
-  perWeekAmount,
+  perSessionAmount,
   recurringDiscountPercent,
   sport,
   lockExpiresAt,
@@ -74,7 +76,9 @@ export function CheckoutClient({
   startHour,
   endHour,
   recurringEnabled,
+  recurringMode = "weekly",
   recurringWeeksCount,
+  recurringDaysCount,
   recurringDayOfWeek,
   recurringStartDate,
   recurringStartHour,
@@ -106,6 +110,11 @@ export function CheckoutClient({
 
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
+
+  // Derived recurring values
+  const recurringCount = recurringMode === "daily" ? recurringDaysCount : recurringWeeksCount;
+  const recurringUnitLabel = recurringMode === "daily" ? "day" : "week";
+  const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
 
   // Auto-apply new user discount on mount via unified coupon system
   useEffect(() => {
@@ -236,7 +245,9 @@ export function CheckoutClient({
         endHour: recurringEndHour!,
         dayOfWeek: recurringDayOfWeek!,
         startDate: recurringStartDate,
+        mode: recurringMode,
         weeksCount: recurringWeeksCount,
+        daysCount: recurringDaysCount,
       });
 
       if (result.success) {
@@ -389,16 +400,26 @@ export function CheckoutClient({
       <CountdownTimer expiresAt={new Date(lockExpiresAt)} onExpired={handleExpired} />
 
       {/* Recurring booking notice */}
-      {recurringEnabled && recurringWeeksCount && perWeekAmount && (
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 space-y-1">
+      {recurringEnabled && recurringCount && perSessionAmount && (
+        <div className={`rounded-xl border p-3 space-y-1 ${
+          recurringMode === "daily"
+            ? "border-blue-500/20 bg-blue-500/5"
+            : "border-blue-500/20 bg-blue-500/5"
+        }`}>
           <div className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4 text-blue-400 shrink-0" />
+            {recurringMode === "daily" ? (
+              <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
+            ) : (
+              <RefreshCw className="h-4 w-4 text-blue-400 shrink-0" />
+            )}
             <span className="text-sm font-medium text-blue-400">
-              Recurring booking — {recurringWeeksCount} weeks
+              {recurringMode === "daily"
+                ? `Daily booking — ${recurringCount} consecutive days`
+                : `Weekly booking — ${recurringCount} weeks`}
             </span>
           </div>
           <p className="text-xs text-blue-400/70 ml-6">
-            {formatPrice(perWeekAmount)}/week {"\u00D7"} {recurringWeeksCount} weeks
+            {formatPrice(perSessionAmount)}/{recurringUnitLabel} {"\u00D7"} {recurringCount} {recurringCount === 1 ? recurringUnitLabel : recurringUnitPluralLabel}
             {recurringDiscountPercent ? ` — ${recurringDiscountPercent}% off` : ""} = <strong className="text-blue-300">{formatPrice(amount)}</strong> total
           </p>
         </div>
