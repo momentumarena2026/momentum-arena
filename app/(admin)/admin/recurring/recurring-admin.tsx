@@ -4,8 +4,6 @@ import { useState } from "react";
 import { updateRecurringConfig, type RecurringConfigData, type RecurringTier, type DailyTier } from "@/actions/admin-recurring";
 import { Plus, Trash2, Save, Loader2, RotateCcw, Calendar } from "lucide-react";
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 export function RecurringAdmin({ initialConfig }: { initialConfig: RecurringConfigData }) {
   const [config, setConfig] = useState(initialConfig);
   const [saving, setSaving] = useState(false);
@@ -55,22 +53,13 @@ export function RecurringAdmin({ initialConfig }: { initialConfig: RecurringConf
     }));
   };
 
-  const toggleDay = (day: number) => {
-    setConfig((prev) => ({
-      ...prev,
-      allowedDays: prev.allowedDays.includes(day)
-        ? prev.allowedDays.filter((d) => d !== day)
-        : [...prev.allowedDays, day].sort((a, b) => a - b),
-    }));
-  };
-
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
     try {
       const result = await updateRecurringConfig({
         tiers: config.tiers,
-        allowedDays: config.allowedDays,
+        allowedDays: [0, 1, 2, 3, 4, 5, 6], // All days allowed — day is auto-derived from booking date
         maxWeeks: config.maxWeeks,
         minWeeks: config.minWeeks,
         dailyTiers: config.dailyTiers,
@@ -146,63 +135,79 @@ export function RecurringAdmin({ initialConfig }: { initialConfig: RecurringConf
                 No weekly discount tiers configured. Customers will pay full price for weekly recurring bookings.
               </p>
             ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-[1fr,1fr,40px] gap-3 text-xs font-medium text-zinc-500 uppercase tracking-wider px-1">
-                  <span>Weeks</span>
-                  <span>Discount %</span>
-                  <span />
-                </div>
+              <div className="space-y-2">
                 {config.tiers.map((tier, index) => (
-                  <div key={index} className="grid grid-cols-[1fr,1fr,40px] gap-3 items-center">
-                    <div className="relative">
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5"
+                  >
+                    <span className="text-xs font-medium text-zinc-500 w-4 shrink-0">
+                      {index + 1}.
+                    </span>
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="number"
                         min={1}
                         max={52}
                         value={tier.weeks}
                         onChange={(e) => updateTier(index, "weeks", parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
+                        className="w-16 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white text-center"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">wks</span>
+                      <span className="text-xs text-zinc-500">weeks</span>
                     </div>
-                    <div className="relative">
+                    <span className="text-zinc-600">&rarr;</span>
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="number"
                         min={0}
                         max={50}
                         value={tier.discountPercent}
                         onChange={(e) => updateTier(index, "discountPercent", parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
+                        className="w-16 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white text-center"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">%</span>
+                      <span className="text-xs text-zinc-500">% off</span>
                     </div>
+                    <span className="ml-auto text-xs text-zinc-600">
+                      e.g. {"\u20B9"}1000/wk = {"\u20B9"}{(1000 * tier.weeks * (1 - tier.discountPercent / 100)).toFixed(0)}
+                    </span>
                     <button
                       onClick={() => removeTier(index)}
-                      className="flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-zinc-500 hover:border-red-500/50 hover:text-red-400 transition-colors"
+                      className="shrink-0 rounded-md p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Preview */}
-            {config.tiers.length > 0 && (
-              <div className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-3 space-y-1.5">
-                <p className="text-xs font-medium text-zinc-400">Customer will see:</p>
-                {config.tiers.map((tier, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <span className="text-white">{tier.weeks} weeks</span>
-                    <span className="text-zinc-500">&mdash;</span>
-                    <span className="text-emerald-400 font-medium">{tier.discountPercent}% off</span>
-                    <span className="text-zinc-600 text-xs">
-                      (e.g. {"\u20B9"}1000/wk &rarr; {"\u20B9"}{(1000 * tier.weeks * (1 - tier.discountPercent / 100)).toFixed(0)} total)
-                    </span>
-                  </div>
-                ))}
+            {/* Limits inline */}
+            <div className="flex items-center gap-4 pt-2 border-t border-zinc-800">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500">Min</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={52}
+                  value={config.minWeeks}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, minWeeks: parseInt(e.target.value) || 1 }))}
+                  className="w-16 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-white text-center"
+                />
+                <span className="text-xs text-zinc-500">weeks</span>
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500">Max</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={52}
+                  value={config.maxWeeks}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, maxWeeks: parseInt(e.target.value) || 12 }))}
+                  className="w-16 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-white text-center"
+                />
+                <span className="text-xs text-zinc-500">weeks</span>
+              </div>
+            </div>
           </div>
 
           {/* Daily Discount Tiers */}
@@ -211,7 +216,7 @@ export function RecurringAdmin({ initialConfig }: { initialConfig: RecurringConf
               <div>
                 <h2 className="font-semibold text-white flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-blue-400" />
-                  Daily Recurring Tiers
+                  Daily Discount Tiers
                 </h2>
                 <p className="text-sm text-zinc-400 mt-0.5">
                   Set discount percentages for consecutive daily bookings
@@ -231,172 +236,77 @@ export function RecurringAdmin({ initialConfig }: { initialConfig: RecurringConf
                 No daily discount tiers configured. Customers will pay full price for daily recurring bookings.
               </p>
             ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-[1fr,1fr,40px] gap-3 text-xs font-medium text-zinc-500 uppercase tracking-wider px-1">
-                  <span>Days</span>
-                  <span>Discount %</span>
-                  <span />
-                </div>
+              <div className="space-y-2">
                 {config.dailyTiers.map((tier, index) => (
-                  <div key={index} className="grid grid-cols-[1fr,1fr,40px] gap-3 items-center">
-                    <div className="relative">
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5"
+                  >
+                    <span className="text-xs font-medium text-zinc-500 w-4 shrink-0">
+                      {index + 1}.
+                    </span>
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="number"
                         min={1}
                         max={365}
                         value={tier.days}
                         onChange={(e) => updateDailyTier(index, "days", parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
+                        className="w-16 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white text-center"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">days</span>
+                      <span className="text-xs text-zinc-500">days</span>
                     </div>
-                    <div className="relative">
+                    <span className="text-zinc-600">&rarr;</span>
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="number"
                         min={0}
                         max={50}
                         value={tier.discountPercent}
                         onChange={(e) => updateDailyTier(index, "discountPercent", parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
+                        className="w-16 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white text-center"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">%</span>
+                      <span className="text-xs text-zinc-500">% off</span>
                     </div>
+                    <span className="ml-auto text-xs text-zinc-600">
+                      e.g. {"\u20B9"}1000/day = {"\u20B9"}{(1000 * tier.days * (1 - tier.discountPercent / 100)).toFixed(0)}
+                    </span>
                     <button
                       onClick={() => removeDailyTier(index)}
-                      className="flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-zinc-500 hover:border-red-500/50 hover:text-red-400 transition-colors"
+                      className="shrink-0 rounded-md p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Preview */}
-            {config.dailyTiers.length > 0 && (
-              <div className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-3 space-y-1.5">
-                <p className="text-xs font-medium text-zinc-400">Customer will see:</p>
-                {config.dailyTiers.map((tier, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <span className="text-white">{tier.days} days</span>
-                    <span className="text-zinc-500">&mdash;</span>
-                    <span className="text-blue-400 font-medium">{tier.discountPercent}% off</span>
-                    <span className="text-zinc-600 text-xs">
-                      (e.g. {"\u20B9"}1000/day &rarr; {"\u20B9"}{(1000 * tier.days * (1 - tier.discountPercent / 100)).toFixed(0)} total)
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Daily Booking Limits */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
-            <div>
-              <h2 className="font-semibold text-white">Daily Booking Limits</h2>
-              <p className="text-sm text-zinc-400 mt-0.5">
-                Min and max consecutive days for daily recurring bookings
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm text-zinc-400">Minimum Days</label>
+            {/* Limits inline */}
+            <div className="flex items-center gap-4 pt-2 border-t border-zinc-800">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500">Min</label>
                 <input
                   type="number"
                   min={1}
                   max={365}
                   value={config.minDays}
                   onChange={(e) => setConfig((prev) => ({ ...prev, minDays: parseInt(e.target.value) || 1 }))}
-                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
+                  className="w-16 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-white text-center"
                 />
+                <span className="text-xs text-zinc-500">days</span>
               </div>
-              <div>
-                <label className="text-sm text-zinc-400">Maximum Days</label>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500">Max</label>
                 <input
                   type="number"
                   min={1}
                   max={365}
                   value={config.maxDays}
                   onChange={(e) => setConfig((prev) => ({ ...prev, maxDays: parseInt(e.target.value) || 30 }))}
-                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
+                  className="w-16 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-white text-center"
                 />
-              </div>
-            </div>
-          </div>
-
-          {/* Allowed Days */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
-            <div>
-              <h2 className="font-semibold text-white">Allowed Recurring Days</h2>
-              <p className="text-sm text-zinc-400 mt-0.5">
-                Which days of the week customers can set up weekly recurring bookings
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {DAY_NAMES.map((name, index) => {
-                const isSelected = config.allowedDays.includes(index);
-                return (
-                  <button
-                    key={index}
-                    onClick={() => toggleDay(index)}
-                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                      isSelected
-                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
-                        : "border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
-                    }`}
-                  >
-                    {name}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() =>
-                setConfig((prev) => ({
-                  ...prev,
-                  allowedDays: prev.allowedDays.length === 7 ? [] : [0, 1, 2, 3, 4, 5, 6],
-                }))
-              }
-              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              {config.allowedDays.length === 7 ? "Deselect All" : "Select All"}
-            </button>
-          </div>
-
-          {/* Weekly Booking Limits */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
-            <div>
-              <h2 className="font-semibold text-white">Weekly Booking Limits</h2>
-              <p className="text-sm text-zinc-400 mt-0.5">
-                Min and max weeks for weekly recurring bookings
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm text-zinc-400">Minimum Weeks</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={52}
-                  value={config.minWeeks}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, minWeeks: parseInt(e.target.value) || 1 }))}
-                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-zinc-400">Maximum Weeks</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={52}
-                  value={config.maxWeeks}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, maxWeeks: parseInt(e.target.value) || 12 }))}
-                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
-                />
+                <span className="text-xs text-zinc-500">days</span>
               </div>
             </div>
           </div>
