@@ -4,7 +4,7 @@ import { DayType, TimeType } from "@prisma/client";
 
 export interface SlotPrice {
   hour: number;
-  price: number; // in paise
+  price: number; // in rupees
   dayType: DayType;
   timeType: TimeType;
 }
@@ -61,9 +61,9 @@ export function calculateTotal(
     .reduce((sum, s) => sum + s.price, 0);
 }
 
-// Format price from paise to INR string
-export function formatPrice(paise: number): string {
-  return `₹${(paise / 100).toLocaleString("en-IN")}`;
+// Format price in rupees to INR string
+export function formatPrice(amount: number): string {
+  return `₹${amount.toLocaleString("en-IN")}`;
 }
 
 /**

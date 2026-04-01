@@ -7,7 +7,7 @@ export type SlotStatus = "available" | "booked" | "locked" | "blocked";
 export interface SlotAvailability {
   hour: number;
   status: SlotStatus;
-  price: number; // in paise
+  price: number; // in rupees
 }
 
 // Get availability for all slots on a given date for a specific court config

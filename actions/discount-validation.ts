@@ -69,7 +69,7 @@ export async function validateDiscountCode(
   if (discountCode.minBookingAmount && booking.totalAmount < discountCode.minBookingAmount) {
     return {
       valid: false,
-      error: `Minimum booking amount is ₹${(discountCode.minBookingAmount / 100).toLocaleString("en-IN")}`,
+      error: `Minimum booking amount is ₹${discountCode.minBookingAmount.toLocaleString("en-IN")}`,
     };
   }
 

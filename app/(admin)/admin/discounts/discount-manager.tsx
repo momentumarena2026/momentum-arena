@@ -58,7 +58,7 @@ export function DiscountManager({ codes }: { codes: DiscountCodeRow[] }) {
       value,
       maxUses: form.maxUses ? parseInt(form.maxUses) : undefined,
       maxUsesPerUser: parseInt(form.maxUsesPerUser) || 1,
-      minBookingAmount: form.minBookingAmount ? parseInt(form.minBookingAmount) * 100 : undefined,
+      minBookingAmount: form.minBookingAmount ? parseInt(form.minBookingAmount) : undefined,
       sportFilter: form.sportFilter.length > 0 ? form.sportFilter : undefined,
       validFrom: form.validFrom,
       validUntil: form.validUntil,
@@ -113,9 +113,9 @@ export function DiscountManager({ codes }: { codes: DiscountCodeRow[] }) {
             <input type="text" value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))} placeholder="CODE (e.g., SUMMER20)" className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 uppercase" />
             <select value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value as DiscountType }))} className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white">
               <option value="PERCENTAGE">Percentage (basis points, 1000 = 10%)</option>
-              <option value="FLAT">Flat (in paise, 10000 = ₹100)</option>
+              <option value="FLAT">Flat (in ₹)</option>
             </select>
-            <input type="number" value={form.value} onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))} placeholder={form.type === "PERCENTAGE" ? "Value (1000 = 10%)" : "Value (paise, 10000 = ₹100)"} className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500" />
+            <input type="number" value={form.value} onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))} placeholder={form.type === "PERCENTAGE" ? "Value (1000 = 10%)" : "Value in ₹ (e.g., 100)"} className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500" />
             <input type="number" value={form.maxUses} onChange={(e) => setForm((p) => ({ ...p, maxUses: e.target.value }))} placeholder="Max uses (empty = unlimited)" className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500" />
             <input type="date" value={form.validFrom} onChange={(e) => setForm((p) => ({ ...p, validFrom: e.target.value }))} className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" />
             <input type="date" value={form.validUntil} onChange={(e) => setForm((p) => ({ ...p, validUntil: e.target.value }))} className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" />

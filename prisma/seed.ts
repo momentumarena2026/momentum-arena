@@ -66,48 +66,48 @@ async function main() {
   // Seed default pricing rules (sample prices)
   const configs = await prisma.courtConfig.findMany();
   const defaultPrices: Record<string, Record<string, number>> = {
-    // size -> "dayType_timeType" -> price in paise
+    // size -> "dayType_timeType" -> price in rupees
     XS: {
-      WEEKDAY_OFF_PEAK: 50000, // ₹500
-      WEEKDAY_PEAK: 80000, // ₹800
-      WEEKEND_PEAK: 100000, // ₹1000
-      WEEKEND_OFF_PEAK: 80000, // ₹800
+      WEEKDAY_OFF_PEAK: 500,
+      WEEKDAY_PEAK: 800,
+      WEEKEND_PEAK: 1000,
+      WEEKEND_OFF_PEAK: 800,
     },
     SMALL: {
-      WEEKDAY_OFF_PEAK: 80000, // ₹800
-      WEEKDAY_PEAK: 120000, // ₹1200
-      WEEKEND_PEAK: 150000, // ₹1500
-      WEEKEND_OFF_PEAK: 120000, // ₹1200
+      WEEKDAY_OFF_PEAK: 800,
+      WEEKDAY_PEAK: 1200,
+      WEEKEND_PEAK: 1500,
+      WEEKEND_OFF_PEAK: 1200,
     },
     MEDIUM: {
-      WEEKDAY_OFF_PEAK: 120000,
-      WEEKDAY_PEAK: 180000,
-      WEEKEND_PEAK: 220000,
-      WEEKEND_OFF_PEAK: 180000,
+      WEEKDAY_OFF_PEAK: 1200,
+      WEEKDAY_PEAK: 1800,
+      WEEKEND_PEAK: 2200,
+      WEEKEND_OFF_PEAK: 1800,
     },
     LARGE: {
-      WEEKDAY_OFF_PEAK: 180000,
-      WEEKDAY_PEAK: 250000,
-      WEEKEND_PEAK: 300000,
-      WEEKEND_OFF_PEAK: 250000,
+      WEEKDAY_OFF_PEAK: 1800,
+      WEEKDAY_PEAK: 2500,
+      WEEKEND_PEAK: 3000,
+      WEEKEND_OFF_PEAK: 2500,
     },
     XL: {
-      WEEKDAY_OFF_PEAK: 220000,
-      WEEKDAY_PEAK: 300000,
-      WEEKEND_PEAK: 380000,
-      WEEKEND_OFF_PEAK: 300000,
+      WEEKDAY_OFF_PEAK: 2200,
+      WEEKDAY_PEAK: 3000,
+      WEEKEND_PEAK: 3800,
+      WEEKEND_OFF_PEAK: 3000,
     },
     FULL: {
-      WEEKDAY_OFF_PEAK: 280000,
-      WEEKDAY_PEAK: 400000,
-      WEEKEND_PEAK: 500000,
-      WEEKEND_OFF_PEAK: 400000,
+      WEEKDAY_OFF_PEAK: 2800,
+      WEEKDAY_PEAK: 4000,
+      WEEKEND_PEAK: 5000,
+      WEEKEND_OFF_PEAK: 4000,
     },
     SHARED: {
-      WEEKDAY_OFF_PEAK: 40000, // ₹400
-      WEEKDAY_PEAK: 60000, // ₹600
-      WEEKEND_PEAK: 80000, // ₹800
-      WEEKEND_OFF_PEAK: 60000, // ₹600
+      WEEKDAY_OFF_PEAK: 400,
+      WEEKDAY_PEAK: 600,
+      WEEKEND_PEAK: 800,
+      WEEKEND_OFF_PEAK: 600,
     },
   };
 

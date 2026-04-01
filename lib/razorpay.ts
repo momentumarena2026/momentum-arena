@@ -18,7 +18,7 @@ interface RazorpayOrder {
 
 // Create a Razorpay order
 export async function createRazorpayOrder(
-  amount: number, // in paise
+  amount: number, // in rupees
   bookingId: string,
   offerId?: string
 ): Promise<RazorpayOrder> {
@@ -27,7 +27,7 @@ export async function createRazorpayOrder(
   ).toString("base64");
 
   const body: Record<string, unknown> = {
-    amount,
+    amount: Math.round(amount * 100), // Razorpay expects paise
     currency: "INR",
     receipt: bookingId,
     notes: { bookingId },

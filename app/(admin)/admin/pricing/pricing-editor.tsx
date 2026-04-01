@@ -35,7 +35,7 @@ export function PricingEditor({ configId, configLabel, prices }: PricingEditorPr
       courtConfigId: configId,
       dayType,
       timeType,
-      pricePerSlot: Math.round(priceInRupees * 100),
+      pricePerSlot: Math.round(priceInRupees),
     });
     setEditing(null);
     setSaving(false);
@@ -81,7 +81,7 @@ export function PricingEditor({ configId, configLabel, prices }: PricingEditorPr
               <button
                 onClick={() => {
                   setEditing(`${configId}_${key}`);
-                  setEditValue((currentPrice / 100).toString());
+                  setEditValue(currentPrice.toString());
                 }}
                 className="group inline-flex items-center gap-1 text-zinc-300 hover:text-white"
               >
