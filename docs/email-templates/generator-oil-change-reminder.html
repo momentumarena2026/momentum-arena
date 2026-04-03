@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oil Change Reminder - Momentum Arena</title>
+</head>
+<body style="margin:0;padding:0;background-color:#000000;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#000000;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;width:100%;">
+
+          <!-- Logo -->
+          <tr>
+            <td align="center" style="padding:0 0 24px 0;">
+              <img src="https://momentumarena.com/blackLogo.png" alt="Momentum Arena" width="200" style="display:block;max-width:200px;height:auto;" />
+            </td>
+          </tr>
+
+          <!-- Alert Banner -->
+          <tr>
+            <td style="background-color:#f59e0b;border-radius:12px 12px 0 0;padding:16px 24px;text-align:center;">
+              <p style="margin:0;font-size:14px;font-weight:700;color:#000000;letter-spacing:1px;text-transform:uppercase;">
+                &#9888; Oil Change Reminder
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main Card -->
+          <tr>
+            <td style="background-color:#18181b;border:1px solid #27272a;border-top:none;border-radius:0 0 12px 12px;padding:28px 24px;">
+
+              <!-- Greeting -->
+              <p style="margin:0 0 16px;font-size:16px;color:#ffffff;">
+                Hi Team,
+              </p>
+              <p style="margin:0 0 24px;font-size:14px;color:#a1a1aa;line-height:1.6;">
+                Generator <strong style="color:#ffffff;">##generator_name##</strong> is approaching its next oil change. Only <strong style="color:#f59e0b;">##hours_remaining## hours</strong> of runtime remain before the oil must be replaced.
+              </p>
+
+              <!-- Stats Box -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#09090b;border:1px solid #27272a;border-radius:8px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Total Running Hours</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##total_hours## hrs</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Next Oil Change Due At</td>
+                        <td align="right" style="font-size:14px;color:#f59e0b;font-weight:600;">##next_change_at## hrs</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Hours Remaining</td>
+                        <td align="right" style="font-size:14px;color:#f59e0b;font-weight:700;">##hours_remaining## hrs</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Last Oil Change</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;">##last_oil_change_date##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Oil Change # (Sequence)</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;">##oil_change_number##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Estimated Cost -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#10b98115;border:1px solid #10b98130;border-radius:8px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:14px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#10b981;">Estimated Oil Cost</td>
+                        <td align="right" style="font-size:16px;color:#10b981;font-weight:700;">##estimated_oil_cost##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding:8px 0 0;">
+                    <a href="##admin_url##" style="display:inline-block;background-color:#f59e0b;color:#000000;font-size:14px;font-weight:700;padding:12px 32px;border-radius:8px;text-decoration:none;">
+                      View Generator Dashboard
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 16px;text-align:center;">
+              <p style="margin:0 0 4px;font-size:12px;color:#52525b;">
+                This is an automated alert from Momentum Arena.
+              </p>
+              <p style="margin:0;font-size:11px;color:#3f3f46;">
+                Generator Management System
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

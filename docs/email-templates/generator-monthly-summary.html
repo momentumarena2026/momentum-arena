@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monthly Generator Report - Momentum Arena</title>
+</head>
+<body style="margin:0;padding:0;background-color:#000000;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#000000;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;width:100%;">
+
+          <!-- Logo -->
+          <tr>
+            <td align="center" style="padding:0 0 24px 0;">
+              <img src="https://momentumarena.com/blackLogo.png" alt="Momentum Arena" width="200" style="display:block;max-width:200px;height:auto;" />
+            </td>
+          </tr>
+
+          <!-- Header Banner -->
+          <tr>
+            <td style="background-color:#10b981;border-radius:12px 12px 0 0;padding:16px 24px;text-align:center;">
+              <p style="margin:0;font-size:14px;font-weight:700;color:#000000;letter-spacing:1px;text-transform:uppercase;">
+                Monthly Generator Report
+              </p>
+              <p style="margin:6px 0 0;font-size:13px;color:#000000cc;">
+                ##month_year##
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main Card -->
+          <tr>
+            <td style="background-color:#18181b;border:1px solid #27272a;border-top:none;border-radius:0 0 12px 12px;padding:28px 24px;">
+
+              <p style="margin:0 0 20px;font-size:14px;color:#a1a1aa;line-height:1.6;">
+                Hi Team, here's the generator usage summary for <strong style="color:#ffffff;">##month_year##</strong>.
+              </p>
+
+              <!-- Runtime Summary -->
+              <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#71717a;letter-spacing:1px;text-transform:uppercase;">
+                Runtime Summary
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#09090b;border:1px solid #27272a;border-radius:8px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Total Hours This Month</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##monthly_hours## hrs</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Cumulative Hours (All Time)</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##total_hours## hrs</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Avg. Daily Usage</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##avg_daily_hours## hrs/day</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Fuel Consumption -->
+              <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#71717a;letter-spacing:1px;text-transform:uppercase;">
+                Fuel Consumption
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#09090b;border:1px solid #27272a;border-radius:8px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Petrol Filled This Month</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##monthly_litres## L</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Petrol Cost</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##monthly_petrol_cost##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Current Fuel Stock</td>
+                        <td align="right" style="font-size:14px;color:##fuel_stock_color##;font-weight:600;">##fuel_stock## L</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Avg. Rate per Litre</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##avg_petrol_rate##/L</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Oil Changes -->
+              <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#71717a;letter-spacing:1px;text-transform:uppercase;">
+                Oil Maintenance
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#09090b;border:1px solid #27272a;border-radius:8px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Oil Changes This Month</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##monthly_oil_changes##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #27272a;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Oil Cost This Month</td>
+                        <td align="right" style="font-size:14px;color:#ffffff;font-weight:600;">##monthly_oil_cost##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#71717a;">Next Oil Change In</td>
+                        <td align="right" style="font-size:14px;color:##oil_status_color##;font-weight:600;">##hours_until_oil_change## hrs</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Total Cost Summary -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#10b98115;border:1px solid #10b98130;border-radius:8px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #10b98125;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#10b981;">Petrol</td>
+                        <td align="right" style="font-size:14px;color:#10b981;font-weight:600;">##monthly_petrol_cost##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #10b98125;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#10b981;">Oil</td>
+                        <td align="right" style="font-size:14px;color:#10b981;font-weight:600;">##monthly_oil_cost##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:15px;color:#10b981;font-weight:700;">Total Monthly Cost</td>
+                        <td align="right" style="font-size:18px;color:#10b981;font-weight:700;">##total_monthly_cost##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Cost per Booking Hour -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#3b82f615;border:1px solid #3b82f630;border-radius:8px;margin-bottom:20px;">
+                <tr>
+                  <td style="padding:14px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;color:#3b82f6;">Cost per Booking Hour (Generator Allocation)</td>
+                        <td align="right" style="font-size:16px;color:#3b82f6;font-weight:700;">##cost_per_booking_hour##</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding:8px 0 0;">
+                    <a href="##admin_url##" style="display:inline-block;background-color:#10b981;color:#000000;font-size:14px;font-weight:700;padding:12px 32px;border-radius:8px;text-decoration:none;">
+                      View Full Analytics
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 16px;text-align:center;">
+              <p style="margin:0 0 4px;font-size:12px;color:#52525b;">
+                This is an automated monthly report from Momentum Arena.
+              </p>
+              <p style="margin:0;font-size:11px;color:#3f3f46;">
+                Generator Management System
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

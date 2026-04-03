@@ -27,6 +27,7 @@ import {
   Tags,
   ScanLine,
   Package,
+  Fuel,
   type LucideIcon,
 } from "lucide-react";
 
@@ -50,6 +51,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/rewards": Gift,
   "/admin/users": Users,
   "/admin/admin-users": Shield,
+  "/admin/generator": Fuel,
   "/admin/faqs": HelpCircle,
   "/admin/razorpay": CreditCard,
 };

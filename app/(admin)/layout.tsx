@@ -26,6 +26,7 @@ const allNavItems = [
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
+  { href: "/admin/generator", label: "Generator", group: "Settings", permission: "MANAGE_PRICING" },
   { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },
   { href: "/admin/razorpay", label: "Razorpay", group: "Settings", permission: "VIEW_RAZORPAY" },
 ];

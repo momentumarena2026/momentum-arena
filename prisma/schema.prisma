@@ -994,3 +994,107 @@ model WalletTransaction {
 
   @@index([walletId])
 }
+
+// ===========================
+// GENERATOR MANAGEMENT
+// ===========================
+
+model Generator {
+  id          String   @id @default(cuid())
+  name        String   // e.g. "Generator 1"
+  isActive    Boolean  @default(true)
+
+  fuelLogs    GeneratorFuelLog[]
+  oilChanges  GeneratorOilChange[]
+  runLogs     GeneratorRunLog[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model GeneratorConfig {
+  id                    String   @id @default(cuid())
+
+  petrolPricePerLitre   Int      @default(9500)   // paise — ₹95
+  oilPricePerLitre      Int      @default(29500)  // paise — ₹295
+  consumptionRate       Float    @default(2.0)     // litres per hour
+
+  // Oil change schedule (in running hours)
+  firstOilChangeHours   Int      @default(20)
+  secondOilChangeHours  Int      @default(50)    // interval after first
+  regularOilChangeHours Int      @default(100)   // interval after second, repeating
+
+  // Alert threshold
+  oilChangeAlertHours   Int      @default(10)    // send email when X hrs remain
+
+  // Notification emails (comma-separated)
+  notificationEmails    String   @default("y12.nakul@gmail.com,tangrianand@gmail.com,saxenautkarsh193@gmail.com,momentumarena2026@gmail.com")
+
+  // MSG91 template IDs
+  oilChangeTemplateId   String   @default("Oil_Change_Reminder")
+  monthlyTemplateId     String   @default("Generator_Monthly_Summary")
+  pinChangeTemplateId   String   @default("generator_pin_change")
+
+  // Mobile access PIN (6-digit)
+  generatorPin          String   @default("987065")
+
+  updatedAt             DateTime @updatedAt
+}
+
+model GeneratorFuelLog {
+  id            String    @id @default(cuid())
+  generatorId   String
+  generator     Generator @relation(fields: [generatorId], references: [id])
+
+  date          DateTime  @db.Date
+  litres        Float                    // litres filled
+  pricePerLitre Int                      // paise at time of fill
+  totalCost     Int                      // paise (litres * pricePerLitre)
+
+  // Fuel stock tracking
+  isStockPurchase Boolean @default(false) // true = bought fuel into stock, false = filled into generator
+
+  notes         String?
+  createdAt     DateTime  @default(now())
+
+  @@index([generatorId])
+  @@index([date])
+}
+
+model GeneratorOilChange {
+  id            String    @id @default(cuid())
+  generatorId   String
+  generator     Generator @relation(fields: [generatorId], references: [id])
+
+  date          DateTime  @db.Date
+  runningHoursAtChange Float           // total running hours when oil was changed
+  litres        Float     @default(1)  // oil quantity used
+  costPerLitre  Int                    // paise at time of change
+  totalCost     Int                    // paise
+  notes         String?
+
+  // Which change in sequence (1st, 2nd, 3rd...)
+  sequenceNumber Int
+
+  createdAt     DateTime  @default(now())
+
+  @@index([generatorId])
+  @@index([date])
+}
+
+// Optional: manual start/stop logging for accurate runtime tracking
+model GeneratorRunLog {
+  id            String    @id @default(cuid())
+  generatorId   String
+  generator     Generator @relation(fields: [generatorId], references: [id])
+
+  startTime     DateTime
+  endTime       DateTime?
+  durationHours Float?    // calculated from start/end, or manually entered
+  notes         String?
+
+  createdAt     DateTime  @default(now())
+
+  @@index([generatorId])
+  @@index([startTime])
+}
