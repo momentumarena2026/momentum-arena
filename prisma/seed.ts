@@ -63,6 +63,15 @@ async function main() {
   }
   console.log("Seeded time classifications");
 
+  // Deactivate removed court configs (SMALL cricket configs no longer offered)
+  const deactivated = await prisma.courtConfig.updateMany({
+    where: { sport: "CRICKET", size: "SMALL", isActive: true },
+    data: { isActive: false },
+  });
+  if (deactivated.count > 0) {
+    console.log(`Deactivated ${deactivated.count} SMALL cricket court configs`);
+  }
+
   // Seed default pricing rules (sample prices)
   const configs = await prisma.courtConfig.findMany();
   const defaultPrices: Record<string, Record<string, number>> = {
@@ -72,12 +81,6 @@ async function main() {
       WEEKDAY_PEAK: 800,
       WEEKEND_PEAK: 1000,
       WEEKEND_OFF_PEAK: 800,
-    },
-    SMALL: {
-      WEEKDAY_OFF_PEAK: 800,
-      WEEKDAY_PEAK: 1200,
-      WEEKEND_PEAK: 1500,
-      WEEKEND_OFF_PEAK: 1200,
     },
     MEDIUM: {
       WEEKDAY_OFF_PEAK: 1200,
