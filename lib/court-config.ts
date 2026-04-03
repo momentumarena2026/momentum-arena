@@ -10,7 +10,7 @@ export interface CourtConfigDef {
   zones: CourtZone[];
 }
 
-// All 16 bookable court configurations
+// All bookable court configurations
 export const COURT_CONFIGS: CourtConfigDef[] = [
   // Cricket — all sizes
   {
@@ -30,24 +30,6 @@ export const COURT_CONFIGS: CourtConfigDef[] = [
     widthFt: 10,
     lengthFt: 90,
     zones: ["LEATHER_2"],
-  },
-  {
-    sport: "CRICKET",
-    size: "SMALL",
-    label: "Small (Lane A)",
-    position: "A",
-    widthFt: 30,
-    lengthFt: 90,
-    zones: ["BOX_A"],
-  },
-  {
-    sport: "CRICKET",
-    size: "SMALL",
-    label: "Small (Lane B)",
-    position: "B",
-    widthFt: 30,
-    lengthFt: 90,
-    zones: ["BOX_B"],
   },
   {
     sport: "CRICKET",
@@ -259,7 +241,7 @@ export const SIZE_INFO: Record<
   ConfigSize,
   { name: string; description: string }
 > = {
-  XS: { name: "Extra Small", description: "Leather pitch (10ft x 90ft)" },
+  XS: { name: "Small", description: "Leather pitch (10ft x 90ft)" },
   SMALL: { name: "Small", description: "Single box lane (30ft x 90ft)" },
   MEDIUM: {
     name: "Medium",
