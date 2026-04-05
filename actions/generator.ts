@@ -70,6 +70,7 @@ export async function updateGeneratorConfig(data: {
   monthlyTemplateId?: string;
   pinChangeTemplateId?: string;
   generatorPin?: string;
+  hardwareApiKey?: string;
   pinChanged?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
   const user = await requireAdmin();
@@ -114,11 +115,23 @@ export async function updateGeneratorConfig(data: {
 // ─── Generators CRUD ─────────────────────────────────────────
 
 export async function createGenerator(
+  id: string,
   name: string
 ): Promise<{ success: boolean; error?: string; id?: string }> {
   await requireAdmin();
+  const trimmedId = id.trim();
+  if (!trimmedId || trimmedId.length < 2) {
+    return { success: false, error: "Generator ID must be at least 2 characters" };
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(trimmedId)) {
+    return { success: false, error: "Generator ID can only contain letters, numbers, hyphens and underscores" };
+  }
   try {
-    const gen = await db.generator.create({ data: { name } });
+    const existing = await db.generator.findUnique({ where: { id: trimmedId } });
+    if (existing) {
+      return { success: false, error: "A generator with this ID already exists" };
+    }
+    const gen = await db.generator.create({ data: { id: trimmedId, name } });
     return { success: true, id: gen.id };
   } catch (e) {
     console.error("createGenerator error:", e);

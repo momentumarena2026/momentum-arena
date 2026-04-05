@@ -1000,7 +1000,7 @@ model WalletTransaction {
 // ===========================
 
 model Generator {
-  id          String   @id @default(cuid())
+  id          String   @id          // manually assigned e.g. "xgen_2026"
   name        String   // e.g. "Generator 1"
   isActive    Boolean  @default(true)
 
@@ -1037,6 +1037,9 @@ model GeneratorConfig {
 
   // Mobile access PIN (6-digit)
   generatorPin          String   @default("987065")
+
+  // Hardware API key for bulk log endpoint
+  hardwareApiKey        String   @default("ma-gen-hw-2026-secret")
 
   updatedAt             DateTime @updatedAt
 }

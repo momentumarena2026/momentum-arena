@@ -60,6 +60,7 @@ interface ConfigData {
   monthlyTemplateId: string;
   pinChangeTemplateId: string;
   generatorPin: string;
+  hardwareApiKey: string;
 }
 
 type Tab = "dashboard" | "fuel" | "oil" | "runlog" | "config" | "analytics";
@@ -125,10 +126,12 @@ export function GeneratorAdmin({
   };
 
   const handleCreateGenerator = async () => {
-    const name = prompt("Enter generator name (e.g. Generator 1):");
+    const id = prompt("Enter unique Generator ID (e.g. xgen_2026):");
+    if (!id?.trim()) return;
+    const name = prompt("Enter generator display name (e.g. Generator 1):");
     if (!name?.trim()) return;
     setLoading(true);
-    const result = await createGenerator(name.trim());
+    const result = await createGenerator(id.trim(), name.trim());
     if (result.success && result.id) {
       const newGen: GeneratorItem = {
         id: result.id,
@@ -1369,6 +1372,7 @@ function ConfigTab({
     monthlyTemplateId: config.monthlyTemplateId,
     pinChangeTemplateId: config.pinChangeTemplateId,
     generatorPin: config.generatorPin,
+    hardwareApiKey: config.hardwareApiKey,
   });
   const [saving, setSaving] = useState(false);
 
@@ -1393,6 +1397,7 @@ function ConfigTab({
       monthlyTemplateId: form.monthlyTemplateId,
       pinChangeTemplateId: form.pinChangeTemplateId,
       generatorPin: form.generatorPin,
+      hardwareApiKey: form.hardwareApiKey,
       pinChanged,
     };
     const result = await updateGeneratorConfig(data);
@@ -1557,6 +1562,39 @@ function ConfigTab({
                   PIN has been changed — an email notification will be sent on save.
                 </p>
               )}
+            </div>
+          </div>
+
+          {/* Hardware API */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+              Hardware API
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs text-zinc-400">
+                  API Key (x-api-key)
+                </label>
+                <input
+                  type="text"
+                  value={form.hardwareApiKey}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, hardwareApiKey: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 font-mono text-sm text-white focus:border-emerald-500 focus:outline-none"
+                />
+                <p className="mt-1 text-xs text-zinc-600">
+                  Used by hardware devices to POST bulk start/stop data
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-zinc-400">
+                  Bulk Log Endpoint
+                </label>
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 font-mono text-xs text-zinc-400 break-all">
+                  POST /api/generator/bulk-log
+                </div>
+              </div>
             </div>
           </div>
         </div>
