@@ -1299,9 +1299,11 @@ function RunLogTab({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
-                  <th className="pb-2">Start</th>
-                  <th className="pb-2">End</th>
-                  <th className="pb-2">Duration</th>
+                  <th className="pb-2 pr-3">ID</th>
+                  <th className="pb-2 pr-3">Source</th>
+                  <th className="pb-2 pr-3">Start</th>
+                  <th className="pb-2 pr-3">End</th>
+                  <th className="pb-2 pr-3">Duration</th>
                   <th className="pb-2">Notes</th>
                 </tr>
               </thead>
@@ -1311,14 +1313,28 @@ function RunLogTab({
                     key={log.id}
                     className="border-b border-zinc-800/50"
                   >
-                    <td className="py-2 text-zinc-300">
+                    <td className="py-2 pr-3 font-mono text-zinc-400">
+                      {log.entryId ?? "-"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span
+                        className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
+                          log.source === "hardware"
+                            ? "bg-blue-500/10 text-blue-400"
+                            : "bg-emerald-500/10 text-emerald-400"
+                        }`}
+                      >
+                        {log.source === "hardware" ? "Device" : "Web"}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 text-zinc-300">
                       {new Date(log.startTime).toLocaleString("en-IN", {
                         timeZone: "Asia/Kolkata",
                         dateStyle: "short",
                         timeStyle: "short",
                       })}
                     </td>
-                    <td className="py-2 text-zinc-300">
+                    <td className="py-2 pr-3 text-zinc-300">
                       {log.endTime
                         ? new Date(log.endTime).toLocaleString("en-IN", {
                             timeZone: "Asia/Kolkata",
@@ -1327,7 +1343,7 @@ function RunLogTab({
                           })
                         : "Running..."}
                     </td>
-                    <td className="py-2 text-zinc-300">
+                    <td className="py-2 pr-3 text-zinc-300">
                       {log.durationHours
                         ? `${log.durationHours} hrs`
                         : "-"}

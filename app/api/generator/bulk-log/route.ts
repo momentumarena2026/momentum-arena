@@ -77,8 +77,9 @@ export async function POST(req: NextRequest) {
           await db.generatorRunLog.create({
             data: {
               generatorId: generator_id,
+              entryId: entry.id,
+              source: "hardware",
               startTime: entryTime,
-              notes: `Hardware device (entry #${entry.id})`,
             },
           });
           processed++;

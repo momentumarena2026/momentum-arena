@@ -1091,6 +1091,9 @@ model GeneratorRunLog {
   generatorId   String
   generator     Generator @relation(fields: [generatorId], references: [id])
 
+  entryId       Int?              // sequential ID from device or auto-generated
+  source        String  @default("website") // "website" or "hardware"
+
   startTime     DateTime
   endTime       DateTime?
   durationHours Float?    // calculated from start/end, or manually entered
