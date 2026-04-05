@@ -234,10 +234,16 @@ export async function addOilChange(data: {
     // Calculate running hours at change time
     const config = await getOrCreateConfig();
     const fuelLogs = await db.generatorFuelLog.findMany({
-      where: { generatorId: data.generatorId, isStockPurchase: false },
+      where: { generatorId: data.generatorId },
     });
     const totalLitresFilled = fuelLogs.reduce((sum, l) => sum + l.litres, 0);
-    const runningHours = totalLitresFilled / config.consumptionRate;
+    const fuelBasedHrs = totalLitresFilled / config.consumptionRate;
+    const completedRuns = await db.generatorRunLog.findMany({
+      where: { generatorId: data.generatorId, endTime: { not: null } },
+      select: { durationHours: true },
+    });
+    const runLogHrs = completedRuns.reduce((s, r) => s + (r.durationHours || 0), 0);
+    const runningHours = Math.max(fuelBasedHrs, runLogHrs);
 
     const totalCost = Math.round(data.litres * data.costPerLitre);
     await db.generatorOilChange.create({
@@ -432,7 +438,21 @@ async function _getGeneratorDashboard(
   // Total litres filled into generator
   const totalFuelFilled = allFuelLogs.reduce((sum, l) => sum + l.litres, 0);
 
-  const totalRunningHours = totalFuelFilled / config.consumptionRate;
+  // Running hours from fuel estimate
+  const fuelBasedHours = totalFuelFilled / config.consumptionRate;
+
+  // Running hours from actual run logs (hardware + manual)
+  const completedRunLogs = await db.generatorRunLog.findMany({
+    where: { generatorId, endTime: { not: null } },
+    select: { durationHours: true },
+  });
+  const runLogHours = completedRunLogs.reduce(
+    (sum, r) => sum + (r.durationHours || 0),
+    0
+  );
+
+  // Use the higher of fuel-based estimate or actual run log hours
+  const totalRunningHours = Math.max(fuelBasedHours, runLogHours);
 
   // Oil changes
   const oilChanges = await db.generatorOilChange.findMany({
@@ -660,7 +680,17 @@ export async function getGeneratorOilChangeStatus(generatorId: string) {
     where: { generatorId },
   });
   const totalLitresFilled = fuelLogs.reduce((sum, l) => sum + l.litres, 0);
-  const totalRunningHours = totalLitresFilled / config.consumptionRate;
+  const fuelBasedHours = totalLitresFilled / config.consumptionRate;
+
+  const completedRuns = await db.generatorRunLog.findMany({
+    where: { generatorId, endTime: { not: null } },
+    select: { durationHours: true },
+  });
+  const runLogHours = completedRuns.reduce(
+    (sum, r) => sum + (r.durationHours || 0),
+    0
+  );
+  const totalRunningHours = Math.max(fuelBasedHours, runLogHours);
 
   const oilChanges = await db.generatorOilChange.findMany({
     where: { generatorId },
