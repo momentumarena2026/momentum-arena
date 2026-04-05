@@ -1082,6 +1082,8 @@ function RunLogTab({
   const [runLogList, setRunLogList] = useState<
     Array<{
       id: string;
+      entryId: number | null;
+      source: string;
       startTime: string;
       endTime: string | null;
       durationHours: number | null;
