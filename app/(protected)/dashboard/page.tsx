@@ -11,7 +11,6 @@ import {
   History,
   Plus,
   Bell,
-  Wallet,
   Gift,
   RefreshCw,
 } from "lucide-react";
@@ -29,7 +28,7 @@ export default async function DashboardPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [upcomingBookings, totalBookings, wallet, waitlistCount] = await Promise.all([
+  const [upcomingBookings, totalBookings, waitlistCount] = await Promise.all([
     db.booking.findMany({
       where: {
         userId: session.user.id,
@@ -46,7 +45,6 @@ export default async function DashboardPage() {
     db.booking.count({
       where: { userId: session.user.id },
     }),
-    db.wallet.findUnique({ where: { userId: session.user.id } }),
     db.waitlist.count({
       where: { userId: session.user.id, status: { in: ["WAITING", "NOTIFIED"] } },
     }),
@@ -114,26 +112,8 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      {/* Wallet + Waitlist + Recurring Row */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
-        {/* Wallet Card */}
-        <Link
-          href="/wallet"
-          className="group rounded-xl border border-zinc-800 bg-zinc-900 p-4 hover:border-emerald-500/30 transition-colors"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-zinc-500">
-              <Wallet className="h-4 w-4" />
-              <span className="text-xs">Momentum Wallet</span>
-            </div>
-            <ArrowRight className="h-4 w-4 text-zinc-700 group-hover:text-emerald-400 transition-colors" />
-          </div>
-          <p className="mt-2 text-xl font-bold text-white">
-            {wallet ? formatPrice(wallet.balancePaise) : "\u20B90"}
-          </p>
-          <p className="text-xs text-zinc-500 mt-0.5">Top up &amp; pay instantly</p>
-        </Link>
-
+      {/* Waitlist + Recurring Row */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
         {/* Waitlist Card */}
         <Link
           href="/waitlist"

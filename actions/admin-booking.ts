@@ -3,7 +3,6 @@
 import { db } from "@/lib/db";
 import { sendBookingConfirmation } from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
-import { creditWallet } from "@/actions/wallet";
 import { checkAndNotifyWaitlist } from "@/actions/waitlist";
 
 async function requireAdmin() {
@@ -92,8 +91,7 @@ export async function refundBooking(
   bookingId: string,
   reason: string,
   refundMethod?: "ORIGINAL" | "CASH" | "UPI" | "BANK_TRANSFER",
-  refundAmount?: number,
-  refundToWallet = false
+  refundAmount?: number
 ) {
   const adminId = await requireAdmin();
 
@@ -137,21 +135,6 @@ export async function refundBooking(
       },
     }),
   ]);
-
-  // For CASH or UPI_QR payments, optionally credit the wallet instead of manual refund
-  if (
-    refundToWallet &&
-    booking.payment &&
-    (booking.payment.method === "CASH" || booking.payment.method === "UPI_QR")
-  ) {
-    await creditWallet(
-      booking.userId,
-      booking.totalAmount,
-      `Refund for cancelled booking #${bookingId.slice(-8).toUpperCase()}`,
-      "CREDIT_REFUND",
-      bookingId
-    );
-  }
 
   // Notify anyone on the waitlist for this slot
   if (booking.slots.length > 0) {

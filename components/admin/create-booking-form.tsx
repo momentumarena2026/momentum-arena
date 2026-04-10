@@ -44,7 +44,7 @@ interface CustomerInfo {
 
 type PaymentMethod = "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
 
-const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "BADMINTON", "PICKLEBALL"];
+const ALL_SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "BADMINTON", "PICKLEBALL"];
 const SPORT_EMOJIS: Record<Sport, string> = {
   CRICKET: "\u{1F3CF}",
   FOOTBALL: "\u26BD",
@@ -65,20 +65,35 @@ const PAYMENT_OPTIONS: { value: PaymentMethod; label: string }[] = [
 
 export function CreateBookingForm({
   courtConfigs,
+  prefillCourtConfigId,
+  prefillDate,
+  prefillHour,
 }: {
   courtConfigs: CourtConfigRow[];
+  prefillCourtConfigId?: string;
+  prefillDate?: string;
+  prefillHour?: number;
 }) {
   const router = useRouter();
 
-  // Wizard step
-  const [step, setStep] = useState(1);
+  // Derive prefill values from URL params
+  const prefillConfig = prefillCourtConfigId
+    ? courtConfigs.find((c) => c.id === prefillCourtConfigId)
+    : undefined;
+
+  // Wizard step — skip to step 2 if prefilled from calendar
+  const [step, setStep] = useState(prefillConfig ? 2 : 1);
 
   // Step 1 state
-  const [selectedSport, setSelectedSport] = useState<Sport | null>(null);
-  const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
+  const [selectedSport, setSelectedSport] = useState<Sport | null>(
+    prefillConfig?.sport ?? null
+  );
+  const [selectedConfigId, setSelectedConfigId] = useState<string | null>(
+    prefillCourtConfigId ?? null
+  );
 
   // Step 2 state
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(prefillDate ?? "");
   const [slots, setSlots] = useState<SlotInfo[]>([]);
   const [selectedHours, setSelectedHours] = useState<number[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -107,12 +122,20 @@ export function CreateBookingForm({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
+  // Track if prefilled hour has already been applied
+  const prefillApplied = useRef(false);
+
   // Debounce ref
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---------------------------------------------------------------------------
   // Derived
   // ---------------------------------------------------------------------------
+
+  // Only show sports that have at least one active config
+  const activeSports = ALL_SPORTS.filter((s) =>
+    courtConfigs.some((c) => c.sport === s)
+  );
 
   const filteredConfigs = selectedSport
     ? courtConfigs.filter((c) => c.sport === selectedSport)
@@ -143,6 +166,15 @@ export function CreateBookingForm({
       const result = await getAvailableSlots(selectedConfigId, date);
       if (result.success) {
         setSlots(result.slots);
+        // Auto-select prefilled hour if available (only on first load)
+        if (
+          !prefillApplied.current &&
+          prefillHour !== undefined &&
+          result.slots.some((s) => s.hour === prefillHour && s.available)
+        ) {
+          prefillApplied.current = true;
+          setSelectedHours([prefillHour]);
+        }
       } else {
         setSlotsError(result.error);
         setSlots([]);
@@ -318,7 +350,7 @@ export function CreateBookingForm({
           <div className="space-y-3">
             <h2 className="text-lg font-semibold text-white">Select Sport</h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {SPORTS.map((sport) => {
+              {activeSports.map((sport) => {
                 const info = SPORT_INFO[sport];
                 const isSelected = selectedSport === sport;
                 return (

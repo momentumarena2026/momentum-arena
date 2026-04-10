@@ -53,6 +53,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/admin-users": Shield,
   "/admin/generator": Fuel,
   "/admin/faqs": HelpCircle,
+  "/admin/payment-settings": CreditCard,
   "/admin/razorpay": CreditCard,
 };
 

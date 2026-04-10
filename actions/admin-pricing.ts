@@ -114,7 +114,7 @@ export async function getAllPricingData() {
   await requireAdmin();
 
   const [configs, rules, classifications] = await Promise.all([
-    db.courtConfig.findMany({ orderBy: [{ sport: "asc" }, { size: "asc" }] }),
+    db.courtConfig.findMany({ where: { isActive: true }, orderBy: [{ sport: "asc" }, { size: "asc" }] }),
     db.pricingRule.findMany(),
     db.timeClassification.findMany({ orderBy: { startHour: "asc" } }),
   ]);

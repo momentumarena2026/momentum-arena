@@ -1,44 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { CreditCard, QrCode, Banknote } from "lucide-react";
+import { CreditCard, QrCode, Banknote, Smartphone } from "lucide-react";
 
-export type PaymentMethodType = "razorpay" | "upi_qr" | "cash";
+export type PaymentMethodType = "online" | "upi_qr" | "cash";
 
 interface PaymentSelectorProps {
   selected: PaymentMethodType;
   onSelect: (method: PaymentMethodType) => void;
+  gateway: "PHONEPE" | "RAZORPAY";
 }
-
-const methods = [
-  {
-    id: "razorpay" as const,
-    name: "Pay Online",
-    description: "Cards, UPI, Netbanking via Razorpay",
-    icon: CreditCard,
-    color: "blue",
-  },
-  {
-    id: "upi_qr" as const,
-    name: "UPI QR Code",
-    description: "Scan QR & send screenshot on WhatsApp",
-    icon: QrCode,
-    color: "green",
-  },
-  {
-    id: "cash" as const,
-    name: "Pay at Venue",
-    description: "20% advance online, rest in cash at venue",
-    icon: Banknote,
-    color: "yellow",
-  },
-];
 
 const colorMap: Record<string, { border: string; bg: string; icon: string }> = {
   blue: {
     border: "border-blue-400 ring-blue-400/50",
     bg: "bg-blue-500/10",
     icon: "text-blue-400",
+  },
+  purple: {
+    border: "border-purple-400 ring-purple-400/50",
+    bg: "bg-purple-500/10",
+    icon: "text-purple-400",
   },
   green: {
     border: "border-emerald-400 ring-emerald-400/50",
@@ -52,7 +33,34 @@ const colorMap: Record<string, { border: string; bg: string; icon: string }> = {
   },
 };
 
-export function PaymentSelector({ selected, onSelect }: PaymentSelectorProps) {
+export function PaymentSelector({ selected, onSelect, gateway }: PaymentSelectorProps) {
+  const methods = [
+    {
+      id: "online" as const,
+      name: "Pay Online",
+      description:
+        gateway === "PHONEPE"
+          ? "UPI, Cards, Netbanking via PhonePe"
+          : "Cards, UPI, Netbanking via Razorpay",
+      icon: gateway === "PHONEPE" ? Smartphone : CreditCard,
+      color: gateway === "PHONEPE" ? "purple" : "blue",
+    },
+    {
+      id: "upi_qr" as const,
+      name: "UPI QR Code",
+      description: "Scan QR & send screenshot on WhatsApp",
+      icon: QrCode,
+      color: "green",
+    },
+    {
+      id: "cash" as const,
+      name: "Pay at Venue",
+      description: "20% advance online, rest in cash at venue",
+      icon: Banknote,
+      color: "yellow",
+    },
+  ];
+
   return (
     <div className="space-y-3">
       {methods.map((method) => {

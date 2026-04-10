@@ -41,18 +41,27 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
   const colorClass = sportColors[sport] || sportColors.CRICKET;
   const iconColor = sportIconColors[sport] || "text-emerald-400";
 
-  if (!isActive) {
+  const isComingSoon = sport === "PICKLEBALL" || sport === "BADMINTON";
+
+  if (!isActive || isComingSoon) {
     return (
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 opacity-50 h-[100px] flex items-center">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 opacity-60 h-[100px] flex items-center">
         <div className="flex items-center gap-4">
           <div className="rounded-xl bg-zinc-800 p-3 shrink-0">
             <Icon className="h-8 w-8 text-zinc-500" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-zinc-500">{name}</h3>
-            <p className="text-sm text-zinc-600 line-clamp-1">Currently unavailable</p>
+            <h3 className="text-lg font-semibold text-zinc-400">{name}</h3>
+            <p className="text-sm text-zinc-600 line-clamp-1">
+              {isComingSoon ? "Coming soon" : "Currently unavailable"}
+            </p>
           </div>
         </div>
+        {isComingSoon && (
+          <span className="absolute right-3 top-3 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-400 border border-amber-500/30">
+            Coming Soon
+          </span>
+        )}
       </div>
     );
   }

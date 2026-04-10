@@ -5,6 +5,7 @@ import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getActiveBanners } from "@/actions/admin-banners";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
+import { getActiveGateway } from "@/actions/admin-payment-settings";
 import { PromoBanners } from "@/components/booking/promo-banners";
 import { CheckoutClient } from "./checkout-client";
 
@@ -86,9 +87,10 @@ export default async function CheckoutPage({
   const recurringCountDisplay = recurringCount || 0;
 
   // Fetch banners and new user discount in parallel
-  const [banners, newUserDiscount] = await Promise.all([
+  const [banners, newUserDiscount, activeGateway] = await Promise.all([
     getActiveBanners("CHECKOUT").catch(() => []),
     getNewUserDiscount(session.user.id, booking.courtConfig.sport, booking.totalAmount).catch(() => null),
+    getActiveGateway(),
   ]);
 
   // Find razorpay offer from active banners
@@ -226,6 +228,7 @@ export default async function CheckoutPage({
         recurringStartHour={recurringStartHour}
         recurringEndHour={recurringEndHour}
         recurringCourtConfigId={recurringCourtConfigId}
+        gateway={activeGateway}
       />
     </div>
   );

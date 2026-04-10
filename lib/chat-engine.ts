@@ -37,7 +37,6 @@ export type Intent =
   | "shared_court"
   | "cricket_config"
   | "equipment"
-  | "wallet"
   | "waitlist"
   | "thank_you"
   | "help"
@@ -298,12 +297,6 @@ const INTENT_PATTERNS: IntentPattern[] = [
     priority: 3,
   },
   {
-    intent: "wallet",
-    patterns: [/\b(wallet|balance|top\s*up|momentum\s*wallet)\b/i],
-    keywords: ["wallet", "balance", "topup"],
-    priority: 3,
-  },
-  {
     intent: "waitlist",
     patterns: [/\b(waitlist|wait\s*list|notify\s*me|slot\s*available)\b/i],
     keywords: ["waitlist", "notify", "waiting"],
@@ -423,8 +416,8 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   }),
 
   refund: () => ({
-    content: "💸 **Refund Policy:**\n\nRefunds are handled by our admin team for exceptional cases. If approved:\n• Online payments → Refunded to original method\n• Can also be credited to your **Momentum Wallet** for instant use\n\n📞 Contact us: +91 6396 177 261",
-    suggestions: ["Wallet info", "Cancel booking", "Contact"],
+    content: "💸 **Refund Policy:**\n\nRefunds are handled by our admin team for exceptional cases. If approved, online payments will be refunded to the original method.\n\n📞 Contact us: +91 6396 177 261",
+    suggestions: ["Cancel booking", "Contact"],
   }),
 
   hours: () => ({
@@ -504,12 +497,6 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
     quickActions: [{ label: "Book & Add Equipment →", href: "/book" }],
   }),
 
-  wallet: () => ({
-    content: "👛 **Momentum Wallet:**\n\nYour digital wallet for quick payments!\n\n• 💳 Top up via Razorpay\n• ⚡ Instant checkout — no payment gateway delays\n• 💸 Refunds credited directly to wallet\n• 📊 Full transaction history\n\nManage your wallet from the dashboard.",
-    suggestions: ["Top up wallet", "Payment methods", "Book now"],
-    quickActions: [{ label: "My Wallet →", href: "/wallet" }],
-  }),
-
   waitlist: () => ({
     content: "🔔 **Waitlist System:**\n\nSlot already booked? No worries!\n\n• Click 'Notify Me' on any unavailable slot\n• You'll get an SMS when it opens up\n• First to respond gets the slot!\n\nNever miss your preferred time again.",
     suggestions: ["My waitlist", "Book available slots", "Operating hours"],
@@ -517,7 +504,7 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   }),
 
   help: () => ({
-    content: "I can help you with:\n\n🏏 **Sports** — What's available, court details\n📅 **Booking** — How to book, slot info\n💰 **Pricing** — Rates, discounts, coupons\n💳 **Payments** — Methods, UPI, wallet\n🕐 **Hours** — When we're open\n📍 **Location** — Address, parking, contact\n☕ **Café** — Menu, ordering\n🏆 **Rewards** — Points, tiers\n\nJust ask anything!",
+    content: "I can help you with:\n\n🏏 **Sports** — What's available, court details\n📅 **Booking** — How to book, slot info\n💰 **Pricing** — Rates, discounts, coupons\n💳 **Payments** — Methods, UPI\n🕐 **Hours** — When we're open\n📍 **Location** — Address, parking, contact\n☕ **Café** — Menu, ordering\n🏆 **Rewards** — Points, tiers\n\nJust ask anything!",
     suggestions: ["Book a court", "Pricing info", "Sports available", "Contact us"],
   }),
 

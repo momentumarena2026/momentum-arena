@@ -11,7 +11,7 @@ import { submitCafeOrderUtr } from "@/actions/upi-payment";
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 
-type PaymentMethod = "RAZORPAY" | "UPI_QR" | "CASH";
+type PaymentMethod = "ONLINE" | "UPI_QR" | "CASH";
 
 declare global {
   interface Window {
@@ -22,12 +22,12 @@ declare global {
   }
 }
 
-export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn?: boolean }) {
+export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHONEPE" }: { isLoggedIn?: boolean; gateway?: "PHONEPE" | "RAZORPAY" }) {
   const router = useRouter();
   const { data: session } = useSession();
   const isLoggedIn = initialLoggedIn || !!session?.user;
   const { items, totalAmount, clearCart } = useCafeCart();
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("UPI_QR");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("ONLINE");
   const [showAuth, setShowAuth] = useState(false);
   const [note, setNote] = useState("");
   const [guestName, setGuestName] = useState("");
@@ -60,11 +60,13 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
   async function handlePlaceOrder() {
     if (items.length === 0) return;
 
-    // If Razorpay selected and not logged in, show inline auth
-    if (paymentMethod === "RAZORPAY" && !isLoggedIn && !session?.user) {
+    // If online payment selected and not logged in, show inline auth
+    if (paymentMethod === "ONLINE" && !isLoggedIn && !session?.user) {
       setShowAuth(true);
       return;
     }
+
+    const isOnlinePayment = paymentMethod === "ONLINE";
 
     setLoading(true);
     setError("");
@@ -72,12 +74,17 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
 
     try {
       // Create the order
+      // Map "ONLINE" to actual gateway method for the backend
+      const backendPaymentMethod = isOnlinePayment
+        ? (gateway === "PHONEPE" ? "PHONEPE" : "RAZORPAY")
+        : paymentMethod;
+
       const result = await createCafeOrder({
         items: items.map((i) => ({
           cafeItemId: i.itemId,
           quantity: i.quantity,
         })),
-        paymentMethod,
+        paymentMethod: backendPaymentMethod,
         discountCode: appliedCoupon?.code,
         note: note.trim() || undefined,
         guestName: !isLoggedIn ? guestName.trim() || undefined : undefined,
@@ -91,8 +98,29 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
         return;
       }
 
-      if (paymentMethod === "RAZORPAY") {
-        // Create Razorpay order
+      if (isOnlinePayment) {
+        if (gateway === "PHONEPE") {
+          // PhonePe redirect flow
+          const ppRes = await fetch("/api/phonepe/cafe-initiate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderId: result.orderId }),
+          });
+
+          if (!ppRes.ok) {
+            const ppError = await ppRes.json();
+            setError(ppError.error || "Failed to initiate payment");
+            setLoading(false);
+            return;
+          }
+
+          const ppData = await ppRes.json();
+          // Redirect to PhonePe payment page
+          window.location.href = ppData.redirectUrl;
+          return;
+        }
+
+        // Razorpay modal flow
         const rpRes = await fetch("/api/razorpay/cafe-create-order", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -108,7 +136,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
 
         const rpData = await rpRes.json();
 
-        // Load Razorpay SDK
         const loaded = await loadRazorpayScript();
         if (!loaded) {
           setError("Failed to load payment gateway");
@@ -116,7 +143,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
           return;
         }
 
-        // Open Razorpay modal
         const razorpay = new window.Razorpay({
           key: rpData.keyId,
           amount: rpData.amount,
@@ -129,7 +155,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
             razorpay_order_id: string;
             razorpay_signature: string;
           }) {
-            // Verify payment
             const verifyRes = await fetch("/api/razorpay/cafe-verify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -158,7 +183,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
         });
 
         razorpay.open();
-        return; // Don't set loading false, Razorpay modal is open
+        return;
       }
 
       // For UPI_QR, show QR for UTR entry
@@ -337,10 +362,10 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
         <div className="space-y-2">
           {(
             [
-              { value: "RAZORPAY", label: "Pay Online (UPI/Card)", icon: "💳" },
-              { value: "UPI_QR", label: "UPI QR at Counter", icon: "📱" },
-              { value: "CASH", label: "Cash at Counter", icon: "💵" },
-            ] as const
+              { value: "ONLINE" as const, label: "Pay Online", icon: "💳" },
+              { value: "UPI_QR" as const, label: "UPI QR at Counter", icon: "🔲" },
+              { value: "CASH" as const, label: "Cash at Counter", icon: "💵" },
+            ]
           ).map((method) => (
             <label
               key={method.value}
@@ -424,7 +449,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn }: { isLoggedIn
         </div>
       )}
 
-      {/* Inline auth for Razorpay guests */}
+      {/* Inline auth for online payment guests */}
       {showAuth && (
         <CheckoutAuth onAuthenticated={() => { setShowAuth(false); handlePlaceOrder(); }} />
       )}

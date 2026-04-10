@@ -18,6 +18,29 @@ export default async function SportConfigPage({
     notFound();
   }
 
+  if (sportKey === "PICKLEBALL" || sportKey === "BADMINTON") {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6">
+        <Link
+          href="/book"
+          className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Sports
+        </Link>
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-12 text-center">
+          <h2 className="text-2xl font-bold text-white">
+            {SPORT_INFO[sportKey].name}
+          </h2>
+          <p className="mt-2 text-amber-400 font-semibold">Coming Soon</p>
+          <p className="mt-3 text-sm text-zinc-400">
+            We&apos;re getting the courts ready. Stay tuned!
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const configs = await db.courtConfig.findMany({
     where: { sport: sportKey, isActive: true },
     orderBy: [{ size: "asc" }, { position: "asc" }],
@@ -40,7 +63,7 @@ export default async function SportConfigPage({
     );
   }
 
-  const isSharedCourt = sportKey === "PICKLEBALL" || sportKey === "BADMINTON";
+  const isSharedCourt = (sportKey as string) === "PICKLEBALL" || (sportKey as string) === "BADMINTON";
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

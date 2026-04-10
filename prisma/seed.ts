@@ -63,14 +63,25 @@ async function main() {
   }
   console.log("Seeded time classifications");
 
-  // Deactivate removed court configs (SMALL cricket configs no longer offered)
-  const deactivated = await prisma.courtConfig.updateMany({
-    where: { sport: "CRICKET", size: "SMALL", isActive: true },
+  // Deactivate removed/unavailable court configs:
+  // - SMALL cricket (legacy)
+  // - XL cricket (no longer offered)
+  // - Football MEDIUM/LARGE/XL (only FULL field offered)
+  // - XS cricket leather pitches (bowling machine unavailable)
+  // - PICKLEBALL / BADMINTON (coming soon)
+  await prisma.courtConfig.updateMany({
+    where: { sport: "CRICKET", size: { in: ["SMALL", "XL", "XS"] }, isActive: true },
     data: { isActive: false },
   });
-  if (deactivated.count > 0) {
-    console.log(`Deactivated ${deactivated.count} SMALL cricket court configs`);
-  }
+  await prisma.courtConfig.updateMany({
+    where: { sport: "FOOTBALL", size: { in: ["SMALL", "MEDIUM", "LARGE", "XL"] }, isActive: true },
+    data: { isActive: false },
+  });
+  await prisma.courtConfig.updateMany({
+    where: { sport: { in: ["PICKLEBALL", "BADMINTON"] }, isActive: true },
+    data: { isActive: false },
+  });
+  console.log("Deactivated unavailable / coming-soon court configs");
 
   // Seed default pricing rules (sample prices)
   const configs = await prisma.courtConfig.findMany();
@@ -82,11 +93,13 @@ async function main() {
       WEEKEND_PEAK: 1000,
       WEEKEND_OFF_PEAK: 800,
     },
+    // Opening month discount pricing (effective April 11, 2026)
+    // 40x90 field: ₹1500 → ₹1200 (₹300 opening discount)
     MEDIUM: {
       WEEKDAY_OFF_PEAK: 1200,
-      WEEKDAY_PEAK: 1800,
-      WEEKEND_PEAK: 2200,
-      WEEKEND_OFF_PEAK: 1800,
+      WEEKDAY_PEAK: 1200,
+      WEEKEND_PEAK: 1200,
+      WEEKEND_OFF_PEAK: 1200,
     },
     LARGE: {
       WEEKDAY_OFF_PEAK: 1800,
@@ -100,11 +113,12 @@ async function main() {
       WEEKEND_PEAK: 3800,
       WEEKEND_OFF_PEAK: 3000,
     },
+    // Full field: ₹2500 → ₹2000 (₹500 opening discount)
     FULL: {
-      WEEKDAY_OFF_PEAK: 2800,
-      WEEKDAY_PEAK: 4000,
-      WEEKEND_PEAK: 5000,
-      WEEKEND_OFF_PEAK: 4000,
+      WEEKDAY_OFF_PEAK: 2000,
+      WEEKDAY_PEAK: 2000,
+      WEEKEND_PEAK: 2000,
+      WEEKEND_OFF_PEAK: 2000,
     },
     SHARED: {
       WEEKDAY_OFF_PEAK: 400,

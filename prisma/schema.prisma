@@ -45,9 +45,21 @@ enum BookingStatus {
 
 enum PaymentMethod {
   RAZORPAY
+  PHONEPE
   UPI_QR
   CASH
   FREE
+}
+
+enum PaymentGateway {
+  PHONEPE
+  RAZORPAY
+}
+
+model PaymentGatewayConfig {
+  id              String         @id @default("singleton")
+  activeGateway   PaymentGateway @default(PHONEPE)
+  updatedAt       DateTime       @updatedAt
 }
 
 enum PaymentStatus {
@@ -160,7 +172,6 @@ model User {
   feedbacks         Feedback[]
   waitlistEntries   Waitlist[]
   recurringBookings RecurringBooking[]
-  wallet            Wallet?
 
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
@@ -305,6 +316,10 @@ model Payment {
   razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
+
+  // PhonePe payment tracking
+  phonePeMerchantTxnId String?
+  phonePeTransactionId String?
 
   // UPI QR payment tracking
   utrNumber      String?
@@ -586,6 +601,10 @@ model CafePayment {
   razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
+
+  // PhonePe payment tracking
+  phonePeMerchantTxnId String?
+  phonePeTransactionId String?
 
   // UPI QR payment tracking
   utrNumber      String?
@@ -957,42 +976,6 @@ model RecurringBooking {
 
   @@index([userId])
   @@index([status])
-}
-
-// ===========================
-// WALLET
-// ===========================
-
-enum WalletTxType {
-  CREDIT_REFUND
-  CREDIT_TOPUP
-  CREDIT_ADMIN
-  DEBIT_BOOKING
-  DEBIT_CAFE
-}
-
-model Wallet {
-  id           String             @id @default(cuid())
-  userId       String             @unique
-  user         User               @relation(fields: [userId], references: [id])
-  balancePaise Int                @default(0)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  transactions WalletTransaction[]
-}
-
-model WalletTransaction {
-  id              String       @id @default(cuid())
-  walletId        String
-  wallet          Wallet       @relation(fields: [walletId], references: [id])
-  type            WalletTxType
-  amountPaise     Int
-  description     String
-  refBookingId    String?
-  refCafeOrderId  String?
-  createdAt       DateTime     @default(now())
-
-  @@index([walletId])
 }
 
 // ===========================

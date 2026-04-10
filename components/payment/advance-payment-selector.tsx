@@ -1,9 +1,9 @@
 "use client";
 
-import { CreditCard, QrCode } from "lucide-react";
+import { CreditCard, QrCode, Smartphone } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 
-export type AdvancePaymentMethod = "razorpay" | "upi_qr";
+export type AdvancePaymentMethod = "online" | "upi_qr";
 
 interface AdvancePaymentSelectorProps {
   totalAmount: number;
@@ -11,6 +11,7 @@ interface AdvancePaymentSelectorProps {
   remainingAmount: number;
   selected: AdvancePaymentMethod;
   onSelect: (method: AdvancePaymentMethod) => void;
+  gateway: "PHONEPE" | "RAZORPAY";
 }
 
 export function AdvancePaymentSelector({
@@ -19,7 +20,11 @@ export function AdvancePaymentSelector({
   remainingAmount,
   selected,
   onSelect,
+  gateway,
 }: AdvancePaymentSelectorProps) {
+  const OnlineIcon = gateway === "PHONEPE" ? Smartphone : CreditCard;
+  const onlineColor = gateway === "PHONEPE" ? "purple" : "blue";
+
   return (
     <div className="space-y-3">
       {/* Advance Info */}
@@ -47,15 +52,17 @@ export function AdvancePaymentSelector({
       <p className="text-xs text-zinc-500">Pay advance via:</p>
       <div className="flex gap-2">
         <button
-          onClick={() => onSelect("razorpay")}
+          onClick={() => onSelect("online")}
           className={`flex-1 flex items-center justify-center gap-2 rounded-xl border p-3 transition-all ${
-            selected === "razorpay"
-              ? "border-blue-400 bg-blue-500/10 ring-1 ring-blue-400/50"
+            selected === "online"
+              ? onlineColor === "purple"
+                ? "border-purple-400 bg-purple-500/10 ring-1 ring-purple-400/50"
+                : "border-blue-400 bg-blue-500/10 ring-1 ring-blue-400/50"
               : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"
           }`}
         >
-          <CreditCard className={`h-4 w-4 ${selected === "razorpay" ? "text-blue-400" : "text-zinc-400"}`} />
-          <span className={`text-sm ${selected === "razorpay" ? "text-white" : "text-zinc-400"}`}>
+          <OnlineIcon className={`h-4 w-4 ${selected === "online" ? (onlineColor === "purple" ? "text-purple-400" : "text-blue-400") : "text-zinc-400"}`} />
+          <span className={`text-sm ${selected === "online" ? "text-white" : "text-zinc-400"}`}>
             Pay Online
           </span>
         </button>

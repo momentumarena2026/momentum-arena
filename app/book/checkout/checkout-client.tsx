@@ -12,9 +12,8 @@ import { validateCoupon, applyCoupon } from "@/actions/coupon-validation";
 import { selectCashPayment } from "@/actions/booking";
 import { submitBookingUtr } from "@/actions/upi-payment";
 import { getAvailableEquipment, addEquipmentToBooking } from "@/actions/equipment";
-import { getWallet, payBookingWithWallet } from "@/actions/wallet";
 import { createRecurringBooking } from "@/actions/recurring-booking";
-import { Loader2, Sparkles, Package, Wallet, RefreshCw, Calendar, CheckCircle, Plus, Minus } from "lucide-react";
+import { Loader2, Sparkles, Package, RefreshCw, Calendar, CheckCircle, Plus, Minus } from "lucide-react";
 
 interface EquipmentItem {
   id: string;
@@ -56,9 +55,8 @@ interface CheckoutClientProps {
   recurringStartHour?: number;
   recurringEndHour?: number;
   recurringCourtConfigId?: string;
+  gateway: "PHONEPE" | "RAZORPAY";
 }
-
-type WalletPaymentMethodType = PaymentMethodType | "wallet";
 
 export function CheckoutClient({
   bookingId,
@@ -84,10 +82,11 @@ export function CheckoutClient({
   recurringStartHour,
   recurringEndHour,
   recurringCourtConfigId,
+  gateway,
 }: CheckoutClientProps) {
   const router = useRouter();
-  const [paymentMethod, setPaymentMethod] = useState<WalletPaymentMethodType>("upi_qr");
-  const [advanceMethod, setAdvanceMethod] = useState<AdvancePaymentMethod>("razorpay");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("online");
+  const [advanceMethod, setAdvanceMethod] = useState<AdvancePaymentMethod>("online");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUpiQr, setShowUpiQr] = useState(false);
@@ -103,10 +102,6 @@ export function CheckoutClient({
   const [equipmentLoading, setEquipmentLoading] = useState(false);
   const [selectedEquipment, setSelectedEquipment] = useState<Map<string, number>>(new Map());
   const [equipmentTotal, setEquipmentTotal] = useState(0);
-
-  // Wallet state
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
-  const [walletLoading, setWalletLoading] = useState(true);
 
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
@@ -154,17 +149,6 @@ export function CheckoutClient({
       }
     }).finally(() => setEquipmentLoading(false));
   }, [sport, bookingDate, startHour, endHour]);
-
-  // Fetch wallet balance
-  useEffect(() => {
-    getWallet().then((result) => {
-      if (result.success && result.wallet) {
-        setWalletBalance(result.wallet.balancePaise);
-      } else {
-        setWalletBalance(0);
-      }
-    }).finally(() => setWalletLoading(false));
-  }, []);
 
   // Recalculate equipment total whenever selectedEquipment changes
   useEffect(() => {
@@ -216,25 +200,6 @@ export function CheckoutClient({
     await addEquipmentToBooking(bId, items);
   };
 
-  const handleWalletPayment = async () => {
-    const totalToPay = effectiveAmount;
-    if (walletBalance === null || walletBalance < totalToPay) {
-      setError(`Insufficient wallet balance. Available: ${formatPrice(walletBalance || 0)}`);
-      return;
-    }
-
-    const result = await payBookingWithWallet(bookingId);
-
-    if (!result.success) {
-      setError(result.error || "Wallet payment failed");
-      return;
-    }
-
-    await addEquipmentAfterBooking(bookingId);
-    await handleRecurringAfterPayment();
-    router.push(`/book/confirmation/${bookingId}`);
-  };
-
   const handleRecurringAfterPayment = async () => {
     if (!recurringEnabled || !recurringCourtConfigId || !recurringStartDate) return;
 
@@ -262,99 +227,83 @@ export function CheckoutClient({
     }
   };
 
+  // PhonePe: redirect-based flow
+  const handlePhonePePayment = async (isAdvance = false) => {
+    const res = await fetch("/api/phonepe/initiate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId, isAdvance }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error || "Failed"); return; }
+    // Redirect to PhonePe checkout page
+    window.location.href = data.redirectUrl;
+  };
+
+  // Razorpay: modal-based flow
+  const handleRazorpayPayment = async (isAdvance = false) => {
+    const res = await fetch("/api/razorpay/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error || "Failed"); return; }
+
+    const options = {
+      key: data.keyId,
+      amount: data.amount,
+      currency: data.currency,
+      name: "Momentum Arena",
+      description: isAdvance ? `Advance for Booking #${bookingId.slice(-8)}` : `Booking #${bookingId.slice(-8)}`,
+      order_id: data.orderId,
+      ...(!isAdvance && razorpayOfferId ? { offer_id: razorpayOfferId } : {}),
+      handler: async function (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) {
+        const verifyRes = await fetch("/api/razorpay/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingId, razorpayPaymentId: response.razorpay_payment_id, razorpayOrderId: response.razorpay_order_id, razorpaySignature: response.razorpay_signature, isAdvance }),
+        });
+        if (verifyRes.ok) {
+          await addEquipmentAfterBooking(bookingId);
+          if (!isAdvance) await handleRecurringAfterPayment();
+          router.push(`/book/confirmation/${bookingId}`);
+        } else {
+          setError("Payment verification failed");
+        }
+      },
+      prefill: { name: userName, email: userEmail, contact: userPhone },
+      theme: { color: "#10b981" },
+    };
+
+    const razorpay = new (window as unknown as { Razorpay: new (opts: typeof options) => { open: () => void } }).Razorpay(options);
+    razorpay.open();
+  };
+
+  const handleOnlinePayment = async (isAdvance = false) => {
+    if (gateway === "PHONEPE") {
+      await handlePhonePePayment(isAdvance);
+    } else {
+      await handleRazorpayPayment(isAdvance);
+    }
+  };
+
   const handlePayment = async () => {
     setProcessing(true);
     setError(null);
 
     try {
-      if (paymentMethod === "wallet") {
-        await handleWalletPayment();
-        return;
-      }
-
-      if (paymentMethod === "razorpay") {
-        // Full payment via Razorpay
-        const res = await fetch("/api/razorpay/create-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingId, offerId: razorpayOfferId }),
-        });
-        const data = await res.json();
-        if (!res.ok) { setError(data.error || "Failed"); setProcessing(false); return; }
-
-        const options = {
-          key: data.keyId,
-          amount: data.amount,
-          currency: data.currency,
-          name: "Momentum Arena",
-          description: `Booking #${bookingId.slice(-8)}`,
-          order_id: data.orderId,
-          ...(razorpayOfferId ? { offer_id: razorpayOfferId } : {}),
-          handler: async function (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) {
-            const verifyRes = await fetch("/api/razorpay/verify", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ bookingId, razorpayPaymentId: response.razorpay_payment_id, razorpayOrderId: response.razorpay_order_id, razorpaySignature: response.razorpay_signature }),
-            });
-            if (verifyRes.ok) {
-              await addEquipmentAfterBooking(bookingId);
-              await handleRecurringAfterPayment();
-              router.push(`/book/confirmation/${bookingId}`);
-            } else {
-              setError("Payment verification failed");
-            }
-          },
-          prefill: { name: userName, email: userEmail, contact: userPhone },
-          theme: { color: "#10b981" },
-        };
-
-        const razorpay = new (window as unknown as { Razorpay: new (opts: typeof options) => { open: () => void } }).Razorpay(options);
-        razorpay.open();
+      if (paymentMethod === "online") {
+        await handleOnlinePayment(false);
       } else if (paymentMethod === "upi_qr") {
-        // Show QR with UTR entry — create pending UPI payment first
         const { selectUpiPayment } = await import("@/actions/booking");
         const result = await selectUpiPayment(bookingId);
         if (!result.success) { setError(result.error || "Failed"); setProcessing(false); return; }
         setShowUpiQr(true);
       } else if (paymentMethod === "cash") {
-        // Cash requires 20% advance
-        if (advanceMethod === "razorpay") {
-          const res = await fetch("/api/razorpay/create-order", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ bookingId, isAdvance: true }),
-          });
-          const data = await res.json();
-          if (!res.ok) { setError(data.error || "Failed"); setProcessing(false); return; }
-
-          const options = {
-            key: data.keyId,
-            amount: data.amount,
-            currency: data.currency,
-            name: "Momentum Arena",
-            description: `Advance for Booking #${bookingId.slice(-8)}`,
-            order_id: data.orderId,
-            handler: async function (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) {
-              const verifyRes = await fetch("/api/razorpay/verify", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ bookingId, razorpayPaymentId: response.razorpay_payment_id, razorpayOrderId: response.razorpay_order_id, razorpaySignature: response.razorpay_signature, isAdvance: true }),
-              });
-              if (verifyRes.ok) {
-                await addEquipmentAfterBooking(bookingId);
-                router.push(`/book/confirmation/${bookingId}`);
-              } else {
-                setError("Advance payment verification failed");
-              }
-            },
-            prefill: { name: userName, email: userEmail, contact: userPhone },
-            theme: { color: "#10b981" },
-          };
-
-          const razorpay = new (window as unknown as { Razorpay: new (opts: typeof options) => { open: () => void } }).Razorpay(options);
-          razorpay.open();
+        if (advanceMethod === "online") {
+          await handleOnlinePayment(true);
         } else {
-          // UPI QR for advance
           setShowUpiQr(true);
           const result = await selectCashPayment(bookingId);
           if (!result.success) { setError(result.error || "Failed"); setShowUpiQr(false); }
@@ -538,48 +487,10 @@ export function CheckoutClient({
         )}
       </div>
 
-      {/* Wallet Balance Info */}
-      {!walletLoading && walletBalance !== null && walletBalance > 0 && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-          <div className="flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-emerald-400" />
-            <p className="text-sm text-zinc-300">
-              Wallet balance: <span className="font-semibold text-white">{formatPrice(walletBalance)}</span>
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Payment Method */}
       <div>
         <h2 className="mb-3 font-semibold text-white">Payment Method</h2>
-
-        {/* Wallet Pay Option */}
-        {!walletLoading && walletBalance !== null && walletBalance >= effectiveAmount && (
-          <button
-            onClick={() => setPaymentMethod(paymentMethod === "wallet" ? "upi_qr" : "wallet")}
-            className={`mb-3 w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-colors ${
-              paymentMethod === "wallet"
-                ? "border-emerald-500/40 bg-emerald-500/10"
-                : "border-zinc-700 bg-zinc-800 hover:border-zinc-600"
-            }`}
-          >
-            <div className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${
-              paymentMethod === "wallet" ? "border-emerald-400" : "border-zinc-500"
-            }`}>
-              {paymentMethod === "wallet" && <div className="h-2 w-2 rounded-full bg-emerald-400" />}
-            </div>
-            <Wallet className="h-4 w-4 text-emerald-400" />
-            <div>
-              <p className="text-sm font-medium text-white">Pay with Wallet</p>
-              <p className="text-xs text-zinc-400">Balance: {formatPrice(walletBalance)}</p>
-            </div>
-          </button>
-        )}
-
-        {paymentMethod !== "wallet" && (
-          <PaymentSelector selected={paymentMethod as PaymentMethodType} onSelect={(m) => setPaymentMethod(m)} />
-        )}
+        <PaymentSelector selected={paymentMethod} onSelect={(m) => setPaymentMethod(m)} gateway={gateway} />
       </div>
 
       {/* Advance Payment for Cash */}
@@ -590,6 +501,7 @@ export function CheckoutClient({
           remainingAmount={remainingAmount}
           selected={advanceMethod}
           onSelect={setAdvanceMethod}
+          gateway={gateway}
         />
       )}
 
@@ -610,9 +522,7 @@ export function CheckoutClient({
             <Loader2 className="h-4 w-4 animate-spin" />
             Processing...
           </span>
-        ) : paymentMethod === "wallet" ? (
-          `Pay ${formatPrice(effectiveAmount)} from Wallet`
-        ) : paymentMethod === "razorpay" ? (
+        ) : paymentMethod === "online" ? (
           `Pay ${formatPrice(effectiveAmount)}`
         ) : paymentMethod === "upi_qr" ? (
           `Show QR — ${formatPrice(effectiveAmount)}`
