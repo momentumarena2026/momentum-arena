@@ -197,7 +197,8 @@ export async function confirmRazorpayPayment(
 }
 
 export async function selectUpiPayment(
-  bookingId: string
+  bookingId: string,
+  overrideAmount?: number
 ): Promise<BookingState> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -212,15 +213,17 @@ export async function selectUpiPayment(
     return { success: false, error: "Booking not found or lock expired" };
   }
 
+  const paymentAmount = overrideAmount && overrideAmount > 0 ? overrideAmount : booking.totalAmount;
+
   // Create pending payment for UPI — booking stays LOCKED until admin verifies
   await db.payment.upsert({
     where: { bookingId },
-    update: { method: "UPI_QR", status: "PENDING" },
+    update: { method: "UPI_QR", status: "PENDING", amount: paymentAmount },
     create: {
       bookingId,
       method: "UPI_QR",
       status: "PENDING",
-      amount: booking.totalAmount,
+      amount: paymentAmount,
     },
   });
 
@@ -230,7 +233,8 @@ export async function selectUpiPayment(
 }
 
 export async function selectCashPayment(
-  bookingId: string
+  bookingId: string,
+  overrideAmount?: number
 ): Promise<BookingState> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -245,14 +249,16 @@ export async function selectCashPayment(
     return { success: false, error: "Booking not found or lock expired" };
   }
 
+  const paymentAmount = overrideAmount && overrideAmount > 0 ? overrideAmount : booking.totalAmount;
+
   await db.payment.upsert({
     where: { bookingId },
-    update: { method: "CASH", status: "PENDING" },
+    update: { method: "CASH", status: "PENDING", amount: paymentAmount },
     create: {
       bookingId,
       method: "CASH",
       status: "PENDING",
-      amount: booking.totalAmount,
+      amount: paymentAmount,
     },
   });
 

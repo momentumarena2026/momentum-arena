@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { bookingId, isAdvance } = await request.json();
+  const { bookingId, isAdvance, overrideAmount } = await request.json();
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId, userId, status: "LOCKED" },
@@ -28,13 +28,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    let orderAmount = booking.totalAmount; // in paise
+    // Use overrideAmount (from checkout, includes recurring total / discounts) or fall back to booking amount
+    const paymentAmount = overrideAmount && overrideAmount > 0 ? overrideAmount : booking.totalAmount;
+
+    let orderAmount = paymentAmount;
     let advanceAmount: number | undefined;
     let remainingAmount: number | undefined;
 
     if (isAdvance) {
-      advanceAmount = Math.ceil(booking.totalAmount * 0.5);
-      remainingAmount = booking.totalAmount - advanceAmount;
+      advanceAmount = Math.ceil(paymentAmount * 0.5);
+      remainingAmount = paymentAmount - advanceAmount;
       orderAmount = advanceAmount;
     }
 
@@ -54,7 +57,7 @@ export async function POST(request: NextRequest) {
       update: {
         method: "PHONEPE",
         status: "PENDING",
-        amount: booking.totalAmount,
+        amount: paymentAmount,
         phonePeMerchantTxnId: merchantTxnId,
         isPartialPayment: !!isAdvance,
         advanceAmount: advanceAmount || null,
@@ -64,7 +67,7 @@ export async function POST(request: NextRequest) {
         bookingId,
         method: isAdvance ? "CASH" : "PHONEPE",
         status: "PENDING",
-        amount: booking.totalAmount,
+        amount: paymentAmount,
         phonePeMerchantTxnId: merchantTxnId,
         isPartialPayment: !!isAdvance,
         advanceAmount: advanceAmount || null,

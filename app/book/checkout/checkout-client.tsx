@@ -232,7 +232,7 @@ export function CheckoutClient({
     const res = await fetch("/api/phonepe/initiate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId, isAdvance }),
+      body: JSON.stringify({ bookingId, isAdvance, overrideAmount: effectiveAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
@@ -245,7 +245,7 @@ export function CheckoutClient({
     const res = await fetch("/api/razorpay/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance }),
+      body: JSON.stringify({ bookingId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance, overrideAmount: effectiveAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
@@ -297,7 +297,7 @@ export function CheckoutClient({
         await handleOnlinePayment(false);
       } else if (paymentMethod === "upi_qr") {
         const { selectUpiPayment } = await import("@/actions/booking");
-        const result = await selectUpiPayment(bookingId);
+        const result = await selectUpiPayment(bookingId, effectiveAmount);
         if (!result.success) { setError(result.error || "Failed"); setProcessing(false); return; }
         setShowUpiQr(true);
       } else if (paymentMethod === "cash") {
@@ -305,7 +305,7 @@ export function CheckoutClient({
           await handleOnlinePayment(true);
         } else {
           setShowUpiQr(true);
-          const result = await selectCashPayment(bookingId);
+          const result = await selectCashPayment(bookingId, effectiveAmount);
           if (!result.success) { setError(result.error || "Failed"); setShowUpiQr(false); }
         }
       }

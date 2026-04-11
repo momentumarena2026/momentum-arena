@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { bookingId, offerId, isAdvance } = await request.json();
+  const { bookingId, offerId, isAdvance, overrideAmount } = await request.json();
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId, userId, status: "LOCKED" },
@@ -27,14 +27,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Use overrideAmount (from checkout, includes recurring total / discounts) or fall back to booking amount
+    const paymentAmount = overrideAmount && overrideAmount > 0 ? overrideAmount : booking.totalAmount;
+
     // Calculate amount based on full or advance payment
-    let orderAmount = booking.totalAmount;
+    let orderAmount = paymentAmount;
     let advanceAmount: number | undefined;
     let remainingAmount: number | undefined;
 
     if (isAdvance) {
-      advanceAmount = Math.ceil(booking.totalAmount * 0.5);
-      remainingAmount = booking.totalAmount - advanceAmount;
+      advanceAmount = Math.ceil(paymentAmount * 0.5);
+      remainingAmount = paymentAmount - advanceAmount;
       orderAmount = advanceAmount;
     }
 
@@ -45,7 +48,7 @@ export async function POST(request: NextRequest) {
       update: {
         method: "RAZORPAY",
         status: "PENDING",
-        amount: booking.totalAmount,
+        amount: paymentAmount,
         razorpayOrderId: order.id,
         isPartialPayment: !!isAdvance,
         advanceAmount: advanceAmount || null,
@@ -55,7 +58,7 @@ export async function POST(request: NextRequest) {
         bookingId,
         method: isAdvance ? "CASH" : "RAZORPAY",
         status: "PENDING",
-        amount: booking.totalAmount,
+        amount: paymentAmount,
         razorpayOrderId: order.id,
         isPartialPayment: !!isAdvance,
         advanceAmount: advanceAmount || null,
