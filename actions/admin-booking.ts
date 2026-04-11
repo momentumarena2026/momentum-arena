@@ -207,6 +207,16 @@ export async function getAdminBookings(filters?: {
         courtConfig: true,
         slots: { orderBy: { startHour: "asc" } },
         payment: true,
+        recurringBooking: {
+          include: {
+            bookings: {
+              where: { payment: { isNot: null } },
+              include: { payment: true },
+              take: 1,
+              orderBy: { date: "asc" },
+            },
+          },
+        },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       skip,
@@ -215,7 +225,19 @@ export async function getAdminBookings(filters?: {
     db.booking.count({ where }),
   ]);
 
-  return { bookings, total, page, totalPages: Math.ceil(total / limit) };
+  // For recurring child bookings without direct payment, inherit from the series' first booking
+  const enrichedBookings = bookings.map((booking) => {
+    if (!booking.payment && booking.recurringBooking?.bookings?.[0]?.payment) {
+      return {
+        ...booking,
+        payment: booking.recurringBooking.bookings[0].payment,
+        _isRecurringChildPayment: true,
+      };
+    }
+    return { ...booking, _isRecurringChildPayment: false };
+  });
+
+  return { bookings: enrichedBookings, total, page, totalPages: Math.ceil(total / limit) };
 }
 
 export async function getAdminStats() {

@@ -141,6 +141,7 @@ export default async function AdminBookingsPage({
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Slots</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Amount</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Booked On</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Payment</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -161,6 +162,11 @@ export default async function AdminBookingsPage({
                           {booking.createdByAdminId && (
                             <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 shrink-0">
                               Admin
+                            </span>
+                          )}
+                          {booking.recurringBookingId && (
+                            <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-medium text-purple-400 shrink-0">
+                              Series
                             </span>
                           )}
                         </div>
@@ -187,11 +193,32 @@ export default async function AdminBookingsPage({
                           {statusInfo.label}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-xs text-zinc-400 whitespace-nowrap">
+                        {new Date(booking.createdAt).toLocaleDateString("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                        <br />
+                        <span className="text-zinc-600">
+                          {new Date(booking.createdAt).toLocaleTimeString("en-IN", {
+                            timeZone: "Asia/Kolkata",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
                         {booking.payment ? (
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${paymentStatusColors[booking.payment.status]}`}>
-                            {booking.payment.status} · {booking.payment.method.replace("_", " ")}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${paymentStatusColors[booking.payment.status]}`}>
+                              {booking.payment.status} · {booking.payment.method.replace("_", " ")}
+                            </span>
+                            {booking._isRecurringChildPayment && (
+                              <span className="text-[10px] text-zinc-500">via series</span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-zinc-600">—</span>
                         )}
