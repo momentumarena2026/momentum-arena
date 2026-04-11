@@ -55,7 +55,7 @@ export function PaymentSelector({ selected, onSelect, gateway }: PaymentSelector
     {
       id: "cash" as const,
       name: "Pay at Venue",
-      description: "20% advance online, rest in cash at venue",
+      description: "50% advance online, rest in cash at venue",
       icon: Banknote,
       color: "yellow",
     },

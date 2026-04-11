@@ -109,7 +109,7 @@ export const FAQ_ENTRIES: FAQEntry[] = [
   {
     id: "pay1",
     question: "What payment methods are accepted?",
-    answer: "We accept three payment methods:\n1. Online Payment (Razorpay) - Cards, UPI, Netbanking\n2. UPI QR Code - Scan & pay, send screenshot on WhatsApp\n3. Pay at Venue - Pay 20% advance online, rest in cash at venue",
+    answer: "We accept three payment methods:\n1. Online Payment (Razorpay) - Cards, UPI, Netbanking\n2. UPI QR Code - Scan & pay, send screenshot on WhatsApp\n3. Pay at Venue - Pay 50% advance online, rest in cash at venue",
     keywords: ["payment", "pay", "method", "card", "upi", "cash", "online", "razorpay"],
     category: "payment",
   },
@@ -123,8 +123,8 @@ export const FAQ_ENTRIES: FAQEntry[] = [
   {
     id: "pay3",
     question: "What is the advance payment for Pay at Venue?",
-    answer: "When you choose 'Pay at Venue', you need to pay 20% of the total amount online (via Razorpay or UPI QR) as advance. The remaining 80% can be paid in cash when you arrive at the venue.",
-    keywords: ["advance", "venue", "cash", "20", "percent", "partial"],
+    answer: "When you choose 'Pay at Venue', you need to pay 50% of the total amount online (via Razorpay or UPI QR) as advance. The remaining 50% can be paid in cash when you arrive at the venue.",
+    keywords: ["advance", "venue", "cash", "50", "percent", "partial"],
     category: "payment",
   },
   {

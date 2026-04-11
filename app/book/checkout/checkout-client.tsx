@@ -10,7 +10,7 @@ import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { formatPrice } from "@/lib/pricing";
 import { validateCoupon, applyCoupon } from "@/actions/coupon-validation";
 import { selectCashPayment } from "@/actions/booking";
-import { submitBookingUtr } from "@/actions/upi-payment";
+// UTR submission disabled — admin verifies via WhatsApp screenshot
 import { getAvailableEquipment, addEquipmentToBooking } from "@/actions/equipment";
 import { createRecurringBooking } from "@/actions/recurring-booking";
 import { Loader2, Sparkles, Package, RefreshCw, Calendar, CheckCircle, Plus, Minus } from "lucide-react";
@@ -161,7 +161,7 @@ export function CheckoutClient({
   }, [selectedEquipment, equipment]);
 
   // Advance payment calculation
-  const advanceAmount = Math.ceil(effectiveAmount * 0.2);
+  const advanceAmount = Math.ceil(effectiveAmount * 0.5);
   const remainingAmount = effectiveAmount - advanceAmount;
 
   const handleExpired = () => {
@@ -322,16 +322,11 @@ export function CheckoutClient({
       <div className="space-y-4">
         <UpiQrCheckout
           amount={upiAmount}
+          bookingId={bookingId}
           isAdvance={paymentMethod === "cash"}
           advanceAmount={paymentMethod === "cash" ? advanceAmount : undefined}
-          onUtrSubmitted={async (utr: string) => {
-            const result = await submitBookingUtr(bookingId, utr);
-            if (result.success) {
-              router.push(`/book/confirmation/${bookingId}`);
-            } else {
-              setError(result.error || "Failed to submit UTR");
-              setShowUpiQr(false);
-            }
+          onPaymentInitiated={() => {
+            // Slot is already locked — user will get confirmation after admin verifies
           }}
         />
         {paymentMethod === "cash" && (

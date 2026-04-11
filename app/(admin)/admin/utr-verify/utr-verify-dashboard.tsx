@@ -7,9 +7,10 @@ import { verifyBookingUtr, verifyCafeUtr, rejectUtr } from "@/actions/upi-paymen
 interface PaymentItem {
   id: string;
   amount: number;
-  utrNumber: string;
-  utrSubmittedAt: string;
+  utrNumber: string | null;
+  utrSubmittedAt: string | null;
   utrExpiresAt: string | null;
+  createdAt: string;
   customerName: string;
   customerEmail: string;
   customerPhone: string;
@@ -17,8 +18,8 @@ interface PaymentItem {
   type: "booking" | "cafe";
 }
 
-function formatPrice(paise: number) {
-  return `₹${(paise / 100).toLocaleString("en-IN")}`;
+function formatPrice(amount: number) {
+  return `₹${amount.toLocaleString("en-IN")}`;
 }
 
 function timeAgo(dateStr: string) {
@@ -69,9 +70,10 @@ export function UtrVerifyDashboard({
     initialData.bookingPayments as Array<{
       id: string;
       amount: number;
-      utrNumber: string;
-      utrSubmittedAt: string;
+      utrNumber: string | null;
+      utrSubmittedAt: string | null;
       utrExpiresAt: string | null;
+      createdAt: string;
       booking: {
         user: { name: string | null; email: string | null; phone: string | null };
         courtConfig: { sport: string; label: string; size: string };
@@ -85,6 +87,7 @@ export function UtrVerifyDashboard({
     utrNumber: p.utrNumber,
     utrSubmittedAt: p.utrSubmittedAt,
     utrExpiresAt: p.utrExpiresAt,
+    createdAt: p.createdAt,
     customerName: p.booking.user?.name || "Guest",
     customerEmail: p.booking.user?.email || "",
     customerPhone: p.booking.user?.phone || "",
@@ -96,9 +99,10 @@ export function UtrVerifyDashboard({
     initialData.cafePayments as Array<{
       id: string;
       amount: number;
-      utrNumber: string;
-      utrSubmittedAt: string;
+      utrNumber: string | null;
+      utrSubmittedAt: string | null;
       utrExpiresAt: string | null;
+      createdAt?: string;
       order: {
         orderNumber: string;
         guestName: string | null;
@@ -112,6 +116,7 @@ export function UtrVerifyDashboard({
     utrNumber: p.utrNumber,
     utrSubmittedAt: p.utrSubmittedAt,
     utrExpiresAt: p.utrExpiresAt,
+    createdAt: p.createdAt || p.utrSubmittedAt || "",
     customerName: p.order.user?.name || p.order.guestName || "Guest",
     customerEmail: p.order.user?.email || "",
     customerPhone: p.order.user?.phone || "",
@@ -188,7 +193,7 @@ export function UtrVerifyDashboard({
       {/* List */}
       {items.length === 0 ? (
         <div className="text-center py-16 text-zinc-500">
-          No pending UTR verifications
+          No pending payment verifications
         </div>
       ) : (
         <div className="space-y-4">
@@ -205,24 +210,30 @@ export function UtrVerifyDashboard({
               >
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    {/* UTR + Amount */}
+                    {/* Amount + UTR */}
                     <div className="flex items-center gap-3 mb-2">
-                      <code className="text-lg font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg">
-                        {item.utrNumber}
-                      </code>
                       <span className="text-lg font-bold text-white">
                         {formatPrice(item.amount)}
                       </span>
+                      {item.utrNumber ? (
+                        <code className="text-sm font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg">
+                          UTR: {item.utrNumber}
+                        </code>
+                      ) : (
+                        <span className="text-xs font-medium text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg">
+                          Awaiting Screenshot
+                        </span>
+                      )}
                     </div>
 
                     {/* Customer */}
                     <p className="text-sm text-white font-medium">
                       {item.customerName}
-                      {item.customerEmail && (
-                        <span className="text-zinc-500 ml-2">{item.customerEmail}</span>
-                      )}
                       {item.customerPhone && (
                         <span className="text-zinc-500 ml-2">{item.customerPhone}</span>
+                      )}
+                      {item.customerEmail && (
+                        <span className="text-zinc-500 ml-2">{item.customerEmail}</span>
                       )}
                     </p>
 
@@ -232,7 +243,9 @@ export function UtrVerifyDashboard({
                     {/* Time info */}
                     <div className="flex items-center gap-4 mt-2 text-xs">
                       <span className="text-zinc-500">
-                        Submitted {timeAgo(item.utrSubmittedAt)}
+                        {item.utrSubmittedAt
+                          ? `Submitted ${timeAgo(item.utrSubmittedAt)}`
+                          : `Created ${timeAgo(item.createdAt)}`}
                       </span>
                       {expiry && (
                         <span className={isExpired ? "text-red-400" : "text-amber-400"}>

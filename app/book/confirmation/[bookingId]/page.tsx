@@ -57,6 +57,12 @@ export default async function ConfirmationPage({
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
 
+  // Determine if this is a UPI QR or Cash booking awaiting admin verification
+  const isAwaitingVerification =
+    booking.status === "LOCKED" &&
+    booking.payment?.status === "PENDING" &&
+    (booking.payment?.method === "UPI_QR" || booking.payment?.method === "CASH");
+
   const statusConfig = {
     CONFIRMED: {
       icon: CheckCircle2,
@@ -69,8 +75,12 @@ export default async function ConfirmationPage({
       icon: Clock,
       color: "text-yellow-400",
       bg: "bg-yellow-500/10 border-yellow-500/30",
-      title: "Awaiting Payment",
-      subtitle: "Complete payment to confirm your booking.",
+      title: isAwaitingVerification
+        ? "Payment Verification Pending"
+        : "Awaiting Payment",
+      subtitle: isAwaitingVerification
+        ? "Your slot is held. Once our team verifies your payment, the booking will be confirmed."
+        : "Complete payment to confirm your booking.",
     },
     CANCELLED: {
       icon: XCircle,

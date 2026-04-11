@@ -86,7 +86,7 @@ function shiftDate(dateStr: string, days: number): string {
 interface BookingCalendarProps {
   initialData: CalendarData;
   initialDate: string;
-  onViewChange: (view: "list") => void;
+  onViewChange?: (view: "list") => void;
 }
 
 export default function BookingCalendar({
@@ -222,13 +222,13 @@ export default function BookingCalendar({
               <CalendarDays className="h-3.5 w-3.5" />
               Calendar
             </button>
-            <button
-              onClick={() => onViewChange("list")}
+            <Link
+              href="/admin/bookings"
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-300"
             >
               <List className="h-3.5 w-3.5" />
-              List
-            </button>
+              Table
+            </Link>
           </div>
         </div>
       </div>

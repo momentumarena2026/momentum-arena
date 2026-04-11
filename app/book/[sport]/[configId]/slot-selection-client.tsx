@@ -141,13 +141,17 @@ export function SlotSelectionClient({
 
   // After auth completes and session is available, auto-proceed to lock
   useEffect(() => {
-    if (pendingAuthRef.current && session?.user && selectedHours.length > 0) {
-      pendingAuthRef.current = false;
+    if (session?.user && showAuth) {
+      // User is now authenticated, hide the auth form
       setShowAuth(false);
-      // Small delay to let session cookie propagate
-      setTimeout(() => lockAndCheckout(), 500);
+
+      if (pendingAuthRef.current && selectedHours.length > 0) {
+        pendingAuthRef.current = false;
+        // Small delay to let session cookie propagate
+        setTimeout(() => lockAndCheckout(), 500);
+      }
     }
-  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, showAuth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedSlotPrices = slots.filter((s) =>
     selectedHours.includes(s.hour)
@@ -157,8 +161,11 @@ export function SlotSelectionClient({
   const handleProceed = async () => {
     if (selectedHours.length === 0) return;
 
+    // If session is still loading, wait before deciding
+    if (status === "loading") return;
+
     // If not logged in, show inline auth
-    if (!session?.user) {
+    if (status === "unauthenticated" || !session?.user) {
       setShowAuth(true);
       return;
     }
@@ -613,7 +620,7 @@ export function SlotSelectionClient({
       )}
 
       {/* Inline auth for guests */}
-      {showAuth && !session?.user && (
+      {showAuth && status !== "authenticated" && (
         <CheckoutAuth onAuthenticated={handleAuthenticated} />
       )}
 

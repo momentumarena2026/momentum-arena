@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     let remainingAmount: number | undefined;
 
     if (isAdvance) {
-      advanceAmount = Math.ceil(booking.totalAmount * 0.2);
+      advanceAmount = Math.ceil(booking.totalAmount * 0.5);
       remainingAmount = booking.totalAmount - advanceAmount;
       orderAmount = advanceAmount;
     }

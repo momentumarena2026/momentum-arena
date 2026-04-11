@@ -212,7 +212,7 @@ export async function selectUpiPayment(
     return { success: false, error: "Booking not found or lock expired" };
   }
 
-  // Create pending payment for UPI
+  // Create pending payment for UPI — booking stays LOCKED until admin verifies
   await db.payment.upsert({
     where: { bookingId },
     update: { method: "UPI_QR", status: "PENDING" },
@@ -224,13 +224,7 @@ export async function selectUpiPayment(
     },
   });
 
-  // Confirm the booking (admin will verify payment later)
-  await db.booking.update({
-    where: { id: bookingId },
-    data: { status: "CONFIRMED" },
-  });
-
-  await sendBookingConfirmation(bookingId);
+  // Booking stays LOCKED — admin will confirm after verifying payment screenshot
 
   return { success: true, bookingId };
 }
@@ -262,12 +256,7 @@ export async function selectCashPayment(
     },
   });
 
-  await db.booking.update({
-    where: { id: bookingId },
-    data: { status: "CONFIRMED" },
-  });
-
-  await sendBookingConfirmation(bookingId);
+  // Booking stays LOCKED — admin will confirm after verifying payment
 
   return { success: true, bookingId };
 }

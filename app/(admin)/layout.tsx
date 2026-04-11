@@ -10,9 +10,10 @@ import { AdminSidebar } from "./admin-sidebar";
 const allNavItems = [
   { href: "/admin", label: "Overview", group: "General", permission: null },
   { href: "/admin/analytics", label: "Analytics", group: "General", permission: "VIEW_ANALYTICS" },
-  { href: "/admin/bookings", label: "Bookings", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/bookings", label: "All Bookings", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/bookings/unconfirmed", label: "Unconfirmed", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/bookings/calendar", label: "Calendar", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/checkin", label: "Check-in", group: "Bookings", permission: "MANAGE_BOOKINGS" },
-  { href: "/admin/utr-verify", label: "UTR Verify", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/recurring", label: "Recurring", group: "Bookings", permission: "MANAGE_PRICING" },
   { href: "/admin/sports", label: "Sports", group: "Courts & Pricing", permission: "MANAGE_SPORTS" },
   { href: "/admin/equipment", label: "Equipment", group: "Courts & Pricing", permission: "MANAGE_SPORTS" },
@@ -53,7 +54,7 @@ export default async function AdminLayout({
   const isSuperadmin = user.adminRole === "SUPERADMIN";
   const isStaff = user.adminRole === "STAFF";
 
-  const staffAllowedHrefs = ["/admin", "/admin/bookings", "/admin/checkin", "/admin/cafe-live"];
+  const staffAllowedHrefs = ["/admin", "/admin/bookings", "/admin/bookings/unconfirmed", "/admin/bookings/calendar", "/admin/checkin", "/admin/cafe-live"];
 
   // Filter items by permissions and build serializable groups
   const visibleItems = allNavItems.filter((item) => {

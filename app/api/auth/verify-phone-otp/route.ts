@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, needsName: !user.name });
   } catch (error) {
     console.error("Verify phone OTP error:", error);
     return NextResponse.json({ error: "Verification failed" }, { status: 500 });

@@ -30,7 +30,7 @@ export function AdvancePaymentSelector({
       {/* Advance Info */}
       <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
         <p className="text-sm font-medium text-yellow-400">
-          20% Advance Required
+          50% Advance Required
         </p>
         <div className="mt-2 space-y-1 text-sm">
           <div className="flex justify-between text-zinc-400">
@@ -38,7 +38,7 @@ export function AdvancePaymentSelector({
             <span>{formatPrice(totalAmount)}</span>
           </div>
           <div className="flex justify-between text-yellow-300 font-medium">
-            <span>Advance (20%)</span>
+            <span>Advance (50%)</span>
             <span>{formatPrice(advanceAmount)}</span>
           </div>
           <div className="flex justify-between text-zinc-500">

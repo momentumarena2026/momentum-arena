@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Clock, AlertTriangle } from "lucide-react";
+import { Clock, AlertTriangle, MessageCircle, CheckCircle2 } from "lucide-react";
+import { FaWhatsapp } from "react-icons/fa";
 import Image from "next/image";
+import { formatPrice } from "@/lib/pricing";
 
 interface UpiQrCheckoutProps {
   amount: number;
-  onUtrSubmitted: (utr: string) => void;
+  bookingId?: string;
+  onPaymentInitiated?: () => void;
   isAdvance?: boolean;
   advanceAmount?: number;
   qrType?: "turf" | "cafe";
@@ -24,20 +27,20 @@ const CAFE_QR_OPTIONS = [
   { image: "/phonepe-cafe-qr-3.jpg", label: "Cafe Terminal 3" },
 ];
 
+const WHATSAPP_NUMBER = "916396177261";
 const TIMER_DURATION = 30 * 60; // 30 minutes in seconds
 
 export function UpiQrCheckout({
   amount,
-  onUtrSubmitted,
+  bookingId,
+  onPaymentInitiated,
   isAdvance,
   advanceAmount,
   qrType = "turf",
 }: UpiQrCheckoutProps) {
-  const [utr, setUtr] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(TIMER_DURATION);
   const [expired, setExpired] = useState(false);
+  const [screenshotSent, setScreenshotSent] = useState(false);
 
   // Pick a random QR on mount (stable across re-renders)
   const selectedQr = useMemo(() => {
@@ -46,6 +49,14 @@ export function UpiQrCheckout({
   }, [qrType]);
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
+
+  // WhatsApp URL
+  const whatsappMessage = encodeURIComponent(
+    bookingId
+      ? `Hi, I've made a payment of ${formatPrice(displayAmount)} for Booking #${bookingId.slice(-8)}.\n\nPlease find the payment screenshot attached. Kindly confirm my booking.`
+      : `Hi, I've made a payment of ${formatPrice(displayAmount)}.\n\nPlease find the payment screenshot attached. Kindly confirm my booking.`
+  );
+  const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappMessage}`;
 
   // Countdown timer
   useEffect(() => {
@@ -69,38 +80,9 @@ export function UpiQrCheckout({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const validateUtr = (value: string): boolean => {
-    const trimmed = value.trim();
-    if (trimmed.length < 10 || trimmed.length > 22) return false;
-    return /^[a-zA-Z0-9]+$/.test(trimmed);
-  };
-
-  const handleSubmit = async () => {
-    setError("");
-    const trimmed = utr.trim();
-
-    if (!trimmed) {
-      setError("Please enter the UTR number");
-      return;
-    }
-
-    if (!validateUtr(trimmed)) {
-      setError("UTR must be 10-22 alphanumeric characters");
-      return;
-    }
-
-    if (expired) {
-      setError("Payment window has expired. Please try again.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      onUtrSubmitted(trimmed);
-    } catch {
-      setError("Failed to submit UTR. Please try again.");
-      setSubmitting(false);
-    }
+  const handleScreenshotSent = () => {
+    setScreenshotSent(true);
+    onPaymentInitiated?.();
   };
 
   if (expired) {
@@ -118,13 +100,37 @@ export function UpiQrCheckout({
     );
   }
 
+  if (screenshotSent) {
+    return (
+      <div className="flex flex-col items-center rounded-2xl border border-emerald-500/30 bg-zinc-900 p-8 text-center space-y-4">
+        <CheckCircle2 className="h-12 w-12 text-emerald-400" />
+        <h3 className="text-lg font-semibold text-white">
+          Slot Locked for 30 Minutes
+        </h3>
+        <p className="text-sm text-zinc-400 max-w-xs">
+          Your slot is temporarily held. Once our team verifies your payment screenshot, your booking will be confirmed.
+        </p>
+        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5">
+          <Clock className="h-4 w-4 text-amber-400" />
+          <span className="text-sm font-medium text-amber-400">
+            Slot held for{" "}
+            <span className="font-mono font-bold">{formatTime(secondsLeft)}</span>
+          </span>
+        </div>
+        <p className="text-xs text-zinc-500">
+          You&apos;ll receive a confirmation message once verified.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* Timer */}
       <div className="flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5">
         <Clock className="h-4 w-4 text-amber-400" />
         <span className="text-sm font-medium text-amber-400">
-          Submit UTR within{" "}
+          Slot locked for{" "}
           <span className="font-mono font-bold">{formatTime(secondsLeft)}</span>{" "}
           minutes
         </span>
@@ -144,13 +150,12 @@ export function UpiQrCheckout({
         </div>
 
         <p className="mt-5 text-3xl font-bold text-emerald-400">
-          Pay &#8377;{(displayAmount / 100).toLocaleString("en-IN")}
+          Pay {formatPrice(displayAmount)}
         </p>
 
         {isAdvance && advanceAmount && (
           <p className="mt-1 text-xs text-yellow-400">
-            Advance payment &middot; Remaining at venue:
-            &#8377;{((amount - advanceAmount) / 100).toLocaleString("en-IN")}
+            Advance payment &middot; Remaining at venue: {formatPrice(amount - advanceAmount)}
           </p>
         )}
 
@@ -162,40 +167,43 @@ export function UpiQrCheckout({
         </p>
       </div>
 
-      {/* UTR Input Section */}
+      {/* WhatsApp Screenshot Instructions */}
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-white mb-1.5">
-            Enter UTR / Transaction Reference Number
-          </label>
-          <input
-            type="text"
-            value={utr}
-            onChange={(e) => {
-              setUtr(e.target.value.replace(/[^a-zA-Z0-9]/g, ""));
-              setError("");
-            }}
-            placeholder="e.g. 412345678901"
-            maxLength={22}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white text-base font-mono placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50"
-          />
-          <p className="mt-1.5 text-xs text-zinc-500">
-            Find UTR in your UPI app &rarr; Transaction History &rarr;
-            Transaction Details
-          </p>
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 text-emerald-400" />
+            After Payment
+          </h4>
+          <div className="space-y-2 text-sm text-zinc-400">
+            <p className="flex items-start gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-400">1</span>
+              Pay the exact amount by scanning the QR above
+            </p>
+            <p className="flex items-start gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-400">2</span>
+              Take a screenshot of the payment confirmation
+            </p>
+            <p className="flex items-start gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-400">3</span>
+              Share the screenshot on our WhatsApp number below
+            </p>
+          </div>
         </div>
 
-        {error && (
-          <p className="text-sm text-red-400">{error}</p>
-        )}
-
-        <button
-          onClick={handleSubmit}
-          disabled={submitting || !utr.trim()}
-          className="w-full rounded-xl bg-emerald-600 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        <a
+          href={whatsappUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={handleScreenshotSent}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3.5 font-semibold text-white transition-colors hover:bg-green-700"
         >
-          {submitting ? "Submitting..." : "Submit UTR"}
-        </button>
+          <FaWhatsapp className="h-5 w-5" />
+          Share Screenshot on WhatsApp
+        </a>
+
+        <p className="text-center text-xs text-zinc-500">
+          Your slot is locked for 30 minutes. Our team will verify the payment and confirm your booking.
+        </p>
       </div>
     </div>
   );

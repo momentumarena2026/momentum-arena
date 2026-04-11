@@ -25,7 +25,7 @@ const OtpSchema = z.object({
 export type OtpState = {
   error?: string;
   success?: boolean;
-  step?: "input" | "verify";
+  step?: "input" | "verify" | "name";
   phone?: string;
   attemptsRemaining?: number;
 };
@@ -118,6 +118,16 @@ export async function verifyOtpAndLogin(
     });
   }
 
+  // If user has no name, ask for it before signing in
+  if (!user.name) {
+    return {
+      success: true,
+      step: "name",
+      phone: normalizedPhone,
+    };
+  }
+
+  // User already has a name — sign in directly
   try {
     await signIn("otp", {
       phone: normalizedPhone,
@@ -131,8 +141,67 @@ export async function verifyOtpAndLogin(
         phone,
       };
     }
-    throw error; // re-throw redirect errors
+    throw error;
   }
 
   return { success: true, step: "verify", phone };
+}
+
+export async function saveNameAndLogin(
+  _prevState: OtpState,
+  formData: FormData
+): Promise<OtpState> {
+  const phone = formData.get("phone") as string;
+  const name = (formData.get("name") as string)?.trim();
+
+  if (!name || name.length < 2) {
+    return {
+      error: "Please enter your name (at least 2 characters)",
+      step: "name",
+      phone,
+    };
+  }
+
+  if (name.length > 50) {
+    return {
+      error: "Name must be 50 characters or less",
+      step: "name",
+      phone,
+    };
+  }
+
+  const normalizedPhone = normalizePhone(phone);
+
+  // Update the user's name
+  const user = await db.user.findUnique({ where: { phone: normalizedPhone } });
+  if (!user) {
+    return {
+      error: "User not found. Please try again.",
+      step: "input",
+    };
+  }
+
+  await db.user.update({
+    where: { id: user.id },
+    data: { name },
+  });
+
+  // Now sign in
+  try {
+    await signIn("otp", {
+      phone: normalizedPhone,
+      redirectTo: "/dashboard",
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return {
+        error: "Authentication failed. Please try again.",
+        step: "name",
+        phone,
+      };
+    }
+    throw error;
+  }
+
+  return { success: true, phone };
 }

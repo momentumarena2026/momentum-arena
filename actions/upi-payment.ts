@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
+import { sendBookingConfirmation } from "@/lib/notifications";
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ export async function verifyBookingUtr(
     return { success: false, error: "Payment not found" };
   }
 
-  if (payment.status !== "PENDING" || !payment.utrNumber) {
+  if (payment.status !== "PENDING") {
     return { success: false, error: "Payment cannot be verified" };
   }
 
@@ -174,6 +175,9 @@ export async function verifyBookingUtr(
       data: { status: "CONFIRMED" },
     }),
   ]);
+
+  // Send booking confirmation to the customer
+  await sendBookingConfirmation(payment.bookingId);
 
   return { success: true };
 }
@@ -279,7 +283,6 @@ export async function getPendingUtrPayments() {
     where: {
       method: "UPI_QR",
       status: "PENDING",
-      utrNumber: { not: null },
     },
     include: {
       booking: {
@@ -290,7 +293,7 @@ export async function getPendingUtrPayments() {
         },
       },
     },
-    orderBy: { utrSubmittedAt: "desc" },
+    orderBy: { createdAt: "desc" },
   });
 
   const cafePayments = await db.cafePayment.findMany({
@@ -338,12 +341,13 @@ export async function getPendingUtrPayments() {
   return {
     bookingPayments: bookingPayments.map((p) => ({
       id: p.id,
-      utrNumber: p.utrNumber!,
+      utrNumber: p.utrNumber ?? null,
       amount: p.amount,
       isPartialPayment: p.isPartialPayment,
       advanceAmount: p.advanceAmount,
       utrSubmittedAt: p.utrSubmittedAt?.toISOString() ?? null,
       utrExpiresAt: p.utrExpiresAt?.toISOString() ?? null,
+      createdAt: p.createdAt.toISOString(),
       booking: {
         id: p.booking.id,
         date: p.booking.date.toISOString(),

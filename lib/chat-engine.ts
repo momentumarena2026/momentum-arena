@@ -175,7 +175,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
   },
   {
     intent: "advance_payment",
-    patterns: [/advance\s*payment/i, /pay\s*at\s*venue/i, /cash\s*payment/i, /partial\s*pay/i, /20\s*%/],
+    patterns: [/advance\s*payment/i, /pay\s*at\s*venue/i, /cash\s*payment/i, /partial\s*pay/i, /50\s*%/],
     keywords: ["advance", "venue", "cash", "partial"],
     priority: 4,
   },
@@ -396,7 +396,7 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   },
 
   payment_methods: () => ({
-    content: "We accept 3 payment methods:\n\n💳 **Online (Razorpay)** — Cards, UPI, Net Banking. Instant confirmation!\n📱 **UPI QR Code** — Scan & pay, send screenshot on WhatsApp\n🏪 **Pay at Venue** — Pay 20% advance online, rest in cash\n\nAll online payments are secured by Razorpay (PCI-DSS compliant).",
+    content: "We accept 3 payment methods:\n\n💳 **Online (Razorpay)** — Cards, UPI, Net Banking. Instant confirmation!\n📱 **UPI QR Code** — Scan & pay, send screenshot on WhatsApp\n🏪 **Pay at Venue** — Pay 50% advance online, rest in cash\n\nAll online payments are secured by Razorpay (PCI-DSS compliant).",
     suggestions: ["UPI QR details", "Advance payment info", "Book now"],
   }),
 
@@ -406,7 +406,7 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   }),
 
   advance_payment: () => ({
-    content: "🏪 **Pay at Venue option:**\n\n• Pay **20% advance** online (via Razorpay or UPI QR)\n• Pay remaining **80% in cash** at the venue\n• Great if you prefer cash payments!\n\nYour booking is confirmed once the 20% advance is received.",
+    content: "🏪 **Pay at Venue option:**\n\n• Pay **50% advance** online (via Razorpay or UPI QR)\n• Pay remaining **50% in cash** at the venue\n• Great if you prefer cash payments!\n\nYour booking is confirmed once the 50% advance is received.",
     suggestions: ["Other payment methods", "Book now"],
   }),
 

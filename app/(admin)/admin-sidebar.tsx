@@ -22,6 +22,7 @@ import {
   ClipboardList,
   BarChart3,
   CalendarDays,
+  Clock,
   Activity,
   Gift,
   Tags,
@@ -36,6 +37,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin": LayoutDashboard,
   "/admin/analytics": BarChart3,
   "/admin/bookings": CalendarCheck,
+  "/admin/bookings/unconfirmed": Clock,
+  "/admin/bookings/calendar": CalendarDays,
   "/admin/checkin": ScanLine,
   "/admin/utr-verify": ScanLine,
   "/admin/recurring": CalendarDays,
@@ -74,6 +77,8 @@ export function AdminSidebar({ groups, userName, roleBadge }: AdminSidebarProps)
 
   const isActive = (href: string) => {
     if (href === "/admin") return pathname === "/admin";
+    // Exact match for sub-routes to avoid parent matching children
+    if (href === "/admin/bookings") return pathname === "/admin/bookings";
     return pathname.startsWith(href);
   };
 

@@ -5,6 +5,7 @@ import {
   sendOtp,
   verifyOtpAndLogin,
   resendOtp,
+  saveNameAndLogin,
   type OtpState,
 } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -34,8 +35,8 @@ function PhoneInputForm() {
           {state.error}
         </div>
       )}
-      <div className="space-y-2">
-        <label htmlFor="phone" className="text-sm font-medium text-zinc-300">
+      <div className="space-y-3">
+        <label htmlFor="phone" className="block text-sm font-medium text-zinc-300">
           Phone Number
         </label>
         <div className="flex gap-2">
@@ -68,6 +69,53 @@ function PhoneInputForm() {
         We&apos;ll send a 6-digit OTP to verify your number
       </p>
     </form>
+  );
+}
+
+function NameForm({ phone }: { phone: string }) {
+  const [state, formAction, isPending] = useActionState<OtpState, FormData>(
+    saveNameAndLogin,
+    { step: "name", phone }
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md bg-green-500/10 border border-green-500/20 p-3 text-center">
+        <p className="text-sm text-green-400 font-medium">Phone verified successfully!</p>
+      </div>
+
+      {state.error && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+          {state.error}
+        </div>
+      )}
+
+      <form action={formAction} className="space-y-4">
+        <input type="hidden" name="phone" value={phone} />
+        <div className="space-y-3">
+          <label htmlFor="page-name" className="block text-sm font-medium text-zinc-300">
+            What should we call you?
+          </label>
+          <Input
+            id="page-name"
+            name="name"
+            type="text"
+            placeholder="Enter your name"
+            required
+            autoFocus
+            maxLength={50}
+            className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500 text-lg"
+          />
+        </div>
+        <Button
+          type="submit"
+          disabled={isPending}
+          className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-5"
+        >
+          {isPending ? "Saving..." : "Continue"}
+        </Button>
+      </form>
+    </div>
   );
 }
 
@@ -168,6 +216,11 @@ function VerifyOtpForm({ phone }: { phone: string }) {
   };
 
   const displayPhone = phone.startsWith("91") ? phone.slice(2) : phone;
+
+  // OTP verified but user needs to enter name
+  if (state.step === "name" && state.phone) {
+    return <NameForm phone={state.phone} />;
+  }
 
   return (
     <div className="space-y-4">

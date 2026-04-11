@@ -7,7 +7,7 @@ import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { createCafeOrder } from "@/actions/cafe-orders";
 import { DiscountInput } from "@/components/booking/discount-input";
-import { submitCafeOrderUtr } from "@/actions/upi-payment";
+// UTR submission disabled — admin verifies via WhatsApp screenshot
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 
@@ -203,7 +203,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
     }
   }
 
-  // Show UPI QR with UTR entry after order creation
+  // Show UPI QR after order creation
   if (showQr && createdOrderId) {
     return (
       <div className="min-h-screen bg-black max-w-2xl mx-auto py-6 px-4">
@@ -211,15 +211,8 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
         <UpiQrCheckout
           amount={finalAmount}
           qrType="cafe"
-          onUtrSubmitted={async (utr: string) => {
-            const result = await submitCafeOrderUtr(createdOrderId, utr);
-            if (result.success) {
-              clearCart();
-              router.push(`/cafe/confirmation/${createdOrderId}`);
-            } else {
-              setError(result.error || "Failed to submit UTR");
-              setShowQr(false);
-            }
+          onPaymentInitiated={() => {
+            clearCart();
           }}
         />
         {error && (

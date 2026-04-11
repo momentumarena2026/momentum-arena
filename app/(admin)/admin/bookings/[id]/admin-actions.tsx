@@ -77,7 +77,7 @@ export function AdminBookingActions({
   const canEditBooking = bookingStatus === "CONFIRMED" && isAdminCreated;
 
   const canConfirmPayment =
-    bookingStatus === "CONFIRMED" &&
+    (bookingStatus === "CONFIRMED" || bookingStatus === "LOCKED") &&
     paymentStatus === "PENDING" &&
     (paymentMethod === "CASH" || paymentMethod === "UPI_QR");
 

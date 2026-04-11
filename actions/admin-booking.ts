@@ -21,14 +21,23 @@ export async function confirmCashPayment(bookingId: string) {
     return { success: false, error: "Cash payment not found" };
   }
 
-  await db.payment.update({
-    where: { id: payment.id },
-    data: {
-      status: "COMPLETED",
-      confirmedBy: adminId,
-      confirmedAt: new Date(),
-    },
-  });
+  await db.$transaction([
+    db.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: "COMPLETED",
+        confirmedBy: adminId,
+        confirmedAt: new Date(),
+      },
+    }),
+    db.booking.update({
+      where: { id: bookingId },
+      data: { status: "CONFIRMED" },
+    }),
+  ]);
+
+  // Send booking confirmation to the customer
+  await sendBookingConfirmation(bookingId);
 
   return { success: true };
 }
@@ -38,20 +47,30 @@ export async function confirmUpiPayment(bookingId: string) {
 
   const payment = await db.payment.findUnique({
     where: { bookingId },
+    include: { booking: true },
   });
 
   if (!payment || payment.method !== "UPI_QR") {
     return { success: false, error: "UPI payment not found" };
   }
 
-  await db.payment.update({
-    where: { id: payment.id },
-    data: {
-      status: "COMPLETED",
-      confirmedBy: adminId,
-      confirmedAt: new Date(),
-    },
-  });
+  await db.$transaction([
+    db.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: "COMPLETED",
+        confirmedBy: adminId,
+        confirmedAt: new Date(),
+      },
+    }),
+    db.booking.update({
+      where: { id: bookingId },
+      data: { status: "CONFIRMED" },
+    }),
+  ]);
+
+  // Send booking confirmation to the customer
+  await sendBookingConfirmation(bookingId);
 
   return { success: true };
 }

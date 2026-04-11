@@ -8,9 +8,10 @@ interface CheckoutAuthProps {
 }
 
 export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
-  const [step, setStep] = useState<"phone" | "otp" | "verifying">("phone");
+  const [step, setStep] = useState<"phone" | "otp" | "name" | "verifying">("phone");
   const [phone, setPhone] = useState("");
   const [normalizedPhone, setNormalizedPhone] = useState("");
+  const [userName, setUserName] = useState("");
   const [otpValues, setOtpValues] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -102,6 +103,13 @@ export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
         return;
       }
 
+      // Check if user needs to provide name
+      if (verifyData.needsName) {
+        setStep("name");
+        setLoading(false);
+        return;
+      }
+
       // Now sign in with NextAuth
       const result = await signIn("otp", {
         phone: normalizedPhone,
@@ -119,6 +127,51 @@ export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
     } catch {
       setError("Verification failed. Please try again.");
       setStep("otp");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveName(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = userName.trim();
+    if (trimmed.length < 2) {
+      setError("Please enter your name (at least 2 characters)");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/auth/save-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: normalizedPhone, name: trimmed }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setError(data.error || "Failed to save name");
+        setLoading(false);
+        return;
+      }
+
+      // Now sign in with NextAuth
+      const result = await signIn("otp", {
+        phone: normalizedPhone,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        setError("Login failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      onAuthenticated();
+    } catch {
+      setError("Failed to save name. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -242,6 +295,39 @@ export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
           >
             ← Change number
           </button>
+        </div>
+      )}
+
+      {step === "name" && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-center">
+            <p className="text-sm text-emerald-400 font-medium">Phone verified successfully!</p>
+          </div>
+          <form onSubmit={handleSaveName} className="space-y-3">
+            <div className="space-y-1.5">
+              <label htmlFor="checkout-name" className="block text-sm font-medium text-zinc-300">
+                What should we call you?
+              </label>
+              <input
+                id="checkout-name"
+                type="text"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="Enter your name"
+                required
+                maxLength={50}
+                autoFocus
+                className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading || userName.trim().length < 2}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors"
+            >
+              {loading ? "Saving..." : "Continue"}
+            </button>
+          </form>
         </div>
       )}
 
