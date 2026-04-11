@@ -11,7 +11,6 @@ import {
   History,
   Plus,
   Bell,
-  Gift,
   RefreshCw,
 } from "lucide-react";
 import {
@@ -152,27 +151,6 @@ export default async function DashboardPage() {
           <p className="text-xs text-zinc-500 mt-0.5">Manage weekly bookings</p>
         </Link>
       </div>
-
-      {/* Refer & Earn */}
-      <Link
-        href="/referral"
-        className="group flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900 p-5 transition-all hover:border-zinc-700"
-      >
-        <div className="flex items-center gap-4">
-          <div className="rounded-xl bg-emerald-500/10 p-3">
-            <Gift className="h-6 w-6 text-emerald-400" />
-          </div>
-          <div>
-            <p className="text-base font-semibold text-white">
-              Refer &amp; Earn
-            </p>
-            <p className="text-sm text-zinc-400">
-              Share your code — friends get ₹100 off
-            </p>
-          </div>
-        </div>
-        <ArrowRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-emerald-400" />
-      </Link>
 
       {/* Upcoming Bookings */}
       {upcomingBookings.length > 0 && (
