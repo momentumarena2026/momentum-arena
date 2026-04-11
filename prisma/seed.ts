@@ -38,12 +38,14 @@ async function main() {
   console.log(`Seeded ${COURT_CONFIGS.length} court configurations`);
 
   // Seed default time classifications
+  // Day time: 5am-5pm (OFF_PEAK), Night time: 5pm-12am (PEAK)
   const timeClassifications = [
-    // Weekday: 5-16 off-peak, 16-25 peak
-    { startHour: 5, endHour: 16, dayType: "WEEKDAY" as const, timeType: "OFF_PEAK" as const },
-    { startHour: 16, endHour: 25, dayType: "WEEKDAY" as const, timeType: "PEAK" as const },
-    // Weekend: all peak
-    { startHour: 5, endHour: 25, dayType: "WEEKEND" as const, timeType: "PEAK" as const },
+    // Weekday: 5-17 day (off-peak), 17-25 night (peak)
+    { startHour: 5, endHour: 17, dayType: "WEEKDAY" as const, timeType: "OFF_PEAK" as const },
+    { startHour: 17, endHour: 25, dayType: "WEEKDAY" as const, timeType: "PEAK" as const },
+    // Weekend: same split
+    { startHour: 5, endHour: 17, dayType: "WEEKEND" as const, timeType: "OFF_PEAK" as const },
+    { startHour: 17, endHour: 25, dayType: "WEEKEND" as const, timeType: "PEAK" as const },
   ];
 
   for (const tc of timeClassifications) {
@@ -83,48 +85,44 @@ async function main() {
   });
   console.log("Deactivated unavailable / coming-soon court configs");
 
-  // Seed default pricing rules (sample prices)
+  // Seed default pricing rules
+  // Day time (OFF_PEAK): 5am-5pm | Night time (PEAK): 5pm-12am
+  // Same prices for weekday and weekend
   const configs = await prisma.courtConfig.findMany();
   const defaultPrices: Record<string, Record<string, number>> = {
     // size -> "dayType_timeType" -> price in rupees
     XS: {
       WEEKDAY_OFF_PEAK: 500,
       WEEKDAY_PEAK: 800,
-      WEEKEND_PEAK: 1000,
-      WEEKEND_OFF_PEAK: 800,
+      WEEKEND_OFF_PEAK: 500,
+      WEEKEND_PEAK: 800,
     },
-    // Opening month discount pricing (effective April 11, 2026)
-    // 40x90 field: ₹1500 → ₹1200 (₹300 opening discount)
+    // 40x90: Day ₹1000, Night ₹1200
     MEDIUM: {
-      WEEKDAY_OFF_PEAK: 1200,
+      WEEKDAY_OFF_PEAK: 1000,
       WEEKDAY_PEAK: 1200,
+      WEEKEND_OFF_PEAK: 1000,
       WEEKEND_PEAK: 1200,
-      WEEKEND_OFF_PEAK: 1200,
     },
+    // 60x90: Day ₹1300, Night ₹1500
     LARGE: {
-      WEEKDAY_OFF_PEAK: 1800,
-      WEEKDAY_PEAK: 2500,
-      WEEKEND_PEAK: 3000,
-      WEEKEND_OFF_PEAK: 2500,
+      WEEKDAY_OFF_PEAK: 1300,
+      WEEKDAY_PEAK: 1500,
+      WEEKEND_OFF_PEAK: 1300,
+      WEEKEND_PEAK: 1500,
     },
-    XL: {
-      WEEKDAY_OFF_PEAK: 2200,
-      WEEKDAY_PEAK: 3000,
-      WEEKEND_PEAK: 3800,
-      WEEKEND_OFF_PEAK: 3000,
-    },
-    // Full field: ₹2500 → ₹2000 (₹500 opening discount)
+    // 80x90 (Full Field — Cricket & Football): Day ₹1600, Night ₹2000
     FULL: {
-      WEEKDAY_OFF_PEAK: 2000,
+      WEEKDAY_OFF_PEAK: 1600,
       WEEKDAY_PEAK: 2000,
+      WEEKEND_OFF_PEAK: 1600,
       WEEKEND_PEAK: 2000,
-      WEEKEND_OFF_PEAK: 2000,
     },
     SHARED: {
       WEEKDAY_OFF_PEAK: 400,
       WEEKDAY_PEAK: 600,
-      WEEKEND_PEAK: 800,
-      WEEKEND_OFF_PEAK: 600,
+      WEEKEND_OFF_PEAK: 400,
+      WEEKEND_PEAK: 600,
     },
   };
 

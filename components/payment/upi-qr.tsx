@@ -5,13 +5,17 @@ import { FaWhatsapp } from "react-icons/fa";
 import { useState } from "react";
 import { formatPrice } from "@/lib/pricing";
 
+const QR_IMAGES = ["/phonepe-qr-1.png", "/phonepe-qr-2.png", "/phonepe-qr-3.png"];
+
 interface UpiQrProps {
   amount: number;
   bookingId: string;
   qrImageUrl?: string;
 }
 
-export function UpiQr({ amount, bookingId, qrImageUrl = "/YesPay.png" }: UpiQrProps) {
+export function UpiQr({ amount, bookingId, qrImageUrl }: UpiQrProps) {
+  const defaultQr = QR_IMAGES[Math.floor(Math.random() * QR_IMAGES.length)];
+  const qrSrc = qrImageUrl || defaultQr;
   const [copied, setCopied] = useState(false);
   const whatsappNumber = "916396177261";
   const whatsappMessage = encodeURIComponent(
@@ -29,10 +33,10 @@ export function UpiQr({ amount, bookingId, qrImageUrl = "/YesPay.png" }: UpiQrPr
     <div className="space-y-4">
       {/* QR Code */}
       <div className="flex flex-col items-center rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-        {qrImageUrl ? (
+        {qrSrc ? (
           <img
-            src={qrImageUrl}
-            alt="UPI QR Code"
+            src={qrSrc}
+            alt="PhonePe QR Code"
             className="h-48 w-48 rounded-lg bg-white p-2"
           />
         ) : (

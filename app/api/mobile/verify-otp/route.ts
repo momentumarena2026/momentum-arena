@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { verifyOtp } from "@/lib/otp";
+import { verifyPhoneOtp, normalizePhone } from "@/lib/otp";
 import { signMobileToken, mobileUserResponse } from "@/lib/mobile-auth";
 
 export async function POST(request: Request) {
   try {
-    const { email, otp } = await request.json();
-    if (!email || !otp) {
+    const { phone, otp } = await request.json();
+    if (!phone || !otp) {
       return NextResponse.json(
-        { error: "Email and OTP are required" },
+        { error: "Phone and OTP are required" },
         { status: 400 }
       );
     }
 
-    const normalizedEmail = email.toLowerCase();
-    const result = await verifyOtp(normalizedEmail, otp, "email");
+    const normalizedPhone = normalizePhone(phone);
+    const result = await verifyPhoneOtp(phone, otp);
 
     if (!result.success) {
       return NextResponse.json(
@@ -25,24 +25,24 @@ export async function POST(request: Request) {
 
     // Find or create user
     let user = await db.user.findUnique({
-      where: { email: normalizedEmail },
+      where: { phone: normalizedPhone },
     });
 
     if (!user) {
       user = await db.user.create({
         data: {
-          email: normalizedEmail,
-          emailVerified: new Date(),
+          phone: normalizedPhone,
+          phoneVerified: new Date(),
         },
       });
-    } else if (!user.emailVerified) {
+    } else if (!user.phoneVerified) {
       user = await db.user.update({
         where: { id: user.id },
-        data: { emailVerified: new Date() },
+        data: { phoneVerified: new Date() },
       });
     }
 
-    const token = signMobileToken(user.id, user.email!);
+    const token = signMobileToken(user.id, user.email || user.phone!);
 
     return NextResponse.json({
       user: mobileUserResponse({

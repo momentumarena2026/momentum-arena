@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { auth } from "@/lib/auth";
-import { SetPasswordWrapper } from "@/components/set-password-wrapper";
 import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function ProtectedLayout({
@@ -12,6 +11,9 @@ export default async function ProtectedLayout({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+
+  const displayName = session.user.name || session.user.email || session.user.phone;
+  const displayInitial = (session.user.name?.charAt(0) || session.user.email?.charAt(0) || session.user.phone?.charAt(0) || "?").toUpperCase();
 
   return (
     <div className="min-h-screen bg-black">
@@ -34,9 +36,9 @@ export default async function ProtectedLayout({
                 className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
-                  {(session.user.name?.charAt(0) || session.user.email?.charAt(0) || "?").toUpperCase()}
+                  {displayInitial}
                 </div>
-                {session.user.name || session.user.email}
+                {displayName}
               </Link>
               <SignOutButton />
             </div>
@@ -46,7 +48,6 @@ export default async function ProtectedLayout({
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>
-      <SetPasswordWrapper />
     </div>
   );
 }

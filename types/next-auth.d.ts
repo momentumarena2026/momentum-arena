@@ -7,7 +7,6 @@ declare module "next-auth" {
       userType: "customer" | "admin";
       // Customer fields
       phone?: string;
-      needsPasswordSetup?: boolean;
       // Admin fields
       adminRole?: "SUPERADMIN" | "ADMIN";
       permissions?: string[];
@@ -17,7 +16,6 @@ declare module "next-auth" {
   interface User {
     userType?: "customer" | "admin";
     phone?: string;
-    needsPasswordSetup?: boolean;
     adminRole?: "SUPERADMIN" | "ADMIN";
     permissions?: string[];
   }
@@ -28,7 +26,6 @@ declare module "next-auth/jwt" {
     id: string;
     userType: "customer" | "admin";
     phone?: string;
-    needsPasswordSetup?: boolean;
     adminRole?: "SUPERADMIN" | "ADMIN";
     permissions?: string[];
   }

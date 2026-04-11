@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Copy, Check, Clock, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Clock, AlertTriangle } from "lucide-react";
 import Image from "next/image";
 
 interface UpiQrCheckoutProps {
@@ -9,9 +9,21 @@ interface UpiQrCheckoutProps {
   onUtrSubmitted: (utr: string) => void;
   isAdvance?: boolean;
   advanceAmount?: number;
+  qrType?: "turf" | "cafe";
 }
 
-const UPI_ID = "momentumarena@yesbank";
+const TURF_QR_OPTIONS = [
+  { image: "/phonepe-qr-1.png", label: "Terminal 1" },
+  { image: "/phonepe-qr-2.png", label: "Terminal 2" },
+  { image: "/phonepe-qr-3.png", label: "Terminal 3" },
+];
+
+const CAFE_QR_OPTIONS = [
+  { image: "/phonepe-cafe-qr-1.jpg", label: "Cafe Terminal 1" },
+  { image: "/phonepe-cafe-qr-2.jpg", label: "Cafe Terminal 2" },
+  { image: "/phonepe-cafe-qr-3.jpg", label: "Cafe Terminal 3" },
+];
+
 const TIMER_DURATION = 30 * 60; // 30 minutes in seconds
 
 export function UpiQrCheckout({
@@ -19,13 +31,19 @@ export function UpiQrCheckout({
   onUtrSubmitted,
   isAdvance,
   advanceAmount,
+  qrType = "turf",
 }: UpiQrCheckoutProps) {
   const [utr, setUtr] = useState("");
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(TIMER_DURATION);
   const [expired, setExpired] = useState(false);
+
+  // Pick a random QR on mount (stable across re-renders)
+  const selectedQr = useMemo(() => {
+    const options = qrType === "cafe" ? CAFE_QR_OPTIONS : TURF_QR_OPTIONS;
+    return options[Math.floor(Math.random() * options.length)];
+  }, [qrType]);
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
 
@@ -50,12 +68,6 @@ export function UpiQrCheckout({
     const secs = s % 60;
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
-
-  const copyUpiId = useCallback(() => {
-    navigator.clipboard.writeText(UPI_ID);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, []);
 
   const validateUtr = (value: string): boolean => {
     const trimmed = value.trim();
@@ -122,8 +134,8 @@ export function UpiQrCheckout({
       <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="rounded-xl bg-white p-3">
           <Image
-            src="/YesPay.png"
-            alt="UPI QR Code - Scan to Pay"
+            src={selectedQr.image}
+            alt="PhonePe QR Code - Scan to Pay"
             width={280}
             height={280}
             className="rounded-lg"
@@ -145,27 +157,9 @@ export function UpiQrCheckout({
         <p className="mt-2 text-sm text-zinc-400">
           Scan &amp; pay using any UPI app
         </p>
-      </div>
-
-      {/* UPI ID */}
-      <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
-        <div>
-          <p className="text-xs text-zinc-500">UPI ID</p>
-          <p className="font-mono text-sm font-medium text-zinc-300">
-            {UPI_ID}
-          </p>
-        </div>
-        <button
-          onClick={copyUpiId}
-          className="rounded-lg border border-zinc-700 p-2 transition-colors hover:bg-zinc-800"
-          title="Copy UPI ID"
-        >
-          {copied ? (
-            <Check className="h-4 w-4 text-emerald-400" />
-          ) : (
-            <Copy className="h-4 w-4 text-zinc-400" />
-          )}
-        </button>
+        <p className="mt-1 text-xs text-zinc-600">
+          Sportive Ventures &middot; {selectedQr.label}
+        </p>
       </div>
 
       {/* UTR Input Section */}

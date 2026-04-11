@@ -210,6 +210,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
         <h1 className="text-2xl font-bold text-white mb-6">Complete Payment</h1>
         <UpiQrCheckout
           amount={finalAmount}
+          qrType="cafe"
           onUtrSubmitted={async (utr: string) => {
             const result = await submitCafeOrderUtr(createdOrderId, utr);
             if (result.success) {

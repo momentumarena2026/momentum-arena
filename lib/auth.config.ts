@@ -11,7 +11,6 @@ export default {
         token.id = user.id as string;
         token.userType = "customer";
         token.phone = (user as { phone?: string }).phone;
-        token.needsPasswordSetup = (user as { needsPasswordSetup?: boolean }).needsPasswordSetup;
       }
       return token;
     },
@@ -20,7 +19,6 @@ export default {
         (session.user as unknown as Record<string, unknown>).id = token.id;
         (session.user as unknown as Record<string, unknown>).userType = "customer";
         (session.user as unknown as Record<string, unknown>).phone = token.phone;
-        (session.user as unknown as Record<string, unknown>).needsPasswordSetup = token.needsPasswordSetup;
       }
       return session;
     },
