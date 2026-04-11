@@ -3,10 +3,8 @@ import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
-import { getActiveBanners } from "@/actions/admin-banners";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
 import { getActiveGateway } from "@/actions/admin-payment-settings";
-import { PromoBanners } from "@/components/booking/promo-banners";
 import { CheckoutClient } from "./checkout-client";
 
 export default async function CheckoutPage({
@@ -86,29 +84,15 @@ export default async function CheckoutPage({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  // Fetch banners and new user discount in parallel
-  const [banners, newUserDiscount, activeGateway] = await Promise.all([
-    getActiveBanners("CHECKOUT").catch(() => []),
+  // Fetch new user discount and gateway in parallel
+  const [newUserDiscount, activeGateway] = await Promise.all([
     getNewUserDiscount(session.user.id, booking.courtConfig.sport, booking.totalAmount).catch(() => null),
     getActiveGateway(),
   ]);
 
-  // Find razorpay offer from active banners
-  const razorpayOfferId = banners.find((b) => b.razorpayOfferId)?.razorpayOfferId || undefined;
-
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-2xl font-bold text-white">Complete Payment</h1>
-
-      {/* Promo Banners */}
-      <PromoBanners
-        banners={banners.map((b) => ({
-          id: b.id,
-          title: b.title,
-          description: b.description,
-          discountInfo: b.discountInfo,
-        }))}
-      />
 
       {/* Booking Summary */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
@@ -204,7 +188,7 @@ export default async function CheckoutPage({
         userName={session.user.name || ""}
         userEmail={session.user.email || ""}
         userPhone={(session.user as { phone?: string }).phone || ""}
-        razorpayOfferId={razorpayOfferId}
+        razorpayOfferId={undefined}
         newUserDiscount={
           newUserDiscount
             ? {

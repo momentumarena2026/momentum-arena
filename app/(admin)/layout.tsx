@@ -23,7 +23,6 @@ const allNavItems = [
   { href: "/admin/cafe-orders", label: "Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/cafe-live", label: "Live Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/coupons", label: "Coupons", group: "Promotions", permission: "MANAGE_COUPONS" },
-  { href: "/admin/banners", label: "Banners", group: "Promotions", permission: "MANAGE_BANNERS" },
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },

@@ -1,16 +1,14 @@
 import { db } from "@/lib/db";
 import { SPORT_INFO } from "@/lib/court-config";
 import { SportCard } from "@/components/booking/sport-card";
-import { PromoBanners } from "@/components/booking/promo-banners";
-import { getActiveBanners } from "@/actions/admin-banners";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 export default async function BookPage() {
-  const [configs, banners] = await Promise.all([
-    db.courtConfig.findMany({ where: { isActive: true }, select: { sport: true } }),
-    getActiveBanners("BOOK_PAGE").catch(() => []),
-  ]);
+  const configs = await db.courtConfig.findMany({
+    where: { isActive: true },
+    select: { sport: true },
+  });
 
   const activeSports = new Set(configs.map((c) => c.sport));
 
@@ -35,8 +33,6 @@ export default async function BookPage() {
           Choose your sport to get started
         </p>
       </div>
-
-      <PromoBanners banners={banners.map((b) => ({ id: b.id, title: b.title, description: b.description, discountInfo: b.discountInfo }))} />
 
       <div className="grid gap-3 sm:grid-cols-2">
         {sports.map((sport) => (
