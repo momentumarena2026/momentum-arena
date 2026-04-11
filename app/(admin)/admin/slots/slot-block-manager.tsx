@@ -6,6 +6,7 @@ import { blockSlot, unblockSlot } from "@/actions/admin-slots";
 import { formatHour, getAllSlotHours, SPORT_INFO } from "@/lib/court-config";
 import { Plus, Trash2, Loader2, CalendarOff, X } from "lucide-react";
 import { Sport } from "@prisma/client";
+import { getTodayIST } from "@/lib/ist-date";
 
 interface Config {
   id: string;
@@ -34,7 +35,7 @@ export function SlotBlockManager({ configs, existingBlocks }: SlotBlockManagerPr
   const [blockType, setBlockType] = useState<"config" | "sport">("config");
   const [selectedConfigId, setSelectedConfigId] = useState("");
   const [selectedSport, setSelectedSport] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(getTodayIST());
   const [blockFullDay, setBlockFullDay] = useState(true);
   const [selectedHour, setSelectedHour] = useState(5);
   const [reason, setReason] = useState("");

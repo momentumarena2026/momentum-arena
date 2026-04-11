@@ -25,7 +25,8 @@ export default async function AdminBookingsPage({
 }) {
   const params = await searchParams;
   const page = parseInt(params.page || "1");
-  const today = new Date().toISOString().split("T")[0];
+  const { getTodayIST } = await import("@/lib/ist-date");
+  const today = getTodayIST();
 
   const { bookings, total, totalPages } = await getAdminBookings({
     page,

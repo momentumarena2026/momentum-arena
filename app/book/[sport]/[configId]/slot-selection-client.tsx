@@ -13,6 +13,7 @@ import { Loader2, Bell, X, CheckCircle, RefreshCw, Calendar } from "lucide-react
 import { joinWaitlist } from "@/actions/waitlist";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
 import type { RecurringTier, DailyTier } from "@/actions/admin-recurring";
+import { getTodayIST } from "@/lib/ist-date";
 
 interface SlotSelectionClientProps {
   configId: string;
@@ -40,9 +41,7 @@ export function SlotSelectionClient({
 }: SlotSelectionClientProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
-  );
+  const [selectedDate, setSelectedDate] = useState(getTodayIST());
   const [slots, setSlots] = useState<SlotAvailability[]>([]);
   const [selectedHours, setSelectedHours] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);

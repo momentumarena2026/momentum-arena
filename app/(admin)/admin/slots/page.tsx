@@ -7,7 +7,8 @@ export default async function AdminSlotsPage() {
     orderBy: [{ sport: "asc" }, { size: "asc" }],
   });
 
-  const today = new Date().toISOString().split("T")[0];
+  const { getTodayIST } = await import("@/lib/ist-date");
+  const today = getTodayIST();
 
   const blocks = await db.slotBlock.findMany({
     where: {

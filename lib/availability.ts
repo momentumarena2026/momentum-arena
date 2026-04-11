@@ -1,6 +1,7 @@
 import { CourtZone, BookingStatus } from "@prisma/client";
 import { db } from "./db";
 import { zonesOverlap, getAllSlotHours, isWeekend } from "./court-config";
+import { getTodayIST, getCurrentHourIST } from "./ist-date";
 
 export type SlotStatus = "available" | "booked" | "locked" | "blocked";
 
@@ -99,10 +100,10 @@ export async function getSlotAvailability(
   // Get pricing for this config
   const prices = await getSlotPrices(courtConfigId, date);
 
-  // Check if the requested date is today — block past hours
-  const today = new Date().toISOString().split("T")[0];
-  const isToday = dateOnly.toISOString().split("T")[0] === today;
-  const currentHour = new Date().getHours();
+  // Check if the requested date is today (IST) — block past hours
+  const todayIST = getTodayIST();
+  const isToday = dateOnly.toISOString().split("T")[0] === todayIST;
+  const currentHour = getCurrentHourIST();
 
   // Build availability array
   const hours = getAllSlotHours();

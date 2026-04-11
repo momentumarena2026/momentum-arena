@@ -16,6 +16,7 @@ import {
   type CellBooking,
 } from "@/actions/admin-calendar";
 import { formatHour } from "@/lib/court-config";
+import { getTodayIST } from "@/lib/ist-date";
 import type { Sport } from "@prisma/client";
 
 const SPORT_CHIPS: { value: string; label: string }[] = [
@@ -131,7 +132,7 @@ export function CalendarView({ initialDate, initialData }: CalendarViewProps) {
             <ChevronRight className="h-4 w-4" />
           </button>
           <button
-            onClick={() => handleDateChange(new Date().toISOString().split("T")[0])}
+            onClick={() => handleDateChange(getTodayIST())}
             className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-400 hover:bg-zinc-700 hover:text-white transition-colors"
           >
             Today

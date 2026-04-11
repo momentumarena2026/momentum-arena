@@ -1,8 +1,9 @@
 import { getCalendarData } from "@/actions/admin-calendar";
 import { CalendarView } from "./calendar-view";
+import { getTodayIST } from "@/lib/ist-date";
 
 export default async function AdminCalendarPage() {
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayIST();
   const initialData = await getCalendarData(today);
 
   return (

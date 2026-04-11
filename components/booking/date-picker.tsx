@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { getUpcomingDatesIST, formatDateIST, getTodayIST } from "@/lib/ist-date";
 
 interface DatePickerProps {
   selectedDate: string;
@@ -11,20 +12,8 @@ interface DatePickerProps {
 export function DatePicker({ selectedDate, onDateChange }: DatePickerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Generate next 30 days
-  const dates = Array.from({ length: 30 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    return d;
-  });
-
-  const formatDateValue = (d: Date) => d.toISOString().split("T")[0];
-
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const monthNames = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-  ];
+  // Generate next 30 days in IST
+  const dateStrings = getUpcomingDatesIST(30);
 
   const scroll = (direction: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -56,16 +45,14 @@ export function DatePicker({ selectedDate, onDateChange }: DatePickerProps) {
           className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide scroll-smooth"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          {dates.map((date) => {
-            const value = formatDateValue(date);
-            const isSelected = selectedDate === value;
-            const isToday = formatDateValue(new Date()) === value;
-            const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+          {dateStrings.map((dateStr) => {
+            const info = formatDateIST(dateStr);
+            const isSelected = selectedDate === dateStr;
 
             return (
               <button
-                key={value}
-                onClick={() => onDateChange(value)}
+                key={dateStr}
+                onClick={() => onDateChange(dateStr)}
                 className={`flex min-w-[70px] flex-shrink-0 flex-col items-center rounded-xl border p-3 transition-all duration-200 ${
                   isSelected
                     ? "border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50"
@@ -76,24 +63,24 @@ export function DatePicker({ selectedDate, onDateChange }: DatePickerProps) {
                   className={`text-xs font-medium ${
                     isSelected
                       ? "text-emerald-400"
-                      : isWeekend
+                      : info.isWeekend
                       ? "text-yellow-400"
                       : "text-zinc-500"
                   }`}
                 >
-                  {dayNames[date.getDay()]}
+                  {info.dayName}
                 </span>
                 <span
                   className={`text-xl font-bold ${
                     isSelected ? "text-white" : "text-zinc-300"
                   }`}
                 >
-                  {date.getDate()}
+                  {info.date}
                 </span>
                 <span className="text-xs text-zinc-500">
-                  {monthNames[date.getMonth()]}
+                  {info.month}
                 </span>
-                {isToday && (
+                {info.isToday && (
                   <span className="mt-1 text-[10px] font-medium text-emerald-500">
                     Today
                   </span>

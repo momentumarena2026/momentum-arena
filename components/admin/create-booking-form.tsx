@@ -10,6 +10,7 @@ import {
 } from "@/actions/admin-booking";
 import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
+import { getTodayIST } from "@/lib/ist-date";
 import type { Sport, ConfigSize, CourtZone } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
@@ -148,10 +149,9 @@ export function CreateBookingForm({
     return sum + (slot?.price ?? 0);
   }, 0);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayIST();
   const maxDate = new Date(Date.now() + 30 * 86400000)
-    .toISOString()
-    .split("T")[0];
+    .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
   // ---------------------------------------------------------------------------
   // Fetch slots when date or config changes
