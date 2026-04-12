@@ -280,13 +280,11 @@ export default async function MyBookingsPage() {
                                 {"★".repeat(booking.feedback.rating)}
                               </span>
                             ) : (
-                              <Link
-                                href={`/bookings/${booking.id}/feedback`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-xs text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded px-2 py-0.5"
+                              <span
+                                className="text-xs text-emerald-400 border border-emerald-500/30 rounded px-2 py-0.5"
                               >
                                 Rate
-                              </Link>
+                              </span>
                             )
                           )}
                         </div>
