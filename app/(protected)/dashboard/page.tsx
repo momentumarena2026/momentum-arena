@@ -7,13 +7,10 @@ import {
   Calendar,
   Clock,
   ArrowRight,
-  Ticket,
   History,
   Plus,
   RefreshCw,
   Zap,
-  Trophy,
-  MapPin,
   ChevronRight,
 } from "lucide-react";
 import {
@@ -199,42 +196,33 @@ export default async function DashboardPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid gap-3 grid-cols-3">
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/80 p-4 backdrop-blur-sm">
-          <div className="flex items-center gap-2 text-zinc-500">
-            <Ticket className="h-4 w-4 text-emerald-500/60" />
-            <span className="text-xs font-medium uppercase tracking-wider">
-              Upcoming
-            </span>
-          </div>
-          <p className="mt-2 text-3xl font-bold text-white">
+      <div className="grid gap-2 sm:gap-3 grid-cols-3">
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/80 px-3 py-3 sm:p-4 backdrop-blur-sm overflow-hidden">
+          <p className="text-[10px] sm:text-xs font-medium uppercase text-zinc-500 truncate">
+            Upcoming
+          </p>
+          <p className="mt-1.5 text-2xl sm:text-3xl font-bold text-white">
             {upcomingBookings.length}
           </p>
-          <p className="mt-0.5 text-xs text-zinc-600">sessions</p>
+          <p className="mt-0.5 text-[10px] sm:text-xs text-zinc-600">sessions</p>
         </div>
 
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/80 p-4 backdrop-blur-sm">
-          <div className="flex items-center gap-2 text-zinc-500">
-            <Trophy className="h-4 w-4 text-yellow-500/60" />
-            <span className="text-xs font-medium uppercase tracking-wider">
-              This Month
-            </span>
-          </div>
-          <p className="mt-2 text-3xl font-bold text-white">
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/80 px-3 py-3 sm:p-4 backdrop-blur-sm overflow-hidden">
+          <p className="text-[10px] sm:text-xs font-medium uppercase text-zinc-500 truncate">
+            This Month
+          </p>
+          <p className="mt-1.5 text-2xl sm:text-3xl font-bold text-white">
             {thisMonthBookings}
           </p>
-          <p className="mt-0.5 text-xs text-zinc-600">bookings</p>
+          <p className="mt-0.5 text-[10px] sm:text-xs text-zinc-600">bookings</p>
         </div>
 
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/80 p-4 backdrop-blur-sm">
-          <div className="flex items-center gap-2 text-zinc-500">
-            <History className="h-4 w-4 text-blue-500/60" />
-            <span className="text-xs font-medium uppercase tracking-wider">
-              All Time
-            </span>
-          </div>
-          <p className="mt-2 text-3xl font-bold text-white">{totalBookings}</p>
-          <p className="mt-0.5 text-xs text-zinc-600">total</p>
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/80 px-3 py-3 sm:p-4 backdrop-blur-sm overflow-hidden">
+          <p className="text-[10px] sm:text-xs font-medium uppercase text-zinc-500 truncate">
+            All Time
+          </p>
+          <p className="mt-1.5 text-2xl sm:text-3xl font-bold text-white">{totalBookings}</p>
+          <p className="mt-0.5 text-[10px] sm:text-xs text-zinc-600">total</p>
         </div>
       </div>
 
