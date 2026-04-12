@@ -14,7 +14,6 @@ import {
   ChevronRight,
   RefreshCw,
 } from "lucide-react";
-import { RecurringCancelButton } from "./recurring-cancel-button";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -137,7 +136,6 @@ export default async function MyBookingsPage() {
                       <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
                         {recurring.status}
                       </span>
-                      <RecurringCancelButton recurringId={recurring.id} />
                     </div>
                   </div>
                 </div>

@@ -32,6 +32,7 @@ export async function adminLogin(
 ): Promise<AdminLoginState> {
   const username = (formData.get("username") as string)?.trim();
   const password = formData.get("password") as string;
+  const callbackUrl = (formData.get("callbackUrl") as string) || "/admin";
 
   if (!username || !password) {
     return { error: "Please enter username and password" };
@@ -54,10 +55,12 @@ export async function adminLogin(
   });
 
   try {
+    // Only allow internal redirects (prevent open redirect)
+    const safeRedirect = callbackUrl.startsWith("/") ? callbackUrl : "/admin";
     await adminSignIn("admin-credentials", {
       username,
       password,
-      redirectTo: "/admin",
+      redirectTo: safeRedirect,
     });
   } catch (error) {
     if (error instanceof AuthError) {

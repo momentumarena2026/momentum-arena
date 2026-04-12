@@ -13,7 +13,8 @@ export function BookingQR({ qrToken, bookingId }: BookingQRProps) {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    const url = `https://momentumarena.in/admin/checkin?token=${qrToken}`;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const url = `${baseUrl}/admin/checkin?token=${qrToken}`;
     QRCode.toCanvas(canvasRef.current, url, {
       width: 180,
       margin: 2,

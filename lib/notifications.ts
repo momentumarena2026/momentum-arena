@@ -1,8 +1,5 @@
 import { db } from "./db";
-import { formatHour, SPORT_INFO, SIZE_INFO } from "./court-config";
-import { formatPrice, formatBookingDate } from "./pricing";
-
-const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
+import { formatBookingDate } from "./pricing";
 
 interface BookingDetails {
   id: string;
@@ -64,83 +61,12 @@ export async function sendBookingConfirmation(
 
   const promises: Promise<void>[] = [];
 
-  if (details.userEmail) {
-    promises.push(sendEmailConfirmation(bookingId, details));
-  }
   if (details.userPhone) {
     promises.push(sendSmsConfirmation(bookingId, details));
   }
   promises.push(logInAppNotification(bookingId));
 
   await Promise.allSettled(promises);
-}
-
-async function sendEmailConfirmation(
-  bookingId: string,
-  details: BookingDetails
-): Promise<void> {
-  if (!MSG91_AUTH_KEY || !details.userEmail) {
-    await logNotification(bookingId, "email", "skipped", "No MSG91 key or email");
-    return;
-  }
-
-  const sportInfo = SPORT_INFO[details.sport as keyof typeof SPORT_INFO];
-  const sizeInfo = SIZE_INFO[details.configSize as keyof typeof SIZE_INFO];
-  const slotTimes = details.slots
-    .map((s) => formatHour(s.startHour))
-    .join(", ");
-
-  try {
-    const response = await fetch(
-      "https://control.msg91.com/api/v5/email/send",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          authkey: MSG91_AUTH_KEY,
-        },
-        body: JSON.stringify({
-          to: [{ email: details.userEmail, name: details.userName }],
-          from: {
-            email: "bookings@momentumarena.in",
-            name: "Momentum Arena",
-          },
-          subject: `Booking Confirmed - ${sportInfo?.name || details.sport} on ${details.date}`,
-          body: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #10b981;">Booking Confirmed!</h2>
-              <p>Hi ${details.userName},</p>
-              <p>Your booking at Momentum Arena has been confirmed.</p>
-              <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-                <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Sport</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${sportInfo?.name || details.sport}</td></tr>
-                <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Court</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${details.configLabel} (${sizeInfo?.name || details.configSize})</td></tr>
-                <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Date</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${details.date}</td></tr>
-                <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Time</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${slotTimes}</td></tr>
-                <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Total</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${formatPrice(details.totalAmount)}</td></tr>
-                <tr><td style="padding: 8px; font-weight: bold;">Payment</td><td style="padding: 8px;">${details.paymentMethod.replace("_", " ")}</td></tr>
-              </table>
-              <p>Booking ID: <strong>${details.id}</strong></p>
-              <p style="color: #666; font-size: 14px;">For any queries, contact us on WhatsApp: +91 6396 177 261</p>
-            </div>
-          `,
-        }),
-      }
-    );
-
-    if (response.ok) {
-      await logNotification(bookingId, "email", "sent");
-    } else {
-      const err = await response.text();
-      await logNotification(bookingId, "email", "failed", err);
-    }
-  } catch (error) {
-    await logNotification(
-      bookingId,
-      "email",
-      "failed",
-      error instanceof Error ? error.message : "Unknown error"
-    );
-  }
 }
 
 async function sendSmsConfirmation(

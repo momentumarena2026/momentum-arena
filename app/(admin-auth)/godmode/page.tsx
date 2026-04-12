@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 import { adminLogin, type AdminLoginState } from "@/actions/admin-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,9 @@ import {
 } from "@/components/ui/card";
 
 export default function GodmodePage() {
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/admin";
+
   const [state, formAction, isPending] = useActionState<
     AdminLoginState,
     FormData
@@ -29,6 +33,7 @@ export default function GodmodePage() {
       </CardHeader>
       <CardContent>
         <form action={formAction} className="space-y-4">
+          <input type="hidden" name="callbackUrl" value={callbackUrl} />
           {state.error && (
             <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
               {state.error}

@@ -17,21 +17,26 @@ export function middleware(request: NextRequest) {
   if (pathname.startsWith("/admin")) {
     const adminToken = request.cookies.get("admin-session-token")?.value;
     if (!hasValidCookie(adminToken)) {
-      const response = NextResponse.redirect(new URL("/godmode", request.url));
+      const godmodeUrl = new URL("/godmode", request.url);
+      // Preserve the original URL so admin can return after login
+      godmodeUrl.searchParams.set("callbackUrl", request.nextUrl.pathname + request.nextUrl.search);
+      const response = NextResponse.redirect(godmodeUrl);
       if (adminToken) response.cookies.delete("admin-session-token");
       return response;
     }
     return NextResponse.next();
   }
 
-  // Godmode login page — if admin already logged in, redirect to admin
+  // Godmode login page — if admin already logged in, redirect to admin (or callbackUrl)
   if (pathname.startsWith("/godmode")) {
     const adminToken = request.cookies.get("admin-session-token")?.value;
     if (
       hasValidCookie(adminToken) &&
       !pathname.startsWith("/godmode/setup-password")
     ) {
-      return NextResponse.redirect(new URL("/admin", request.url));
+      const callbackUrl = request.nextUrl.searchParams.get("callbackUrl");
+      const redirectTo = callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/admin";
+      return NextResponse.redirect(new URL(redirectTo, request.url));
     }
     return NextResponse.next();
   }
