@@ -518,7 +518,7 @@ export function SlotSelectionClient({
       )}
 
       {selectedHours.length > 0 && !showAuth && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 md:relative md:bottom-auto md:left-auto md:right-auto md:z-auto bg-black/95 backdrop-blur-md border-t border-zinc-800 md:border-0 md:bg-transparent md:backdrop-blur-none p-4 md:p-0">
+        <div className="fixed bottom-0 left-0 right-0 z-40 md:sticky md:bottom-4 md:left-auto md:right-auto md:z-auto bg-black/95 backdrop-blur-md border-t border-zinc-800 md:border md:border-zinc-800 md:rounded-xl p-4">
           {/* Slot summary */}
           <div className="flex items-center justify-between mb-2 md:mb-3 text-sm">
             <div className="flex items-center gap-2 text-zinc-400 overflow-hidden">

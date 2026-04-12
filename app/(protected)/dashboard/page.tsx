@@ -170,31 +170,6 @@ export default async function DashboardPage() {
         <ArrowRight className="relative h-5 w-5 text-zinc-600 transition-all group-hover:translate-x-1 group-hover:text-emerald-400" />
       </Link>
 
-      {/* Sport Quick Links */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {(["CRICKET", "FOOTBALL", "PICKLEBALL", "BADMINTON"] as const).map(
-          (sport) => {
-            const info = SPORT_INFO[sport];
-            const colors = SPORT_COLORS[sport];
-            return (
-              <Link
-                key={sport}
-                href={`/book?sport=${sport.toLowerCase()}`}
-                className={`group relative overflow-hidden rounded-xl border bg-gradient-to-br ${colors.bg} ${colors.border} p-4 transition-all hover:shadow-lg ${colors.glow}`}
-              >
-                <div className={`${colors.text} mb-2`}>
-                  {SPORT_ICON_MAP[sport]}
-                </div>
-                <p className="text-sm font-semibold text-white">{info.name}</p>
-                <ChevronRight
-                  className={`absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 ${colors.text} opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0 -translate-x-1`}
-                />
-              </Link>
-            );
-          }
-        )}
-      </div>
-
       {/* Stats Row */}
       <div className="grid gap-2 sm:gap-3 grid-cols-3">
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/80 px-3 py-3 sm:p-4 backdrop-blur-sm overflow-hidden">

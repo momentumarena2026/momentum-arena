@@ -40,8 +40,24 @@ export function ChatWidget() {
   const [isTyping, setIsTyping] = useState(false);
   const [context, setContext] = useState(createInitialContext);
   const [hasUnread, setHasUnread] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Detect mobile
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Listen for toggle-chat event from bottom nav bar
+  useEffect(() => {
+    const handler = () => setIsOpen((prev) => !prev);
+    window.addEventListener("toggle-chat", handler);
+    return () => window.removeEventListener("toggle-chat", handler);
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -119,8 +135,8 @@ export function ChatWidget() {
 
   return (
     <>
-      {/* Floating Bubble */}
-      {!isOpen && (
+      {/* Floating Bubble — desktop only (mobile uses bottom nav bar) */}
+      {!isOpen && !isMobile && (
         <button
           onClick={() => setIsOpen(true)}
           className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg shadow-emerald-900/40 transition-all hover:scale-110 hover:shadow-emerald-900/60 active:scale-95"
