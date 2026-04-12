@@ -250,7 +250,35 @@ export default async function AdminBookingsPage({
           <p className="text-sm text-zinc-600 mt-1">Try adjusting your filters</p>
         </div>
       ) : (
-        <BookingsTable bookings={bookings as unknown as Parameters<typeof BookingsTable>[0]["bookings"]} sportInfo={sportInfoMap} />
+        <BookingsTable
+          bookings={bookings.map((b) => ({
+            id: b.id,
+            date: b.date instanceof Date ? b.date.toISOString() : b.date,
+            status: b.status as "CONFIRMED" | "LOCKED" | "CANCELLED",
+            totalAmount: b.totalAmount,
+            createdAt: b.createdAt instanceof Date ? b.createdAt.toISOString() : b.createdAt,
+            createdByAdminId: b.createdByAdminId,
+            recurringBookingId: b.recurringBookingId,
+            user: b.user,
+            courtConfig: {
+              sport: b.courtConfig.sport,
+              label: b.courtConfig.label,
+              size: b.courtConfig.size,
+            },
+            slots: b.slots.map((s) => ({ startHour: s.startHour, price: s.price })),
+            payment: b.payment ? { status: b.payment.status, method: b.payment.method, amount: b.payment.amount } : null,
+            _isRecurringChildPayment: b._isRecurringChildPayment,
+            recurringBooking: b.recurringBooking ? {
+              id: b.recurringBooking.id,
+              mode: b.recurringBooking.mode ?? "weekly",
+              status: b.recurringBooking.status,
+              dayOfWeek: b.recurringBooking.dayOfWeek ?? 0,
+              startHour: b.recurringBooking.startHour ?? 0,
+              endHour: b.recurringBooking.endHour ?? 0,
+            } : null,
+          }))}
+          sportInfo={sportInfoMap}
+        />
       )}
 
       {/* Pagination */}

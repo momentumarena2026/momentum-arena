@@ -207,7 +207,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
   return (
     <Link
       href={`/admin/bookings/${booking.id}`}
-      className={`group grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_1fr_auto] gap-3 items-center px-4 py-3 transition-all hover:bg-zinc-800/60 ${
+      className={`group grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_1fr_auto] gap-3 items-center px-4 py-3 transition-all hover:bg-zinc-800/60 ${
         isSeriesChild
           ? "ml-3 border-l-2 border-purple-500/20 pl-5"
           : ""
@@ -267,6 +267,12 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
         </span>
       </div>
 
+      {/* Booked On */}
+      <div className="hidden md:block">
+        <p className="text-xs text-zinc-400">{created.date}</p>
+        <p className="text-[10px] text-zinc-600">{created.time}</p>
+      </div>
+
       {/* Payment */}
       <div className="hidden md:block">
         {booking.payment ? (
@@ -315,7 +321,7 @@ function SeriesGroup({ group, sportInfo }: { group: GroupedBookings; sportInfo: 
       {/* Series Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_1fr_auto] gap-3 items-center px-4 py-3 hover:bg-purple-500/5 transition-all"
+        className="w-full grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_1fr_auto] gap-3 items-center px-4 py-3 hover:bg-purple-500/5 transition-all"
       >
         {/* Series Info */}
         <div className="flex items-center gap-3">
@@ -375,6 +381,13 @@ function SeriesGroup({ group, sportInfo }: { group: GroupedBookings; sportInfo: 
           )}
         </div>
 
+        {/* Booked On (series) */}
+        <div className="hidden md:block">
+          <p className="text-xs text-zinc-500">
+            {formatDateTime(first.createdAt).date}
+          </p>
+        </div>
+
         {/* Payment */}
         <div className="hidden md:block">
           {payment ? (
@@ -417,11 +430,12 @@ export function BookingsTable({ bookings, sportInfo }: BookingsTableProps) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
       {/* Table header — desktop only */}
-      <div className="hidden md:grid grid-cols-[2fr_1.2fr_1fr_1fr_1fr_auto] gap-3 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/80">
+      <div className="hidden md:grid grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_1fr_auto] gap-3 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/80">
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Customer</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Date / Slots</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Amount</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Status</span>
+        <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Booked On</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Payment</span>
         <span className="w-4" />
       </div>
