@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
-const MSG91_TEMPLATE_ID = "69da332ff712e50e0000e0d2";
+const MSG91_TEMPLATE_ID = "login_otp_new";
 const OTP_EXPIRY_MINUTES = 5;
 const MAX_OTP_SENDS_PER_WINDOW = 5;
 const RATE_LIMIT_WINDOW_MINUTES = 15;
