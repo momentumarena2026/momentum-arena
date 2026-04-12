@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat } from "lucide-react";
 import { AdminBookingActions } from "./admin-actions";
 import { BookingEditHistory } from "@/components/admin/booking-edit-history";
 
@@ -22,6 +22,14 @@ export default async function AdminBookingDetailPage({
       slots: { orderBy: { startHour: "asc" } },
       payment: true,
       editHistory: { orderBy: { createdAt: "desc" } },
+      recurringBooking: {
+        include: {
+          bookings: {
+            orderBy: { date: "asc" },
+            select: { id: true, date: true, status: true, totalAmount: true },
+          },
+        },
+      },
     },
   });
 
@@ -129,6 +137,46 @@ export default async function AdminBookingDetailPage({
           </div>
         </div>
       </div>
+
+      {/* Recurring Series Info */}
+      {booking.recurringBooking && (
+        <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5 space-y-3">
+          <h2 className="flex items-center gap-2 text-sm font-medium text-purple-400">
+            <Repeat className="h-4 w-4" />
+            Recurring Series
+            <span className="rounded border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-semibold">
+              {booking.recurringBooking.mode === "daily" ? "Daily" : "Weekly"}
+            </span>
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {booking.recurringBooking.bookings.map((sb) => {
+              const isCurrentBooking = sb.id === booking.id;
+              return (
+                <Link
+                  key={sb.id}
+                  href={`/admin/bookings/${sb.id}`}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
+                    isCurrentBooking
+                      ? "border-purple-400 bg-purple-500/20 text-purple-300 ring-1 ring-purple-400/50"
+                      : sb.status === "CONFIRMED"
+                      ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400 hover:bg-emerald-500/10"
+                      : sb.status === "CANCELLED"
+                      ? "border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10"
+                      : "border-yellow-500/20 bg-yellow-500/5 text-yellow-400 hover:bg-yellow-500/10"
+                  }`}
+                >
+                  {formatBookingDate(sb.date, { day: "numeric", month: "short" })}
+                  {isCurrentBooking && " ← current"}
+                </Link>
+              );
+            })}
+          </div>
+          <p className="text-xs text-zinc-500">
+            {booking.recurringBooking.bookings.length} bookings · Total:{" "}
+            {formatPrice(booking.recurringBooking.bookings.reduce((sum, b) => sum + b.totalAmount, 0))}
+          </p>
+        </div>
+      )}
 
       {/* Payment Info */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-3">
