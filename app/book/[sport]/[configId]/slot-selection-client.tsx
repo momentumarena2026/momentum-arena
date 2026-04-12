@@ -76,25 +76,10 @@ export function SlotSelectionClient({
       .finally(() => setRecurringConfigLoading(false));
   }, []);
 
-  // Save selection to sessionStorage whenever it changes
+  // Clear any stale slot selection on mount (fresh start every visit)
   useEffect(() => {
-    if (selectedHours.length > 0) {
-      sessionStorage.setItem(storageKey, JSON.stringify({ date: selectedDate, hours: selectedHours }));
-    }
-  }, [selectedHours, selectedDate, storageKey]);
-
-  // Restore selection from sessionStorage on mount (e.g. after Google OAuth redirect)
-  useEffect(() => {
-    const saved = sessionStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const { date, hours } = JSON.parse(saved);
-        if (date === selectedDate && Array.isArray(hours) && hours.length > 0) {
-          setSelectedHours(hours);
-        }
-      } catch { /* ignore */ }
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    sessionStorage.removeItem(storageKey);
+  }, [storageKey]);
 
   useEffect(() => {
     async function fetchSlots() {

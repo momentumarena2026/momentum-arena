@@ -146,3 +146,46 @@ input[type="radio"],
   cursor: pointer;
 }
 
+/* ── Mobile tap feedback ── */
+/* Remove default tap highlight on mobile browsers */
+a,
+button,
+[role="button"],
+[type="button"],
+[type="submit"],
+[type="reset"],
+select,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Universal active-press effect for all interactive elements */
+@media (hover: none) {
+  a:active,
+  button:active:not(:disabled),
+  [role="button"]:active,
+  [type="button"]:active:not(:disabled),
+  [type="submit"]:active:not(:disabled),
+  [type="reset"]:active:not(:disabled),
+  select:active,
+  summary:active {
+    transform: scale(0.97);
+    opacity: 0.8;
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+
+  /* Larger cards / links get a subtler scale */
+  a[class*="rounded-xl"]:active,
+  a[class*="rounded-2xl"]:active,
+  div[role="button"][class*="rounded-xl"]:active {
+    transform: scale(0.985);
+    opacity: 0.85;
+  }
+
+  /* Small icon-only / pill buttons get a stronger press */
+  button[class*="rounded-full"]:active:not(:disabled) {
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+}
+

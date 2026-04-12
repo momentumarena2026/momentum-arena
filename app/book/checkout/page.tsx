@@ -24,10 +24,14 @@ export default async function CheckoutPage({
     discountPercent?: string;
   }>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/book?error=login_required");
-
   const params = await searchParams;
+  const session = await auth();
+  if (!session?.user?.id) {
+    // Preserve the full checkout URL so user returns here after login
+    const checkoutUrl = `/book/checkout?${new URLSearchParams(params as Record<string, string>).toString()}`;
+    redirect(`/login?callbackUrl=${encodeURIComponent(checkoutUrl)}`);
+  }
+
   const { bookingId } = params;
   if (!bookingId) redirect("/book");
 

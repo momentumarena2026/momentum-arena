@@ -127,11 +127,15 @@ export async function verifyOtpAndLogin(
     };
   }
 
+  // Determine redirect destination
+  const callbackUrl = formData.get("callbackUrl") as string;
+  const redirectTo = callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/dashboard";
+
   // User already has a name — sign in directly
   try {
     await signIn("otp", {
       phone: normalizedPhone,
-      redirectTo: "/dashboard",
+      redirectTo,
     });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -186,11 +190,15 @@ export async function saveNameAndLogin(
     data: { name },
   });
 
+  // Determine redirect destination
+  const callbackUrl = formData.get("callbackUrl") as string;
+  const redirectTo = callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/dashboard";
+
   // Now sign in
   try {
     await signIn("otp", {
       phone: normalizedPhone,
-      redirectTo: "/dashboard",
+      redirectTo,
     });
   } catch (error) {
     if (error instanceof AuthError) {

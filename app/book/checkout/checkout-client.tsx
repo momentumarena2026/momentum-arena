@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { CountdownTimer } from "@/components/booking/countdown-timer";
 import { PaymentSelector, type PaymentMethodType } from "@/components/payment/payment-selector";
@@ -105,6 +105,27 @@ export function CheckoutClient({
 
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
+
+  // Track whether payment was completed (don't release lock if payment succeeded)
+  const paymentCompletedRef = useRef(false);
+
+  // Release lock when user leaves checkout without paying
+  const releaseLock = useCallback(() => {
+    if (paymentCompletedRef.current) return;
+    // Use sendBeacon for reliability — works even during page unload
+    const payload = JSON.stringify({ bookingId });
+    navigator.sendBeacon("/api/booking/release-lock", payload);
+  }, [bookingId]);
+
+  useEffect(() => {
+    // Release lock on browser close / tab close / navigation away
+    window.addEventListener("beforeunload", releaseLock);
+    return () => {
+      window.removeEventListener("beforeunload", releaseLock);
+      // Also release on React unmount (in-app navigation like back button)
+      releaseLock();
+    };
+  }, [releaseLock]);
 
   // Derived recurring values
   const recurringCount = recurringMode === "daily" ? recurringDaysCount : recurringWeeksCount;
@@ -236,6 +257,8 @@ export function CheckoutClient({
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
+    // Mark as completed before redirect — don't release lock on unload
+    paymentCompletedRef.current = true;
     // Redirect to PhonePe checkout page
     window.location.href = data.redirectUrl;
   };
@@ -259,18 +282,31 @@ export function CheckoutClient({
       order_id: data.orderId,
       ...(!isAdvance && razorpayOfferId ? { offer_id: razorpayOfferId } : {}),
       handler: async function (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) {
-        const verifyRes = await fetch("/api/razorpay/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingId, razorpayPaymentId: response.razorpay_payment_id, razorpayOrderId: response.razorpay_order_id, razorpaySignature: response.razorpay_signature, isAdvance }),
-        });
-        if (verifyRes.ok) {
-          await addEquipmentAfterBooking(bookingId);
-          if (!isAdvance) await handleRecurringAfterPayment();
-          router.push(`/book/confirmation/${bookingId}`);
-        } else {
-          setError("Payment verification failed");
+        try {
+          const verifyRes = await fetch("/api/razorpay/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ bookingId, razorpayPaymentId: response.razorpay_payment_id, razorpayOrderId: response.razorpay_order_id, razorpaySignature: response.razorpay_signature, isAdvance }),
+          });
+          if (verifyRes.ok) {
+            paymentCompletedRef.current = true;
+            await addEquipmentAfterBooking(bookingId);
+            if (!isAdvance) await handleRecurringAfterPayment();
+            router.push(`/book/confirmation/${bookingId}`);
+          } else {
+            setError("Payment verification failed. Please contact support.");
+            setProcessing(false);
+          }
+        } catch {
+          setError("Payment verification failed. Please contact support.");
+          setProcessing(false);
         }
+      },
+      modal: {
+        ondismiss: function () {
+          // User closed Razorpay modal without completing payment
+          setProcessing(false);
+        },
       },
       prefill: { name: userName, email: userEmail, contact: userPhone },
       theme: { color: "#10b981" },
@@ -299,6 +335,7 @@ export function CheckoutClient({
         const { selectUpiPayment } = await import("@/actions/booking");
         const result = await selectUpiPayment(bookingId, effectiveAmount);
         if (!result.success) { setError(result.error || "Failed"); setProcessing(false); return; }
+        paymentCompletedRef.current = true; // UPI QR initiated — don't release lock
         setShowUpiQr(true);
       } else if (paymentMethod === "cash") {
         if (advanceMethod === "online") {
@@ -306,7 +343,8 @@ export function CheckoutClient({
         } else {
           setShowUpiQr(true);
           const result = await selectCashPayment(bookingId, effectiveAmount);
-          if (!result.success) { setError(result.error || "Failed"); setShowUpiQr(false); }
+          if (!result.success) { setError(result.error || "Failed"); setShowUpiQr(false); return; }
+          paymentCompletedRef.current = true; // Cash payment initiated — don't release lock
         }
       }
     } catch {

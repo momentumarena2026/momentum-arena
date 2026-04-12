@@ -17,9 +17,16 @@ import {
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export default async function MyBookingsPage() {
+export default async function MyBookingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ filter?: string }>;
+}) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
+
+  const { filter } = await searchParams;
+  const showOnlyRecurring = filter === "recurring";
 
   const [bookings, recurringBookings] = await Promise.all([
     db.booking.findMany({
@@ -74,9 +81,13 @@ export default async function MyBookingsPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to Dashboard
         </Link>
-        <h1 className="text-2xl font-bold text-white">My Bookings</h1>
+        <h1 className="text-2xl font-bold text-white">
+          {showOnlyRecurring ? "Recurring Series" : "My Bookings"}
+        </h1>
         <p className="mt-1 text-zinc-400">
-          {bookings.length} total booking{bookings.length !== 1 ? "s" : ""}
+          {showOnlyRecurring
+            ? `${recurringBookings.length} active series`
+            : `${bookings.length} total booking${bookings.length !== 1 ? "s" : ""}`}
         </p>
       </div>
 
@@ -145,7 +156,24 @@ export default async function MyBookingsPage() {
         </div>
       )}
 
-      {bookings.length === 0 ? (
+      {/* When filtered to recurring only, show empty state if no series */}
+      {showOnlyRecurring && recurringBookings.length === 0 && (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-12 text-center">
+          <RefreshCw className="mx-auto h-12 w-12 text-zinc-600" />
+          <p className="mt-3 text-zinc-400">No recurring series yet</p>
+          <p className="mt-1 text-sm text-zinc-600">
+            Create a recurring booking when selecting your slots
+          </p>
+          <Link
+            href="/book"
+            className="mt-4 inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            Book a Court
+          </Link>
+        </div>
+      )}
+
+      {!showOnlyRecurring && bookings.length === 0 ? (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-12 text-center">
           <Calendar className="mx-auto h-12 w-12 text-zinc-600" />
           <p className="mt-3 text-zinc-400">No bookings yet</p>
@@ -156,7 +184,7 @@ export default async function MyBookingsPage() {
             Book a Court
           </Link>
         </div>
-      ) : (
+      ) : !showOnlyRecurring ? (
         <div className="space-y-6">
           {upcoming.length > 0 && (
             <div>
@@ -226,7 +254,7 @@ export default async function MyBookingsPage() {
           {past.length > 0 && (
             <div>
               <h2 className="mb-3 text-sm font-medium text-zinc-500 uppercase tracking-wider">
-                Past & Cancelled
+                Previous
               </h2>
               <div className="space-y-3">
                 {past.map((booking) => {
@@ -294,7 +322,7 @@ export default async function MyBookingsPage() {
             </div>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

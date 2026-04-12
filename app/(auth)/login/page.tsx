@@ -18,14 +18,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-function PhoneInputForm() {
+function PhoneInputForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, isPending] = useActionState<OtpState, FormData>(
     sendOtp,
     { step: "input" }
   );
 
   if (state.step === "verify" && state.phone) {
-    return <VerifyOtpForm phone={state.phone} />;
+    return <VerifyOtpForm phone={state.phone} callbackUrl={callbackUrl} />;
   }
 
   return (
@@ -72,7 +72,7 @@ function PhoneInputForm() {
   );
 }
 
-function NameForm({ phone }: { phone: string }) {
+function NameForm({ phone, callbackUrl }: { phone: string; callbackUrl: string }) {
   const [state, formAction, isPending] = useActionState<OtpState, FormData>(
     saveNameAndLogin,
     { step: "name", phone }
@@ -92,6 +92,7 @@ function NameForm({ phone }: { phone: string }) {
 
       <form action={formAction} className="space-y-4">
         <input type="hidden" name="phone" value={phone} />
+        <input type="hidden" name="callbackUrl" value={callbackUrl} />
         <div className="space-y-3">
           <label htmlFor="page-name" className="block text-sm font-medium text-zinc-300">
             What should we call you?
@@ -119,7 +120,7 @@ function NameForm({ phone }: { phone: string }) {
   );
 }
 
-function VerifyOtpForm({ phone }: { phone: string }) {
+function VerifyOtpForm({ phone, callbackUrl }: { phone: string; callbackUrl: string }) {
   const [state, formAction, isPending] = useActionState<OtpState, FormData>(
     verifyOtpAndLogin,
     { step: "verify", phone }
@@ -219,7 +220,7 @@ function VerifyOtpForm({ phone }: { phone: string }) {
 
   // OTP verified but user needs to enter name
   if (state.step === "name" && state.phone) {
-    return <NameForm phone={state.phone} />;
+    return <NameForm phone={state.phone} callbackUrl={callbackUrl} />;
   }
 
   return (
@@ -244,6 +245,7 @@ function VerifyOtpForm({ phone }: { phone: string }) {
 
       <form ref={formRef} action={formAction} className="space-y-4">
         <input type="hidden" name="phone" value={phone} />
+        <input type="hidden" name="callbackUrl" value={callbackUrl} />
         <input type="hidden" name="code" value={otpValues.join("")} />
 
         <div className="flex gap-2 justify-center">
@@ -304,6 +306,17 @@ function VerifyOtpForm({ phone }: { phone: string }) {
 }
 
 export default function LoginPage() {
+  // Read callbackUrl from URL so we can redirect back after login
+  const [callbackUrl, setCallbackUrl] = useState("/dashboard");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const cb = params.get("callbackUrl");
+    if (cb && cb.startsWith("/")) {
+      setCallbackUrl(cb);
+    }
+  }, []);
+
   return (
     <Card className="w-full max-w-md bg-zinc-950 border-zinc-800">
       <CardHeader className="text-center pb-2">
@@ -313,7 +326,7 @@ export default function LoginPage() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <PhoneInputForm />
+        <PhoneInputForm callbackUrl={callbackUrl} />
       </CardContent>
     </Card>
   );
