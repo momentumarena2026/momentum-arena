@@ -10,7 +10,6 @@ import {
   Ticket,
   History,
   Plus,
-  Bell,
   RefreshCw,
 } from "lucide-react";
 import {
@@ -27,7 +26,7 @@ export default async function DashboardPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [upcomingBookings, totalBookings, waitlistCount] = await Promise.all([
+  const [upcomingBookings, totalBookings] = await Promise.all([
     db.booking.findMany({
       where: {
         userId: session.user.id,
@@ -43,9 +42,6 @@ export default async function DashboardPage() {
     }),
     db.booking.count({
       where: { userId: session.user.id },
-    }),
-    db.waitlist.count({
-      where: { userId: session.user.id, status: { in: ["WAITING", "NOTIFIED"] } },
     }),
   ]);
 
@@ -111,30 +107,8 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      {/* Waitlist + Recurring Row */}
+      {/* Recurring Row */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-        {/* Waitlist Card */}
-        <Link
-          href="/waitlist"
-          className="group rounded-xl border border-zinc-800 bg-zinc-900 p-4 hover:border-yellow-500/30 transition-colors"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-zinc-500">
-              <Bell className="h-4 w-4" />
-              <span className="text-xs">Waitlist</span>
-            </div>
-            {waitlistCount > 0 && (
-              <span className="rounded-full bg-yellow-500/20 border border-yellow-500/30 px-2 py-0.5 text-xs font-medium text-yellow-400">
-                {waitlistCount}
-              </span>
-            )}
-          </div>
-          <p className="mt-2 text-xl font-bold text-white">
-            {waitlistCount > 0 ? `${waitlistCount} active` : "None"}
-          </p>
-          <p className="text-xs text-zinc-500 mt-0.5">Notify me when slots open</p>
-        </Link>
-
         {/* Recurring Bookings Card */}
         <Link
           href="/bookings"

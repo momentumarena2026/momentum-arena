@@ -3,7 +3,6 @@
 import { db } from "@/lib/db";
 import { sendBookingConfirmation } from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
-import { checkAndNotifyWaitlist } from "@/actions/waitlist";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -154,21 +153,6 @@ export async function refundBooking(
       },
     }),
   ]);
-
-  // Notify anyone on the waitlist for this slot
-  if (booking.slots.length > 0) {
-    const startHour = Math.min(...booking.slots.map((s) => s.startHour));
-    const endHour = Math.max(...booking.slots.map((s) => s.startHour)) + 1;
-
-    await checkAndNotifyWaitlist(
-      booking.courtConfigId,
-      booking.date,
-      startHour,
-      endHour
-    ).catch((err) => {
-      console.error("Failed to notify waitlist:", err);
-    });
-  }
 
   return { success: true };
 }

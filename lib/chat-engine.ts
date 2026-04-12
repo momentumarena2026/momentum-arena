@@ -37,7 +37,6 @@ export type Intent =
   | "shared_court"
   | "cricket_config"
   | "equipment"
-  | "waitlist"
   | "thank_you"
   | "help"
   | "unknown";
@@ -297,12 +296,6 @@ const INTENT_PATTERNS: IntentPattern[] = [
     priority: 3,
   },
   {
-    intent: "waitlist",
-    patterns: [/\b(waitlist|wait\s*list|notify\s*me|slot\s*available)\b/i],
-    keywords: ["waitlist", "notify", "waiting"],
-    priority: 3,
-  },
-  {
     intent: "help",
     patterns: [/^(help|menu|options|kya\s*kar\s*sakte)\b/i, /what\s*can\s*you\s*do/i],
     keywords: ["help", "menu", "options"],
@@ -497,11 +490,6 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
     quickActions: [{ label: "Book & Add Equipment →", href: "/book" }],
   }),
 
-  waitlist: () => ({
-    content: "🔔 **Waitlist System:**\n\nSlot already booked? No worries!\n\n• Click 'Notify Me' on any unavailable slot\n• You'll get an SMS when it opens up\n• First to respond gets the slot!\n\nNever miss your preferred time again.",
-    suggestions: ["My waitlist", "Book available slots", "Operating hours"],
-    quickActions: [{ label: "My Waitlist →", href: "/waitlist" }],
-  }),
 
   help: () => ({
     content: "I can help you with:\n\n🏏 **Sports** — What's available, court details\n📅 **Booking** — How to book, slot info\n💰 **Pricing** — Rates, discounts, coupons\n💳 **Payments** — Methods, UPI\n🕐 **Hours** — When we're open\n📍 **Location** — Address, parking, contact\n☕ **Café** — Menu, ordering\n🏆 **Rewards** — Points, tiers\n\nJust ask anything!",
