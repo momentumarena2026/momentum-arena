@@ -89,13 +89,9 @@ function buildConfirmationVariables(details: BookingDetails) {
     .map((s) => formatHour(s.startHour))
     .join(", ");
 
-  const invoiceUrl = `${APP_URL}/api/invoice?bookingId=${details.id}`;
   const confirmationUrl = `${APP_URL}/book/confirmation/${details.id}`;
-  const checkinUrl = details.qrToken
-    ? `${APP_URL}/admin/checkin?token=${details.qrToken}`
-    : confirmationUrl;
 
-  const amountStr = `₹${details.totalAmount.toLocaleString("en-IN")}`;
+  const amountStr = `Rs.${details.totalAmount.toLocaleString("en-IN")}`;
 
   return {
     customer_name: details.userName,
@@ -105,9 +101,7 @@ function buildConfirmationVariables(details: BookingDetails) {
     time: timeSlots,
     amount: amountStr,
     booking_id: details.id,
-    invoice_url: invoiceUrl,
     confirmation_url: confirmationUrl,
-    checkin_url: checkinUrl,
   };
 }
 
