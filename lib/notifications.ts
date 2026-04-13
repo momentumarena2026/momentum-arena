@@ -1,6 +1,4 @@
 import { db } from "./db";
-import { formatBookingDate } from "./pricing";
-import { formatHour, SPORT_INFO } from "./court-config";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
@@ -10,17 +8,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com";
 interface BookingDetails {
   id: string;
   userName: string;
-  userEmail: string | null;
   userPhone: string | null;
-  sport: string;
-  configSize: string;
-  configLabel: string;
-  date: Date;
-  dateFormatted: string;
-  slots: { startHour: number; price: number }[];
-  totalAmount: number;
-  paymentMethod: string;
-  qrToken: string | null;
 }
 
 async function getBookingDetails(
@@ -28,37 +16,14 @@ async function getBookingDetails(
 ): Promise<BookingDetails | null> {
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
-    include: {
-      user: true,
-      courtConfig: true,
-      slots: { orderBy: { startHour: "asc" } },
-      payment: true,
-    },
+    include: { user: { select: { name: true, phone: true } } },
   });
   if (!booking) return null;
 
   return {
     id: booking.id,
     userName: booking.user.name || "Player",
-    userEmail: booking.user.email,
     userPhone: booking.user.phone,
-    sport: booking.courtConfig.sport,
-    configSize: booking.courtConfig.size,
-    configLabel: booking.courtConfig.label,
-    date: booking.date,
-    dateFormatted: formatBookingDate(booking.date, {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }),
-    slots: booking.slots.map((s) => ({
-      startHour: s.startHour,
-      price: s.price,
-    })),
-    totalAmount: booking.totalAmount,
-    paymentMethod: booking.payment?.method || "CASH",
-    qrToken: booking.qrToken,
   };
 }
 
@@ -79,45 +44,23 @@ export async function sendBookingConfirmation(
   await Promise.allSettled(promises);
 }
 
-// --- Build confirmation message variables for MSG91 Flow template ---
-
-function buildConfirmationVariables(details: BookingDetails) {
-  const sportName =
-    SPORT_INFO[details.sport as keyof typeof SPORT_INFO]?.name || details.sport;
-
-  const timeSlots = details.slots
-    .map((s) => formatHour(s.startHour))
-    .join(", ");
-
-  const confirmationUrl = `${APP_URL}/book/confirmation/${details.id}`;
-
-  const amountStr = `Rs.${details.totalAmount.toLocaleString("en-IN")}`;
-
-  return {
-    customer_name: details.userName,
-    sport: sportName,
-    court: details.configLabel,
-    date: details.dateFormatted,
-    time: timeSlots,
-    amount: amountStr,
-    booking_id: details.id,
-    confirmation_url: confirmationUrl,
-  };
-}
-
 // --- Send confirmation via MSG91 Flow API ---
+// DLT template (2 variables only):
+// "Dear {#var#}, your booking at Momentum Arena is confirmed.
+//  View details, download invoice and get check-in QR here: {#var#}
+//  - Momentum Arena, Mathura"
 
 async function sendSmsConfirmation(
   bookingId: string,
   details: BookingDetails
 ): Promise<void> {
+  const confirmationUrl = `${APP_URL}/book/confirmation/${details.id}`;
+
   if (!MSG91_AUTH_KEY || !MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID) {
-    // Log for dev / when template not configured
-    const vars = buildConfirmationVariables(details);
     console.log(
-      `\n📩 [DEV] Booking Confirmation for ${details.userPhone}:`,
-      JSON.stringify(vars, null, 2),
-      "\n"
+      `\n[DEV] Booking Confirmation SMS for ${details.userPhone}:`,
+      `\n  customer_name: ${details.userName}`,
+      `\n  confirmation_url: ${confirmationUrl}\n`
     );
     await logNotification(
       bookingId,
@@ -129,8 +72,6 @@ async function sendSmsConfirmation(
   }
 
   try {
-    const vars = buildConfirmationVariables(details);
-
     const response = await fetch("https://control.msg91.com/api/v5/flow/", {
       method: "POST",
       headers: {
@@ -142,7 +83,8 @@ async function sendSmsConfirmation(
         recipients: [
           {
             mobiles: details.userPhone!.replace("+", ""),
-            ...vars,
+            customer_name: details.userName,
+            confirmation_url: confirmationUrl,
           },
         ],
       }),
