@@ -1,16 +1,9 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 
 export default function CafePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-4">
-      <Link
-        href="/dashboard"
-        className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Dashboard
-      </Link>
+      <BackButton className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
       <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-12 text-center">
         <h2 className="text-2xl font-bold text-white">Momentum Cafe</h2>
         <p className="mt-2 text-amber-400 font-semibold">Coming Soon</p>

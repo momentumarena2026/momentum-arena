@@ -10,6 +10,7 @@ const michroma = Michroma({
 });
 import { auth } from "@/lib/auth";
 import { ChatWidgetWrapper } from "@/components/chatbot/chat-widget-wrapper";
+import { BottomNav } from "@/components/bottom-nav";
 import "./globals.css";
 
 
@@ -115,6 +116,7 @@ export default async function RootLayout({
       >
         <SessionProvider session={session}>
           {children}
+          <BottomNav />
           <ChatWidgetWrapper />
         </SessionProvider>
       </body>

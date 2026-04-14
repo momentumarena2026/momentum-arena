@@ -5,7 +5,7 @@ import { SPORT_INFO, formatHour } from "@/lib/court-config";
 import { formatBookingDate } from "@/lib/pricing";
 import { FeedbackForm } from "./feedback-form";
 import { Star } from "lucide-react";
-import Link from "next/link";
+import { BackButton } from "@/components/back-button";
 
 export default async function FeedbackPage({
   params,
@@ -33,9 +33,7 @@ export default async function FeedbackPage({
   return (
     <div className="max-w-lg mx-auto space-y-6">
       <div>
-        <Link href="/bookings" className="text-sm text-zinc-400 hover:text-white transition-colors">
-          ← Back to Bookings
-        </Link>
+        <BackButton className="text-sm text-zinc-400 hover:text-white transition-colors inline-flex items-center gap-1.5" label="Back" />
       </div>
 
       {/* Booking summary */}

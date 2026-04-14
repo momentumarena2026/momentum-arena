@@ -13,6 +13,7 @@ import {
   Zap,
   ChevronRight,
 } from "lucide-react";
+import { SignOutButton } from "@/components/sign-out-button";
 import {
   MdSportsCricket,
   MdSportsSoccer,
@@ -343,6 +344,11 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Sign Out */}
+      <SignOutButton
+        className="w-full flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-500 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all"
+      />
     </div>
   );
 }

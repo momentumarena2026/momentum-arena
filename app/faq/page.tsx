@@ -1,8 +1,8 @@
 import { FAQ_ENTRIES, FAQ_CATEGORIES } from "@/lib/faq-data";
 import { FAQPageClient } from "./faq-client";
 import { getPublicFAQs } from "@/actions/admin-faqs";
-import Link from "next/link";
-import { ArrowLeft, HelpCircle } from "lucide-react";
+import { HelpCircle } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 
 export default async function FAQPage() {
   // Try to load DB FAQs first; fall back to static data
@@ -36,13 +36,7 @@ export default async function FAQPage() {
   return (
     <div className="min-h-screen bg-black">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        <Link
-          href="/"
-          className="mb-6 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Home
-        </Link>
+        <BackButton className="mb-6 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
 
         <div className="flex items-center gap-3 mb-8">
           <div className="rounded-xl bg-emerald-500/10 p-3">

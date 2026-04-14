@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { auth } from "@/lib/auth";
-import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function ProtectedLayout({
   children,
@@ -30,18 +29,15 @@ export default async function ProtectedLayout({
               />
             </Link>
 
-            <div className="flex items-center gap-4">
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
-              >
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
-                  {displayInitial}
-                </div>
-                {displayName}
-              </Link>
-              <SignOutButton />
-            </div>
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
+                {displayInitial}
+              </div>
+              {displayName}
+            </Link>
           </div>
         </div>
       </nav>

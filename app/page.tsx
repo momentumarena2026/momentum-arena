@@ -8,7 +8,6 @@ import {
   MdSportsHandball,
 } from "react-icons/md";
 import { LoginButton } from "@/components/login-modal";
-import { ChatNavButton } from "@/components/chatbot/chat-nav-button";
 
 const sports = [
   {
@@ -578,7 +577,7 @@ export default function Home() {
               {/* Map */}
               <div className="bg-zinc-900 rounded-2xl overflow-hidden h-80 md:h-full min-h-[320px] border border-zinc-800">
                 <iframe
-                  src="https://www.google.com/maps/embed?pb=!1m17!1m12!1m3!1d3542.7!2d77.638917!3d27.509167!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m2!1m1!2zMjfCsDMwJzMzLjAiTiA3N8KwMzgnMjAuNyJF!5e0!3m2!1sen!2sin!4v1234567890"
+                  src="https://www.google.com/maps/embed?pb=!1m17!1m12!1m3!1d3542.7!2d77.638917!3d27.509167!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m2!1m1!2zMjfCsDMwJzMzLjAiTiA3N8KwMzgnMjAuNyJF!5e1!3m2!1sen!2sin!4v1234567890"
                   width="100%"
                   height="100%"
                   style={{ border: 0 }}
@@ -629,40 +628,6 @@ export default function Home() {
         </footer>
       </main>
 
-      {/* Mobile bottom tab navigation */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-black/95 backdrop-blur-md border-t border-zinc-800">
-        <div className="flex items-center justify-around py-2.5">
-          <Link
-            href="/"
-            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-white transition"
-          >
-            <span className="text-lg">🏠</span>
-            <span className="text-[10px] font-medium">Home</span>
-          </Link>
-          <Link
-            href="/book"
-            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-emerald-400 transition"
-          >
-            <span className="text-lg">🏟️</span>
-            <span className="text-[10px] font-medium">Sports</span>
-          </Link>
-          <Link
-            href="/cafe"
-            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-amber-400 transition"
-          >
-            <span className="text-lg">☕</span>
-            <span className="text-[10px] font-medium">Cafe</span>
-          </Link>
-          <Link
-            href="/dashboard"
-            className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-white transition"
-          >
-            <span className="text-lg">👤</span>
-            <span className="text-[10px] font-medium">Account</span>
-          </Link>
-          <ChatNavButton />
-        </div>
-      </div>
     </>
   );
 }
