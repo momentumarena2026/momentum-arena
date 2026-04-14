@@ -194,6 +194,30 @@ async function main() {
   }
   console.log(`Seeded ${FAQ_ENTRIES.length} FAQ entries`);
 
+  // Seed FLAT100 coupon (₹100 off on sports bookings)
+  await prisma.coupon.upsert({
+    where: { code: "FLAT100" },
+    update: {
+      value: 100,
+      isActive: true,
+    },
+    create: {
+      code: "FLAT100",
+      description: "Flat ₹100 OFF on online bookings",
+      type: "FLAT",
+      value: 100,
+      scope: "SPORTS",
+      minAmount: 500,
+      isPublic: true,
+      isSystemCode: true,
+      validFrom: new Date(),
+      validUntil: new Date("2027-12-31"),
+      isActive: true,
+      createdBy: "system",
+    },
+  });
+  console.log("Seeded FLAT100 coupon");
+
   // Seed superadmin user "gamelord"
   const superadminPassword = await hashPassword("burninhell@26");
   await prisma.adminUser.upsert({

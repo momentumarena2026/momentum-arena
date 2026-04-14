@@ -15,7 +15,7 @@ export function HomepageSportTracker({
   children: React.ReactNode;
 }) {
   return (
-    <div onClick={() => trackHomepageSportClick(sport)}>
+    <div onClick={() => trackHomepageSportClick(sport)} className="contents">
       {children}
     </div>
   );
@@ -27,7 +27,7 @@ export function HomepageCafeTracker({
   children: React.ReactNode;
 }) {
   return (
-    <div onClick={() => trackHomepageCafeClick()}>
+    <div onClick={() => trackHomepageCafeClick()} className="contents">
       {children}
     </div>
   );
@@ -39,7 +39,7 @@ export function HomepageCallTracker({
   children: React.ReactNode;
 }) {
   return (
-    <div onClick={() => trackHomepageCallClick()}>
+    <div onClick={() => trackHomepageCallClick()} className="contents">
       {children}
     </div>
   );
@@ -51,7 +51,7 @@ export function HomepageDirectionsTracker({
   children: React.ReactNode;
 }) {
   return (
-    <div onClick={() => trackHomepageDirectionsClick()}>
+    <div onClick={() => trackHomepageDirectionsClick()} className="contents">
       {children}
     </div>
   );
