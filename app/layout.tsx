@@ -11,6 +11,7 @@ const michroma = Michroma({
 import { auth } from "@/lib/auth";
 import { ChatWidgetWrapper } from "@/components/chatbot/chat-widget-wrapper";
 import { BottomNav } from "@/components/bottom-nav";
+import { GoogleAnalytics } from "@/components/google-analytics";
 import "./globals.css";
 
 
@@ -110,6 +111,7 @@ export default async function RootLayout({
     <html lang="en" suppressHydrationWarning className={michroma.variable}>
       <head>
         <script src="https://checkout.razorpay.com/v1/checkout.js" async />
+        <GoogleAnalytics />
       </head>
       <body
         className={`antialiased bg-black text-white ${michroma.className}`}
