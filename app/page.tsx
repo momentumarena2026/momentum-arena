@@ -390,7 +390,7 @@ export default function Home() {
 
             <Link
               href="/cafe"
-              className="group relative overflow-hidden rounded-3xl h-72 sm:h-80 md:h-96 border-2 border-amber-500/30 transition-all duration-500 hover:border-amber-400 hover:shadow-2xl hover:shadow-amber-500/20 block"
+              className="group relative overflow-hidden rounded-3xl h-[480px] sm:h-80 md:h-96 border-2 border-amber-500/30 transition-all duration-500 hover:border-amber-400 hover:shadow-2xl hover:shadow-amber-500/20 block"
             >
               {/* Background image */}
               <img
@@ -399,25 +399,25 @@ export default function Home() {
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
               />
               {/* Gradient overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/40" />
               <div className="absolute inset-0 bg-gradient-to-r from-amber-900/40 to-transparent" />
 
               {/* Content */}
-              <div className="absolute inset-0 flex flex-col items-center justify-end p-8 sm:p-12 text-center">
-                <div className="text-5xl md:text-6xl mb-4 group-hover:scale-110 transition-transform duration-300">☕</div>
-                <h3 className="text-3xl md:text-4xl font-black text-white mb-2">
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 sm:justify-end sm:p-12 text-center">
+                <div className="text-5xl md:text-6xl mb-3 group-hover:scale-110 transition-transform duration-300">☕</div>
+                <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2">
                   Order Now
                 </h3>
-                <p className="text-base md:text-lg text-white/70 mb-6 max-w-md">
+                <p className="text-sm sm:text-base md:text-lg text-white/70 mb-4 sm:mb-6 max-w-md">
                   Snacks, fresh beverages, hot meals &amp; combos — served at the arena
                 </p>
-                <div className="flex gap-3 flex-wrap justify-center">
-                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🍿 Snacks</span>
-                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🥤 Beverages</span>
-                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🍛 Meals</span>
-                  <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-medium">🍰 Desserts</span>
+                <div className="flex gap-2 sm:gap-3 flex-wrap justify-center">
+                  <span className="px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-medium">🍿 Snacks</span>
+                  <span className="px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-medium">🥤 Beverages</span>
+                  <span className="px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-medium">🍛 Meals</span>
+                  <span className="px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-medium">🍰 Desserts</span>
                 </div>
-                <div className="mt-6 px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-600 text-black font-bold text-base transition-all duration-300 group-hover:scale-105 group-hover:shadow-lg group-hover:shadow-amber-500/30">
+                <div className="mt-4 sm:mt-6 px-6 sm:px-8 py-2.5 sm:py-3 rounded-full bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm sm:text-base transition-all duration-300 group-hover:scale-105 group-hover:shadow-lg group-hover:shadow-amber-500/30">
                   Browse Menu &amp; Order &rarr;
                 </div>
               </div>
