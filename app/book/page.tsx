@@ -20,7 +20,7 @@ export default async function BookPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back to Dashboard" />
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
         <h1 className="text-2xl font-bold text-white">Book a Court</h1>
         <p className="mt-1 text-zinc-400">
           Choose your sport to get started

@@ -15,7 +15,7 @@ export default async function ReferralPage() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div>
-        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back to Dashboard" />
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20">
             <Gift className="h-5 w-5 text-emerald-400" />

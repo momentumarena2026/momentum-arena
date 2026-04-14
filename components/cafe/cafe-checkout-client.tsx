@@ -462,10 +462,11 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
       )}
 
       <button
-        onClick={() => router.push("/cafe")}
+        type="button"
+        onClick={() => window.history.back()}
         className="w-full text-zinc-400 hover:text-white text-sm py-3 transition-colors"
       >
-        Back to Menu
+        Back
       </button>
     </div>
   );

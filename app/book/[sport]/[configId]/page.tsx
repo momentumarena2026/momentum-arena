@@ -30,7 +30,7 @@ export default async function SlotSelectionPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label={`Back to ${sportInfo.name} Sizes`} />
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
         <h1 className="text-2xl font-bold text-white">
           {sportInfo.name} — {sizeInfo.name}
         </h1>

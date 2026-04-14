@@ -22,7 +22,7 @@ export default async function SportConfigPage({
   if (sportKey === "PICKLEBALL" || sportKey === "BADMINTON") {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <BackButton label="Back to Sports" />
+        <BackButton label="Back" />
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-12 text-center">
           <h2 className="text-2xl font-bold text-white">
             {SPORT_INFO[sportKey].name}
@@ -49,7 +49,7 @@ export default async function SportConfigPage({
   if (configs.length === 0) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <BackButton label="Back to Sports" />
+        <BackButton label="Back" />
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-12 text-center">
           <p className="text-zinc-400">No configurations available for {SPORT_INFO[sportKey].name}.</p>
         </div>
@@ -62,7 +62,7 @@ export default async function SportConfigPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back to Sports" />
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
         <h1 className="text-2xl font-bold text-white">
           {SPORT_INFO[sportKey].name}
         </h1>

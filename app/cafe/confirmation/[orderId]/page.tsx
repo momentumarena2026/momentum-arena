@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { BackButton } from "@/components/back-button";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/pricing";
 
@@ -190,12 +191,10 @@ export default async function CafeConfirmationPage({
           </svg>
           Download Invoice
         </a>
-        <Link
-          href="/cafe"
+        <BackButton
           className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl text-center transition-colors"
-        >
-          Back to Menu
-        </Link>
+          label="Back"
+        />
       </div>
     </div>
   );
