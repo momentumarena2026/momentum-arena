@@ -10,6 +10,7 @@ interface UpiQrCheckoutProps {
   amount: number;
   bookingId?: string;
   onPaymentInitiated?: () => void;
+  onCancel?: () => void;
   isAdvance?: boolean;
   advanceAmount?: number;
   qrType?: "turf" | "cafe";
@@ -36,6 +37,7 @@ export function UpiQrCheckout({
   amount,
   bookingId,
   onPaymentInitiated,
+  onCancel,
   isAdvance,
   advanceAmount,
   qrType = "turf",
@@ -260,6 +262,15 @@ export function UpiQrCheckout({
       <p className="text-center text-xs text-zinc-600">
         Click above after you&apos;ve successfully paid via UPI
       </p>
+
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          className="w-full text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2"
+        >
+          ← Go back
+        </button>
+      )}
     </div>
   );
 }

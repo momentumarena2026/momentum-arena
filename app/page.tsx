@@ -238,8 +238,16 @@ export default function Home() {
           </div>
         </nav>
 
+        {/* Promotional Banner */}
+        <div className="fixed top-20 left-0 right-0 z-40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
+          <p className="text-xs sm:text-sm font-semibold">
+            Flat ₹100 OFF on online bookings! No coupon needed — applied automatically at checkout.
+            <span className="ml-1 opacity-80">Limited period offer.</span>
+          </p>
+        </div>
+
         {/* HERO */}
-        <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-16">
+        <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-16 mt-10">
           {/* Animated gradient background */}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/30 via-black to-black" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-amber-900/15 via-transparent to-transparent" />

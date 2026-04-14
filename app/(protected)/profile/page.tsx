@@ -2,9 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getProfile } from "@/actions/profile";
 import { ProfileForm } from "./profile-form";
-import Link from "next/link";
 import {
-  ArrowLeft,
   User,
   Mail,
   Phone,
@@ -13,6 +11,7 @@ import {
   CheckCircle2,
   Ticket,
 } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -24,13 +23,7 @@ export default async function ProfilePage() {
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <div>
-        <Link
-          href="/dashboard"
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
-        </Link>
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back to Dashboard" />
         <h1 className="text-2xl font-bold text-white">My Profile</h1>
         <p className="mt-1 text-zinc-400">Manage your account information</p>
       </div>

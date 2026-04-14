@@ -1,10 +1,11 @@
 import { db } from "@/lib/db";
 import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
 import { CourtDiagram, SharedCourtDiagram } from "@/components/booking/court-diagram";
-import { ArrowLeft, Maximize2 } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 import { Sport, CourtZone } from "@prisma/client";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { BackButton } from "@/components/back-button";
 
 export default async function SportConfigPage({
   params,
@@ -21,13 +22,7 @@ export default async function SportConfigPage({
   if (sportKey === "PICKLEBALL" || sportKey === "BADMINTON") {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <Link
-          href="/book"
-          className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Sports
-        </Link>
+        <BackButton label="Back to Sports" />
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-12 text-center">
           <h2 className="text-2xl font-bold text-white">
             {SPORT_INFO[sportKey].name}
@@ -46,16 +41,15 @@ export default async function SportConfigPage({
     orderBy: [{ size: "asc" }, { position: "asc" }],
   });
 
+  // Auto-redirect to slot selection if only one config available
+  if (configs.length === 1) {
+    redirect(`/book/${sport}/${configs[0].id}`);
+  }
+
   if (configs.length === 0) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <Link
-          href="/book"
-          className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Sports
-        </Link>
+        <BackButton label="Back to Sports" />
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-12 text-center">
           <p className="text-zinc-400">No configurations available for {SPORT_INFO[sportKey].name}.</p>
         </div>
@@ -68,13 +62,7 @@ export default async function SportConfigPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <Link
-          href="/book"
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Sports
-        </Link>
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back to Sports" />
         <h1 className="text-2xl font-bold text-white">
           {SPORT_INFO[sportKey].name}
         </h1>

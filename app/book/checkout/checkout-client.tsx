@@ -11,19 +11,8 @@ import { formatPrice } from "@/lib/pricing";
 import { validateCoupon, applyCoupon } from "@/actions/coupon-validation";
 import { selectCashPayment } from "@/actions/booking";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
-import { getAvailableEquipment, addEquipmentToBooking } from "@/actions/equipment";
 import { createRecurringBooking } from "@/actions/recurring-booking";
-import { Loader2, Sparkles, Package, RefreshCw, Calendar, CheckCircle, Plus, Minus } from "lucide-react";
-
-interface EquipmentItem {
-  id: string;
-  name: string;
-  sport: string | null;
-  pricePerHour: number;
-  totalPriceForDuration: number;
-  availableUnits: number;
-  imageUrl: string | null;
-}
+import { Loader2, Sparkles, RefreshCw, Calendar, CheckCircle } from "lucide-react";
 
 interface CheckoutClientProps {
   bookingId: string;
@@ -97,12 +86,6 @@ export function CheckoutClient({
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
   const [newUserApplied, setNewUserApplied] = useState(false);
 
-  // Equipment state
-  const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
-  const [equipmentLoading, setEquipmentLoading] = useState(false);
-  const [selectedEquipment, setSelectedEquipment] = useState<Map<string, number>>(new Map());
-  const [equipmentTotal, setEquipmentTotal] = useState(0);
-
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
 
@@ -154,32 +137,34 @@ export function CheckoutClient({
     }
   }, [newUserDiscount, bookingId, discountApplied, amount, sport]);
 
-  // Fetch available equipment
+  // Auto-apply FLAT100 coupon if no other discount applied
   useEffect(() => {
-    if (!sport || !bookingDate || startHour === undefined || endHour === undefined) return;
-
-    setEquipmentLoading(true);
-    getAvailableEquipment(
-      sport as Parameters<typeof getAvailableEquipment>[0],
-      bookingDate,
-      startHour,
-      endHour
-    ).then((result) => {
-      if (result.success) {
-        setEquipment(result.equipment);
+    if (discountApplied || newUserApplied) return;
+    // Small delay to let new user discount apply first
+    const timer = setTimeout(async () => {
+      if (discountApplied) return;
+      try {
+        const result = await validateCoupon("FLAT100", {
+          scope: "SPORTS",
+          amount,
+          sport,
+        });
+        if (result.valid && result.couponId && result.discountAmount) {
+          await applyCoupon(result.couponId, "", {
+            bookingId,
+            discountAmount: result.discountAmount,
+          });
+          setEffectiveAmount(amount - result.discountAmount);
+          setDiscountApplied(true);
+          setDiscountLabel(`Flat ₹100 OFF applied`);
+        }
+      } catch {
+        // Coupon may not exist yet — silently skip
       }
-    }).finally(() => setEquipmentLoading(false));
-  }, [sport, bookingDate, startHour, endHour]);
-
-  // Recalculate equipment total whenever selectedEquipment changes
-  useEffect(() => {
-    let total = 0;
-    for (const [equipId, qty] of selectedEquipment.entries()) {
-      const item = equipment.find((e) => e.id === equipId);
-      if (item) total += item.totalPriceForDuration * qty;
-    }
-    setEquipmentTotal(total);
-  }, [selectedEquipment, equipment]);
+    }, 500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId, amount, sport, newUserApplied]);
 
   // Advance payment calculation
   const advanceAmount = Math.ceil(effectiveAmount * 0.5);
@@ -193,32 +178,6 @@ export function CheckoutClient({
     setEffectiveAmount(newTotal);
     setDiscountApplied(true);
     setDiscountLabel(`Code: ${code} — ${formatPrice(discountAmt)} off`);
-  };
-
-  const handleEquipmentQtyChange = (equipId: string, delta: number) => {
-    setSelectedEquipment((prev) => {
-      const next = new Map(prev);
-      const current = next.get(equipId) || 0;
-      const item = equipment.find((e) => e.id === equipId);
-      if (!item) return prev;
-
-      const newQty = Math.max(0, Math.min(item.availableUnits, current + delta));
-      if (newQty === 0) {
-        next.delete(equipId);
-      } else {
-        next.set(equipId, newQty);
-      }
-      return next;
-    });
-  };
-
-  const addEquipmentAfterBooking = async (bId: string) => {
-    if (selectedEquipment.size === 0) return;
-    const items = Array.from(selectedEquipment.entries()).map(([equipmentId, quantity]) => ({
-      equipmentId,
-      quantity,
-    }));
-    await addEquipmentToBooking(bId, items);
   };
 
   const handleRecurringAfterPayment = async () => {
@@ -290,7 +249,6 @@ export function CheckoutClient({
           });
           if (verifyRes.ok) {
             paymentCompletedRef.current = true;
-            await addEquipmentAfterBooking(bookingId);
             if (!isAdvance) await handleRecurringAfterPayment();
             router.push(`/book/confirmation/${bookingId}`);
           } else {
@@ -366,6 +324,7 @@ export function CheckoutClient({
           onPaymentInitiated={() => {
             // Slot is already locked — user will get confirmation after admin verifies
           }}
+          onCancel={() => { releaseLock(); router.back(); }}
         />
         {paymentMethod === "cash" && (
           <p className="text-center text-xs text-yellow-400">
@@ -442,83 +401,17 @@ export function CheckoutClient({
         </div>
       )}
 
-      {/* Equipment Rental Section */}
-      <div>
-        <h2 className="mb-3 font-semibold text-white flex items-center gap-2">
-          <Package className="h-4 w-4 text-zinc-400" />
-          Equipment Rental
-          <span className="text-xs font-normal text-zinc-500">(Optional)</span>
-        </h2>
-
-        {equipmentLoading ? (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-            <div className="flex items-center gap-2 text-zinc-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading available equipment...</span>
-            </div>
-          </div>
-        ) : equipment.length === 0 ? (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-center text-sm text-zinc-500">
-            No equipment available for rental
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {equipment.map((item) => {
-              const qty = selectedEquipment.get(item.id) || 0;
-              return (
-                <div
-                  key={item.id}
-                  className={`rounded-xl border p-3 transition-colors ${
-                    qty > 0
-                      ? "border-emerald-500/30 bg-emerald-500/5"
-                      : "border-zinc-800 bg-zinc-900"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-white">{item.name}</p>
-                      <p className="text-xs text-zinc-500">
-                        {formatPrice(item.pricePerHour)}/hr {"\u2022"} {item.availableUnits} available
-                      </p>
-                      {qty > 0 && (
-                        <p className="text-xs text-emerald-400 mt-0.5">
-                          +{formatPrice(item.totalPriceForDuration * qty)} for this booking
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleEquipmentQtyChange(item.id, -1)}
-                        disabled={qty === 0}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30"
-                      >
-                        <Minus className="h-3 w-3" />
-                      </button>
-                      <span className="w-5 text-center text-sm font-medium text-white">{qty}</span>
-                      <button
-                        onClick={() => handleEquipmentQtyChange(item.id, 1)}
-                        disabled={qty >= item.availableUnits}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {equipmentTotal > 0 && (
-              <div className="rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2">
-                <p className="text-xs text-zinc-400">
-                  Equipment total: <span className="font-semibold text-white">{formatPrice(equipmentTotal)}</span>
-                  <span className="ml-1 text-zinc-500">(charged separately at venue)</span>
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {/* Included Equipment Banner */}
+      {sport === "CRICKET" && (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+          <p className="text-sm text-emerald-400 font-medium">Stumps, bats and balls included in the charges</p>
+        </div>
+      )}
+      {sport === "FOOTBALL" && (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+          <p className="text-sm text-emerald-400 font-medium">Football and keeping gloves included in the charges</p>
+        </div>
+      )}
 
       {/* Payment Method */}
       <div>
@@ -564,11 +457,6 @@ export function CheckoutClient({
         )}
       </button>
 
-      {equipmentTotal > 0 && (
-        <p className="text-center text-xs text-zinc-500">
-          * Equipment rental ({formatPrice(equipmentTotal)}) will be recorded separately
-        </p>
-      )}
     </div>
   );
 }

@@ -201,6 +201,37 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* Quick Links */}
+      <div className="grid gap-3 grid-cols-2">
+        <Link
+          href="/bookings"
+          className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
+        >
+          <div className="rounded-lg bg-zinc-800 p-2">
+            <History className="h-4 w-4 text-zinc-500" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-white">Booking History</p>
+            <p className="text-xs text-zinc-600">View past sessions</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
+        </Link>
+
+        <Link
+          href="/bookings?filter=recurring"
+          className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
+        >
+          <div className="rounded-lg bg-zinc-800 p-2">
+            <RefreshCw className="h-4 w-4 text-zinc-500" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-white">Recurring</p>
+            <p className="text-xs text-zinc-600">Weekly bookings</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
+        </Link>
+      </div>
+
       {/* Upcoming Bookings */}
       <div>
         <div className="mb-3 flex items-center justify-between">
@@ -311,37 +342,6 @@ export default async function DashboardPage() {
             </Link>
           </div>
         )}
-      </div>
-
-      {/* Quick Links Footer */}
-      <div className="grid gap-3 grid-cols-2">
-        <Link
-          href="/bookings"
-          className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
-        >
-          <div className="rounded-lg bg-zinc-800 p-2">
-            <History className="h-4 w-4 text-zinc-500" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-white">Booking History</p>
-            <p className="text-xs text-zinc-600">View past sessions</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
-        </Link>
-
-        <Link
-          href="/bookings?filter=recurring"
-          className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
-        >
-          <div className="rounded-lg bg-zinc-800 p-2">
-            <RefreshCw className="h-4 w-4 text-zinc-500" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-white">Recurring</p>
-            <p className="text-xs text-zinc-600">Weekly bookings</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
-        </Link>
       </div>
     </div>
   );

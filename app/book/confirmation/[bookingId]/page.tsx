@@ -152,7 +152,7 @@ export default async function ConfirmationPage({
             </div>
             <div>
               <p className="text-sm font-medium text-white">
-                {sportInfo.name} — {sizeInfo.name}
+                {sportInfo.name}
               </p>
               <p className="text-xs text-zinc-400">{booking.courtConfig.label}</p>
             </div>

@@ -5,7 +5,6 @@ import { SPORT_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
-  ArrowLeft,
   Calendar,
   Clock,
   CheckCircle2,
@@ -14,6 +13,7 @@ import {
   ChevronRight,
   RefreshCw,
 } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -74,13 +74,7 @@ export default async function MyBookingsPage({
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <Link
-          href="/dashboard"
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
-        </Link>
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back to Dashboard" />
         <h1 className="text-2xl font-bold text-white">
           {showOnlyRecurring ? "Recurring Series" : "My Bookings"}
         </h1>
@@ -300,19 +294,6 @@ export default async function MyBookingsPage({
                           <span className="text-sm text-zinc-500">
                             {formatPrice(booking.totalAmount)}
                           </span>
-                          {booking.status === "CONFIRMED" && booking.date < new Date() && (
-                            booking.feedback ? (
-                              <span className="text-xs text-yellow-400">
-                                {"★".repeat(booking.feedback.rating)}
-                              </span>
-                            ) : (
-                              <span
-                                className="text-xs text-emerald-400 border border-emerald-500/30 rounded px-2 py-0.5"
-                              >
-                                Rate
-                              </span>
-                            )
-                          )}
                         </div>
                       </div>
                     </Link>

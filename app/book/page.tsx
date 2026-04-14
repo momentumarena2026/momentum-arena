@@ -1,8 +1,7 @@
 import { db } from "@/lib/db";
 import { SPORT_INFO } from "@/lib/court-config";
 import { SportCard } from "@/components/booking/sport-card";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
+import { BackButton } from "@/components/back-button";
 
 export default async function BookPage() {
   const configs = await db.courtConfig.findMany({
@@ -21,13 +20,7 @@ export default async function BookPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <Link
-          href="/dashboard"
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
-        </Link>
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back to Dashboard" />
         <h1 className="text-2xl font-bold text-white">Book a Court</h1>
         <p className="mt-1 text-zinc-400">
           Choose your sport to get started

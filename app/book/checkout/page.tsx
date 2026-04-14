@@ -113,8 +113,8 @@ export default async function CheckoutPage({
             <span className="text-white">{sportInfo.name}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-zinc-400">Court</span>
-            <span className="text-white">{booking.courtConfig.label} ({sizeInfo.name})</span>
+            <span className="text-zinc-400">Type</span>
+            <span className="text-white">{booking.courtConfig.label}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Date</span>
@@ -144,7 +144,7 @@ export default async function CheckoutPage({
         </div>
 
         <div className="border-t border-zinc-800 pt-3">
-          {booking.slots.map((slot) => (
+          {booking.slots.length > 1 && booking.slots.map((slot) => (
             <div key={slot.id} className="flex justify-between text-sm">
               <span className="text-zinc-500">{formatHour(slot.startHour)}</span>
               <span className="text-zinc-300">{formatPrice(slot.price)}</span>

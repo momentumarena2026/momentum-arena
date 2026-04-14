@@ -2,11 +2,11 @@ import { db } from "@/lib/db";
 import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Maximize2 } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 import { CourtDiagram } from "@/components/booking/court-diagram";
 import { SlotSelectionClient } from "./slot-selection-client";
 import { auth } from "@/lib/auth";
+import { BackButton } from "@/components/back-button";
 
 export default async function SlotSelectionPage({
   params,
@@ -30,13 +30,7 @@ export default async function SlotSelectionPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <Link
-          href={`/book/${sport}`}
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to {sportInfo.name} Sizes
-        </Link>
+        <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label={`Back to ${sportInfo.name} Sizes`} />
         <h1 className="text-2xl font-bold text-white">
           {sportInfo.name} — {sizeInfo.name}
         </h1>
