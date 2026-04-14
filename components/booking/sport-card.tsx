@@ -77,7 +77,6 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
           </div>
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-white">{name}</h3>
-            <p className="text-sm text-zinc-400 line-clamp-1">{description}</p>
           </div>
         </div>
         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 transition-transform duration-300 group-hover:translate-x-1 group-hover:text-zinc-400">
