@@ -261,62 +261,62 @@ export default async function DashboardPage() {
                 <Link
                   key={booking.id}
                   href={`/book/confirmation/${booking.id}`}
-                  className={`group flex items-center gap-4 rounded-xl border p-4 transition-all ${
+                  className={`group block rounded-xl border p-4 transition-all ${
                     isNext
                       ? `${colors.border} bg-gradient-to-r ${colors.bg} hover:shadow-lg ${colors.glow}`
                       : "border-zinc-800/80 bg-zinc-900/60 hover:border-zinc-700"
                   }`}
                 >
-                  {/* Sport Icon */}
-                  <div
-                    className={`shrink-0 rounded-lg p-2.5 ${
-                      isNext
-                        ? "bg-white/5 ring-1 ring-white/10"
-                        : "bg-zinc-800"
-                    }`}
-                  >
-                    <span className={colors.text}>
-                      {SPORT_ICON_MAP[sport]}
-                    </span>
-                  </div>
-
-                  {/* Details */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-white truncate">
-                        {sportInfo.name}
+                  {/* Top row: icon + sport name + badge + price */}
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`shrink-0 rounded-lg p-2 ${
+                        isNext
+                          ? "bg-white/5 ring-1 ring-white/10"
+                          : "bg-zinc-800"
+                      }`}
+                    >
+                      <span className={colors.text}>
+                        {SPORT_ICON_MAP[sport]}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-white truncate">
+                          {sportInfo.name}
+                        </p>
+                        {isNext && (
+                          <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                            Next
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-zinc-500 truncate">
+                        {booking.courtConfig.label}
                       </p>
-                      {isNext && (
-                        <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                          Next
-                        </span>
-                      )}
                     </div>
-                    <p className="text-xs text-zinc-500 truncate">
-                      {booking.courtConfig.label}
-                    </p>
-                    <div className="mt-1.5 flex items-center gap-3 text-xs text-zinc-400">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {formatBookingDate(booking.date, {
-                          weekday: "short",
-                          day: "numeric",
-                          month: "short",
-                        })}
+                    <div className="shrink-0 flex items-center gap-1">
+                      <span className={`text-sm font-bold ${colors.text}`}>
+                        {formatPrice(booking.totalAmount)}
                       </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
-                      </span>
+                      <ChevronRight className="h-4 w-4 text-zinc-700 group-hover:text-zinc-400 group-hover:translate-x-0.5 transition-all" />
                     </div>
                   </div>
 
-                  {/* Price */}
-                  <div className="shrink-0 text-right">
-                    <span className={`text-sm font-bold ${colors.text}`}>
-                      {formatPrice(booking.totalAmount)}
+                  {/* Bottom row: date + time */}
+                  <div className="mt-2 ml-[44px] flex items-center gap-4 text-xs text-zinc-400">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3 shrink-0" />
+                      {formatBookingDate(booking.date, {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                      })}
                     </span>
-                    <ChevronRight className="mt-1 ml-auto h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3 shrink-0" />
+                      {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+                    </span>
                   </div>
                 </Link>
               );
