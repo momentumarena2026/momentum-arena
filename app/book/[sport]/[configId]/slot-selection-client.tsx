@@ -129,6 +129,9 @@ export function SlotSelectionClient({
   );
   const total = selectedSlotPrices.reduce((sum, s) => sum + s.price, 0);
 
+  // User is authenticated if server passed userId OR client session is active
+  const isAuthenticated = !!userId || (status === "authenticated" && !!session?.user);
+
   const handleProceed = async () => {
     if (selectedHours.length === 0) return;
 
@@ -139,10 +142,10 @@ export function SlotSelectionClient({
     );
 
     // If session is still loading, wait before deciding
-    if (status === "loading") return;
+    if (status === "loading" && !userId) return;
 
     // If not logged in, show inline auth
-    if (status === "unauthenticated" || !session?.user) {
+    if (!isAuthenticated) {
       setShowAuth(true);
       return;
     }
@@ -539,7 +542,7 @@ export function SlotSelectionClient({
       )}
 
       {/* Inline auth for guests */}
-      {showAuth && status !== "authenticated" && (
+      {showAuth && !isAuthenticated && (
         <CheckoutAuth onAuthenticated={handleAuthenticated} />
       )}
 
