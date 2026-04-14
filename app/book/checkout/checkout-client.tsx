@@ -403,13 +403,15 @@ export function CheckoutClient({
 
       {/* Included Equipment Banner */}
       {sport === "CRICKET" && (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <p className="text-sm text-emerald-400 font-medium">Stumps, bats and balls included in the charges</p>
+        <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
+          <span className="text-base">🏏</span>
+          <p className="text-sm text-zinc-300">Stumps, bats and balls included in the charges</p>
         </div>
       )}
       {sport === "FOOTBALL" && (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <p className="text-sm text-emerald-400 font-medium">Football and keeping gloves included in the charges</p>
+        <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
+          <span className="text-base">⚽</span>
+          <p className="text-sm text-zinc-300">Football and keeping gloves included in the charges</p>
         </div>
       )}
 
