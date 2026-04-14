@@ -5,6 +5,7 @@ import { MessageCircle, CheckCircle2, CircleCheck, ShieldCheck } from "lucide-re
 import { FaWhatsapp } from "react-icons/fa";
 import Image from "next/image";
 import { formatPrice } from "@/lib/pricing";
+import { trackUpiQrShown, trackUpiPaymentConfirmed, trackUpiWhatsappClick } from "@/lib/analytics";
 
 interface UpiQrCheckoutProps {
   amount: number;
@@ -59,7 +60,11 @@ export function UpiQrCheckout({
   );
   const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappMessage}`;
 
+  // Track QR shown on mount
+  useState(() => { trackUpiQrShown(displayAmount); });
+
   const handlePaymentDone = () => {
+    trackUpiPaymentConfirmed(displayAmount);
     setStep("paid");
     onPaymentInitiated?.();
   };
@@ -99,10 +104,18 @@ export function UpiQrCheckout({
             href={whatsappUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackUpiWhatsappClick(bookingId)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3.5 font-semibold text-white transition-colors hover:bg-green-700"
           >
             <FaWhatsapp className="h-5 w-5" />
             Share Screenshot on WhatsApp
+          </a>
+
+          <a
+            href="/bookings"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3.5 font-semibold text-white transition-colors hover:bg-zinc-700"
+          >
+            My Bookings
           </a>
         </div>
 

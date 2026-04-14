@@ -1,6 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
+import { trackSignOutClick } from "@/lib/analytics";
 
 export function SignOutButton({
   className,
@@ -14,6 +15,7 @@ export function SignOutButton({
   return (
     <button
       onClick={async () => {
+        trackSignOutClick();
         if (isAdmin) {
           // Admin uses separate auth endpoint — clear admin cookie
           await fetch("/api/admin-auth/signout", { method: "POST" });

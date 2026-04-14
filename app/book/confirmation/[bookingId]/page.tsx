@@ -5,6 +5,7 @@ import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { CalendarExport } from "./calendar-export";
 import { BookingQR } from "./booking-qr";
+import { ConfirmationTracker } from "./confirmation-tracker";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -112,6 +113,7 @@ export default async function ConfirmationPage({
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
+      <ConfirmationTracker bookingId={booking.id} status={booking.status} />
       {/* Status Header */}
       <div className={`rounded-2xl border p-6 text-center ${status.bg}`}>
         <StatusIcon className={`mx-auto h-12 w-12 ${status.color}`} />

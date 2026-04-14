@@ -10,6 +10,13 @@ import { DiscountInput } from "@/components/booking/discount-input";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
+import {
+  trackCafeCheckoutStarted,
+  trackCafePaymentMethodSelected,
+  trackCafeOrderPlaced,
+  trackCouponApplied,
+  trackError,
+} from "@/lib/analytics";
 
 type PaymentMethod = "ONLINE" | "UPI_QR" | "CASH";
 
@@ -59,6 +66,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
 
   async function handlePlaceOrder() {
     if (items.length === 0) return;
+    trackCafeCheckoutStarted(items.length, finalAmount);
 
     // If online payment selected and not logged in, show inline auth
     if (paymentMethod === "ONLINE" && !isLoggedIn && !session?.user) {
@@ -167,9 +175,11 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
             });
 
             if (verifyRes.ok) {
+              trackCafeOrderPlaced(result.orderId!, finalAmount, "RAZORPAY");
               clearCart();
               router.push(`/cafe/confirmation/${result.orderId}`);
             } else {
+              trackError("cafe_payment", "Payment verification failed");
               setError("Payment verification failed. Please contact support.");
               setLoading(false);
             }
@@ -195,6 +205,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
       }
 
       // For CASH, order is created directly
+      trackCafeOrderPlaced(result.orderId!, finalAmount, "CASH");
       clearCart();
       router.push(`/cafe/confirmation/${result.orderId}`);
     } catch {
@@ -344,6 +355,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
           disabledMessage={appliedCoupon ? `${appliedCoupon.code} — ${formatPrice(appliedCoupon.discount)} off` : undefined}
           onDiscountApplied={(discountAmt, _newTotal, code) => {
             setAppliedCoupon({ code, discount: discountAmt });
+            trackCouponApplied(code, discountAmt);
           }}
         />
       </div>
@@ -374,7 +386,7 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
                 name="paymentMethod"
                 value={method.value}
                 checked={paymentMethod === method.value}
-                onChange={() => setPaymentMethod(method.value)}
+                onChange={() => { setPaymentMethod(method.value); trackCafePaymentMethodSelected(method.value); }}
                 className="sr-only"
               />
               <span className="text-lg">{method.icon}</span>

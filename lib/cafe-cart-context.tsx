@@ -8,6 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { trackCafeItemAdded, trackCafeItemRemoved } from "@/lib/analytics";
 
 export interface CafeCartItem {
   itemId: string;
@@ -76,6 +77,7 @@ export function CafeCartProvider({ children }: { children: ReactNode }) {
 
   const addItem = useCallback(
     (item: Omit<CafeCartItem, "quantity">) => {
+      trackCafeItemAdded(item.name, item.price);
       setItems((prev) => {
         const existing = prev.find((i) => i.itemId === item.itemId);
         const currentTotal = prev.reduce((sum, i) => sum + i.quantity, 0);
@@ -94,7 +96,11 @@ export function CafeCartProvider({ children }: { children: ReactNode }) {
   );
 
   const removeItem = useCallback((itemId: string) => {
-    setItems((prev) => prev.filter((i) => i.itemId !== itemId));
+    setItems((prev) => {
+      const item = prev.find((i) => i.itemId === itemId);
+      if (item) trackCafeItemRemoved(item.name);
+      return prev.filter((i) => i.itemId !== itemId);
+    });
   }, []);
 
   const updateQuantity = useCallback((itemId: string, quantity: number) => {

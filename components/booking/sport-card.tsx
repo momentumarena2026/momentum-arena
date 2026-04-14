@@ -7,6 +7,7 @@ import {
   MdSportsHandball,
   MdSportsTennis,
 } from "react-icons/md";
+import { trackSportSelected } from "@/lib/analytics";
 
 const sportIcons: Record<string, React.ElementType> = {
   CRICKET: MdSportsCricket,
@@ -64,7 +65,7 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
   }
 
   return (
-    <Link href={`/book/${sport.toLowerCase()}`}>
+    <Link href={`/book/${sport.toLowerCase()}`} onClick={() => trackSportSelected(sport)}>
       <div
         className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-br ${colorClass} p-6 h-[100px] flex items-center transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20`}
       >

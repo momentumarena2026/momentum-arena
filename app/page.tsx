@@ -8,6 +8,7 @@ import {
   MdSportsHandball,
 } from "react-icons/md";
 import { LoginButton } from "@/components/login-modal";
+import { HomepageSportTracker, HomepageCafeTracker, HomepageCallTracker, HomepageDirectionsTracker } from "@/components/homepage-tracker";
 
 const sports = [
   {
@@ -338,8 +339,8 @@ export default function Home() {
               {sports.map((sport) => {
                 const Icon = sport.icon;
                 return (
+                  <HomepageSportTracker key={sport.slug} sport={sport.name}>
                   <Link
-                    key={sport.slug}
                     href={`/book/${sport.slug}`}
                     className={`group relative overflow-hidden rounded-2xl h-64 sm:h-72 md:h-80 border border-zinc-800 transition-all duration-500 ${sport.border} ${sport.glow}`}
                   >
@@ -369,6 +370,7 @@ export default function Home() {
                       </div>
                     </div>
                   </Link>
+                  </HomepageSportTracker>
                 );
               })}
             </div>
@@ -388,6 +390,7 @@ export default function Home() {
               </p>
             </div>
 
+            <HomepageCafeTracker>
             <Link
               href="/cafe"
               className="group relative overflow-hidden rounded-3xl h-[480px] sm:h-80 md:h-96 border-2 border-amber-500/30 transition-all duration-500 hover:border-amber-400 hover:shadow-2xl hover:shadow-amber-500/20 block"
@@ -422,6 +425,7 @@ export default function Home() {
                 </div>
               </div>
             </Link>
+            </HomepageCafeTracker>
           </div>
         </section>
 
@@ -494,12 +498,14 @@ export default function Home() {
                     <span className="text-emerald-500 text-xl mt-0.5">📞</span>
                     <div>
                       <h4 className="font-semibold text-white mb-1">Phone</h4>
+                      <HomepageCallTracker>
                       <a
                         href="tel:+916396177261"
                         className="text-zinc-400 text-sm hover:text-emerald-400 transition"
                       >
                         +91 63961 77261
                       </a>
+                      </HomepageCallTracker>
                     </div>
                   </div>
                   <div className="flex items-start gap-4">

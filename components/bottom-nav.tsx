@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChatNavButton } from "@/components/chatbot/chat-nav-button";
+import { trackBottomNavClick } from "@/lib/analytics";
 
 const HIDDEN_PATHS = [
   "/book/checkout",
@@ -41,6 +42,7 @@ export function BottomNav() {
             <Link
               key={tab.href}
               href={tab.href}
+              onClick={() => trackBottomNavClick(tab.label)}
               className={`flex flex-col items-center gap-0.5 transition ${
                 isActive ? "text-emerald-400" : "text-zinc-400 hover:text-white"
               }`}

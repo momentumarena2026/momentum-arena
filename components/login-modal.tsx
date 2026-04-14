@@ -19,6 +19,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  trackLoginModalOpened,
+  trackLoginPhoneSubmitted,
+  trackLoginOtpSubmitted,
+  trackHomepageLoginClick,
+} from "@/lib/analytics";
 
 // --- Phone Input Form ---
 
@@ -65,6 +71,7 @@ function PhoneInputForm() {
       <Button
         type="submit"
         disabled={isPending}
+        onClick={() => trackLoginPhoneSubmitted()}
         className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-5"
       >
         {isPending ? "Sending OTP..." : "Get OTP"}
@@ -288,6 +295,7 @@ function VerifyOtpForm({ phone }: { phone: string }) {
         <Button
           type="submit"
           disabled={isPending || otpValues.join("").length < 6}
+          onClick={() => trackLoginOtpSubmitted()}
           className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-5"
         >
           {isPending ? "Verifying..." : "Verify & Login"}
@@ -446,7 +454,7 @@ export function LoginButton() {
   return (
     <>
       <button
-        onClick={() => setShowLogin(true)}
+        onClick={() => { setShowLogin(true); trackHomepageLoginClick(); trackLoginModalOpened(); }}
         className="px-5 py-2 md:px-6 md:py-2.5 rounded-full bg-green-600 hover:bg-green-700
                    text-white text-xs md:text-sm font-semibold tracking-wide
                    transition-all duration-300 hover:scale-105"

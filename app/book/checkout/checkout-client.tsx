@@ -13,6 +13,17 @@ import { selectCashPayment } from "@/actions/booking";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { createRecurringBooking } from "@/actions/recurring-booking";
 import { Loader2, Sparkles, RefreshCw, Calendar, CheckCircle } from "lucide-react";
+import {
+  trackCheckoutStarted,
+  trackPaymentMethodSelected,
+  trackPaymentInitiated,
+  trackPaymentCompleted,
+  trackPaymentFailed,
+  trackPaymentCancelled,
+  trackCouponApplied,
+  trackNewUserDiscountApplied,
+  trackLockExpired,
+} from "@/lib/analytics";
 
 interface CheckoutClientProps {
   bookingId: string;
@@ -92,6 +103,11 @@ export function CheckoutClient({
   // Track whether payment was completed (don't release lock if payment succeeded)
   const paymentCompletedRef = useRef(false);
 
+  // Track checkout started on mount
+  useEffect(() => {
+    trackCheckoutStarted(bookingId, amount, sport);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Release lock when user leaves checkout without paying
   const releaseLock = useCallback(() => {
     if (paymentCompletedRef.current) return;
@@ -132,6 +148,7 @@ export function CheckoutClient({
           setDiscountApplied(true);
           setNewUserApplied(true);
           setDiscountLabel(`New User: ${newUserDiscount.label}`);
+          trackNewUserDiscountApplied(result.discountAmount);
         }
       });
     }
@@ -157,6 +174,7 @@ export function CheckoutClient({
           setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
           setDiscountLabel(`Flat ₹100 OFF applied`);
+          trackCouponApplied("FLAT100", result.discountAmount);
         }
       } catch {
         // Coupon may not exist yet — silently skip
@@ -171,6 +189,7 @@ export function CheckoutClient({
   const remainingAmount = effectiveAmount - advanceAmount;
 
   const handleExpired = () => {
+    trackLockExpired(bookingId);
     router.push("/book?error=lock_expired");
   };
 
@@ -178,6 +197,7 @@ export function CheckoutClient({
     setEffectiveAmount(newTotal);
     setDiscountApplied(true);
     setDiscountLabel(`Code: ${code} — ${formatPrice(discountAmt)} off`);
+    trackCouponApplied(code, discountAmt);
   };
 
   const handleRecurringAfterPayment = async () => {
@@ -209,6 +229,7 @@ export function CheckoutClient({
 
   // PhonePe: redirect-based flow
   const handlePhonePePayment = async (isAdvance = false) => {
+    trackPaymentInitiated("PHONEPE", effectiveAmount, bookingId);
     const res = await fetch("/api/phonepe/initiate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -224,6 +245,7 @@ export function CheckoutClient({
 
   // Razorpay: modal-based flow
   const handleRazorpayPayment = async (isAdvance = false) => {
+    trackPaymentInitiated("RAZORPAY", effectiveAmount, bookingId);
     const res = await fetch("/api/razorpay/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -249,9 +271,11 @@ export function CheckoutClient({
           });
           if (verifyRes.ok) {
             paymentCompletedRef.current = true;
+            trackPaymentCompleted("RAZORPAY", effectiveAmount, bookingId);
             if (!isAdvance) await handleRecurringAfterPayment();
             router.push(`/book/confirmation/${bookingId}`);
           } else {
+            trackPaymentFailed("RAZORPAY", bookingId, "Verification failed");
             setError("Payment verification failed. Please contact support.");
             setProcessing(false);
           }
@@ -263,6 +287,7 @@ export function CheckoutClient({
       modal: {
         ondismiss: function () {
           // User closed Razorpay modal without completing payment
+          trackPaymentCancelled("RAZORPAY", bookingId);
           setProcessing(false);
         },
       },
@@ -405,20 +430,20 @@ export function CheckoutClient({
       {sport === "CRICKET" && (
         <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
           <span className="text-base">🏏</span>
-          <p className="text-sm text-zinc-300">Stumps, bats and balls included in the charges</p>
+          <p className="text-sm text-zinc-300">Equipment (stumps, bats, and balls) is covered in the pricing.</p>
         </div>
       )}
       {sport === "FOOTBALL" && (
         <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
           <span className="text-base">⚽</span>
-          <p className="text-sm text-zinc-300">Football and keeping gloves included in the charges</p>
+          <p className="text-sm text-zinc-300">Equipment (football and keeping gloves) is covered in the pricing.</p>
         </div>
       )}
 
       {/* Payment Method */}
       <div>
         <h2 className="mb-3 font-semibold text-white">Payment Method</h2>
-        <PaymentSelector selected={paymentMethod} onSelect={(m) => setPaymentMethod(m)} gateway={gateway} />
+        <PaymentSelector selected={paymentMethod} onSelect={(m) => { setPaymentMethod(m); trackPaymentMethodSelected(m); }} gateway={gateway} />
       </div>
 
       {/* Advance Payment for Cash */}

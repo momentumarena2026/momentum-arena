@@ -13,6 +13,16 @@ import { Loader2, RefreshCw, Calendar } from "lucide-react";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
 import type { RecurringTier, DailyTier } from "@/actions/admin-recurring";
 import { getTodayIST } from "@/lib/ist-date";
+import {
+  trackSlotToggled,
+  trackDateChanged,
+  trackRecurringToggled,
+  trackRecurringModeSelected,
+  trackRecurringDurationSelected,
+  trackProceedToCheckout,
+  trackLockSuccess,
+  trackLockFailed,
+} from "@/lib/analytics";
 
 interface SlotSelectionClientProps {
   configId: string;
@@ -122,6 +132,12 @@ export function SlotSelectionClient({
   const handleProceed = async () => {
     if (selectedHours.length === 0) return;
 
+    trackProceedToCheckout(
+      selectedHours.length,
+      isRecurring ? discountedTotal : total,
+      isRecurring,
+    );
+
     // If session is still loading, wait before deciding
     if (status === "loading") return;
 
@@ -155,6 +171,7 @@ export function SlotSelectionClient({
       const data = await res.json();
 
       if (data.success && data.bookingId) {
+        trackLockSuccess(data.bookingId);
         sessionStorage.removeItem(storageKey);
         const params = new URLSearchParams({ bookingId: data.bookingId });
         if (isRecurring && selectedHours.length > 0) {
@@ -179,6 +196,7 @@ export function SlotSelectionClient({
         }
         router.push(`/book/checkout?${params.toString()}`);
       } else {
+        trackLockFailed(data.error || "Failed to lock slots");
         setError(data.error || "Failed to lock slots");
         if (data.conflicts) {
           setSelectedHours((prev) =>
@@ -303,6 +321,7 @@ export function SlotSelectionClient({
         setSelectedDate(date);
         setSelectedHours([]);
         sessionStorage.removeItem(storageKey);
+        trackDateChanged(date);
       }} />
 
       {loading ? (
@@ -319,7 +338,19 @@ export function SlotSelectionClient({
           <SlotGrid
             slots={slots}
             selectedHours={selectedHours}
-            onSelectionChange={setSelectedHours}
+            onSelectionChange={(hours) => {
+              const added = hours.filter((h) => !selectedHours.includes(h));
+              const removed = selectedHours.filter((h) => !hours.includes(h));
+              added.forEach((h) => {
+                const slot = slots.find((s) => s.hour === h);
+                trackSlotToggled("add", h, slot?.price || 0);
+              });
+              removed.forEach((h) => {
+                const slot = slots.find((s) => s.hour === h);
+                trackSlotToggled("remove", h, slot?.price || 0);
+              });
+              setSelectedHours(hours);
+            }}
           />
 
         </>
@@ -332,7 +363,7 @@ export function SlotSelectionClient({
             <button
               role="switch"
               aria-checked={isRecurring}
-              onClick={() => setIsRecurring(!isRecurring)}
+              onClick={() => { setIsRecurring(!isRecurring); trackRecurringToggled(!isRecurring); }}
               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                 isRecurring ? "bg-emerald-600" : "bg-zinc-700"
               }`}
@@ -360,7 +391,7 @@ export function SlotSelectionClient({
                 <p className="text-sm font-medium text-white">Repeat type</p>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setRecurringMode("weekly")}
+                    onClick={() => { setRecurringMode("weekly"); trackRecurringModeSelected("weekly"); }}
                     className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                       recurringMode === "weekly"
                         ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
@@ -371,7 +402,7 @@ export function SlotSelectionClient({
                     Every Week
                   </button>
                   <button
-                    onClick={() => setRecurringMode("daily")}
+                    onClick={() => { setRecurringMode("daily"); trackRecurringModeSelected("daily"); }}
                     className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                       recurringMode === "daily"
                         ? "border-blue-500/50 bg-blue-500/15 text-blue-400"
@@ -403,7 +434,7 @@ export function SlotSelectionClient({
                       return (
                         <button
                           key={w}
-                          onClick={() => setWeeksCount(w)}
+                          onClick={() => { setWeeksCount(w); trackRecurringDurationSelected("weekly", w, getDiscountForWeeks(w)); }}
                           className={`relative rounded-lg border px-2 py-2.5 text-center transition-colors ${
                             isSelected
                               ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
@@ -443,7 +474,7 @@ export function SlotSelectionClient({
                       return (
                         <button
                           key={d}
-                          onClick={() => setDaysCount(d)}
+                          onClick={() => { setDaysCount(d); trackRecurringDurationSelected("daily", d, getDiscountForDays(d)); }}
                           className={`relative rounded-lg border px-2 py-2.5 text-center transition-colors ${
                             isSelected
                               ? "border-blue-500/50 bg-blue-500/15 text-blue-400"

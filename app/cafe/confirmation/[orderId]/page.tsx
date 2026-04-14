@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { BackButton } from "@/components/back-button";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/pricing";
+import { CafeConfirmationTracker } from "./confirmation-tracker";
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -43,6 +44,7 @@ export default async function CafeConfirmationPage({
 
   return (
     <div className="min-h-screen bg-black max-w-2xl mx-auto px-4 py-8">
+      <CafeConfirmationTracker orderId={order.id} />
       {/* Success icon */}
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-900/30 border border-emerald-700 mb-4">
