@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { createSlotLock, releaseSlotLock } from "@/lib/slot-lock";
 import { getSlotPricesForDate } from "@/lib/pricing";
-import { sendBookingConfirmation } from "@/lib/notifications";
+import { sendBookingConfirmation, notifyAdminPendingBooking } from "@/lib/notifications";
 import { createRazorpayOrder } from "@/lib/razorpay";
 
 const lockSlotsSchema = z.object({
@@ -228,6 +228,8 @@ export async function selectUpiPayment(
   });
 
   // Booking stays LOCKED — admin will confirm after verifying payment screenshot
+  // Notify admin about pending payment
+  notifyAdminPendingBooking(bookingId).catch(console.error);
 
   return { success: true, bookingId };
 }
@@ -263,6 +265,8 @@ export async function selectCashPayment(
   });
 
   // Booking stays LOCKED — admin will confirm after verifying payment
+  // Notify admin about pending payment
+  notifyAdminPendingBooking(bookingId).catch(console.error);
 
   return { success: true, bookingId };
 }

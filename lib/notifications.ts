@@ -3,6 +3,10 @@ import { db } from "./db";
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
   process.env.MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID || "";
+const MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID =
+  process.env.MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID || "";
+const ADMIN_NOTIFICATION_PHONES =
+  process.env.ADMIN_NOTIFICATION_PHONES || ""; // Comma-separated: "919876543210,919876543211"
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com";
 
 interface BookingDetails {
@@ -133,4 +137,66 @@ async function logNotification(
       error: error || null,
     },
   });
+}
+
+// ─── Admin notification for pending bookings (UPI QR / Cash) ───
+
+// DLT template (2 variables):
+// "New booking received from {#var#} at Momentum Arena.
+//  Payment pending verification. Check admin panel: {#var#}
+//  - Momentum Arena"
+
+export async function notifyAdminPendingBooking(
+  bookingId: string
+): Promise<void> {
+  const details = await getBookingDetails(bookingId);
+  if (!details) return;
+
+  const adminPhones = ADMIN_NOTIFICATION_PHONES.split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (adminPhones.length === 0) {
+    console.log(
+      `[DEV] No admin phones configured. Skipping admin notification for booking ${bookingId}`
+    );
+    return;
+  }
+
+  const adminPanelUrl = `${APP_URL}/admin`;
+
+  if (!MSG91_AUTH_KEY || !MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID) {
+    console.log(
+      `\n[DEV] Admin Pending Booking SMS:`,
+      `\n  customer_name: ${details.userName}`,
+      `\n  admin_panel_url: ${adminPanelUrl}`,
+      `\n  to: ${adminPhones.join(", ")}\n`
+    );
+    return;
+  }
+
+  try {
+    const recipients = adminPhones.map((phone) => ({
+      mobiles: phone.replace("+", ""),
+      customer_name: details.userName,
+      admin_panel_url: adminPanelUrl,
+    }));
+
+    const response = await fetch("https://control.msg91.com/api/v5/flow/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authkey: MSG91_AUTH_KEY,
+      },
+      body: JSON.stringify({
+        template_id: MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID,
+        recipients,
+      }),
+    });
+
+    const data = await response.json();
+    console.log("MSG91 admin pending booking response:", JSON.stringify(data));
+  } catch (error) {
+    console.error("MSG91 admin pending booking notification error:", error);
+  }
 }
