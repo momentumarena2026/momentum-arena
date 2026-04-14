@@ -618,6 +618,11 @@ export async function adminCreateBooking(data: {
       return booking.id;
     });
 
+    // Send confirmation SMS if booking is confirmed (FREE or RAZORPAY)
+    if (data.paymentMethod === "FREE" || data.paymentMethod === "RAZORPAY") {
+      sendBookingConfirmation(bookingId).catch(console.error);
+    }
+
     return { success: true as const, bookingId };
   } catch (error) {
     return {

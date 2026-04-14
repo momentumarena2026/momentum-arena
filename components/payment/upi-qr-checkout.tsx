@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { Clock, AlertTriangle, MessageCircle, CheckCircle2, CircleCheck } from "lucide-react";
+import { useState, useMemo } from "react";
+import { MessageCircle, CheckCircle2, CircleCheck, ShieldCheck } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import Image from "next/image";
 import { formatPrice } from "@/lib/pricing";
@@ -29,9 +29,8 @@ const CAFE_QR_OPTIONS = [
 ];
 
 const WHATSAPP_NUMBER = "916396177261";
-const TIMER_DURATION = 30 * 60; // 30 minutes in seconds
 
-type Step = "scan" | "paid" | "done";
+type Step = "scan" | "paid";
 
 export function UpiQrCheckout({
   amount,
@@ -42,8 +41,6 @@ export function UpiQrCheckout({
   advanceAmount,
   qrType = "turf",
 }: UpiQrCheckoutProps) {
-  const [secondsLeft, setSecondsLeft] = useState(TIMER_DURATION);
-  const [expired, setExpired] = useState(false);
   const [step, setStep] = useState<Step>("scan");
 
   // Pick a random QR on mount (stable across re-renders)
@@ -62,120 +59,38 @@ export function UpiQrCheckout({
   );
   const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappMessage}`;
 
-  // Countdown timer
-  useEffect(() => {
-    if (expired) return;
-    const interval = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          setExpired(true);
-          clearInterval(interval);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [expired]);
-
-  const formatTime = (s: number) => {
-    const mins = Math.floor(s / 60);
-    const secs = s % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
   const handlePaymentDone = () => {
     setStep("paid");
-  };
-
-  const handleScreenshotSent = () => {
-    setStep("done");
     onPaymentInitiated?.();
   };
 
-  // ---------- Expired state ----------
-  if (expired) {
-    return (
-      <div className="flex flex-col items-center rounded-2xl border border-red-500/30 bg-zinc-900 p-8 text-center">
-        <AlertTriangle className="h-12 w-12 text-red-400 mb-4" />
-        <h3 className="text-lg font-semibold text-white mb-2">
-          Payment Window Expired
-        </h3>
-        <p className="text-sm text-zinc-400">
-          The 30-minute payment window has expired. Please go back and try
-          again.
-        </p>
-      </div>
-    );
-  }
-
-  // ---------- Done state (screenshot shared) ----------
-  if (step === "done") {
-    return (
-      <div className="flex flex-col items-center rounded-2xl border border-emerald-500/30 bg-zinc-900 p-8 text-center space-y-4">
-        <CheckCircle2 className="h-12 w-12 text-emerald-400" />
-        <h3 className="text-lg font-semibold text-white">
-          Slot Locked for 30 Minutes
-        </h3>
-        <p className="text-sm text-zinc-400 max-w-xs">
-          Your slot is temporarily held. Once our team verifies your payment screenshot, your booking will be confirmed.
-        </p>
-        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5">
-          <Clock className="h-4 w-4 text-amber-400" />
-          <span className="text-sm font-medium text-amber-400">
-            Slot held for{" "}
-            <span className="font-mono font-bold">{formatTime(secondsLeft)}</span>
-          </span>
-        </div>
-        <p className="text-xs text-zinc-500">
-          You&apos;ll receive a confirmation message once verified.
-        </p>
-      </div>
-    );
-  }
-
-  // ---------- Step 2: Payment done → share screenshot ----------
+  // ---------- Step 2: Payment done → slot reserved confirmation ----------
   if (step === "paid") {
     return (
       <div className="space-y-5">
-        {/* Timer */}
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5">
-          <Clock className="h-4 w-4 text-amber-400" />
-          <span className="text-sm font-medium text-amber-400">
-            Slot locked for{" "}
-            <span className="font-mono font-bold">{formatTime(secondsLeft)}</span>
-          </span>
-        </div>
-
-        {/* Payment confirmed by user */}
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <CircleCheck className="h-5 w-5 text-emerald-400 shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-emerald-400">Payment Marked as Done</p>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {formatPrice(displayAmount)} via UPI
+        {/* Slot reserved confirmation */}
+        <div className="flex flex-col items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-8 text-center space-y-4">
+          <CheckCircle2 className="h-14 w-14 text-emerald-400" />
+          <div className="space-y-2">
+            <h3 className="text-xl font-bold text-white">
+              Your Slot is Reserved!
+            </h3>
+            <p className="text-sm text-zinc-400 max-w-xs">
+              Please allow us 30 minutes to verify your payment and confirm your booking.
             </p>
           </div>
         </div>
 
-        {/* Share screenshot instructions */}
+        {/* Screenshot reminder */}
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-              <MessageCircle className="h-4 w-4 text-emerald-400" />
-              Share Payment Screenshot
-            </h4>
-            <p className="text-sm text-zinc-400">
-              To confirm your booking, share the payment screenshot on our WhatsApp number. Our team will verify and confirm your slot.
-            </p>
-            <div className="space-y-2 text-sm text-zinc-400">
-              <p className="flex items-start gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-400">1</span>
-                Take a screenshot of the payment confirmation from your UPI app
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-white">
+                Send Payment Screenshot
               </p>
-              <p className="flex items-start gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-400">2</span>
-                Tap the button below to open WhatsApp and share the screenshot
+              <p className="text-sm text-zinc-400">
+                Please share a screenshot of your payment on WhatsApp so our team can verify and confirm your booking quickly.
               </p>
             </div>
           </div>
@@ -184,25 +99,16 @@ export function UpiQrCheckout({
             href={whatsappUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={handleScreenshotSent}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3.5 font-semibold text-white transition-colors hover:bg-green-700"
           >
             <FaWhatsapp className="h-5 w-5" />
             Share Screenshot on WhatsApp
           </a>
-
-          <p className="text-center text-xs text-zinc-500">
-            Your slot is locked for 30 minutes. Our team will verify the payment and confirm your booking.
-          </p>
         </div>
 
-        {/* Go back option */}
-        <button
-          onClick={() => setStep("scan")}
-          className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors py-2"
-        >
-          ← Go back to QR code
-        </button>
+        <p className="text-center text-xs text-zinc-500">
+          You&apos;ll receive a confirmation message once verified.
+        </p>
       </div>
     );
   }
@@ -210,15 +116,6 @@ export function UpiQrCheckout({
   // ---------- Step 1: Scan QR and pay ----------
   return (
     <div className="space-y-5">
-      {/* Timer */}
-      <div className="flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5">
-        <Clock className="h-4 w-4 text-amber-400" />
-        <span className="text-sm font-medium text-amber-400">
-          Slot locked for{" "}
-          <span className="font-mono font-bold">{formatTime(secondsLeft)}</span>
-        </span>
-      </div>
-
       {/* QR Code */}
       <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="rounded-xl bg-white p-3">
