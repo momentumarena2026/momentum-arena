@@ -52,9 +52,6 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
           </div>
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-zinc-400">{name}</h3>
-            <p className="text-sm text-zinc-600 line-clamp-1">
-              {isComingSoon ? "Coming soon" : "Currently unavailable"}
-            </p>
           </div>
         </div>
         {isComingSoon && (

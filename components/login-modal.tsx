@@ -429,15 +429,15 @@ export function LoginButton() {
     return (
       <a
         href={dashboardUrl}
-        className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 rounded-full border border-zinc-700 bg-zinc-900/80 hover:border-zinc-500
+        className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 rounded-full bg-zinc-900/80 hover:bg-zinc-800
                    text-white text-xs md:text-sm font-medium
-                   transition-all duration-200 max-w-[150px] sm:max-w-none"
+                   transition-all duration-200 max-w-[180px] sm:max-w-none"
       >
         <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
           {(session.user.name?.charAt(0) || session.user.email?.charAt(0) || "?").toUpperCase()}
         </div>
         <span className="truncate">
-          {session.user.name?.split(" ")[0] || session.user.email?.split("@")[0] || "Account"}
+          {session.user.name || session.user.email?.split("@")[0] || "Account"}
         </span>
       </a>
     );
