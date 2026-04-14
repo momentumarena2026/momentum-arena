@@ -315,19 +315,14 @@ export function CheckoutClient({
       if (paymentMethod === "online") {
         await handleOnlinePayment(false);
       } else if (paymentMethod === "upi_qr") {
-        const { selectUpiPayment } = await import("@/actions/booking");
-        const result = await selectUpiPayment(bookingId, effectiveAmount);
-        if (!result.success) { setError(result.error || "Failed"); setProcessing(false); return; }
-        paymentCompletedRef.current = true; // UPI QR initiated — don't release lock
+        paymentCompletedRef.current = true; // Don't release lock while QR is shown
         setShowUpiQr(true);
       } else if (paymentMethod === "cash") {
         if (advanceMethod === "online") {
           await handleOnlinePayment(true);
         } else {
+          paymentCompletedRef.current = true; // Don't release lock while QR is shown
           setShowUpiQr(true);
-          const result = await selectCashPayment(bookingId, effectiveAmount);
-          if (!result.success) { setError(result.error || "Failed"); setShowUpiQr(false); return; }
-          paymentCompletedRef.current = true; // Cash payment initiated — don't release lock
         }
       }
     } catch {
@@ -346,8 +341,14 @@ export function CheckoutClient({
           bookingId={bookingId}
           isAdvance={paymentMethod === "cash"}
           advanceAmount={paymentMethod === "cash" ? advanceAmount : undefined}
-          onPaymentInitiated={() => {
-            // Slot is already locked — user will get confirmation after admin verifies
+          onPaymentInitiated={async () => {
+            // Create the unconfirmed booking only after user confirms they paid
+            if (paymentMethod === "upi_qr") {
+              const { selectUpiPayment } = await import("@/actions/booking");
+              await selectUpiPayment(bookingId, effectiveAmount);
+            } else if (paymentMethod === "cash") {
+              await selectCashPayment(bookingId, effectiveAmount);
+            }
           }}
           onCancel={() => { releaseLock(); router.back(); }}
         />
