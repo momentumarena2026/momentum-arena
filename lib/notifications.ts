@@ -87,8 +87,8 @@ async function sendSmsConfirmation(
         recipients: [
           {
             mobiles: details.userPhone!.replace("+", ""),
-            customer_name: details.userName,
-            confirmation_url: confirmationUrl,
+            VAR1: details.userName,
+            VAR2: confirmationUrl,
           },
         ],
       }),
@@ -178,8 +178,8 @@ export async function notifyAdminPendingBooking(
   try {
     const recipients = adminPhones.map((phone) => ({
       mobiles: phone.replace("+", ""),
-      customer_name: details.userName,
-      admin_panel_url: adminPanelUrl,
+      VAR1: details.userName,
+      VAR2: adminPanelUrl,
     }));
 
     const response = await fetch("https://control.msg91.com/api/v5/flow/", {
