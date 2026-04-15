@@ -30,10 +30,13 @@ export default async function AdminBookingsPage({
   const page = parseInt(params.page || "1");
   const today = getTodayIST();
 
+  // Default to CONFIRMED if no status filter is set
+  const activeStatus = params.status ?? "CONFIRMED";
+
   const [{ bookings, total, totalPages }, stats] = await Promise.all([
     getAdminBookings({
       page,
-      status: params.status,
+      status: activeStatus === "ALL" ? undefined : activeStatus,
       sport: params.sport,
       date: params.date,
       limit: 20,
@@ -51,7 +54,7 @@ export default async function AdminBookingsPage({
 
   function filterUrl(overrides: Record<string, string>) {
     const base: Record<string, string> = {
-      status: params.status || "",
+      status: activeStatus || "",
       sport: params.sport || "",
       date: params.date || "",
       page: "1",
@@ -180,14 +183,14 @@ export default async function AdminBookingsPage({
               {opt.label}
             </Link>
           ))}
-          <DateFilterInput currentDate={params.date || ""} status={params.status || ""} sport={params.sport || ""} />
+          <DateFilterInput currentDate={params.date || ""} status={activeStatus} sport={params.sport || ""} />
         </div>
 
         {/* Status row */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] text-zinc-600 uppercase tracking-wider font-semibold w-12">Status</span>
           {[
-            { label: "All", value: "", dot: "" },
+            { label: "All", value: "ALL", dot: "" },
             { label: "Confirmed", value: "CONFIRMED", dot: "bg-emerald-400" },
             { label: "Pending", value: "LOCKED", dot: "bg-yellow-400" },
             { label: "Cancelled", value: "CANCELLED", dot: "bg-red-400" },
@@ -196,7 +199,7 @@ export default async function AdminBookingsPage({
               key={opt.label}
               href={filterUrl({ status: opt.value })}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                (params.status || "") === opt.value
+                activeStatus === opt.value
                   ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
                   : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
               }`}

@@ -202,7 +202,7 @@ export async function getAdminBookings(filters?: {
           },
         },
       },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }],
       skip,
       take: limit,
     }),

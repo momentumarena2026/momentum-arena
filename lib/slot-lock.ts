@@ -208,10 +208,13 @@ export async function releaseSlotLock(
 
 // Clean up expired locks (called by cron)
 export async function cleanupExpiredLocks(): Promise<number> {
+  // Cancel expired locks that have NO pending payment (user abandoned checkout)
+  // Keep LOCKED bookings with a PENDING UPI_QR/CASH payment — admin verifies those
   const result = await db.booking.updateMany({
     where: {
       status: "LOCKED",
       lockExpiresAt: { lt: new Date() },
+      payment: null, // No payment record → user never initiated payment
     },
     data: { status: "CANCELLED" },
   });
