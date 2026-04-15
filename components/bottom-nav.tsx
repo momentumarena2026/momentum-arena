@@ -18,10 +18,12 @@ function isSlotSelectionPage(pathname: string): boolean {
 export function BottomNav() {
   const pathname = usePathname();
 
-  // Hide on slot selection and checkout pages
+  // Hide on slot selection, checkout, and admin pages
   if (
     HIDDEN_PATHS.some((p) => pathname.startsWith(p)) ||
-    isSlotSelectionPage(pathname)
+    isSlotSelectionPage(pathname) ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/godmode")
   ) {
     return null;
   }
