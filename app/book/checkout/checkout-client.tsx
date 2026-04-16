@@ -117,10 +117,13 @@ export function CheckoutClient({
   }, [bookingId]);
 
   useEffect(() => {
-    // Release lock on browser close / tab close / navigation away
+    // Release lock on browser close / tab close / navigation away.
+    // Use both `beforeunload` (desktop) and `pagehide` (mobile Safari/iOS — more reliable).
     window.addEventListener("beforeunload", releaseLock);
+    window.addEventListener("pagehide", releaseLock);
     return () => {
       window.removeEventListener("beforeunload", releaseLock);
+      window.removeEventListener("pagehide", releaseLock);
       // Also release on React unmount (in-app navigation like back button)
       releaseLock();
     };
@@ -315,13 +318,14 @@ export function CheckoutClient({
       if (paymentMethod === "online") {
         await handleOnlinePayment(false);
       } else if (paymentMethod === "upi_qr") {
-        paymentCompletedRef.current = true; // Don't release lock while QR is shown
+        // Just show the QR — don't commit yet. Lock stays active, and will be
+        // released if user leaves before clicking "I've completed the payment".
         setShowUpiQr(true);
       } else if (paymentMethod === "cash") {
         if (advanceMethod === "online") {
           await handleOnlinePayment(true);
         } else {
-          paymentCompletedRef.current = true; // Don't release lock while QR is shown
+          // Same as UPI QR: lock is only committed after user confirms payment
           setShowUpiQr(true);
         }
       }
@@ -342,7 +346,9 @@ export function CheckoutClient({
           isAdvance={paymentMethod === "cash"}
           advanceAmount={paymentMethod === "cash" ? advanceAmount : undefined}
           onPaymentInitiated={async () => {
-            // Create the unconfirmed booking only after user confirms they paid
+            // User clicked "I've completed the payment" — commit the booking as PENDING.
+            // Mark paymentCompleted so the lock isn't released by unload/unmount handlers.
+            paymentCompletedRef.current = true;
             if (paymentMethod === "upi_qr") {
               const { selectUpiPayment } = await import("@/actions/booking");
               await selectUpiPayment(bookingId, effectiveAmount);

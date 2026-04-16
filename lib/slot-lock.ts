@@ -191,6 +191,9 @@ export async function createSlotLock(
 }
 
 // Release a slot lock (user abandoned checkout)
+// Only releases bookings that are still LOCKED *and* have no payment record —
+// once the user has initiated a payment (UPI QR / cash advance), admin verifies it,
+// so we must not auto-cancel those.
 export async function releaseSlotLock(
   bookingId: string,
   userId: string
@@ -200,6 +203,7 @@ export async function releaseSlotLock(
       id: bookingId,
       userId,
       status: "LOCKED",
+      payment: null,
     },
     data: { status: "CANCELLED" },
   });
