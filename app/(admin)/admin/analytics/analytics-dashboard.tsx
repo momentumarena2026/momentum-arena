@@ -45,8 +45,10 @@ type GroupBy = "day" | "week" | "month";
 
 // --------------- Helpers ---------------
 
-function formatINR(paise: number): string {
-  return `\u20B9${(paise / 100).toLocaleString("en-IN")}`;
+// All analytics values are normalized to rupees on the server (see
+// actions/admin-analytics.ts). This keeps display logic unit-free.
+function formatINR(rupees: number): string {
+  return `\u20B9${rupees.toLocaleString("en-IN")}`;
 }
 
 // --------------- Color constants ---------------

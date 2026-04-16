@@ -8,6 +8,16 @@ async function requireAnalyticsAccess() {
   await requireAdmin("VIEW_ANALYTICS");
 }
 
+// Unit normalization:
+//   Payment.amount (sports)   → stored in RUPEES
+//   CafePayment.amount (cafe) → stored in PAISE
+//   CafeOrderItem.totalPrice  → stored in PAISE
+// All analytics output is normalized to RUPEES so the dashboard can render a
+// single unit without per-source math.
+function paiseToRupees(paise: number): number {
+  return Math.round(paise / 100);
+}
+
 // ===========================
 // 1. Revenue Over Time
 // ===========================
@@ -87,7 +97,8 @@ export async function getRevenueOverTime(filters: {
         cafeRevenue: 0,
         totalRevenue: 0,
       };
-      existing.cafeRevenue = Number(row.revenue);
+      // CafePayment.amount is paise → convert to rupees for unified display
+      existing.cafeRevenue = paiseToRupees(Number(row.revenue));
       existing.totalRevenue = existing.sportsRevenue + existing.cafeRevenue;
       periodMap.set(key, existing);
     }
@@ -210,7 +221,8 @@ export async function getCafeCategoryBreakdown(
           revenue: 0,
           orderCount: 0,
         };
-        existing.revenue += item.totalPrice;
+        // CafeOrderItem.totalPrice is paise → convert to rupees
+        existing.revenue += paiseToRupees(item.totalPrice);
         categoryMap.set(category, existing);
 
         if (!orderSets.has(category)) {
@@ -348,7 +360,8 @@ export async function getTopCustomers(
         bookingCount: 0,
         orderCount: 0,
       };
-      existing.totalSpent += p.amount;
+      // CafePayment.amount is paise → convert to rupees for consistent merge
+      existing.totalSpent += paiseToRupees(p.amount);
       existing.orderCount += 1;
       customerMap.set(userId, existing);
     }
@@ -444,7 +457,8 @@ export async function getPaymentMethodBreakdown(
         amount: 0,
       };
       existing.count += row._count.id;
-      existing.amount += row._sum.amount || 0;
+      // CafePayment.amount is paise → convert to rupees before merging with sports
+      existing.amount += paiseToRupees(row._sum.amount || 0);
       methodMap.set(row.method, existing);
     }
 
@@ -541,8 +555,9 @@ export async function getKPIStats(dateFrom: string, dateTo: string) {
       }),
     ]);
 
+    // Payment.amount (sports) is rupees; CafePayment.amount is paise.
     const sportsRevenue = sportsAgg._sum.amount || 0;
-    const cafeRevenue = cafeAgg._sum.amount || 0;
+    const cafeRevenue = paiseToRupees(cafeAgg._sum.amount || 0);
     const totalRevenue = sportsRevenue + cafeRevenue;
 
     const sportsPaymentCount = sportsAgg._count.id;
