@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
 import { getActiveGateway } from "@/actions/admin-payment-settings";
@@ -122,7 +122,7 @@ export default async function CheckoutPage({
           <div className="flex justify-between">
             <span className="text-zinc-400">Slots</span>
             <span className="text-white">
-              {sortedSlots.map((s) => formatHour(s.hour)).join(", ")}
+              {formatHoursAsRanges(sortedSlots.map((s) => s.hour))}
             </span>
           </div>
           {recurringEnabled && recurringCount && (
@@ -138,7 +138,7 @@ export default async function CheckoutPage({
         <div className="border-t border-zinc-800 pt-3">
           {sortedSlots.length > 1 && sortedSlots.map((slot) => (
             <div key={slot.hour} className="flex justify-between text-sm">
-              <span className="text-zinc-500">{formatHour(slot.hour)}</span>
+              <span className="text-zinc-500">{formatHourRangeCompact(slot.hour)}</span>
               <span className="text-zinc-300">{formatPrice(slot.price)}</span>
             </div>
           ))}

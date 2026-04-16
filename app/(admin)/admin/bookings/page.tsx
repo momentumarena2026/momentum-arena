@@ -165,7 +165,7 @@ export default async function AdminBookingsPage({
 
         {/* Date row */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] text-zinc-600 uppercase tracking-wider font-semibold w-12">Date</span>
+          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Date</span>
           {[
             { label: "All", value: "" },
             { label: "Today", value: today },
@@ -188,7 +188,7 @@ export default async function AdminBookingsPage({
 
         {/* Status row */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] text-zinc-600 uppercase tracking-wider font-semibold w-12">Status</span>
+          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Status</span>
           {[
             { label: "All", value: "ALL", dot: "" },
             { label: "Confirmed", value: "CONFIRMED", dot: "bg-emerald-400" },
@@ -212,7 +212,7 @@ export default async function AdminBookingsPage({
 
         {/* Sport row */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] text-zinc-600 uppercase tracking-wider font-semibold w-12">Sport</span>
+          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Sport</span>
           <Link
             href={filterUrl({ sport: "" })}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${

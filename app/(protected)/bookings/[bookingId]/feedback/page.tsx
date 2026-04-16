@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, formatHourCompact } from "@/lib/court-config";
 import { formatBookingDate } from "@/lib/pricing";
 import { FeedbackForm } from "./feedback-form";
 import { Star } from "lucide-react";
@@ -43,8 +43,8 @@ export default async function FeedbackPage({
           <p className="font-bold text-white">{sport.name} — {booking.courtConfig.label}</p>
           <p className="text-sm text-zinc-400">
             {formatBookingDate(booking.date, { dateStyle: "medium" })} •{" "}
-            {formatHour(booking.slots[0]?.startHour)} –{" "}
-            {formatHour((booking.slots[booking.slots.length - 1]?.startHour ?? 0) + 1)}
+            {formatHourCompact(booking.slots[0]?.startHour)} –{" "}
+            {formatHourCompact((booking.slots[booking.slots.length - 1]?.startHour ?? 0) + 1)}
           </p>
         </div>
       </div>

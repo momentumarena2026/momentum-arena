@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { blockSlot, unblockSlot } from "@/actions/admin-slots";
-import { formatHour, getAllSlotHours, SPORT_INFO } from "@/lib/court-config";
+import { formatHourRangeCompact, getAllSlotHours, SPORT_INFO } from "@/lib/court-config";
 import { Plus, Trash2, Loader2, CalendarOff, X } from "lucide-react";
 import { Sport } from "@prisma/client";
 import { getTodayIST } from "@/lib/ist-date";
@@ -163,7 +163,7 @@ export function SlotBlockManager({ configs, existingBlocks }: SlotBlockManagerPr
             >
               {getAllSlotHours().map((h) => (
                 <option key={h} value={h}>
-                  {formatHour(h)}
+                  {formatHourRangeCompact(h)}
                 </option>
               ))}
             </select>
@@ -219,7 +219,7 @@ export function SlotBlockManager({ configs, existingBlocks }: SlotBlockManagerPr
                       year: "numeric",
                     })}
                     {block.startHour !== null
-                      ? ` • ${formatHour(block.startHour)}`
+                      ? ` • ${formatHourRangeCompact(block.startHour)}`
                       : " • Full day"}
                     {block.reason ? ` • ${block.reason}` : ""}
                   </p>

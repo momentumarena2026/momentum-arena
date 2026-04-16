@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { formatHour, SPORT_INFO } from "@/lib/court-config";
+import { formatHourRangeCompact, SPORT_INFO } from "@/lib/court-config";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 
@@ -84,7 +84,7 @@ export async function sendBookingReminders(): Promise<{
       const sportName =
         SPORT_INFO[booking.courtConfig.sport]?.name ||
         booking.courtConfig.sport;
-      const timeStr = formatHour(startHour);
+      const timeStr = formatHourRangeCompact(startHour);
 
       const message = `Reminder: Your ${sportName} booking at Momentum Arena is tomorrow at ${timeStr}. Booking ID: ${booking.id}`;
 
@@ -146,7 +146,7 @@ export async function sendBookingReminders(): Promise<{
       const sportName =
         SPORT_INFO[booking.courtConfig.sport]?.name ||
         booking.courtConfig.sport;
-      const timeStr = formatHour(startHour);
+      const timeStr = formatHourRangeCompact(startHour);
 
       const message = `Your ${sportName} booking at Momentum Arena starts in 2 hours at ${timeStr}. Court ready for you!`;
 

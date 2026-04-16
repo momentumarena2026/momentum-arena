@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { jsPDF } from "jspdf";
-import { formatHour, SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
+import {
+  formatHourRangeCompact,
+  formatHoursAsRanges,
+  SPORT_INFO,
+  SIZE_INFO,
+} from "@/lib/court-config";
 import { formatBookingDate } from "@/lib/pricing";
 import fs from "fs";
 import path from "path";
@@ -19,8 +24,9 @@ const COMPANY = {
 
 const GST_RATE = 18; // 18% GST inclusive
 
-function formatPrice(paise: number): string {
-  return `Rs. ${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+// Values are stored in rupees throughout the codebase (see lib/pricing.ts).
+function formatPrice(rupees: number): string {
+  return `Rs. ${rupees.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 }
 
 function numberToWords(num: number): string {
@@ -215,7 +221,7 @@ export async function GET(request: Request) {
     month: "long",
     year: "numeric",
   });
-  const slotTimes = booking.slots.map((s) => formatHour(s.startHour)).join(", ");
+  const slotTimes = formatHoursAsRanges(booking.slots.map((s) => s.startHour));
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
@@ -265,7 +271,7 @@ export async function GET(request: Request) {
   doc.setFont("helvetica", "normal");
 
   booking.slots.forEach((slot, index) => {
-    const slotDesc = `${sportInfo?.name || booking.courtConfig.sport} - ${booking.courtConfig.label} (${formatHour(slot.startHour)})`;
+    const slotDesc = `${sportInfo?.name || booking.courtConfig.sport} - ${booking.courtConfig.label} (${formatHourRangeCompact(slot.startHour)})`;
     doc.text(String(index + 1), colX.sno, y + 4);
     doc.text(slotDesc, colX.desc, y + 4);
     doc.text("1", colX.hrs, y + 4);
@@ -279,15 +285,15 @@ export async function GET(request: Request) {
   doc.line(margin, y, pageWidth - margin, y);
   y += 4;
 
-  // --- GST Calculation ---
+  // --- GST Calculation (amounts are in rupees) ---
   // Total is inclusive of 18% GST
-  const totalAmountPaise = booking.totalAmount;
-  const baseAmountPaise = Math.round(totalAmountPaise / 1.18);
-  const cgstPaise = Math.round((totalAmountPaise - baseAmountPaise) / 2);
-  const sgstPaise = totalAmountPaise - baseAmountPaise - cgstPaise;
+  const totalAmountRupees = booking.totalAmount;
+  const baseAmountRupees = Math.round(totalAmountRupees / 1.18);
+  const cgstRupees = Math.round((totalAmountRupees - baseAmountRupees) / 2);
+  const sgstRupees = totalAmountRupees - baseAmountRupees - cgstRupees;
 
-  const discountPaise = booking.discountAmount || 0;
-  const originalPaise = booking.originalAmount || totalAmountPaise + discountPaise;
+  const discountRupees = booking.discountAmount || 0;
+  const originalRupees = booking.originalAmount || totalAmountRupees + discountRupees;
 
   // Subtotal
   doc.setFont("helvetica", "normal");
@@ -295,27 +301,27 @@ export async function GET(request: Request) {
   const rightCol = pageWidth - margin;
   const labelCol = rightCol - 45;
 
-  if (discountPaise > 0) {
+  if (discountRupees > 0) {
     doc.text("Subtotal:", labelCol, y);
-    doc.text(formatPrice(originalPaise), rightCol, y, { align: "right" });
+    doc.text(formatPrice(originalRupees), rightCol, y, { align: "right" });
     y += 5;
     doc.text(`Discount:`, labelCol, y);
     doc.setTextColor(220, 50, 50);
-    doc.text(`- ${formatPrice(discountPaise)}`, rightCol, y, { align: "right" });
+    doc.text(`- ${formatPrice(discountRupees)}`, rightCol, y, { align: "right" });
     doc.setTextColor(0, 0, 0);
     y += 5;
   }
 
   doc.text("Taxable Amount:", labelCol, y);
-  doc.text(formatPrice(baseAmountPaise), rightCol, y, { align: "right" });
+  doc.text(formatPrice(baseAmountRupees), rightCol, y, { align: "right" });
   y += 5;
 
   doc.text(`CGST (${GST_RATE / 2}%):`, labelCol, y);
-  doc.text(formatPrice(cgstPaise), rightCol, y, { align: "right" });
+  doc.text(formatPrice(cgstRupees), rightCol, y, { align: "right" });
   y += 5;
 
   doc.text(`SGST (${GST_RATE / 2}%):`, labelCol, y);
-  doc.text(formatPrice(sgstPaise), rightCol, y, { align: "right" });
+  doc.text(formatPrice(sgstRupees), rightCol, y, { align: "right" });
   y += 5;
 
   // Total
@@ -326,14 +332,14 @@ export async function GET(request: Request) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("Total:", labelCol, y);
-  doc.text(formatPrice(totalAmountPaise), rightCol, y, { align: "right" });
+  doc.text(formatPrice(totalAmountRupees), rightCol, y, { align: "right" });
   y += 8;
 
   // Amount in words
   doc.setFontSize(8);
   doc.setFont("helvetica", "italic");
   doc.setTextColor(80, 80, 80);
-  const totalRupees = Math.round(totalAmountPaise / 100);
+  const totalRupees = Math.round(totalAmountRupees);
   doc.text(`Amount in words: ${numberToWords(totalRupees)}`, margin, y);
   y += 6;
 

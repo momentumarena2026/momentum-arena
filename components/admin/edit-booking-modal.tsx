@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getAvailableSlots, adminEditBookingFull } from "@/actions/admin-booking";
+import { formatHourRangeCompact } from "@/lib/court-config";
 
 interface EditBookingModalProps {
   bookingId: string;
@@ -18,14 +19,6 @@ interface EditBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-}
-
-function formatHour(h: number): string {
-  const normalized = h % 24;
-  if (normalized === 0 || normalized === 24) return "12:00 AM";
-  if (normalized === 12) return "12:00 PM";
-  if (normalized < 12) return `${normalized}:00 AM`;
-  return `${normalized - 12}:00 PM`;
 }
 
 export function EditBookingModal({
@@ -271,7 +264,7 @@ export function EditBookingModal({
                     }`}
                   >
                     <span className="font-medium">
-                      {formatHour(slot.hour)}
+                      {formatHourRangeCompact(slot.hour)}
                     </span>
                     <span
                       className={`mt-0.5 ${isSelected ? "text-emerald-400" : "text-zinc-500"}`}

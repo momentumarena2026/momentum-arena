@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
-import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, formatHourCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
@@ -472,9 +472,7 @@ function BookingCard({
   const StatusIcon = status.icon;
   const muted = past && booking.status === "CANCELLED";
 
-  const timeRange = booking.slots
-    .map((s) => formatHour(s.startHour))
-    .join(", ");
+  const timeRange = formatHoursAsRanges(booking.slots.map((s) => s.startHour));
 
   const bookedOn = formatBookingDate(booking.createdAt, {
     day: "numeric",
@@ -611,7 +609,7 @@ function RecurringCard({
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800/70 px-2.5 py-1 text-xs font-medium text-zinc-300">
                 <Clock className="h-3 w-3 text-zinc-500" />
-                {formatHour(startHour)} – {formatHour(endHour)}
+                {formatHourCompact(startHour)} – {formatHourCompact(endHour)}
               </span>
             </div>
           </div>

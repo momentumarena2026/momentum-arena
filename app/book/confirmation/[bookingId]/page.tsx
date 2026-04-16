@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatHourCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { CalendarExport } from "./calendar-export";
 import { BookingQR } from "./booking-qr";
@@ -143,7 +143,7 @@ export default async function ConfirmationPage({
                 })}
               </p>
               <p className="text-xs text-zinc-400">
-                {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+                {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
               </p>
             </div>
           </div>
@@ -224,7 +224,7 @@ export default async function ConfirmationPage({
             <div className="flex justify-between">
               <span className="text-zinc-400">Time</span>
               <span className="text-white">
-                {formatHour(booking.recurringBooking.startHour)} – {formatHour(booking.recurringBooking.endHour)}
+                {formatHourCompact(booking.recurringBooking.startHour)} – {formatHourCompact(booking.recurringBooking.endHour)}
               </span>
             </div>
             <div className="flex justify-between">

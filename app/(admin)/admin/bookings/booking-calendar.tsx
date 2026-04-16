@@ -19,7 +19,7 @@ import {
   type CellBooking,
   type CalendarConfig,
 } from "@/actions/admin-calendar";
-import { formatHour } from "@/lib/court-config";
+import { formatHourCompact, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 
 // --------------- Constants ---------------
@@ -307,7 +307,7 @@ export default function BookingCalendar({
                         isCurrentHour ? "text-emerald-400" : "text-zinc-500"
                       }`}
                     >
-                      {formatHour(hour)}
+                      {formatHourCompact(hour)}
                     </span>
                     {isCurrentHour && (
                       <div className="mt-0.5">
@@ -567,7 +567,7 @@ function BookingDetailModal({
             <InfoBlock label="Court">{config.label}</InfoBlock>
             <InfoBlock label="Date">{formatDateDisplay(date)}</InfoBlock>
             <InfoBlock label="Time">
-              {booking.slots.map((h) => formatHour(h)).join(", ")}
+              {formatHoursAsRanges(booking.slots)}
             </InfoBlock>
             <InfoBlock label="Amount">
               <span className="text-emerald-400 font-semibold">
@@ -657,7 +657,7 @@ function QuickBookModal({
             </InfoBlock>
             <InfoBlock label="Court">{config.label}</InfoBlock>
             <InfoBlock label="Date">{formatDateDisplay(date)}</InfoBlock>
-            <InfoBlock label="Time">{formatHour(hour)}</InfoBlock>
+            <InfoBlock label="Time">{formatHourRangeCompact(hour)}</InfoBlock>
           </div>
         </div>
 

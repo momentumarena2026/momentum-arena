@@ -15,7 +15,7 @@ import {
   type CalendarData,
   type CellBooking,
 } from "@/actions/admin-calendar";
-import { formatHour } from "@/lib/court-config";
+import { formatHourCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { getTodayIST } from "@/lib/ist-date";
 import type { Sport } from "@prisma/client";
 
@@ -221,7 +221,7 @@ export function CalendarView({ initialDate, initialData }: CalendarViewProps) {
                           : "bg-zinc-900 text-zinc-500"
                       }`}
                     >
-                      {formatHour(hour)}
+                      {formatHourCompact(hour)}
                     </td>
 
                     {/* Config columns */}
@@ -415,7 +415,7 @@ function BookingDetailModal({
           />
           <DetailRow
             label="Slots"
-            value={booking.slots.map((h) => formatHour(h)).join(", ")}
+            value={formatHoursAsRanges(booking.slots)}
           />
           <DetailRow label="Amount" value={formatPrice(booking.totalAmount)} />
           {booking.paymentStatus && (

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatHoursAsRanges } from "@/lib/court-config";
+
 interface BookingEditHistoryProps {
   history: {
     id: string;
@@ -16,14 +18,6 @@ interface BookingEditHistoryProps {
     note: string | null;
     createdAt: string;
   }[];
-}
-
-function formatHour(h: number): string {
-  const normalized = h % 24;
-  if (normalized === 0 || normalized === 24) return "12:00 AM";
-  if (normalized === 12) return "12:00 PM";
-  if (normalized < 12) return `${normalized}:00 AM`;
-  return `${normalized - 12}:00 PM`;
 }
 
 function formatDate(dateStr: string): string {
@@ -138,11 +132,11 @@ export function BookingEditHistory({ history }: BookingEditHistoryProps) {
                   <p>
                     Slots:{" "}
                     <span className="text-zinc-500">
-                      {entry.previousSlots.map(formatHour).join(", ")}
+                      {formatHoursAsRanges(entry.previousSlots)}
                     </span>{" "}
                     <span className="text-zinc-600">&rarr;</span>{" "}
                     <span className="text-white">
-                      {entry.newSlots.map(formatHour).join(", ")}
+                      {formatHoursAsRanges(entry.newSlots)}
                     </span>
                   </p>
                 )}

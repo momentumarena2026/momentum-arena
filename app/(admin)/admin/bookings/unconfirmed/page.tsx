@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
-import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, formatHoursAsRanges } from "@/lib/court-config";
 import type { Sport } from "@prisma/client";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
@@ -104,7 +104,7 @@ export default async function UnconfirmedBookingsPage({
                           {formatBookingDate(booking.date, { day: "numeric", month: "short" })}
                         </p>
                         <p className="text-xs text-zinc-500 font-mono">
-                          {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+                          {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
                         </p>
                       </td>
                       <td className="px-4 py-3 font-semibold text-white whitespace-nowrap">
