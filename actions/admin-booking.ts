@@ -202,7 +202,7 @@ export async function getAdminBookings(filters?: {
           },
         },
       },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }],
       skip,
       take: limit,
     }),
@@ -357,7 +357,6 @@ export async function getAvailableSlots(
 
   try {
     const dateOnly = new Date(dateStr + "T00:00:00Z");
-    const now = new Date();
 
     // Get court config
     const config = await db.courtConfig.findUnique({
@@ -370,10 +369,7 @@ export async function getAvailableSlots(
     const activeBookings = await db.booking.findMany({
       where: {
         date: dateOnly,
-        OR: [
-          { status: "CONFIRMED" },
-          { status: "LOCKED", lockExpiresAt: { gt: now } },
-        ],
+        status: { in: ["CONFIRMED", "PENDING"] },
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       include: {
@@ -493,10 +489,7 @@ export async function adminCreateBooking(data: {
     const activeBookings = await db.booking.findMany({
       where: {
         date: dateOnly,
-        OR: [
-          { status: "CONFIRMED" },
-          { status: "LOCKED", lockExpiresAt: { gt: now } },
-        ],
+        status: { in: ["CONFIRMED", "PENDING"] },
       },
       include: { courtConfig: true, slots: true },
     });
@@ -662,7 +655,6 @@ export async function adminEditBookingSlots(
     }
 
     const dateOnly = booking.date;
-    const now = new Date();
     const config = booking.courtConfig;
 
     // Check availability excluding current booking
@@ -670,10 +662,7 @@ export async function adminEditBookingSlots(
       where: {
         date: dateOnly,
         id: { not: bookingId },
-        OR: [
-          { status: "CONFIRMED" },
-          { status: "LOCKED", lockExpiresAt: { gt: now } },
-        ],
+        status: { in: ["CONFIRMED", "PENDING"] },
       },
       include: { courtConfig: true, slots: true },
     });
@@ -828,17 +817,12 @@ export async function adminEditBookingFull(
     if (!finalConfig) return { success: false as const, error: "Court config not found" };
     if (!finalConfig.isActive) return { success: false as const, error: "Court is not active" };
 
-    const now = new Date();
-
     // Check availability excluding current booking
     const activeBookings = await db.booking.findMany({
       where: {
         date: finalDate,
         id: { not: bookingId },
-        OR: [
-          { status: "CONFIRMED" },
-          { status: "LOCKED", lockExpiresAt: { gt: now } },
-        ],
+        status: { in: ["CONFIRMED", "PENDING"] },
       },
       include: { courtConfig: true, slots: true },
     });

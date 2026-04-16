@@ -8,8 +8,8 @@ import { AdvancePaymentSelector, type AdvancePaymentMethod } from "@/components/
 import { DiscountInput } from "@/components/booking/discount-input";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { formatPrice } from "@/lib/pricing";
-import { validateCoupon, applyCoupon } from "@/actions/coupon-validation";
-import { selectCashPayment } from "@/actions/booking";
+import { validateCoupon } from "@/actions/coupon-validation";
+import { selectCashPayment, selectUpiPayment } from "@/actions/booking";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { createRecurringBooking } from "@/actions/recurring-booking";
 import { Loader2, Sparkles, RefreshCw, Calendar, CheckCircle } from "lucide-react";
@@ -26,12 +26,12 @@ import {
 } from "@/lib/analytics";
 
 interface CheckoutClientProps {
-  bookingId: string;
+  holdId: string;
   amount: number;
   perSessionAmount?: number;
   recurringDiscountPercent?: number;
   sport?: string;
-  lockExpiresAt: string;
+  expiresAt: string;
   userName: string;
   userEmail: string;
   userPhone: string;
@@ -59,12 +59,12 @@ interface CheckoutClientProps {
 }
 
 export function CheckoutClient({
-  bookingId,
+  holdId,
   amount,
   perSessionAmount,
   recurringDiscountPercent,
   sport,
-  lockExpiresAt,
+  expiresAt,
   userName,
   userEmail,
   userPhone,
@@ -100,27 +100,30 @@ export function CheckoutClient({
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
 
-  // Track whether payment was completed (don't release lock if payment succeeded)
+  // Track whether payment was completed (don't release hold if payment succeeded)
   const paymentCompletedRef = useRef(false);
 
   // Track checkout started on mount
   useEffect(() => {
-    trackCheckoutStarted(bookingId, amount, sport);
+    trackCheckoutStarted(holdId, amount, sport);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Release lock when user leaves checkout without paying
+  // Release hold when user leaves checkout without paying
   const releaseLock = useCallback(() => {
     if (paymentCompletedRef.current) return;
     // Use sendBeacon for reliability — works even during page unload
-    const payload = JSON.stringify({ bookingId });
+    const payload = JSON.stringify({ holdId });
     navigator.sendBeacon("/api/booking/release-lock", payload);
-  }, [bookingId]);
+  }, [holdId]);
 
   useEffect(() => {
-    // Release lock on browser close / tab close / navigation away
+    // Release hold on browser close / tab close / navigation away.
+    // Use both `beforeunload` (desktop) and `pagehide` (mobile Safari/iOS — more reliable).
     window.addEventListener("beforeunload", releaseLock);
+    window.addEventListener("pagehide", releaseLock);
     return () => {
       window.removeEventListener("beforeunload", releaseLock);
+      window.removeEventListener("pagehide", releaseLock);
       // Also release on React unmount (in-app navigation like back button)
       releaseLock();
     };
@@ -131,19 +134,17 @@ export function CheckoutClient({
   const recurringUnitLabel = recurringMode === "daily" ? "day" : "week";
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
 
-  // Auto-apply new user discount on mount via unified coupon system
+  // Auto-apply new user discount on mount via unified coupon system.
+  // NOTE: actual coupon usage tracking happens server-side when the Booking
+  // is created — at this stage we only validate and reduce the displayed total.
   useEffect(() => {
     if (newUserDiscount && !discountApplied) {
       validateCoupon(newUserDiscount.code, {
         scope: "SPORTS",
         amount,
         sport,
-      }).then(async (result) => {
+      }).then((result) => {
         if (result.valid && result.couponId && result.discountAmount) {
-          await applyCoupon(result.couponId, "", {
-            bookingId,
-            discountAmount: result.discountAmount,
-          });
           setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
           setNewUserApplied(true);
@@ -152,7 +153,7 @@ export function CheckoutClient({
         }
       });
     }
-  }, [newUserDiscount, bookingId, discountApplied, amount, sport]);
+  }, [newUserDiscount, discountApplied, amount, sport]);
 
   // Auto-apply FLAT100 coupon if no other discount applied
   useEffect(() => {
@@ -167,10 +168,6 @@ export function CheckoutClient({
           sport,
         });
         if (result.valid && result.couponId && result.discountAmount) {
-          await applyCoupon(result.couponId, "", {
-            bookingId,
-            discountAmount: result.discountAmount,
-          });
           setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
           setDiscountLabel(`Flat ₹100 OFF applied`);
@@ -182,14 +179,14 @@ export function CheckoutClient({
     }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookingId, amount, sport, newUserApplied]);
+  }, [amount, sport, newUserApplied]);
 
   // Advance payment calculation
   const advanceAmount = Math.ceil(effectiveAmount * 0.5);
   const remainingAmount = effectiveAmount - advanceAmount;
 
   const handleExpired = () => {
-    trackLockExpired(bookingId);
+    trackLockExpired(holdId);
     router.push("/book?error=lock_expired");
   };
 
@@ -229,15 +226,15 @@ export function CheckoutClient({
 
   // PhonePe: redirect-based flow
   const handlePhonePePayment = async (isAdvance = false) => {
-    trackPaymentInitiated("PHONEPE", effectiveAmount, bookingId);
+    trackPaymentInitiated("PHONEPE", effectiveAmount, holdId);
     const res = await fetch("/api/phonepe/initiate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId, isAdvance, overrideAmount: effectiveAmount }),
+      body: JSON.stringify({ holdId, isAdvance, overrideAmount: effectiveAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
-    // Mark as completed before redirect — don't release lock on unload
+    // Mark as completed before redirect — don't release hold on unload
     paymentCompletedRef.current = true;
     // Redirect to PhonePe checkout page
     window.location.href = data.redirectUrl;
@@ -245,11 +242,11 @@ export function CheckoutClient({
 
   // Razorpay: modal-based flow
   const handleRazorpayPayment = async (isAdvance = false) => {
-    trackPaymentInitiated("RAZORPAY", effectiveAmount, bookingId);
+    trackPaymentInitiated("RAZORPAY", effectiveAmount, holdId);
     const res = await fetch("/api/razorpay/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance, overrideAmount: effectiveAmount }),
+      body: JSON.stringify({ holdId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance, overrideAmount: effectiveAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
@@ -259,7 +256,7 @@ export function CheckoutClient({
       amount: data.amount,
       currency: data.currency,
       name: "Momentum Arena",
-      description: isAdvance ? `Advance for Booking #${bookingId.slice(-8)}` : `Booking #${bookingId.slice(-8)}`,
+      description: isAdvance ? `Advance for Hold #${holdId.slice(-8)}` : `Booking Hold #${holdId.slice(-8)}`,
       order_id: data.orderId,
       ...(!isAdvance && razorpayOfferId ? { offer_id: razorpayOfferId } : {}),
       handler: async function (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) {
@@ -267,16 +264,23 @@ export function CheckoutClient({
           const verifyRes = await fetch("/api/razorpay/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ bookingId, razorpayPaymentId: response.razorpay_payment_id, razorpayOrderId: response.razorpay_order_id, razorpaySignature: response.razorpay_signature, isAdvance }),
+            body: JSON.stringify({
+              holdId,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpaySignature: response.razorpay_signature,
+              isAdvance,
+            }),
           });
-          if (verifyRes.ok) {
+          const verifyData = await verifyRes.json();
+          if (verifyRes.ok && verifyData.bookingId) {
             paymentCompletedRef.current = true;
-            trackPaymentCompleted("RAZORPAY", effectiveAmount, bookingId);
+            trackPaymentCompleted("RAZORPAY", effectiveAmount, verifyData.bookingId);
             if (!isAdvance) await handleRecurringAfterPayment();
-            router.push(`/book/confirmation/${bookingId}`);
+            router.push(`/book/confirmation/${verifyData.bookingId}`);
           } else {
-            trackPaymentFailed("RAZORPAY", bookingId, "Verification failed");
-            setError("Payment verification failed. Please contact support.");
+            trackPaymentFailed("RAZORPAY", holdId, verifyData.error || "Verification failed");
+            setError(verifyData.error || "Payment verification failed. Please contact support.");
             setProcessing(false);
           }
         } catch {
@@ -287,7 +291,7 @@ export function CheckoutClient({
       modal: {
         ondismiss: function () {
           // User closed Razorpay modal without completing payment
-          trackPaymentCancelled("RAZORPAY", bookingId);
+          trackPaymentCancelled("RAZORPAY", holdId);
           setProcessing(false);
         },
       },
@@ -315,13 +319,14 @@ export function CheckoutClient({
       if (paymentMethod === "online") {
         await handleOnlinePayment(false);
       } else if (paymentMethod === "upi_qr") {
-        paymentCompletedRef.current = true; // Don't release lock while QR is shown
+        // Just show the QR — don't commit yet. Hold stays active, and will be
+        // released if user leaves before clicking "I've completed the payment".
         setShowUpiQr(true);
       } else if (paymentMethod === "cash") {
         if (advanceMethod === "online") {
           await handleOnlinePayment(true);
         } else {
-          paymentCompletedRef.current = true; // Don't release lock while QR is shown
+          // Same as UPI QR: booking is only created after user confirms payment
           setShowUpiQr(true);
         }
       }
@@ -338,17 +343,31 @@ export function CheckoutClient({
       <div className="space-y-4">
         <UpiQrCheckout
           amount={upiAmount}
-          bookingId={bookingId}
+          bookingId={holdId}
           isAdvance={paymentMethod === "cash"}
           advanceAmount={paymentMethod === "cash" ? advanceAmount : undefined}
           onPaymentInitiated={async () => {
-            // Create the unconfirmed booking only after user confirms they paid
-            if (paymentMethod === "upi_qr") {
-              const { selectUpiPayment } = await import("@/actions/booking");
-              await selectUpiPayment(bookingId, effectiveAmount);
-            } else if (paymentMethod === "cash") {
-              await selectCashPayment(bookingId, effectiveAmount);
+            // User clicked "I've completed the payment" — commit the booking as PENDING.
+            // Mark paymentCompleted so the hold isn't released by unload/unmount handlers.
+            paymentCompletedRef.current = true;
+            const commit =
+              paymentMethod === "cash"
+                ? await selectCashPayment(holdId, effectiveAmount)
+                : await selectUpiPayment(holdId, effectiveAmount);
+
+            if (commit.success && commit.bookingId) {
+              // Fire-and-forget recurring series creation for non-advance UPI.
+              if (paymentMethod === "upi_qr") {
+                handleRecurringAfterPayment().catch(() => {});
+              }
+              // Do NOT router.push here — the UpiQrCheckout component now stays
+              // on its "paid" step so the user can share their payment
+              // screenshot on WhatsApp before navigating to the confirmation.
+              return { bookingId: commit.bookingId };
             }
+
+            paymentCompletedRef.current = false;
+            return { error: commit.error || "Failed to create booking" };
           }}
           onCancel={() => { releaseLock(); router.back(); }}
         />
@@ -364,7 +383,7 @@ export function CheckoutClient({
   return (
     <div className="space-y-6">
       {/* Countdown */}
-      <CountdownTimer expiresAt={new Date(lockExpiresAt)} onExpired={handleExpired} />
+      <CountdownTimer expiresAt={new Date(expiresAt)} onExpired={handleExpired} />
 
       {/* Recurring booking notice */}
       {recurringEnabled && recurringCount && perSessionAmount && (
@@ -417,7 +436,6 @@ export function CheckoutClient({
         <div>
           <h2 className="mb-2 text-sm font-medium text-zinc-400">Discount Code</h2>
           <DiscountInput
-            bookingId={bookingId}
             bookingAmount={amount}
             sport={sport}
             disabled={discountApplied}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { formatHoursAsRanges } from "@/lib/court-config";
 import {
   CheckCircle2,
   Clock,
@@ -31,7 +32,7 @@ interface BookingPayment {
 interface BookingData {
   id: string;
   date: string | Date;
-  status: "CONFIRMED" | "LOCKED" | "CANCELLED";
+  status: "CONFIRMED" | "PENDING" | "CANCELLED";
   totalAmount: number;
   createdAt: string | Date;
   createdByAdminId?: string | null;
@@ -74,7 +75,7 @@ const STATUS_CONFIG = {
     label: "Confirmed",
     dot: "bg-emerald-400",
   },
-  LOCKED: {
+  PENDING: {
     icon: Clock,
     color: "text-yellow-400",
     bg: "bg-yellow-500/10",
@@ -105,13 +106,6 @@ const PAYMENT_STATUS_STYLES: Record<string, string> = {
   REFUNDED: "text-blue-400 bg-blue-500/10 border-blue-500/30",
   FAILED: "text-red-400 bg-red-500/10 border-red-500/30",
 };
-
-function formatHour(hour: number): string {
-  const h = hour % 24;
-  const ampm = h >= 12 ? "PM" : "AM";
-  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${displayH}:00 ${ampm}`;
-}
 
 function formatPrice(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
@@ -248,7 +242,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
           {formatDate(booking.date)}
         </p>
         <p className="text-xs text-zinc-500 font-mono mt-0.5">
-          {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+          {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
         </p>
       </div>
 

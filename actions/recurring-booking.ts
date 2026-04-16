@@ -362,7 +362,7 @@ export async function cancelRecurringBooking(
       where: {
         recurringBookingId,
         date: { gte: today },
-        status: { in: ["LOCKED", "CONFIRMED"] },
+        status: { in: ["PENDING", "CONFIRMED"] },
       },
       data: { status: "CANCELLED" },
     }),

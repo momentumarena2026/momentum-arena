@@ -3,6 +3,7 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
 import { sendBookingConfirmation } from "@/lib/notifications";
+import { createBookingFromHold } from "@/actions/booking";
 
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
@@ -10,25 +11,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { bookingId, razorpayPaymentId, razorpayOrderId, razorpaySignature, isAdvance } =
-    await request.json();
+  const {
+    holdId,
+    razorpayPaymentId,
+    razorpayOrderId,
+    razorpaySignature,
+    isAdvance,
+  } = await request.json();
 
-  const payment = await db.payment.findUnique({
-    where: { bookingId },
-    include: { booking: true },
-  });
-
-  if (!payment || payment.booking.userId !== userId) {
-    return NextResponse.json({ error: "Payment not found" }, { status: 404 });
+  if (!holdId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  // Verify signature
+  // Look up the hold; tolerate a missing hold if this is a retry (idempotency in createBookingFromHold)
+  const hold = await db.slotHold.findUnique({ where: { id: holdId } });
+
+  // Signature verification always runs — defence in depth even if hold is gone
   const isValid = verifyRazorpaySignature(
     razorpayOrderId,
     razorpayPaymentId,
     razorpaySignature
   );
-
   if (!isValid) {
     return NextResponse.json(
       { error: "Invalid payment signature" },
@@ -36,23 +39,57 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  await db.$transaction([
-    db.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: "COMPLETED",
-        razorpayPaymentId,
-        razorpaySignature,
-        confirmedAt: new Date(),
-      },
-    }),
-    db.booking.update({
-      where: { id: bookingId },
-      data: { status: "CONFIRMED" },
-    }),
-  ]);
+  // Idempotency: if this payment already resulted in a Booking, return it.
+  const existing = await db.payment.findFirst({
+    where: { razorpayPaymentId },
+  });
+  if (existing) {
+    return NextResponse.json({ success: true, bookingId: existing.bookingId });
+  }
 
-  await sendBookingConfirmation(bookingId);
+  if (!hold) {
+    return NextResponse.json(
+      { error: "Hold expired — please try again" },
+      { status: 410 }
+    );
+  }
+  if (hold.userId !== userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (hold.razorpayOrderId !== razorpayOrderId) {
+    return NextResponse.json({ error: "Order mismatch" }, { status: 400 });
+  }
 
-  return NextResponse.json({ success: true });
+  const paymentAmount = hold.paymentAmount ?? hold.totalAmount;
+  const fullAmount = hold.totalAmount;
+  const advanceAmount = isAdvance ? paymentAmount : undefined;
+  const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
+
+  const bookingId = await createBookingFromHold(
+    holdId,
+    {
+      method: isAdvance ? "CASH" : "RAZORPAY",
+      status: "COMPLETED",
+      amount: paymentAmount,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      confirmedAt: new Date(),
+      isPartialPayment: !!isAdvance,
+      advanceAmount,
+      remainingAmount,
+    },
+    "CONFIRMED"
+  );
+
+  if (!bookingId) {
+    return NextResponse.json(
+      { error: "Failed to create booking" },
+      { status: 500 }
+    );
+  }
+
+  sendBookingConfirmation(bookingId).catch(() => {});
+
+  return NextResponse.json({ success: true, bookingId });
 }

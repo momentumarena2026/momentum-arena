@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const bookings = await db.booking.findMany({
     where: {
       userId: user.id,
-      ...(status ? { status: status as "CONFIRMED" | "LOCKED" | "CANCELLED" } : {}),
+      ...(status ? { status: status as "CONFIRMED" | "PENDING" | "CANCELLED" } : {}),
     },
     include: {
       courtConfig: true,

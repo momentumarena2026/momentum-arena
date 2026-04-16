@@ -1,16 +1,24 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { MessageCircle, CheckCircle2, CircleCheck, ShieldCheck } from "lucide-react";
+import { CheckCircle2, CircleCheck, ShieldCheck, Loader2 } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import Image from "next/image";
 import { formatPrice } from "@/lib/pricing";
 import { trackUpiQrShown, trackUpiPaymentConfirmed, trackUpiWhatsappClick } from "@/lib/analytics";
 
+export type UpiCommitResult = { bookingId?: string; error?: string } | void;
+
 interface UpiQrCheckoutProps {
   amount: number;
   bookingId?: string;
-  onPaymentInitiated?: () => void;
+  /**
+   * Called when the user clicks "I've completed the payment". Should commit
+   * the booking server-side and return the created bookingId (or an error).
+   * The component stays on the QR step if an error is returned, and only
+   * advances to the "paid" WhatsApp-share step on success.
+   */
+  onPaymentInitiated?: () => Promise<UpiCommitResult> | UpiCommitResult;
   onCancel?: () => void;
   isAdvance?: boolean;
   advanceAmount?: number;
@@ -43,6 +51,13 @@ export function UpiQrCheckout({
   qrType = "turf",
 }: UpiQrCheckoutProps) {
   const [step, setStep] = useState<Step>("scan");
+  const [committing, setCommitting] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [committedBookingId, setCommittedBookingId] = useState<string | undefined>(
+    // If a real Booking id was passed in (e.g. legacy callers), surface it in
+    // WhatsApp messages; otherwise wait for onPaymentInitiated to return one.
+    bookingId
+  );
 
   // Pick a random QR on mount (stable across re-renders)
   const selectedQr = useMemo(() => {
@@ -52,10 +67,10 @@ export function UpiQrCheckout({
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
 
-  // WhatsApp URL
+  // WhatsApp URL — uses the real bookingId once the booking has been committed.
   const whatsappMessage = encodeURIComponent(
-    bookingId
-      ? `Hi, I've made a payment of ${formatPrice(displayAmount)} for Booking #${bookingId.slice(-8)}.\n\nPlease find the payment screenshot attached. Kindly confirm my booking.`
+    committedBookingId
+      ? `Hi, I've made a payment of ${formatPrice(displayAmount)} for Booking #${committedBookingId.slice(-8)}.\n\nPlease find the payment screenshot attached. Kindly confirm my booking.`
       : `Hi, I've made a payment of ${formatPrice(displayAmount)}.\n\nPlease find the payment screenshot attached. Kindly confirm my booking.`
   );
   const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappMessage}`;
@@ -63,10 +78,26 @@ export function UpiQrCheckout({
   // Track QR shown on mount
   useState(() => { trackUpiQrShown(displayAmount); });
 
-  const handlePaymentDone = () => {
-    trackUpiPaymentConfirmed(displayAmount);
-    setStep("paid");
-    onPaymentInitiated?.();
+  const handlePaymentDone = async () => {
+    if (committing) return;
+    setCommitting(true);
+    setCommitError(null);
+    try {
+      const result = await onPaymentInitiated?.();
+      if (result && result.error) {
+        setCommitError(result.error);
+        return; // stay on scan step so user can retry or go back
+      }
+      if (result && result.bookingId) {
+        setCommittedBookingId(result.bookingId);
+      }
+      trackUpiPaymentConfirmed(displayAmount);
+      setStep("paid");
+    } catch (e) {
+      setCommitError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setCommitting(false);
+    }
   };
 
   // ---------- Step 2: Payment done → slot reserved confirmation ----------
@@ -104,7 +135,7 @@ export function UpiQrCheckout({
             href={whatsappUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={() => trackUpiWhatsappClick(bookingId)}
+            onClick={() => trackUpiWhatsappClick(committedBookingId)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3.5 font-semibold text-white transition-colors hover:bg-green-700"
           >
             <FaWhatsapp className="h-5 w-5" />
@@ -112,10 +143,14 @@ export function UpiQrCheckout({
           </a>
 
           <a
-            href="/bookings"
+            href={
+              committedBookingId
+                ? `/book/confirmation/${committedBookingId}`
+                : "/bookings"
+            }
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3.5 font-semibold text-white transition-colors hover:bg-zinc-700"
           >
-            My Bookings
+            {committedBookingId ? "View Booking Details" : "My Bookings"}
           </a>
         </div>
 
@@ -160,13 +195,29 @@ export function UpiQrCheckout({
         </p>
       </div>
 
+      {commitError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-center text-sm text-red-400">
+          {commitError}
+        </div>
+      )}
+
       {/* Mark Payment Done button */}
       <button
         onClick={handlePaymentDone}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500/30 bg-emerald-500/10 px-4 py-3.5 font-semibold text-emerald-400 transition-all hover:bg-emerald-500/20 hover:border-emerald-500/50"
+        disabled={committing}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500/30 bg-emerald-500/10 px-4 py-3.5 font-semibold text-emerald-400 transition-all hover:bg-emerald-500/20 hover:border-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <CircleCheck className="h-5 w-5" />
-        I&apos;ve Completed the Payment
+        {committing ? (
+          <>
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Reserving your slot...
+          </>
+        ) : (
+          <>
+            <CircleCheck className="h-5 w-5" />
+            I&apos;ve Completed the Payment
+          </>
+        )}
       </button>
 
       <p className="text-center text-xs text-zinc-600">
@@ -176,7 +227,8 @@ export function UpiQrCheckout({
       {onCancel && (
         <button
           onClick={onCancel}
-          className="w-full text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2"
+          disabled={committing}
+          className="w-full text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2 disabled:opacity-50"
         >
           ← Go back
         </button>

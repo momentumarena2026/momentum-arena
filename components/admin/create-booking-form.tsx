@@ -8,7 +8,7 @@ import {
   createCustomerForBooking,
   adminCreateBooking,
 } from "@/actions/admin-booking";
-import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
 import type { Sport, ConfigSize, CourtZone } from "@prisma/client";
@@ -490,7 +490,7 @@ export function CreateBookingForm({
                       onClick={() => toggleHour(slot.hour)}
                       className={classes}
                     >
-                      <div>{formatHour(slot.hour)}</div>
+                      <div>{formatHourRangeCompact(slot.hour)}</div>
                       <div className="text-[10px] mt-0.5 opacity-70">
                         {formatPrice(slot.price)}
                       </div>
@@ -790,10 +790,7 @@ export function CreateBookingForm({
               </p>
               <p className="text-sm font-medium text-white mt-1">{date}</p>
               <p className="text-xs text-zinc-400 mt-0.5">
-                {selectedHours
-                  .sort((a, b) => a - b)
-                  .map((h) => formatHour(h))
-                  .join(", ")}
+                {formatHoursAsRanges([...selectedHours].sort((a, b) => a - b))}
               </p>
             </div>
 

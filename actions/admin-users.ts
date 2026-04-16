@@ -156,7 +156,7 @@ export async function deleteUser(userId: string) {
   const activeBookings = await db.booking.count({
     where: {
       userId,
-      status: { in: ["CONFIRMED", "LOCKED"] },
+      status: { in: ["CONFIRMED", "PENDING"] },
     },
   });
 

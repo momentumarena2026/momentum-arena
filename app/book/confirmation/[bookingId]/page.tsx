@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatHourCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { CalendarExport } from "./calendar-export";
 import { BookingQR } from "./booking-qr";
@@ -60,7 +60,7 @@ export default async function ConfirmationPage({
 
   // Determine if this is a UPI QR or Cash booking awaiting admin verification
   const isAwaitingVerification =
-    booking.status === "LOCKED" &&
+    booking.status === "PENDING" &&
     booking.payment?.status === "PENDING" &&
     (booking.payment?.method === "UPI_QR" || booking.payment?.method === "CASH");
 
@@ -72,7 +72,7 @@ export default async function ConfirmationPage({
       title: "Booking Confirmed!",
       subtitle: "Your court has been reserved successfully.",
     },
-    LOCKED: {
+    PENDING: {
       icon: Clock,
       color: "text-yellow-400",
       bg: "bg-yellow-500/10 border-yellow-500/30",
@@ -80,7 +80,7 @@ export default async function ConfirmationPage({
         ? "Payment Verification Pending"
         : "Awaiting Payment",
       subtitle: isAwaitingVerification
-        ? "Your slot is held. Once our team verifies your payment, the booking will be confirmed."
+        ? "Your slot is reserved. Once our team verifies your payment, the booking will be confirmed."
         : "Complete payment to confirm your booking.",
     },
     CANCELLED: {
@@ -143,7 +143,7 @@ export default async function ConfirmationPage({
                 })}
               </p>
               <p className="text-xs text-zinc-400">
-                {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+                {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
               </p>
             </div>
           </div>
@@ -224,7 +224,7 @@ export default async function ConfirmationPage({
             <div className="flex justify-between">
               <span className="text-zinc-400">Time</span>
               <span className="text-white">
-                {formatHour(booking.recurringBooking.startHour)} – {formatHour(booking.recurringBooking.endHour)}
+                {formatHourCompact(booking.recurringBooking.startHour)} – {formatHourCompact(booking.recurringBooking.endHour)}
               </span>
             </div>
             <div className="flex justify-between">

@@ -105,6 +105,7 @@ export async function POST(request: NextRequest) {
             confirmedBy: "PHONEPE_STATIC_QR",
           },
         }),
+        // Booking was already in PENDING (user clicked "I've paid"); mark it CONFIRMED
         db.booking.update({
           where: { id: bookingPayment.bookingId },
           data: { status: "CONFIRMED" },

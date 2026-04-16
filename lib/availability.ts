@@ -1,6 +1,6 @@
-import { CourtZone, BookingStatus } from "@prisma/client";
+import { CourtZone } from "@prisma/client";
 import { db } from "./db";
-import { zonesOverlap, getAllSlotHours, isWeekend } from "./court-config";
+import { getAllSlotHours, isWeekend } from "./court-config";
 import { getTodayIST, getCurrentHourIST } from "./ist-date";
 
 export type SlotStatus = "available" | "booked" | "locked" | "blocked";
@@ -24,17 +24,11 @@ export async function getSlotAvailability(
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const now = new Date();
 
-  // Fetch active bookings for this date, filtered to configs with overlapping zones at DB level
+  // 1. Bookings that reserve the slot: CONFIRMED (paid) or PENDING (awaiting admin verification)
   const conflictingBookings = await db.booking.findMany({
     where: {
       date: dateOnly,
-      OR: [
-        { status: "CONFIRMED" },
-        {
-          status: "LOCKED",
-          lockExpiresAt: { gt: now },
-        },
-      ],
+      status: { in: ["CONFIRMED", "PENDING"] },
       courtConfig: {
         zones: { hasSome: config.zones as CourtZone[] },
       },
@@ -53,6 +47,25 @@ export async function getSlotAvailability(
         slot.startHour,
         booking.status === "CONFIRMED" ? "booked" : "locked"
       );
+    }
+  }
+
+  // 2. Transient SlotHolds — another user is currently in checkout for this slot
+  const activeHolds = await db.slotHold.findMany({
+    where: {
+      date: dateOnly,
+      expiresAt: { gt: now },
+      courtConfig: {
+        zones: { hasSome: config.zones as CourtZone[] },
+      },
+    },
+  });
+  for (const hold of activeHolds) {
+    for (const hour of hold.hours) {
+      // Holds shouldn't override "booked" (stricter) status
+      if (!occupiedHours.has(hour)) {
+        occupiedHours.set(hour, "locked");
+      }
     }
   }
 

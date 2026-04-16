@@ -1,5 +1,5 @@
 import { getAllPricingData } from "@/actions/admin-pricing";
-import { SPORT_INFO, SIZE_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatHourCompact } from "@/lib/court-config";
 import { PricingEditor } from "./pricing-editor";
 
 export default async function AdminPricingPage() {
@@ -41,7 +41,7 @@ export default async function AdminPricingPage() {
               className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm"
             >
               <span className="text-zinc-400">
-                {c.dayType} • {formatHour(c.startHour)} - {formatHour(c.endHour)}
+                {c.dayType} • {formatHourCompact(c.startHour)} - {formatHourCompact(c.endHour)}
               </span>
               <span
                 className={`rounded-full border px-2 py-0.5 text-xs ${

@@ -136,6 +136,43 @@ export function formatHourRange(startHour: number): string {
   return `${formatHour(startHour)} - ${formatHour(startHour + 1)}`;
 }
 
+// Compact hour format (e.g., 5 → "5am", 17 → "5pm", 12 → "12pm", 24 → "12am")
+export function formatHourCompact(hour: number): string {
+  const h = hour % 24;
+  if (h === 0) return "12am";
+  if (h === 12) return "12pm";
+  if (h < 12) return `${h}am`;
+  return `${h - 12}pm`;
+}
+
+// Compact hour range (e.g., 17 → "5pm - 6pm")
+export function formatHourRangeCompact(startHour: number): string {
+  return `${formatHourCompact(startHour)} - ${formatHourCompact(startHour + 1)}`;
+}
+
+// Merge consecutive sorted hours into compact ranges.
+// e.g. [17, 18, 19, 22] → "5pm - 8pm, 10pm - 11pm"
+export function formatHoursAsRanges(hours: number[]): string {
+  if (hours.length === 0) return "";
+  const sorted = [...hours].sort((a, b) => a - b);
+  const groups: [number, number][] = [];
+  let start = sorted[0];
+  let end = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end + 1) {
+      end = sorted[i];
+    } else {
+      groups.push([start, end]);
+      start = sorted[i];
+      end = sorted[i];
+    }
+  }
+  groups.push([start, end]);
+  return groups
+    .map(([s, e]) => `${formatHourCompact(s)} - ${formatHourCompact(e + 1)}`)
+    .join(", ");
+}
+
 // Check if a date is a weekend (Saturday or Sunday)
 export function isWeekend(date: Date): boolean {
   const day = date.getDay();

@@ -38,9 +38,9 @@ enum CourtZone {
 }
 
 enum BookingStatus {
-  LOCKED
-  CONFIRMED
-  CANCELLED
+  PENDING      // UPI/cash committed, awaiting admin verification
+  CONFIRMED    // paid & verified — slot is booked
+  CANCELLED    // admin-cancelled, refunded, or UPI rejected
 }
 
 enum PaymentMethod {
@@ -161,6 +161,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   bookings      Booking[]
+  slotHolds     SlotHold[]
   cafeOrders    CafeOrder[]
   referralCode  String?   @unique
   referredBy    String?
@@ -236,6 +237,7 @@ model CourtConfig {
   isActive  Boolean     @default(true)
 
   bookings          Booking[]
+  slotHolds         SlotHold[]
   prices            PricingRule[]
   slotBlocks        SlotBlock[]
   waitlistEntries   Waitlist[]
@@ -247,6 +249,40 @@ model CourtConfig {
   @@unique([sport, size, position])
 }
 
+// Transient slot reservation during checkout (5 min TTL, extended during payment).
+// Created when user proceeds from slot-selection to checkout.
+// Deleted atomically when user commits to a payment (online success OR UPI "I've paid").
+// If user abandons checkout, the hold just expires — no Booking is ever created.
+model SlotHold {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  courtConfigId String
+  courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
+  date          DateTime    @db.Date
+  hours         Int[]
+  slotPrices    Json        // [{ hour: number, price: number }, ...]
+  totalAmount   Int
+  expiresAt     DateTime
+
+  // In-flight payment attempt tracking.
+  // On payment initiation, expiresAt is extended so the hold survives the
+  // payment flow. On success, the hold is deleted and a Booking/Payment is created.
+  razorpayOrderId      String?        @unique
+  phonePeMerchantTxnId String?        @unique
+  paymentMethod        PaymentMethod?
+  paymentAmount        Int?
+  paymentInitiatedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date, expiresAt])
+  @@index([userId])
+  @@index([courtConfigId, date])
+  @@index([expiresAt])
+}
+
 model Booking {
   id            String        @id @default(cuid())
   userId        String
@@ -254,9 +290,7 @@ model Booking {
   courtConfigId String
   courtConfig   CourtConfig   @relation(fields: [courtConfigId], references: [id])
   date          DateTime      @db.Date
-  status        BookingStatus @default(LOCKED)
-  lockedAt       DateTime?
-  lockExpiresAt  DateTime?
+  status        BookingStatus @default(PENDING)
   totalAmount    Int
   originalAmount Int?
   discountAmount Int          @default(0)
@@ -291,7 +325,6 @@ model Booking {
 
   @@index([courtConfigId, date, status])
   @@index([userId])
-  @@index([lockExpiresAt])
   @@index([date, status])
 }
 

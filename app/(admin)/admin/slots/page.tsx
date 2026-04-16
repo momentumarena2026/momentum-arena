@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { SPORT_INFO, formatHour, getAllSlotHours } from "@/lib/court-config";
+import { SPORT_INFO } from "@/lib/court-config";
 import { SlotBlockManager } from "./slot-block-manager";
 
 export default async function AdminSlotsPage() {

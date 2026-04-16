@@ -25,6 +25,7 @@ import {
   getTopCustomers,
   getPaymentMethodBreakdown,
 } from "@/actions/admin-analytics";
+import { formatHourCompact } from "@/lib/court-config";
 
 // --------------- Types ---------------
 
@@ -46,12 +47,6 @@ type GroupBy = "day" | "week" | "month";
 
 function formatINR(paise: number): string {
   return `\u20B9${(paise / 100).toLocaleString("en-IN")}`;
-}
-
-function formatHour(hour: number): string {
-  if (hour === 0 || hour === 24) return "12 AM";
-  if (hour === 12) return "12 PM";
-  return hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
 }
 
 // --------------- Color constants ---------------
@@ -544,7 +539,7 @@ export function AnalyticsDashboard({
                   <XAxis
                     dataKey="hour"
                     tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                    tickFormatter={(v: number) => formatHour(v)}
+                    tickFormatter={(v: number) => formatHourCompact(v)}
                   />
                   <YAxis tick={{ fill: "#a1a1aa", fontSize: 12 }} />
                   <Tooltip
@@ -552,7 +547,7 @@ export function AnalyticsDashboard({
                       <ChartTooltip
                         active={active}
                         payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
-                        label={typeof label === "number" ? formatHour(label) : label}
+                        label={typeof label === "number" ? formatHourCompact(label) : label}
                         formatter={(v) => `${v} bookings`}
                       />
                     )}

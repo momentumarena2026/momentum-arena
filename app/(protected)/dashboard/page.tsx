@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
@@ -315,7 +315,7 @@ export default async function DashboardPage() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3 shrink-0" />
-                      {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+                      {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
                     </span>
                   </div>
                 </Link>

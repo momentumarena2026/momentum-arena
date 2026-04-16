@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getAvailableSlots, adminEditBookingSlots } from "@/actions/admin-booking";
+import { formatHourRangeCompact } from "@/lib/court-config";
 
 interface EditSlotsModalProps {
   bookingId: string;
@@ -11,14 +12,6 @@ interface EditSlotsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-}
-
-function formatHour(h: number): string {
-  const normalized = h % 24;
-  if (normalized === 0 || normalized === 24) return "12:00 AM";
-  if (normalized === 12) return "12:00 PM";
-  if (normalized < 12) return `${normalized}:00 AM`;
-  return `${normalized - 12}:00 PM`;
 }
 
 export function EditSlotsModal({
@@ -172,7 +165,7 @@ export function EditSlotsModal({
                           : "border-zinc-800 bg-zinc-800/50 text-zinc-600 cursor-not-allowed"
                     }`}
                   >
-                    <span className="font-medium">{formatHour(slot.hour)}</span>
+                    <span className="font-medium">{formatHourRangeCompact(slot.hour)}</span>
                     <span
                       className={`mt-0.5 ${isSelected ? "text-emerald-400" : "text-zinc-500"}`}
                     >

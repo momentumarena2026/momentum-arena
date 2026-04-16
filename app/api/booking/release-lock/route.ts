@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { releaseSlotLock } from "@/lib/slot-lock";
+import { releaseSlotHold } from "@/lib/slot-hold";
 import { auth } from "@/lib/auth";
 
 /**
- * Release a LOCKED booking when user leaves checkout.
- * Supports both JSON POST (normal) and sendBeacon (text/plain).
+ * Release a transient SlotHold when the user leaves checkout without paying.
+ * Accepts JSON POST and text/plain (for navigator.sendBeacon).
+ *
+ * The body may use either `holdId` (new) or `bookingId` (legacy client) — we
+ * accept both so a stale browser tab doesn't crash.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -13,28 +16,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let bookingId: string;
-
     const contentType = request.headers.get("content-type") || "";
+    let body: { holdId?: string; bookingId?: string } = {};
     if (contentType.includes("application/json")) {
-      const body = await request.json();
-      bookingId = body.bookingId;
+      body = await request.json();
     } else {
-      // sendBeacon sends text/plain
       const text = await request.text();
       try {
-        const parsed = JSON.parse(text);
-        bookingId = parsed.bookingId;
+        body = JSON.parse(text);
       } catch {
         return NextResponse.json({ error: "Invalid body" }, { status: 400 });
       }
     }
 
-    if (!bookingId) {
-      return NextResponse.json({ error: "Missing bookingId" }, { status: 400 });
+    const holdId = body.holdId ?? body.bookingId;
+    if (!holdId) {
+      return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
     }
 
-    const released = await releaseSlotLock(bookingId, session.user.id);
+    const released = await releaseSlotHold(holdId, session.user.id);
     return NextResponse.json({ released });
   } catch {
     return NextResponse.json({ error: "Failed" }, { status: 500 });

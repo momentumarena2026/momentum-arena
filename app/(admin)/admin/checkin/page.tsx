@@ -1,7 +1,7 @@
 import { adminAuth } from "@/lib/admin-auth-session";
 import { redirect } from "next/navigation";
 import { getBookingByQrToken } from "@/actions/checkin";
-import { SPORT_INFO, formatHour } from "@/lib/court-config";
+import { SPORT_INFO, formatHourCompact } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { CheckinClient } from "./checkin-client";
 import { CheckCircle2, XCircle, User, Calendar, Clock, MapPin, IndianRupee } from "lucide-react";
@@ -107,8 +107,8 @@ export default async function CheckinPage({
           </div>
           <div className="flex items-center gap-2 text-zinc-300">
             <Clock className="h-4 w-4 text-zinc-500" />
-            {formatHour(booking.slots[0]?.startHour)} –{" "}
-            {formatHour((booking.slots[booking.slots.length - 1]?.startHour ?? 0) + 1)}
+            {formatHourCompact(booking.slots[0]?.startHour)} –{" "}
+            {formatHourCompact((booking.slots[booking.slots.length - 1]?.startHour ?? 0) + 1)}
           </div>
           <div className="flex items-center gap-2 text-zinc-300">
             <User className="h-4 w-4 text-zinc-500" />

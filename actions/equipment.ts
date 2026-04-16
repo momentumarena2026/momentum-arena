@@ -36,7 +36,7 @@ export async function getAvailableEquipment(
         where: {
           booking: {
             date: { gte: bookingDate, lt: bookingDateEnd },
-            status: { in: ["LOCKED", "CONFIRMED"] },
+            status: { in: ["PENDING", "CONFIRMED"] },
           },
         },
         include: {
@@ -138,7 +138,7 @@ export async function addEquipmentToBooking(
         where: {
           booking: {
             date: { gte: bookingDate, lt: bookingDateEnd },
-            status: { in: ["LOCKED", "CONFIRMED"] },
+            status: { in: ["PENDING", "CONFIRMED"] },
             id: { not: bookingId },
           },
         },
