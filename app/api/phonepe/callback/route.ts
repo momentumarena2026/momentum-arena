@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { checkPhonePeStatus } from "@/lib/phonepe";
 import { sendBookingConfirmation } from "@/lib/notifications";
+import { createBookingFromHold } from "@/actions/booking";
 
-// PhonePe server-to-server callback (S2S)
+// PhonePe server-to-server callback (S2S).
+// Looks up the pending SlotHold by merchantTransactionId, creates Booking on success.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -22,38 +24,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false }, { status: 400 });
     }
 
-    // Verify payment status via server-to-server check
+    // Server-side status verification
     const status = await checkPhonePeStatus(merchantTransactionId);
-
     if (!status.success) {
-      return NextResponse.json({ success: true }); // Acknowledge but don't confirm
+      return NextResponse.json({ success: true }); // Acknowledge, don't confirm
     }
 
-    // Find payment by merchantTxnId
-    const payment = await db.payment.findFirst({
+    // Idempotency: if payment was already recorded, we're done
+    const existingPayment = await db.payment.findFirst({
       where: { phonePeMerchantTxnId: merchantTransactionId },
     });
-
-    if (!payment || payment.status === "COMPLETED") {
-      return NextResponse.json({ success: true }); // Already processed or not found
+    if (existingPayment) {
+      return NextResponse.json({ success: true });
     }
 
-    await db.$transaction([
-      db.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: "COMPLETED",
-          phonePeTransactionId: status.transactionId,
-          confirmedAt: new Date(),
-        },
-      }),
-      db.booking.update({
-        where: { id: payment.bookingId },
-        data: { status: "CONFIRMED" },
-      }),
-    ]);
+    // Look up the hold by the merchant txn id
+    const hold = await db.slotHold.findUnique({
+      where: { phonePeMerchantTxnId: merchantTransactionId },
+    });
+    if (!hold) {
+      return NextResponse.json({ success: true }); // Hold expired or never existed
+    }
 
-    await sendBookingConfirmation(payment.bookingId).catch(() => {});
+    const paymentAmount = hold.paymentAmount ?? hold.totalAmount;
+    const isAdvance = hold.paymentMethod === "CASH"; // advance-via-phonepe flag
+    const fullAmount = hold.totalAmount;
+    const advanceAmount = isAdvance ? paymentAmount : undefined;
+    const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
+
+    const bookingId = await createBookingFromHold(
+      hold.id,
+      {
+        method: isAdvance ? "CASH" : "PHONEPE",
+        status: "COMPLETED",
+        amount: paymentAmount,
+        phonePeMerchantTxnId: merchantTransactionId,
+        phonePeTransactionId: status.transactionId,
+        confirmedAt: new Date(),
+        isPartialPayment: isAdvance,
+        advanceAmount,
+        remainingAmount,
+      },
+      "CONFIRMED"
+    );
+
+    if (bookingId) {
+      sendBookingConfirmation(bookingId).catch(() => {});
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

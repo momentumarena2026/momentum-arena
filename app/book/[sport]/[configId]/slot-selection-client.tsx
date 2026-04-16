@@ -173,10 +173,10 @@ export function SlotSelectionClient({
       });
       const data = await res.json();
 
-      if (data.success && data.bookingId) {
-        trackLockSuccess(data.bookingId);
+      if (data.success && data.holdId) {
+        trackLockSuccess(data.holdId);
         sessionStorage.removeItem(storageKey);
-        const params = new URLSearchParams({ bookingId: data.bookingId });
+        const params = new URLSearchParams({ holdId: data.holdId });
         if (isRecurring && selectedHours.length > 0) {
           params.set("recurring", "1");
           params.set("mode", recurringMode);

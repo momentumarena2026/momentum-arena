@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
-import { createSlotLock } from "@/lib/slot-lock";
+import { createSlotHold } from "@/lib/slot-hold";
 import { getSlotPricesForDate } from "@/lib/pricing";
 
+// POST /api/booking/lock — creates a transient SlotHold (5 min TTL).
+// Returns { success, holdId?, error?, conflicts? }.
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
   if (!userId) {
@@ -25,7 +27,7 @@ export async function POST(request: NextRequest) {
     return { hour, price: priceData?.price ?? 0 };
   });
 
-  const result = await createSlotLock(
+  const result = await createSlotHold(
     userId,
     courtConfigId,
     bookingDate,

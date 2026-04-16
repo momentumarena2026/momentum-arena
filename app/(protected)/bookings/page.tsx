@@ -60,15 +60,15 @@ export default async function MyBookingsPage({
 
   const statusIcons = {
     CONFIRMED: { icon: CheckCircle2, color: "text-emerald-400", label: "Confirmed" },
-    LOCKED: { icon: AlertCircle, color: "text-yellow-400", label: "Pending Verification" },
+    PENDING: { icon: AlertCircle, color: "text-yellow-400", label: "Pending Verification" },
     CANCELLED: { icon: XCircle, color: "text-red-400", label: "Cancelled" },
   };
 
   const upcoming = bookings.filter(
-    (b) => (b.status === "CONFIRMED" || b.status === "LOCKED") && b.date >= new Date()
+    (b) => (b.status === "CONFIRMED" || b.status === "PENDING") && b.date >= new Date()
   );
   const past = bookings.filter(
-    (b) => (b.status !== "CONFIRMED" && b.status !== "LOCKED") || b.date < new Date()
+    (b) => (b.status !== "CONFIRMED" && b.status !== "PENDING") || b.date < new Date()
   );
 
   return (

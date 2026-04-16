@@ -60,7 +60,7 @@ export default async function ConfirmationPage({
 
   // Determine if this is a UPI QR or Cash booking awaiting admin verification
   const isAwaitingVerification =
-    booking.status === "LOCKED" &&
+    booking.status === "PENDING" &&
     booking.payment?.status === "PENDING" &&
     (booking.payment?.method === "UPI_QR" || booking.payment?.method === "CASH");
 
@@ -72,7 +72,7 @@ export default async function ConfirmationPage({
       title: "Booking Confirmed!",
       subtitle: "Your court has been reserved successfully.",
     },
-    LOCKED: {
+    PENDING: {
       icon: Clock,
       color: "text-yellow-400",
       bg: "bg-yellow-500/10 border-yellow-500/30",
@@ -80,7 +80,7 @@ export default async function ConfirmationPage({
         ? "Payment Verification Pending"
         : "Awaiting Payment",
       subtitle: isAwaitingVerification
-        ? "Your slot is held. Once our team verifies your payment, the booking will be confirmed."
+        ? "Your slot is reserved. Once our team verifies your payment, the booking will be confirmed."
         : "Complete payment to confirm your booking.",
     },
     CANCELLED: {

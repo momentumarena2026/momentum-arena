@@ -192,7 +192,7 @@ export default async function AdminBookingsPage({
           {[
             { label: "All", value: "ALL", dot: "" },
             { label: "Confirmed", value: "CONFIRMED", dot: "bg-emerald-400" },
-            { label: "Pending", value: "LOCKED", dot: "bg-yellow-400" },
+            { label: "Pending", value: "PENDING", dot: "bg-yellow-400" },
             { label: "Cancelled", value: "CANCELLED", dot: "bg-red-400" },
           ].map((opt) => (
             <Link
@@ -257,7 +257,7 @@ export default async function AdminBookingsPage({
           bookings={bookings.map((b) => ({
             id: b.id,
             date: b.date instanceof Date ? b.date.toISOString() : b.date,
-            status: b.status as "CONFIRMED" | "LOCKED" | "CANCELLED",
+            status: b.status as "CONFIRMED" | "PENDING" | "CANCELLED",
             totalAmount: b.totalAmount,
             createdAt: b.createdAt instanceof Date ? b.createdAt.toISOString() : b.createdAt,
             createdByAdminId: b.createdByAdminId,

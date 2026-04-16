@@ -11,7 +11,7 @@ export default async function CheckoutPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    bookingId?: string;
+    holdId?: string;
     recurring?: string;
     mode?: string;
     weeksCount?: string;
@@ -27,39 +27,34 @@ export default async function CheckoutPage({
   const params = await searchParams;
   const session = await auth();
   if (!session?.user?.id) {
-    // Preserve the full checkout URL so user returns here after login
     const checkoutUrl = `/book/checkout?${new URLSearchParams(params as Record<string, string>).toString()}`;
     redirect(`/login?callbackUrl=${encodeURIComponent(checkoutUrl)}`);
   }
 
-  const { bookingId } = params;
-  if (!bookingId) redirect("/book");
+  const { holdId } = params;
+  if (!holdId) redirect("/book");
 
-  const booking = await db.booking.findUnique({
-    where: { id: bookingId, userId: session.user.id },
-    include: {
-      courtConfig: true,
-      slots: { orderBy: { startHour: "asc" } },
-    },
+  const hold = await db.slotHold.findUnique({
+    where: { id: holdId },
+    include: { courtConfig: true },
   });
 
-  if (!booking) notFound();
+  if (!hold || hold.userId !== session.user.id) notFound();
 
-  if (booking.status === "LOCKED" && booking.lockExpiresAt && booking.lockExpiresAt < new Date()) {
+  if (hold.expiresAt < new Date()) {
     redirect("/book?error=lock_expired");
   }
 
-  if (booking.status !== "LOCKED") {
-    redirect(`/book/confirmation/${bookingId}`);
-  }
+  const sportInfo = SPORT_INFO[hold.courtConfig.sport];
+  const sizeInfo = SIZE_INFO[hold.courtConfig.size];
+  void sizeInfo;
 
-  const sportInfo = SPORT_INFO[booking.courtConfig.sport];
-  const sizeInfo = SIZE_INFO[booking.courtConfig.size];
-
-  // Extract slot info for equipment
-  const slotStartHour = booking.slots.length > 0 ? Math.min(...booking.slots.map((s) => s.startHour)) : undefined;
-  const slotEndHour = booking.slots.length > 0 ? Math.max(...booking.slots.map((s) => s.startHour)) + 1 : undefined;
-  const bookingDateStr = booking.date.toISOString().split("T")[0];
+  // Sort hours for display
+  const slotPrices = (hold.slotPrices as unknown as { hour: number; price: number }[]) ?? [];
+  const sortedSlots = [...slotPrices].sort((a, b) => a.hour - b.hour);
+  const slotStartHour = sortedSlots.length > 0 ? sortedSlots[0].hour : undefined;
+  const slotEndHour = sortedSlots.length > 0 ? sortedSlots[sortedSlots.length - 1].hour + 1 : undefined;
+  const bookingDateStr = hold.date.toISOString().split("T")[0];
 
   // Parse recurring params
   const recurringEnabled = params.recurring === "1";
@@ -73,24 +68,21 @@ export default async function CheckoutPage({
   const recurringCourtConfigId = params.courtConfigId;
   const recurringDiscountPercent = params.discountPercent ? parseInt(params.discountPercent) : 0;
 
-  // Calculate recurring total with discount
   const recurringCount = recurringMode === "daily" ? recurringDaysCount : recurringWeeksCount;
   const recurringGrossTotal = recurringEnabled && recurringCount
-    ? booking.totalAmount * recurringCount
-    : booking.totalAmount;
+    ? hold.totalAmount * recurringCount
+    : hold.totalAmount;
   const recurringDiscountAmount = recurringEnabled && recurringDiscountPercent > 0
     ? Math.round(recurringGrossTotal * recurringDiscountPercent / 100)
     : 0;
   const recurringNetTotal = recurringGrossTotal - recurringDiscountAmount;
 
-  // Labels for display
   const recurringUnitLabel = recurringMode === "daily" ? "day" : "week";
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  // Fetch new user discount and gateway in parallel
   const [newUserDiscount, activeGateway] = await Promise.all([
-    getNewUserDiscount(session.user.id, booking.courtConfig.sport, booking.totalAmount).catch(() => null),
+    getNewUserDiscount(session.user.id, hold.courtConfig.sport, hold.totalAmount).catch(() => null),
     getActiveGateway(),
   ]);
 
@@ -103,7 +95,7 @@ export default async function CheckoutPage({
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-white">Booking Summary</h2>
           <span className="rounded-full bg-yellow-500/10 border border-yellow-500/30 px-2 py-0.5 text-xs text-yellow-400">
-            Locked
+            Reserved
           </span>
         </div>
 
@@ -114,12 +106,12 @@ export default async function CheckoutPage({
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Type</span>
-            <span className="text-white">{booking.courtConfig.label}</span>
+            <span className="text-white">{hold.courtConfig.label}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Date</span>
             <span className="text-white">
-              {formatBookingDate(booking.date, {
+              {formatBookingDate(hold.date, {
                 weekday: "short",
                 day: "numeric",
                 month: "short",
@@ -130,7 +122,7 @@ export default async function CheckoutPage({
           <div className="flex justify-between">
             <span className="text-zinc-400">Slots</span>
             <span className="text-white">
-              {booking.slots.map((s) => formatHour(s.startHour)).join(", ")}
+              {sortedSlots.map((s) => formatHour(s.hour)).join(", ")}
             </span>
           </div>
           {recurringEnabled && recurringCount && (
@@ -144,9 +136,9 @@ export default async function CheckoutPage({
         </div>
 
         <div className="border-t border-zinc-800 pt-3">
-          {booking.slots.length > 1 && booking.slots.map((slot) => (
-            <div key={slot.id} className="flex justify-between text-sm">
-              <span className="text-zinc-500">{formatHour(slot.startHour)}</span>
+          {sortedSlots.length > 1 && sortedSlots.map((slot) => (
+            <div key={slot.hour} className="flex justify-between text-sm">
+              <span className="text-zinc-500">{formatHour(slot.hour)}</span>
               <span className="text-zinc-300">{formatPrice(slot.price)}</span>
             </div>
           ))}
@@ -154,7 +146,7 @@ export default async function CheckoutPage({
             <>
               <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2 text-sm">
                 <span className="text-zinc-400">Per {recurringUnitLabel}</span>
-                <span className="text-zinc-300">{formatPrice(booking.totalAmount)}</span>
+                <span className="text-zinc-300">{formatPrice(hold.totalAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-zinc-400">{"\u00D7"} {recurringCountDisplay} {recurringUnitPluralLabel}</span>
@@ -175,7 +167,7 @@ export default async function CheckoutPage({
           <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2">
             <span className="font-semibold text-white">Total</span>
             <span className="text-lg font-bold text-emerald-400">
-              {formatPrice(recurringEnabled && recurringCount ? recurringNetTotal : booking.totalAmount)}
+              {formatPrice(recurringEnabled && recurringCount ? recurringNetTotal : hold.totalAmount)}
             </span>
           </div>
         </div>
@@ -183,12 +175,12 @@ export default async function CheckoutPage({
 
       {/* Payment */}
       <CheckoutClient
-        bookingId={bookingId}
-        amount={recurringEnabled && recurringCount ? recurringNetTotal : booking.totalAmount}
-        perSessionAmount={recurringEnabled && recurringCount ? booking.totalAmount : undefined}
+        holdId={hold.id}
+        amount={recurringEnabled && recurringCount ? recurringNetTotal : hold.totalAmount}
+        perSessionAmount={recurringEnabled && recurringCount ? hold.totalAmount : undefined}
         recurringDiscountPercent={recurringDiscountPercent || undefined}
-        sport={booking.courtConfig.sport}
-        lockExpiresAt={booking.lockExpiresAt!.toISOString()}
+        sport={hold.courtConfig.sport}
+        expiresAt={hold.expiresAt.toISOString()}
         userName={session.user.name || ""}
         userEmail={session.user.email || ""}
         userPhone={(session.user as { phone?: string }).phone || ""}

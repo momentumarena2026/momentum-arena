@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { initiatePhonePePayment } from "@/lib/phonepe";
+import { getValidHold } from "@/lib/slot-hold";
+
+const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
 
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
@@ -9,27 +12,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { bookingId, isAdvance, overrideAmount } = await request.json();
+  const { holdId, isAdvance, overrideAmount } = await request.json();
 
-  const booking = await db.booking.findUnique({
-    where: { id: bookingId, userId, status: "LOCKED" },
-    include: { user: true },
-  });
+  if (!holdId) {
+    return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
+  }
 
-  if (!booking) {
+  const hold = await getValidHold(holdId, userId);
+  if (!hold) {
     return NextResponse.json(
-      { error: "Booking not found or lock expired" },
+      { error: "Hold not found or expired" },
       { status: 404 }
     );
   }
 
-  if (booking.lockExpiresAt && booking.lockExpiresAt < new Date()) {
-    return NextResponse.json({ error: "Lock expired" }, { status: 410 });
-  }
+  const user = await db.user.findUnique({ where: { id: userId } });
 
   try {
-    // Use overrideAmount (from checkout, includes recurring total / discounts) or fall back to booking amount
-    const paymentAmount = overrideAmount && overrideAmount > 0 ? overrideAmount : booking.totalAmount;
+    const paymentAmount =
+      overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
 
     let orderAmount = paymentAmount;
     let advanceAmount: number | undefined;
@@ -41,42 +42,41 @@ export async function POST(request: NextRequest) {
       orderAmount = advanceAmount;
     }
 
-    const merchantTxnId = `MA_${bookingId.slice(-12)}_${Date.now()}`;
-    const origin = request.headers.get("origin") || process.env.NEXTAUTH_URL || "http://localhost:3000";
+    // Encode holdId into merchantTransactionId so callback can look it up.
+    // Keep short (PhonePe limit ~38 chars).
+    const merchantTxnId = `MA_${holdId.slice(-12)}_${Date.now()}`;
+    const origin =
+      request.headers.get("origin") ||
+      process.env.NEXTAUTH_URL ||
+      "http://localhost:3000";
 
     const result = await initiatePhonePePayment({
       merchantTransactionId: merchantTxnId,
-      amount: orderAmount, // already in paise from DB
+      amount: orderAmount,
       callbackUrl: `${origin}/api/phonepe/callback`,
-      redirectUrl: `${origin}/api/phonepe/redirect?bookingId=${bookingId}`,
-      userPhone: booking.user?.phone || undefined,
+      redirectUrl: `${origin}/api/phonepe/redirect?holdId=${holdId}`,
+      userPhone: user?.phone || undefined,
     });
 
-    await db.payment.upsert({
-      where: { bookingId },
-      update: {
-        method: "PHONEPE",
-        status: "PENDING",
-        amount: paymentAmount,
+    // Track attempt on the hold + extend TTL so payment flow has room to complete
+    await db.slotHold.update({
+      where: { id: holdId },
+      data: {
         phonePeMerchantTxnId: merchantTxnId,
-        isPartialPayment: !!isAdvance,
-        advanceAmount: advanceAmount || null,
-        remainingAmount: remainingAmount || null,
-      },
-      create: {
-        bookingId,
-        method: isAdvance ? "CASH" : "PHONEPE",
-        status: "PENDING",
-        amount: paymentAmount,
-        phonePeMerchantTxnId: merchantTxnId,
-        isPartialPayment: !!isAdvance,
-        advanceAmount: advanceAmount || null,
-        remainingAmount: remainingAmount || null,
+        paymentMethod: isAdvance ? "CASH" : "PHONEPE",
+        paymentAmount,
+        paymentInitiatedAt: new Date(),
+        expiresAt: new Date(
+          Date.now() + PAYMENT_ATTEMPT_TTL_MINUTES * 60 * 1000
+        ),
       },
     });
 
     return NextResponse.json({
       redirectUrl: result.redirectUrl,
+      isAdvance: !!isAdvance,
+      advanceAmount: advanceAmount ?? null,
+      remainingAmount: remainingAmount ?? null,
     });
   } catch (error) {
     return NextResponse.json(

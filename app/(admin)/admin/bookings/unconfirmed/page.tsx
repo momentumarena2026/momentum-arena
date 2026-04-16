@@ -19,7 +19,7 @@ export default async function UnconfirmedBookingsPage({
   const skip = (page - 1) * limit;
 
   const where = {
-    status: "LOCKED" as const,
+    status: "PENDING" as const,
     payment: {
       status: "PENDING" as const,
       method: { in: ["UPI_QR" as const, "CASH" as const] },
@@ -77,17 +77,16 @@ export default async function UnconfirmedBookingsPage({
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Date &amp; Time</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Amount</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Payment</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Lock Expires</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Submitted</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/50">
                 {bookings.map((booking) => {
                   const sportInfo = SPORT_INFO[booking.courtConfig.sport as Sport];
-                  const isExpired = booking.lockExpiresAt && booking.lockExpiresAt < new Date();
 
                   return (
-                    <tr key={booking.id} className={`bg-zinc-900/30 hover:bg-zinc-800/50 transition-colors ${isExpired ? "opacity-50" : ""}`}>
+                    <tr key={booking.id} className="bg-zinc-900/30 hover:bg-zinc-800/50 transition-colors">
                       <td className="px-4 py-3">
                         <p className="font-medium text-white truncate max-w-[140px]">
                           {booking.user.name || booking.user.phone || booking.user.email || "—"}
@@ -118,15 +117,9 @@ export default async function UnconfirmedBookingsPage({
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {isExpired ? (
-                          <span className="text-xs text-red-400 font-medium">Expired</span>
-                        ) : booking.lockExpiresAt ? (
-                          <span className="text-xs text-amber-400 font-mono">
-                            {new Date(booking.lockExpiresAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-zinc-600">—</span>
-                        )}
+                        <span className="text-xs text-zinc-400 font-mono">
+                          {new Date(booking.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">

@@ -67,7 +67,7 @@ export default async function AdminBookingDetailPage({
             className={`rounded-full border px-3 py-1 text-xs font-medium ${
               booking.status === "CONFIRMED"
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                : booking.status === "LOCKED"
+                : booking.status === "PENDING"
                 ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
                 : "border-red-500/30 bg-red-500/10 text-red-400"
             }`}

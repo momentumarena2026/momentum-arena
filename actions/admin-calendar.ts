@@ -7,7 +7,7 @@ import type { CourtZone, Sport, ConfigSize } from "@prisma/client";
 
 export interface CellBooking {
   id: string;
-  status: "CONFIRMED" | "LOCKED";
+  status: "CONFIRMED" | "PENDING";
   userName: string;
   userEmail: string | null;
   userPhone: string | null;
@@ -45,7 +45,6 @@ export async function getCalendarData(
   await requireAdmin("MANAGE_BOOKINGS");
 
   const dateOnly = new Date(date + "T00:00:00Z");
-  const now = new Date();
 
   // Fetch active court configs
   const configs = await db.courtConfig.findMany({
@@ -56,14 +55,11 @@ export async function getCalendarData(
     orderBy: [{ sport: "asc" }, { size: "asc" }, { position: "asc" }],
   });
 
-  // Fetch all active bookings for this date (CONFIRMED or actively LOCKED)
+  // Fetch all active bookings for this date (CONFIRMED or PENDING)
   const bookings = await db.booking.findMany({
     where: {
       date: dateOnly,
-      OR: [
-        { status: "CONFIRMED" },
-        { status: "LOCKED", lockExpiresAt: { gt: now } },
-      ],
+      status: { in: ["CONFIRMED", "PENDING"] },
     },
     include: {
       user: { select: { name: true, email: true, phone: true } },
@@ -157,7 +153,7 @@ export async function getCalendarData(
       if (matchingBooking) {
         cellData.booking = {
           id: matchingBooking.id,
-          status: matchingBooking.status as "CONFIRMED" | "LOCKED",
+          status: matchingBooking.status as "CONFIRMED" | "PENDING",
           userName:
             matchingBooking.user.name ||
             matchingBooking.user.email ||

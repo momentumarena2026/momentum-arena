@@ -31,7 +31,7 @@ interface BookingPayment {
 interface BookingData {
   id: string;
   date: string | Date;
-  status: "CONFIRMED" | "LOCKED" | "CANCELLED";
+  status: "CONFIRMED" | "PENDING" | "CANCELLED";
   totalAmount: number;
   createdAt: string | Date;
   createdByAdminId?: string | null;
@@ -74,7 +74,7 @@ const STATUS_CONFIG = {
     label: "Confirmed",
     dot: "bg-emerald-400",
   },
-  LOCKED: {
+  PENDING: {
     icon: Clock,
     color: "text-yellow-400",
     bg: "bg-yellow-500/10",
