@@ -80,7 +80,7 @@ const STATUS_TOKEN: Record<
   },
   PENDING: {
     icon: AlertCircle,
-    label: "Pending",
+    label: "Awaiting confirmation",
     pillBg: "bg-yellow-500/10",
     pillBorder: "border-yellow-500/30",
     pillText: "text-yellow-300",
@@ -135,12 +135,24 @@ export default async function MyBookingsPage({
     }),
   ]);
 
-  const now = new Date();
+  // Classify by IST calendar day so a booking for today's afternoon doesn't
+  // prematurely slide into "Previous" right after UTC midnight. `b.date` is a
+  // DATE column — when read by Prisma it lands as midnight UTC, which is also
+  // the correct calendar day when compared as YYYY-MM-DD.
+  const todayIST = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  }); // e.g. "2026-04-16"
+  const bookingDateKey = (d: Date) => d.toISOString().split("T")[0];
+
   const upcoming = bookings.filter(
-    (b) => (b.status === "CONFIRMED" || b.status === "PENDING") && b.date >= now
+    (b) =>
+      (b.status === "CONFIRMED" || b.status === "PENDING") &&
+      bookingDateKey(b.date) >= todayIST
   );
   const past = bookings.filter(
-    (b) => (b.status !== "CONFIRMED" && b.status !== "PENDING") || b.date < now
+    (b) =>
+      (b.status !== "CONFIRMED" && b.status !== "PENDING") ||
+      bookingDateKey(b.date) < todayIST
   );
 
   // Dashboard stats
@@ -464,6 +476,17 @@ function BookingCard({
     .map((s) => formatHour(s.startHour))
     .join(", ");
 
+  const bookedOn = formatBookingDate(booking.createdAt, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const isPending = booking.status === "PENDING";
+
   return (
     <Link
       href={`/book/confirmation/${booking.id}`}
@@ -506,6 +529,10 @@ function BookingCard({
               {status.label}
             </span>
           </div>
+          <p className="mt-2 flex items-center gap-1 text-[11px] text-zinc-500">
+            <CalendarDays className="h-3 w-3" />
+            Booked on {bookedOn}
+          </p>
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -519,6 +546,16 @@ function BookingCard({
           <ChevronRight className="h-4 w-4 text-zinc-600 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-300" />
         </div>
       </div>
+
+      {isPending && (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-yellow-400" />
+          <p className="text-[11px] leading-snug text-yellow-200/80">
+            Your slot is reserved. Our team will verify your payment and
+            confirm this booking shortly — usually within 30 minutes.
+          </p>
+        </div>
+      )}
     </Link>
   );
 }
