@@ -350,23 +350,24 @@ export function CheckoutClient({
             // User clicked "I've completed the payment" — commit the booking as PENDING.
             // Mark paymentCompleted so the hold isn't released by unload/unmount handlers.
             paymentCompletedRef.current = true;
-            if (paymentMethod === "upi_qr") {
-              const result = await selectUpiPayment(holdId, effectiveAmount);
-              if (result.success && result.bookingId) {
-                router.push(`/book/confirmation/${result.bookingId}`);
-              } else {
-                setError(result.error || "Failed to create booking");
-                paymentCompletedRef.current = false;
+            const commit =
+              paymentMethod === "cash"
+                ? await selectCashPayment(holdId, effectiveAmount)
+                : await selectUpiPayment(holdId, effectiveAmount);
+
+            if (commit.success && commit.bookingId) {
+              // Fire-and-forget recurring series creation for non-advance UPI.
+              if (paymentMethod === "upi_qr") {
+                handleRecurringAfterPayment().catch(() => {});
               }
-            } else if (paymentMethod === "cash") {
-              const result = await selectCashPayment(holdId, effectiveAmount);
-              if (result.success && result.bookingId) {
-                router.push(`/book/confirmation/${result.bookingId}`);
-              } else {
-                setError(result.error || "Failed to create booking");
-                paymentCompletedRef.current = false;
-              }
+              // Do NOT router.push here — the UpiQrCheckout component now stays
+              // on its "paid" step so the user can share their payment
+              // screenshot on WhatsApp before navigating to the confirmation.
+              return { bookingId: commit.bookingId };
             }
+
+            paymentCompletedRef.current = false;
+            return { error: commit.error || "Failed to create booking" };
           }}
           onCancel={() => { releaseLock(); router.back(); }}
         />
