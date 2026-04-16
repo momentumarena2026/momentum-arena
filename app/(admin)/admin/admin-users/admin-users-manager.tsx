@@ -6,6 +6,7 @@ import {
   createAdminUser,
   deleteAdminUser,
   updateAdminPermissions,
+  resendAdminInvite,
 } from "@/actions/admin-auth";
 import {
   ALL_PERMISSIONS,
@@ -26,17 +27,23 @@ type AdminUser = {
   id: string;
   username: string;
   email: string;
-  role: "SUPERADMIN" | "ADMIN";
+  role: "SUPERADMIN" | "ADMIN" | "STAFF";
   permissions: string[];
   isDeletable: boolean;
   lastLoginAt: Date | null;
   createdAt: Date;
+  passwordSet: boolean;
+  inviteExpired: boolean;
 };
 
 export function AdminUsersManager() {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendMessage, setResendMessage] = useState<
+    { id: string; kind: "success" | "error"; text: string } | null
+  >(null);
   const [isPending, startTransition] = useTransition();
 
   const loadAdmins = () => {
@@ -56,6 +63,30 @@ export function AdminUsersManager() {
       return;
     startTransition(async () => {
       await deleteAdminUser(id);
+      loadAdmins();
+    });
+  };
+
+  const handleResend = (id: string, username: string) => {
+    if (!confirm(`Resend invite email to "${username}"?`)) return;
+    setResendingId(id);
+    setResendMessage(null);
+    startTransition(async () => {
+      const result = await resendAdminInvite(id);
+      setResendingId(null);
+      if (result.success) {
+        setResendMessage({
+          id,
+          kind: "success",
+          text: "Invite email sent. Link is valid for 48 hours.",
+        });
+      } else {
+        setResendMessage({
+          id,
+          kind: "error",
+          text: result.error || "Could not resend invite.",
+        });
+      }
       loadAdmins();
     });
   };
@@ -89,83 +120,133 @@ export function AdminUsersManager() {
       )}
 
       <div className="space-y-4">
-        {admins.map((admin) => (
-          <Card key={admin.id} className="bg-zinc-950 border-zinc-800">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CardTitle className="text-lg text-white">
-                    {admin.username}
-                  </CardTitle>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      admin.role === "SUPERADMIN"
-                        ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                        : "bg-red-500/20 text-red-400 border border-red-500/30"
+        {admins.map((admin) => {
+          // Superadmins never use the invite flow, so they're implicitly active.
+          const isSuperadmin = admin.role === "SUPERADMIN";
+          const isPendingInvite = !isSuperadmin && !admin.passwordSet;
+          const statusBadge = isPendingInvite
+            ? admin.inviteExpired
+              ? {
+                  label: "Invite expired",
+                  cls: "bg-red-500/20 text-red-400 border border-red-500/30",
+                }
+              : {
+                  label: "Pending",
+                  cls: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+                }
+            : {
+                label: "Active",
+                cls: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
+              };
+          const msg = resendMessage?.id === admin.id ? resendMessage : null;
+
+          return (
+            <Card key={admin.id} className="bg-zinc-950 border-zinc-800">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <CardTitle className="text-lg text-white">
+                      {admin.username}
+                    </CardTitle>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        admin.role === "SUPERADMIN"
+                          ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                          : "bg-red-500/20 text-red-400 border border-red-500/30"
+                      }`}
+                    >
+                      {admin.role}
+                    </span>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${statusBadge.cls}`}
+                    >
+                      {statusBadge.label}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isPendingInvite && (
+                      <button
+                        onClick={() => handleResend(admin.id, admin.username)}
+                        disabled={isPending || resendingId === admin.id}
+                        className="text-xs text-amber-400 hover:text-amber-300 transition-colors disabled:opacity-50"
+                      >
+                        {resendingId === admin.id ? "Sending..." : "Resend Invite"}
+                      </button>
+                    )}
+                    {admin.role !== "SUPERADMIN" && (
+                      <button
+                        onClick={() =>
+                          setEditingId(editingId === admin.id ? null : admin.id)
+                        }
+                        className="text-xs text-zinc-400 hover:text-white transition-colors"
+                      >
+                        {editingId === admin.id ? "Close" : "Edit Permissions"}
+                      </button>
+                    )}
+                    {admin.isDeletable && (
+                      <button
+                        onClick={() => handleDelete(admin.id, admin.username)}
+                        disabled={isPending}
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-sm text-zinc-400">{admin.email}</p>
+                {msg && (
+                  <div
+                    className={`rounded-md p-2 text-xs border ${
+                      msg.kind === "success"
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                        : "bg-red-500/10 text-red-400 border-red-500/20"
                     }`}
                   >
-                    {admin.role}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {admin.role !== "SUPERADMIN" && (
-                    <button
-                      onClick={() =>
-                        setEditingId(editingId === admin.id ? null : admin.id)
-                      }
-                      className="text-xs text-zinc-400 hover:text-white transition-colors"
+                    {msg.text}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  {admin.permissions.map((p) => (
+                    <span
+                      key={p}
+                      className="text-xs bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded"
                     >
-                      {editingId === admin.id ? "Close" : "Edit Permissions"}
-                    </button>
-                  )}
-                  {admin.isDeletable && (
-                    <button
-                      onClick={() => handleDelete(admin.id, admin.username)}
-                      disabled={isPending}
-                      className="text-xs text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      Delete
-                    </button>
-                  )}
+                      {PERMISSION_LABELS[p as keyof typeof PERMISSION_LABELS] ||
+                        p}
+                    </span>
+                  ))}
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p className="text-sm text-zinc-400">{admin.email}</p>
-              <div className="flex flex-wrap gap-1">
-                {admin.permissions.map((p) => (
-                  <span
-                    key={p}
-                    className="text-xs bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded"
-                  >
-                    {PERMISSION_LABELS[p as keyof typeof PERMISSION_LABELS] ||
-                      p}
-                  </span>
-                ))}
-              </div>
-              {admin.lastLoginAt && (
-                <p className="text-xs text-zinc-500">
-                  Last login:{" "}
-                  {new Date(admin.lastLoginAt).toLocaleDateString("en-IN", {
-                    dateStyle: "medium",
-                  })}
-                </p>
-              )}
+                {admin.lastLoginAt ? (
+                  <p className="text-xs text-zinc-500">
+                    Last login:{" "}
+                    {new Date(admin.lastLoginAt).toLocaleDateString("en-IN", {
+                      dateStyle: "medium",
+                    })}
+                  </p>
+                ) : isPendingInvite ? (
+                  <p className="text-xs text-zinc-500">
+                    Never logged in — waiting for password setup
+                  </p>
+                ) : null}
 
-              {editingId === admin.id && (
-                <EditPermissionsForm
-                  adminId={admin.id}
-                  currentPermissions={admin.permissions}
-                  allPermissions={assignablePermissions}
-                  onSave={() => {
-                    setEditingId(null);
-                    loadAdmins();
-                  }}
-                />
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                {editingId === admin.id && (
+                  <EditPermissionsForm
+                    adminId={admin.id}
+                    currentPermissions={admin.permissions}
+                    allPermissions={assignablePermissions}
+                    onSave={() => {
+                      setEditingId(null);
+                      loadAdmins();
+                    }}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );

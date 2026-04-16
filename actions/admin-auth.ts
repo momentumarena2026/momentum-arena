@@ -186,7 +186,7 @@ export async function updateAdminPermissions(
 export async function getAdminUsers() {
   await requireSuperadmin();
 
-  return db.adminUser.findMany({
+  const admins = await db.adminUser.findMany({
     select: {
       id: true,
       username: true,
@@ -196,9 +196,57 @@ export async function getAdminUsers() {
       isDeletable: true,
       lastLoginAt: true,
       createdAt: true,
+      // inviteToken is the source of truth for "has the user set a password yet?".
+      // setupAdminPassword clears it to null, flipping the user from pending → active.
+      inviteToken: true,
+      inviteTokenExpiry: true,
     },
     orderBy: { createdAt: "asc" },
   });
+
+  // Don't leak the raw token to the client — derive booleans instead.
+  const now = Date.now();
+  return admins.map(
+    ({ inviteToken, inviteTokenExpiry, ...rest }) => ({
+      ...rest,
+      passwordSet: inviteToken === null,
+      inviteExpired:
+        inviteToken !== null &&
+        inviteTokenExpiry !== null &&
+        inviteTokenExpiry.getTime() < now,
+    })
+  );
+}
+
+// --- Resend Admin Invite ---
+
+export async function resendAdminInvite(
+  adminUserId: string
+): Promise<{ success?: boolean; error?: string }> {
+  await requireSuperadmin();
+
+  const admin = await db.adminUser.findUnique({ where: { id: adminUserId } });
+  if (!admin) return { error: "Admin user not found" };
+  if (admin.role === "SUPERADMIN")
+    return { error: "Superadmin does not use invite flow" };
+  if (!admin.inviteToken)
+    return { error: "This admin has already set their password" };
+
+  // Rotate the token and extend expiry for another 48 hours.
+  const inviteToken = crypto.randomBytes(32).toString("hex");
+  const inviteTokenExpiry = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+  await db.adminUser.update({
+    where: { id: adminUserId },
+    data: { inviteToken, inviteTokenExpiry },
+  });
+
+  const sent = await sendAdminInviteEmail(admin.email, admin.username, inviteToken);
+  if (!sent) {
+    return { error: "Could not send invite email. Please try again." };
+  }
+
+  return { success: true };
 }
 
 // --- Admin Invite Password Setup ---
