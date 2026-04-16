@@ -1,12 +1,12 @@
-import { auth } from "@/lib/auth";
+import { adminAuth } from "@/lib/admin-auth-session";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PERMISSION_LABELS } from "@/lib/permissions";
 import { AdminChangePassword } from "./change-password";
 
 export default async function AdminProfilePage() {
-  const session = await auth();
-  if (!session?.user || session.user.userType !== "admin") {
+  const session = await adminAuth();
+  if (!session?.user) {
     redirect("/godmode");
   }
 

@@ -1,10 +1,11 @@
-import { auth } from "@/lib/auth";
+import { adminAuth } from "@/lib/admin-auth-session";
 import { redirect } from "next/navigation";
 import { AdminUsersManager } from "./admin-users-manager";
 
 export default async function AdminUsersPage() {
-  const session = await auth();
-  if (session?.user?.adminRole !== "SUPERADMIN") {
+  const session = await adminAuth();
+  const adminRole = (session?.user as unknown as { adminRole?: string } | undefined)?.adminRole;
+  if (adminRole !== "SUPERADMIN") {
     redirect("/admin");
   }
 
