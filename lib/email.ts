@@ -3,6 +3,16 @@ const MSG91_EMAIL_API = "https://control.msg91.com/api/v5/email/send";
 
 const isDev = process.env.NODE_ENV === "development";
 
+// Base URL for links embedded in emails. Matches the convention used in
+// lib/notifications.ts so links always resolve to the production host when
+// NEXT_PUBLIC_APP_URL is unset (AUTH_URL / NEXTAUTH_URL are honored as a
+// fallback for local dev overrides).
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.AUTH_URL ||
+  process.env.NEXTAUTH_URL ||
+  "https://momentumarena.com";
+
 // Superadmin recovery email addresses — loaded from env var
 export const SUPERADMIN_RECOVERY_EMAILS = (
   process.env.SUPERADMIN_RECOVERY_EMAILS ||
@@ -60,8 +70,7 @@ export async function sendAdminInviteEmail(
   username: string,
   inviteToken: string
 ): Promise<boolean> {
-  const baseUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-  const setupUrl = `${baseUrl}/godmode/setup-password?token=${inviteToken}`;
+  const setupUrl = `${APP_URL}/godmode/setup-password?token=${inviteToken}`;
 
   if (isDev && !MSG91_AUTH_KEY) {
     console.log(`\n📧 [DEV] Admin invite email to ${email}:`);
@@ -137,8 +146,7 @@ export async function sendAdminPasswordResetEmail(
   username: string,
   resetToken: string
 ): Promise<boolean> {
-  const baseUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-  const resetUrl = `${baseUrl}/godmode/setup-password?token=${resetToken}`;
+  const resetUrl = `${APP_URL}/godmode/setup-password?token=${resetToken}`;
 
   return sendEmail({
     to: [{ email, name: username }],
