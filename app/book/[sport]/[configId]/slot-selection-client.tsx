@@ -7,7 +7,7 @@ import { DatePicker } from "@/components/booking/date-picker";
 import { SlotGrid } from "@/components/booking/slot-grid";
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
-import { formatHour } from "@/lib/court-config";
+import { formatHoursAsRanges } from "@/lib/court-config";
 import type { SlotAvailability } from "@/lib/availability";
 import { Loader2, RefreshCw, Calendar } from "lucide-react";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
@@ -558,7 +558,7 @@ export function SlotSelectionClient({
             <div className="flex items-center gap-2 text-zinc-400 overflow-hidden">
               <span className="font-medium text-white flex-shrink-0">{selectedHours.length} slot{selectedHours.length > 1 ? "s" : ""}</span>
               <span className="truncate text-xs">
-                {selectedHours.sort((a, b) => a - b).map((h) => formatHour(h)).join(", ")}
+                {formatHoursAsRanges(selectedHours)}
               </span>
             </div>
             <span className={`font-bold flex-shrink-0 ${isRecurring && recurringMode === "daily" ? "text-blue-400" : "text-emerald-400"}`}>

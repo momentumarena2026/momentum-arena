@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import { formatHour } from "@/lib/court-config";
+import { formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import type { SlotAvailability } from "@/lib/availability";
 import { Clock, Check } from "lucide-react";
@@ -53,7 +53,7 @@ export function SlotGrid({ slots, selectedHours, onSelectionChange }: SlotGridPr
                 <div className="flex items-center gap-1.5">
                   <Clock className="h-3.5 w-3.5 text-zinc-500" />
                   <span className="text-sm font-medium text-white">
-                    {formatHour(slot.hour)}
+                    {formatHourRangeCompact(slot.hour)}
                   </span>
                 </div>
                 {isSelected && <Check className="h-4 w-4 text-emerald-400" />}
@@ -75,7 +75,7 @@ export function SlotGrid({ slots, selectedHours, onSelectionChange }: SlotGridPr
                 {selectedHours.length} slot{selectedHours.length > 1 ? "s" : ""} selected
               </p>
               <p className="text-xs text-zinc-500">
-                {selectedHours.map((h) => formatHour(h)).join(", ")}
+                {formatHoursAsRanges(selectedHours)}
               </p>
             </div>
             <div className="text-right">
