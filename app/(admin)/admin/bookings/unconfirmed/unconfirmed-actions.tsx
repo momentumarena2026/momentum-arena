@@ -58,7 +58,7 @@ export function UnconfirmedActions({
           disabled={loading === "reject" || !reason.trim()}
           className="px-2 py-1 bg-red-600 text-white rounded text-xs font-medium hover:bg-red-500 disabled:opacity-50"
         >
-          {loading === "reject" ? "..." : "Confirm"}
+          {loading === "reject" ? "Rejecting..." : "Reject"}
         </button>
         <button
           onClick={() => { setShowReject(false); setReason(""); }}
