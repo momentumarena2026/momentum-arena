@@ -93,6 +93,7 @@ async function razorpayFetch<T>(
   }
 
   const response = await fetch(url.toString(), {
+    signal: AbortSignal.timeout(10000),
     headers: {
       Authorization: `Basic ${auth}`,
     },

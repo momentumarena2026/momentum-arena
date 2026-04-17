@@ -39,6 +39,7 @@ export async function createRazorpayOrder(
 
   const response = await fetch("https://api.razorpay.com/v1/orders", {
     method: "POST",
+    signal: AbortSignal.timeout(8000),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Basic ${auth}`,

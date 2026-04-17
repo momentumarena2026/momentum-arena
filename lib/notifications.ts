@@ -91,6 +91,7 @@ async function sendSmsConfirmation(
   try {
     const response = await fetch("https://control.msg91.com/api/v5/flow/", {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
       headers: {
         "Content-Type": "application/json",
         authkey: MSG91_AUTH_KEY,
@@ -202,6 +203,7 @@ export async function notifyAdminPendingBooking(
 
     const response = await fetch("https://control.msg91.com/api/v5/flow/", {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
       headers: {
         "Content-Type": "application/json",
         authkey: MSG91_AUTH_KEY,
@@ -283,6 +285,7 @@ export async function notifyAdminBookingConfirmed(
 
     const response = await fetch("https://control.msg91.com/api/v5/flow/", {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
       headers: {
         "Content-Type": "application/json",
         authkey: MSG91_AUTH_KEY,

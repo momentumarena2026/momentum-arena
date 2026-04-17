@@ -128,6 +128,9 @@ export async function getCafeOrderStats() {
 export async function getLiveCafeOrders() {
   await requireCafeAdmin();
 
+  // Bound the result so a runaway queue can't OOM the serverless worker.
+  // A kitchen realistically never has more than ~50 open orders; 200 is a
+  // safety margin before the page should switch to paginating.
   const orders = await db.cafeOrder.findMany({
     where: {
       status: { in: ["PENDING", "PREPARING", "READY"] },
@@ -138,6 +141,7 @@ export async function getLiveCafeOrders() {
       payment: true,
     },
     orderBy: { createdAt: "asc" },
+    take: 200,
   });
 
   const grouped = {

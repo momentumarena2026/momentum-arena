@@ -117,6 +117,7 @@ export async function sendPhoneOtp(phone: string): Promise<OtpResult> {
   try {
     const response = await fetch("https://control.msg91.com/api/v5/otp", {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
       headers: {
         "Content-Type": "application/json",
         authkey: MSG91_AUTH_KEY!,
@@ -175,6 +176,7 @@ export async function verifyPhoneOtp(phone: string, otp: string): Promise<Verify
       `https://control.msg91.com/api/v5/otp/verify?mobile=${normalizedPhone}&otp=${otp}`,
       {
         method: "GET",
+        signal: AbortSignal.timeout(5000),
         headers: {
           authkey: MSG91_AUTH_KEY!,
         },
@@ -261,6 +263,7 @@ export async function resendPhoneOtp(phone: string): Promise<OtpResult> {
       `https://control.msg91.com/api/v5/otp/retry?mobile=${normalizedPhone}&retrytype=text`,
       {
         method: "POST",
+        signal: AbortSignal.timeout(5000),
         headers: {
           authkey: MSG91_AUTH_KEY!,
         },

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { sendBookingReminders } from "@/lib/reminders";
 
-export async function POST(request: Request) {
-  // Verify cron secret for security
+// Vercel cron fires via GET; both are accepted so a manual POST curl still
+// works during operations.
+async function handle(request: Request) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
@@ -17,3 +18,6 @@ export async function POST(request: Request) {
     timestamp: new Date().toISOString(),
   });
 }
+
+export const GET = handle;
+export const POST = handle;

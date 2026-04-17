@@ -42,6 +42,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   try {
     const response = await fetch(MSG91_EMAIL_API, {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
       headers: {
         "Content-Type": "application/json",
         authkey: MSG91_AUTH_KEY,
@@ -87,6 +88,7 @@ export async function sendAdminInviteEmail(
   try {
     const response = await fetch(MSG91_EMAIL_API, {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
       headers: {
         "Content-Type": "application/json",
         authkey: MSG91_AUTH_KEY,

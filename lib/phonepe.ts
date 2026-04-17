@@ -75,6 +75,7 @@ export async function initiatePhonePePayment({
 
   const response = await fetch(`${BASE_URL}/pg/v1/pay`, {
     method: "POST",
+    signal: AbortSignal.timeout(10000),
     headers: {
       "Content-Type": "application/json",
       "X-VERIFY": checksum,
@@ -130,6 +131,7 @@ export async function checkPhonePeStatus(
 
   const response = await fetch(`${BASE_URL}${endpoint}`, {
     method: "GET",
+    signal: AbortSignal.timeout(10000),
     headers: {
       "Content-Type": "application/json",
       "X-VERIFY": checksum,
