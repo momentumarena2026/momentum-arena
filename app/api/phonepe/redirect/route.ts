@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       });
       if (payment) {
         return NextResponse.redirect(
-          `${origin}/book/confirmation/${payment.bookingId}`
+          `${origin}/book/confirmation?id=${payment.bookingId}`
         );
       }
       return NextResponse.redirect(`${origin}/book?error=hold_expired`);
@@ -78,14 +78,14 @@ export async function GET(request: NextRequest) {
         });
         if (payment) {
           return NextResponse.redirect(
-            `${origin}/book/confirmation/${payment.bookingId}`
+            `${origin}/book/confirmation?id=${payment.bookingId}`
           );
         }
         return NextResponse.redirect(`${origin}/book?error=payment_failed`);
       }
 
       sendBookingConfirmation(bookingId).catch(() => {});
-      return NextResponse.redirect(`${origin}/book/confirmation/${bookingId}`);
+      return NextResponse.redirect(`${origin}/book/confirmation?id=${bookingId}`);
     }
 
     // Payment failed / pending on PhonePe side → hold expires naturally

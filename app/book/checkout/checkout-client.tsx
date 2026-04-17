@@ -277,7 +277,7 @@ export function CheckoutClient({
             paymentCompletedRef.current = true;
             trackPaymentCompleted("RAZORPAY", effectiveAmount, verifyData.bookingId);
             if (!isAdvance) await handleRecurringAfterPayment();
-            router.push(`/book/confirmation/${verifyData.bookingId}`);
+            router.push(`/book/confirmation?id=${verifyData.bookingId}`);
           } else {
             trackPaymentFailed("RAZORPAY", holdId, verifyData.error || "Verification failed");
             setError(verifyData.error || "Payment verification failed. Please contact support.");

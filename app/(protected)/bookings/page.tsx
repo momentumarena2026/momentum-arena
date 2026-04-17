@@ -487,7 +487,7 @@ function BookingCard({
 
   return (
     <Link
-      href={`/book/confirmation/${booking.id}`}
+      href={`/book/confirmation?id=${booking.id}`}
       className={`group relative block overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-950 p-4 transition-all hover:border-zinc-700 hover:shadow-lg ${
         theme.ring
       } ${muted ? "opacity-70 hover:opacity-100" : ""}`}
@@ -636,7 +636,7 @@ function RecurringCard({
             {bookings.map((b) => (
               <Link
                 key={b.id}
-                href={`/book/confirmation/${b.id}`}
+                href={`/book/confirmation?id=${b.id}`}
                 className="group/chip inline-flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
               >
                 {formatBookingDate(b.date, { day: "numeric", month: "short" })}

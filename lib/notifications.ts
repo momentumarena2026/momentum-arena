@@ -58,7 +58,11 @@ async function sendSmsConfirmation(
   bookingId: string,
   details: BookingDetails
 ): Promise<void> {
-  const confirmationUrl = `${APP_URL}/book/confirmation/${details.id}`;
+  // Query-string form so the URL base ("${APP_URL}/book/confirmation?") can
+  // be whitelisted once in Airtel DLT and the bookingId varies as the
+  // standard {#url#} query parameter. The legacy path form still works via a
+  // redirect, but every new SMS uses this shape.
+  const confirmationUrl = `${APP_URL}/book/confirmation?id=${details.id}`;
 
   if (!MSG91_AUTH_KEY || !MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID) {
     console.log(

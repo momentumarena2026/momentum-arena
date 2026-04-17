@@ -145,7 +145,7 @@ export function UpiQrCheckout({
           <a
             href={
               committedBookingId
-                ? `/book/confirmation/${committedBookingId}`
+                ? `/book/confirmation?id=${committedBookingId}`
                 : "/bookings"
             }
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3.5 font-semibold text-white transition-colors hover:bg-zinc-700"

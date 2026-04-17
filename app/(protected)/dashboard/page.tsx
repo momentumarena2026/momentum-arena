@@ -260,7 +260,7 @@ export default async function DashboardPage() {
               return (
                 <Link
                   key={booking.id}
-                  href={`/book/confirmation/${booking.id}`}
+                  href={`/book/confirmation?id=${booking.id}`}
                   className={`group block rounded-xl border p-4 transition-all ${
                     isNext
                       ? `${colors.border} bg-gradient-to-r ${colors.bg} hover:shadow-lg ${colors.glow}`
