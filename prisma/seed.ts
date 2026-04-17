@@ -154,12 +154,13 @@ async function main() {
   }
   console.log("Seeded default pricing rules");
 
-  // Seed new user system discount code
+  // Legacy 10% new-user discount — superseded by the first-time FLAT100
+  // coupon seeded below. Keep the row for audit history but mark inactive so
+  // getNewUserDiscount returns null and the checkout falls through to FLAT100.
   await prisma.discountCode.upsert({
     where: { code: "NEWUSER" },
     update: {
-      value: 1000, // 10%
-      validUntil: new Date("2027-12-31"),
+      isActive: false,
     },
     create: {
       code: "NEWUSER",
@@ -169,11 +170,11 @@ async function main() {
       validFrom: new Date(),
       validUntil: new Date("2027-12-31"),
       isSystemCode: true,
-      isActive: true,
+      isActive: false,
       createdBy: "system",
     },
   });
-  console.log("Seeded new user discount code");
+  console.log("Deactivated legacy NEWUSER 10% discount");
 
   // Seed default FAQ entries
   const { FAQ_ENTRIES } = await import("../lib/faq-data");
@@ -194,20 +195,30 @@ async function main() {
   }
   console.log(`Seeded ${FAQ_ENTRIES.length} FAQ entries`);
 
-  // Seed FLAT100 coupon (₹100 off on sports bookings)
+  // Seed FLAT100 coupon — welcome offer: flat Rs.100 OFF for a user's very
+  // first booking. Enforced by:
+  //   - userGroupFilter [FIRST_TIME]     → 0 prior confirmed bookings AND
+  //                                        0 prior completed cafe orders
+  //   - maxUsesPerUser = 1 (schema default) → at most one redemption per user
+  //   - isSystemCode = true             → auto-applied at checkout
   await prisma.coupon.upsert({
     where: { code: "FLAT100" },
     update: {
       value: 100,
+      description: "Welcome offer: Flat Rs.100 OFF your first booking",
+      userGroupFilter: ["FIRST_TIME"],
+      minAmount: null,
+      maxUsesPerUser: 1,
       isActive: true,
     },
     create: {
       code: "FLAT100",
-      description: "Flat ₹100 OFF on online bookings",
+      description: "Welcome offer: Flat Rs.100 OFF your first booking",
       type: "FLAT",
       value: 100,
       scope: "SPORTS",
-      minAmount: 500,
+      userGroupFilter: ["FIRST_TIME"],
+      maxUsesPerUser: 1,
       isPublic: true,
       isSystemCode: true,
       validFrom: new Date(),
@@ -216,7 +227,7 @@ async function main() {
       createdBy: "system",
     },
   });
-  console.log("Seeded FLAT100 coupon");
+  console.log("Seeded FLAT100 first-time-user coupon");
 
   // Seed superadmin user "gamelord"
   const superadminPassword = await hashPassword("burninhell@26");
