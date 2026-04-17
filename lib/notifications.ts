@@ -4,13 +4,16 @@ import { formatHoursAsRanges } from "./court-config";
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
   process.env.MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID || "69dfa7116edf7c748a0d4612";
-// Same env var is reused for both the pending-booking admin alert and the
-// new confirmed-booking admin alert (Option B: "New confirmed booking on
-// {#var#}. Amount {#var#}. Details: https://www.momentumarena.com/admin/
-// bookings - Momentum Arena"). Update this env var's VALUE to the new
-// DLT-approved template id once it's live.
+// Existing "new booking, payment pending" admin template.
 const MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID =
   process.env.MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID || "69dfa786ec69c7286e0d2082";
+// New Option B admin template: "New confirmed booking on {#var#}. Amount
+// {#var#}. Details: https://www.momentumarena.com/admin/bookings - Momentum
+// Arena". Separate env var so we don't reuse the pending-booking template
+// id by mistake — awaiting DLT approval. While this is unset, the confirmed
+// admin SMS is a no-op (function short-circuits).
+const MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID =
+  process.env.MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID || "";
 const ADMIN_NOTIFICATION_PHONES =
   process.env.ADMIN_NOTIFICATION_PHONES || ""; // Comma-separated: "919876543210,919876543211"
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com";
@@ -226,8 +229,10 @@ export async function notifyAdminPendingBooking(
 // Variable 1 ("slot") — date + time, e.g. "17 Apr 6pm-7pm"
 // Variable 2 ("amount") — e.g. "Rs.1600"
 //
-// Uses the same env var as the pending-booking admin alert; update that env
-// to the new approved template id once DLT registration completes.
+// No-ops until MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID is set to the
+// DLT-approved template id. This prevents accidentally sending the
+// pending-booking template body (which would be confusing to admins) if
+// the env var is missing.
 export async function notifyAdminBookingConfirmed(
   bookingId: string
 ): Promise<void> {
@@ -259,9 +264,9 @@ export async function notifyAdminBookingConfirmed(
 
   const amount = `Rs.${booking.totalAmount.toLocaleString("en-IN")}`;
 
-  if (!MSG91_AUTH_KEY || !MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID) {
+  if (!MSG91_AUTH_KEY || !MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID) {
     console.log(
-      `\n[DEV] Admin Booking Confirmed SMS:`,
+      `\n[DEV] Admin Booking Confirmed SMS (template id not yet set):`,
       `\n  slot: ${slot}`,
       `\n  amount: ${amount}`,
       `\n  to: ${adminPhones.join(", ")}\n`
@@ -283,7 +288,7 @@ export async function notifyAdminBookingConfirmed(
         authkey: MSG91_AUTH_KEY,
       },
       body: JSON.stringify({
-        template_id: MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID,
+        template_id: MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID,
         recipients,
       }),
     });
