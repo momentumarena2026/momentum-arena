@@ -27,6 +27,17 @@ export async function validateCoupon(
     const upperCode = code.toUpperCase().trim();
     const now = new Date();
 
+    // Fall back to the logged-in session's user id when the caller didn't
+    // pass one explicitly. Without this, userGroupFilter and FIRST_PURCHASE
+    // checks can't distinguish "guest" from "logged-in first-time user" and
+    // everyone ends up with "You must be logged in to use this coupon".
+    if (!context.userId) {
+      const session = await auth();
+      if (session?.user?.id) {
+        context = { ...context, userId: session.user.id };
+      }
+    }
+
     // 1. Find coupon case-insensitive
     const coupon = await db.coupon.findFirst({
       where: { code: upperCode },
