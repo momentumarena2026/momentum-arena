@@ -167,7 +167,12 @@ export async function notifyAdminPendingBooking(
     return;
   }
 
-  const adminPanelUrl = `${APP_URL}/admin`;
+  // Deep-links straight to the admin unconfirmed-bookings list so the on-call
+  // admin jumps to the exact queue needing action. Uses the canonical
+  // www.momentumarena.com host since that's what's whitelisted in DLT for
+  // this SMS template's CTA.
+  const adminPanelUrl =
+    "https://www.momentumarena.com/admin/bookings/unconfirmed";
 
   if (!MSG91_AUTH_KEY || !MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID) {
     console.log(
