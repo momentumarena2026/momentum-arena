@@ -181,7 +181,7 @@ export async function verifyBookingUtr(
 
   // Send booking confirmation to the customer
   await sendBookingConfirmation(payment.bookingId);
-  notifyAdminBookingConfirmed(payment.bookingId).catch(() => {});
+  notifyAdminBookingConfirmed(payment.bookingId).catch((err) => console.error("Notification dispatch failed:", err));
 
   return { success: true };
 }

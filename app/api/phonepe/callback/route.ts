@@ -72,8 +72,8 @@ export async function POST(request: NextRequest) {
     );
 
     if (bookingId) {
-      sendBookingConfirmation(bookingId).catch(() => {});
-      notifyAdminBookingConfirmed(bookingId).catch(() => {});
+      sendBookingConfirmation(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+      notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
     }
 
     return NextResponse.json({ success: true });

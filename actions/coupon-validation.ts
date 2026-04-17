@@ -315,7 +315,10 @@ export async function applyCoupon(
 
         return { success: true };
       },
-      { isolationLevel: "Serializable", timeout: 10000 }
+      // RepeatableRead prevents the phantom reads we care about (seeing a
+      // stale usedCount) without the serialization-failure retries that
+      // Serializable triggers under concurrent coupon redemption.
+      { isolationLevel: "RepeatableRead", timeout: 10000 }
     );
 
     return result;

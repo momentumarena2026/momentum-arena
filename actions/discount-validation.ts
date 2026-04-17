@@ -201,7 +201,9 @@ export async function applyDiscountCode(
           codeName: discountCode.code,
         };
       },
-      { isolationLevel: "Serializable", timeout: 10000 }
+      // RepeatableRead avoids the concurrent-redemption serialization failures
+      // that Serializable produces without compromising the usedCount invariant.
+      { isolationLevel: "RepeatableRead", timeout: 10000 }
     );
 
     return { valid: true, ...result };

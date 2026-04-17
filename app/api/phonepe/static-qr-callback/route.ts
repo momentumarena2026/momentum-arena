@@ -28,10 +28,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true }); // always 200
     }
 
-    // Decode base64 payload
-    const decoded: StaticQrCallbackData = JSON.parse(
-      Buffer.from(base64Response, "base64").toString("utf-8")
-    );
+    // Decode base64 payload. Guard against malformed callbacks — the
+    // handler is public-facing and must never 500 on garbage input, or
+    // PhonePe will keep retrying.
+    let decoded: StaticQrCallbackData;
+    try {
+      decoded = JSON.parse(
+        Buffer.from(base64Response, "base64").toString("utf-8")
+      );
+    } catch (err) {
+      console.error("Static QR callback: malformed base64/JSON payload", err);
+      return NextResponse.json({ success: true }); // always 200
+    }
 
     const { data } = decoded;
     if (!data) {
@@ -115,8 +123,8 @@ export async function POST(request: NextRequest) {
         }),
       ]);
 
-      await sendBookingConfirmation(bookingPayment.bookingId).catch(() => {});
-      notifyAdminBookingConfirmed(bookingPayment.bookingId).catch(() => {});
+      await sendBookingConfirmation(bookingPayment.bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+      notifyAdminBookingConfirmed(bookingPayment.bookingId).catch((err) => console.error("Notification dispatch failed:", err));
 
       console.log(
         `Static QR callback: auto-verified booking payment ${bookingPayment.id} (UTR: ${utr})`

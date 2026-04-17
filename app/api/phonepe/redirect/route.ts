@@ -87,8 +87,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${origin}/book?error=payment_failed`);
       }
 
-      sendBookingConfirmation(bookingId).catch(() => {});
-      notifyAdminBookingConfirmed(bookingId).catch(() => {});
+      sendBookingConfirmation(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+      notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
       return NextResponse.redirect(`${origin}/book/confirmation?id=${bookingId}`);
     }
 

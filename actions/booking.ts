@@ -53,10 +53,17 @@ export async function lockSlots(
     return { success: false, error: "Please login to book" };
   }
 
+  let parsedHours: number[];
+  try {
+    parsedHours = JSON.parse(formData.get("hours") as string) as number[];
+  } catch {
+    return { success: false, error: "Invalid booking data" };
+  }
+
   const raw = {
     courtConfigId: formData.get("courtConfigId") as string,
     date: formData.get("date") as string,
-    hours: JSON.parse(formData.get("hours") as string) as number[],
+    hours: parsedHours,
   };
 
   const parsed = lockSlotsSchema.safeParse(raw);
@@ -243,8 +250,8 @@ export async function confirmRazorpayPayment(
     return { success: false, error: "Failed to create booking" };
   }
 
-  sendBookingConfirmation(bookingId).catch(() => {});
-  notifyAdminBookingConfirmed(bookingId).catch(() => {});
+  sendBookingConfirmation(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
 
   return { success: true, bookingId };
 }

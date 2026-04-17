@@ -40,7 +40,7 @@ export async function confirmCashPayment(bookingId: string) {
 
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch(() => {});
+  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
 
   return { success: true };
 }
@@ -74,7 +74,7 @@ export async function confirmUpiPayment(bookingId: string) {
 
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch(() => {});
+  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
 
   return { success: true };
 }
@@ -619,7 +619,7 @@ export async function adminCreateBooking(data: {
     // Send confirmation SMS if booking is confirmed (FREE or RAZORPAY)
     if (data.paymentMethod === "FREE" || data.paymentMethod === "RAZORPAY") {
       sendBookingConfirmation(bookingId).catch(console.error);
-      notifyAdminBookingConfirmed(bookingId).catch(() => {});
+      notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
     }
 
     return { success: true as const, bookingId };

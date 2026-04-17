@@ -14,7 +14,12 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const courtConfigId = formData.get("courtConfigId") as string;
   const date = formData.get("date") as string;
-  const hours = JSON.parse(formData.get("hours") as string) as number[];
+  let hours: number[];
+  try {
+    hours = JSON.parse(formData.get("hours") as string) as number[];
+  } catch {
+    return NextResponse.json({ error: "Invalid data" }, { status: 400 });
+  }
 
   if (!courtConfigId || !date || !hours?.length) {
     return NextResponse.json({ error: "Invalid data" }, { status: 400 });
