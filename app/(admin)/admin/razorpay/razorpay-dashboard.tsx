@@ -17,6 +17,14 @@ import {
   Clock,
 } from "lucide-react";
 
+// Razorpay's REST API returns every monetary field in paise. The shared
+// formatPrice helper expects rupees (it's used app-wide to display
+// Booking.totalAmount, which is stored in rupees). Convert here so this
+// dashboard — the only consumer of raw Razorpay amounts — renders correctly.
+function formatPaise(paise: number): string {
+  return formatPrice(Math.round(paise / 100));
+}
+
 const TABS = [
   { key: "overview", label: "Overview" },
   { key: "payments", label: "Payments" },
@@ -130,25 +138,25 @@ function OverviewTab({ overview }: { overview: RazorpayOverview }) {
   const stats = [
     {
       label: "Total Collected",
-      value: formatPrice(overview.totalCollected),
+      value: formatPaise(overview.totalCollected),
       icon: IndianRupee,
       color: "text-emerald-400 bg-emerald-500/20",
     },
     {
       label: "Total Refunded",
-      value: formatPrice(overview.totalRefunded),
+      value: formatPaise(overview.totalRefunded),
       icon: ArrowDownLeft,
       color: "text-red-400 bg-red-500/20",
     },
     {
       label: "Net Revenue",
-      value: formatPrice(overview.netRevenue),
+      value: formatPaise(overview.netRevenue),
       icon: TrendingUp,
       color: "text-blue-400 bg-blue-500/20",
     },
     {
       label: "Pending Settlements",
-      value: formatPrice(overview.pendingSettlements),
+      value: formatPaise(overview.pendingSettlements),
       icon: Clock,
       color: "text-yellow-400 bg-yellow-500/20",
     },
@@ -198,7 +206,7 @@ function OverviewTab({ overview }: { overview: RazorpayOverview }) {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-zinc-300 capitalize">{method}</span>
                     <span className="text-zinc-400">
-                      {formatPrice(amount)}
+                      {formatPaise(amount)}
                     </span>
                   </div>
                   <div className="h-2 rounded-full bg-zinc-800">
@@ -285,7 +293,7 @@ function PaymentsTab() {
             {data.items.map((p) => (
               <tr key={p.id as string} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
                 <td className="p-3 text-zinc-300 font-mono text-xs">{(p.id as string).slice(0, 18)}...</td>
-                <td className="p-3 text-white">{formatPrice(p.amount as number)}</td>
+                <td className="p-3 text-white">{formatPaise(p.amount as number)}</td>
                 <td className="p-3"><StatusBadge status={p.status as string} /></td>
                 <td className="p-3 text-zinc-300 capitalize">{p.method as string}</td>
                 <td className="p-3 text-zinc-400 text-xs">{p.email as string}</td>
@@ -360,9 +368,9 @@ function OrdersTab() {
             {data.items.map((o) => (
               <tr key={o.id as string} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
                 <td className="p-3 text-zinc-300 font-mono text-xs">{(o.id as string).slice(0, 18)}...</td>
-                <td className="p-3 text-white">{formatPrice(o.amount as number)}</td>
-                <td className="p-3 text-emerald-400">{formatPrice(o.amount_paid as number)}</td>
-                <td className="p-3 text-yellow-400">{formatPrice(o.amount_due as number)}</td>
+                <td className="p-3 text-white">{formatPaise(o.amount as number)}</td>
+                <td className="p-3 text-emerald-400">{formatPaise(o.amount_paid as number)}</td>
+                <td className="p-3 text-yellow-400">{formatPaise(o.amount_due as number)}</td>
                 <td className="p-3"><StatusBadge status={o.status as string} /></td>
                 <td className="p-3 text-zinc-400 text-xs font-mono">{(o.receipt as string) || "—"}</td>
                 <td className="p-3 text-zinc-400">{formatDate(o.created_at as number)}</td>
@@ -416,7 +424,7 @@ function RefundsTab() {
               <tr key={r.id as string} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
                 <td className="p-3 text-zinc-300 font-mono text-xs">{(r.id as string).slice(0, 18)}...</td>
                 <td className="p-3 text-zinc-400 font-mono text-xs">{(r.payment_id as string)?.slice(0, 18)}...</td>
-                <td className="p-3 text-white">{formatPrice(r.amount as number)}</td>
+                <td className="p-3 text-white">{formatPaise(r.amount as number)}</td>
                 <td className="p-3"><StatusBadge status={r.status as string} /></td>
                 <td className="p-3 text-zinc-400">{formatDate(r.created_at as number)}</td>
               </tr>
@@ -470,9 +478,9 @@ function SettlementsTab() {
             {data.items.map((s) => (
               <tr key={s.id as string} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
                 <td className="p-3 text-zinc-300 font-mono text-xs">{(s.id as string).slice(0, 18)}...</td>
-                <td className="p-3 text-white">{formatPrice(s.amount as number)}</td>
-                <td className="p-3 text-zinc-400">{formatPrice(s.fees as number)}</td>
-                <td className="p-3 text-zinc-400">{formatPrice(s.tax as number)}</td>
+                <td className="p-3 text-white">{formatPaise(s.amount as number)}</td>
+                <td className="p-3 text-zinc-400">{formatPaise(s.fees as number)}</td>
+                <td className="p-3 text-zinc-400">{formatPaise(s.tax as number)}</td>
                 <td className="p-3 text-zinc-400 font-mono text-xs">{(s.utr as string) || "—"}</td>
                 <td className="p-3"><StatusBadge status={s.status as string} /></td>
                 <td className="p-3 text-zinc-400">{formatDate(s.created_at as number)}</td>
