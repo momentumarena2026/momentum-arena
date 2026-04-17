@@ -376,7 +376,8 @@ export async function createBookingFromHold(
     price: number;
   }[];
 
-  const result = await db.$transaction(async (tx) => {
+  const result = await db.$transaction(
+    async (tx) => {
     // Re-fetch inside transaction and lock via delete (deleted row implies someone else consumed it)
     const deleted = await tx.slotHold.deleteMany({
       where: { id: holdId },
@@ -416,8 +417,13 @@ export async function createBookingFromHold(
       },
     });
 
-    return booking.id;
-  });
+      return booking.id;
+    },
+    // Default 5s is too tight during Neon cold starts — a slow cold-start
+    // lookup inside the transaction could silently roll back a successful
+    // payment, leaving an orphaned Razorpay charge with no booking row.
+    { timeout: 15000 }
+  );
 
   return result;
 }

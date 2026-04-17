@@ -74,7 +74,7 @@ export async function earnPoints(
     });
 
     return { transaction, updatedBalance };
-  });
+  }, { timeout: 15000 });
 
   return {
     success: true,
@@ -143,7 +143,7 @@ export async function redeemPoints(
         currentBalance: { decrement: points },
       },
     });
-  });
+  }, { timeout: 15000 });
 
   return { success: true, redeemedPaise, pointsUsed: points };
 }

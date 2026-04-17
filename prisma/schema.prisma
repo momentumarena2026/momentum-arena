@@ -375,6 +375,11 @@ model Payment {
 
   @@index([status, method])
   @@index([utrExpiresAt])
+  // Idempotency-check lookups during webhook retries scale with table size.
+  // Without these, Razorpay/PhonePe duplicate-webhook handling degrades to
+  // full scans as Payment grows.
+  @@index([razorpayPaymentId])
+  @@index([phonePeMerchantTxnId])
 }
 
 model PricingRule {
@@ -656,6 +661,9 @@ model CafePayment {
 
   @@index([status, method])
   @@index([utrExpiresAt])
+  // Same idempotency rationale as Payment — keep cafe webhook lookups fast.
+  @@index([razorpayPaymentId])
+  @@index([phonePeMerchantTxnId])
 }
 
 model CafeDiscount {

@@ -196,7 +196,7 @@ export async function createRecurringBooking(data: {
     }
 
     return { recurringBookingId: recurringBooking.id, bookingsCreated: bookingsCreated + 1 }; // +1 for the first week
-  });
+  }, { timeout: 20000 }); // Creating N future bookings with slots — give headroom over the 5s default.
 
   return {
     success: true,
@@ -320,7 +320,7 @@ async function createDailyRecurringBooking(params: {
     }
 
     return { recurringBookingId: recurringBooking.id, bookingsCreated: bookingsCreated + 1 }; // +1 for the first day
-  });
+  }, { timeout: 20000 }); // Creating N future bookings with slots — give headroom over the 5s default.
 
   return {
     success: true,
