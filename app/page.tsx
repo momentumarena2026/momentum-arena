@@ -241,7 +241,7 @@ export default function Home() {
         {/* Promotional Banner — welcome offer for first-time bookers */}
         <div className="fixed top-20 left-0 right-0 z-40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
           <p className="text-xs sm:text-sm font-semibold">
-            First booking? Flat ₹100 OFF, applied automatically at checkout.
+            New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.
             <span className="ml-1 opacity-80">No coupon needed.</span>
           </p>
         </div>
