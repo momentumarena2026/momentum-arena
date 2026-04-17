@@ -1,7 +1,10 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { sendBookingConfirmation } from "@/lib/notifications";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
 async function requireAdmin() {
@@ -35,8 +38,9 @@ export async function confirmCashPayment(bookingId: string) {
     }),
   ]);
 
-  // Send booking confirmation to the customer
+  // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
+  notifyAdminBookingConfirmed(bookingId).catch(() => {});
 
   return { success: true };
 }
@@ -68,8 +72,9 @@ export async function confirmUpiPayment(bookingId: string) {
     }),
   ]);
 
-  // Send booking confirmation to the customer
+  // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
+  notifyAdminBookingConfirmed(bookingId).catch(() => {});
 
   return { success: true };
 }
@@ -614,6 +619,7 @@ export async function adminCreateBooking(data: {
     // Send confirmation SMS if booking is confirmed (FREE or RAZORPAY)
     if (data.paymentMethod === "FREE" || data.paymentMethod === "RAZORPAY") {
       sendBookingConfirmation(bookingId).catch(console.error);
+      notifyAdminBookingConfirmed(bookingId).catch(() => {});
     }
 
     return { success: true as const, bookingId };

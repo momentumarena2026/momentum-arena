@@ -13,6 +13,7 @@ import { getTodayIST, getCurrentHourIST } from "@/lib/ist-date";
 import {
   sendBookingConfirmation,
   notifyAdminPendingBooking,
+  notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
 import type { Prisma } from "@prisma/client";
@@ -243,6 +244,7 @@ export async function confirmRazorpayPayment(
   }
 
   sendBookingConfirmation(bookingId).catch(() => {});
+  notifyAdminBookingConfirmed(bookingId).catch(() => {});
 
   return { success: true, bookingId };
 }

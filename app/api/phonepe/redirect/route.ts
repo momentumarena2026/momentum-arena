@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { checkPhonePeStatus } from "@/lib/phonepe";
-import { sendBookingConfirmation } from "@/lib/notifications";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
 
 // PhonePe redirects the user back here after the payment flow.
@@ -85,6 +88,7 @@ export async function GET(request: NextRequest) {
       }
 
       sendBookingConfirmation(bookingId).catch(() => {});
+      notifyAdminBookingConfirmed(bookingId).catch(() => {});
       return NextResponse.redirect(`${origin}/book/confirmation?id=${bookingId}`);
     }
 

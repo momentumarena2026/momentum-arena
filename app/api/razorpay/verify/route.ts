@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
-import { sendBookingConfirmation } from "@/lib/notifications";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
 
 export async function POST(request: NextRequest) {
@@ -90,6 +93,7 @@ export async function POST(request: NextRequest) {
   }
 
   sendBookingConfirmation(bookingId).catch(() => {});
+  notifyAdminBookingConfirmed(bookingId).catch(() => {});
 
   return NextResponse.json({ success: true, bookingId });
 }

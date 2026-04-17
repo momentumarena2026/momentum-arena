@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { checkPhonePeStatus } from "@/lib/phonepe";
-import { sendBookingConfirmation } from "@/lib/notifications";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
 
 // PhonePe server-to-server callback (S2S).
@@ -70,6 +73,7 @@ export async function POST(request: NextRequest) {
 
     if (bookingId) {
       sendBookingConfirmation(bookingId).catch(() => {});
+      notifyAdminBookingConfirmed(bookingId).catch(() => {});
     }
 
     return NextResponse.json({ success: true });

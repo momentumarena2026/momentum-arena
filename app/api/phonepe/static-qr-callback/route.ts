@@ -4,7 +4,10 @@ import {
   verifyStaticQrCallback,
   type StaticQrCallbackData,
 } from "@/lib/phonepe";
-import { sendBookingConfirmation } from "@/lib/notifications";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 
 /**
  * PhonePe Static QR S2S Callback
@@ -113,6 +116,7 @@ export async function POST(request: NextRequest) {
       ]);
 
       await sendBookingConfirmation(bookingPayment.bookingId).catch(() => {});
+      notifyAdminBookingConfirmed(bookingPayment.bookingId).catch(() => {});
 
       console.log(
         `Static QR callback: auto-verified booking payment ${bookingPayment.id} (UTR: ${utr})`

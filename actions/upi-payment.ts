@@ -3,7 +3,10 @@
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
-import { sendBookingConfirmation } from "@/lib/notifications";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -178,6 +181,7 @@ export async function verifyBookingUtr(
 
   // Send booking confirmation to the customer
   await sendBookingConfirmation(payment.bookingId);
+  notifyAdminBookingConfirmed(payment.bookingId).catch(() => {});
 
   return { success: true };
 }

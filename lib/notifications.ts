@@ -1,8 +1,14 @@
 import { db } from "./db";
+import { formatHoursAsRanges } from "./court-config";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
   process.env.MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID || "69dfa7116edf7c748a0d4612";
+// Same env var is reused for both the pending-booking admin alert and the
+// new confirmed-booking admin alert (Option B: "New confirmed booking on
+// {#var#}. Amount {#var#}. Details: https://www.momentumarena.com/admin/
+// bookings - Momentum Arena"). Update this env var's VALUE to the new
+// DLT-approved template id once it's live.
 const MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID =
   process.env.MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID || "69dfa786ec69c7286e0d2082";
 const ADMIN_NOTIFICATION_PHONES =
@@ -207,5 +213,84 @@ export async function notifyAdminPendingBooking(
     console.log("MSG91 admin pending booking response:", JSON.stringify(data));
   } catch (error) {
     console.error("MSG91 admin pending booking notification error:", error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// notifyAdminBookingConfirmed
+// ---------------------------------------------------------------------------
+// DLT template (Option B, 2 variables only):
+//  "New confirmed booking on {#var#}. Amount {#var#}. Details:
+//   https://www.momentumarena.com/admin/bookings - Momentum Arena"
+//
+// Variable 1 ("slot") — date + time, e.g. "17 Apr 6pm-7pm"
+// Variable 2 ("amount") — e.g. "Rs.1600"
+//
+// Uses the same env var as the pending-booking admin alert; update that env
+// to the new approved template id once DLT registration completes.
+export async function notifyAdminBookingConfirmed(
+  bookingId: string
+): Promise<void> {
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      slots: { orderBy: { startHour: "asc" } },
+    },
+  });
+  if (!booking) return;
+
+  const adminPhones = ADMIN_NOTIFICATION_PHONES.split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (adminPhones.length === 0) return;
+
+  // Build "17 Apr 6pm-7pm" — fits under DLT's 30-char variable limit for
+  // typical bookings. Use IST so the date matches the venue timezone.
+  const dateLabel = booking.date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kolkata",
+  });
+  const timeLabel =
+    booking.slots.length > 0
+      ? formatHoursAsRanges(booking.slots.map((s) => s.startHour))
+      : "";
+  const slot = [dateLabel, timeLabel].filter(Boolean).join(" ").trim();
+
+  const amount = `Rs.${booking.totalAmount.toLocaleString("en-IN")}`;
+
+  if (!MSG91_AUTH_KEY || !MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID) {
+    console.log(
+      `\n[DEV] Admin Booking Confirmed SMS:`,
+      `\n  slot: ${slot}`,
+      `\n  amount: ${amount}`,
+      `\n  to: ${adminPhones.join(", ")}\n`
+    );
+    return;
+  }
+
+  try {
+    const recipients = adminPhones.map((phone) => ({
+      mobiles: phone.replace("+", ""),
+      slot,
+      amount,
+    }));
+
+    const response = await fetch("https://control.msg91.com/api/v5/flow/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authkey: MSG91_AUTH_KEY,
+      },
+      body: JSON.stringify({
+        template_id: MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID,
+        recipients,
+      }),
+    });
+
+    const data = await response.json();
+    console.log("MSG91 admin booking confirmed response:", JSON.stringify(data));
+  } catch (error) {
+    console.error("MSG91 admin booking confirmed notification error:", error);
   }
 }
