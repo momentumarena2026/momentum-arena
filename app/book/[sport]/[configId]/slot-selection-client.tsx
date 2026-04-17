@@ -91,6 +91,34 @@ export function SlotSelectionClient({
     sessionStorage.removeItem(storageKey);
   }, [storageKey]);
 
+  // If the page was left open across midnight, the IST "today" advances while
+  // selectedDate still points at yesterday. When the tab regains focus or
+  // becomes visible again, snap forward to today and drop any stale selection
+  // so the user can't proceed to checkout on a past date.
+  useEffect(() => {
+    const syncToToday = () => {
+      const today = getTodayIST();
+      setSelectedDate((prev) => {
+        if (prev < today) {
+          setSelectedHours([]);
+          setError(null);
+          return today;
+        }
+        return prev;
+      });
+    };
+    window.addEventListener("focus", syncToToday);
+    document.addEventListener("visibilitychange", syncToToday);
+    // Also re-check once a minute while the page is open, for users who leave
+    // the tab in the foreground overnight.
+    const interval = window.setInterval(syncToToday, 60 * 1000);
+    return () => {
+      window.removeEventListener("focus", syncToToday);
+      document.removeEventListener("visibilitychange", syncToToday);
+      window.clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     async function fetchSlots() {
       setLoading(true);

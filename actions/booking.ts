@@ -9,6 +9,7 @@ import {
   getValidHold,
 } from "@/lib/slot-hold";
 import { getSlotPricesForDate } from "@/lib/pricing";
+import { getTodayIST, getCurrentHourIST } from "@/lib/ist-date";
 import {
   sendBookingConfirmation,
   notifyAdminPendingBooking,
@@ -64,6 +65,30 @@ export async function lockSlots(
 
   const { courtConfigId, date, hours } = parsed.data;
   const bookingDate = new Date(date);
+
+  // Reject bookings on past dates or past hours of today. This is the
+  // authoritative server-side guard that catches stale clients which have
+  // the slot-selection page open from a previous day.
+  const todayIST = getTodayIST();
+  if (date < todayIST) {
+    return {
+      success: false,
+      error:
+        "This date has already passed. Please refresh the page and try again.",
+    };
+  }
+  if (date === todayIST) {
+    const currentHour = getCurrentHourIST();
+    const pastHours = hours.filter((h) => h <= currentHour);
+    if (pastHours.length > 0) {
+      return {
+        success: false,
+        error:
+          "Some selected slots have already started. Please refresh the page and try again.",
+        conflicts: pastHours,
+      };
+    }
+  }
 
   const allPrices = await getSlotPricesForDate(courtConfigId, bookingDate);
   const slotPrices = hours.map((hour) => {
