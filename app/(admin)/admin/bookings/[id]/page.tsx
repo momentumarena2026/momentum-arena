@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote, CheckCircle2 } from "lucide-react";
+import { MarkCollectedButton } from "./mark-collected-button";
 import { AdminBookingActions } from "./admin-actions";
 import { BookingEditHistory } from "@/components/admin/booking-edit-history";
 
@@ -214,18 +215,24 @@ export default async function AdminBookingDetailPage({
             </div>
             {booking.payment.isPartialPayment && (() => {
               const advance =
-                booking.payment.advanceAmount ?? booking.payment.amount;
+                booking.payment.advanceAmount ?? 0;
               const remaining = booking.payment.remainingAmount ?? 0;
-              const totalFromPayment = advance + remaining;
+              const total = booking.totalAmount;
               const percentPaid =
-                totalFromPayment > 0
-                  ? Math.round((advance / totalFromPayment) * 100)
-                  : 0;
+                total > 0 ? Math.round((advance / total) * 100) : 0;
+              const collected = remaining <= 0;
+              const borderClass = collected
+                ? "border-emerald-500/30 bg-emerald-500/10"
+                : "border-amber-500/30 bg-amber-500/10";
+              const headerColor = collected ? "text-emerald-400" : "text-amber-400";
+              const HeaderIcon = collected ? CheckCircle2 : Banknote;
               return (
-              <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
-                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
-                  <Banknote className="h-3.5 w-3.5" />
-                  {percentPaid}% Advance Booking
+              <div className={`mt-2 rounded-lg border p-3 space-y-1.5 ${borderClass}`}>
+                <p className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${headerColor}`}>
+                  <HeaderIcon className="h-3.5 w-3.5" />
+                  {collected
+                    ? `Paid in Full \u00B7 ${percentPaid}% Was Advance`
+                    : `${percentPaid}% Advance Booking`}
                 </p>
                 <div className="flex justify-between text-xs">
                   <span className="text-zinc-400">Advance paid</span>
@@ -234,11 +241,20 @@ export default async function AdminBookingDetailPage({
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
-                  <span className="text-amber-200">Collect at venue</span>
-                  <span className="font-bold text-amber-300">
-                    {formatPrice(remaining)}
+                  <span className={collected ? "text-emerald-200" : "text-amber-200"}>
+                    {collected ? "Collected at venue" : "Collect at venue"}
+                  </span>
+                  <span className={`font-bold ${collected ? "text-emerald-300" : "text-amber-300"}`}>
+                    {formatPrice(collected ? total - advance : remaining)}
                   </span>
                 </div>
+                {!collected && (
+                  <MarkCollectedButton
+                    bookingId={booking.id}
+                    remainingAmount={remaining}
+                    formattedRemaining={formatPrice(remaining)}
+                  />
+                )}
               </div>
               );
             })()}

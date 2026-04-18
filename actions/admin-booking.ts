@@ -79,6 +79,52 @@ export async function confirmUpiPayment(bookingId: string) {
   return { success: true };
 }
 
+// Mark the venue-side remainder of a partial-payment booking as collected.
+// Adds the remaining amount to Payment.amount, zeroes remainingAmount so the
+// "Cash Due at Venue" KPI and per-row chips drop off, and writes an audit
+// row in BookingEditHistory.
+export async function markRemainderCollected(bookingId: string) {
+  const adminId = await requireAdmin();
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
+  });
+  if (!booking) return { success: false, error: "Booking not found" };
+  if (!booking.payment) return { success: false, error: "No payment on this booking" };
+  if (!booking.payment.isPartialPayment) {
+    return { success: false, error: "Booking is not a partial payment" };
+  }
+  const remaining = booking.payment.remainingAmount ?? 0;
+  if (remaining <= 0) {
+    return { success: false, error: "Remainder already collected" };
+  }
+
+  const admin = await db.adminUser.findUnique({ where: { id: adminId } });
+  const adminUsername = admin?.username ?? "unknown";
+
+  await db.$transaction([
+    db.payment.update({
+      where: { id: booking.payment.id },
+      data: {
+        amount: booking.payment.amount + remaining,
+        remainingAmount: 0,
+      },
+    }),
+    db.bookingEditHistory.create({
+      data: {
+        bookingId,
+        adminId,
+        adminUsername,
+        editType: "REMAINDER_COLLECTED",
+        note: `Collected remaining Rs.${remaining} at venue`,
+      },
+    }),
+  ]);
+
+  return { success: true };
+}
+
 export async function cancelBooking(bookingId: string, reason: string) {
   const adminId = await requireAdmin();
 
