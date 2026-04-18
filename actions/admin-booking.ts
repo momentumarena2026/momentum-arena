@@ -471,6 +471,13 @@ export async function adminCreateBooking(data: {
   userId: string;
   paymentMethod: "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
   razorpayPaymentId?: string;
+  // Optional advance amount — when > 0 and < totalAmount, the booking is
+  // recorded as a partial payment: Payment.isPartialPayment = true,
+  // Payment.amount = advanceAmount, remainingAmount = total - advance, and
+  // paymentMethod represents HOW the advance was collected (static QR,
+  // cash in hand, manual Razorpay, etc.). The remainder is expected in
+  // cash at the venue. Cannot combine with FREE.
+  advanceAmount?: number;
   note?: string;
 }) {
   const admin = await requireAdminWithDetails();
@@ -480,6 +487,14 @@ export async function adminCreateBooking(data: {
     const validMethods = ["CASH", "UPI_QR", "RAZORPAY", "FREE"] as const;
     if (!validMethods.includes(data.paymentMethod)) {
       return { success: false as const, error: "Invalid payment method" };
+    }
+    if (data.advanceAmount !== undefined) {
+      if (data.paymentMethod === "FREE") {
+        return { success: false as const, error: "Free bookings cannot have a partial payment" };
+      }
+      if (data.advanceAmount <= 0) {
+        return { success: false as const, error: "Advance amount must be greater than zero" };
+      }
     }
     for (const h of data.hours) {
       if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
@@ -556,6 +571,14 @@ export async function adminCreateBooking(data: {
     // Calculate total
     const totalAmount = data.hours.reduce((sum, h) => sum + (priceMap.get(h) ?? 0), 0);
 
+    // Normalize partial-payment input once the total is known. A partial
+    // amount equal to or greater than the total becomes a normal full
+    // payment; anything less creates an advance-with-cash-remainder record.
+    const rawAdvance = data.advanceAmount ?? 0;
+    const isPartial = rawAdvance > 0 && rawAdvance < totalAmount;
+    const advanceAmount = isPartial ? rawAdvance : undefined;
+    const remainingAmount = isPartial ? totalAmount - rawAdvance : undefined;
+
     // Create in transaction
     const bookingId = await db.$transaction(async (tx) => {
       // Create booking
@@ -576,7 +599,7 @@ export async function adminCreateBooking(data: {
         },
       });
 
-      // Create payment based on method
+      // Create payment based on method / partial flag
       if (data.paymentMethod === "FREE") {
         await tx.payment.create({
           data: {
@@ -584,6 +607,25 @@ export async function adminCreateBooking(data: {
             method: "FREE",
             status: "COMPLETED",
             amount: 0,
+            confirmedBy: admin.id,
+            confirmedAt: now,
+          },
+        });
+      } else if (isPartial) {
+        // Admin confirmed receipt of the advance in the chosen method.
+        // Booking is CONFIRMED; the remainder is flagged as owed at venue
+        // via isPartialPayment + remainingAmount.
+        await tx.payment.create({
+          data: {
+            bookingId: booking.id,
+            method: data.paymentMethod,
+            status: "COMPLETED",
+            amount: advanceAmount!,
+            isPartialPayment: true,
+            advanceAmount: advanceAmount!,
+            remainingAmount: remainingAmount!,
+            razorpayPaymentId:
+              data.paymentMethod === "RAZORPAY" ? (data.razorpayPaymentId ?? null) : null,
             confirmedBy: admin.id,
             confirmedAt: now,
           },
@@ -601,7 +643,7 @@ export async function adminCreateBooking(data: {
           },
         });
       } else {
-        // CASH or UPI_QR
+        // CASH or UPI_QR full payment, admin not yet confirming receipt
         await tx.payment.create({
           data: {
             bookingId: booking.id,
@@ -630,8 +672,14 @@ export async function adminCreateBooking(data: {
       return booking.id;
     });
 
-    // Send confirmation SMS if booking is confirmed (FREE or RAZORPAY)
-    if (data.paymentMethod === "FREE" || data.paymentMethod === "RAZORPAY") {
+    // Send confirmation SMS for bookings whose Payment row landed in a
+    // terminal COMPLETED state — FREE, RAZORPAY (full), and any partial
+    // payment (where admin confirmed receipt of the advance).
+    const paymentIsCompleted =
+      data.paymentMethod === "FREE" ||
+      data.paymentMethod === "RAZORPAY" ||
+      isPartial;
+    if (paymentIsCompleted) {
       sendBookingConfirmation(bookingId).catch(console.error);
       notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
     }
