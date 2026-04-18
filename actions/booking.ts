@@ -293,9 +293,20 @@ export async function selectUpiPayment(
 
 // Cash: user opts to pay at the venue (or via advance UPI).
 // Creates Booking(PENDING) + Payment(PENDING, CASH). Admin confirms on arrival.
+//
+// When isAdvance is true (the "Pay 50% Now, 50% at Venue" option paid via
+// UPI QR), overrideAmount is the half the customer paid via QR. The server
+// records:
+//   - Payment.amount = overrideAmount (what was actually paid online)
+//   - Payment.isPartialPayment = true
+//   - Payment.advanceAmount = overrideAmount
+//   - Payment.remainingAmount = hold.totalAmount - overrideAmount
+// so the booking confirmation and admin views correctly show the advance
+// breakdown instead of "full payment due".
 export async function selectCashPayment(
   holdId: string,
-  overrideAmount?: number
+  overrideAmount?: number,
+  options?: { isAdvance?: boolean }
 ): Promise<BookingState> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -309,11 +320,19 @@ export async function selectCashPayment(
 
   const amount =
     overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
+  const isAdvance = !!options?.isAdvance;
+  const advanceAmount = isAdvance ? amount : undefined;
+  const remainingAmount = isAdvance
+    ? Math.max(hold.totalAmount - amount, 0)
+    : undefined;
 
   const bookingId = await createBookingFromHold(holdId, {
     method: "CASH",
     status: "PENDING",
     amount,
+    isPartialPayment: isAdvance,
+    advanceAmount,
+    remainingAmount,
   }, "PENDING");
 
   if (!bookingId) {

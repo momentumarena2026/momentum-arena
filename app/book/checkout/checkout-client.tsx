@@ -363,9 +363,13 @@ export function CheckoutClient({
             // User clicked "I've completed the payment" — commit the booking as PENDING.
             // Mark paymentCompleted so the hold isn't released by unload/unmount handlers.
             paymentCompletedRef.current = true;
+            // For the 50% advance flow, the customer only paid the advance
+            // amount via UPI QR — pass that (not the full slot price) so
+            // the Payment row records the correct amount and leaves a
+            // remainingAmount = half to collect at the venue.
             const commit =
               paymentMethod === "cash"
-                ? await selectCashPayment(holdId, effectiveAmount)
+                ? await selectCashPayment(holdId, advanceAmount, { isAdvance: true })
                 : await selectUpiPayment(holdId, effectiveAmount);
 
             if (commit.success && commit.bookingId) {

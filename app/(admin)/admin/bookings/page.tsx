@@ -13,6 +13,7 @@ import {
   CalendarCheck,
   IndianRupee,
   Clock,
+  Banknote,
 } from "lucide-react";
 import { BookingsTable } from "./bookings-table";
 
@@ -100,6 +101,14 @@ export default async function AdminBookingsPage({
       bg: "bg-orange-500/10",
       border: "border-orange-500/20",
     },
+    {
+      label: "Cash Due at Venue",
+      value: formatPrice(stats.venueDueTotal),
+      icon: Banknote,
+      color: "text-amber-300",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/20",
+    },
   ];
 
   const activeFilters = [params.status, params.sport, params.date].filter(Boolean).length;
@@ -124,7 +133,7 @@ export default async function AdminBookingsPage({
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {statCards.map((stat) => {
           const Icon = stat.icon;
           return (
@@ -269,7 +278,14 @@ export default async function AdminBookingsPage({
               size: b.courtConfig.size,
             },
             slots: b.slots.map((s) => ({ startHour: s.startHour, price: s.price })),
-            payment: b.payment ? { status: b.payment.status, method: b.payment.method, amount: b.payment.amount } : null,
+            payment: b.payment ? {
+              status: b.payment.status,
+              method: b.payment.method,
+              amount: b.payment.amount,
+              isPartialPayment: b.payment.isPartialPayment,
+              advanceAmount: b.payment.advanceAmount,
+              remainingAmount: b.payment.remainingAmount,
+            } : null,
             _isRecurringChildPayment: b._isRecurringChildPayment,
             recurringBooking: b.recurringBooking ? {
               id: b.recurringBooking.id,

@@ -245,6 +245,7 @@ export async function getAdminStats() {
     totalUsers,
     todayRevenue,
     pendingPayments,
+    venueDueAgg,
   ] = await Promise.all([
     db.booking.count({ where: { status: "CONFIRMED" } }),
     db.booking.count({
@@ -259,6 +260,18 @@ export async function getAdminStats() {
       _sum: { amount: true },
     }),
     db.payment.count({ where: { status: "PENDING" } }),
+    // Cash-due-at-venue from confirmed partial-payment bookings. Only
+    // counts advance-paid bookings whose remainder hasn't been collected
+    // yet (remainingAmount > 0). Scoped to CONFIRMED bookings so cancelled
+    // ones drop out.
+    db.payment.aggregate({
+      where: {
+        isPartialPayment: true,
+        remainingAmount: { gt: 0 },
+        booking: { status: "CONFIRMED" },
+      },
+      _sum: { remainingAmount: true },
+    }),
   ]);
 
   return {
@@ -267,6 +280,7 @@ export async function getAdminStats() {
     totalUsers,
     todayRevenue: todayRevenue._sum.amount ?? 0,
     pendingPayments,
+    venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,
   };
 }
 

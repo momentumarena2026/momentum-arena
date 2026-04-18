@@ -27,6 +27,9 @@ interface BookingPayment {
   status: string;
   method: string;
   amount: number;
+  isPartialPayment?: boolean;
+  advanceAmount?: number | null;
+  remainingAmount?: number | null;
 }
 
 interface BookingData {
@@ -270,13 +273,21 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
       {/* Payment */}
       <div className="hidden md:block">
         {booking.payment ? (
-          <div className="flex items-center gap-1.5">
-            {PayMethodIcon && <PayMethodIcon className="h-3.5 w-3.5 text-zinc-500" />}
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${PAYMENT_STATUS_STYLES[booking.payment.status]}`}>
-              {booking.payment.status}
-            </span>
-            {booking._isRecurringChildPayment && (
-              <span className="text-[9px] text-purple-400 font-medium">series</span>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              {PayMethodIcon && <PayMethodIcon className="h-3.5 w-3.5 text-zinc-500" />}
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${PAYMENT_STATUS_STYLES[booking.payment.status]}`}>
+                {booking.payment.status}
+              </span>
+              {booking._isRecurringChildPayment && (
+                <span className="text-[9px] text-purple-400 font-medium">series</span>
+              )}
+            </div>
+            {booking.payment.isPartialPayment && (booking.payment.remainingAmount ?? 0) > 0 && (
+              <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 w-fit">
+                <Banknote className="h-3 w-3" />
+                Collect {formatPrice(booking.payment.remainingAmount ?? 0)} at venue
+              </span>
             )}
           </div>
         ) : (
@@ -292,6 +303,11 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
             <span className={`text-[10px] ${status.color}`}>{status.label}</span>
           </div>
+          {booking.payment?.isPartialPayment && (booking.payment.remainingAmount ?? 0) > 0 && (
+            <p className="mt-0.5 text-[10px] font-semibold text-amber-300">
+              {formatPrice(booking.payment.remainingAmount ?? 0)} at venue
+            </p>
+          )}
         </div>
         <ExternalLink className="h-3.5 w-3.5 text-zinc-700 group-hover:text-emerald-400 transition-colors shrink-0" />
       </div>

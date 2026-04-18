@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote } from "lucide-react";
 import { AdminBookingActions } from "./admin-actions";
 import { BookingEditHistory } from "@/components/admin/booking-edit-history";
 
@@ -212,6 +212,26 @@ export default async function AdminBookingDetailPage({
                 {formatPrice(booking.payment.amount)}
               </span>
             </div>
+            {booking.payment.isPartialPayment && (
+              <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+                  <Banknote className="h-3.5 w-3.5" />
+                  50% Advance Booking
+                </p>
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-400">Advance paid online</span>
+                  <span className="font-semibold text-emerald-400">
+                    {formatPrice(booking.payment.advanceAmount ?? booking.payment.amount)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-amber-200">Collect at venue</span>
+                  <span className="font-bold text-amber-300">
+                    {formatPrice(booking.payment.remainingAmount ?? 0)}
+                  </span>
+                </div>
+              </div>
+            )}
             {booking.payment.razorpayPaymentId && (
               <div className="flex justify-between">
                 <span className="text-zinc-400">Razorpay ID</span>
