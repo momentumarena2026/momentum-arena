@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { generateSportsPricingPdf } from "@/lib/pricing-pdf";
 
 // Public route that serves the cached sports-pricing PDF at /pricing.pdf.
 // The nightly cron (/api/cron/refresh-pricing-pdf, 5:00 AM IST) regenerates
 // the CachedDocument row so this handler stays read-only on hot paths.
 // If the cache is empty (fresh deploy, pre-first-cron), we generate on
-// demand and persist the result so subsequent hits are cached again.
+// demand via a dynamic import so pdfkit is never loaded on the hot path.
 export async function GET() {
   let cached = await db.cachedDocument.findUnique({
     where: { id: "SPORTS_PRICING" },
   });
 
   if (!cached) {
+    // Dynamic import keeps pdfkit (+ its font data) out of the cold-path
+    // module graph. It only pulls in when the cache row is genuinely missing.
+    const { generateSportsPricingPdf } = await import("@/lib/pricing-pdf");
     const pdfBuffer = await generateSportsPricingPdf();
     const bytes = new Uint8Array(pdfBuffer);
     cached = await db.cachedDocument.upsert({
@@ -46,4 +48,5 @@ export async function GET() {
   });
 }
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

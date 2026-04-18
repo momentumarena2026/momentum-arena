@@ -3,9 +3,15 @@
   "configurations": [
     {
       "name": "nextjs-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "cd /Users/nakulvarshney/Workspace/momentum-arena && /usr/local/bin/node node_modules/.bin/next dev -p $PORT"],
       "port": 3000
+    },
+    {
+      "name": "invitation-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "--directory", "/Users/nakulvarshney/Workspace/momentum-arena", "--bind", "127.0.0.1"],
+      "port": 8111
     }
   ]
 }
