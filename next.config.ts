@@ -16,7 +16,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  serverExternalPackages: ["bcryptjs"],
+  // Keep these as Node-only externals. @neondatabase/serverless pulls in
+  // node:net / ws internals; @prisma/* include the Rust query engine and
+  // driver adapters — none of this can run in the browser, so Turbopack
+  // shouldn't try to bundle them for the client.
+  serverExternalPackages: [
+    "bcryptjs",
+    "@prisma/client",
+    "@prisma/adapter-neon",
+    "@neondatabase/serverless",
+  ],
 };
 
 export default nextConfig;
