@@ -11,10 +11,6 @@
     {
       "path": "/api/cron/generator-check",
       "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/refresh-pricing-pdf",
-      "schedule": "30 23 * * *"
     }
   ]
 }

@@ -221,7 +221,7 @@ def generate_pdf():
     y -= 25
 
     # ════════════════════════════════════════════════════════
-    # PER PERSON PRICING SECTION
+    # PER PERSON PRICING SECTION (illustrative — not a per-person charge)
     # ════════════════════════════════════════════════════════
     section_h = 150
     draw_rounded_rect(c, margin, y - section_h, content_w, section_h, 10,
@@ -231,10 +231,11 @@ def generate_pdf():
     inner_y = y - 22
     c.setFont("Helvetica-Bold", 14)
     c.setFillColor(EMERALD_400)
-    c.drawString(margin + 18, inner_y, "Per Person Pricing")
+    c.drawString(margin + 18, inner_y, "Sample Split Per Player")
     c.setFont("Helvetica", 9)
     c.setFillColor(TEXT_ZINC_400)
-    c.drawString(margin + 180, inner_y + 1, "(split the cost with your team)")
+    c.drawString(margin + 195, inner_y + 1,
+                 "(illustration only; you pay the slot rate, not per player)")
     inner_y -= 8
 
     # Divider
@@ -294,7 +295,89 @@ def generate_pdf():
         c.setFillColor(feat_color)
         c.circle(fx + feat_w / 2, y - 26, 2, fill=1, stroke=0)
 
-    y -= feat_h + 25
+    y -= feat_h + 20
+
+    # ════════════════════════════════════════════════════════
+    # PAGE BREAK — T&C + contact footer go on page 2
+    # ════════════════════════════════════════════════════════
+    # Bottom accent on page 1 before flushing the page.
+    draw_gradient_bar(c, 0, 0, W, 3, EMERALD_600, EMERALD_500)
+    c.showPage()
+
+    # Redraw background + top/bottom accents on page 2
+    c.setFillColor(BG_BLACK)
+    c.rect(0, 0, W, H, fill=1, stroke=0)
+    draw_gradient_bar(c, 0, H - 4, W, 4, EMERALD_500, EMERALD_600)
+    draw_gradient_bar(c, 0, 0, W, 3, EMERALD_600, EMERALD_500)
+
+    # Page 2 header strip so it doesn't feel orphaned
+    p2y = H - 40
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColor(TEXT_WHITE)
+    c.drawCentredString(W / 2, p2y, "MOMENTUM ARENA")
+    p2y -= 14
+    c.setFont("Helvetica", 9)
+    c.setFillColor(TEXT_ZINC_500)
+    c.drawCentredString(W / 2, p2y, "Policies & Contact")
+    p2y -= 20
+    draw_gradient_bar(c, (W - 60) / 2, p2y, 60, 2, EMERALD_400, EMERALD_600)
+    p2y -= 20
+
+    y = p2y
+
+    # ════════════════════════════════════════════════════════
+    # TERMS & CONDITIONS
+    # ════════════════════════════════════════════════════════
+    tnc_items = [
+        "Prices are per 1-hour slot, inclusive of applicable taxes, and may change without prior notice. Always refer to live prices on momentumarena.com at time of booking.",
+        "Slot booking is subject to real-time availability. Advance payment (typically 50%, at admin discretion) confirms the booking; the remainder is due in cash or UPI at the venue before the slot begins.",
+        "Cancellations within 24 hours of the slot are non-refundable. Earlier cancellations may be rescheduled subject to availability.",
+        "The venue may cancel or reschedule slots due to weather, equipment issues, or maintenance; full credit is issued in such cases.",
+        "Cricket slots include stumps, bats, and a ball. For other sports please bring your own gear.",
+        "Children under 12 must be accompanied by a guardian on the court. The venue is not responsible for personal belongings.",
+        "By booking a slot, the customer agrees to the full policy published on momentumarena.com.",
+    ]
+
+    tnc_h = 14 + len(tnc_items) * 22 + 12
+    draw_rounded_rect(c, margin, y - tnc_h, content_w, tnc_h, 10,
+                      BG_ZINC_900, BG_ZINC_800, 0.5)
+
+    ty = y - 18
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(EMERALD_400)
+    c.drawString(margin + 18, ty, "Terms & Conditions")
+    ty -= 14
+
+    # Wrap helper — reportlab has no soft wrap on drawString, so break lines
+    # manually using stringWidth at 9pt.
+    def wrap_line(text, font, size, max_w):
+        words = text.split()
+        lines = []
+        current = ""
+        for w in words:
+            trial = (current + " " + w).strip()
+            if c.stringWidth(trial, font, size) <= max_w:
+                current = trial
+            else:
+                if current:
+                    lines.append(current)
+                current = w
+        if current:
+            lines.append(current)
+        return lines
+
+    max_text_w = content_w - 42
+    c.setFont("Helvetica", 8.5)
+    for item in tnc_items:
+        c.setFillColor(EMERALD_400)
+        c.drawString(margin + 20, ty, "•")
+        c.setFillColor(TEXT_ZINC_300)
+        lines = wrap_line(item, "Helvetica", 8.5, max_text_w)
+        for i, line in enumerate(lines):
+            c.drawString(margin + 32, ty - i * 10, line)
+        ty -= max(11, 11 * len(lines))
+
+    y -= tnc_h + 18
 
     # ════════════════════════════════════════════════════════
     # CONTACT & LOCATION FOOTER

@@ -25,18 +25,7 @@ const nextConfig: NextConfig = {
     "@prisma/client",
     "@prisma/adapter-neon",
     "@neondatabase/serverless",
-    // pdfkit reads AFM/ICC files from its own package at runtime (new
-    // PDFDocument() → Helvetica font load). Treating it as external keeps
-    // those data files alongside the module so fs.open() resolves in the
-    // Vercel serverless bundle.
-    "pdfkit",
   ],
-  // Ensure the pdfkit data dir is traced into the serverless bundle for
-  // routes that render PDFs on demand (cache-miss fallback + cron refresh).
-  outputFileTracingIncludes: {
-    "/pricing.pdf": ["./node_modules/pdfkit/js/data/**/*"],
-    "/api/cron/refresh-pricing-pdf": ["./node_modules/pdfkit/js/data/**/*"],
-  },
 };
 
 export default nextConfig;
