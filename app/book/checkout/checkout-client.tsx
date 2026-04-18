@@ -9,7 +9,12 @@ import { DiscountInput } from "@/components/booking/discount-input";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { formatPrice } from "@/lib/pricing";
 import { validateCoupon } from "@/actions/coupon-validation";
-import { selectCashPayment, selectUpiPayment } from "@/actions/booking";
+import {
+  selectCashPayment,
+  selectUpiPayment,
+  applyCouponToHold,
+  clearCouponFromHold,
+} from "@/actions/booking";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { createRecurringBooking } from "@/actions/recurring-booking";
 import { Loader2, Sparkles, RefreshCw, Calendar, CheckCircle } from "lucide-react";
@@ -148,16 +153,18 @@ export function CheckoutClient({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
 
   // Auto-apply new user discount on mount via unified coupon system.
-  // NOTE: actual coupon usage tracking happens server-side when the Booking
-  // is created — at this stage we only validate and reduce the displayed total.
+  // Persists the couponId on the SlotHold so that createBookingFromHold can
+  // record a CouponUsage row + increment usedCount when the booking lands.
   useEffect(() => {
     if (newUserDiscount && !discountApplied) {
       validateCoupon(newUserDiscount.code, {
         scope: "SPORTS",
         amount,
         sport,
-      }).then((result) => {
+      }).then(async (result) => {
         if (result.valid && result.couponId && result.discountAmount) {
+          const persisted = await applyCouponToHold(holdId, newUserDiscount.code);
+          if (!persisted.success) return;
           setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
           setNewUserApplied(true);
@@ -166,7 +173,7 @@ export function CheckoutClient({
         }
       });
     }
-  }, [newUserDiscount, discountApplied, amount, sport]);
+  }, [newUserDiscount, discountApplied, amount, sport, holdId]);
 
   // Auto-apply FLAT100 coupon if no other discount applied
   useEffect(() => {
@@ -181,6 +188,8 @@ export function CheckoutClient({
           sport,
         });
         if (result.valid && result.couponId && result.discountAmount) {
+          const persisted = await applyCouponToHold(holdId, "FLAT100");
+          if (!persisted.success) return;
           setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
           setDiscountLabel(`Flat ₹100 OFF applied`);
@@ -192,7 +201,7 @@ export function CheckoutClient({
     }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amount, sport, newUserApplied]);
+  }, [amount, sport, newUserApplied, holdId]);
 
   // Advance payment calculation
   const advanceAmount = Math.ceil(effectiveAmount * 0.5);
@@ -203,7 +212,12 @@ export function CheckoutClient({
     router.push("/book?error=lock_expired");
   };
 
-  const handleDiscountApplied = (discountAmt: number, newTotal: number, code: string) => {
+  const handleDiscountApplied = async (discountAmt: number, newTotal: number, code: string) => {
+    // Persist the coupon to the hold so createBookingFromHold can record a
+    // CouponUsage row when the booking lands. Without this, the coupon is
+    // only ever reflected in the displayed total.
+    const persisted = await applyCouponToHold(holdId, code);
+    if (!persisted.success) return;
     setEffectiveAmount(newTotal);
     setDiscountApplied(true);
     setDiscountLabel(`Code: ${code} — ${formatPrice(discountAmt)} off`);

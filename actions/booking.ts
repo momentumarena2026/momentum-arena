@@ -16,6 +16,7 @@ import {
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
+import { validateCoupon } from "@/actions/coupon-validation";
 import type { Prisma } from "@prisma/client";
 
 const lockSlotsSchema = z.object({
@@ -132,6 +133,65 @@ export async function cancelHold(holdId: string): Promise<HoldState> {
 
   const released = await releaseSlotHold(holdId, session.user.id);
   return { success: released };
+}
+
+// Persist a validated coupon onto the SlotHold so that createBookingFromHold
+// can record the discount on Booking and create a CouponUsage row when the
+// booking lands. Call after validateCoupon() returns valid.
+// Returns the discount amount that was persisted, or null on failure.
+export async function applyCouponToHold(
+  holdId: string,
+  code: string
+): Promise<{ success: boolean; discountAmount?: number; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const hold = await getValidHold(holdId, session.user.id);
+  if (!hold) {
+    return { success: false, error: "Hold not found or expired" };
+  }
+
+  const result = await validateCoupon(code, {
+    scope: "SPORTS",
+    amount: hold.totalAmount,
+    userId: session.user.id,
+    sport: hold.courtConfig.sport,
+  });
+
+  if (!result.valid || !result.couponId || !result.discountAmount) {
+    return { success: false, error: result.error ?? "Invalid coupon" };
+  }
+
+  await db.slotHold.update({
+    where: { id: holdId },
+    data: {
+      couponId: result.couponId,
+      couponCode: code.toUpperCase().trim(),
+      discountAmount: result.discountAmount,
+    },
+  });
+
+  return { success: true, discountAmount: result.discountAmount };
+}
+
+// Clear any coupon previously applied to this hold — used when the user
+// removes the discount in checkout before paying.
+export async function clearCouponFromHold(
+  holdId: string
+): Promise<{ success: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false };
+
+  const hold = await getValidHold(holdId, session.user.id);
+  if (!hold) return { success: false };
+
+  await db.slotHold.update({
+    where: { id: holdId },
+    data: { couponId: null, couponCode: null, discountAmount: null },
+  });
+  return { success: true };
 }
 
 // Helper: extends a hold's expiry once payment has been initiated.
@@ -406,6 +466,16 @@ export async function createBookingFromHold(
     price: number;
   }[];
 
+  // If a coupon was applied on the hold, carry it through to the Booking.
+  // originalAmount + discountAmount + (reduced) totalAmount mirror what the
+  // legacy DiscountCode path does, so the admin/user detail pages render
+  // consistently regardless of which coupon system populated the fields.
+  const appliedDiscount =
+    hold.couponId && hold.discountAmount && hold.discountAmount > 0
+      ? hold.discountAmount
+      : 0;
+  const effectiveTotal = hold.totalAmount - appliedDiscount;
+
   const result = await db.$transaction(
     async (tx) => {
     // Re-fetch inside transaction and lock via delete (deleted row implies someone else consumed it)
@@ -420,7 +490,9 @@ export async function createBookingFromHold(
         courtConfigId: hold.courtConfigId,
         date: hold.date,
         status: bookingStatus,
-        totalAmount: hold.totalAmount,
+        totalAmount: effectiveTotal,
+        originalAmount: appliedDiscount > 0 ? hold.totalAmount : null,
+        discountAmount: appliedDiscount,
         slots: {
           create: slotPrices.map((s) => ({
             startHour: s.hour,
@@ -446,6 +518,24 @@ export async function createBookingFromHold(
         },
       },
     });
+
+      // Record the coupon usage + increment its counter so validators honor
+      // max-uses/per-user limits on the next booking. Kept inside the same
+      // transaction as the Booking insert so either both land or neither.
+      if (hold.couponId && appliedDiscount > 0) {
+        await tx.couponUsage.create({
+          data: {
+            couponId: hold.couponId,
+            userId: hold.userId,
+            bookingId: booking.id,
+            discountAmount: appliedDiscount,
+          },
+        });
+        await tx.coupon.update({
+          where: { id: hold.couponId },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
 
       return booking.id;
     },
