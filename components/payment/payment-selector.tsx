@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, QrCode, Smartphone } from "lucide-react";
+import { CreditCard, QrCode, Smartphone, Wallet } from "lucide-react";
 
 export type PaymentMethodType = "online" | "upi_qr" | "cash";
 
@@ -51,6 +51,13 @@ export function PaymentSelector({ selected, onSelect, gateway }: PaymentSelector
       description: "Scan & pay using any UPI app",
       icon: QrCode,
       color: "green",
+    },
+    {
+      id: "cash" as const,
+      name: "Pay 50% Now, 50% at Venue",
+      description: "Reserve with a 50% advance online, pay the rest on arrival",
+      icon: Wallet,
+      color: "yellow",
     },
   ];
 
