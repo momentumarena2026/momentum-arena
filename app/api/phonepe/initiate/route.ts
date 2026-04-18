@@ -58,13 +58,17 @@ export async function POST(request: NextRequest) {
       userPhone: user?.phone || undefined,
     });
 
-    // Track attempt on the hold + extend TTL so payment flow has room to complete
+    // Track attempt on the hold + extend TTL so payment flow has room to
+    // complete. paymentAmount must store the amount PhonePe was actually
+    // asked to charge (orderAmount = 50% advance when isAdvance).
+    // Otherwise the verify/callback path will read this back as the amount
+    // paid and miscompute advanceAmount / remainingAmount on Payment.
     await db.slotHold.update({
       where: { id: holdId },
       data: {
         phonePeMerchantTxnId: merchantTxnId,
         paymentMethod: isAdvance ? "CASH" : "PHONEPE",
-        paymentAmount,
+        paymentAmount: orderAmount,
         paymentInitiatedAt: new Date(),
         expiresAt: new Date(
           Date.now() + PAYMENT_ATTEMPT_TTL_MINUTES * 60 * 1000

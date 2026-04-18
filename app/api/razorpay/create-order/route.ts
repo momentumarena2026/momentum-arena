@@ -45,13 +45,19 @@ export async function POST(request: NextRequest) {
 
     const order = await createRazorpayOrder(orderAmount, holdId, offerId);
 
-    // Track the attempt on the hold and extend its TTL so payment has time to finish.
+    // Track the attempt on the hold and extend its TTL so payment has time
+    // to finish. paymentAmount must store the amount actually charged to
+    // Razorpay (== orderAmount, which is the 50% advance when isAdvance).
+    // createBookingFromHold / verify read this field back and copy it into
+    // Payment.amount + advanceAmount. Storing the full slot price here
+    // corrupts the advance split — advanceAmount ends up equal to
+    // totalAmount and remainingAmount becomes zero.
     await db.slotHold.update({
       where: { id: holdId },
       data: {
         razorpayOrderId: order.id,
         paymentMethod: isAdvance ? "CASH" : "RAZORPAY",
-        paymentAmount,
+        paymentAmount: orderAmount,
         paymentInitiatedAt: new Date(),
         expiresAt: new Date(
           Date.now() + PAYMENT_ATTEMPT_TTL_MINUTES * 60 * 1000
