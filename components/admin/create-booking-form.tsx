@@ -124,6 +124,11 @@ export function CreateBookingForm({
   // amount behaves exactly like before.
   const [isPartial, setIsPartial] = useState(false);
   const [advanceAmountStr, setAdvanceAmountStr] = useState("");
+  // Method the customer used to pay the advance. Independent of the main
+  // paymentMethod radio because partial advances are always collected either
+  // as cash-in-hand or via the venue's static UPI QR — Razorpay isn't in
+  // play here (admin can't charge a card on the customer's behalf).
+  const [advanceMethod, setAdvanceMethod] = useState<"CASH" | "UPI_QR">("CASH");
 
   // Step 5 state
   const [submitting, setSubmitting] = useState(false);
@@ -273,14 +278,20 @@ export function CreateBookingForm({
           ? parsedAdvance
           : undefined;
 
+      // When partial, the advance method the customer used IS the payment
+      // method being recorded on the booking. The remainder gets its own
+      // method captured later via the "mark collected" flow.
+      const effectivePaymentMethod: PaymentMethod =
+        isPartial && advanceAmount !== undefined ? advanceMethod : paymentMethod;
+
       const result = await adminCreateBooking({
         courtConfigId: selectedConfigId,
         date,
         hours: selectedHours.sort((a, b) => a - b),
         userId: selectedCustomer.id,
-        paymentMethod,
+        paymentMethod: effectivePaymentMethod,
         razorpayPaymentId:
-          paymentMethod === "RAZORPAY" ? razorpayPaymentId : undefined,
+          effectivePaymentMethod === "RAZORPAY" ? razorpayPaymentId : undefined,
         advanceAmount,
         note: note.trim() || undefined,
       });
@@ -770,9 +781,17 @@ export function CreateBookingForm({
                         onChange={(e) => setAdvanceAmountStr(e.target.value)}
                         className="w-32 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-amber-400 focus:outline-none"
                       />
-                      <span className="text-xs text-zinc-500">
-                        via {PAYMENT_OPTIONS.find((o) => o.value === paymentMethod)?.label}
-                      </span>
+                      <span className="text-xs text-zinc-500">via</span>
+                      <select
+                        value={advanceMethod}
+                        onChange={(e) =>
+                          setAdvanceMethod(e.target.value as "CASH" | "UPI_QR")
+                        }
+                        className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                      >
+                        <option value="CASH">Cash</option>
+                        <option value="UPI_QR">Static QR</option>
+                      </select>
                     </div>
                     {advanceAmountStr && !valid && (
                       <p className="text-xs text-red-400">
@@ -883,8 +902,20 @@ export function CreateBookingForm({
                 Payment
               </p>
               <p className="text-sm font-medium text-white mt-1">
-                {PAYMENT_OPTIONS.find((o) => o.value === paymentMethod)?.label}
-                {isPartial && advanceAmountStr && " \u00B7 Partial"}
+                {(() => {
+                  const partialValid = (() => {
+                    const p = parseInt(advanceAmountStr, 10);
+                    return isPartial && Number.isFinite(p) && p > 0 && p < totalPrice;
+                  })();
+                  const shownMethod = partialValid ? advanceMethod : paymentMethod;
+                  const label = PAYMENT_OPTIONS.find((o) => o.value === shownMethod)?.label;
+                  return (
+                    <>
+                      {label}
+                      {partialValid && " \u00B7 Partial"}
+                    </>
+                  );
+                })()}
               </p>
               {paymentMethod === "RAZORPAY" && razorpayPaymentId && (
                 <p className="text-xs text-zinc-400">
