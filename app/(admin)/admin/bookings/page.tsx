@@ -12,7 +12,6 @@ import {
   TrendingUp,
   CalendarCheck,
   IndianRupee,
-  Clock,
   Banknote,
 } from "lucide-react";
 import { BookingsTable } from "./bookings-table";
@@ -94,12 +93,12 @@ export default async function AdminBookingsPage({
       border: "border-yellow-500/20",
     },
     {
-      label: "Pending Payments",
-      value: stats.pendingPayments.toString(),
-      icon: Clock,
-      color: "text-orange-400",
-      bg: "bg-orange-500/10",
-      border: "border-orange-500/20",
+      label: "Total Revenue",
+      value: formatPrice(stats.totalRevenue),
+      icon: IndianRupee,
+      color: "text-emerald-300",
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/20",
     },
     {
       label: "Cash Due at Venue",

@@ -310,6 +310,7 @@ export async function getAdminStats() {
     todayBookings,
     totalUsers,
     todayRevenue,
+    totalRevenue,
     pendingPayments,
     venueDueAgg,
   ] = await Promise.all([
@@ -322,6 +323,13 @@ export async function getAdminStats() {
       where: {
         status: "COMPLETED",
         confirmedAt: { gte: today, lt: tomorrow },
+      },
+      _sum: { amount: true },
+    }),
+    db.payment.aggregate({
+      where: {
+        status: "COMPLETED",
+        booking: { status: "CONFIRMED" },
       },
       _sum: { amount: true },
     }),
@@ -345,6 +353,7 @@ export async function getAdminStats() {
     todayBookings,
     totalUsers,
     todayRevenue: todayRevenue._sum.amount ?? 0,
+    totalRevenue: totalRevenue._sum.amount ?? 0,
     pendingPayments,
     venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,
   };
