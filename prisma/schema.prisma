@@ -1142,3 +1142,17 @@ model GeneratorRunLog {
   @@index([generatorId])
   @@index([startTime])
 }
+
+// ===========================
+// CACHED DOCUMENTS (PDFs regenerated on a schedule, served at a public URL)
+// ===========================
+
+model CachedDocument {
+  // String id so the set is extensible (SPORTS_PRICING, CAFE_MENU, ...)
+  // without schema churn as new documents are added.
+  id          String   @id
+  content     Bytes
+  mimeType    String   @default("application/pdf")
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
