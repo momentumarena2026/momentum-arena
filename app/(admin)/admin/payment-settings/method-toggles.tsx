@@ -116,19 +116,19 @@ export function PaymentMethodToggles({
               <button
                 onClick={() => toggle(row.key)}
                 disabled={isPending}
-                aria-pressed={enabled}
-                className={`relative h-6 w-11 rounded-full transition-colors disabled:opacity-50 ${
+                role="switch"
+                aria-checked={enabled}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   enabled ? "bg-emerald-500" : "bg-zinc-700"
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                    enabled ? "translate-x-5" : "translate-x-0.5"
+                  aria-hidden="true"
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform duration-150 ${
+                    enabled ? "translate-x-5" : "translate-x-0"
                   }`}
                 />
-                {rowPending && (
-                  <span className="sr-only">Saving...</span>
-                )}
+                {rowPending && <span className="sr-only">Saving...</span>}
               </button>
             </div>
           );
