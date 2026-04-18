@@ -212,26 +212,36 @@ export default async function AdminBookingDetailPage({
                 {formatPrice(booking.payment.amount)}
               </span>
             </div>
-            {booking.payment.isPartialPayment && (
+            {booking.payment.isPartialPayment && (() => {
+              const advance =
+                booking.payment.advanceAmount ?? booking.payment.amount;
+              const remaining = booking.payment.remainingAmount ?? 0;
+              const totalFromPayment = advance + remaining;
+              const percentPaid =
+                totalFromPayment > 0
+                  ? Math.round((advance / totalFromPayment) * 100)
+                  : 0;
+              return (
               <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
                 <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
                   <Banknote className="h-3.5 w-3.5" />
-                  50% Advance Booking
+                  {percentPaid}% Advance Booking
                 </p>
                 <div className="flex justify-between text-xs">
-                  <span className="text-zinc-400">Advance paid online</span>
+                  <span className="text-zinc-400">Advance paid</span>
                   <span className="font-semibold text-emerald-400">
-                    {formatPrice(booking.payment.advanceAmount ?? booking.payment.amount)}
+                    {formatPrice(advance)}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-amber-200">Collect at venue</span>
                   <span className="font-bold text-amber-300">
-                    {formatPrice(booking.payment.remainingAmount ?? 0)}
+                    {formatPrice(remaining)}
                   </span>
                 </div>
               </div>
-            )}
+              );
+            })()}
             {booking.payment.razorpayPaymentId && (
               <div className="flex justify-between">
                 <span className="text-zinc-400">Razorpay ID</span>
