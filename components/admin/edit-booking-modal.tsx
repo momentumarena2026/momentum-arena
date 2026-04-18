@@ -16,6 +16,12 @@ interface EditBookingModalProps {
     size: string;
     position: string;
   }[];
+  // Payment context — when the booking is a partial payment that hasn't had
+  // its remainder collected yet, the modal also exposes advance-amount and
+  // advance-method fields.
+  isPartialPayment: boolean;
+  currentAdvanceAmount: number | null;
+  currentAdvanceMethod: string | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -28,6 +34,9 @@ export function EditBookingModal({
   currentSlots,
   sport,
   courtConfigs,
+  isPartialPayment,
+  currentAdvanceAmount,
+  currentAdvanceMethod,
   isOpen,
   onClose,
   onSuccess,
@@ -36,6 +45,14 @@ export function EditBookingModal({
   const [selectedDate, setSelectedDate] = useState(currentDate);
   const [selectedHours, setSelectedHours] = useState<Set<number>>(
     new Set(currentSlots)
+  );
+  const initialAdvanceStr =
+    currentAdvanceAmount !== null ? String(currentAdvanceAmount) : "";
+  const initialAdvanceMethod: "CASH" | "UPI_QR" =
+    currentAdvanceMethod === "UPI_QR" ? "UPI_QR" : "CASH";
+  const [advanceAmountStr, setAdvanceAmountStr] = useState(initialAdvanceStr);
+  const [advanceMethod, setAdvanceMethod] = useState<"CASH" | "UPI_QR">(
+    initialAdvanceMethod
   );
   const [slots, setSlots] = useState<
     { hour: number; price: number; available: boolean; blocked: boolean }[]
@@ -70,8 +87,19 @@ export function EditBookingModal({
       setSelectedConfigId(currentCourtConfigId);
       setSelectedDate(currentDate);
       setSelectedHours(new Set(currentSlots));
+      setAdvanceAmountStr(
+        currentAdvanceAmount !== null ? String(currentAdvanceAmount) : ""
+      );
+      setAdvanceMethod(currentAdvanceMethod === "UPI_QR" ? "UPI_QR" : "CASH");
     }
-  }, [isOpen, currentCourtConfigId, currentDate, currentSlots]);
+  }, [
+    isOpen,
+    currentCourtConfigId,
+    currentDate,
+    currentSlots,
+    currentAdvanceAmount,
+    currentAdvanceMethod,
+  ]);
 
   useEffect(() => {
     if (isOpen) {
@@ -105,11 +133,28 @@ export function EditBookingModal({
     .filter((s) => selectedHours.has(s.hour))
     .reduce((sum, s) => sum + s.price, 0);
 
+  const parsedAdvance = parseInt(advanceAmountStr, 10);
+  const advanceAmountNum = Number.isFinite(parsedAdvance) ? parsedAdvance : null;
+  const advanceAmountChanged =
+    isPartialPayment &&
+    advanceAmountNum !== null &&
+    advanceAmountNum !== currentAdvanceAmount;
+  const advanceMethodChanged =
+    isPartialPayment &&
+    (currentAdvanceMethod === "UPI_QR" ? "UPI_QR" : "CASH") !== advanceMethod;
+  const advanceValid =
+    !isPartialPayment ||
+    (advanceAmountNum !== null &&
+      advanceAmountNum > 0 &&
+      advanceAmountNum < totalPrice);
+
   const hasChanges =
     selectedConfigId !== currentCourtConfigId ||
     selectedDate !== currentDate ||
     selectedHours.size !== currentSlots.length ||
-    !currentSlots.every((h) => selectedHours.has(h));
+    !currentSlots.every((h) => selectedHours.has(h)) ||
+    advanceAmountChanged ||
+    advanceMethodChanged;
 
   const handleSave = async () => {
     const hours = Array.from(selectedHours).sort((a, b) => a - b);
@@ -120,11 +165,17 @@ export function EditBookingModal({
     setSaving(true);
     setError(null);
 
+    if (!advanceValid) {
+      setError(`Advance must be between ₹1 and ₹${(totalPrice - 1).toLocaleString("en-IN")}`);
+      return;
+    }
     try {
       const payload: {
         newDate?: string;
         newCourtConfigId?: string;
         newHours?: number[];
+        newAdvanceAmount?: number;
+        newAdvanceMethod?: "CASH" | "UPI_QR";
       } = {};
 
       if (selectedDate !== currentDate) {
@@ -139,6 +190,12 @@ export function EditBookingModal({
         hours.some((h, i) => h !== sortedCurrent[i]);
       if (slotsChanged) {
         payload.newHours = hours;
+      }
+      if (advanceAmountChanged && advanceAmountNum !== null) {
+        payload.newAdvanceAmount = advanceAmountNum;
+      }
+      if (advanceMethodChanged) {
+        payload.newAdvanceMethod = advanceMethod;
       }
 
       const result = await adminEditBookingFull(bookingId, payload);
@@ -277,6 +334,50 @@ export function EditBookingModal({
             </div>
           )}
         </div>
+
+        {/* Advance payment (partial bookings only) */}
+        {isPartialPayment && (
+          <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-amber-300">
+                Advance Payment
+              </label>
+              <span className="text-xs text-amber-400/70">
+                Remainder: ₹
+                {Math.max(totalPrice - (advanceAmountNum ?? 0), 0).toLocaleString("en-IN")}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-zinc-400">₹</span>
+              <input
+                type="number"
+                min={1}
+                max={Math.max(totalPrice - 1, 1)}
+                step={1}
+                value={advanceAmountStr}
+                onChange={(e) => setAdvanceAmountStr(e.target.value)}
+                className="w-32 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-amber-400 focus:outline-none"
+              />
+              <span className="text-xs text-zinc-500">via</span>
+              <select
+                value={advanceMethod}
+                onChange={(e) =>
+                  setAdvanceMethod(e.target.value as "CASH" | "UPI_QR")
+                }
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+              >
+                <option value="CASH">Cash</option>
+                <option value="UPI_QR">Static QR</option>
+              </select>
+            </div>
+            {advanceAmountStr && !advanceValid && (
+              <p className="text-xs text-red-400">
+                Advance must be between ₹1 and ₹
+                {(totalPrice - 1).toLocaleString("en-IN")}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-zinc-700 pt-4">

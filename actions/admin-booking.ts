@@ -909,6 +909,12 @@ export async function adminEditBookingFull(
     newDate?: string;
     newCourtConfigId?: string;
     newHours?: number[];
+    // Partial-payment edits. Admin can correct the advance figure after the
+    // booking is created (e.g. customer rounded up or paid a different
+    // amount than originally recorded) or change the method (e.g. recorded
+    // as Cash, actually came in via static QR).
+    newAdvanceAmount?: number;
+    newAdvanceMethod?: "CASH" | "UPI_QR";
   }
 ) {
   const admin = await requireAdminWithDetails();
@@ -1010,6 +1016,41 @@ export async function adminEditBookingFull(
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
 
+    // Advance edits only apply to existing partial payments that haven't
+    // had the remainder collected yet. Reject if caller asked for changes
+    // but the booking isn't in that state.
+    const isEditingAdvance =
+      data.newAdvanceAmount !== undefined || data.newAdvanceMethod !== undefined;
+    if (isEditingAdvance) {
+      if (!booking.payment || !booking.payment.isPartialPayment) {
+        return { success: false as const, error: "Booking is not a partial payment" };
+      }
+      if (booking.payment.status !== "PARTIAL") {
+        return { success: false as const, error: "Advance can only be edited while payment is PARTIAL" };
+      }
+    }
+
+    const previousAdvance = booking.payment?.advanceAmount ?? null;
+    const previousAdvanceMethod = booking.payment?.method ?? null;
+
+    const finalAdvance =
+      data.newAdvanceAmount !== undefined
+        ? data.newAdvanceAmount
+        : previousAdvance;
+    const finalAdvanceMethod =
+      data.newAdvanceMethod !== undefined
+        ? data.newAdvanceMethod
+        : previousAdvanceMethod;
+
+    if (isEditingAdvance) {
+      if (finalAdvance === null || !Number.isInteger(finalAdvance) || finalAdvance <= 0) {
+        return { success: false as const, error: "Advance must be a positive integer" };
+      }
+      if (finalAdvance >= newTotalAmount) {
+        return { success: false as const, error: "Advance must be less than the total amount" };
+      }
+    }
+
     await db.$transaction(async (tx) => {
       // Update booking
       await tx.booking.update({
@@ -1031,11 +1072,32 @@ export async function adminEditBookingFull(
         })),
       });
 
-      // Update payment amount if exists
+      // Update payment amount / advance fields if payment exists.
       if (booking.payment) {
+        const paymentUpdate: {
+          amount?: number;
+          advanceAmount?: number;
+          remainingAmount?: number;
+          method?: "CASH" | "UPI_QR";
+        } = {};
+
+        if (booking.payment.isPartialPayment && finalAdvance !== null) {
+          // Partial bookings: `amount` stores the advance collected, not
+          // the slot total. Keep advanceAmount + remainingAmount in sync.
+          paymentUpdate.amount = finalAdvance;
+          paymentUpdate.advanceAmount = finalAdvance;
+          paymentUpdate.remainingAmount = newTotalAmount - finalAdvance;
+        } else {
+          paymentUpdate.amount = newTotalAmount;
+        }
+
+        if (data.newAdvanceMethod) {
+          paymentUpdate.method = data.newAdvanceMethod;
+        }
+
         await tx.payment.update({
           where: { id: booking.payment.id },
-          data: { amount: newTotalAmount },
+          data: paymentUpdate,
         });
       }
 
@@ -1092,6 +1154,35 @@ export async function adminEditBookingFull(
               newSlots: finalHours,
               previousAmount,
               newAmount: newTotalAmount,
+            },
+          });
+        }
+      }
+
+      if (isEditingAdvance) {
+        const amountChanged =
+          data.newAdvanceAmount !== undefined &&
+          data.newAdvanceAmount !== previousAdvance;
+        const methodChanged =
+          data.newAdvanceMethod !== undefined &&
+          data.newAdvanceMethod !== previousAdvanceMethod;
+        if (amountChanged || methodChanged) {
+          const parts: string[] = [];
+          if (amountChanged) {
+            parts.push(`advance ${previousAdvance ?? "?"} → ${finalAdvance}`);
+          }
+          if (methodChanged) {
+            parts.push(`method ${previousAdvanceMethod ?? "?"} → ${finalAdvanceMethod}`);
+          }
+          await tx.bookingEditHistory.create({
+            data: {
+              bookingId,
+              adminId: admin.id,
+              adminUsername: admin.username,
+              editType: "ADVANCE_CHANGED",
+              previousAmount,
+              newAmount: newTotalAmount,
+              note: parts.join(" · "),
             },
           });
         }

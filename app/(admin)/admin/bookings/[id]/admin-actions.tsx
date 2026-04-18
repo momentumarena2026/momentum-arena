@@ -25,6 +25,8 @@ interface AdminBookingActionsProps {
   paymentMethod: string | null;
   paymentStatus: string | null;
   paymentAmount: number | null;
+  isPartialPayment: boolean;
+  currentAdvanceAmount: number | null;
   isAdminCreated: boolean;
   courtConfigId: string;
   date: string;
@@ -44,6 +46,8 @@ export function AdminBookingActions({
   paymentMethod,
   paymentStatus,
   paymentAmount,
+  isPartialPayment,
+  currentAdvanceAmount,
   isAdminCreated,
   courtConfigId,
   date,
@@ -423,6 +427,9 @@ export function AdminBookingActions({
         currentSlots={currentSlots}
         sport={sport}
         courtConfigs={courtConfigs}
+        isPartialPayment={isPartialPayment && paymentStatus === "PARTIAL"}
+        currentAdvanceAmount={currentAdvanceAmount}
+        currentAdvanceMethod={paymentMethod}
         isOpen={showEditBooking}
         onClose={() => setShowEditBooking(false)}
         onSuccess={() => {
