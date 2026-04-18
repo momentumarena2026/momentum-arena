@@ -4,7 +4,7 @@ import { redirect, notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
-import { getActiveGateway } from "@/actions/admin-payment-settings";
+import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
 import { CheckoutClient } from "./checkout-client";
 
 export default async function CheckoutPage({
@@ -81,9 +81,9 @@ export default async function CheckoutPage({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  const [newUserDiscount, activeGateway] = await Promise.all([
+  const [newUserDiscount, paymentConfig] = await Promise.all([
     getNewUserDiscount(session.user.id, hold.courtConfig.sport, hold.totalAmount).catch(() => null),
-    getActiveGateway(),
+    getCheckoutPaymentConfig(),
   ]);
 
   return (
@@ -208,7 +208,10 @@ export default async function CheckoutPage({
         recurringStartHour={recurringStartHour}
         recurringEndHour={recurringEndHour}
         recurringCourtConfigId={recurringCourtConfigId}
-        gateway={activeGateway}
+        gateway={paymentConfig.activeGateway}
+        onlineEnabled={paymentConfig.onlineEnabled}
+        upiQrEnabled={paymentConfig.upiQrEnabled}
+        advanceEnabled={paymentConfig.advanceEnabled}
       />
     </div>
   );

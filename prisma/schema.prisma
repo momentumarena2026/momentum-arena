@@ -59,6 +59,12 @@ enum PaymentGateway {
 model PaymentGatewayConfig {
   id              String         @id @default("singleton")
   activeGateway   PaymentGateway @default(PHONEPE)
+  // Per-method enablement flags. All default on so existing installs keep
+  // their behavior. Admin can toggle any of these off via the Payment
+  // Settings page. At least one must stay enabled (enforced server-side).
+  onlineEnabled   Boolean        @default(true)
+  upiQrEnabled    Boolean        @default(true)
+  advanceEnabled  Boolean        @default(true)
   updatedAt       DateTime       @updatedAt
 }
 

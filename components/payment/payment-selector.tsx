@@ -8,6 +8,11 @@ interface PaymentSelectorProps {
   selected: PaymentMethodType;
   onSelect: (method: PaymentMethodType) => void;
   gateway: "PHONEPE" | "RAZORPAY";
+  // Admin-controlled per-method enablement. Each defaults to true so
+  // older callers still get all three tiles.
+  onlineEnabled?: boolean;
+  upiQrEnabled?: boolean;
+  advanceEnabled?: boolean;
 }
 
 const colorMap: Record<string, { border: string; bg: string; icon: string }> = {
@@ -33,10 +38,18 @@ const colorMap: Record<string, { border: string; bg: string; icon: string }> = {
   },
 };
 
-export function PaymentSelector({ selected, onSelect, gateway }: PaymentSelectorProps) {
-  const methods = [
+export function PaymentSelector({
+  selected,
+  onSelect,
+  gateway,
+  onlineEnabled = true,
+  upiQrEnabled = true,
+  advanceEnabled = true,
+}: PaymentSelectorProps) {
+  const allMethods = [
     {
       id: "online" as const,
+      enabled: onlineEnabled,
       name: "Pay Online",
       description:
         gateway === "PHONEPE"
@@ -47,6 +60,7 @@ export function PaymentSelector({ selected, onSelect, gateway }: PaymentSelector
     },
     {
       id: "upi_qr" as const,
+      enabled: upiQrEnabled,
       name: "UPI QR Code",
       description: "Scan & pay using any UPI app",
       icon: QrCode,
@@ -54,12 +68,14 @@ export function PaymentSelector({ selected, onSelect, gateway }: PaymentSelector
     },
     {
       id: "cash" as const,
+      enabled: advanceEnabled,
       name: "Pay 50% Now, 50% at Venue",
       description: "Reserve with a 50% advance online, pay the rest on arrival",
       icon: Wallet,
       color: "yellow",
     },
   ];
+  const methods = allMethods.filter((m) => m.enabled);
 
   return (
     <div className="space-y-3">

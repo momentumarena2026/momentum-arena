@@ -56,6 +56,9 @@ interface CheckoutClientProps {
   recurringEndHour?: number;
   recurringCourtConfigId?: string;
   gateway: "PHONEPE" | "RAZORPAY";
+  onlineEnabled?: boolean;
+  upiQrEnabled?: boolean;
+  advanceEnabled?: boolean;
 }
 
 export function CheckoutClient({
@@ -83,9 +86,19 @@ export function CheckoutClient({
   recurringEndHour,
   recurringCourtConfigId,
   gateway,
+  onlineEnabled = true,
+  upiQrEnabled = true,
+  advanceEnabled = true,
 }: CheckoutClientProps) {
   const router = useRouter();
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("online");
+  // Default selection to the first method that's currently enabled so the
+  // user never lands on a hidden tile.
+  const initialMethod: PaymentMethodType = onlineEnabled
+    ? "online"
+    : upiQrEnabled
+      ? "upi_qr"
+      : "cash";
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>(initialMethod);
   const [advanceMethod, setAdvanceMethod] = useState<AdvancePaymentMethod>("online");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -462,7 +475,14 @@ export function CheckoutClient({
       {/* Payment Method */}
       <div>
         <h2 className="mb-3 font-semibold text-white">Payment Method</h2>
-        <PaymentSelector selected={paymentMethod} onSelect={(m) => { setPaymentMethod(m); trackPaymentMethodSelected(m); }} gateway={gateway} />
+        <PaymentSelector
+          selected={paymentMethod}
+          onSelect={(m) => { setPaymentMethod(m); trackPaymentMethodSelected(m); }}
+          gateway={gateway}
+          onlineEnabled={onlineEnabled}
+          upiQrEnabled={upiQrEnabled}
+          advanceEnabled={advanceEnabled}
+        />
       </div>
 
       {/* Advance Payment for Cash */}
