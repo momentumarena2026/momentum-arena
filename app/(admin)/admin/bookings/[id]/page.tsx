@@ -36,6 +36,30 @@ export default async function AdminBookingDetailPage({
 
   if (!booking) notFound();
 
+  // Discount surfaces from two systems:
+  //   1. Legacy DiscountCode (Booking.discountCodeId + Booking.discountAmount)
+  //   2. Unified Coupon (CouponUsage with matching bookingId)
+  // The legacy path updates booking.totalAmount in-place; the coupon path
+  // records discount only on CouponUsage. Read both and prefer the populated one.
+  const [legacyDiscountCode, couponUsage] = await Promise.all([
+    booking.discountCodeId
+      ? db.discountCode.findUnique({
+          where: { id: booking.discountCodeId },
+          select: { code: true },
+        })
+      : Promise.resolve(null),
+    db.couponUsage.findFirst({
+      where: { bookingId: booking.id },
+      select: { discountAmount: true, coupon: { select: { code: true } } },
+    }),
+  ]);
+  const discountCodeLabel =
+    legacyDiscountCode?.code ?? couponUsage?.coupon.code ?? null;
+  const discountAmountShown =
+    booking.discountAmount > 0
+      ? booking.discountAmount
+      : couponUsage?.discountAmount ?? 0;
+
   // Fetch all court configs for the same sport (for the edit booking modal)
   const courtConfigs = await db.courtConfig.findMany({
     where: { sport: booking.courtConfig.sport, isActive: true },
@@ -136,6 +160,18 @@ export default async function AdminBookingDetailPage({
             <span className="text-zinc-400">Booking ID</span>
             <span className="font-mono text-xs text-zinc-500">{booking.id}</span>
           </div>
+          {discountCodeLabel && discountAmountShown > 0 && (
+            <>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Discount Code</span>
+                <span className="font-mono text-emerald-400">{discountCodeLabel}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Discount</span>
+                <span className="text-emerald-400">−{formatPrice(discountAmountShown)}</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

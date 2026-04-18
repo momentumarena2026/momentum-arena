@@ -59,6 +59,28 @@ export default async function ConfirmationPage({
 
   if (!booking) notFound();
 
+  // Resolve the discount code label + amount from either the legacy
+  // DiscountCode flow (writes to Booking.discountCodeId/discountAmount) or
+  // the newer Coupon flow (records on CouponUsage only).
+  const [legacyDiscountCode, couponUsage] = await Promise.all([
+    booking.discountCodeId
+      ? db.discountCode.findUnique({
+          where: { id: booking.discountCodeId },
+          select: { code: true },
+        })
+      : Promise.resolve(null),
+    db.couponUsage.findFirst({
+      where: { bookingId: booking.id },
+      select: { discountAmount: true, coupon: { select: { code: true } } },
+    }),
+  ]);
+  const discountCodeLabel =
+    legacyDiscountCode?.code ?? couponUsage?.coupon.code ?? null;
+  const discountAmountShown =
+    booking.discountAmount > 0
+      ? booking.discountAmount
+      : couponUsage?.discountAmount ?? 0;
+
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
 
@@ -174,16 +196,18 @@ export default async function ConfirmationPage({
             </div>
             <div className="flex-1 space-y-1">
               {booking.originalAmount && booking.discountAmount > 0 && (
-                <>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-zinc-500">Original</span>
-                    <span className="text-zinc-500 line-through">{formatPrice(booking.originalAmount)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-emerald-400">Discount</span>
-                    <span className="text-emerald-400">-{formatPrice(booking.discountAmount)}</span>
-                  </div>
-                </>
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">Original</span>
+                  <span className="text-zinc-500 line-through">{formatPrice(booking.originalAmount)}</span>
+                </div>
+              )}
+              {discountCodeLabel && discountAmountShown > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-emerald-400">
+                    Discount <span className="font-mono text-emerald-300">· {discountCodeLabel}</span>
+                  </span>
+                  <span className="text-emerald-400">−{formatPrice(discountAmountShown)}</span>
+                </div>
               )}
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-white">
