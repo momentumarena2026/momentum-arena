@@ -70,6 +70,10 @@ model PaymentGatewayConfig {
 
 enum PaymentStatus {
   PENDING
+  // Advance received, remainder still owed (collected at venue for sports
+  // bookings, or awaiting a second capture elsewhere). Flips to COMPLETED
+  // once the remaining amount is collected via markRemainderCollected.
+  PARTIAL
   COMPLETED
   REFUNDED
   FAILED
@@ -369,6 +373,10 @@ model Payment {
   isPartialPayment Boolean @default(false)
   advanceAmount    Int?
   remainingAmount  Int?
+  // For partial payments: the method used to collect the venue-side
+  // remainder (set by markRemainderCollected). `method` above continues to
+  // represent how the advance was paid.
+  remainderMethod  PaymentMethod?
 
   confirmedBy  String?
   confirmedAt  DateTime?

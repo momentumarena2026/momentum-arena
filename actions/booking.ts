@@ -327,7 +327,11 @@ export async function selectCashPayment(
     : undefined;
 
   const bookingId = await createBookingFromHold(holdId, {
-    method: "CASH",
+    // UPI-QR advance: customer paid the advance via the QR flow, so record
+    // UPI_QR as the method. confirmUpiPayment later flips PENDING -> PARTIAL
+    // once admin verifies the UTR screenshot. The venue-side cash collection
+    // shows up in remainderMethod when markRemainderCollected runs.
+    method: isAdvance ? "UPI_QR" : "CASH",
     status: "PENDING",
     amount,
     isPartialPayment: isAdvance,
@@ -352,7 +356,7 @@ export async function selectCashPayment(
 
 type PaymentRecord = {
   method: "RAZORPAY" | "PHONEPE" | "UPI_QR" | "CASH" | "FREE";
-  status: "PENDING" | "COMPLETED" | "FAILED" | "REFUNDED";
+  status: "PENDING" | "PARTIAL" | "COMPLETED" | "FAILED" | "REFUNDED";
   amount: number;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;

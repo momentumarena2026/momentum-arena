@@ -60,8 +60,8 @@ export async function GET(request: NextRequest) {
       const bookingId = await createBookingFromHold(
         hold.id,
         {
-          method: isAdvance ? "CASH" : "PHONEPE",
-          status: "COMPLETED",
+          method: "PHONEPE",
+          status: isAdvance ? "PARTIAL" : "COMPLETED",
           amount: paymentAmount,
           phonePeMerchantTxnId: hold.phonePeMerchantTxnId,
           phonePeTransactionId: status.transactionId,

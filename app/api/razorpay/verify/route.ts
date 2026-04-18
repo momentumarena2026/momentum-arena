@@ -71,8 +71,12 @@ export async function POST(request: NextRequest) {
   const bookingId = await createBookingFromHold(
     holdId,
     {
-      method: isAdvance ? "CASH" : "RAZORPAY",
-      status: "COMPLETED",
+      // Advance method reflects HOW the advance was paid, not how the
+      // remainder will be collected at the venue. Status lands on PARTIAL
+      // when this is an advance (flips to COMPLETED via
+      // markRemainderCollected) or COMPLETED for full-pay bookings.
+      method: "RAZORPAY",
+      status: isAdvance ? "PARTIAL" : "COMPLETED",
       amount: paymentAmount,
       razorpayOrderId,
       razorpayPaymentId,

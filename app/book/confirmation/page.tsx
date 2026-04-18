@@ -110,6 +110,7 @@ export default async function ConfirmationPage({
 
   const paymentStatusLabel = {
     PENDING: { text: "Pending", color: "text-yellow-400" },
+    PARTIAL: { text: "Advance Paid", color: "text-amber-300" },
     COMPLETED: { text: "Paid", color: "text-emerald-400" },
     REFUNDED: { text: "Refunded", color: "text-blue-400" },
     FAILED: { text: "Failed", color: "text-red-400" },

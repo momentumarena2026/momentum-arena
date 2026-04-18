@@ -105,6 +105,7 @@ const PAYMENT_ICONS: Record<string, typeof CreditCard> = {
 
 const PAYMENT_STATUS_STYLES: Record<string, string> = {
   PENDING: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
+  PARTIAL: "text-amber-300 bg-amber-500/10 border-amber-500/40",
   COMPLETED: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
   REFUNDED: "text-blue-400 bg-blue-500/10 border-blue-500/30",
   FAILED: "text-red-400 bg-red-500/10 border-red-500/30",

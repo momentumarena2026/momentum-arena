@@ -197,6 +197,8 @@ export default async function AdminBookingDetailPage({
                 className={`font-medium ${
                   booking.payment.status === "COMPLETED"
                     ? "text-emerald-400"
+                    : booking.payment.status === "PARTIAL"
+                    ? "text-amber-300"
                     : booking.payment.status === "PENDING"
                     ? "text-yellow-400"
                     : booking.payment.status === "REFUNDED"
@@ -226,6 +228,12 @@ export default async function AdminBookingDetailPage({
                 : "border-amber-500/30 bg-amber-500/10";
               const headerColor = collected ? "text-emerald-400" : "text-amber-400";
               const HeaderIcon = collected ? CheckCircle2 : Banknote;
+              const methodLabel = (m: string) =>
+                m === "UPI_QR" ? "UPI QR" : m.charAt(0) + m.slice(1).toLowerCase();
+              const advanceMethodLabel = methodLabel(booking.payment.method);
+              const remainderMethodLabel = booking.payment.remainderMethod
+                ? methodLabel(booking.payment.remainderMethod)
+                : null;
               return (
               <div className={`mt-2 rounded-lg border p-3 space-y-1.5 ${borderClass}`}>
                 <p className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${headerColor}`}>
@@ -235,14 +243,18 @@ export default async function AdminBookingDetailPage({
                     : `${percentPaid}% Advance Booking`}
                 </p>
                 <div className="flex justify-between text-xs">
-                  <span className="text-zinc-400">Advance paid</span>
+                  <span className="text-zinc-400">
+                    Advance paid <span className="text-zinc-500">· {advanceMethodLabel}</span>
+                  </span>
                   <span className="font-semibold text-emerald-400">
                     {formatPrice(advance)}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className={collected ? "text-emerald-200" : "text-amber-200"}>
-                    {collected ? "Collected at venue" : "Collect at venue"}
+                    {collected
+                      ? `Collected at venue${remainderMethodLabel ? ` · ${remainderMethodLabel}` : ""}`
+                      : "Collect at venue"}
                   </span>
                   <span className={`font-bold ${collected ? "text-emerald-300" : "text-amber-300"}`}>
                     {formatPrice(collected ? total - advance : remaining)}

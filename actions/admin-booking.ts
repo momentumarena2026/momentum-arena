@@ -23,11 +23,15 @@ export async function confirmCashPayment(bookingId: string) {
     return { success: false, error: "Cash payment not found" };
   }
 
+  // Partial bookings land on PARTIAL (advance verified, remainder still
+  // owed at venue); full bookings go straight to COMPLETED.
+  const nextStatus = payment.isPartialPayment ? "PARTIAL" : "COMPLETED";
+
   await db.$transaction([
     db.payment.update({
       where: { id: payment.id },
       data: {
-        status: "COMPLETED",
+        status: nextStatus,
         confirmedBy: adminId,
         confirmedAt: new Date(),
       },
@@ -57,11 +61,13 @@ export async function confirmUpiPayment(bookingId: string) {
     return { success: false, error: "UPI payment not found" };
   }
 
+  const nextStatus = payment.isPartialPayment ? "PARTIAL" : "COMPLETED";
+
   await db.$transaction([
     db.payment.update({
       where: { id: payment.id },
       data: {
-        status: "COMPLETED",
+        status: nextStatus,
         confirmedBy: adminId,
         confirmedAt: new Date(),
       },
@@ -80,11 +86,20 @@ export async function confirmUpiPayment(bookingId: string) {
 }
 
 // Mark the venue-side remainder of a partial-payment booking as collected.
-// Adds the remaining amount to Payment.amount, zeroes remainingAmount so the
-// "Cash Due at Venue" KPI and per-row chips drop off, and writes an audit
-// row in BookingEditHistory.
-export async function markRemainderCollected(bookingId: string) {
+// Accepts the method used for the venue collection (CASH or UPI_QR so the
+// audit trail records how the money actually came in), adds the remaining
+// amount to Payment.amount, zeroes remainingAmount so the "Cash Due at
+// Venue" KPI and per-row chips drop off, flips status to COMPLETED, and
+// writes an audit row in BookingEditHistory.
+export async function markRemainderCollected(
+  bookingId: string,
+  remainderMethod: "CASH" | "UPI_QR"
+) {
   const adminId = await requireAdmin();
+
+  if (remainderMethod !== "CASH" && remainderMethod !== "UPI_QR") {
+    return { success: false, error: "Invalid collection method" };
+  }
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -109,6 +124,11 @@ export async function markRemainderCollected(bookingId: string) {
       data: {
         amount: booking.payment.amount + remaining,
         remainingAmount: 0,
+        remainderMethod,
+        // PARTIAL -> COMPLETED now that the venue collection has been
+        // recorded. Idempotent: if a prior state was already COMPLETED
+        // (legacy rows), this is a no-op write.
+        status: "COMPLETED",
       },
     }),
     db.bookingEditHistory.create({
@@ -117,7 +137,7 @@ export async function markRemainderCollected(bookingId: string) {
         adminId,
         adminUsername,
         editType: "REMAINDER_COLLECTED",
-        note: `Collected remaining Rs.${remaining} at venue`,
+        note: `Collected remaining Rs.${remaining} at venue via ${remainderMethod === "UPI_QR" ? "UPI QR" : "Cash"}`,
       },
     }),
   ]);
@@ -659,13 +679,14 @@ export async function adminCreateBooking(data: {
         });
       } else if (isPartial) {
         // Admin confirmed receipt of the advance in the chosen method.
-        // Booking is CONFIRMED; the remainder is flagged as owed at venue
-        // via isPartialPayment + remainingAmount.
+        // Booking is CONFIRMED; status lands on PARTIAL (advance in, rest
+        // owed at venue) and flips to COMPLETED via markRemainderCollected
+        // once the cash is collected.
         await tx.payment.create({
           data: {
             bookingId: booking.id,
             method: data.paymentMethod,
-            status: "COMPLETED",
+            status: "PARTIAL",
             amount: advanceAmount!,
             isPartialPayment: true,
             advanceAmount: advanceAmount!,
