@@ -5,6 +5,7 @@ import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote, CheckCircle2 } from "lucide-react";
 import { MarkCollectedButton } from "./mark-collected-button";
+import { EditSplitButton } from "./edit-split-button";
 import { AdminBookingActions } from "./admin-actions";
 import { BookingEditHistory } from "@/components/admin/booking-edit-history";
 
@@ -267,8 +268,35 @@ export default async function AdminBookingDetailPage({
               const methodLabel = (m: string) =>
                 m === "UPI_QR" ? "UPI QR" : m.charAt(0) + m.slice(1).toLowerCase();
               const advanceMethodLabel = methodLabel(booking.payment.method);
-              const remainderMethodLabel = booking.payment.remainderMethod
-                ? methodLabel(booking.payment.remainderMethod)
+              // Resolve how the remainder was collected. Prefer the
+              // explicit split columns; fall back to the legacy single
+              // `remainderMethod` enum for rows that predate split
+              // collection.
+              const venueTotal = total - advance;
+              const hasSplitFields =
+                booking.payment.remainderCashAmount !== null ||
+                booking.payment.remainderUpiAmount !== null;
+              const remainderCash = hasSplitFields
+                ? booking.payment.remainderCashAmount ?? 0
+                : booking.payment.remainderMethod === "CASH"
+                ? venueTotal
+                : 0;
+              const remainderUpi = hasSplitFields
+                ? booking.payment.remainderUpiAmount ?? 0
+                : booking.payment.remainderMethod === "UPI_QR"
+                ? venueTotal
+                : 0;
+              const isSplit = remainderCash > 0 && remainderUpi > 0;
+              const remainderLabel = collected
+                ? isSplit
+                  ? `${formatPrice(remainderCash)} Cash + ${formatPrice(remainderUpi)} UPI QR`
+                  : remainderCash > 0
+                  ? "Cash"
+                  : remainderUpi > 0
+                  ? "UPI QR"
+                  : booking.payment.remainderMethod
+                  ? methodLabel(booking.payment.remainderMethod)
+                  : null
                 : null;
               return (
               <div className={`mt-2 rounded-lg border p-3 space-y-1.5 ${borderClass}`}>
@@ -289,11 +317,11 @@ export default async function AdminBookingDetailPage({
                 <div className="flex justify-between text-xs">
                   <span className={collected ? "text-emerald-200" : "text-amber-200"}>
                     {collected
-                      ? `Collected at venue${remainderMethodLabel ? ` · ${remainderMethodLabel}` : ""}`
+                      ? `Collected at venue${remainderLabel ? ` · ${remainderLabel}` : ""}`
                       : "Collect at venue"}
                   </span>
                   <span className={`font-bold ${collected ? "text-emerald-300" : "text-amber-300"}`}>
-                    {formatPrice(collected ? total - advance : remaining)}
+                    {formatPrice(collected ? venueTotal : remaining)}
                   </span>
                 </div>
                 {!collected && (
@@ -301,6 +329,14 @@ export default async function AdminBookingDetailPage({
                     bookingId={booking.id}
                     remainingAmount={remaining}
                     formattedRemaining={formatPrice(remaining)}
+                  />
+                )}
+                {collected && venueTotal > 0 && (
+                  <EditSplitButton
+                    bookingId={booking.id}
+                    venueTotal={venueTotal}
+                    initialCash={remainderCash}
+                    initialUpi={remainderUpi}
                   />
                 )}
               </div>

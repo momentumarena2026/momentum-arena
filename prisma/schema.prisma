@@ -381,10 +381,20 @@ model Payment {
   isPartialPayment Boolean @default(false)
   advanceAmount    Int?
   remainingAmount  Int?
-  // For partial payments: the method used to collect the venue-side
-  // remainder (set by markRemainderCollected). `method` above continues to
-  // represent how the advance was paid.
-  remainderMethod  PaymentMethod?
+  // For partial payments: the method(s) used to collect the venue-side
+  // remainder. `method` above continues to represent how the advance was
+  // paid.
+  //
+  // The remainder can be collected as a split between cash and UPI QR.
+  // Both amounts live on the row; their sum equals the remainder that was
+  // owed. `remainderMethod` is kept as a single-value convenience (set to
+  // CASH or UPI_QR when the collection was a single method; left null when
+  // the collection was split across both). Legacy rows that predate split
+  // collection have only `remainderMethod` set; the display layer falls
+  // back to that when the split fields are null.
+  remainderMethod     PaymentMethod?
+  remainderCashAmount Int?
+  remainderUpiAmount  Int?
 
   confirmedBy  String?
   confirmedAt  DateTime?

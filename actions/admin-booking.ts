@@ -85,20 +85,43 @@ export async function confirmUpiPayment(bookingId: string) {
   return { success: true };
 }
 
+// Describe how the remainder was actually collected at the venue: the
+// amount paid in cash and the amount paid via UPI QR. Either can be zero
+// but not both; the sum must equal the remaining amount owed.
+export type RemainderSplit = {
+  cashAmount: number;
+  upiAmount: number;
+};
+
+function describeSplit(cash: number, upi: number): string {
+  if (cash > 0 && upi > 0) {
+    return `Rs.${cash} Cash + Rs.${upi} UPI QR`;
+  }
+  if (cash > 0) return `Rs.${cash} Cash`;
+  return `Rs.${upi} UPI QR`;
+}
+
 // Mark the venue-side remainder of a partial-payment booking as collected.
-// Accepts the method used for the venue collection (CASH or UPI_QR so the
-// audit trail records how the money actually came in), adds the remaining
-// amount to Payment.amount, zeroes remainingAmount so the "Cash Due at
-// Venue" KPI and per-row chips drop off, flips status to COMPLETED, and
-// writes an audit row in BookingEditHistory.
+// Accepts a split between cash and UPI QR (either can be 0 but the sum
+// must equal the remainder owed). Adds the full remainder to
+// Payment.amount, zeroes remainingAmount so the "Cash Due at Venue" KPI
+// and per-row chips drop off, flips status to COMPLETED, and writes an
+// audit row in BookingEditHistory. `remainderMethod` is set to CASH or
+// UPI_QR when the collection was single-method (for back-compat with
+// display code) and left null when the collection was split.
 export async function markRemainderCollected(
   bookingId: string,
-  remainderMethod: "CASH" | "UPI_QR"
+  split: RemainderSplit
 ) {
   const adminId = await requireAdmin();
 
-  if (remainderMethod !== "CASH" && remainderMethod !== "UPI_QR") {
-    return { success: false, error: "Invalid collection method" };
+  const cashAmount = Math.trunc(split.cashAmount ?? 0);
+  const upiAmount = Math.trunc(split.upiAmount ?? 0);
+  if (cashAmount < 0 || upiAmount < 0) {
+    return { success: false, error: "Amounts cannot be negative" };
+  }
+  if (cashAmount === 0 && upiAmount === 0) {
+    return { success: false, error: "Enter at least one amount" };
   }
 
   const booking = await db.booking.findUnique({
@@ -114,9 +137,22 @@ export async function markRemainderCollected(
   if (remaining <= 0) {
     return { success: false, error: "Remainder already collected" };
   }
+  if (cashAmount + upiAmount !== remaining) {
+    return {
+      success: false,
+      error: `Split must total Rs.${remaining} (got Rs.${cashAmount + upiAmount})`,
+    };
+  }
 
   const admin = await db.adminUser.findUnique({ where: { id: adminId } });
   const adminUsername = admin?.username ?? "unknown";
+
+  const singleMethod =
+    cashAmount > 0 && upiAmount === 0
+      ? "CASH"
+      : upiAmount > 0 && cashAmount === 0
+      ? "UPI_QR"
+      : null;
 
   await db.$transaction([
     db.payment.update({
@@ -124,7 +160,9 @@ export async function markRemainderCollected(
       data: {
         amount: booking.payment.amount + remaining,
         remainingAmount: 0,
-        remainderMethod,
+        remainderMethod: singleMethod,
+        remainderCashAmount: cashAmount,
+        remainderUpiAmount: upiAmount,
         // PARTIAL -> COMPLETED now that the venue collection has been
         // recorded. Idempotent: if a prior state was already COMPLETED
         // (legacy rows), this is a no-op write.
@@ -137,7 +175,95 @@ export async function markRemainderCollected(
         adminId,
         adminUsername,
         editType: "REMAINDER_COLLECTED",
-        note: `Collected remaining Rs.${remaining} at venue via ${remainderMethod === "UPI_QR" ? "UPI QR" : "Cash"}`,
+        note: `Collected remaining Rs.${remaining} at venue: ${describeSplit(cashAmount, upiAmount)}`,
+      },
+    }),
+  ]);
+
+  return { success: true };
+}
+
+// Edit the cash/UPI split on a partial-payment booking whose remainder has
+// already been collected. Does not change how much was collected — only
+// re-attributes the same total between cash and UPI. Used to correct
+// admin entry mistakes after the fact. Leaves Payment.amount /
+// remainingAmount / status untouched; updates the two split columns and
+// remainderMethod, and records an audit row with the before/after values.
+export async function updateRemainderSplit(
+  bookingId: string,
+  split: RemainderSplit
+) {
+  const adminId = await requireAdmin();
+
+  const cashAmount = Math.trunc(split.cashAmount ?? 0);
+  const upiAmount = Math.trunc(split.upiAmount ?? 0);
+  if (cashAmount < 0 || upiAmount < 0) {
+    return { success: false, error: "Amounts cannot be negative" };
+  }
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
+  });
+  if (!booking) return { success: false, error: "Booking not found" };
+  if (!booking.payment) return { success: false, error: "No payment on this booking" };
+  if (!booking.payment.isPartialPayment) {
+    return { success: false, error: "Booking is not a partial payment" };
+  }
+  if ((booking.payment.remainingAmount ?? 0) > 0) {
+    return { success: false, error: "Remainder not yet collected" };
+  }
+
+  // The total collected at the venue is the advance-less portion of the
+  // booking total. Reject any split that doesn't sum to that.
+  const advance = booking.payment.advanceAmount ?? 0;
+  const venueTotal = booking.totalAmount - advance;
+  if (cashAmount + upiAmount !== venueTotal) {
+    return {
+      success: false,
+      error: `Split must total Rs.${venueTotal} (got Rs.${cashAmount + upiAmount})`,
+    };
+  }
+  if (cashAmount === 0 && upiAmount === 0) {
+    return { success: false, error: "Enter at least one amount" };
+  }
+
+  const priorCash =
+    booking.payment.remainderCashAmount ??
+    (booking.payment.remainderMethod === "CASH" ? venueTotal : 0);
+  const priorUpi =
+    booking.payment.remainderUpiAmount ??
+    (booking.payment.remainderMethod === "UPI_QR" ? venueTotal : 0);
+  if (priorCash === cashAmount && priorUpi === upiAmount) {
+    return { success: false, error: "No changes to save" };
+  }
+
+  const admin = await db.adminUser.findUnique({ where: { id: adminId } });
+  const adminUsername = admin?.username ?? "unknown";
+
+  const singleMethod =
+    cashAmount > 0 && upiAmount === 0
+      ? "CASH"
+      : upiAmount > 0 && cashAmount === 0
+      ? "UPI_QR"
+      : null;
+
+  await db.$transaction([
+    db.payment.update({
+      where: { id: booking.payment.id },
+      data: {
+        remainderMethod: singleMethod,
+        remainderCashAmount: cashAmount,
+        remainderUpiAmount: upiAmount,
+      },
+    }),
+    db.bookingEditHistory.create({
+      data: {
+        bookingId,
+        adminId,
+        adminUsername,
+        editType: "REMAINDER_SPLIT_EDITED",
+        note: `Updated venue collection split from ${describeSplit(priorCash, priorUpi)} to ${describeSplit(cashAmount, upiAmount)}`,
       },
     }),
   ]);
