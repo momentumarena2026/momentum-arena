@@ -42,6 +42,7 @@ const sports = [
     gradient: "from-yellow-500/80 to-yellow-900/90",
     border: "hover:border-yellow-400 hover:shadow-yellow-500/20",
     glow: "group-hover:shadow-[0_0_30px_rgba(234,179,8,0.3)]",
+    comingSoon: true,
   },
 ];
 
@@ -324,6 +325,41 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
               {sports.map((sport) => {
                 const Icon = sport.icon;
+
+                if (sport.comingSoon) {
+                  return (
+                    <div
+                      key={sport.slug}
+                      aria-disabled="true"
+                      className="relative overflow-hidden rounded-2xl h-64 sm:h-72 md:h-80 border border-zinc-800 cursor-not-allowed"
+                    >
+                      <img
+                        src={sport.image}
+                        alt={`${sport.name} at Momentum Arena`}
+                        className="absolute inset-0 w-full h-full object-cover grayscale"
+                      />
+                      <div
+                        className={`absolute inset-0 bg-gradient-to-t ${sport.gradient} opacity-80`}
+                      />
+                      <div className="absolute inset-0 bg-black/40" />
+
+                      <span className="absolute right-3 top-3 rounded-full bg-amber-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300 border border-amber-500/30 backdrop-blur-sm">
+                        Coming Soon
+                      </span>
+
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+                        <Icon className="text-4xl md:text-5xl text-white/60 mb-3" />
+                        <h3 className="text-2xl md:text-3xl font-black text-white/80 mb-1">
+                          {sport.name}
+                        </h3>
+                        <p className="text-sm md:text-base text-white/60">
+                          {sport.tagline}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <HomepageSportTracker key={sport.slug} sport={sport.name}>
                   <Link
