@@ -223,16 +223,17 @@ export async function notifyAdminPendingBooking(
 // ---------------------------------------------------------------------------
 // notifyAdminBookingConfirmed
 // ---------------------------------------------------------------------------
-// DLT template (Option B, 2 variables only):
-//  "New confirmed booking on {#var#}. Amount {#var#}. Details:
+// DLT template (2 variables):
+//  "New confirmed booking on ##date##. Amount ##amount##. Details:
 //   https://www.momentumarena.com/admin/bookings - Momentum Arena"
 //
-// Variable 1 ("slot") — date + time, e.g. "17 Apr 6pm-7pm"
-// Variable 2 ("amount") — e.g. "Rs.1600"
+// Recipient payload keys MUST match the template variable names exactly
+// (MSG91 Flow substitutes by key), so we send `date` and `amount`:
+//   date   — date + time, e.g. "17 Apr 6pm-7pm"
+//   amount — e.g. "Rs.1600"
 //
 // Template id is hard-coded as a default; an env override is still
-// respected for dev/staging. The earlier DLT-approval gate is lifted now
-// that the template id is approved.
+// respected for dev/staging.
 export async function notifyAdminBookingConfirmed(
   bookingId: string
 ): Promise<void> {
@@ -260,14 +261,14 @@ export async function notifyAdminBookingConfirmed(
     booking.slots.length > 0
       ? formatHoursAsRanges(booking.slots.map((s) => s.startHour))
       : "";
-  const slot = [dateLabel, timeLabel].filter(Boolean).join(" ").trim();
+  const date = [dateLabel, timeLabel].filter(Boolean).join(" ").trim();
 
   const amount = `Rs.${booking.totalAmount.toLocaleString("en-IN")}`;
 
   if (!MSG91_AUTH_KEY || !MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID) {
     console.log(
       `\n[DEV] Admin Booking Confirmed SMS (template id not yet set):`,
-      `\n  slot: ${slot}`,
+      `\n  date: ${date}`,
       `\n  amount: ${amount}`,
       `\n  to: ${adminPhones.join(", ")}\n`
     );
@@ -277,7 +278,7 @@ export async function notifyAdminBookingConfirmed(
   try {
     const recipients = adminPhones.map((phone) => ({
       mobiles: phone.replace("+", ""),
-      slot,
+      date,
       amount,
     }));
 
