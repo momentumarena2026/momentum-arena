@@ -77,7 +77,7 @@ interface UsageRow {
   createdAt: string;
 }
 
-const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL", "BADMINTON"];
+const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 const CATEGORIES: CafeItemCategory[] = [
   "SNACKS",
   "BEVERAGES",

@@ -22,7 +22,7 @@ export const FAQ_ENTRIES: FAQEntry[] = [
   {
     id: "f1",
     question: "What is Momentum Arena?",
-    answer: "Momentum Arena is a premium multi-sport facility in Mathura, offering Cricket, Football, Pickleball, and Badminton courts. We have an 80x90 ft main turf with flexible configurations and a separate shared Pickleball/Badminton court.",
+    answer: "Momentum Arena is a premium multi-sport facility in Mathura, offering Cricket, Football, and Pickleball courts. We have an 80x90 ft main turf with flexible configurations and a separate dedicated Pickleball court.",
     keywords: ["about", "what", "momentum", "arena", "facility"],
     category: "facility",
   },
@@ -44,7 +44,7 @@ export const FAQ_ENTRIES: FAQEntry[] = [
   {
     id: "b1",
     question: "How do I book a court?",
-    answer: "1. Log in with your phone/email via OTP\n2. Select your sport (Cricket/Football/Pickleball/Badminton)\n3. Choose court size configuration\n4. Pick your date and time slots\n5. Complete payment\nYour booking is confirmed instantly!",
+    answer: "1. Log in with your phone/email via OTP\n2. Select your sport (Cricket/Football/Pickleball)\n3. Choose court size configuration\n4. Pick your date and time slots\n5. Complete payment\nYour booking is confirmed instantly!",
     keywords: ["book", "reserve", "how", "court", "steps"],
     category: "booking",
   },
@@ -94,7 +94,7 @@ export const FAQ_ENTRIES: FAQEntry[] = [
   {
     id: "p3",
     question: "What are the court size options and prices?",
-    answer: "For Cricket: Small (30x90ft), Medium (40x90ft), Large (60x90ft), XL (70x90ft), Full (80x90ft)\nFor Football: Medium to Full (no Small)\nPickleball & Badminton: Standard shared court\n\nPrices start from ₹400/hour for shared courts to ₹5,000/hour for a full field on weekends.",
+    answer: "For Cricket: Small (30x90ft), Medium (40x90ft), Large (60x90ft), XL (70x90ft), Full (80x90ft)\nFor Football: Medium to Full (no Small)\nPickleball: Standard dedicated court\n\nPrices start from ₹400/hour for shared courts to ₹5,000/hour for a full field on weekends.",
     keywords: ["size", "small", "medium", "large", "full", "options", "cricket", "football"],
     category: "pricing",
   },
@@ -153,15 +153,8 @@ export const FAQ_ENTRIES: FAQEntry[] = [
   {
     id: "s1",
     question: "What sports are available?",
-    answer: "We offer four sports:\n1. Cricket - Box cricket with multiple pitch configurations\n2. Football - Indoor football with flexible field sizes\n3. Pickleball - Professional court with proper markings\n4. Badminton - Standard court with competition markings\n\nCricket and Football share the main 80x90ft turf. Pickleball and Badminton share a separate dedicated court.",
-    keywords: ["sports", "available", "cricket", "football", "pickleball", "badminton", "what"],
-    category: "sports",
-  },
-  {
-    id: "s2",
-    question: "How does the shared court work for Pickleball and Badminton?",
-    answer: "Pickleball and Badminton share the same physical court with different colored markings for each sport. When one sport is booked for a time slot, the other is automatically blocked for that same slot.",
-    keywords: ["shared", "pickleball", "badminton", "court", "same", "block"],
+    answer: "We offer three sports:\n1. Cricket - Box cricket with multiple pitch configurations\n2. Football - Indoor football with flexible field sizes\n3. Pickleball - Professional court with proper markings\n\nCricket and Football share the main 80x90ft turf. Pickleball is on a separate dedicated court.",
+    keywords: ["sports", "available", "cricket", "football", "pickleball", "what"],
     category: "sports",
   },
   {

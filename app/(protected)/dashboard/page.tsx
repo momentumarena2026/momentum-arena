@@ -18,7 +18,6 @@ import {
   MdSportsCricket,
   MdSportsSoccer,
   MdSportsTennis,
-  MdSportsHandball,
 } from "react-icons/md";
 
 function getGreeting(): string {
@@ -46,7 +45,6 @@ const SPORT_ICON_MAP: Record<string, React.ReactNode> = {
   CRICKET: <MdSportsCricket className="h-5 w-5" />,
   FOOTBALL: <MdSportsSoccer className="h-5 w-5" />,
   PICKLEBALL: <MdSportsTennis className="h-5 w-5" />,
-  BADMINTON: <MdSportsHandball className="h-5 w-5" />,
 };
 
 const SPORT_COLORS: Record<string, { bg: string; border: string; text: string; glow: string }> = {
@@ -67,12 +65,6 @@ const SPORT_COLORS: Record<string, { bg: string; border: string; text: string; g
     border: "border-yellow-500/30 hover:border-yellow-400/50",
     text: "text-yellow-400",
     glow: "shadow-yellow-500/10",
-  },
-  BADMINTON: {
-    bg: "from-purple-500/20 to-purple-600/5",
-    border: "border-purple-500/30 hover:border-purple-400/50",
-    text: "text-purple-400",
-    glow: "shadow-purple-500/10",
   },
 };
 
@@ -164,7 +156,7 @@ export default async function DashboardPage() {
           <div>
             <p className="text-lg font-semibold text-white">Book a Court</p>
             <p className="text-sm text-zinc-400">
-              Cricket, Football, Pickleball, Badminton
+              Cricket, Football, Pickleball
             </p>
           </div>
         </div>

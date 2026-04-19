@@ -101,7 +101,6 @@
 - Cricket turf Mathura
 - Football turf Mathura
 - Pickleball court Mathura
-- Badminton court Mathura
 
 ### Secondary Keywords:
 - Book sports court Mathura
@@ -114,7 +113,6 @@
 - "Where to play cricket in Mathura"
 - "Best football turf in Mathura"
 - "Pickleball courts near Mathura"
-- "Indoor badminton court Mathura"
 - "Sports facility with cafeteria Mathura"
 
 ## Testing Your SEO

@@ -44,7 +44,7 @@ export default async function AdminBookingsPage({
     getAdminStats(),
   ]);
 
-  const sports = ["CRICKET", "FOOTBALL", "PICKLEBALL", "BADMINTON"];
+  const sports = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 
   const sportInfoMap: Record<string, { name: string; icon: string }> = {};
   for (const key of sports) {
@@ -232,7 +232,7 @@ export default async function AdminBookingsPage({
             All
           </Link>
           {sports.map((sport) => {
-            const emoji = { CRICKET: "🏏", FOOTBALL: "⚽", PICKLEBALL: "🏓", BADMINTON: "🏸" }[sport] || "";
+            const emoji = { CRICKET: "🏏", FOOTBALL: "⚽", PICKLEBALL: "🏓" }[sport] || "";
             return (
               <Link
                 key={sport}

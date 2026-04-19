@@ -28,7 +28,6 @@ const SPORTS: { value: Sport | ""; label: string }[] = [
   { value: "CRICKET", label: "Cricket" },
   { value: "FOOTBALL", label: "Football" },
   { value: "PICKLEBALL", label: "Pickleball" },
-  { value: "BADMINTON", label: "Badminton" },
 ];
 
 const defaultForm = {

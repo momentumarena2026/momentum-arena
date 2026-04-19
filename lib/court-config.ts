@@ -87,16 +87,6 @@ export const COURT_CONFIGS: CourtConfigDef[] = [
     lengthFt: 44,
     zones: ["SHARED_COURT"],
   },
-  // Badminton — same shared court
-  {
-    sport: "BADMINTON",
-    size: "SHARED",
-    label: "Badminton Court",
-    position: "SHARED",
-    widthFt: 20,
-    lengthFt: 44,
-    zones: ["SHARED_COURT"],
-  },
 ];
 
 // Operating hours: 5 AM to 1 AM (hour 5 through 24, where 24 = midnight-1AM)
@@ -218,12 +208,6 @@ export const SPORT_INFO: Record<
     icon: "pickleball",
     color: "yellow",
     description: "Shared court with professional markings",
-  },
-  BADMINTON: {
-    name: "Badminton",
-    icon: "badminton",
-    color: "purple",
-    description: "Shared court with standard markings",
   },
 };
 

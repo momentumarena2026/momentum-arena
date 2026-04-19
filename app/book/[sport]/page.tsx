@@ -19,7 +19,7 @@ export default async function SportConfigPage({
     notFound();
   }
 
-  if (sportKey === "PICKLEBALL" || sportKey === "BADMINTON") {
+  if (sportKey === "PICKLEBALL") {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <BackButton label="Back" />
@@ -84,7 +84,7 @@ export default async function SportConfigPage({
     );
   }
 
-  const isSharedCourt = (sportKey as string) === "PICKLEBALL" || (sportKey as string) === "BADMINTON";
+  const isSharedCourt = (sportKey as string) === "PICKLEBALL";
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -159,7 +159,7 @@ export default async function SportConfigPage({
               {/* Court Diagram */}
               <div className="mb-3 flex justify-center">
                 {isSharedCourt ? (
-                  <SharedCourtDiagram sport={sportKey as "PICKLEBALL" | "BADMINTON"} />
+                  <SharedCourtDiagram sport={sportKey as "PICKLEBALL"} />
                 ) : (
                   <CourtDiagram
                     highlightedZones={config.zones as CourtZone[]}

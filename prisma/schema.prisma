@@ -16,7 +16,6 @@ enum Sport {
   CRICKET
   FOOTBALL
   PICKLEBALL
-  BADMINTON
 }
 
 enum ConfigSize {

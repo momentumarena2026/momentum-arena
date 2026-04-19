@@ -28,14 +28,12 @@ const SPORT_COLORS: Record<string, string> = {
   CRICKET: "#10b981",
   FOOTBALL: "#3b82f6",
   PICKLEBALL: "#f59e0b",
-  BADMINTON: "#ef4444",
 };
 
 const SPORT_LABELS: Record<string, string> = {
   CRICKET: "Cricket",
   FOOTBALL: "Football",
   PICKLEBALL: "Pickleball",
-  BADMINTON: "Badminton",
 };
 
 const SPORT_FILTERS: { value: string; label: string }[] = [
@@ -43,7 +41,6 @@ const SPORT_FILTERS: { value: string; label: string }[] = [
   { value: "CRICKET", label: "Cricket" },
   { value: "FOOTBALL", label: "Football" },
   { value: "PICKLEBALL", label: "Pickleball" },
-  { value: "BADMINTON", label: "Badminton" },
 ];
 
 // --------------- Helpers ---------------

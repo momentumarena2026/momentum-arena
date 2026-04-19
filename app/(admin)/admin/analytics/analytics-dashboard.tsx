@@ -57,7 +57,6 @@ const SPORT_COLORS: Record<string, string> = {
   Cricket: "#10b981",
   Football: "#3b82f6",
   Pickleball: "#f59e0b",
-  Badminton: "#ef4444",
 };
 
 const CAFE_COLORS: Record<string, string> = {

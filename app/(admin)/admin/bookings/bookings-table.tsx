@@ -144,7 +144,6 @@ const SPORT_EMOJI: Record<string, string> = {
   CRICKET: "🏏",
   FOOTBALL: "⚽",
   PICKLEBALL: "🏓",
-  BADMINTON: "🏸",
 };
 
 interface GroupedBookings {

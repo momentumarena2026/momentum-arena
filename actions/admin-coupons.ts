@@ -42,7 +42,7 @@ const couponSchema = z.object({
   maxUsesPerUser: z.number().int().min(1).default(1),
   minAmount: z.number().int().min(0).nullable().optional(),
   sportFilter: z
-    .array(z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL", "BADMINTON"]))
+    .array(z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]))
     .default([]),
   categoryFilter: z
     .array(z.enum(["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"]))

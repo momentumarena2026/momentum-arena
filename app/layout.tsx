@@ -16,15 +16,14 @@ import "./globals.css";
 
 
 export const metadata: Metadata = {
-  title: "Momentum Arena Mathura | Cricket, Football, Pickleball & Badminton Turf Booking",
+  title: "Momentum Arena Mathura | Cricket, Football & Pickleball Turf Booking",
   description:
-    "Book premium sports courts at Momentum Arena, Mathura's best multi-sport facility. Cricket turf, football ground, pickleball & badminton courts. Open 6 AM-11 PM daily. Call +91-6396177261 for booking.",
+    "Book premium sports courts at Momentum Arena, Mathura's best multi-sport facility. Cricket turf, football ground & pickleball courts. Open 6 AM-11 PM daily. Call +91-6396177261 for booking.",
   keywords: [
     "Momentum Arena Mathura",
     "cricket turf booking Mathura",
     "football turf Mathura",
     "pickleball court Mathura",
-    "badminton court Mathura",
     "sports facility Mathura",
     "turf booking Mathura",
     "sports complex Mathura",
@@ -35,7 +34,6 @@ export const metadata: Metadata = {
     "Mathura Uttar Pradesh sports",
     "book cricket turf near Mathura",
     "sports facility near Vrindavan",
-    "indoor badminton Mathura",
     "outdoor sports Mathura",
     "tournament venue Mathura",
   ],
@@ -50,7 +48,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Momentum Arena | Premier Sports Facility in Mathura, UP",
     description:
-      "Mathura's best sports destination with Cricket, Football, Pickleball & Badminton courts. Spectator seating, cafeteria & parking. Book now!",
+      "Mathura's best sports destination with Cricket, Football & Pickleball courts. Spectator seating, cafeteria & parking. Book now!",
     url: "https://momentumarena.com",
     siteName: "Momentum Arena",
     locale: "en_IN",
@@ -68,7 +66,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Momentum Arena | Sports Facility in Mathura",
     description:
-      "Book Cricket, Football, Pickleball & Badminton courts in Mathura. Premium facility with cafeteria & parking. Coming Soon!",
+      "Book Cricket, Football & Pickleball courts in Mathura. Premium facility with cafeteria & parking. Coming Soon!",
     images: ["/icon.png"],
     creator: "@momentumarena_",
   },

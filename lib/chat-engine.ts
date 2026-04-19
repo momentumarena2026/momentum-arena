@@ -126,11 +126,11 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "sport_info",
     patterns: [
-      /\b(cricket|football|pickleball|badminton)\b.*\b(info|about|tell|details?|batao)\b/i,
-      /\babout\b.*\b(cricket|football|pickleball|badminton)\b/i,
-      /\btell\b.*\b(cricket|football|pickleball|badminton)\b/i,
+      /\b(cricket|football|pickleball)\b.*\b(info|about|tell|details?|batao)\b/i,
+      /\babout\b.*\b(cricket|football|pickleball)\b/i,
+      /\btell\b.*\b(cricket|football|pickleball)\b/i,
     ],
-    keywords: ["cricket", "football", "pickleball", "badminton"],
+    keywords: ["cricket", "football", "pickleball"],
     priority: 2,
   },
   {
@@ -148,8 +148,8 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "pricing_specific",
     patterns: [
-      /\b(cricket|football|pickleball|badminton)\b.*\b(price|cost|rate|kitna)\b/i,
-      /\b(price|cost|rate)\b.*\b(cricket|football|pickleball|badminton)\b/i,
+      /\b(cricket|football|pickleball)\b.*\b(price|cost|rate|kitna)\b/i,
+      /\b(price|cost|rate)\b.*\b(cricket|football|pickleball)\b/i,
     ],
     keywords: [],
     priority: 4,
@@ -278,7 +278,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
   },
   {
     intent: "shared_court",
-    patterns: [/shared\s*court/i, /pickleball.*badminton/i, /badminton.*pickleball/i],
+    patterns: [/shared\s*court/i],
     keywords: ["shared court"],
     priority: 4,
   },
@@ -333,7 +333,7 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   }),
 
   booking_how: () => ({
-    content: "Booking a court is super easy! Here's how:\n\n1️⃣ Pick your sport (Cricket, Football, Pickleball, Badminton)\n2️⃣ Choose court size\n3️⃣ Select date & time slots\n4️⃣ Complete payment\n\n✅ Booking is confirmed instantly! The whole process takes under 2 minutes.",
+    content: "Booking a court is super easy! Here's how:\n\n1️⃣ Pick your sport (Cricket, Football, Pickleball)\n2️⃣ Choose court size\n3️⃣ Select date & time slots\n4️⃣ Complete payment\n\n✅ Booking is confirmed instantly! The whole process takes under 2 minutes.",
     suggestions: ["What sports?", "Pricing info", "Payment methods"],
     quickActions: [{ label: "Book Now →", href: "/book" }],
   }),
@@ -347,7 +347,7 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   }),
 
   sports_available: () => ({
-    content: "We offer 4 exciting sports at Momentum Arena! 🏟️\n\n🏏 **Cricket** — Box cricket with 5 size configs (Small → Full 80×90ft)\n⚽ **Football** — Indoor football (Half or Full ground)\n🏓 **Pickleball** — Professional court with proper markings\n🏸 **Badminton** — Standard competition court\n\nAll courts have premium turf and floodlights for evening play!",
+    content: "We offer 3 exciting sports at Momentum Arena! 🏟️\n\n🏏 **Cricket** — Box cricket with 5 size configs (Small → Full 80×90ft)\n⚽ **Football** — Indoor football (Half or Full ground)\n🏓 **Pickleball** — Professional court with proper markings\n\nAll courts have premium turf and floodlights for evening play!",
     suggestions: ["Cricket details", "Book a court", "Pricing"],
     quickActions: [{ label: "Book Now →", href: "/book" }],
   }),
@@ -357,11 +357,10 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
     const info: Record<string, string> = {
       cricket: "🏏 **Cricket at Momentum Arena**\n\nOur 80×90ft main turf can be configured as:\n• Small (30×90ft) — Single box lane, great for practice\n• Medium (40×90ft) — Box + leather pitch\n• Large (60×90ft) — Two box lanes\n• XL (70×90ft) — Two lanes + leather pitch\n• Full Field (80×90ft) — Complete field\n\nSliding partition nets at 10ft, 40ft, and 70ft positions.",
       football: "⚽ **Football at Momentum Arena**\n\nIndoor football on premium turf:\n• Half Ground — Great for small-sided games (5v5/6v6)\n• Full Ground (80×90ft) — Full matches\n\nProfessional-grade artificial turf with proper markings.",
-      pickleball: "🏓 **Pickleball at Momentum Arena**\n\nProfessional court with:\n• Standard competition markings\n• Quality nets and playing surface\n• Shared court system (blocks badminton when booked)\n\nPerfect for beginners and pros alike!",
-      badminton: "🏸 **Badminton at Momentum Arena**\n\nStandard competition court:\n• Proper BWF-standard markings\n• Quality net setup\n• Shared with pickleball court\n\nGreat for casual rallies or competitive matches!",
+      pickleball: "🏓 **Pickleball at Momentum Arena**\n\nProfessional court with:\n• Standard competition markings\n• Quality nets and playing surface\n\nPerfect for beginners and pros alike!",
     };
     return {
-      content: info[sport || ""] || "We offer Cricket, Football, Pickleball, and Badminton. Which sport would you like to know more about?",
+      content: info[sport || ""] || "We offer Cricket, Football, and Pickleball. Which sport would you like to know more about?",
       suggestions: ["Book this sport", "Pricing info", "Other sports"],
       quickActions: sport ? [{ label: `Book ${sport.charAt(0).toUpperCase() + sport.slice(1)} →`, href: `/book/${sport}` }] : undefined,
     };
@@ -379,7 +378,6 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
       cricket: "🏏 Cricket pricing varies by field size:\n• Small (30×90): ₹800–₹1,200/hr\n• Medium (40×90): ₹1,000–₹1,500/hr\n• Large (60×90): ₹1,500–₹2,200/hr\n• Full (80×90): ₹3,000–₹5,000/hr\n\nWeekday off-peak has lowest rates. Check exact prices on the booking page!",
       football: "⚽ Football pricing:\n• Half Ground: ₹1,000–₹1,800/hr\n• Full Ground: ₹3,000–₹5,000/hr\n\nWeekday off-peak (5 AM–4 PM) is cheapest!",
       pickleball: "🏓 Pickleball pricing:\n• Shared Court: ₹400–₹600/hr\n\nMost affordable option! Great weekday off-peak rates.",
-      badminton: "🏸 Badminton pricing:\n• Shared Court: ₹400–₹600/hr\n\nSimilar to pickleball pricing. Weekday off-peak is best value!",
     };
     return {
       content: info[sport || ""] || "Pricing depends on sport & court size. Which sport are you interested in?",
@@ -474,8 +472,8 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   }),
 
   shared_court: () => ({
-    content: "🤝 **Shared Court System:**\n\nPickleball and Badminton share the same physical court with different colored markings.\n\nWhen one sport is booked for a time slot, the other is **automatically blocked** for that same slot. First come, first served!",
-    suggestions: ["Pickleball info", "Badminton info", "Book now"],
+    content: "🤝 **Shared Court System:**\n\nOur Pickleball court is a dedicated shared court for all players.\n\nBookings are on a first-come, first-served basis per time slot.",
+    suggestions: ["Pickleball info", "Book now"],
   }),
 
   cricket_config: () => ({
@@ -524,8 +522,6 @@ function extractSport(text: string): string | null {
     soccer: "football",
     pickleball: "pickleball",
     pickle: "pickleball",
-    badminton: "badminton",
-    shuttlecock: "badminton",
   };
   const lower = text.toLowerCase();
   for (const [key, sport] of Object.entries(sportMap)) {

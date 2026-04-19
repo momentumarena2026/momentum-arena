@@ -11,7 +11,6 @@ const SPORT_EMOJI: Record<string, string> = {
   cricket: "\u{1F3CF}",
   football: "\u26BD",
   pickleball: "\u{1F3D3}",
-  badminton: "\u{1F3F8}",
 };
 
 export default async function CheckinPage({

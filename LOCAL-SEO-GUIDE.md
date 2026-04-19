@@ -34,7 +34,6 @@
 - "sports facility near Vrindavan"
 - "Mathura Uttar Pradesh sports"
 - "book cricket turf near Mathura"
-- "indoor badminton Mathura"
 - "tournament venue Mathura"
 
 ## 📋 Next Steps for Maximum Local SEO Impact
@@ -51,7 +50,6 @@
      - Sports Activity Organizer
      - Cricket Ground
      - Football Field
-     - Badminton Court
    - Add phone number and website
    - Enable messaging
    - Add attributes (parking, cafeteria, etc.)
@@ -182,7 +180,6 @@
    - "sports facility Mathura"
    - "football turf near me" (from Mathura IP)
    - "pickleball court Mathura"
-   - "badminton court Mathura"
 
 ### Advanced Local SEO Tactics
 
@@ -212,8 +209,7 @@
 1. cricket turf Mathura
 2. football turf Mathura
 3. sports facility Mathura
-4. badminton court Mathura
-5. pickleball court Mathura
+4. pickleball court Mathura
 
 ### Medium Priority
 6. sports complex Mathura
@@ -226,8 +222,7 @@
 11. "best cricket turf in Mathura"
 12. "where to play pickleball in Mathura"
 13. "football turf near Vrindavan"
-14. "indoor badminton court Mathura"
-15. "book sports court Mathura online"
+14. "book sports court Mathura online"
 
 ## 📊 Expected Results Timeline
 

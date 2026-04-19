@@ -20,14 +20,12 @@ interface ProfileStatsProps {
 const SPORT_EMOJI: Record<Sport, string> = {
   CRICKET: "🏏",
   FOOTBALL: "⚽",
-  BADMINTON: "🏸",
   PICKLEBALL: "🎾",
 };
 
 const SPORT_LABEL: Record<Sport, string> = {
   CRICKET: "Cricket",
   FOOTBALL: "Football",
-  BADMINTON: "Badminton",
   PICKLEBALL: "Pickleball",
 };
 

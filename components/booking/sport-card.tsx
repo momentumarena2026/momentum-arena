@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   MdSportsCricket,
   MdSportsSoccer,
-  MdSportsHandball,
   MdSportsTennis,
 } from "react-icons/md";
 import { trackSportSelected } from "@/lib/analytics";
@@ -13,21 +12,18 @@ const sportIcons: Record<string, React.ElementType> = {
   CRICKET: MdSportsCricket,
   FOOTBALL: MdSportsSoccer,
   PICKLEBALL: MdSportsTennis,
-  BADMINTON: MdSportsHandball,
 };
 
 const sportColors: Record<string, string> = {
   CRICKET: "from-emerald-500/20 to-emerald-600/5 border-emerald-500/30 hover:border-emerald-400",
   FOOTBALL: "from-blue-500/20 to-blue-600/5 border-blue-500/30 hover:border-blue-400",
   PICKLEBALL: "from-yellow-500/20 to-yellow-600/5 border-yellow-500/30 hover:border-yellow-400",
-  BADMINTON: "from-purple-500/20 to-purple-600/5 border-purple-500/30 hover:border-purple-400",
 };
 
 const sportIconColors: Record<string, string> = {
   CRICKET: "text-emerald-400",
   FOOTBALL: "text-blue-400",
   PICKLEBALL: "text-yellow-400",
-  BADMINTON: "text-purple-400",
 };
 
 interface SportCardProps {
@@ -42,7 +38,7 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
   const colorClass = sportColors[sport] || sportColors.CRICKET;
   const iconColor = sportIconColors[sport] || "text-emerald-400";
 
-  const isComingSoon = sport === "PICKLEBALL" || sport === "BADMINTON";
+  const isComingSoon = sport === "PICKLEBALL";
 
   if (!isActive || isComingSoon) {
     return (

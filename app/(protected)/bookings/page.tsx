@@ -51,13 +51,6 @@ const SPORT_THEME: Record<
     ring: "hover:shadow-amber-500/10",
     emoji: "🎾",
   },
-  BADMINTON: {
-    bg: "bg-violet-500/10",
-    border: "border-violet-500/30",
-    text: "text-violet-300",
-    ring: "hover:shadow-violet-500/10",
-    emoji: "🏸",
-  },
 };
 
 // Status token palette used for the small status pill on each card.

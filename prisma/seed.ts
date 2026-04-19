@@ -70,7 +70,7 @@ async function main() {
   // - XL cricket (no longer offered)
   // - Football MEDIUM/LARGE/XL (only FULL field offered)
   // - XS cricket leather pitches (bowling machine unavailable)
-  // - PICKLEBALL / BADMINTON (coming soon)
+  // - PICKLEBALL (coming soon)
   await prisma.courtConfig.updateMany({
     where: { sport: "CRICKET", size: { in: ["SMALL", "XL", "XS"] }, isActive: true },
     data: { isActive: false },
@@ -80,7 +80,7 @@ async function main() {
     data: { isActive: false },
   });
   await prisma.courtConfig.updateMany({
-    where: { sport: { in: ["PICKLEBALL", "BADMINTON"] }, isActive: true },
+    where: { sport: { in: ["PICKLEBALL"] }, isActive: true },
     data: { isActive: false },
   });
   console.log("Deactivated unavailable / coming-soon court configs");

@@ -117,10 +117,10 @@ export function CourtDiagram({ highlightedZones, size = "md" }: CourtDiagramProp
   );
 }
 
-// Shared court diagram for Pickleball/Badminton
-export function SharedCourtDiagram({ sport }: { sport: "PICKLEBALL" | "BADMINTON" }) {
-  const color = sport === "PICKLEBALL" ? "#eab308" : "#a855f7";
-  // Pickleball: 20 x 44 ft, Badminton: 20 x 44 ft
+// Shared court diagram for Pickleball
+export function SharedCourtDiagram({ sport: _sport }: { sport: "PICKLEBALL" }) {
+  const color = "#eab308";
+  // Pickleball: 20 x 44 ft
   const w = 20;
   const h = 44;
   const pad = 4;

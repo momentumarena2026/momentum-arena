@@ -45,11 +45,10 @@ interface CustomerInfo {
 
 type PaymentMethod = "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
 
-const ALL_SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "BADMINTON", "PICKLEBALL"];
+const ALL_SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 const SPORT_EMOJIS: Record<Sport, string> = {
   CRICKET: "\u{1F3CF}",
   FOOTBALL: "\u26BD",
-  BADMINTON: "\u{1F3F8}",
   PICKLEBALL: "\u{1F3D3}",
 };
 

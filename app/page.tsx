@@ -5,7 +5,6 @@ import {
   MdSportsCricket,
   MdSportsSoccer,
   MdSportsTennis,
-  MdSportsHandball,
 } from "react-icons/md";
 import { LoginButton } from "@/components/login-modal";
 import { HomepageSportTracker, HomepageCafeTracker, HomepageCallTracker, HomepageDirectionsTracker } from "@/components/homepage-tracker";
@@ -43,17 +42,6 @@ const sports = [
     gradient: "from-yellow-500/80 to-yellow-900/90",
     border: "hover:border-yellow-400 hover:shadow-yellow-500/20",
     glow: "group-hover:shadow-[0_0_30px_rgba(234,179,8,0.3)]",
-  },
-  {
-    name: "Badminton",
-    slug: "badminton",
-    image: "/badminton.png",
-    tagline: "Outdoor Court, Shuttle Ready",
-    icon: MdSportsHandball,
-    color: "purple",
-    gradient: "from-purple-500/80 to-purple-900/90",
-    border: "hover:border-purple-400 hover:shadow-purple-500/20",
-    glow: "group-hover:shadow-[0_0_30px_rgba(168,85,247,0.3)]",
   },
 ];
 
@@ -104,7 +92,7 @@ export default function Home() {
       height: 512,
     },
     description:
-      "Momentum Arena is Mathura's premier multi-sport facility offering professional Cricket, Football, Pickleball and Badminton courts with spectator seating and cafeteria",
+      "Momentum Arena is Mathura's premier multi-sport facility offering professional Cricket, Football and Pickleball courts with spectator seating and cafeteria",
     url: "https://momentumarena.com",
     telephone: "+91-6396177261",
     priceRange: "₹₹",
@@ -142,7 +130,6 @@ export default function Home() {
       { "@type": "LocationFeatureSpecification", name: "Cricket Turf", value: true },
       { "@type": "LocationFeatureSpecification", name: "Football Turf", value: true },
       { "@type": "LocationFeatureSpecification", name: "Pickleball Courts", value: true },
-      { "@type": "LocationFeatureSpecification", name: "Badminton Courts", value: true },
       { "@type": "LocationFeatureSpecification", name: "Spectator Seating", value: true },
       { "@type": "LocationFeatureSpecification", name: "Cafeteria", value: true },
       { "@type": "LocationFeatureSpecification", name: "Parking", value: true },
@@ -161,7 +148,6 @@ export default function Home() {
       "Cricket",
       "Football",
       "Pickleball",
-      "Badminton",
       "Sports Facility Management",
       "Sports Court Rental",
       "Tournament Hosting",
@@ -289,7 +275,7 @@ export default function Home() {
             </h1>
 
             <p className="text-lg sm:text-xl md:text-2xl text-zinc-400 mb-3">
-              Cricket &bull; Football &bull; Pickleball &bull; Badminton
+              Cricket &bull; Football &bull; Pickleball
             </p>
 
             <p className="text-sm md:text-base text-zinc-500 mb-8">
