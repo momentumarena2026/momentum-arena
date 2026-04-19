@@ -7,13 +7,12 @@ const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
 // Existing "new booking, payment pending" admin template.
 const MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID =
   process.env.MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID || "69dfa786ec69c7286e0d2082";
-// New Option B admin template: "New confirmed booking on {#var#}. Amount
+// Option B admin template: "New confirmed booking on {#var#}. Amount
 // {#var#}. Details: https://www.momentumarena.com/admin/bookings - Momentum
 // Arena". Separate env var so we don't reuse the pending-booking template
-// id by mistake — awaiting DLT approval. While this is unset, the confirmed
-// admin SMS is a no-op (function short-circuits).
+// id by mistake.
 const MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID =
-  process.env.MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID || "";
+  process.env.MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID || "69e49a7f502b4be32e008982";
 const ADMIN_NOTIFICATION_PHONES =
   process.env.ADMIN_NOTIFICATION_PHONES || ""; // Comma-separated: "919876543210,919876543211"
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com";
@@ -231,10 +230,9 @@ export async function notifyAdminPendingBooking(
 // Variable 1 ("slot") — date + time, e.g. "17 Apr 6pm-7pm"
 // Variable 2 ("amount") — e.g. "Rs.1600"
 //
-// No-ops until MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID is set to the
-// DLT-approved template id. This prevents accidentally sending the
-// pending-booking template body (which would be confusing to admins) if
-// the env var is missing.
+// Template id is hard-coded as a default; an env override is still
+// respected for dev/staging. The earlier DLT-approval gate is lifted now
+// that the template id is approved.
 export async function notifyAdminBookingConfirmed(
   bookingId: string
 ): Promise<void> {
