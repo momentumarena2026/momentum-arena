@@ -18,7 +18,7 @@ export default async function BookPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
         <h1 className="text-2xl font-bold text-white">Book a Court</h1>
@@ -27,7 +27,7 @@ export default async function BookPage() {
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-3">
         {sports.map((sport) => (
           <SportCard
             key={sport.sport}
