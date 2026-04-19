@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createCafeCoupon,
@@ -51,6 +51,8 @@ export function CafeCouponsClient({
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
   const [form, setForm] = useState({
     code: "",
     type: "PERCENTAGE" as DiscountType,
@@ -112,14 +114,24 @@ export function CafeCouponsClient({
   };
 
   const handleToggle = async (id: string, isActive: boolean) => {
-    await updateCafeCoupon(id, { isActive: !isActive });
-    router.refresh();
+    setTogglingId(id);
+    try {
+      await updateCafeCoupon(id, { isActive: !isActive });
+      startTransition(() => router.refresh());
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Deactivate this coupon?")) return;
-    await deleteCafeCoupon(id);
-    router.refresh();
+    setTogglingId(id);
+    try {
+      await deleteCafeCoupon(id);
+      startTransition(() => router.refresh());
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   const toggleCategory = (cat: CafeItemCategory) => {
@@ -332,17 +344,22 @@ export function CafeCouponsClient({
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleToggle(coupon.id, coupon.isActive)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  disabled={togglingId === coupon.id}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50 ${
                     coupon.isActive ? "bg-emerald-600" : "bg-zinc-700"
                   }`}
                 >
-                  <span
-                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                      coupon.isActive
-                        ? "translate-x-5"
-                        : "translate-x-1"
-                    }`}
-                  />
+                  {togglingId === coupon.id ? (
+                    <Loader2 className="mx-auto h-3 w-3 animate-spin text-white" />
+                  ) : (
+                    <span
+                      className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                        coupon.isActive
+                          ? "translate-x-5"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  )}
                 </button>
               </div>
             </div>

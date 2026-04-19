@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { verifyBookingUtr, verifyCafeUtr, rejectUtr } from "@/actions/upi-payment";
 
 interface PaymentItem {
@@ -270,8 +271,11 @@ export function UtrVerifyDashboard({
                         <button
                           onClick={() => handleReject(item.id)}
                           disabled={loading === item.id}
-                          className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-500 disabled:opacity-50"
+                          className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-500 disabled:opacity-50 flex items-center gap-1.5"
                         >
+                          {loading === item.id && (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          )}
                           Confirm
                         </button>
                         <button
@@ -286,9 +290,16 @@ export function UtrVerifyDashboard({
                         <button
                           onClick={() => handleVerify(item)}
                           disabled={loading === item.id || isExpired}
-                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-500 disabled:opacity-50 flex items-center gap-1"
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-500 disabled:opacity-50 flex items-center gap-1.5"
                         >
-                          {loading === item.id ? "..." : "Verify ✓"}
+                          {loading === item.id ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Verifying
+                            </>
+                          ) : (
+                            "Verify ✓"
+                          )}
                         </button>
                         <button
                           onClick={() => setRejectId(item.id)}
