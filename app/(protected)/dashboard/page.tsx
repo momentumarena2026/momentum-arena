@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { SPORT_INFO, formatHoursAsRanges } from "@/lib/court-config";
+import { SPORT_INFO, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
@@ -292,7 +292,7 @@ export default async function DashboardPage() {
                         )}
                       </div>
                       <p className="text-xs text-zinc-500 truncate">
-                        {booking.courtConfig.label}
+                        {customerFacingCourtLabel(booking.courtConfig.label, booking.wasBookedAsHalfCourt)}
                       </p>
                     </div>
                     <div className="shrink-0 flex items-center gap-1">

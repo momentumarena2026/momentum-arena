@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { SPORT_INFO, formatHourCompact } from "@/lib/court-config";
+import { SPORT_INFO, formatHourCompact, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatBookingDate } from "@/lib/pricing";
 import { FeedbackForm } from "./feedback-form";
 import { Star } from "lucide-react";
@@ -40,7 +40,7 @@ export default async function FeedbackPage({
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 flex items-center gap-3">
         <span className="text-3xl">{sport.icon === "cricket" ? "🏏" : sport.icon === "football" ? "⚽" : sport.icon === "pickleball" ? "🏓" : "🏸"}</span>
         <div>
-          <p className="font-bold text-white">{sport.name} — {booking.courtConfig.label}</p>
+          <p className="font-bold text-white">{sport.name} — {customerFacingCourtLabel(booking.courtConfig.label, booking.wasBookedAsHalfCourt)}</p>
           <p className="text-sm text-zinc-400">
             {formatBookingDate(booking.date, { dateStyle: "medium" })} •{" "}
             {formatHourCompact(booking.slots[0]?.startHour)} –{" "}

@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
 import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
@@ -106,7 +106,7 @@ export default async function CheckoutPage({
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Type</span>
-            <span className="text-white">{hold.courtConfig.label}</span>
+            <span className="text-white">{customerFacingCourtLabel(hold.courtConfig.label, hold.wasBookedAsHalfCourt)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Date</span>

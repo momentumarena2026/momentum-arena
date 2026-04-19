@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { SPORT_INFO, SIZE_INFO, formatHourCompact, formatHoursAsRanges } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatHourCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { CalendarExport } from "./calendar-export";
 import { BookingQR } from "./booking-qr";
@@ -186,7 +186,7 @@ export default async function ConfirmationPage({
               <p className="text-sm font-medium text-white">
                 {sportInfo.name}
               </p>
-              <p className="text-xs text-zinc-400">{booking.courtConfig.label}</p>
+              <p className="text-xs text-zinc-400">{customerFacingCourtLabel(booking.courtConfig.label, booking.wasBookedAsHalfCourt)}</p>
             </div>
           </div>
 
@@ -307,7 +307,7 @@ export default async function ConfirmationPage({
           startHour={booking.slots[0].startHour}
           endHour={booking.slots[booking.slots.length - 1].startHour + 1}
           sport={SPORT_INFO[booking.courtConfig.sport].name}
-          courtLabel={booking.courtConfig.label}
+          courtLabel={customerFacingCourtLabel(booking.courtConfig.label, booking.wasBookedAsHalfCourt)}
           totalAmount={booking.totalAmount}
         />
       )}

@@ -173,6 +173,23 @@ export function formatHoursAsRanges(hours: number[]): string {
     .join(", ");
 }
 
+/**
+ * Customer-facing court label.
+ *
+ * The admin panel always shows the concrete courtConfig label (e.g.,
+ * "Medium (Left Half)"). Customer-facing screens call this helper so that
+ * bookings created via the unified half-court flow display a neutral
+ * "Half Court (40×90)" label — the physical side is assigned at the venue.
+ * Older bookings without the flag (defaults to false) keep their original
+ * concrete label.
+ */
+export function customerFacingCourtLabel(
+  courtConfigLabel: string,
+  wasBookedAsHalfCourt: boolean
+): string {
+  return wasBookedAsHalfCourt ? "Half Court (40×90)" : courtConfigLabel;
+}
+
 // Check if a date is a weekend (Saturday or Sunday)
 export function isWeekend(date: Date): boolean {
   const day = date.getDay();

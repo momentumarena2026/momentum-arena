@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSlotAvailability } from "@/lib/availability";
+import { getSlotAvailability, getMergedMediumAvailability } from "@/lib/availability";
 import { db } from "@/lib/db";
+import { Sport } from "@prisma/client";
 
 // Simple in-memory rate limiter for availability endpoint
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -42,8 +43,49 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const configId = searchParams.get("configId");
   const date = searchParams.get("date");
+  const mode = searchParams.get("mode"); // "medium" for unified half-court flow
+  const sport = searchParams.get("sport");
 
-  if (!configId || !date) {
+  if (!date) {
+    return NextResponse.json(
+      { error: "date is required" },
+      { status: 400 }
+    );
+  }
+
+  // Medium (half-court) merged availability: customer sees a single
+  // "Half Court (40×90)" view across LEFT + RIGHT. An hour is available
+  // if at least one half is free.
+  if (mode === "medium") {
+    if (!sport) {
+      return NextResponse.json(
+        { error: "sport is required when mode=medium" },
+        { status: 400 }
+      );
+    }
+    try {
+      const slots = await getMergedMediumAvailability(
+        sport as Sport,
+        new Date(date)
+      );
+      return NextResponse.json(
+        { slots },
+        { headers: { "Cache-Control": "public, max-age=30, s-maxage=30" } }
+      );
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to get availability",
+        },
+        { status: 500 }
+      );
+    }
+  }
+
+  if (!configId) {
     return NextResponse.json(
       { error: "configId and date are required" },
       { status: 400 }

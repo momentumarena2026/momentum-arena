@@ -25,6 +25,10 @@ import {
 } from "@/lib/analytics";
 
 interface SlotSelectionClientProps {
+  // `configId` is the specific LEFT/RIGHT/FULL court config for the regular
+  // flow. In mediumMode it is a stable synthetic key (e.g., "medium-cricket")
+  // used only for session-storage scoping — the server picks the actual
+  // courtConfigId at lock time.
   configId: string;
   sport: string;
   sportName: string;
@@ -32,12 +36,17 @@ interface SlotSelectionClientProps {
   courtSize: string;
   userId?: string;
   userPhone?: string;
+  // When true, availability is fetched from the merged LEFT+RIGHT view and
+  // the lock endpoint is called with mode=medium (server auto-assigns half).
+  // Recurring-booking UI is hidden in this mode.
+  mediumMode?: boolean;
 }
 
 export function SlotSelectionClient({
   configId,
+  sport,
   userId,
-  userPhone,
+  mediumMode = false,
 }: SlotSelectionClientProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -123,9 +132,10 @@ export function SlotSelectionClient({
     async function fetchSlots() {
       setLoading(true);
       try {
-        const res = await fetch(
-          `/api/availability?configId=${configId}&date=${selectedDate}`
-        );
+        const url = mediumMode
+          ? `/api/availability?mode=medium&sport=${sport.toUpperCase()}&date=${selectedDate}`
+          : `/api/availability?configId=${configId}&date=${selectedDate}`;
+        const res = await fetch(url);
         const data = await res.json();
         setSlots(data.slots || []);
       } catch {
@@ -136,7 +146,7 @@ export function SlotSelectionClient({
     }
     fetchSlots();
     // Only clear selection when date actually changes, not on re-render
-  }, [configId, selectedDate]);
+  }, [configId, selectedDate, mediumMode, sport]);
 
   // After auth completes and session is available, auto-proceed to lock
   useEffect(() => {
@@ -191,7 +201,12 @@ export function SlotSelectionClient({
 
     try {
       const formData = new FormData();
-      formData.set("courtConfigId", configId);
+      if (mediumMode) {
+        formData.set("mode", "medium");
+        formData.set("sport", sport.toUpperCase());
+      } else {
+        formData.set("courtConfigId", configId);
+      }
       formData.set("date", selectedDate);
       formData.set("hours", JSON.stringify(selectedHours));
 
@@ -205,7 +220,7 @@ export function SlotSelectionClient({
         trackLockSuccess(data.holdId);
         sessionStorage.removeItem(storageKey);
         const params = new URLSearchParams({ holdId: data.holdId });
-        if (isRecurring && selectedHours.length > 0) {
+        if (!mediumMode && isRecurring && selectedHours.length > 0) {
           params.set("recurring", "1");
           params.set("mode", recurringMode);
           params.set("dayOfWeek", String(effectiveRecurringDay));
@@ -387,8 +402,11 @@ export function SlotSelectionClient({
         </>
       )}
 
-      {/* Recurring Booking Toggle */}
-      {selectedHours.length > 0 && !showAuth && recurringConfig?.enabled && !recurringConfigLoading && (
+      {/* Recurring Booking Toggle — not offered for the unified half-court
+          flow because recurring selection would need to pin a specific half
+          across all occurrences, which conflicts with "venue assigns side
+          at game time". */}
+      {!mediumMode && selectedHours.length > 0 && !showAuth && recurringConfig?.enabled && !recurringConfigLoading && (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
           <label className="flex items-center gap-3 cursor-pointer">
             <button

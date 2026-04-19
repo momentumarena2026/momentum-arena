@@ -292,6 +292,14 @@ model SlotHold {
   couponCode       String?
   discountAmount   Int?
 
+  // Set true when the hold was created through the unified "Half Court
+  // (40x90)" customer flow rather than a direct LEFT/RIGHT selection.
+  // The hold still points at a concrete LEFT or RIGHT courtConfigId (the
+  // system picks a free half at hold-creation time); this flag just tags
+  // the booking lineage so downstream customer-facing displays render the
+  // neutral "Half Court" label.
+  wasBookedAsHalfCourt Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -337,6 +345,15 @@ model Booking {
   equipmentRentals EquipmentRental[]
   recurringBookingId String?
   recurringBooking   RecurringBooking? @relation(fields: [recurringBookingId], references: [id])
+
+  // True when the customer booked through the unified "Half Court
+  // (40x90)" flow (medium, no left/right disclosed). Customer-facing
+  // displays (confirmation, invoice, "my bookings") read this flag and
+  // show "Half Court (40x90)" instead of the concrete LEFT/RIGHT label.
+  // Admin-facing displays always show the concrete label. Bookings made
+  // before this flow existed default to false and keep their original
+  // label everywhere — we do not backfill.
+  wasBookedAsHalfCourt Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

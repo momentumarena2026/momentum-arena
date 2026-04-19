@@ -493,6 +493,11 @@ export async function createBookingFromHold(
         totalAmount: effectiveTotal,
         originalAmount: appliedDiscount > 0 ? hold.totalAmount : null,
         discountAmount: appliedDiscount,
+        // Preserve the unified "Half Court" context from the hold so
+        // customer-facing views can render a neutral label instead of the
+        // concrete LEFT/RIGHT courtConfig label. Admin views keep the
+        // concrete label regardless.
+        wasBookedAsHalfCourt: hold.wasBookedAsHalfCourt,
         slots: {
           create: slotPrices.map((s) => ({
             startHour: s.hour,

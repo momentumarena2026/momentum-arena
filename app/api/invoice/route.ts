@@ -7,6 +7,7 @@ import {
   formatHoursAsRanges,
   SPORT_INFO,
   SIZE_INFO,
+  customerFacingCourtLabel,
 } from "@/lib/court-config";
 import { formatBookingDate } from "@/lib/pricing";
 import fs from "fs";
@@ -229,7 +230,7 @@ export async function GET(request: Request) {
   const details = [
     ["Booking ID", booking.id],
     ["Sport", sportInfo?.name || booking.courtConfig.sport],
-    ["Court", `${booking.courtConfig.label} (${sizeInfo?.name || booking.courtConfig.size})`],
+    ["Court", `${customerFacingCourtLabel(booking.courtConfig.label, booking.wasBookedAsHalfCourt)} (${sizeInfo?.name || booking.courtConfig.size})`],
     ["Date", bookingDate],
     ["Time Slots", slotTimes],
     ["Payment Method", booking.payment?.method?.replace("_", " ") || "N/A"],
@@ -271,7 +272,7 @@ export async function GET(request: Request) {
   doc.setFont("helvetica", "normal");
 
   booking.slots.forEach((slot, index) => {
-    const slotDesc = `${sportInfo?.name || booking.courtConfig.sport} - ${booking.courtConfig.label} (${formatHourRangeCompact(slot.startHour)})`;
+    const slotDesc = `${sportInfo?.name || booking.courtConfig.sport} - ${customerFacingCourtLabel(booking.courtConfig.label, booking.wasBookedAsHalfCourt)} (${formatHourRangeCompact(slot.startHour)})`;
     doc.text(String(index + 1), colX.sno, y + 4);
     doc.text(slotDesc, colX.desc, y + 4);
     doc.text("1", colX.hrs, y + 4);

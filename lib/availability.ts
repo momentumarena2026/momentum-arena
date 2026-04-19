@@ -1,4 +1,4 @@
-import { CourtZone } from "@prisma/client";
+import { CourtZone, Sport } from "@prisma/client";
 import { db } from "./db";
 import { getAllSlotHours, isWeekend } from "./court-config";
 import { getTodayIST, getCurrentHourIST } from "./ist-date";
@@ -181,6 +181,87 @@ async function getSlotPrices(
   }
 
   return priceMap;
+}
+
+// ---------------------------------------------------------------------------
+// Half-court ("Medium") unified availability
+// ---------------------------------------------------------------------------
+// Customers book a single "Half Court (40×90)" tile that represents *either*
+// the LEFT or RIGHT MEDIUM config. The underlying LEFT/RIGHT configs share no
+// zones, so two different customers can book the same hour simultaneously —
+// the venue assigns physical sides at game time. An hour is available to the
+// customer as long as at least one half is free. Pricing is identical between
+// LEFT and RIGHT by business rule; we expose LEFT's price as canonical.
+
+export interface MediumConfigsPair {
+  leftId: string;
+  rightId: string;
+}
+
+/**
+ * Look up the LEFT + RIGHT MEDIUM courtConfig ids for a sport. Throws if
+ * either side is missing (currently only CRICKET has MEDIUM configs).
+ */
+export async function getMediumConfigs(
+  sport: Sport
+): Promise<MediumConfigsPair> {
+  const configs = await db.courtConfig.findMany({
+    where: { sport, size: "MEDIUM", isActive: true },
+    select: { id: true, position: true },
+  });
+  const left = configs.find((c) => c.position === "LEFT");
+  const right = configs.find((c) => c.position === "RIGHT");
+  if (!left || !right) {
+    throw new Error(`Half-court configs not found for sport ${sport}`);
+  }
+  return { leftId: left.id, rightId: right.id };
+}
+
+/**
+ * Per-hour merged availability across LEFT + RIGHT halves.
+ * - available: at least one half is available
+ * - booked:    both halves occupied by a CONFIRMED booking/hold
+ * - locked:    at least one half locked, the other not strictly free
+ * - blocked:   both halves blocked (admin block, or past hour)
+ * Price is taken from LEFT's pricing table (LEFT == RIGHT by business rule).
+ */
+export async function getMergedMediumAvailability(
+  sport: Sport,
+  date: Date
+): Promise<SlotAvailability[]> {
+  const { leftId, rightId } = await getMediumConfigs(sport);
+
+  const [left, right] = await Promise.all([
+    getSlotAvailability(leftId, date),
+    getSlotAvailability(rightId, date),
+  ]);
+
+  // Severity ordering: available < locked < booked/blocked.
+  // Hour is "available" if at least one side is available. Otherwise pick the
+  // least-severe of the two sides so the customer sees the clearest signal.
+  const severity: Record<SlotStatus, number> = {
+    available: 0,
+    locked: 1,
+    booked: 2,
+    blocked: 2,
+  };
+
+  const leftByHour = new Map(left.map((s) => [s.hour, s]));
+  return right.map((r) => {
+    const l = leftByHour.get(r.hour)!;
+    let status: SlotStatus;
+    if (l.status === "available" || r.status === "available") {
+      status = "available";
+    } else {
+      status = severity[l.status] <= severity[r.status] ? l.status : r.status;
+    }
+    return {
+      hour: r.hour,
+      status,
+      // Prices are equal between halves; fall back to right in case left is 0.
+      price: l.price || r.price,
+    };
+  });
 }
 
 // Check if specific slots are available for a config (used during booking)

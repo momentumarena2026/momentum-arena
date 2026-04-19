@@ -36,17 +36,44 @@ export default async function SportConfigPage({
     );
   }
 
-  const configs = await db.courtConfig.findMany({
+  const rawConfigs = await db.courtConfig.findMany({
     where: { sport: sportKey, isActive: true },
     orderBy: [{ size: "asc" }, { position: "asc" }],
   });
 
-  // Auto-redirect to slot selection if only one config available
-  if (configs.length === 1) {
-    redirect(`/book/${sport}/${configs[0].id}`);
+  // Collapse MEDIUM LEFT + MEDIUM RIGHT into a single "Half Court (40×90)"
+  // tile. The customer never picks a side — the venue assigns one at game
+  // time. We keep the first MEDIUM config's metadata (zones/dimensions) for
+  // the tile's visuals and route to /book/[sport]/medium for slot selection.
+  const mediumConfigs = rawConfigs.filter((c) => c.size === "MEDIUM");
+  const nonMedium = rawConfigs.filter((c) => c.size !== "MEDIUM");
+
+  type Tile =
+    | { kind: "config"; config: (typeof rawConfigs)[number] }
+    | {
+        kind: "medium";
+        representative: (typeof rawConfigs)[number];
+      };
+
+  const tiles: Tile[] = [
+    ...nonMedium.map((config) => ({ kind: "config" as const, config })),
+    ...(mediumConfigs.length > 0
+      ? [{ kind: "medium" as const, representative: mediumConfigs[0] }]
+      : []),
+  ];
+
+  // Auto-redirect to slot selection if only one choice available
+  if (rawConfigs.length === 1) {
+    redirect(`/book/${sport}/${rawConfigs[0].id}`);
+  }
+  if (tiles.length === 1 && tiles[0].kind === "medium") {
+    redirect(`/book/${sport}/medium`);
+  }
+  if (tiles.length === 1 && tiles[0].kind === "config") {
+    redirect(`/book/${sport}/${tiles[0].config.id}`);
   }
 
-  if (configs.length === 0) {
+  if (rawConfigs.length === 0) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <BackButton label="Back" />
@@ -74,7 +101,43 @@ export default async function SportConfigPage({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {configs.map((config) => {
+        {tiles.map((tile) => {
+          if (tile.kind === "medium") {
+            const rep = tile.representative;
+            const sizeInfo = SIZE_INFO[rep.size];
+            return (
+              <Link
+                key="medium"
+                href={`/book/${sport}/medium`}
+                className="group rounded-2xl border border-zinc-800 bg-zinc-900 p-5 transition-all duration-300 hover:border-emerald-500/30 hover:bg-zinc-900/80"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-white">
+                    {sizeInfo.name}
+                  </h3>
+                  <div className="flex items-center gap-1 text-xs text-zinc-500">
+                    <Maximize2 className="h-3 w-3" />
+                    {rep.widthFt} x {rep.lengthFt} ft
+                  </div>
+                </div>
+                <div className="mb-3 flex justify-center">
+                  <CourtDiagram
+                    highlightedZones={rep.zones as CourtZone[]}
+                    size="sm"
+                  />
+                </div>
+                <p className="text-sm text-zinc-400">Half Court (40×90)</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {sizeInfo.description}
+                </p>
+                <div className="mt-3 flex items-center justify-end text-emerald-500 text-sm font-medium opacity-0 transition-opacity group-hover:opacity-100">
+                  Select →
+                </div>
+              </Link>
+            );
+          }
+
+          const config = tile.config;
           const sizeInfo = SIZE_INFO[config.size];
 
           return (

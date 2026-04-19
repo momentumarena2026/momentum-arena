@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { zonesOverlap, LOCK_TTL_MINUTES } from "./court-config";
-import { CourtZone, Prisma } from "@prisma/client";
+import { CourtZone, Prisma, Sport } from "@prisma/client";
+import { getMediumConfigs } from "./availability";
 
 export interface HoldResult {
   success: boolean;
@@ -170,6 +171,180 @@ export async function createSlotHold(
             slotPrices: slotPrices as unknown as Prisma.InputJsonValue,
             totalAmount,
             expiresAt,
+          },
+        });
+
+        return hold.id;
+      },
+      { timeout: 15000 }
+    );
+
+    return { success: true, holdId };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to reserve slots";
+
+    if (message.startsWith("CONFLICTS:")) {
+      const conflicts = message
+        .replace("CONFLICTS:", "")
+        .split(",")
+        .map(Number);
+      return {
+        success: false,
+        error: "Some slots are no longer available",
+        conflicts,
+      };
+    }
+
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Create a slot hold for the unified "Half Court (40×90)" customer flow.
+ *
+ * The customer picks hours against a merged LEFT+RIGHT availability view. The
+ * system needs to atomically pick a concrete half that has ALL requested
+ * hours free. We prefer LEFT (arbitrary tie-break); if any requested hour is
+ * not free on LEFT we fall back to RIGHT. If neither half covers every hour
+ * the hold fails — the client should refetch merged availability to reflect
+ * the real state.
+ *
+ * The resulting SlotHold is tagged `wasBookedAsHalfCourt = true` so that the
+ * Booking created from it carries the same flag and customer-facing views
+ * render a neutral "Half Court (40×90)" label instead of LEFT/RIGHT.
+ *
+ * Concurrency: advisory locks are taken on the *chosen* half's (configId,
+ * date, hour) keys — same pattern as createSlotHold. Because LEFT and RIGHT
+ * share no zones, a race between two half-court customers is fine: the first
+ * gets LEFT, the second falls through to RIGHT.
+ */
+export async function createMediumHalfCourtHold(
+  userId: string,
+  sport: Sport,
+  date: Date,
+  hours: number[],
+  slotPrices: SlotPrice[]
+): Promise<HoldResult> {
+  const { leftId, rightId } = await getMediumConfigs(sport);
+  const dateOnly = new Date(date.toISOString().split("T")[0]);
+  const dateStr = date.toISOString().split("T")[0];
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + LOCK_TTL_MINUTES * 60 * 1000);
+
+  try {
+    const holdId = await db.$transaction(
+      async (tx) => {
+        // Lock the requested hours on BOTH halves so another half-court
+        // transaction can't race us between checks. Sorted keys prevent
+        // deadlocks against other same-half transactions.
+        const sortedHours = [...hours].sort((a, b) => a - b);
+        for (const cfgId of [leftId, rightId]) {
+          for (const hour of sortedHours) {
+            const lockKey = advisoryLockKey(cfgId, dateStr, hour);
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+          }
+        }
+
+        // Helper: is every requested hour free on `configId`?
+        const isHalfFree = async (configId: string): Promise<boolean> => {
+          const config = await tx.courtConfig.findUnique({
+            where: { id: configId },
+          });
+          if (!config || !config.isActive) return false;
+
+          const activeBookings = await tx.booking.findMany({
+            where: {
+              date: dateOnly,
+              status: { in: ["PENDING", "CONFIRMED"] },
+            },
+            include: { courtConfig: true, slots: true },
+          });
+          const conflictingBookings = activeBookings.filter((b) =>
+            zonesOverlap(
+              b.courtConfig.zones as CourtZone[],
+              config.zones as CourtZone[]
+            )
+          );
+
+          const activeHolds = await tx.slotHold.findMany({
+            where: {
+              date: dateOnly,
+              expiresAt: { gt: now },
+              userId: { not: userId },
+            },
+            include: { courtConfig: true },
+          });
+          const conflictingHolds = activeHolds.filter((h) =>
+            zonesOverlap(
+              h.courtConfig.zones as CourtZone[],
+              config.zones as CourtZone[]
+            )
+          );
+
+          const occupied = new Set<number>();
+          for (const b of conflictingBookings) {
+            for (const s of b.slots) occupied.add(s.startHour);
+          }
+          for (const h of conflictingHolds) {
+            for (const hr of h.hours) occupied.add(hr);
+          }
+
+          if (hours.some((h) => occupied.has(h))) return false;
+
+          // Admin blocks — any requested hour blocked on this specific half,
+          // on the sport, or globally, disqualifies the half.
+          const blocks = await tx.slotBlock.findMany({
+            where: {
+              date: dateOnly,
+              OR: [
+                { courtConfigId: configId },
+                { sport: config.sport },
+                { courtConfigId: null, sport: null },
+              ],
+            },
+          });
+          for (const block of blocks) {
+            if (block.startHour === null) return false;
+            if (hours.includes(block.startHour)) return false;
+          }
+          return true;
+        };
+
+        // Prefer LEFT; fall back to RIGHT.
+        let chosenId: string | null = null;
+        if (await isHalfFree(leftId)) chosenId = leftId;
+        else if (await isHalfFree(rightId)) chosenId = rightId;
+
+        if (!chosenId) {
+          // Surface as a conflict list so the client can refetch merged
+          // availability. We can't cheaply list which hours collide without
+          // re-running the queries, so return all requested hours.
+          throw new Error(`CONFLICTS:${hours.join(",")}`);
+        }
+
+        // Clean up any prior holds this user has on EITHER half for this date
+        // (the old one is superseded).
+        await tx.slotHold.deleteMany({
+          where: {
+            userId,
+            date: dateOnly,
+            courtConfigId: { in: [leftId, rightId] },
+          },
+        });
+
+        const totalAmount = slotPrices.reduce((sum, s) => sum + s.price, 0);
+
+        const hold = await tx.slotHold.create({
+          data: {
+            userId,
+            courtConfigId: chosenId,
+            date: dateOnly,
+            hours,
+            slotPrices: slotPrices as unknown as Prisma.InputJsonValue,
+            totalAmount,
+            expiresAt,
+            wasBookedAsHalfCourt: true,
           },
         });
 

@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
-import { SPORT_INFO, formatHourCompact, formatHoursAsRanges } from "@/lib/court-config";
+import { SPORT_INFO, formatHourCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
@@ -506,7 +506,7 @@ function BookingCard({
             <span className="text-base leading-none">{theme.emoji}</span>
             <p className="truncate font-semibold text-white">{sportInfo.name}</p>
             <span className={`text-xs ${muted ? "text-zinc-600" : "text-zinc-500"}`}>
-              {booking.courtConfig.label}
+              {customerFacingCourtLabel(booking.courtConfig.label, booking.wasBookedAsHalfCourt)}
             </span>
             {booking.recurringBooking && (
               <span className="inline-flex items-center gap-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-300">
