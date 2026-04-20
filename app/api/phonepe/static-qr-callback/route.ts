@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import {
   verifyStaticQrCallback,
@@ -123,8 +123,20 @@ export async function POST(request: NextRequest) {
         }),
       ]);
 
-      await sendBookingConfirmation(bookingPayment.bookingId).catch((err) => console.error("Notification dispatch failed:", err));
-      notifyAdminBookingConfirmed(bookingPayment.bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+      // Defer SMS dispatch via `after()` so the Vercel serverless function
+      // stays alive until MSG91 responds. Fire-and-forget `.catch()` would be
+      // killed the moment NextResponse.json returns.
+      const confirmedBookingId = bookingPayment.bookingId;
+      after(async () => {
+        await Promise.allSettled([
+          sendBookingConfirmation(confirmedBookingId).catch((err) =>
+            console.error("Notification dispatch failed:", err)
+          ),
+          notifyAdminBookingConfirmed(confirmedBookingId).catch((err) =>
+            console.error("Notification dispatch failed:", err)
+          ),
+        ]);
+      });
 
       console.log(
         `Static QR callback: auto-verified booking payment ${bookingPayment.id} (UTR: ${utr})`

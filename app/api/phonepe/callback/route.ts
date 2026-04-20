@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { checkPhonePeStatus } from "@/lib/phonepe";
 import {
@@ -72,8 +72,19 @@ export async function POST(request: NextRequest) {
     );
 
     if (bookingId) {
-      sendBookingConfirmation(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
-      notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+      // Defer SMS dispatch via `after()` so the Vercel serverless function
+      // stays alive until MSG91 responds. Fire-and-forget `.catch()` would be
+      // killed the moment NextResponse.json returns.
+      after(async () => {
+        await Promise.allSettled([
+          sendBookingConfirmation(bookingId).catch((err) =>
+            console.error("Notification dispatch failed:", err)
+          ),
+          notifyAdminBookingConfirmed(bookingId).catch((err) =>
+            console.error("Notification dispatch failed:", err)
+          ),
+        ]);
+      });
     }
 
     return NextResponse.json({ success: true });
