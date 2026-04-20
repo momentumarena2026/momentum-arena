@@ -354,7 +354,9 @@ export default async function AdminBookingDetailPage({
               <div className="flex justify-between">
                 <span className="text-zinc-400">Confirmed</span>
                 <span className="text-zinc-300">
-                  {booking.payment.confirmedAt.toLocaleString("en-IN")}
+                  {booking.payment.confirmedAt.toLocaleString("en-IN", {
+                    timeZone: "Asia/Kolkata",
+                  })}
                 </span>
               </div>
             )}
