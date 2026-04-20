@@ -219,7 +219,7 @@ export const SIZE_INFO: Record<
   XS: { name: "Small (Leather ball practice.)", description: "Leather pitch (10ft x 90ft)" },
   SMALL: { name: "Small (Leather ball practice.)", description: "Single box lane (30ft x 90ft)" },
   MEDIUM: {
-    name: "Medium",
+    name: "Half Field",
     description: "Box lane + leather pitch (40ft x 90ft)",
   },
   LARGE: {

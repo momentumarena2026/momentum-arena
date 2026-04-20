@@ -204,8 +204,7 @@ def generate_pdf():
     # ════════════════════════════════════════════════════════
     col_widths = [140, 120, 120, 120]
     cricket_rows = [
-        ["Medium", "40ft x 90ft", "Rs. 1,000/hr", "Rs. 1,200/hr"],
-        ["Large", "60ft x 90ft", "Rs. 1,300/hr", "Rs. 1,500/hr"],
+        ["Half Field", "40ft x 90ft", "Rs. 1,000/hr", "Rs. 1,200/hr"],
         ["Full Field", "80ft x 90ft", "Rs. 1,600/hr", "Rs. 2,000/hr"],
     ]
     y = draw_pricing_table(c, y, "Cricket", "", EMERALD_400, cricket_rows, col_widths, margin)
@@ -223,7 +222,7 @@ def generate_pdf():
     # ════════════════════════════════════════════════════════
     # PER PERSON PRICING SECTION (illustrative — not a per-person charge)
     # ════════════════════════════════════════════════════════
-    section_h = 150
+    section_h = 122
     draw_rounded_rect(c, margin, y - section_h, content_w, section_h, 10,
                       EMERALD_900_30, EMERALD_600, 0.8)
 
@@ -246,8 +245,7 @@ def generate_pdf():
 
     per_person_data = [
         ("Full Field  (80x90)", "16 players", "Rs. 100 /person/hr", "Rs. 125 /person/hr"),
-        ("Large  (60x90)", "12 players", "Rs. 108 /person/hr", "Rs. 125 /person/hr"),
-        ("Medium  (40x90)", "8 players", "Rs. 125 /person/hr", "Rs. 150 /person/hr"),
+        ("Half Field  (40x90)", "8 players", "Rs. 125 /person/hr", "Rs. 150 /person/hr"),
     ]
 
     for config_name, players, day_price, night_price in per_person_data:
