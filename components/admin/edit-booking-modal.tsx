@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { getAvailableSlots, adminEditBookingFull } from "@/actions/admin-booking";
-import { formatHourRangeCompact } from "@/lib/court-config";
+import { formatHourRangeCompact, SPORT_INFO } from "@/lib/court-config";
+import type { Sport } from "@prisma/client";
 
 interface EditBookingModalProps {
   bookingId: string;
@@ -15,6 +16,7 @@ interface EditBookingModalProps {
     label: string;
     size: string;
     position: string;
+    sport: Sport;
   }[];
   // Payment context — when the booking is a partial payment that hasn't had
   // its remainder collected yet, the modal also exposes advance-amount and
@@ -111,6 +113,31 @@ export function EditBookingModal({
     setSelectedConfigId(configId);
     setSelectedHours(new Set());
   };
+
+  // Group configs by sport so the dropdown can render <optgroup>s, and
+  // surface the selected/original sports to drive the warning banner
+  // when the admin moves a booking across sports (e.g. mistyped cricket
+  // when it should have been football).
+  const configsBySport = useMemo(() => {
+    const groups = new Map<Sport, typeof courtConfigs>();
+    for (const config of courtConfigs) {
+      const existing = groups.get(config.sport);
+      if (existing) {
+        existing.push(config);
+      } else {
+        groups.set(config.sport, [config]);
+      }
+    }
+    return groups;
+  }, [courtConfigs]);
+
+  const originalConfig = courtConfigs.find(
+    (c) => c.id === currentCourtConfigId
+  );
+  const selectedConfig = courtConfigs.find((c) => c.id === selectedConfigId);
+  const originalSport = originalConfig?.sport ?? (sport as Sport);
+  const selectedSport = selectedConfig?.sport ?? originalSport;
+  const sportChanged = originalSport !== selectedSport;
 
   const handleDateChange = (date: string) => {
     setSelectedDate(date);
@@ -253,7 +280,10 @@ export function EditBookingModal({
           </div>
         )}
 
-        {/* Court Config Selector */}
+        {/* Court Config Selector. Grouped by sport so the admin can also
+            correct a booking that was logged under the wrong sport —
+            picking a config from a different sport group swaps the
+            booking's sport via its courtConfigId. */}
         <div className="mb-4">
           <label className="mb-1.5 block text-sm font-medium text-zinc-300">
             Court Configuration
@@ -263,15 +293,32 @@ export function EditBookingModal({
             onChange={(e) => handleConfigChange(e.target.value)}
             className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-500 focus:outline-none"
           >
-            {courtConfigs.map((config) => (
-              <option key={config.id} value={config.id}>
-                {config.label} ({config.size}) &mdash; {config.position}
-              </option>
-            ))}
+            {Array.from(configsBySport.entries()).map(
+              ([sportKey, configs]) => (
+                <optgroup
+                  key={sportKey}
+                  label={SPORT_INFO[sportKey]?.name ?? sportKey}
+                >
+                  {configs.map((config) => (
+                    <option key={config.id} value={config.id}>
+                      {config.label} ({config.size}) &mdash; {config.position}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            )}
           </select>
-          <p className="mt-1 text-xs text-zinc-500">
-            Sport: {sport}
-          </p>
+          {sportChanged ? (
+            <p className="mt-1 text-xs text-amber-300">
+              Sport changing: {SPORT_INFO[originalSport]?.name ?? originalSport}{" "}
+              → {SPORT_INFO[selectedSport]?.name ?? selectedSport}. Slot prices
+              will be recomputed for the new sport.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-zinc-500">
+              Sport: {SPORT_INFO[selectedSport]?.name ?? selectedSport}
+            </p>
+          )}
         </div>
 
         {/* Date Picker */}

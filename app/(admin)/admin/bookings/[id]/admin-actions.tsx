@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { EditSlotsModal } from "@/components/admin/edit-slots-modal";
 import { EditBookingModal } from "@/components/admin/edit-booking-modal";
+import type { Sport } from "@prisma/client";
 
 interface AdminBookingActionsProps {
   bookingId: string;
@@ -37,6 +38,7 @@ interface AdminBookingActionsProps {
     label: string;
     size: string;
     position: string;
+    sport: Sport;
   }[];
 }
 

@@ -61,11 +61,15 @@ export default async function AdminBookingDetailPage({
       ? booking.discountAmount
       : couponUsage?.discountAmount ?? 0;
 
-  // Fetch all court configs for the same sport (for the edit booking modal)
+  // Fetch all active court configs across sports so the edit-booking
+  // modal can also handle "oops, I logged this as cricket but it's
+  // football" fixes. The modal groups the dropdown by sport; the
+  // underlying `adminEditBookingFull` action already re-validates
+  // availability, blocks, and re-prices slots against the new config.
   const courtConfigs = await db.courtConfig.findMany({
-    where: { sport: booking.courtConfig.sport, isActive: true },
-    select: { id: true, label: true, size: true, position: true },
-    orderBy: { position: "asc" },
+    where: { isActive: true },
+    select: { id: true, label: true, size: true, position: true, sport: true },
+    orderBy: [{ sport: "asc" }, { position: "asc" }],
   });
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
