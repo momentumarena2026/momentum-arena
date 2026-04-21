@@ -10,6 +10,7 @@ import { DiscountInput } from "@/components/booking/discount-input";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
+import { PhoneInput } from "@/components/ui/phone-input";
 import {
   trackCafeCheckoutStarted,
   trackCafePaymentMethodSelected,
@@ -271,12 +272,10 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
               placeholder="Your name"
               className="rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600"
             />
-            <input
-              type="tel"
+            <PhoneInput
               value={guestPhone}
-              onChange={(e) => setGuestPhone(e.target.value)}
-              placeholder="Phone number"
-              className="rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600"
+              onChange={setGuestPhone}
+              placeholder="10-digit phone"
             />
           </div>
           <p className="text-xs text-zinc-500 mt-2">For order reference only. No account required.</p>

@@ -10,6 +10,7 @@ import {
 } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import {
   Card,
   CardContent,
@@ -23,6 +24,7 @@ function PhoneInputForm({ callbackUrl }: { callbackUrl: string }) {
     sendOtp,
     { step: "input" }
   );
+  const [phone, setPhone] = useState("");
 
   if (state.step === "verify" && state.phone) {
     return <VerifyOtpForm phone={state.phone} callbackUrl={callbackUrl} />;
@@ -39,28 +41,18 @@ function PhoneInputForm({ callbackUrl }: { callbackUrl: string }) {
         <label htmlFor="phone" className="block text-sm font-medium text-zinc-300">
           Phone Number
         </label>
-        <div className="flex gap-2">
-          <div className="flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-700 px-3 text-sm text-zinc-400 font-medium">
-            +91
-          </div>
-          <Input
-            id="phone"
-            name="phone"
-            type="tel"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            maxLength={10}
-            placeholder="Enter 10-digit number"
-            required
-            autoFocus
-            autoComplete="tel"
-            className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500 text-lg tracking-wide"
-          />
-        </div>
+        <PhoneInput
+          id="phone"
+          name="phone"
+          value={phone}
+          onChange={setPhone}
+          required
+          autoFocus
+        />
       </div>
       <Button
         type="submit"
-        disabled={isPending}
+        disabled={isPending || phone.length !== 10}
         className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-5"
       >
         {isPending ? "Sending OTP..." : "Get OTP"}

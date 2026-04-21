@@ -11,6 +11,7 @@ import {
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
+import { PhoneInput } from "@/components/ui/phone-input";
 import type { Sport, ConfigSize, CourtZone } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
@@ -682,12 +683,11 @@ export function CreateBookingForm({
                     onChange={(e) => setNewName(e.target.value)}
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-white placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
                   />
-                  <input
-                    type="tel"
-                    placeholder="Phone *"
+                  <PhoneInput
                     value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-white placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+                    onChange={setNewPhone}
+                    placeholder="10-digit phone *"
+                    required
                   />
                   <input
                     type="email"
@@ -702,7 +702,7 @@ export function CreateBookingForm({
                   <button
                     disabled={
                       !newName.trim() ||
-                      !newPhone.trim() ||
+                      newPhone.length !== 10 ||
                       createCustomerLoading
                     }
                     onClick={handleCreateCustomer}

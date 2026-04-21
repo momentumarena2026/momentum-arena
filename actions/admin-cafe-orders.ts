@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { CafeOrderStatus, PaymentMethod } from "@prisma/client";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 async function requireCafeAdmin() {
   const user = await requireAdmin("MANAGE_CAFE_ORDERS");
@@ -262,12 +263,17 @@ export async function adminCreateCafeOrder(data: {
         ? "COMPLETED"
         : "PENDING";
 
+    const guestPhoneTrimmed = data.guestPhone?.trim();
+    const guestPhoneNormalized = guestPhoneTrimmed
+      ? normalizeIndianPhone(guestPhoneTrimmed)
+      : null;
+
     const order = await db.cafeOrder.create({
       data: {
         orderNumber,
         userId: data.userId || null,
         guestName: data.guestName?.trim() || null,
-        guestPhone: data.guestPhone?.trim() || null,
+        guestPhone: guestPhoneNormalized,
         status: "PENDING",
         totalAmount,
         originalAmount: totalAmount,

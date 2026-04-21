@@ -6,6 +6,7 @@ import {
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -539,9 +540,21 @@ export async function createCustomerForBooking(data: {
   await requireAdmin();
 
   try {
+    // Client-side PhoneInput already caps at 10 digits, but we normalize
+    // + validate here so callers (including any future direct imports)
+    // can't store a bare 10-digit number that later gets mis-parsed by
+    // MSG91.
+    const phone = normalizeIndianPhone(data.phone);
+    if (phone.length !== 12 || !phone.startsWith("91")) {
+      return {
+        success: false as const,
+        error: "Phone number must be a 10-digit Indian mobile number",
+      };
+    }
+
     // Check if phone already exists
     const existing = await db.user.findUnique({
-      where: { phone: data.phone },
+      where: { phone },
     });
     if (existing) {
       return { success: true as const, userId: existing.id, isNew: false };
@@ -550,7 +563,7 @@ export async function createCustomerForBooking(data: {
     const newUser = await db.user.create({
       data: {
         name: data.name,
-        phone: data.phone,
+        phone,
         email: data.email || null,
         role: "CUSTOMER",
       },

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 const profileSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
@@ -32,6 +33,16 @@ export async function updateProfile(data: {
 
   const { name, email, phone } = parsed.data;
 
+  // Normalize phone once here — the UI sends either the canonical
+  // "91XXXXXXXXXX" from PhoneInput-wired flows, or legacy raw input.
+  // Either way we store the canonical form so MSG91 gets a country
+  // code prefix and duplicate-phone checks can't be bypassed by
+  // submitting a different representation of the same number.
+  const normalizedPhone = phone ? normalizeIndianPhone(phone) : "";
+  if (normalizedPhone && (normalizedPhone.length !== 12 || !normalizedPhone.startsWith("91"))) {
+    return { success: false, error: "Phone number must be a 10-digit Indian mobile number" };
+  }
+
   // Check uniqueness for email
   if (email) {
     const existing = await db.user.findFirst({
@@ -41,9 +52,9 @@ export async function updateProfile(data: {
   }
 
   // Check uniqueness for phone
-  if (phone) {
+  if (normalizedPhone) {
     const existing = await db.user.findFirst({
-      where: { phone, id: { not: session.user.id } },
+      where: { phone: normalizedPhone, id: { not: session.user.id } },
     });
     if (existing) return { success: false, error: "Phone number is already in use by another account" };
   }
@@ -53,7 +64,7 @@ export async function updateProfile(data: {
     data: {
       name,
       ...(email !== undefined && { email: email || null }),
-      ...(phone !== undefined && { phone: phone || null }),
+      ...(phone !== undefined && { phone: normalizedPhone || null }),
     },
   });
 

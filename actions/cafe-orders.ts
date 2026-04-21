@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PaymentMethod } from "@prisma/client";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 async function getOptionalCustomerId(): Promise<string | null> {
   try {
@@ -91,12 +92,19 @@ export async function createCafeOrder(data: {
         ? "PENDING"
         : "PENDING";
 
+    // Normalize guest phone so the "91XXXXXXXXXX" form is used
+    // consistently — this is what our SMS/analytics pipelines expect.
+    const guestPhoneTrimmed = data.guestPhone?.trim();
+    const guestPhoneNormalized = guestPhoneTrimmed
+      ? normalizeIndianPhone(guestPhoneTrimmed)
+      : null;
+
     const order = await db.cafeOrder.create({
       data: {
         orderNumber,
         userId: userId || null,
         guestName: !userId ? (data.guestName?.trim() || "Guest") : null,
-        guestPhone: !userId ? (data.guestPhone?.trim() || null) : null,
+        guestPhone: !userId ? (guestPhoneNormalized || null) : null,
         tableNumber: data.tableNumber || null,
         status: "PENDING",
         totalAmount,

@@ -22,6 +22,7 @@ import {
   Package,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
+import { PhoneInput } from "@/components/ui/phone-input";
 
 interface MenuItem {
   id: string;
@@ -433,12 +434,10 @@ export function CreateCafeOrderForm({
                   placeholder="Guest name (optional)"
                   className="rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white placeholder-zinc-500"
                 />
-                <input
-                  type="tel"
+                <PhoneInput
                   value={guestPhone}
-                  onChange={(e) => setGuestPhone(e.target.value)}
+                  onChange={setGuestPhone}
                   placeholder="Phone (optional)"
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white placeholder-zinc-500"
                 />
               </div>
             ) : (

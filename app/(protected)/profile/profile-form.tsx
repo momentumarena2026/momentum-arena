@@ -4,11 +4,25 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateProfile } from "@/actions/profile";
 import { User, Mail, Phone, Loader2, Check, Pencil } from "lucide-react";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 interface ProfileFormProps {
   name: string;
   email: string;
   phone: string;
+}
+
+// Strip the "91" country code prefix from a DB-stored phone so the
+// editable input only shows the 10-digit national number. If the stored
+// value is malformed (not "91" + 10 digits), fall back to the raw
+// digits — the PhoneInput will cap at 10 chars.
+function toDisplayDigits(phoneFromDb: string): string {
+  const digits = phoneFromDb.replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return digits.slice(2);
+  }
+  return digits.slice(-10);
 }
 
 export function ProfileForm({ name, email, phone }: ProfileFormProps) {
@@ -21,12 +35,21 @@ export function ProfileForm({ name, email, phone }: ProfileFormProps) {
   const [form, setForm] = useState({
     name,
     email,
-    phone,
+    // Keep phone in state as the 10-digit national number only; we
+    // prepend "91" right before submitting so the DB always stores the
+    // canonical 91XXXXXXXXXX form.
+    phone: toDisplayDigits(phone),
   });
 
   const handleSave = async () => {
     if (!form.name.trim()) {
       setError("Name is required");
+      return;
+    }
+
+    // Require either empty (clearing the number) or a full 10 digits.
+    if (form.phone.length !== 0 && form.phone.length !== 10) {
+      setError("Phone number must be exactly 10 digits");
       return;
     }
 
@@ -37,7 +60,9 @@ export function ProfileForm({ name, email, phone }: ProfileFormProps) {
     const result = await updateProfile({
       name: form.name.trim(),
       email: form.email.trim() || undefined,
-      phone: form.phone.trim() || undefined,
+      phone: form.phone.length === 10
+        ? normalizeIndianPhone(form.phone)
+        : undefined,
     });
 
     if (result.success) {
@@ -52,7 +77,7 @@ export function ProfileForm({ name, email, phone }: ProfileFormProps) {
   };
 
   const handleCancel = () => {
-    setForm({ name, email, phone });
+    setForm({ name, email, phone: toDisplayDigits(phone) });
     setEditing(false);
     setError(null);
   };
@@ -124,16 +149,13 @@ export function ProfileForm({ name, email, phone }: ProfileFormProps) {
             Phone Number
           </label>
           {editing ? (
-            <input
-              type="tel"
+            <PhoneInput
               value={form.phone}
-              onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
-              placeholder="+91XXXXXXXXXX"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+              onChange={(digits) => setForm((p) => ({ ...p, phone: digits }))}
             />
           ) : (
             <p className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white">
-              {form.phone || "Not set"}
+              {form.phone ? `+91 ${form.phone}` : "Not set"}
             </p>
           )}
         </div>

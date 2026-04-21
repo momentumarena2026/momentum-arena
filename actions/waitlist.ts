@@ -110,10 +110,17 @@ export async function joinWaitlist(data: {
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 48);
 
+  // Store guest phone in canonical 91XXXXXXXXXX form so later SMS
+  // notifications (checkAndNotifyWaitlist) don't need to re-normalize
+  // and can't accidentally blast an un-prefixed number.
+  const guestPhoneNormalized = guestPhone
+    ? normalizeIndianPhone(guestPhone)
+    : null;
+
   const entry = await db.waitlist.create({
     data: {
       userId: session?.user?.id || null,
-      guestPhone: guestPhone || null,
+      guestPhone: guestPhoneNormalized,
       guestEmail: guestEmail || null,
       courtConfigId,
       date: bookingDate,

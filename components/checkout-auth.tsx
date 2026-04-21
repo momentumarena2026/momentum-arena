@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { signIn } from "next-auth/react";
+import { PhoneInput } from "@/components/ui/phone-input";
 
 interface CheckoutAuthProps {
   onAuthenticated: () => void;
@@ -45,8 +46,9 @@ export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
 
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
-    const cleaned = phone.replace(/\D/g, "");
-    if (cleaned.length < 10) {
+    // PhoneInput already enforces 10 digits + strips non-digits, so
+    // `phone` is either exactly 10 numeric chars or shorter-and-invalid.
+    if (phone.length !== 10) {
       setError("Please enter a valid 10-digit phone number");
       return;
     }
@@ -55,7 +57,7 @@ export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
     setError("");
 
     try {
-      const normalized = cleaned.length === 10 ? "91" + cleaned : cleaned;
+      const normalized = "91" + phone;
       setNormalizedPhone(normalized);
 
       const res = await fetch("/api/auth/send-phone-otp", {
@@ -230,26 +232,15 @@ export function CheckoutAuth({ onAuthenticated }: CheckoutAuthProps) {
 
       {step === "phone" && (
         <form onSubmit={handleSendOtp} className="space-y-3">
-          <div className="flex gap-2">
-            <div className="flex items-center justify-center rounded-lg bg-zinc-800 border border-zinc-700 px-3 text-sm text-zinc-400 font-medium">
-              +91
-            </div>
-            <input
-              type="tel"
-              inputMode="numeric"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
-              placeholder="Enter 10-digit number"
-              required
-              maxLength={10}
-              autoFocus
-              autoComplete="tel"
-              className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600 tracking-wide"
-            />
-          </div>
+          <PhoneInput
+            value={phone}
+            onChange={setPhone}
+            required
+            autoFocus
+          />
           <button
             type="submit"
-            disabled={loading || phone.replace(/\D/g, "").length < 10}
+            disabled={loading || phone.length !== 10}
             className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors"
           >
             {loading ? "Sending OTP..." : "Get OTP"}
