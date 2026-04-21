@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatBookingDate } from "@/lib/pricing";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 
@@ -26,7 +27,7 @@ async function sendWaitlistSms(
         template_id: process.env.MSG91_WAITLIST_TEMPLATE_ID || "",
         recipients: [
           {
-            mobiles: phone.replace("+", ""),
+            mobiles: normalizeIndianPhone(phone),
             message,
           },
         ],

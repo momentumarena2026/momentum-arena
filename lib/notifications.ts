@@ -1,5 +1,22 @@
 import { db } from "./db";
 import { formatHoursAsRanges } from "./court-config";
+import { normalizeIndianPhone } from "./phone";
+
+// Parse + normalize + de-duplicate the admin phone list from env. Without
+// this, "+919876543210" and "919876543210" in the same env string both
+// end up as distinct recipients, which is what caused admins to receive
+// two copies of every booking-confirmed SMS. A Set keyed by the
+// normalized form collapses all representation variants to one.
+function parseAdminPhones(): string[] {
+  const raw = process.env.ADMIN_NOTIFICATION_PHONES || "";
+  const seen = new Set<string>();
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    seen.add(normalizeIndianPhone(trimmed));
+  }
+  return Array.from(seen);
+}
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
@@ -13,8 +30,8 @@ const MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID =
 // id by mistake.
 const MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID =
   process.env.MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID || "69e49a7f502b4be32e008982";
-const ADMIN_NOTIFICATION_PHONES =
-  process.env.ADMIN_NOTIFICATION_PHONES || ""; // Comma-separated: "919876543210,919876543211"
+// NOTE: parsed lazily via parseAdminPhones() so env tweaks + normalization
+// + de-duplication are all handled in one place.
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com";
 
 interface BookingDetails {
@@ -99,7 +116,7 @@ async function sendSmsConfirmation(
         template_id: MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID,
         recipients: [
           {
-            mobiles: details.userPhone!.replace("+", ""),
+            mobiles: normalizeIndianPhone(details.userPhone!),
             name: details.userName,
             url: confirmationUrl,
           },
@@ -165,9 +182,7 @@ export async function notifyAdminPendingBooking(
   const details = await getBookingDetails(bookingId);
   if (!details) return;
 
-  const adminPhones = ADMIN_NOTIFICATION_PHONES.split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const adminPhones = parseAdminPhones();
 
   if (adminPhones.length === 0) {
     console.log(
@@ -195,7 +210,7 @@ export async function notifyAdminPendingBooking(
 
   try {
     const recipients = adminPhones.map((phone) => ({
-      mobiles: phone.replace("+", ""),
+      mobiles: phone,
       name: details.userName,
       url: adminPanelUrl,
     }));
@@ -245,9 +260,7 @@ export async function notifyAdminBookingConfirmed(
   });
   if (!booking) return;
 
-  const adminPhones = ADMIN_NOTIFICATION_PHONES.split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const adminPhones = parseAdminPhones();
   if (adminPhones.length === 0) return;
 
   // Build "17 Apr 6pm-7pm" — fits under DLT's 30-char variable limit for
@@ -277,7 +290,7 @@ export async function notifyAdminBookingConfirmed(
 
   try {
     const recipients = adminPhones.map((phone) => ({
-      mobiles: phone.replace("+", ""),
+      mobiles: phone,
       date,
       amount,
     }));

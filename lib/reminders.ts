@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { formatHourRangeCompact, SPORT_INFO } from "@/lib/court-config";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 
@@ -26,7 +27,7 @@ async function sendSmsReminder(
             process.env.MSG91_REMINDER_TEMPLATE_ID || "",
           recipients: [
             {
-              mobiles: phone.replace("+", ""),
+              mobiles: normalizeIndianPhone(phone),
               message,
             },
           ],

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_TEMPLATE_ID = "69db2434e398c6bdb60b1af2";
@@ -287,22 +288,7 @@ export async function resendPhoneOtp(phone: string): Promise<OtpResult> {
 
 // --- Helpers ---
 
-function normalizePhone(phone: string): string {
-  // Remove all non-digits
-  let cleaned = phone.replace(/\D/g, "");
-
-  // If it starts with 0, remove it
-  if (cleaned.startsWith("0")) {
-    cleaned = cleaned.slice(1);
-  }
-
-  // If it's 10 digits (Indian number without country code), prepend 91
-  if (cleaned.length === 10) {
-    cleaned = "91" + cleaned;
-  }
-
-  return cleaned;
-}
-
-// Export for use in actions
+// Shim retained so existing imports keep working; the canonical
+// implementation lives in lib/phone.ts now.
+const normalizePhone = normalizeIndianPhone;
 export { normalizePhone };
