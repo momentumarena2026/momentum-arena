@@ -26,6 +26,7 @@ export function EditSlotsModal({
   const [slots, setSlots] = useState<
     { hour: number; price: number; available: boolean; blocked: boolean }[]
   >([]);
+  const [selectedDate, setSelectedDate] = useState(date);
   const [selectedHours, setSelectedHours] = useState<Set<number>>(
     new Set(currentSlots)
   );
@@ -37,7 +38,11 @@ export function EditSlotsModal({
     setLoading(true);
     setError(null);
     try {
-      const result = await getAvailableSlots(courtConfigId, date, bookingId);
+      const result = await getAvailableSlots(
+        courtConfigId,
+        selectedDate,
+        bookingId
+      );
       if (result.success) {
         setSlots(result.slots);
       } else {
@@ -48,14 +53,29 @@ export function EditSlotsModal({
     } finally {
       setLoading(false);
     }
-  }, [courtConfigId, date, bookingId]);
+  }, [courtConfigId, selectedDate, bookingId]);
+
+  // Reset modal-local state whenever it's reopened. Without this, a second
+  // open after the admin had changed the date would keep the stale selection.
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedDate(date);
+      setSelectedHours(new Set(currentSlots));
+    }
+  }, [isOpen, date, currentSlots]);
 
   useEffect(() => {
     if (isOpen) {
-      setSelectedHours(new Set(currentSlots));
       fetchSlots();
     }
-  }, [isOpen, fetchSlots, currentSlots]);
+  }, [isOpen, fetchSlots]);
+
+  const handleDateChange = (newDate: string) => {
+    setSelectedDate(newDate);
+    // The old hour selection is almost never the right answer on a new
+    // date (different availability, holds, blocks), so clear it.
+    setSelectedHours(new Set());
+  };
 
   const toggleHour = (hour: number) => {
     setSelectedHours((prev) => {
@@ -82,7 +102,10 @@ export function EditSlotsModal({
     setSaving(true);
     setError(null);
     try {
-      const result = await adminEditBookingSlots(bookingId, hours);
+      // Only pass a newDate when it actually changed — otherwise the action
+      // would write an identical date value and emit a no-op history entry.
+      const newDate = selectedDate !== date ? selectedDate : undefined;
+      const result = await adminEditBookingSlots(bookingId, hours, newDate);
       if (result.success) {
         onSuccess();
         onClose();
@@ -95,6 +118,11 @@ export function EditSlotsModal({
       setSaving(false);
     }
   };
+
+  // When the date changes, disable the "keep original" affordance for
+  // conflicting hours — the `isCurrent` logic below only makes sense on
+  // the booking's original date.
+  const isOriginalDate = selectedDate === date;
 
   if (!isOpen) return null;
 
@@ -127,15 +155,35 @@ export function EditSlotsModal({
           </button>
         </div>
 
-        <p className="mb-4 text-sm text-zinc-400">
-          {date} &middot; Select the time slots for this booking
-        </p>
-
         {error && (
           <div className="mb-4 rounded-lg bg-red-900/30 border border-red-800 px-4 py-2 text-sm text-red-300">
             {error}
           </div>
         )}
+
+        {/* Date picker — lets admins move a booking to a different day
+            without having to cancel + recreate. Changing the date
+            refetches availability against the new day. */}
+        <div className="mb-4">
+          <label className="mb-1.5 block text-sm font-medium text-zinc-300">
+            Date
+          </label>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => handleDateChange(e.target.value)}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-500 focus:outline-none"
+          />
+          {!isOriginalDate && (
+            <p className="mt-1 text-xs text-amber-300">
+              Moving from {date} to {selectedDate} — re-select slots below.
+            </p>
+          )}
+        </div>
+
+        <p className="mb-3 text-xs text-zinc-500">
+          Select the time slots for this booking.
+        </p>
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -149,7 +197,11 @@ export function EditSlotsModal({
             <div className="grid grid-cols-4 gap-2 mb-4 max-h-64 overflow-y-auto pr-1">
               {slots.map((slot) => {
                 const isSelected = selectedHours.has(slot.hour);
-                const isCurrent = currentSlots.includes(slot.hour);
+                // Only let the admin keep a "currently booked" slot active
+                // when they're still on the original date; on a new date,
+                // the current-slot exception doesn't apply.
+                const isCurrent =
+                  isOriginalDate && currentSlots.includes(slot.hour);
                 const canToggle = slot.available || isCurrent;
 
                 return (

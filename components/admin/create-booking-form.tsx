@@ -128,6 +128,12 @@ export function CreateBookingForm({
   // as cash-in-hand or via the venue's static UPI QR — Razorpay isn't in
   // play here (admin can't charge a card on the customer's behalf).
   const [advanceMethod, setAdvanceMethod] = useState<"CASH" | "UPI_QR">("CASH");
+  // Negotiated price override. When toggled on, the admin can enter a
+  // custom total that replaces the slot-sum price. Useful for regulars,
+  // discounts, or corporate rates. Stored as a string so the input can be
+  // empty while the user is typing.
+  const [useCustomAmount, setUseCustomAmount] = useState(false);
+  const [customAmountStr, setCustomAmountStr] = useState("");
 
   // Step 5 state
   const [submitting, setSubmitting] = useState(false);
@@ -158,6 +164,22 @@ export function CreateBookingForm({
     const slot = slots.find((s) => s.hour === h);
     return sum + (slot?.price ?? 0);
   }, 0);
+
+  // Effective total — custom override wins when valid, falls back to the
+  // slot sum. Used everywhere downstream (partial-advance validation,
+  // review summary, submit payload).
+  const parsedCustom = parseInt(customAmountStr, 10);
+  const customAmountValid =
+    useCustomAmount &&
+    Number.isFinite(parsedCustom) &&
+    parsedCustom >= 0 &&
+    (paymentMethod !== "FREE" ? parsedCustom > 0 : parsedCustom === 0);
+  const effectiveTotal =
+    paymentMethod === "FREE"
+      ? 0
+      : customAmountValid
+        ? parsedCustom
+        : totalPrice;
 
   const today = getTodayIST();
   const maxDate = new Date(Date.now() + 30 * 86400000)
@@ -283,6 +305,12 @@ export function CreateBookingForm({
       const effectivePaymentMethod: PaymentMethod =
         isPartial && advanceAmount !== undefined ? advanceMethod : paymentMethod;
 
+      // Only pass customTotalAmount when admin actually toggled the
+      // override on AND entered a valid number — otherwise let the server
+      // compute from slot prices as usual.
+      const customTotalAmount =
+        useCustomAmount && customAmountValid ? parsedCustom : undefined;
+
       const result = await adminCreateBooking({
         courtConfigId: selectedConfigId,
         date,
@@ -292,6 +320,7 @@ export function CreateBookingForm({
         razorpayPaymentId:
           effectivePaymentMethod === "RAZORPAY" ? razorpayPaymentId : undefined,
         advanceAmount,
+        customTotalAmount,
         note: note.trim() || undefined,
       });
       if (result.success) {
@@ -763,8 +792,8 @@ export function CreateBookingForm({
               </label>
               {isPartial && (() => {
                 const parsed = parseInt(advanceAmountStr, 10);
-                const valid = Number.isFinite(parsed) && parsed > 0 && parsed < totalPrice;
-                const remaining = valid ? totalPrice - parsed : 0;
+                const valid = Number.isFinite(parsed) && parsed > 0 && parsed < effectiveTotal;
+                const remaining = valid ? effectiveTotal - parsed : 0;
                 return (
                   <div className="space-y-2 pl-7">
                     <label className="block text-xs text-zinc-400">Advance paid</label>
@@ -773,9 +802,9 @@ export function CreateBookingForm({
                       <input
                         type="number"
                         min={1}
-                        max={Math.max(totalPrice - 1, 1)}
+                        max={Math.max(effectiveTotal - 1, 1)}
                         step={1}
-                        placeholder={`e.g. ${Math.ceil(totalPrice / 2)}`}
+                        placeholder={`e.g. ${Math.ceil(effectiveTotal / 2)}`}
                         value={advanceAmountStr}
                         onChange={(e) => setAdvanceAmountStr(e.target.value)}
                         className="w-32 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-amber-400 focus:outline-none"
@@ -794,7 +823,7 @@ export function CreateBookingForm({
                     </div>
                     {advanceAmountStr && !valid && (
                       <p className="text-xs text-red-400">
-                        Advance must be between ₹1 and {formatPrice(totalPrice - 1)}
+                        Advance must be between ₹1 and {formatPrice(effectiveTotal - 1)}
                       </p>
                     )}
                     {valid && (
@@ -808,13 +837,86 @@ export function CreateBookingForm({
             </div>
           )}
 
+          {/* Negotiated price override — available for all non-free methods.
+              Admins often close a booking at a different number than the
+              slot-sum (regulars, corporate rates, last-minute cash deals).
+              When enabled, the input replaces the total used everywhere
+              downstream. The original slot-sum is preserved server-side on
+              Booking.originalAmount so the ledger stays auditable. */}
+          {paymentMethod !== "FREE" && (
+            <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-3">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useCustomAmount}
+                  onChange={(e) => setUseCustomAmount(e.target.checked)}
+                  className="accent-emerald-400 h-4 w-4"
+                />
+                <span className="text-sm font-medium text-white">
+                  Override amount (negotiated price)
+                </span>
+              </label>
+              {useCustomAmount && (
+                <div className="space-y-2 pl-7">
+                  <label className="block text-xs text-zinc-400">
+                    Custom total
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-zinc-400">₹</span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      placeholder={`Slot price: ${totalPrice}`}
+                      value={customAmountStr}
+                      onChange={(e) => setCustomAmountStr(e.target.value)}
+                      className="w-40 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-emerald-400 focus:outline-none"
+                    />
+                    {customAmountValid && parsedCustom !== totalPrice && (
+                      <span
+                        className={`text-xs ${
+                          parsedCustom < totalPrice
+                            ? "text-amber-300"
+                            : "text-emerald-300"
+                        }`}
+                      >
+                        {parsedCustom < totalPrice
+                          ? `Discount: ${formatPrice(totalPrice - parsedCustom)}`
+                          : `Markup: ${formatPrice(parsedCustom - totalPrice)}`}
+                      </span>
+                    )}
+                  </div>
+                  {customAmountStr && !customAmountValid && (
+                    <p className="text-xs text-red-400">
+                      Enter a positive whole number.
+                    </p>
+                  )}
+                  <p className="text-[11px] text-zinc-500">
+                    Slot-sum of {formatPrice(totalPrice)} will still be
+                    recorded on the booking for audit.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-3 flex items-center justify-between">
             <span className="text-sm text-zinc-400">Total Amount</span>
-            <span className="text-lg font-bold text-emerald-400">
-              {paymentMethod === "FREE"
-                ? "\u20B90"
-                : formatPrice(totalPrice)}
-            </span>
+            <div className="text-right">
+              <div className="text-lg font-bold text-emerald-400">
+                {paymentMethod === "FREE"
+                  ? "\u20B90"
+                  : formatPrice(effectiveTotal)}
+              </div>
+              {useCustomAmount &&
+                customAmountValid &&
+                parsedCustom !== totalPrice &&
+                paymentMethod !== "FREE" && (
+                  <div className="text-[11px] text-zinc-500 line-through">
+                    {formatPrice(totalPrice)}
+                  </div>
+                )}
+            </div>
           </div>
 
           <textarea
@@ -904,7 +1006,7 @@ export function CreateBookingForm({
                 {(() => {
                   const partialValid = (() => {
                     const p = parseInt(advanceAmountStr, 10);
-                    return isPartial && Number.isFinite(p) && p > 0 && p < totalPrice;
+                    return isPartial && Number.isFinite(p) && p > 0 && p < effectiveTotal;
                   })();
                   const shownMethod = partialValid ? advanceMethod : paymentMethod;
                   const label = PAYMENT_OPTIONS.find((o) => o.value === shownMethod)?.label;
@@ -912,6 +1014,11 @@ export function CreateBookingForm({
                     <>
                       {label}
                       {partialValid && " \u00B7 Partial"}
+                      {useCustomAmount &&
+                        customAmountValid &&
+                        parsedCustom !== totalPrice &&
+                        paymentMethod !== "FREE" &&
+                        " \u00B7 Negotiated"}
                     </>
                   );
                 })()}
@@ -924,12 +1031,20 @@ export function CreateBookingForm({
               <p className="text-lg font-bold text-emerald-400 mt-1">
                 {paymentMethod === "FREE"
                   ? "\u20B90"
-                  : formatPrice(totalPrice)}
+                  : formatPrice(effectiveTotal)}
               </p>
+              {useCustomAmount &&
+                customAmountValid &&
+                parsedCustom !== totalPrice &&
+                paymentMethod !== "FREE" && (
+                  <p className="text-[11px] text-zinc-500">
+                    Slot-sum: <span className="line-through">{formatPrice(totalPrice)}</span>
+                  </p>
+                )}
               {isPartial && advanceAmountStr && (() => {
                 const parsed = parseInt(advanceAmountStr, 10);
-                if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= totalPrice) return null;
-                const remaining = totalPrice - parsed;
+                if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= effectiveTotal) return null;
+                const remaining = effectiveTotal - parsed;
                 return (
                   <div className="mt-2 space-y-0.5 text-xs">
                     <p className="text-emerald-300">Advance collected: <span className="font-semibold">{formatPrice(parsed)}</span></p>

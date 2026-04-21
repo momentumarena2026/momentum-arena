@@ -679,6 +679,12 @@ export async function adminCreateBooking(data: {
   // cash in hand, manual Razorpay, etc.). The remainder is expected in
   // cash at the venue. Cannot combine with FREE.
   advanceAmount?: number;
+  // Optional override for the total amount. Admins need this when they've
+  // negotiated a price with the customer that differs from the slot-by-slot
+  // sum. When set, the computed slot total is preserved on
+  // Booking.originalAmount for audit; totalAmount + Payment.amount reflect
+  // the negotiated figure. Must be 0 for FREE bookings.
+  customTotalAmount?: number;
   note?: string;
 }) {
   const admin = await requireAdminWithDetails();
@@ -769,8 +775,38 @@ export async function adminCreateBooking(data: {
       }
     }
 
-    // Calculate total
-    const totalAmount = data.hours.reduce((sum, h) => sum + (priceMap.get(h) ?? 0), 0);
+    // Calculate total from slot prices. `totalAmount` is the figure we
+    // actually charge; `computedTotal` stays around so we can preserve it
+    // on Booking.originalAmount when admin negotiates a different price.
+    const computedTotal = data.hours.reduce(
+      (sum, h) => sum + (priceMap.get(h) ?? 0),
+      0
+    );
+
+    // Honour the negotiated override when provided. Reject nonsense inputs
+    // (non-integers, negatives) and the FREE-but-nonzero combo.
+    if (data.customTotalAmount !== undefined) {
+      if (!Number.isInteger(data.customTotalAmount) || data.customTotalAmount < 0) {
+        return {
+          success: false as const,
+          error: "Custom amount must be a non-negative integer",
+        };
+      }
+      if (data.paymentMethod === "FREE" && data.customTotalAmount !== 0) {
+        return {
+          success: false as const,
+          error: "Free bookings must have a total of ₹0",
+        };
+      }
+    }
+
+    const totalAmount =
+      data.customTotalAmount !== undefined
+        ? data.customTotalAmount
+        : computedTotal;
+    const isCustomAmount =
+      data.customTotalAmount !== undefined &&
+      data.customTotalAmount !== computedTotal;
 
     // Normalize partial-payment input once the total is known. A partial
     // amount equal to or greater than the total becomes a normal full
@@ -782,7 +818,9 @@ export async function adminCreateBooking(data: {
 
     // Create in transaction
     const bookingId = await db.$transaction(async (tx) => {
-      // Create booking
+      // Create booking. When the admin negotiated a different total, we
+      // stash the slot-sum on originalAmount so the audit view can surface
+      // the delta.
       const booking = await tx.booking.create({
         data: {
           userId: data.userId,
@@ -790,6 +828,7 @@ export async function adminCreateBooking(data: {
           date: dateOnly,
           status: "CONFIRMED",
           totalAmount,
+          originalAmount: isCustomAmount ? computedTotal : null,
           createdByAdminId: admin.id,
           slots: {
             create: data.hours.map((h) => ({
@@ -856,7 +895,16 @@ export async function adminCreateBooking(data: {
         });
       }
 
-      // Create edit history
+      // Create edit history. When admin negotiated a different price, fold
+      // that into the note so the audit log tells the whole story.
+      const creationNotes: string[] = [];
+      if (data.note?.trim()) creationNotes.push(data.note.trim());
+      if (isCustomAmount) {
+        creationNotes.push(
+          `Negotiated price: ₹${totalAmount} (computed: ₹${computedTotal})`
+        );
+      }
+
       await tx.bookingEditHistory.create({
         data: {
           bookingId: booking.id,
@@ -867,7 +915,7 @@ export async function adminCreateBooking(data: {
           newSlots: data.hours,
           newCourtConfigId: data.courtConfigId,
           newAmount: data.paymentMethod === "FREE" ? 0 : totalAmount,
-          note: data.note ?? null,
+          note: creationNotes.length > 0 ? creationNotes.join(" · ") : null,
         },
       });
 
@@ -900,7 +948,11 @@ export async function adminCreateBooking(data: {
 // ---------------------------------------------------------------------------
 export async function adminEditBookingSlots(
   bookingId: string,
-  newHours: number[]
+  newHours: number[],
+  // Optional new date for the booking. When provided, the slot grid is
+  // re-validated against the target date (availability, blocks, pricing).
+  // Passing undefined keeps the booking's current date.
+  newDate?: string
 ) {
   const admin = await requireAdminWithDetails();
 
@@ -924,7 +976,10 @@ export async function adminEditBookingSlots(
       return { success: false as const, error: "Only confirmed bookings can be edited" };
     }
 
-    const dateOnly = booking.date;
+    const dateOnly = newDate
+      ? new Date(newDate + "T00:00:00Z")
+      : booking.date;
+    const dateChanged = dateOnly.getTime() !== booking.date.getTime();
     const config = booking.courtConfig;
 
     // Check availability excluding current booking
@@ -997,33 +1052,63 @@ export async function adminEditBookingSlots(
         })),
       });
 
-      // Update booking total
+      // Update booking total and (if the admin moved it) the date.
       await tx.booking.update({
         where: { id: bookingId },
-        data: { totalAmount: newTotalAmount },
+        data: dateChanged
+          ? { totalAmount: newTotalAmount, date: dateOnly }
+          : { totalAmount: newTotalAmount },
       });
 
-      // Update payment amount if exists
-      if (booking.payment) {
+      // Update payment amount if exists. Partial-payment bookings have
+      // their own edit flow (adminEditBookingFull) that keeps advance +
+      // remainder in sync; here we only touch non-partial payments so we
+      // don't clobber the advance figure.
+      if (booking.payment && !booking.payment.isPartialPayment) {
         await tx.payment.update({
           where: { id: booking.payment.id },
           data: { amount: newTotalAmount },
         });
       }
 
-      // Create edit history
-      await tx.bookingEditHistory.create({
-        data: {
-          bookingId,
-          adminId: admin.id,
-          adminUsername: admin.username,
-          editType: "SLOTS_CHANGED",
-          previousSlots: previousHours,
-          newSlots: newHours,
-          previousAmount,
-          newAmount: newTotalAmount,
-        },
-      });
+      // Emit a date-change entry first so the history stays chronologically
+      // readable when both changed in the same save.
+      if (dateChanged) {
+        await tx.bookingEditHistory.create({
+          data: {
+            bookingId,
+            adminId: admin.id,
+            adminUsername: admin.username,
+            editType: "DATE_CHANGED",
+            previousDate: booking.date,
+            newDate: dateOnly,
+            previousSlots: previousHours,
+            newSlots: newHours,
+            previousAmount,
+            newAmount: newTotalAmount,
+          },
+        });
+      }
+
+      const slotsChanged =
+        previousHours.length !== newHours.length ||
+        previousHours.some(
+          (h, i) => h !== [...newHours].sort((a, b) => a - b)[i]
+        );
+      if (slotsChanged) {
+        await tx.bookingEditHistory.create({
+          data: {
+            bookingId,
+            adminId: admin.id,
+            adminUsername: admin.username,
+            editType: "SLOTS_CHANGED",
+            previousSlots: previousHours,
+            newSlots: newHours,
+            previousAmount,
+            newAmount: newTotalAmount,
+          },
+        });
+      }
     });
 
     return { success: true as const };
