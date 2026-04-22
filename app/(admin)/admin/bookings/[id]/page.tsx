@@ -253,9 +253,25 @@ export default async function AdminBookingDetailPage({
             <div className="flex justify-between">
               <span className="text-zinc-400">Amount</span>
               <span className="text-lg font-bold text-white">
-                {formatPrice(booking.payment.amount)}
+                {/* Show Booking.totalAmount (authoritative post-discount) rather
+                    than Payment.amount. Payment.amount can legitimately drift
+                    from the final owed figure — e.g. partial-payment bookings
+                    where markRemainderCollected adds `remaining` onto the
+                    pre-discount gateway charge, leaving Payment.amount at the
+                    pre-coupon total while Booking.totalAmount correctly shows
+                    the post-coupon total the customer actually owes / paid. */}
+                {formatPrice(booking.totalAmount)}
               </span>
             </div>
+            {booking.originalAmount !== null &&
+              booking.originalAmount > booking.totalAmount && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">Original</span>
+                  <span className="text-zinc-500 line-through">
+                    {formatPrice(booking.originalAmount)}
+                  </span>
+                </div>
+              )}
             {booking.payment.isPartialPayment && (() => {
               const advance =
                 booking.payment.advanceAmount ?? 0;
