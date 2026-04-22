@@ -20,7 +20,7 @@ function parseAdminPhones(): string[] {
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
-  process.env.MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID || "69dfa7116edf7c748a0d4612";
+  process.env.MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID || "69e918a14983bc3b6a082835";
 // Existing "new booking, payment pending" admin template.
 const MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID =
   process.env.MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID || "69dfa786ec69c7286e0d2082";
@@ -32,7 +32,6 @@ const MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID =
   process.env.MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID || "69e49a7f502b4be32e008982";
 // NOTE: parsed lazily via parseAdminPhones() so env tweaks + normalization
 // + de-duplication are all handled in one place.
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com";
 
 interface BookingDetails {
   id: string;
@@ -74,26 +73,27 @@ export async function sendBookingConfirmation(
 }
 
 // --- Send confirmation via MSG91 Flow API ---
-// DLT template (2 variables only):
-// "Dear {#var#}, your booking at Momentum Arena is confirmed.
-//  View details, download invoice and get check-in QR here: {#var#}
+// DLT template (2 variables):
+// "Hi ##name##, your booking is confirmed.
+//  Details: https://momentumarena.com/book/confirmation?id=##bookingid##
 //  - Momentum Arena, Mathura"
+//
+// The URL base is baked into the template text itself; the variable is
+// just the 25-char bookingId. This keeps us under the DLT 30-char
+// per-variable max (earlier template sent the full ~72-char URL and was
+// rejected with "DLT template variable exceeded max length").
+// Variable names must match exactly: "name" and "bookingid" (lowercase,
+// no underscore), since MSG91 Flow substitutes by key.
 
 async function sendSmsConfirmation(
   bookingId: string,
   details: BookingDetails
 ): Promise<void> {
-  // Query-string form so the URL base ("${APP_URL}/book/confirmation?") can
-  // be whitelisted once in Airtel DLT and the bookingId varies as the
-  // standard {#url#} query parameter. The legacy path form still works via a
-  // redirect, but every new SMS uses this shape.
-  const confirmationUrl = `${APP_URL}/book/confirmation?id=${details.id}`;
-
   if (!MSG91_AUTH_KEY || !MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID) {
     console.log(
       `\n[DEV] Booking Confirmation SMS for ${details.userPhone}:`,
-      `\n  customer_name: ${details.userName}`,
-      `\n  confirmation_url: ${confirmationUrl}\n`
+      `\n  name: ${details.userName}`,
+      `\n  bookingid: ${details.id}\n`
     );
     await logNotification(
       bookingId,
@@ -118,7 +118,7 @@ async function sendSmsConfirmation(
           {
             mobiles: normalizeIndianPhone(details.userPhone!),
             name: details.userName,
-            url: confirmationUrl,
+            bookingid: details.id,
           },
         ],
       }),
