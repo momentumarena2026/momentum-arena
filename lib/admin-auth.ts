@@ -17,8 +17,14 @@ export async function requireAdmin(permission?: string) {
     permissions?: string[];
   };
 
+  // Superadmins bypass per-permission checks. This matches the admin
+  // sidebar, which already treats SUPERADMIN as having every permission,
+  // and means newly-introduced permissions (added to ALL_PERMISSIONS in
+  // a later release) don't lock superadmins out until their DB row is
+  // manually updated.
   if (
     permission &&
+    user.adminRole !== "SUPERADMIN" &&
     !hasPermission(user.permissions || [], permission)
   ) {
     throw new Error("Insufficient permissions");
