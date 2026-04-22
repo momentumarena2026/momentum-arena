@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { revalidatePath } from "next/cache";
 import { Prisma, ExpenseOptionField } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
@@ -225,6 +226,8 @@ export async function createExpense(input: ExpenseInput) {
       return expense;
     });
 
+    revalidatePath("/admin/expenses");
+    revalidatePath("/admin/expenses/analytics");
     return { success: true as const, id: created.id };
   } catch (error) {
     console.error("Failed to create expense:", error);
@@ -299,6 +302,9 @@ export async function updateExpense(
       });
     });
 
+    revalidatePath("/admin/expenses");
+    revalidatePath(`/admin/expenses/${id}/edit`);
+    revalidatePath("/admin/expenses/analytics");
     return { success: true as const };
   } catch (error) {
     console.error("Failed to update expense:", error);
@@ -311,6 +317,8 @@ export async function deleteExpense(id: string) {
   try {
     // Cascade-deletes the ExpenseEditHistory rows via the FK.
     await db.expense.delete({ where: { id } });
+    revalidatePath("/admin/expenses");
+    revalidatePath("/admin/expenses/analytics");
     return { success: true as const };
   } catch (error) {
     console.error("Failed to delete expense:", error);

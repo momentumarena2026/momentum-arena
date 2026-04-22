@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useState, useTransition } from "react";
+import { useId, useState } from "react";
 import { AlertCircle, Save, Trash2 } from "lucide-react";
 import {
   createExpense,
@@ -30,7 +30,11 @@ interface Props {
 // history list below re-renders.
 export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  // Plain loading flag instead of useTransition — when a server action is
+  // followed by router.push(), wrapping both in a transition makes the
+  // transition wait for the new route's RSC render to finish, which in
+  // practice swallows the navigation on Next 16. Plain state dodges that.
+  const [pending, setPending] = useState(false);
   const [form, setForm] = useState<ExpenseInput>(initial);
   const [note, setNote] = useState(""); // only used for edit mode
   const [error, setError] = useState<string | null>(null);
@@ -40,10 +44,11 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    setPending(true);
 
     const payload: ExpenseInput = {
       ...form,
@@ -51,7 +56,7 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
       note: form.note?.trim() ? form.note : null,
     };
 
-    startTransition(async () => {
+    try {
       if (mode === "create") {
         const res = await createExpense(payload);
         if (!res.success) {
@@ -70,10 +75,15 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
         setNote("");
         router.refresh();
       }
-    });
+    } catch (err) {
+      console.error(err);
+      setError("Unexpected error — check console and try again");
+    } finally {
+      setPending(false);
+    }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!expenseId) return;
     if (
       !confirm(
@@ -82,7 +92,8 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
     ) {
       return;
     }
-    startTransition(async () => {
+    setPending(true);
+    try {
       const res = await deleteExpense(expenseId);
       if (!res.success) {
         setError(res.error);
@@ -90,7 +101,12 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
       }
       router.push("/admin/expenses");
       router.refresh();
-    });
+    } catch (err) {
+      console.error(err);
+      setError("Unexpected error — check console and try again");
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
