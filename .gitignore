@@ -40,3 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 *.db
+
+# local financial data — never commit. The admin expenses bulk importer
+# reads /expenses.csv or anything under /private-data/ as a one-off seed,
+# but the raw files stay outside version control.
+/expenses.csv
+/private-data/
+

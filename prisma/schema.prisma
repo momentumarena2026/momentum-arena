@@ -1190,3 +1190,96 @@ model CachedDocument {
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ===========================
+// EXPENSES
+// Internal cost tracker, modelled after the Playing Zone Mathura spend
+// sheet. Replaces the Google Sheet the founders were maintaining by
+// hand. Every dropdown on the UI is sourced from ExpenseOption, so
+// admins can add / rename / disable categories without a redeploy.
+// Amount is stored as whole rupees (Int) — same convention as
+// Booking.totalAmount — not paise.
+// ===========================
+
+model Expense {
+  id          String   @id @default(cuid())
+  // Calendar date of the expense (what would be typed into the sheet),
+  // independent of createdAt which tracks row entry time.
+  date        DateTime @db.Date
+  description String
+  amount      Int
+  // Foreign-key-lite references to ExpenseOption.label: we store the
+  // label string rather than an ID so that renaming an option (or
+  // hiding it) doesn't orphan historical rows, and a quick text export
+  // still shows human-readable values. Filtering joins on label.
+  paymentType String // e.g. "Cash" / "Online" — the old "Type" column
+  doneBy      String // e.g. "Nakul" / "Utkarsh" / "Anand"
+  toName      String // immediate recipient (shop / labour / driver…)
+  vendor      String // money-attributed bucket ("Self" / "Landlord" / "SDA")
+  spentType   String // category ("Turf" / "Rent" / "Paint"…)
+  note        String?
+
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  createdByAdminId  String?
+
+  editHistory ExpenseEditHistory[]
+
+  @@index([date])
+  @@index([spentType])
+  @@index([doneBy])
+  @@index([vendor])
+  @@index([paymentType])
+}
+
+// Audit trail for expense rows. One entry is written on CREATED, and
+// another on every edit. `changes` is a JSON array of
+// { field, from, to } triples so we don't need a dedicated column per
+// mutable field — cheaper to extend when new Expense columns appear.
+// adminId + adminUsername are denormalized so the log stays readable
+// even if the AdminUser row is later deleted. adminId/username are
+// nullable because CSV imports happen without a specific admin actor.
+model ExpenseEditHistory {
+  id            String   @id @default(cuid())
+  expenseId     String
+  expense       Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  adminId       String?
+  adminUsername String?
+  editType      String // CREATED | UPDATED
+  changes       Json
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([expenseId])
+  @@index([createdAt])
+}
+
+// Which dropdown a given option feeds. Order matches the UI tabs on
+// the expense config page so it's easy to reason about.
+enum ExpenseOptionField {
+  PAYMENT_TYPE
+  DONE_BY
+  VENDOR
+  SPENT_TYPE
+  TO_NAME
+}
+
+model ExpenseOption {
+  id        String             @id @default(cuid())
+  field     ExpenseOptionField
+  // Displayed + stored form of the option (e.g. "Cash"). Uniqueness
+  // scoped to field so "Cash" for PAYMENT_TYPE doesn't collide with
+  // the same label in a different field. Disabling (isActive=false)
+  // hides the option from new-expense dropdowns but keeps historical
+  // rows intact since Expense.* columns store the raw label.
+  label     String
+  isActive  Boolean            @default(true)
+  sortOrder Int                @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([field, label])
+  @@index([field, isActive])
+}
+

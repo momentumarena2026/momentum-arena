@@ -28,6 +28,8 @@ import {
   ScanLine,
   Package,
   Fuel,
+  Receipt,
+  PieChart,
   type LucideIcon,
 } from "lucide-react";
 
@@ -56,6 +58,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/faqs": HelpCircle,
   "/admin/payment-settings": CreditCard,
   "/admin/razorpay": CreditCard,
+  "/admin/expenses": Receipt,
+  "/admin/expenses/analytics": PieChart,
 };
 
 interface NavGroup {
