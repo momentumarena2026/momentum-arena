@@ -26,6 +26,7 @@ import {
   getPaymentMethodBreakdown,
 } from "@/actions/admin-analytics";
 import { formatHourCompact } from "@/lib/court-config";
+import { DailyEarningsChart, MonthlyEarningsChart } from "./earnings-charts";
 
 // --------------- Types ---------------
 
@@ -347,6 +348,13 @@ export function AnalyticsDashboard({
           ))}
         </div>
       )}
+
+      {/* Earnings by booking date — day-wise + month-wise. These use their
+          own internal filter (month/year selector + compare) independent of
+          the top-level date range, since they're framed as "what did we
+          earn on calendar day X" rather than "recognized money in window". */}
+      <DailyEarningsChart />
+      <MonthlyEarningsChart />
 
       {/* Revenue Over Time */}
       {loading ? (

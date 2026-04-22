@@ -6,7 +6,7 @@ import {
   Users,
   IndianRupee,
   CalendarDays,
-  AlertCircle,
+  TrendingUp,
   ArrowRight,
 } from "lucide-react";
 
@@ -43,11 +43,15 @@ export default async function AdminDashboardPage() {
       bg: "bg-purple-500/10",
     },
     {
-      label: "Pending Payments",
-      value: stats.pendingPayments.toString(),
-      icon: AlertCircle,
-      color: "text-orange-400",
-      bg: "bg-orange-500/10",
+      // Gross (pre-discount) lifetime earnings / days since first booking.
+      // See getAdminStats for the derivation; tile replaces "Pending
+      // Payments" because pending-queue action lives on /admin/bookings
+      // and this number is what owners actually watch day to day.
+      label: "Avg Earning / Day",
+      value: formatPrice(stats.averageDailyEarning),
+      icon: TrendingUp,
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10",
     },
   ];
 

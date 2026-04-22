@@ -440,25 +440,42 @@ export async function getAdminStats() {
     totalRevenue,
     pendingPayments,
     venueDueAgg,
+    lifetimeEarnings,
+    firstBooking,
   ] = await Promise.all([
     db.booking.count({ where: { status: "CONFIRMED" } }),
     db.booking.count({
       where: { date: today, status: "CONFIRMED" },
     }),
     db.user.count({ where: { deletedAt: null } }),
-    db.payment.aggregate({
+    // Revenue is summed from Booking.totalAmount (post-discount) rather
+    // than Payment.amount. Payment.amount stores what the gateway charged,
+    // which for a handful of discount-applied bookings diverged from the
+    // actually-owed total (pre-discount payments where only Booking.total
+    // got reduced). Booking.totalAmount is authoritatively the final
+    // figure, so it reconciles today's revenue (e.g. ₹6,100 with a ₹100
+    // coupon) regardless of how the discount flow wrote the Payment row.
+    //
+    // Scoped to COMPLETED payments (excludes PARTIAL advances still owed
+    // at venue) + CONFIRMED bookings (drops cancellations). Date filter
+    // goes on payment.confirmedAt so "today's revenue" means "money
+    // recognized today".
+    db.booking.aggregate({
       where: {
-        status: "COMPLETED",
-        confirmedAt: { gte: today, lt: tomorrow },
+        status: "CONFIRMED",
+        payment: {
+          status: "COMPLETED",
+          confirmedAt: { gte: today, lt: tomorrow },
+        },
       },
-      _sum: { amount: true },
+      _sum: { totalAmount: true },
     }),
-    db.payment.aggregate({
+    db.booking.aggregate({
       where: {
-        status: "COMPLETED",
-        booking: { status: "CONFIRMED" },
+        status: "CONFIRMED",
+        payment: { status: "COMPLETED" },
       },
-      _sum: { amount: true },
+      _sum: { totalAmount: true },
     }),
     db.payment.count({ where: { status: "PENDING" } }),
     // Cash-due-at-venue from confirmed partial-payment bookings. Only
@@ -473,16 +490,62 @@ export async function getAdminStats() {
       },
       _sum: { remainingAmount: true },
     }),
+    // Lifetime earnings for the "avg per day" tile — pre-discount, so
+    // coupon marketing spend doesn't drag the headline number down.
+    // Kept separate from totalRevenue above (which is post-discount
+    // recognized money) because the tile's intent is "how much did our
+    // sports operation gross on a typical day".
+    db.booking.aggregate({
+      where: { status: "CONFIRMED" },
+      _sum: { totalAmount: true, originalAmount: true, discountAmount: true },
+    }),
+    // Earliest Booking.date seeds the denominator for the daily
+    // average. Using Booking.date (not createdAt) so a retroactively
+    // logged historical booking stretches the denominator correctly.
+    db.booking.findFirst({
+      where: { status: "CONFIRMED" },
+      orderBy: { date: "asc" },
+      select: { date: true },
+    }),
   ]);
+
+  // Gross (pre-discount) earnings = sum(totalAmount) + sum(discountAmount).
+  // Booking.originalAmount is only populated when a discount was applied,
+  // so we can't just sum it; reconstructing from totalAmount + discount
+  // avoids missing the unrelieved-by-discount bookings.
+  const grossEarnings =
+    (lifetimeEarnings._sum.totalAmount ?? 0) +
+    (lifetimeEarnings._sum.discountAmount ?? 0);
+
+  let averageDailyEarning = 0;
+  if (firstBooking?.date && grossEarnings > 0) {
+    // Inclusive day count: if first booking is today, that's 1 day, not 0.
+    const firstDayUtc = Date.UTC(
+      firstBooking.date.getUTCFullYear(),
+      firstBooking.date.getUTCMonth(),
+      firstBooking.date.getUTCDate()
+    );
+    const todayUtc = Date.UTC(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+    const days = Math.max(
+      1,
+      Math.floor((todayUtc - firstDayUtc) / 86_400_000) + 1
+    );
+    averageDailyEarning = Math.round(grossEarnings / days);
+  }
 
   return {
     totalBookings,
     todayBookings,
     totalUsers,
-    todayRevenue: todayRevenue._sum.amount ?? 0,
-    totalRevenue: totalRevenue._sum.amount ?? 0,
+    todayRevenue: todayRevenue._sum.totalAmount ?? 0,
+    totalRevenue: totalRevenue._sum.totalAmount ?? 0,
     pendingPayments,
     venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,
+    averageDailyEarning,
   };
 }
 

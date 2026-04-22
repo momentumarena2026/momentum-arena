@@ -34,10 +34,13 @@ export async function getRevenueOverTime(filters: {
     const { dateFrom, dateTo, scope, groupBy } = filters;
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
+    to.setUTCHours(23, 59, 59, 999);
 
     const truncUnit = groupBy === "day" ? "day" : groupBy === "week" ? "week" : "month";
 
+    // Join Payment → Booking so we sum Booking.totalAmount (post-discount)
+    // rather than Payment.amount. Keeps the chart consistent with the KPI
+    // cards, which also use Booking.totalAmount for revenue recognition.
     const sportsData =
       scope === "cafe"
         ? []
@@ -45,9 +48,11 @@ export async function getRevenueOverTime(filters: {
             { period: Date; revenue: bigint }[]
           >(Prisma.sql`
             SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, p."confirmedAt") AS period,
-                   SUM(p.amount)::bigint AS revenue
+                   SUM(b."totalAmount")::bigint AS revenue
             FROM "Payment" p
+            INNER JOIN "Booking" b ON b.id = p."bookingId"
             WHERE p.status = 'COMPLETED'
+              AND b.status = 'CONFIRMED'
               AND p."confirmedAt" >= ${from}
               AND p."confirmedAt" <= ${to}
             GROUP BY period
@@ -127,21 +132,23 @@ export async function getSportRevenueBreakdown(
   try {
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
+    to.setUTCHours(23, 59, 59, 999);
 
-    const results = await db.payment.findMany({
+    // Use Booking.totalAmount (post-discount) instead of Payment.amount
+    // so the per-sport breakdown matches the KPI totals when coupons /
+    // admin price negotiations reduce the final bill.
+    const results = await db.booking.findMany({
       where: {
-        status: "COMPLETED",
-        confirmedAt: { gte: from, lte: to },
+        status: "CONFIRMED",
+        payment: {
+          status: "COMPLETED",
+          confirmedAt: { gte: from, lte: to },
+        },
       },
       select: {
-        amount: true,
-        booking: {
-          select: {
-            courtConfig: {
-              select: { sport: true },
-            },
-          },
+        totalAmount: true,
+        courtConfig: {
+          select: { sport: true },
         },
       },
     });
@@ -151,14 +158,14 @@ export async function getSportRevenueBreakdown(
       { sport: string; revenue: number; bookingCount: number }
     >();
 
-    for (const payment of results) {
-      const sport = payment.booking.courtConfig.sport;
+    for (const booking of results) {
+      const sport = booking.courtConfig.sport;
       const existing = sportMap.get(sport) || {
         sport,
         revenue: 0,
         bookingCount: 0,
       };
-      existing.revenue += payment.amount;
+      existing.revenue += booking.totalAmount;
       existing.bookingCount += 1;
       sportMap.set(sport, existing);
     }
@@ -183,7 +190,7 @@ export async function getCafeCategoryBreakdown(
   try {
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
+    to.setUTCHours(23, 59, 59, 999);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -258,7 +265,7 @@ export async function getPeakHourAnalysis(dateFrom: string, dateTo: string) {
   try {
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
+    to.setUTCHours(23, 59, 59, 999);
 
     const slots = await db.bookingSlot.findMany({
       where: {
@@ -303,19 +310,23 @@ export async function getTopCustomers(
   try {
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
+    to.setUTCHours(23, 59, 59, 999);
 
-    // Get sports spending per user (limit to 5000 records to prevent memory issues)
-    const sportsPayments = await db.payment.findMany({
+    // Sports spending per user. Read totalAmount off Booking (post-
+    // discount) so the "total spent" column matches the customer's
+    // actual bill after any coupons applied. Limit 5000 to keep memory
+    // bounded on large windows.
+    const sportsBookings = await db.booking.findMany({
       where: {
-        status: "COMPLETED",
-        confirmedAt: { gte: from, lte: to },
+        status: "CONFIRMED",
+        payment: {
+          status: "COMPLETED",
+          confirmedAt: { gte: from, lte: to },
+        },
       },
       select: {
-        amount: true,
-        booking: {
-          select: { userId: true },
-        },
+        totalAmount: true,
+        userId: true,
       },
       take: 5000,
     });
@@ -340,14 +351,14 @@ export async function getTopCustomers(
       { totalSpent: number; bookingCount: number; orderCount: number }
     >();
 
-    for (const p of sportsPayments) {
-      const userId = p.booking.userId;
+    for (const b of sportsBookings) {
+      const userId = b.userId;
       const existing = customerMap.get(userId) || {
         totalSpent: 0,
         bookingCount: 0,
         orderCount: 0,
       };
-      existing.totalSpent += p.amount;
+      existing.totalSpent += b.totalAmount;
       existing.bookingCount += 1;
       customerMap.set(userId, existing);
     }
@@ -412,7 +423,7 @@ export async function getPaymentMethodBreakdown(
   try {
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
+    to.setUTCHours(23, 59, 59, 999);
 
     const sportsPayments = await db.payment.groupBy({
       by: ["method"],
@@ -482,7 +493,12 @@ export async function getKPIStats(dateFrom: string, dateTo: string) {
   try {
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
+    // setUTCHours so the inclusive end-of-day boundary is anchored in UTC
+    // regardless of server timezone. With plain setHours and an IST-tz
+    // server, "today" would cut off at 18:29:59Z and miss the last 5.5
+    // hours of same-day payments, which made this page's lifetime totals
+    // drift below /admin/bookings' unfiltered total.
+    to.setUTCHours(23, 59, 59, 999);
 
     const [
       sportsAgg,
@@ -493,13 +509,21 @@ export async function getKPIStats(dateFrom: string, dateTo: string) {
       activeBookingUsers,
       activeCafeUsers,
     ] = await Promise.all([
-      // Sports revenue
-      db.payment.aggregate({
+      // Sports revenue. Sums Booking.totalAmount (post-discount) rather
+      // than Payment.amount — when a coupon reduces the final bill,
+      // Booking.totalAmount is authoritative, whereas Payment.amount
+      // can reflect the gateway-charged figure before the reduction.
+      // Filter: CONFIRMED bookings whose payment lands COMPLETED inside
+      // the selected window.
+      db.booking.aggregate({
         where: {
-          status: "COMPLETED",
-          confirmedAt: { gte: from, lte: to },
+          status: "CONFIRMED",
+          payment: {
+            status: "COMPLETED",
+            confirmedAt: { gte: from, lte: to },
+          },
         },
-        _sum: { amount: true },
+        _sum: { totalAmount: true },
         _count: { id: true },
       }),
       // Cafe revenue
@@ -555,8 +579,8 @@ export async function getKPIStats(dateFrom: string, dateTo: string) {
       }),
     ]);
 
-    // Payment.amount (sports) is rupees; CafePayment.amount is paise.
-    const sportsRevenue = sportsAgg._sum.amount || 0;
+    // Booking.totalAmount (sports) is rupees; CafePayment.amount is paise.
+    const sportsRevenue = sportsAgg._sum.totalAmount || 0;
     const cafeRevenue = paiseToRupees(cafeAgg._sum.amount || 0);
     const totalRevenue = sportsRevenue + cafeRevenue;
 
@@ -599,5 +623,144 @@ export async function getKPIStats(dateFrom: string, dateTo: string) {
   } catch (error) {
     console.error("getKPIStats error:", error);
     return { success: false, error: "Failed to fetch KPI stats" };
+  }
+}
+
+// ===========================
+// 8. Daily earnings for a month (day-of-month bars)
+// ===========================
+//
+// Keyed on Booking.date (the day the slot is played), NOT
+// payment.confirmedAt — admins want "what did we earn for bookings on
+// that day" irrespective of when the money hit.
+//
+// Earnings are taken as `COALESCE(originalAmount, totalAmount)` so the
+// pre-discount figure is used; the caller asked that coupons not eat
+// into the reported number (the discount is a marketing cost, not an
+// earnings shortfall).
+//
+// Returns 28–31 rows, one per day in the selected month, filling
+// zero-earning days explicitly so the chart has a stable x-axis.
+export async function getDailyEarningsForMonth(
+  year: number,
+  month: number // 1-12
+) {
+  await requireAnalyticsAccess();
+
+  try {
+    if (
+      !Number.isInteger(year) ||
+      !Number.isInteger(month) ||
+      month < 1 ||
+      month > 12
+    ) {
+      return { success: false as const, error: "Invalid year/month" };
+    }
+
+    // Use UTC to match Booking.date which is stored as a Date column
+    // (midnight UTC). Ranges are [start, next) so the last day is fully
+    // included without off-by-one.
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const nextStart = new Date(Date.UTC(year, month, 1));
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+    const rows = await db.$queryRaw<
+      { day: number; earnings: bigint; booking_count: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(DAY FROM b.date)::int AS day,
+        SUM(COALESCE(b."originalAmount", b."totalAmount"))::bigint AS earnings,
+        COUNT(*)::bigint AS booking_count
+      FROM "Booking" b
+      WHERE b.status = 'CONFIRMED'
+        AND b.date >= ${start}
+        AND b.date < ${nextStart}
+      GROUP BY day
+      ORDER BY day
+    `);
+
+    const rowMap = new Map<number, { earnings: number; bookingCount: number }>();
+    for (const r of rows) {
+      rowMap.set(r.day, {
+        earnings: Number(r.earnings),
+        bookingCount: Number(r.booking_count),
+      });
+    }
+
+    const data = Array.from({ length: daysInMonth }, (_, i) => {
+      const day = i + 1;
+      const row = rowMap.get(day);
+      return {
+        day,
+        earnings: row?.earnings ?? 0,
+        bookingCount: row?.bookingCount ?? 0,
+      };
+    });
+
+    return { success: true as const, data };
+  } catch (error) {
+    console.error("getDailyEarningsForMonth error:", error);
+    return { success: false as const, error: "Failed to fetch daily earnings" };
+  }
+}
+
+// ===========================
+// 9. Monthly earnings for a year (month bars)
+// ===========================
+//
+// Same grouping philosophy as getDailyEarningsForMonth — bucket on
+// Booking.date and sum pre-discount amounts. Returns 12 rows, one per
+// month, padding months with no bookings to zero.
+export async function getMonthlyEarningsForYear(year: number) {
+  await requireAnalyticsAccess();
+
+  try {
+    if (!Number.isInteger(year)) {
+      return { success: false as const, error: "Invalid year" };
+    }
+
+    const start = new Date(Date.UTC(year, 0, 1));
+    const nextStart = new Date(Date.UTC(year + 1, 0, 1));
+
+    const rows = await db.$queryRaw<
+      { month: number; earnings: bigint; booking_count: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(MONTH FROM b.date)::int AS month,
+        SUM(COALESCE(b."originalAmount", b."totalAmount"))::bigint AS earnings,
+        COUNT(*)::bigint AS booking_count
+      FROM "Booking" b
+      WHERE b.status = 'CONFIRMED'
+        AND b.date >= ${start}
+        AND b.date < ${nextStart}
+      GROUP BY month
+      ORDER BY month
+    `);
+
+    const rowMap = new Map<number, { earnings: number; bookingCount: number }>();
+    for (const r of rows) {
+      rowMap.set(r.month, {
+        earnings: Number(r.earnings),
+        bookingCount: Number(r.booking_count),
+      });
+    }
+
+    const data = Array.from({ length: 12 }, (_, i) => {
+      const month = i + 1;
+      const row = rowMap.get(month);
+      return {
+        month,
+        earnings: row?.earnings ?? 0,
+        bookingCount: row?.bookingCount ?? 0,
+      };
+    });
+
+    return { success: true as const, data };
+  } catch (error) {
+    console.error("getMonthlyEarningsForYear error:", error);
+    return {
+      success: false as const,
+      error: "Failed to fetch monthly earnings",
+    };
   }
 }
