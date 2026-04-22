@@ -294,9 +294,12 @@ export function CreateBookingForm({
     setSubmitting(true);
     setSubmitError("");
     try {
+      // Parse advance. 0 is a valid advance (admin books without
+      // collecting money upfront — full amount becomes cash-on-arrival)
+      // so we admit any non-negative integer here, not just > 0.
       const parsedAdvance = isPartial ? parseInt(advanceAmountStr, 10) : NaN;
       const advanceAmount =
-        isPartial && Number.isFinite(parsedAdvance) && parsedAdvance > 0
+        isPartial && Number.isFinite(parsedAdvance) && parsedAdvance >= 0
           ? parsedAdvance
           : undefined;
 
@@ -792,7 +795,10 @@ export function CreateBookingForm({
               </label>
               {isPartial && (() => {
                 const parsed = parseInt(advanceAmountStr, 10);
-                const valid = Number.isFinite(parsed) && parsed > 0 && parsed < effectiveTotal;
+                // 0 is valid — admin books and collects the whole thing at
+                // the venue. Upper bound remains total - 1 (a full payment
+                // isn't a partial).
+                const valid = Number.isFinite(parsed) && parsed >= 0 && parsed < effectiveTotal;
                 const remaining = valid ? effectiveTotal - parsed : 0;
                 return (
                   <div className="space-y-2 pl-7">
@@ -801,8 +807,8 @@ export function CreateBookingForm({
                       <span className="text-sm text-zinc-400">₹</span>
                       <input
                         type="number"
-                        min={1}
-                        max={Math.max(effectiveTotal - 1, 1)}
+                        min={0}
+                        max={Math.max(effectiveTotal - 1, 0)}
                         step={1}
                         placeholder={`e.g. ${Math.ceil(effectiveTotal / 2)}`}
                         value={advanceAmountStr}
@@ -823,7 +829,7 @@ export function CreateBookingForm({
                     </div>
                     {advanceAmountStr && !valid && (
                       <p className="text-xs text-red-400">
-                        Advance must be between ₹1 and {formatPrice(effectiveTotal - 1)}
+                        Advance must be between ₹0 and {formatPrice(effectiveTotal - 1)}
                       </p>
                     )}
                     {valid && (
@@ -1006,7 +1012,7 @@ export function CreateBookingForm({
                 {(() => {
                   const partialValid = (() => {
                     const p = parseInt(advanceAmountStr, 10);
-                    return isPartial && Number.isFinite(p) && p > 0 && p < effectiveTotal;
+                    return isPartial && Number.isFinite(p) && p >= 0 && p < effectiveTotal;
                   })();
                   const shownMethod = partialValid ? advanceMethod : paymentMethod;
                   const label = PAYMENT_OPTIONS.find((o) => o.value === shownMethod)?.label;
@@ -1043,7 +1049,7 @@ export function CreateBookingForm({
                 )}
               {isPartial && advanceAmountStr && (() => {
                 const parsed = parseInt(advanceAmountStr, 10);
-                if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= effectiveTotal) return null;
+                if (!Number.isFinite(parsed) || parsed < 0 || parsed >= effectiveTotal) return null;
                 const remaining = effectiveTotal - parsed;
                 return (
                   <div className="mt-2 space-y-0.5 text-xs">

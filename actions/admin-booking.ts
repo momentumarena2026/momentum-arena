@@ -712,8 +712,8 @@ export async function adminCreateBooking(data: {
       if (data.paymentMethod === "FREE") {
         return { success: false as const, error: "Free bookings cannot have a partial payment" };
       }
-      if (data.advanceAmount <= 0) {
-        return { success: false as const, error: "Advance amount must be greater than zero" };
+      if (data.advanceAmount < 0) {
+        return { success: false as const, error: "Advance amount cannot be negative" };
       }
     }
     for (const h of data.hours) {
@@ -824,8 +824,12 @@ export async function adminCreateBooking(data: {
     // Normalize partial-payment input once the total is known. A partial
     // amount equal to or greater than the total becomes a normal full
     // payment; anything less creates an advance-with-cash-remainder record.
+    // An explicitly-provided 0 is treated as a partial payment (admin
+    // is booking without collecting any money upfront) — we distinguish
+    // "advance not provided" (undefined) from "0 provided" (explicit zero).
+    const advanceProvided = data.advanceAmount !== undefined;
     const rawAdvance = data.advanceAmount ?? 0;
-    const isPartial = rawAdvance > 0 && rawAdvance < totalAmount;
+    const isPartial = advanceProvided && rawAdvance < totalAmount;
     const advanceAmount = isPartial ? rawAdvance : undefined;
     const remainingAmount = isPartial ? totalAmount - rawAdvance : undefined;
 
