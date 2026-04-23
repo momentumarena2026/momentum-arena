@@ -19,10 +19,11 @@ import {
 // ---------------------------------------------------------------------------
 // Day-wise + month-wise earnings charts with an optional compare period.
 //
-// "Earnings" here is pre-discount (COALESCE(originalAmount, totalAmount)),
-// grouped by Booking.date not payment.confirmedAt — admins wanted "what did
-// the court earn on this date" independent of when the money settled. See
-// getDailyEarningsForMonth / getMonthlyEarningsForYear for the SQL.
+// "Earnings" here is Booking.totalAmount (post-discount, matching the KPI
+// Sports Revenue tile), grouped by Booking.date not payment.confirmedAt —
+// admins wanted "what did the court earn on this date" independent of when
+// the money settled. See getDailyEarningsForMonth / getMonthlyEarningsForYear
+// for the SQL.
 // ---------------------------------------------------------------------------
 
 const MONTHS = [
@@ -151,7 +152,7 @@ export function DailyEarningsChart() {
             Daily Earnings — Month View
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Earnings keyed to booking date (pre-discount). Totals:{" "}
+            Earnings keyed to booking date (post-discount). Totals:{" "}
             <span className="font-medium text-emerald-400">
               {formatINR(primaryTotal)}
             </span>
@@ -335,7 +336,7 @@ export function MonthlyEarningsChart() {
             Monthly Earnings — Year View
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Earnings keyed to booking date (pre-discount). Year total:{" "}
+            Earnings keyed to booking date (post-discount). Year total:{" "}
             <span className="font-medium text-emerald-400">
               {formatINR(primaryTotal)}
             </span>

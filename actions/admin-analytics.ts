@@ -634,10 +634,12 @@ export async function getKPIStats(dateFrom: string, dateTo: string) {
 // payment.confirmedAt — admins want "what did we earn for bookings on
 // that day" irrespective of when the money hit.
 //
-// Earnings are taken as `COALESCE(originalAmount, totalAmount)` so the
-// pre-discount figure is used; the caller asked that coupons not eat
-// into the reported number (the discount is a marketing cost, not an
-// earnings shortfall).
+// Earnings use Booking.totalAmount (post-discount) so the reported
+// figure equals the money actually taken, matching the "Total/Sports
+// Revenue" KPI tile. Earlier this used COALESCE(originalAmount,
+// totalAmount) to show pre-discount; that made the chart totals
+// exceed the KPI by the sum of coupon discounts, which confused
+// admins comparing the two surfaces.
 //
 // Returns 28–31 rows, one per day in the selected month, filling
 // zero-earning days explicitly so the chart has a stable x-axis.
@@ -669,7 +671,7 @@ export async function getDailyEarningsForMonth(
     >(Prisma.sql`
       SELECT
         EXTRACT(DAY FROM b.date)::int AS day,
-        SUM(COALESCE(b."originalAmount", b."totalAmount"))::bigint AS earnings,
+        SUM(b."totalAmount")::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
       WHERE b.status = 'CONFIRMED'
@@ -709,7 +711,8 @@ export async function getDailyEarningsForMonth(
 // ===========================
 //
 // Same grouping philosophy as getDailyEarningsForMonth — bucket on
-// Booking.date and sum pre-discount amounts. Returns 12 rows, one per
+// Booking.date and sum post-discount Booking.totalAmount so the year
+// total matches the KPI Sports Revenue tile. Returns 12 rows, one per
 // month, padding months with no bookings to zero.
 export async function getMonthlyEarningsForYear(year: number) {
   await requireAnalyticsAccess();
@@ -727,7 +730,7 @@ export async function getMonthlyEarningsForYear(year: number) {
     >(Prisma.sql`
       SELECT
         EXTRACT(MONTH FROM b.date)::int AS month,
-        SUM(COALESCE(b."originalAmount", b."totalAmount"))::bigint AS earnings,
+        SUM(b."totalAmount")::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
       WHERE b.status = 'CONFIRMED'
