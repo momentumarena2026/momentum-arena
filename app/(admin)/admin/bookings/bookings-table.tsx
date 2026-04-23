@@ -286,7 +286,12 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
             {booking.payment.isPartialPayment && (booking.payment.remainingAmount ?? 0) > 0 && (
               <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 w-fit">
                 <Banknote className="h-3 w-3" />
-                Collect {formatPrice(booking.payment.remainingAmount ?? 0)} at venue
+                {/* Derive owed-at-venue from totalAmount - advance (post-discount)
+                    instead of reading Payment.remainingAmount, which historically
+                    stored the PRE-discount remainder and showed ₹X-too-high on
+                    coupon bookings. Using Payment.remainingAmount only as the
+                    "still owed?" boolean gate. */}
+                Collect {formatPrice(Math.max(booking.totalAmount - (booking.payment.advanceAmount ?? 0), 0))} at venue
               </span>
             )}
           </div>
@@ -305,7 +310,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
           </div>
           {booking.payment?.isPartialPayment && (booking.payment.remainingAmount ?? 0) > 0 && (
             <p className="mt-0.5 text-[10px] font-semibold text-amber-300">
-              {formatPrice(booking.payment.remainingAmount ?? 0)} at venue
+              {formatPrice(Math.max(booking.totalAmount - (booking.payment.advanceAmount ?? 0), 0))} at venue
             </p>
           )}
         </div>

@@ -51,7 +51,14 @@ export async function GET(request: NextRequest) {
     if (status.success) {
       const paymentAmount = hold.paymentAmount ?? hold.totalAmount;
       const isAdvance = hold.paymentMethod === "CASH";
-      const fullAmount = hold.totalAmount;
+      // fullAmount is POST-discount — same reasoning as razorpay/verify and
+      // phonepe/callback. Pre-discount here made the venue collect the
+      // coupon back from the customer.
+      const appliedDiscount =
+        hold.couponId && hold.discountAmount && hold.discountAmount > 0
+          ? hold.discountAmount
+          : 0;
+      const fullAmount = hold.totalAmount - appliedDiscount;
       const advanceAmount = isAdvance ? paymentAmount : undefined;
       const remainingAmount = isAdvance
         ? fullAmount - paymentAmount

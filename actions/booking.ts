@@ -360,7 +360,10 @@ export async function selectUpiPayment(
 //   - Payment.amount = overrideAmount (what was actually paid online)
 //   - Payment.isPartialPayment = true
 //   - Payment.advanceAmount = overrideAmount
-//   - Payment.remainingAmount = hold.totalAmount - overrideAmount
+//   - Payment.remainingAmount = effectiveTotal - overrideAmount
+//     (effectiveTotal = hold.totalAmount minus any coupon applied on the
+//     hold — using pre-discount here makes the venue collect the discount
+//     back, e.g. ₹1,050 instead of ₹950 when FLAT100 trimmed ₹2,000 → ₹1,900)
 // so the booking confirmation and admin views correctly show the advance
 // breakdown instead of "full payment due".
 export async function selectCashPayment(
@@ -381,9 +384,18 @@ export async function selectCashPayment(
   const amount =
     overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
   const isAdvance = !!options?.isAdvance;
+  // effectiveTotal is POST-discount. `amount` is the advance the customer
+  // paid via UPI QR (already post-discount via overrideAmount from the
+  // checkout client). Subtracting the advance from pre-discount hold.total
+  // would make the venue collect the coupon back.
+  const appliedDiscount =
+    hold.couponId && hold.discountAmount && hold.discountAmount > 0
+      ? hold.discountAmount
+      : 0;
+  const effectiveTotal = hold.totalAmount - appliedDiscount;
   const advanceAmount = isAdvance ? amount : undefined;
   const remainingAmount = isAdvance
-    ? Math.max(hold.totalAmount - amount, 0)
+    ? Math.max(effectiveTotal - amount, 0)
     : undefined;
 
   const bookingId = await createBookingFromHold(holdId, {

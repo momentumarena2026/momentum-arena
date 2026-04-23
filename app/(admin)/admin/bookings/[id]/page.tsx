@@ -275,11 +275,20 @@ export default async function AdminBookingDetailPage({
             {booking.payment.isPartialPayment && (() => {
               const advance =
                 booking.payment.advanceAmount ?? 0;
-              const remaining = booking.payment.remainingAmount ?? 0;
               const total = booking.totalAmount;
+              // Derive the owed-at-venue figure from totalAmount - advance
+              // (post-discount) rather than trusting Payment.remainingAmount,
+              // which historically stored `hold.totalAmount - advance`
+              // (pre-discount) and ended up ₹100 high on every coupon-applied
+              // booking. Payment.remainingAmount is still authoritative for
+              // the "collected?" flag (it flips to 0 when markRemainderCollected
+              // runs), but the amount shown and charged to the customer is
+              // derived so the UI stays correct regardless of stored drift.
+              const storedRemaining = booking.payment.remainingAmount ?? 0;
+              const collected = storedRemaining <= 0;
+              const remaining = collected ? 0 : Math.max(total - advance, 0);
               const percentPaid =
                 total > 0 ? Math.round((advance / total) * 100) : 0;
-              const collected = remaining <= 0;
               const borderClass = collected
                 ? "border-emerald-500/30 bg-emerald-500/10"
                 : "border-amber-500/30 bg-amber-500/10";

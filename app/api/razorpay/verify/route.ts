@@ -64,7 +64,18 @@ export async function POST(request: NextRequest) {
   }
 
   const paymentAmount = hold.paymentAmount ?? hold.totalAmount;
-  const fullAmount = hold.totalAmount;
+  // fullAmount is the POST-discount total so remainingAmount == what the
+  // customer still owes at the venue. hold.totalAmount is pre-discount; we
+  // have to subtract any coupon that was applied on the hold (mirrors the
+  // `effectiveTotal` used inside createBookingFromHold). Using pre-discount
+  // here makes the venue collect the discount back (e.g. charges ₹1,050
+  // instead of ₹950 when FLAT100 brought ₹2,000 → ₹1,900 and the advance
+  // was ₹950).
+  const appliedDiscount =
+    hold.couponId && hold.discountAmount && hold.discountAmount > 0
+      ? hold.discountAmount
+      : 0;
+  const fullAmount = hold.totalAmount - appliedDiscount;
   const advanceAmount = isAdvance ? paymentAmount : undefined;
   const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
 

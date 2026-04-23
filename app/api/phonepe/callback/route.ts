@@ -51,7 +51,13 @@ export async function POST(request: NextRequest) {
 
     const paymentAmount = hold.paymentAmount ?? hold.totalAmount;
     const isAdvance = hold.paymentMethod === "CASH"; // advance-via-phonepe flag
-    const fullAmount = hold.totalAmount;
+    // fullAmount is POST-discount so the venue isn't told to collect back
+    // the coupon. Mirrors the `effectiveTotal` used in createBookingFromHold.
+    const appliedDiscount =
+      hold.couponId && hold.discountAmount && hold.discountAmount > 0
+        ? hold.discountAmount
+        : 0;
+    const fullAmount = hold.totalAmount - appliedDiscount;
     const advanceAmount = isAdvance ? paymentAmount : undefined;
     const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
 

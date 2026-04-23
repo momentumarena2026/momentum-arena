@@ -134,7 +134,16 @@ export async function markRemainderCollected(
   if (!booking.payment.isPartialPayment) {
     return { success: false, error: "Booking is not a partial payment" };
   }
-  const remaining = booking.payment.remainingAmount ?? 0;
+  // Use Payment.remainingAmount only as the "still owed?" gate — the
+  // amount to charge at the venue is derived from totalAmount - advance
+  // so historical rows where remainingAmount was stored pre-discount
+  // (coupon bug) still validate against the correct post-discount figure.
+  const storedRemaining = booking.payment.remainingAmount ?? 0;
+  if (storedRemaining <= 0) {
+    return { success: false, error: "Remainder already collected" };
+  }
+  const advance = booking.payment.advanceAmount ?? 0;
+  const remaining = Math.max(booking.totalAmount - advance, 0);
   if (remaining <= 0) {
     return { success: false, error: "Remainder already collected" };
   }
