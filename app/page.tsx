@@ -628,7 +628,7 @@ export default function Home() {
               </p>
               <a
                 href="/policies"
-                className="text-xs text-zinc-500 hover:text-emerald-400 transition-colors"
+                className="cursor-pointer text-xs text-zinc-500 hover:text-emerald-400 transition-colors"
               >
                 Terms, Privacy &amp; Refund Policy
               </a>
