@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { SPORT_INFO, formatHourCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
-import { formatPrice, formatBookingDate } from "@/lib/pricing";
+import { formatPrice, formatPriceCompact, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
   Calendar,
@@ -204,7 +204,8 @@ export default async function MyBookingsPage({
               <StatCard
                 icon={<IndianRupee className="h-3.5 w-3.5 text-amber-400" />}
                 label="Spent"
-                value={formatPrice(totalSpent)}
+                value={formatPriceCompact(totalSpent)}
+                title={formatPrice(totalSpent)}
               />
             </div>
           )}
@@ -330,18 +331,24 @@ function StatCard({
   icon,
   label,
   value,
+  title,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  /** Full (un-truncated) value, shown as a native tooltip on hover. */
+  title?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-black/40 p-3 backdrop-blur">
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
+    <div className="rounded-2xl border border-zinc-800 bg-black/40 p-2.5 backdrop-blur sm:p-3">
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500 sm:gap-1.5 sm:text-[11px]">
         {icon}
-        <span>{label}</span>
+        <span className="truncate">{label}</span>
       </div>
-      <p className="mt-1 truncate text-lg font-bold text-white md:text-xl">
+      <p
+        title={title}
+        className="mt-1 text-base font-bold tabular-nums text-white sm:text-lg md:text-xl"
+      >
         {value}
       </p>
     </div>

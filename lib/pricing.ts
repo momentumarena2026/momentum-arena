@@ -67,6 +67,28 @@ export function formatPrice(amount: number): string {
 }
 
 /**
+ * Compact INR format for cramped UI tiles (e.g. dashboard stat cards).
+ * Uses Indian denominations — K (thousand), L (lakh), Cr (crore) — and
+ * drops trailing .0 so values stay short.
+ *
+ *   999        -> "₹999"
+ *   1,250      -> "₹1.3K"
+ *   36,650     -> "₹36.7K"
+ *   1,25,000   -> "₹1.3L"
+ *   1,50,00,000 -> "₹1.5Cr"
+ */
+export function formatPriceCompact(amount: number): string {
+  const sign = amount < 0 ? "-" : "";
+  const abs = Math.abs(amount);
+  const trim = (n: number, digits = 1) =>
+    n.toFixed(digits).replace(/\.0+$/, "");
+  if (abs >= 10_000_000) return `${sign}₹${trim(abs / 10_000_000)}Cr`;
+  if (abs >= 1_00_000) return `${sign}₹${trim(abs / 1_00_000)}L`;
+  if (abs >= 1_000) return `${sign}₹${trim(abs / 1_000)}K`;
+  return `${sign}₹${abs.toLocaleString("en-IN")}`;
+}
+
+/**
  * Format a booking date in IST timezone.
  * Booking dates are stored as @db.Date (UTC midnight), so we must
  * always specify Asia/Kolkata to avoid off-by-one on UTC servers.
