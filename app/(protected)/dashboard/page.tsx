@@ -12,6 +12,8 @@ import {
   RefreshCw,
   Zap,
   ChevronRight,
+  Phone,
+  User as UserIcon,
 } from "lucide-react";
 import { SignOutButton } from "@/components/sign-out-button";
 import {
@@ -75,7 +77,7 @@ export default async function DashboardPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [upcomingBookings, totalBookings, thisMonthBookings] = await Promise.all([
+  const [upcomingBookings, totalBookings, thisMonthBookings, user] = await Promise.all([
     db.booking.findMany({
       where: {
         userId: session.user.id,
@@ -100,6 +102,12 @@ export default async function DashboardPage() {
           gte: new Date(today.getFullYear(), today.getMonth(), 1),
         },
       },
+    }),
+    // Pull name + phone for the Account Info card (mirrors the mobile
+    // Account screen). Falling back to null so the card still renders.
+    db.user.findUnique({
+      where: { id: session.user.id },
+      select: { name: true, phone: true },
     }),
   ]);
 
@@ -143,25 +151,28 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Quick Book CTA */}
-      <Link
-        href="/book"
-        className="group relative flex items-center justify-between overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-600/15 via-emerald-500/10 to-transparent p-5 transition-all hover:border-emerald-400/40 hover:shadow-lg hover:shadow-emerald-500/5"
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-        <div className="relative flex items-center gap-4">
-          <div className="rounded-xl bg-emerald-500/20 p-3 ring-1 ring-emerald-500/20">
-            <Plus className="h-6 w-6 text-emerald-400" />
+      {/* Account Info — mirrors the mobile Account screen's Name / Phone card */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-3">
+        <h3 className="text-sm font-medium text-zinc-500 uppercase tracking-wider">
+          Account Info
+        </h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-zinc-400">
+              <UserIcon className="h-4 w-4" />
+              Name
+            </span>
+            <span className="text-white">{user?.name || "Not set"}</span>
           </div>
-          <div>
-            <p className="text-lg font-semibold text-white">Book a Court</p>
-            <p className="text-sm text-zinc-400">
-              Cricket, Football, Pickleball
-            </p>
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-zinc-400">
+              <Phone className="h-4 w-4" />
+              Phone
+            </span>
+            <span className="text-white">{user?.phone || "Not set"}</span>
           </div>
         </div>
-        <ArrowRight className="relative h-5 w-5 text-zinc-600 transition-all group-hover:translate-x-1 group-hover:text-emerald-400" />
-      </Link>
+      </div>
 
       {/* Stats Row */}
       <div className="grid gap-2 sm:gap-3 grid-cols-3">
@@ -195,7 +206,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Quick Links */}
-      <div className="grid gap-3 grid-cols-2">
+      <div className="space-y-3">
         <Link
           href="/bookings"
           className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
@@ -218,7 +229,7 @@ export default async function DashboardPage() {
             <RefreshCw className="h-4 w-4 text-zinc-500" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-white">Recurring</p>
+            <p className="text-sm font-medium text-white">Recurring Bookings</p>
             <p className="text-xs text-zinc-600">Weekly bookings</p>
           </div>
           <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
