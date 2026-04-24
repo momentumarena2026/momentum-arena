@@ -21,9 +21,9 @@ function parseAdminPhones(): string[] {
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID =
   process.env.MSG91_BOOKING_CONFIRMATION_TEMPLATE_ID || "69e918a14983bc3b6a082835";
-// Existing "new booking, payment pending" admin template.
+// Existing "new booking, payment pending" admin template (PhonePe QR unconfirmed).
 const MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID =
-  process.env.MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID || "69dfa786ec69c7286e0d2082";
+  process.env.MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID || "69eb535ae5815fa1860a1044";
 // Option B admin template: "New confirmed booking on {#var#}. Amount
 // {#var#}. Details: https://www.momentumarena.com/admin/bookings - Momentum
 // Arena". Separate env var so we don't reuse the pending-booking template
