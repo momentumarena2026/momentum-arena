@@ -434,7 +434,7 @@ export default function Home() {
                   Order Now
                 </h3>
                 <p className="text-sm sm:text-base md:text-lg text-white/70 mb-4 sm:mb-6 max-w-md">
-                  Snacks, fresh beverages, hot meals &amp; combos — served at the arena
+                  Snacks, fresh beverages, hot meals &amp; combos — served at the arena — no online deliveries 
                 </p>
                 <div className="flex gap-2 sm:gap-3 flex-wrap justify-center">
                   <span className="px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-medium">🍿 Snacks</span>
