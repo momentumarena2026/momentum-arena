@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getMobileUser } from "@/lib/mobile-auth";
 
+// Public court-config listing for the mobile app. No auth: court metadata
+// (size, label, zones) is already visible to anyone browsing the website,
+// and gating the list behind OTP sign-in just traps signed-out users on a
+// dead-end "Couldn't load courts" screen.
 export async function GET(request: NextRequest) {
-  const user = await getMobileUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const sport = request.nextUrl.searchParams.get("sport");
   if (!sport) {
     return NextResponse.json({ error: "Sport is required" }, { status: 400 });
