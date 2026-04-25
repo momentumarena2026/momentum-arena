@@ -88,6 +88,16 @@ async function fetchAccessToken(): Promise<string> {
     grant_type: "client_credentials",
   });
 
+  // Log the request details so a 4xx from PhonePe is debuggable from
+  // Vercel function logs without leaking secrets. We log:
+  //   - the URL we're hitting (which env we picked)
+  //   - the client_id (it's a public identifier, safe to log)
+  //   - the lengths of the secret + version (catches "set but empty"
+  //     and "trailing whitespace" issues without exposing the value)
+  console.log(
+    `[phonepe] OAuth request → ${PHONEPE_OAUTH_URL} (env=${PHONEPE_ENV}, client_id=${PHONEPE_CLIENT_ID}, client_version=${PHONEPE_CLIENT_VERSION}, secret_len=${PHONEPE_CLIENT_SECRET.length})`,
+  );
+
   const res = await fetch(PHONEPE_OAUTH_URL, {
     method: "POST",
     signal: AbortSignal.timeout(10000),
@@ -97,6 +107,9 @@ async function fetchAccessToken(): Promise<string> {
 
   if (!res.ok) {
     const text = await res.text();
+    console.error(
+      `[phonepe] OAuth ${res.status} from ${PHONEPE_OAUTH_URL} — body: ${text.slice(0, 500)}`,
+    );
     throw new Error(`PhonePe OAuth failed: ${res.status} ${text}`);
   }
 
