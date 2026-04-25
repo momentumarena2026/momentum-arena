@@ -26,8 +26,15 @@ export const bookingsApi = {
   detail: (bookingId: string) =>
     api.get<Booking>(`/api/mobile/bookings/${bookingId}`),
 
-  recurring: () =>
-    api.get<RecurringListResponse>("/api/mobile/recurring"),
+  recurring: (params?: { page?: number; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return api.get<RecurringListResponse>(
+      `/api/mobile/recurring${qs ? `?${qs}` : ""}`,
+    );
+  },
 
   courts: (sport: Sport) =>
     api.get<CourtConfig[]>(`/api/mobile/courts?sport=${sport}`, {

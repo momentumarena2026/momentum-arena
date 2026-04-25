@@ -1,6 +1,8 @@
 import { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,7 +12,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import LinearGradient from "react-native-linear-gradient";
 import {
   ArrowUpRight,
@@ -45,6 +47,11 @@ import type {
 type Nav = NativeStackNavigationProp<AccountStackParamList, "RecurringBookings">;
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const PAGE_SIZE = 20;
+
+/** Distance from the bottom (in px) at which we start prefetching the next page. */
+const END_REACHED_THRESHOLD = 240;
 
 // Per-sport palette — mirrors `SPORT_THEME` in the web RecurringCard
 // (app/(protected)/bookings/page.tsx).
@@ -86,13 +93,20 @@ export function RecurringBookingsScreen() {
     isError,
     refetch,
     isRefetching,
-  } = useQuery<RecurringListResponse>({
-    queryKey: ["recurring", "list"],
-    queryFn: () => bookingsApi.recurring(),
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<RecurringListResponse>({
+    queryKey: ["recurring", "infinite"],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      bookingsApi.recurring({ page: pageParam as number, limit: PAGE_SIZE }),
+    getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
   });
 
+  // Flatten all loaded pages into a single array for rendering.
   const recurring = useMemo<RecurringSeries[]>(
-    () => data?.recurring ?? [],
+    () => data?.pages.flatMap((p) => p.recurring) ?? [],
     [data],
   );
 
@@ -118,15 +132,36 @@ export function RecurringBookingsScreen() {
     void refetch();
   }, [refetch]);
 
+  // Fires `fetchNextPage` as the user nears the bottom of the scroll
+  // view. ScrollView doesn't have native `onEndReached`, so we compute
+  // it from the scroll event + a fixed pixel threshold — same pattern
+  // as BookingsListScreen.
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!hasNextPage || isFetchingNextPage) return;
+      const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      if (distanceFromBottom < END_REACHED_THRESHOLD) {
+        void fetchNextPage();
+      }
+    },
+    [hasNextPage, isFetchingNextPage, fetchNextPage],
+  );
+
   const recurringCount = recurring.length;
 
   return (
     <Screen padded={false}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
+        onScroll={onScroll}
+        // Fire onScroll frequently enough to catch fast flings without
+        // flooding JS; 64ms ≈ 15 Hz which is plenty for a threshold check.
+        scrollEventThrottle={64}
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching && !isLoading}
+            refreshing={isRefetching && !isLoading && !isFetchingNextPage}
             onRefresh={onRefresh}
             tintColor={colors.zinc400}
             colors={[colors.primary]}
@@ -233,6 +268,21 @@ export function RecurringBookingsScreen() {
                 onOpenBooking={goToBookingDetail}
               />
             ))}
+
+            {/* Footer: either a spinner while prefetching the next
+                page, or a subtle "caught up" hint when there's
+                nothing left to load. Mirrors BookingsListScreen. */}
+            {isFetchingNextPage ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : !hasNextPage && recurring.length > PAGE_SIZE ? (
+              <View style={styles.footerCaughtUp}>
+                <Text style={styles.footerCaughtUpText}>
+                  You're all caught up.
+                </Text>
+              </View>
+            ) : null}
           </View>
         )}
 
@@ -448,6 +498,18 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: spacing["3"],
+  },
+  footerLoader: {
+    paddingVertical: spacing["4"],
+    alignItems: "center",
+  },
+  footerCaughtUp: {
+    paddingVertical: spacing["4"],
+    alignItems: "center",
+  },
+  footerCaughtUpText: {
+    fontSize: 12,
+    color: colors.zinc500,
   },
 });
 

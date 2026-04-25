@@ -141,6 +141,10 @@ export interface RecurringSeries {
 
 export interface RecurringListResponse {
   recurring: RecurringSeries[];
+  page: number;
+  limit: number;
+  hasMore: boolean;
+  nextPage: number | null;
 }
 
 export interface CafeItem {

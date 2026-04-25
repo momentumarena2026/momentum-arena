@@ -5,13 +5,15 @@ import { getMobileUser } from "@/lib/mobile-auth";
 /**
  * GET /api/mobile/recurring
  *
- * Lists the caller's active and paused recurring booking *series* —
- * the same shape the web's `app/(protected)/bookings/page.tsx` uses for
- * the "Recurring Series" card list.
+ * Paginated list of the caller's active and paused recurring booking
+ * *series* — the same shape the web's `app/(protected)/bookings/page.tsx`
+ * uses for the "Recurring Series" card list.
  *
- * Each row carries the next 3 upcoming confirmed instances so the
- * mobile RecurringBookingsScreen can render the "Next up" chips
- * without a follow-up request.
+ * The mobile client drives infinite scroll off the `hasMore` flag —
+ * when it's `true`, the next request bumps `page` by one. Each row
+ * carries the next 3 upcoming confirmed instances so the mobile
+ * RecurringBookingsScreen can render the "Next up" chips without a
+ * follow-up request.
  *
  * Response shape:
  * {
@@ -19,7 +21,8 @@ import { getMobileUser } from "@/lib/mobile-auth";
  *     id, status, dayOfWeek, startHour, endHour,
  *     courtConfig: { sport, size, label },
  *     bookings: Array<{ id, date, totalAmount }>
- *   }>
+ *   }>,
+ *   page, limit, hasMore, nextPage
  * }
  */
 export async function GET(request: NextRequest) {
@@ -28,7 +31,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const recurring = await db.recurringBooking.findMany({
+  const page = Math.max(
+    parseInt(request.nextUrl.searchParams.get("page") || "1"),
+    1,
+  );
+  const limit = Math.min(
+    Math.max(parseInt(request.nextUrl.searchParams.get("limit") || "20"), 1),
+    50,
+  );
+  const skip = (page - 1) * limit;
+
+  // Fetch limit+1 to detect whether a next page exists without a
+  // separate count query — same trick we use in /api/mobile/bookings.
+  // We slice the extra row before returning.
+  const rows = await db.recurringBooking.findMany({
     where: {
       userId: user.id,
       status: { in: ["ACTIVE", "PAUSED"] },
@@ -43,7 +59,12 @@ export async function GET(request: NextRequest) {
       },
     },
     orderBy: { createdAt: "desc" },
+    take: limit + 1,
+    skip,
   });
+
+  const hasMore = rows.length > limit;
+  const recurring = hasMore ? rows.slice(0, limit) : rows;
 
   // Trim down to the fields the mobile client actually consumes — keeps
   // the payload small and matches the web Recurring Series card.
@@ -57,5 +78,11 @@ export async function GET(request: NextRequest) {
     bookings: r.bookings,
   }));
 
-  return NextResponse.json({ recurring: payload });
+  return NextResponse.json({
+    recurring: payload,
+    page,
+    limit,
+    hasMore,
+    nextPage: hasMore ? page + 1 : null,
+  });
 }
