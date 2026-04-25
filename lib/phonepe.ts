@@ -322,10 +322,16 @@ export function verifyPhonePeWebhook(
 // Shape of the v2 webhook body. Provided here for callback handlers
 // to type their JSON parsing — the actual auth happens via
 // `verifyPhonePeWebhook`.
+//
+// PhonePe's webhook event taxonomy as exposed in the dashboard's
+// "Active Events" picker uses the `pg.*` namespace for the Standard
+// Checkout product. The fallback `string` keeps us forward-compatible
+// when PhonePe adds events without breaking type-narrowing in
+// downstream switch statements.
 export interface PhonePeWebhookBody {
   event:
-    | "checkout.order.completed"
-    | "checkout.order.failed"
+    | "pg.order.completed"
+    | "pg.order.failed"
     | "pg.refund.completed"
     | "pg.refund.failed"
     | string;
