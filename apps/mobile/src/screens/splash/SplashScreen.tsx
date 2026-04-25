@@ -43,13 +43,36 @@ type SportToken = {
   y: number;
   /** Stagger so the icons don't all land at the same instant. */
   delay: number;
+  /**
+   * Which brand hue tints this token's chip. The two-colour palette
+   * mirrors the rest of the app: emerald = sports / booking flow
+   * (HomeScreen, Sports tab), amber = cafe (CafeMenuScreen, /cafe
+   * page). Putting both on the splash signals we're more than a
+   * booking app from the first frame.
+   */
+  accent: "emerald" | "amber";
 };
 
 const SPORTS: SportToken[] = [
-  { emoji: "\u{1F3CF}", x: -110, y: -40, delay: 250 }, // cricket bat & ball
-  { emoji: "⚽️", x: 110, y: -40, delay: 400 }, // football
-  { emoji: "\u{1F3D3}", x: 0, y: 130, delay: 550 }, // ping-pong paddle (stand-in for pickleball)
+  { emoji: "\u{1F3CF}", x: -110, y: -40, delay: 250, accent: "emerald" },
+  { emoji: "⚽️", x: 110, y: -40, delay: 400, accent: "emerald" },
+  { emoji: "\u{1F3D3}", x: 0, y: 130, delay: 550, accent: "amber" },
 ];
+
+// Brand hues used by the splash. Same hex values the cafe pages and
+// HomeScreen orbs use, so the splash visually previews the rest of
+// the app's palette.
+const EMERALD = "#10b981";
+const AMBER = "#f59e0b";
+
+const ACCENT_BG: Record<SportToken["accent"], string> = {
+  emerald: "rgba(16, 185, 129, 0.10)",
+  amber: "rgba(245, 158, 11, 0.10)",
+};
+const ACCENT_BORDER: Record<SportToken["accent"], string> = {
+  emerald: "rgba(16, 185, 129, 0.30)",
+  amber: "rgba(245, 158, 11, 0.35)",
+};
 
 const LOGO_SIZE = 132;
 const SPORT_SIZE = 44;
@@ -59,6 +82,10 @@ const SPORT_SIZE = 44;
 // opaque when it hits the canvas boundary, putting the hard edge
 // back in.
 const GLOW_SIZE = 320;
+// Smaller, offset amber halo paired with the emerald one — same idea
+// as HomeScreen's two-orb backdrop. Sized intentionally smaller so
+// the emerald stays dominant and amber reads as a warm accent.
+const AMBER_GLOW_SIZE = 230;
 
 export function SplashScreen({ onComplete }: Props) {
   // ---- Logo ------------------------------------------------------
@@ -70,6 +97,10 @@ export function SplashScreen({ onComplete }: Props) {
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoFloat = useRef(new Animated.Value(0)).current;
   const glowOpacity = useRef(new Animated.Value(0)).current;
+  // Amber accent halo pulses on its own rhythm so the warm/cool
+  // hues alternate slightly — looks more alive than two halos
+  // breathing in lockstep.
+  const amberGlowOpacity = useRef(new Animated.Value(0)).current;
 
   // ---- Sport icons ----------------------------------------------
   // Each icon gets translateY (drops in from 30px above its resting
@@ -172,6 +203,24 @@ export function SplashScreen({ onComplete }: Props) {
       }),
     ]);
 
+    // Amber accent halo — comes in slightly later and peaks lower,
+    // so it reads as a secondary wash behind the dominant emerald.
+    const amberGlowPulse = Animated.sequence([
+      Animated.delay(950),
+      Animated.timing(amberGlowOpacity, {
+        toValue: 0.85,
+        duration: 700,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(amberGlowOpacity, {
+        toValue: 0.45,
+        duration: 700,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+
     // Idle float loops — kicked off after the entrance, run until
     // the screen fades. Each sport icon bobs at its own rate; the
     // logo also drifts a touch on the y-axis.
@@ -213,12 +262,16 @@ export function SplashScreen({ onComplete }: Props) {
       });
     };
 
-    Animated.parallel([logoIn, sportsIn, wordmarkIn, glowPulse]).start(
-      ({ finished }) => {
-        if (!finished) return;
-        startIdleLoops();
-      },
-    );
+    Animated.parallel([
+      logoIn,
+      sportsIn,
+      wordmarkIn,
+      glowPulse,
+      amberGlowPulse,
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      startIdleLoops();
+    });
 
     // Hold the assembled scene briefly, then crossfade out and tell
     // the host to swap to the real navigator.
@@ -239,6 +292,7 @@ export function SplashScreen({ onComplete }: Props) {
     logoOpacity,
     logoFloat,
     glowOpacity,
+    amberGlowOpacity,
     wordmarkOpacity,
     wordmarkTranslate,
     sportTransforms,
@@ -250,17 +304,18 @@ export function SplashScreen({ onComplete }: Props) {
     <Animated.View style={[styles.container, { opacity: screenOpacity }]}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
-      {/* Subtle radial-ish gradient using a vertical linear-gradient.
-          Keeps the screen pure-black at the top/bottom and adds a
-          faint emerald wash through the middle so the centred logo
-          feels lit rather than floating in a void. */}
+      {/* Subtle two-tone vertical wash: pure black at the top, a
+          faint emerald tint around the logo, then a warm amber tint
+          behind the wordmark. Mirrors the brand split — emerald for
+          sports / booking up top, amber for cafe near the tagline. */}
       <LinearGradient
         colors={[
           "#000000",
           "rgba(16, 185, 129, 0.10)",
+          "rgba(245, 158, 11, 0.06)",
           "#000000",
         ]}
-        locations={[0, 0.5, 1]}
+        locations={[0, 0.42, 0.78, 1]}
         style={StyleSheet.absoluteFill}
       />
 
@@ -285,19 +340,40 @@ export function SplashScreen({ onComplete }: Props) {
           <Svg width={GLOW_SIZE} height={GLOW_SIZE}>
             <Defs>
               <SvgRadialGradient id="splashGlow" cx="50%" cy="50%" r="50%">
-                <Stop offset="0" stopColor="#10b981" stopOpacity="0.45" />
-                <Stop offset="0.45" stopColor="#10b981" stopOpacity="0.18" />
-                <Stop offset="1" stopColor="#10b981" stopOpacity="0" />
+                <Stop offset="0" stopColor={EMERALD} stopOpacity="0.45" />
+                <Stop offset="0.45" stopColor={EMERALD} stopOpacity="0.18" />
+                <Stop offset="1" stopColor={EMERALD} stopOpacity="0" />
               </SvgRadialGradient>
             </Defs>
             <Circle cx="50%" cy="50%" r="50%" fill="url(#splashGlow)" />
           </Svg>
         </Animated.View>
 
+        {/* Amber accent halo — smaller, offset down-right so it peeks
+            out from behind the emerald rather than overlapping it
+            head-on. Same soft-edge technique. */}
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.amberGlow, { opacity: amberGlowOpacity }]}
+        >
+          <Svg width={AMBER_GLOW_SIZE} height={AMBER_GLOW_SIZE}>
+            <Defs>
+              <SvgRadialGradient id="splashAmberGlow" cx="50%" cy="50%" r="50%">
+                <Stop offset="0" stopColor={AMBER} stopOpacity="0.32" />
+                <Stop offset="0.5" stopColor={AMBER} stopOpacity="0.10" />
+                <Stop offset="1" stopColor={AMBER} stopOpacity="0" />
+              </SvgRadialGradient>
+            </Defs>
+            <Circle cx="50%" cy="50%" r="50%" fill="url(#splashAmberGlow)" />
+          </Svg>
+        </Animated.View>
+
         {/* Sport icons sit at fixed offsets around the logo. translateY
             already encodes the resting position (it animates from
             `token.y - 30` to `token.y` on entry); the float loop is
-            added on top for idle bobbing. */}
+            added on top for idle bobbing. Chip background + border
+            inherit the token's brand accent (emerald or amber) so
+            the cafe-aligned hue gets a presence on the splash. */}
         {SPORTS.map((token, i) => {
           const t = sportTransforms[i];
           return (
@@ -306,6 +382,8 @@ export function SplashScreen({ onComplete }: Props) {
               style={[
                 styles.sportToken,
                 {
+                  backgroundColor: ACCENT_BG[token.accent],
+                  borderColor: ACCENT_BORDER[token.accent],
                   transform: [
                     { translateX: token.x },
                     { translateY: Animated.add(t.translateY, t.float) },
@@ -382,6 +460,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  amberGlow: {
+    position: "absolute",
+    width: AMBER_GLOW_SIZE,
+    height: AMBER_GLOW_SIZE,
+    // Offset down-right of the logo centre so the warm halo peeks
+    // out past the cool one rather than overlapping it concentrically.
+    transform: [{ translateX: 70 }, { translateY: 90 }],
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sportToken: {
     position: "absolute",
     width: SPORT_SIZE,
@@ -389,9 +477,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: SPORT_SIZE / 2,
-    backgroundColor: "rgba(16, 185, 129, 0.10)",
     borderWidth: 1,
-    borderColor: colors.emerald500_30,
+    // backgroundColor + borderColor are applied inline per token so
+    // each chip can carry its own brand hue (emerald vs amber).
   },
   sportEmoji: {
     fontSize: 24,
