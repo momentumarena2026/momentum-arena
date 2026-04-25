@@ -31,15 +31,35 @@ import {
   Eye,
   EyeOff,
   Users,
+  UserCheck,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
+import { UserPicker } from "./user-groups-manager";
 
 interface ConditionRow {
   conditionType: CouponConditionType;
   conditionValue: string;
 }
 
-interface CouponRow {
+export interface EligibleUserSummary {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface EligibleGroupSummary {
+  id: string;
+  name: string;
+}
+
+export interface GroupOption {
+  id: string;
+  name: string;
+  memberCount: number;
+}
+
+export interface CouponRow {
   id: string;
   code: string;
   description: string | null;
@@ -63,6 +83,11 @@ interface CouponRow {
   isActive: boolean;
   usageCount: number;
   conditions: ConditionRow[];
+  // Admin-curated targeting (separate from `userGroupFilter`, which
+  // is the auto-computed buckets like FIRST_TIME). Empty arrays =
+  // no targeting; coupon validation OR's all paths together.
+  eligibleUsers: EligibleUserSummary[];
+  eligibleGroups: EligibleGroupSummary[];
 }
 
 interface UsageRow {
@@ -126,10 +151,23 @@ function emptyForm() {
       .toISOString()
       .split("T")[0],
     conditions: [] as ConditionRow[],
+    // Customer targeting: full user objects for the chip display +
+    // a parallel id-only list of selected groups. Both empty by
+    // default → no targeting.
+    eligibleUsers: [] as EligibleUserSummary[],
+    eligibleGroupIds: [] as string[],
   };
 }
 
-export function CouponsManager({ coupons }: { coupons: CouponRow[] }) {
+export function CouponsManager({
+  coupons,
+  groupOptions,
+}: {
+  coupons: CouponRow[];
+  /** Groups available to assign to a coupon. Sourced from
+   *  listUserGroups() — soft-deleted groups never appear. */
+  groupOptions: GroupOption[];
+}) {
   const router = useRouter();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -185,6 +223,8 @@ export function CouponsManager({ coupons }: { coupons: CouponRow[] }) {
         conditionType: c.conditionType,
         conditionValue: c.conditionValue,
       })),
+      eligibleUsers: coupon.eligibleUsers.map((u) => ({ ...u })),
+      eligibleGroupIds: coupon.eligibleGroups.map((g) => g.id),
     });
     setError(null);
     setShowModal(true);
@@ -221,6 +261,8 @@ export function CouponsManager({ coupons }: { coupons: CouponRow[] }) {
       validFrom: form.validFrom,
       validUntil: form.validUntil,
       conditions: form.conditions,
+      eligibleUserIds: form.eligibleUsers.map((u) => u.id),
+      eligibleGroupIds: form.eligibleGroupIds,
     };
 
     let result;
@@ -810,11 +852,104 @@ export function CouponsManager({ coupons }: { coupons: CouponRow[] }) {
                 </div>
               )}
 
-              {/* User Groups */}
+              {/* Customer Targeting — admin-curated. Composes via OR
+                  with the auto User Group Filter below: if any of
+                  these is non-empty, the user must satisfy at least
+                  one of {direct list, group membership, auto bucket}
+                  to redeem. */}
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="h-4 w-4 text-emerald-400" />
+                  <label className="text-xs font-semibold text-emerald-300 uppercase tracking-wide">
+                    Customer Targeting
+                  </label>
+                  <span className="text-[10px] text-emerald-400/60">
+                    optional
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+                    Specific customers
+                  </label>
+                  <UserPicker
+                    picked={form.eligibleUsers}
+                    onAdd={(u) =>
+                      setForm((p) =>
+                        p.eligibleUsers.some((x) => x.id === u.id)
+                          ? p
+                          : { ...p, eligibleUsers: [...p.eligibleUsers, u] },
+                      )
+                    }
+                    onRemove={(id) =>
+                      setForm((p) => ({
+                        ...p,
+                        eligibleUsers: p.eligibleUsers.filter((u) => u.id !== id),
+                      }))
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+                    User groups
+                  </label>
+                  {groupOptions.length === 0 ? (
+                    <p className="text-xs text-zinc-500">
+                      No groups yet. Create one in the{" "}
+                      <span className="text-zinc-300">User Groups</span> tab.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {groupOptions.map((g) => {
+                        const selected = form.eligibleGroupIds.includes(g.id);
+                        return (
+                          <button
+                            key={g.id}
+                            type="button"
+                            onClick={() =>
+                              setForm((p) => ({
+                                ...p,
+                                eligibleGroupIds: selected
+                                  ? p.eligibleGroupIds.filter((id) => id !== g.id)
+                                  : [...p.eligibleGroupIds, g.id],
+                              }))
+                            }
+                            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                              selected
+                                ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                                : "border-zinc-700 text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {g.name}
+                            <span className="ml-1.5 text-[10px] text-zinc-500">
+                              {g.memberCount}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {(form.eligibleUsers.length > 0 ||
+                  form.eligibleGroupIds.length > 0) && (
+                  <p className="text-[11px] text-emerald-400/70">
+                    Restricted to listed customers + group members
+                    {form.userGroupFilter.length > 0 &&
+                      " + the auto-eligibility groups below"}
+                    .
+                  </p>
+                )}
+              </div>
+
+              {/* User Groups (auto-computed eligibility) */}
               <div>
                 <label className="block text-xs font-medium text-zinc-400 mb-1.5">
-                  User Group Filter{" "}
-                  <span className="text-zinc-600">(optional targeting)</span>
+                  Auto-eligibility groups{" "}
+                  <span className="text-zinc-600">
+                    (computed by booking history)
+                  </span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {USER_GROUPS.map((g) => (
