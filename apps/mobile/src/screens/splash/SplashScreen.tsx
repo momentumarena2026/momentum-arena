@@ -9,6 +9,12 @@ import {
   type ImageSourcePropType,
 } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
+import Svg, {
+  Circle,
+  Defs,
+  RadialGradient as SvgRadialGradient,
+  Stop,
+} from "react-native-svg";
 import { Text } from "../../components/ui/Text";
 import { colors, spacing } from "../../theme";
 
@@ -47,6 +53,12 @@ const SPORTS: SportToken[] = [
 
 const LOGO_SIZE = 132;
 const SPORT_SIZE = 44;
+// Larger than the logo so the radial gradient has room to fade
+// fully to transparent before the SVG canvas edge clips it. Without
+// this padding the gradient's outermost ring would still be partly
+// opaque when it hits the canvas boundary, putting the hard edge
+// back in.
+const GLOW_SIZE = 320;
 
 export function SplashScreen({ onComplete }: Props) {
   // ---- Logo ------------------------------------------------------
@@ -253,8 +265,15 @@ export function SplashScreen({ onComplete }: Props) {
       />
 
       <View style={styles.stage}>
-        {/* Pulsing emerald glow behind the logo. */}
+        {/* Pulsing emerald glow behind the logo. Rendered as an SVG
+            circle filled with a radial gradient that fades to fully
+            transparent at the edge — RN's `View` + `borderRadius` +
+            `shadow` can't produce a true soft falloff, so the
+            previous implementation had a visible hard edge where the
+            translucent fill met the black background. The gradient
+            stops here mirror HomeScreen's emerald orb. */}
         <Animated.View
+          pointerEvents="none"
           style={[
             styles.glow,
             {
@@ -262,7 +281,18 @@ export function SplashScreen({ onComplete }: Props) {
               transform: [{ scale: logoScale }],
             },
           ]}
-        />
+        >
+          <Svg width={GLOW_SIZE} height={GLOW_SIZE}>
+            <Defs>
+              <SvgRadialGradient id="splashGlow" cx="50%" cy="50%" r="50%">
+                <Stop offset="0" stopColor="#10b981" stopOpacity="0.45" />
+                <Stop offset="0.45" stopColor="#10b981" stopOpacity="0.18" />
+                <Stop offset="1" stopColor="#10b981" stopOpacity="0" />
+              </SvgRadialGradient>
+            </Defs>
+            <Circle cx="50%" cy="50%" r="50%" fill="url(#splashGlow)" />
+          </Svg>
+        </Animated.View>
 
         {/* Sport icons sit at fixed offsets around the logo. translateY
             already encodes the resting position (it animates from
@@ -341,18 +371,16 @@ const styles = StyleSheet.create({
     width: LOGO_SIZE,
     height: LOGO_SIZE,
   },
+  // Wrapper for the SVG glow; sizing matches the SVG canvas so the
+  // animated scale + opacity transforms apply uniformly. The actual
+  // soft-edge halo lives inside the SVG (radial gradient → 0 alpha
+  // at the edge), so no fill / shadow / borderRadius needed here.
   glow: {
     position: "absolute",
-    width: LOGO_SIZE * 1.6,
-    height: LOGO_SIZE * 1.6,
-    borderRadius: LOGO_SIZE,
-    backgroundColor: colors.emerald500_20,
-    // Soft halo — combined with opacity pulse it reads as a glow.
-    shadowColor: colors.emerald500,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 30,
-    elevation: 12,
+    width: GLOW_SIZE,
+    height: GLOW_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sportToken: {
     position: "absolute",
