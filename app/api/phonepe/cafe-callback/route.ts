@@ -1,33 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { checkPhonePeStatus } from "@/lib/phonepe";
+import {
+  checkPhonePeStatus,
+  verifyPhonePeWebhook,
+  type PhonePeWebhookBody,
+} from "@/lib/phonepe";
 
-// PhonePe S2S callback for cafe orders
+/**
+ * PhonePe v2 server-to-server webhook for cafe orders.
+ * See app/api/phonepe/callback/route.ts for the booking-side
+ * counterpart and a longer comment on the auth/payload shape — this
+ * route is the same wire format with cafe-specific persistence.
+ */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const base64Response = body.response as string;
-    if (!base64Response) {
+    const authHeader = request.headers.get("authorization");
+    if (!verifyPhonePeWebhook(authHeader)) {
+      console.warn("PhonePe cafe webhook: auth header mismatch");
+      return NextResponse.json({ success: false }, { status: 401 });
+    }
+
+    const body = (await request.json()) as PhonePeWebhookBody;
+    const merchantOrderId = body.payload?.merchantOrderId;
+    if (!merchantOrderId) {
       return NextResponse.json({ success: false }, { status: 400 });
     }
 
-    const decoded = JSON.parse(
-      Buffer.from(base64Response, "base64").toString("utf-8")
-    );
-    const merchantTransactionId = decoded?.data?.merchantTransactionId;
-    if (!merchantTransactionId) {
-      return NextResponse.json({ success: false }, { status: 400 });
-    }
-
-    const status = await checkPhonePeStatus(merchantTransactionId);
+    // Server-side status verification (defense in depth — see
+    // booking callback for the longer rationale).
+    const status = await checkPhonePeStatus(merchantOrderId);
     if (!status.success) {
       return NextResponse.json({ success: true });
     }
 
     const payment = await db.cafePayment.findFirst({
-      where: { phonePeMerchantTxnId: merchantTransactionId },
+      where: { phonePeMerchantTxnId: merchantOrderId },
     });
     if (!payment || payment.status === "COMPLETED") {
+      // Either the cafe payment is missing (stale webhook) or
+      // already completed (PhonePe retry). Both are no-ops.
       return NextResponse.json({ success: true });
     }
 

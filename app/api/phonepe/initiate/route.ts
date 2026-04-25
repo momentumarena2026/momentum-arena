@@ -26,8 +26,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const user = await db.user.findUnique({ where: { id: userId } });
-
   try {
     const paymentAmount =
       overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
@@ -42,20 +40,26 @@ export async function POST(request: NextRequest) {
       orderAmount = advanceAmount;
     }
 
-    // Encode holdId into merchantTransactionId so callback can look it up.
-    // Keep short (PhonePe limit ~38 chars).
-    const merchantTxnId = `MA_${holdId.slice(-12)}_${Date.now()}`;
+    // Encode holdId into merchantOrderId so the redirect handler
+    // can look it up. PhonePe v2 allows up to 63 chars for this
+    // identifier — our `MA_{12-char-suffix}_{timestamp}` pattern is
+    // ~30 chars, well within bounds. Stored as
+    // SlotHold.phonePeMerchantTxnId; the column kept its legacy
+    // name to avoid a pointless schema migration.
+    const merchantOrderId = `MA_${holdId.slice(-12)}_${Date.now()}`;
     const origin =
       request.headers.get("origin") ||
       process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
 
+    // v2 has no separate `callbackUrl` parameter — webhooks are
+    // configured globally in the PhonePe dashboard's Webhooks tab,
+    // not per-payment. We pass only the user-facing redirectUrl.
     const result = await initiatePhonePePayment({
-      merchantTransactionId: merchantTxnId,
+      merchantOrderId,
       amount: orderAmount,
-      callbackUrl: `${origin}/api/phonepe/callback`,
       redirectUrl: `${origin}/api/phonepe/redirect?holdId=${holdId}`,
-      userPhone: user?.phone || undefined,
+      message: `Booking — ${formatRupeesForMessage(orderAmount)}`,
     });
 
     // Track attempt on the hold + extend TTL so payment flow has room to
@@ -66,7 +70,7 @@ export async function POST(request: NextRequest) {
     await db.slotHold.update({
       where: { id: holdId },
       data: {
-        phonePeMerchantTxnId: merchantTxnId,
+        phonePeMerchantTxnId: merchantOrderId,
         paymentMethod: isAdvance ? "CASH" : "PHONEPE",
         paymentAmount: orderAmount,
         paymentInitiatedAt: new Date(),
@@ -93,4 +97,10 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Tiny helper kept inline — used only for the cosmetic message
+// shown on the PhonePe page header.
+function formatRupeesForMessage(paise: number): string {
+  return `₹${(paise / 100).toLocaleString("en-IN")}`;
 }

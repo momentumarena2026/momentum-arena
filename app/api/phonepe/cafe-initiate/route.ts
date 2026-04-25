@@ -15,17 +15,22 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const merchantTxnId = `CAFE_${orderId.slice(-12)}_${Date.now()}`;
+    // v2 merchantOrderId — same shape as the booking initiate route,
+    // prefixed CAFE_ so the two streams are distinguishable in
+    // PhonePe's dashboard. Column on CafePayment is still legacy-
+    // named `phonePeMerchantTxnId` (no schema rename — semantic is
+    // identical, just a label change in PhonePe's docs).
+    const merchantOrderId = `CAFE_${orderId.slice(-12)}_${Date.now()}`;
     const origin =
       request.headers.get("origin") ||
       process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
 
     const result = await initiatePhonePePayment({
-      merchantTransactionId: merchantTxnId,
+      merchantOrderId,
       amount: order.totalAmount,
-      callbackUrl: `${origin}/api/phonepe/cafe-callback`,
       redirectUrl: `${origin}/api/phonepe/cafe-redirect?orderId=${orderId}`,
+      message: `Café order — ₹${(order.totalAmount / 100).toLocaleString("en-IN")}`,
     });
 
     // Update or create cafe payment
@@ -34,7 +39,7 @@ export async function POST(request: NextRequest) {
         where: { id: order.payment.id },
         data: {
           method: "PHONEPE",
-          phonePeMerchantTxnId: merchantTxnId,
+          phonePeMerchantTxnId: merchantOrderId,
         },
       });
     } else {
@@ -44,7 +49,7 @@ export async function POST(request: NextRequest) {
           method: "PHONEPE",
           status: "PENDING",
           amount: order.totalAmount,
-          phonePeMerchantTxnId: merchantTxnId,
+          phonePeMerchantTxnId: merchantOrderId,
         },
       });
     }

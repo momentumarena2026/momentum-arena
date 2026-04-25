@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import {
   verifyStaticQrCallback,
   type StaticQrCallbackData,
-} from "@/lib/phonepe";
+} from "@/lib/phonepe-static-qr";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
