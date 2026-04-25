@@ -169,10 +169,16 @@ export function EditBookingModal({
   const advanceMethodChanged =
     isPartialPayment &&
     (currentAdvanceMethod === "UPI_QR" ? "UPI_QR" : "CASH") !== advanceMethod;
+  // Lower bound is 0, not 1 — admin may want to mark a booking as
+  // "no advance, collect everything at venue" while keeping the
+  // partial-payment flag. Matches the create-booking form which
+  // already allows 0 (see components/admin/create-booking-form.tsx).
+  // A full payment (advance == total) still isn't a partial, so the
+  // upper bound stays exclusive.
   const advanceValid =
     !isPartialPayment ||
     (advanceAmountNum !== null &&
-      advanceAmountNum > 0 &&
+      advanceAmountNum >= 0 &&
       advanceAmountNum < totalPrice);
 
   const hasChanges =
@@ -193,7 +199,7 @@ export function EditBookingModal({
     setError(null);
 
     if (!advanceValid) {
-      setError(`Advance must be between ₹1 and ₹${(totalPrice - 1).toLocaleString("en-IN")}`);
+      setError(`Advance must be between ₹0 and ₹${(totalPrice - 1).toLocaleString("en-IN")}`);
       return;
     }
     try {
@@ -398,8 +404,8 @@ export function EditBookingModal({
               <span className="text-sm text-zinc-400">₹</span>
               <input
                 type="number"
-                min={1}
-                max={Math.max(totalPrice - 1, 1)}
+                min={0}
+                max={Math.max(totalPrice - 1, 0)}
                 step={1}
                 value={advanceAmountStr}
                 onChange={(e) => setAdvanceAmountStr(e.target.value)}
@@ -419,7 +425,7 @@ export function EditBookingModal({
             </div>
             {advanceAmountStr && !advanceValid && (
               <p className="text-xs text-red-400">
-                Advance must be between ₹1 and ₹
+                Advance must be between ₹0 and ₹
                 {(totalPrice - 1).toLocaleString("en-IN")}
               </p>
             )}

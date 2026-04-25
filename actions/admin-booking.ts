@@ -1352,8 +1352,13 @@ export async function adminEditBookingFull(
         : previousAdvanceMethod;
 
     if (isEditingAdvance) {
-      if (finalAdvance === null || !Number.isInteger(finalAdvance) || finalAdvance <= 0) {
-        return { success: false as const, error: "Advance must be a positive integer" };
+      // 0 is a valid advance — admin uses it to mark a booking as
+      // "no advance, collect everything at venue" while keeping the
+      // payment record intact. Mirrors the create flow's validation
+      // (createAdminBooking allows advanceAmount === 0). Reject only
+      // null / non-integer / negative.
+      if (finalAdvance === null || !Number.isInteger(finalAdvance) || finalAdvance < 0) {
+        return { success: false as const, error: "Advance must be a non-negative integer" };
       }
       if (finalAdvance >= newTotalAmount) {
         return { success: false as const, error: "Advance must be less than the total amount" };
