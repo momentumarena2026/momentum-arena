@@ -8,7 +8,6 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { useQuery } from "@tanstack/react-query";
 import {
   CheckCircle2,
   CircleCheck,
@@ -21,8 +20,6 @@ import { Card } from "../ui/Card";
 import { colors, radius, spacing } from "../../theme";
 import { env } from "../../config/env";
 import { formatRupees } from "../../lib/format";
-import { paymentsApi } from "../../lib/payments";
-import type { UpiConfigResponse } from "../../lib/types";
 
 export type UpiCommitResult = { bookingId?: string; error?: string } | void;
 
@@ -40,11 +37,22 @@ interface Props {
 // Absolute image URLs so RN's Image loader can fetch them from the same
 // backend that serves the web app's /public folder. Mirrors web's
 // TURF_QR_OPTIONS (3 random terminals).
+//
+// Each terminal is paired with the VPA encoded inside its PhonePe QR PNG
+// — that way the same-device deep link routes the payment to the same
+// terminal account that would receive a scanned payment, and we don't
+// need any server-side config for the button to work. (The VPAs are
+// already public information: they're inside every QR we ship.)
 const TURF_QR_OPTIONS = [
-  { image: `${env.apiUrl}/phonepe-qr-1.png`, label: "Terminal 1" },
-  { image: `${env.apiUrl}/phonepe-qr-2.png`, label: "Terminal 2" },
-  { image: `${env.apiUrl}/phonepe-qr-3.png`, label: "Terminal 3" },
+  { image: `${env.apiUrl}/phonepe-qr-1.png`, label: "Terminal 1", vpa: "Q611766519@ybl" },
+  { image: `${env.apiUrl}/phonepe-qr-2.png`, label: "Terminal 2", vpa: "Q991517867@ybl" },
+  { image: `${env.apiUrl}/phonepe-qr-3.png`, label: "Terminal 3", vpa: "Q510049074@ybl" },
 ];
+
+// Payee name shown by the UPI app on the confirmation screen. Matches
+// the merchant name decoded from the QR PNGs and the existing UI
+// subtitle ("Sportive Ventures").
+const PAYEE_NAME = "Sportive Ventures";
 
 const WHATSAPP_NUMBER = "916396177261";
 
@@ -80,24 +88,14 @@ export function UpiQrCheckout({
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
 
-  // Fetch the merchant VPA so we can build a `upi://pay?…` deep link.
-  // This is what lets the user pay with a UPI app installed on the
-  // *same* device they're booking from — no second phone, no
-  // save-to-gallery dance.
-  //
-  // The query is intentionally cheap and cacheable (the VPA almost
-  // never changes), so we keep it stale for a long time. If the env
-  // isn't configured server-side `vpa` comes back null and the button
-  // simply doesn't render.
-  const { data: upiConfig } = useQuery<UpiConfigResponse>({
-    queryKey: ["upi-config"],
-    queryFn: () => paymentsApi.upiConfig(),
-    staleTime: 30 * 60 * 1000, // 30 min
-    gcTime: 60 * 60 * 1000, // 1 h
-  });
-
   /**
-   * Build a UPI Spec deep link. The standard fields are:
+   * Build a UPI Spec deep link so the user can pay from a UPI app
+   * installed on the *same* device they're booking from — no second
+   * phone, no save-to-gallery dance.
+   *
+   * Uses the VPA paired with the displayed terminal QR (see
+   * TURF_QR_OPTIONS) so the deep link routes to the same account a
+   * scan would. The standard UPI fields are:
    *   pa = payee VPA (required)
    *   pn = payee name (URL-encoded)
    *   am = amount in rupees (no paise — strings like "150.00" work too)
@@ -106,10 +104,9 @@ export function UpiQrCheckout({
    *   tr = optional merchant txn ref
    */
   const upiDeepLink = useMemo(() => {
-    if (!upiConfig?.vpa) return null;
     const params = new URLSearchParams({
-      pa: upiConfig.vpa,
-      pn: upiConfig.payeeName,
+      pa: selectedQr.vpa,
+      pn: PAYEE_NAME,
       am: displayAmount.toFixed(2),
       cu: "INR",
       tn: bookingId
@@ -117,7 +114,7 @@ export function UpiQrCheckout({
         : "Momentum Arena Booking",
     });
     return `upi://pay?${params.toString()}`;
-  }, [upiConfig, displayAmount, bookingId]);
+  }, [selectedQr, displayAmount, bookingId]);
 
   async function openUpiApp() {
     if (!upiDeepLink) return;
@@ -242,38 +239,35 @@ export function UpiQrCheckout({
     <View style={styles.stack}>
       {/* Primary CTA for same-device payment: launches the user's
           installed UPI app (PhonePe / Google Pay / Paytm / BHIM …)
-          via the standard `upi://pay?…` deep link. Hidden when the
-          merchant VPA isn't configured server-side. */}
-      {upiDeepLink ? (
-        <Pressable
-          onPress={openUpiApp}
-          disabled={committing}
-          style={({ pressed }) => [
-            styles.upiAppBtn,
-            pressed && !committing && { opacity: 0.9 },
-          ]}
-        >
-          <Smartphone size={20} color="#fff" />
-          <View style={styles.upiAppBtnText}>
-            <Text variant="body" weight="700" color="#fff">
-              Pay with UPI App
-            </Text>
-            <Text variant="tiny" color="rgba(255,255,255,0.85)">
-              Opens PhonePe, GPay, Paytm, BHIM…
-            </Text>
-          </View>
-        </Pressable>
-      ) : null}
-
-      {upiDeepLink ? (
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text variant="tiny" color={colors.zinc500} style={styles.dividerText}>
-            OR SCAN WITH ANOTHER DEVICE
+          via the standard `upi://pay?…` deep link. The QR card below
+          is the secondary fallback for users who want to scan from a
+          second device. */}
+      <Pressable
+        onPress={openUpiApp}
+        disabled={committing}
+        style={({ pressed }) => [
+          styles.upiAppBtn,
+          pressed && !committing && { opacity: 0.9 },
+        ]}
+      >
+        <Smartphone size={20} color="#fff" />
+        <View style={styles.upiAppBtnText}>
+          <Text variant="body" weight="700" color="#fff">
+            Pay with UPI App
           </Text>
-          <View style={styles.dividerLine} />
+          <Text variant="tiny" color="rgba(255,255,255,0.85)">
+            Opens PhonePe, GPay, Paytm, BHIM…
+          </Text>
         </View>
-      ) : null}
+      </Pressable>
+
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text variant="tiny" color={colors.zinc500} style={styles.dividerText}>
+          OR SCAN WITH ANOTHER DEVICE
+        </Text>
+        <View style={styles.dividerLine} />
+      </View>
 
       <View style={styles.qrCard}>
         <View style={styles.qrWrap}>

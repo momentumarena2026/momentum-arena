@@ -147,16 +147,6 @@ export interface RecurringListResponse {
   nextPage: number | null;
 }
 
-/**
- * Response from `/api/mobile/upi-config`. Drives the "Pay with UPI App"
- * button in UpiQrCheckout — when `vpa` is null the button is hidden
- * and the screen falls back to the QR + screenshot flow.
- */
-export interface UpiConfigResponse {
-  vpa: string | null;
-  payeeName: string;
-}
-
 export interface CafeItem {
   id: string;
   name: string;

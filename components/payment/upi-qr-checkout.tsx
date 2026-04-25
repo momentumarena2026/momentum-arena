@@ -18,13 +18,10 @@ import {
   trackUpiAppLaunched,
 } from "@/lib/analytics";
 
-// Inlined at build time by Next.js. Both names are honoured for parity
-// with the mobile `/api/mobile/upi-config` endpoint, which also accepts
-// either form.
-const MERCHANT_VPA =
-  process.env.NEXT_PUBLIC_MERCHANT_UPI_VPA?.trim() || null;
-const MERCHANT_NAME =
-  process.env.NEXT_PUBLIC_MERCHANT_UPI_NAME?.trim() || "Momentum Arena";
+// Payee name shown by the UPI app on the confirmation screen. Matches
+// the merchant name decoded from the QR PNGs and the existing UI
+// subtitle ("Sportive Ventures").
+const PAYEE_NAME = "Sportive Ventures";
 
 /**
  * Crude UA sniff to decide whether the browser is on a phone/tablet.
@@ -56,16 +53,21 @@ interface UpiQrCheckoutProps {
   qrType?: "turf" | "cafe";
 }
 
+// Each terminal is paired with the VPA encoded inside its PhonePe QR
+// PNG — that way the same-device deep link routes the payment to the
+// same terminal account that would receive a scanned payment, and we
+// don't need any server-side config for the button to work. (The VPAs
+// are already public information: they're inside every QR we ship.)
 const TURF_QR_OPTIONS = [
-  { image: "/phonepe-qr-1.png", label: "Terminal 1" },
-  { image: "/phonepe-qr-2.png", label: "Terminal 2" },
-  { image: "/phonepe-qr-3.png", label: "Terminal 3" },
+  { image: "/phonepe-qr-1.png", label: "Terminal 1", vpa: "Q611766519@ybl" },
+  { image: "/phonepe-qr-2.png", label: "Terminal 2", vpa: "Q991517867@ybl" },
+  { image: "/phonepe-qr-3.png", label: "Terminal 3", vpa: "Q510049074@ybl" },
 ];
 
 const CAFE_QR_OPTIONS = [
-  { image: "/phonepe-cafe-qr-1.jpg", label: "Cafe Terminal 1" },
-  { image: "/phonepe-cafe-qr-2.jpg", label: "Cafe Terminal 2" },
-  { image: "/phonepe-cafe-qr-3.jpg", label: "Cafe Terminal 3" },
+  { image: "/phonepe-cafe-qr-1.jpg", label: "Cafe Terminal 1", vpa: "Q006205199@ybl" },
+  { image: "/phonepe-cafe-qr-2.jpg", label: "Cafe Terminal 2", vpa: "Q410883008@ybl" },
+  { image: "/phonepe-cafe-qr-3.jpg", label: "Cafe Terminal 3", vpa: "Q795500531@ybl" },
 ];
 
 const WHATSAPP_NUMBER = "916396177261";
@@ -112,14 +114,14 @@ export function UpiQrCheckout({
    * VPA, payee name, and amount already filled in. On desktop the
    * scheme has no handler, so we hide the button there.
    *
-   * Returns null when no VPA is configured — the rest of the QR + WA
-   * flow still works.
+   * Uses the VPA paired with the displayed terminal QR (see
+   * TURF_QR_OPTIONS / CAFE_QR_OPTIONS) so the deep link routes payment
+   * to the same terminal account a scan would.
    */
   const upiDeepLink = useMemo(() => {
-    if (!MERCHANT_VPA) return null;
     const params = new URLSearchParams({
-      pa: MERCHANT_VPA,
-      pn: MERCHANT_NAME,
+      pa: selectedQr.vpa,
+      pn: PAYEE_NAME,
       am: displayAmount.toFixed(2),
       cu: "INR",
       tn: committedBookingId
@@ -127,9 +129,9 @@ export function UpiQrCheckout({
         : "Momentum Arena Booking",
     });
     return `upi://pay?${params.toString()}`;
-  }, [committedBookingId, displayAmount]);
+  }, [committedBookingId, displayAmount, selectedQr]);
 
-  const showUpiAppButton = isMobile && upiDeepLink !== null;
+  const showUpiAppButton = isMobile;
 
   // WhatsApp URL — uses the real bookingId once the booking has been committed.
   const whatsappMessage = encodeURIComponent(
@@ -230,8 +232,9 @@ export function UpiQrCheckout({
     <div className="space-y-5">
       {/* Same-device payment CTA — opens an installed UPI app via the
           `upi://pay?…` deep link. Only rendered on mobile browsers
-          (UA-sniffed) and when the merchant VPA is configured. */}
-      {showUpiAppButton && upiDeepLink ? (
+          (UA-sniffed) since desktop browsers have no handler for the
+          `upi://` scheme. */}
+      {showUpiAppButton ? (
         <>
           <a
             href={upiDeepLink}
