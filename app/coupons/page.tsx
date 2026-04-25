@@ -17,6 +17,12 @@ export default async function CouponsPage() {
         ...personalizedData.birthdayCoupons,
         ...personalizedData.firstTimeCoupons,
         ...personalizedData.groupCoupons,
+        // Admin-targeted (direct user / group assignment) — these
+        // never appear in `allCoupons` because getAvailableCoupons
+        // filters out coupons with non-empty eligibility relations.
+        // Surfacing them here is what makes a private offer
+        // actually visible to its intended audience.
+        ...personalizedData.targetedCoupons,
       ]
     : [];
 
