@@ -1,16 +1,19 @@
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Linking,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
+import { useQuery } from "@tanstack/react-query";
 import {
   CheckCircle2,
   CircleCheck,
   MessageCircle,
+  Smartphone,
   ShieldCheck,
 } from "lucide-react-native";
 import { Text } from "../ui/Text";
@@ -18,6 +21,8 @@ import { Card } from "../ui/Card";
 import { colors, radius, spacing } from "../../theme";
 import { env } from "../../config/env";
 import { formatRupees } from "../../lib/format";
+import { paymentsApi } from "../../lib/payments";
+import type { UpiConfigResponse } from "../../lib/types";
 
 export type UpiCommitResult = { bookingId?: string; error?: string } | void;
 
@@ -74,6 +79,60 @@ export function UpiQrCheckout({
   );
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
+
+  // Fetch the merchant VPA so we can build a `upi://pay?…` deep link.
+  // This is what lets the user pay with a UPI app installed on the
+  // *same* device they're booking from — no second phone, no
+  // save-to-gallery dance.
+  //
+  // The query is intentionally cheap and cacheable (the VPA almost
+  // never changes), so we keep it stale for a long time. If the env
+  // isn't configured server-side `vpa` comes back null and the button
+  // simply doesn't render.
+  const { data: upiConfig } = useQuery<UpiConfigResponse>({
+    queryKey: ["upi-config"],
+    queryFn: () => paymentsApi.upiConfig(),
+    staleTime: 30 * 60 * 1000, // 30 min
+    gcTime: 60 * 60 * 1000, // 1 h
+  });
+
+  /**
+   * Build a UPI Spec deep link. The standard fields are:
+   *   pa = payee VPA (required)
+   *   pn = payee name (URL-encoded)
+   *   am = amount in rupees (no paise — strings like "150.00" work too)
+   *   cu = currency, always "INR"
+   *   tn = transaction note (URL-encoded)
+   *   tr = optional merchant txn ref
+   */
+  const upiDeepLink = useMemo(() => {
+    if (!upiConfig?.vpa) return null;
+    const params = new URLSearchParams({
+      pa: upiConfig.vpa,
+      pn: upiConfig.payeeName,
+      am: displayAmount.toFixed(2),
+      cu: "INR",
+      tn: bookingId
+        ? `Momentum Arena Booking #${bookingId.slice(-8)}`
+        : "Momentum Arena Booking",
+    });
+    return `upi://pay?${params.toString()}`;
+  }, [upiConfig, displayAmount, bookingId]);
+
+  async function openUpiApp() {
+    if (!upiDeepLink) return;
+    try {
+      await Linking.openURL(upiDeepLink);
+    } catch {
+      // Most commonly hit when no UPI app is installed (or on iOS
+      // simulators). Let the user know politely and leave the QR as
+      // the obvious fallback.
+      Alert.alert(
+        "No UPI app found",
+        "Couldn't open a UPI app on this device. Please scan the QR with PhonePe, Google Pay, Paytm or any other UPI app.",
+      );
+    }
+  }
 
   const whatsappUrl = useMemo(() => {
     const msg = bookingId
@@ -181,6 +240,41 @@ export function UpiQrCheckout({
   // Step 1 — scan.
   return (
     <View style={styles.stack}>
+      {/* Primary CTA for same-device payment: launches the user's
+          installed UPI app (PhonePe / Google Pay / Paytm / BHIM …)
+          via the standard `upi://pay?…` deep link. Hidden when the
+          merchant VPA isn't configured server-side. */}
+      {upiDeepLink ? (
+        <Pressable
+          onPress={openUpiApp}
+          disabled={committing}
+          style={({ pressed }) => [
+            styles.upiAppBtn,
+            pressed && !committing && { opacity: 0.9 },
+          ]}
+        >
+          <Smartphone size={20} color="#fff" />
+          <View style={styles.upiAppBtnText}>
+            <Text variant="body" weight="700" color="#fff">
+              Pay with UPI App
+            </Text>
+            <Text variant="tiny" color="rgba(255,255,255,0.85)">
+              Opens PhonePe, GPay, Paytm, BHIM…
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+
+      {upiDeepLink ? (
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text variant="tiny" color={colors.zinc500} style={styles.dividerText}>
+            OR SCAN WITH ANOTHER DEVICE
+          </Text>
+          <View style={styles.dividerLine} />
+        </View>
+      ) : null}
+
       <View style={styles.qrCard}>
         <View style={styles.qrWrap}>
           <Image
@@ -268,6 +362,38 @@ export function UpiQrCheckout({
 const styles = StyleSheet.create({
   stack: {
     gap: spacing["5"],
+  },
+  // Same-device "Pay with UPI App" CTA. Solid emerald to mark it as the
+  // primary path; the QR card below is the secondary fallback.
+  upiAppBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["3"],
+    paddingVertical: 14,
+    paddingHorizontal: spacing["4"],
+    borderRadius: radius.lg,
+    backgroundColor: "#059669", // emerald-600
+  },
+  upiAppBtnText: {
+    alignItems: "flex-start",
+    gap: 2,
+  },
+  // "OR SCAN WITH ANOTHER DEVICE" rule between the deep-link button and
+  // the QR card — makes the two paths visually distinct.
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.zinc800,
+  },
+  dividerText: {
+    letterSpacing: 1.2,
+    fontWeight: "600",
   },
   qrCard: {
     alignItems: "center",
