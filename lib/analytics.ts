@@ -135,6 +135,15 @@ export function trackUpiWhatsappClick(bookingId?: string) {
   trackEvent("upi_whatsapp_screenshot_click", { booking_id: bookingId || "" });
 }
 
+/**
+ * Fired when a mobile-browser user taps the "Pay with UPI App" deep-link
+ * button — i.e. opts to launch their installed UPI app on the same
+ * device instead of scanning the QR with another phone.
+ */
+export function trackUpiAppLaunched(amount: number) {
+  trackEvent("upi_app_launched", { amount });
+}
+
 // ─── Login Funnel ────────────────────────────────────────────────
 
 export function trackLoginModalOpened() {

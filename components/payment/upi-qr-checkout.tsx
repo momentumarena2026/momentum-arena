@@ -1,11 +1,42 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { CheckCircle2, CircleCheck, ShieldCheck, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  CircleCheck,
+  ShieldCheck,
+  Loader2,
+  Smartphone,
+} from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import Image from "next/image";
 import { formatPrice } from "@/lib/pricing";
-import { trackUpiQrShown, trackUpiPaymentConfirmed, trackUpiWhatsappClick } from "@/lib/analytics";
+import {
+  trackUpiQrShown,
+  trackUpiPaymentConfirmed,
+  trackUpiWhatsappClick,
+  trackUpiAppLaunched,
+} from "@/lib/analytics";
+
+// Inlined at build time by Next.js. Both names are honoured for parity
+// with the mobile `/api/mobile/upi-config` endpoint, which also accepts
+// either form.
+const MERCHANT_VPA =
+  process.env.NEXT_PUBLIC_MERCHANT_UPI_VPA?.trim() || null;
+const MERCHANT_NAME =
+  process.env.NEXT_PUBLIC_MERCHANT_UPI_NAME?.trim() || "Momentum Arena";
+
+/**
+ * Crude UA sniff to decide whether the browser is on a phone/tablet.
+ * `upi://pay?…` does nothing on desktop browsers (no UPI app to open),
+ * so we hide the button there to avoid a confusing dead click. We only
+ * run it client-side — SSR returns `false` so the markup matches the
+ * pre-hydration tree.
+ */
+function isMobileBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
 
 export type UpiCommitResult = { bookingId?: string; error?: string } | void;
 
@@ -66,6 +97,39 @@ export function UpiQrCheckout({
   }, [qrType]);
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
+
+  // Resolve the UA sniff after mount so the SSR markup (`isMobile=false`)
+  // and the hydrated client agree on first paint, then update.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    setIsMobile(isMobileBrowser());
+  }, []);
+
+  /**
+   * UPI Spec deep link — `upi://pay?pa=…&pn=…&am=…&cu=INR&tn=…`. On a
+   * mobile browser, clicking the link makes the OS hand control to an
+   * installed UPI app (PhonePe / GPay / Paytm / BHIM / CRED…) with the
+   * VPA, payee name, and amount already filled in. On desktop the
+   * scheme has no handler, so we hide the button there.
+   *
+   * Returns null when no VPA is configured — the rest of the QR + WA
+   * flow still works.
+   */
+  const upiDeepLink = useMemo(() => {
+    if (!MERCHANT_VPA) return null;
+    const params = new URLSearchParams({
+      pa: MERCHANT_VPA,
+      pn: MERCHANT_NAME,
+      am: displayAmount.toFixed(2),
+      cu: "INR",
+      tn: committedBookingId
+        ? `Momentum Arena Booking #${committedBookingId.slice(-8)}`
+        : "Momentum Arena Booking",
+    });
+    return `upi://pay?${params.toString()}`;
+  }, [committedBookingId, displayAmount]);
+
+  const showUpiAppButton = isMobile && upiDeepLink !== null;
 
   // WhatsApp URL — uses the real bookingId once the booking has been committed.
   const whatsappMessage = encodeURIComponent(
@@ -164,6 +228,35 @@ export function UpiQrCheckout({
   // ---------- Step 1: Scan QR and pay ----------
   return (
     <div className="space-y-5">
+      {/* Same-device payment CTA — opens an installed UPI app via the
+          `upi://pay?…` deep link. Only rendered on mobile browsers
+          (UA-sniffed) and when the merchant VPA is configured. */}
+      {showUpiAppButton && upiDeepLink ? (
+        <>
+          <a
+            href={upiDeepLink}
+            onClick={() => trackUpiAppLaunched(displayAmount)}
+            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 active:bg-emerald-700"
+          >
+            <Smartphone className="h-5 w-5" />
+            <div className="flex flex-col items-start leading-tight">
+              <span className="text-base">Pay with UPI App</span>
+              <span className="text-[11px] font-normal text-emerald-50/85">
+                Opens PhonePe, GPay, Paytm, BHIM…
+              </span>
+            </div>
+          </a>
+
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-zinc-800" />
+            <span className="text-[10px] font-semibold tracking-[0.12em] text-zinc-500">
+              OR SCAN WITH ANOTHER DEVICE
+            </span>
+            <div className="h-px flex-1 bg-zinc-800" />
+          </div>
+        </>
+      ) : null}
+
       {/* QR Code */}
       <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="rounded-xl bg-white p-3">

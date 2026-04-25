@@ -23,11 +23,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Read either env var so the merchant only has to set one. The web
+  // client also needs the VPA (for its own deep-link button), and the
+  // simplest way to share it across web + mobile is the
+  // `NEXT_PUBLIC_*` variant (Next.js inlines it into the client
+  // bundle). Both names are honoured here so an existing
+  // `MERCHANT_UPI_VPA` deployment keeps working.
+  //
   // Trim defensively — VPAs frequently get pasted with stray whitespace
   // and treating "  q123@ybl  " as "q123@ybl" is the obvious right thing.
-  const vpa = process.env.MERCHANT_UPI_VPA?.trim() || null;
+  const vpa =
+    process.env.NEXT_PUBLIC_MERCHANT_UPI_VPA?.trim() ||
+    process.env.MERCHANT_UPI_VPA?.trim() ||
+    null;
   const payeeName =
-    process.env.MERCHANT_UPI_NAME?.trim() || "Momentum Arena";
+    process.env.NEXT_PUBLIC_MERCHANT_UPI_NAME?.trim() ||
+    process.env.MERCHANT_UPI_NAME?.trim() ||
+    "Momentum Arena";
 
   return NextResponse.json({ vpa, payeeName });
 }
