@@ -1,0 +1,360 @@
+import { useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import {
+  CheckCircle2,
+  CircleCheck,
+  MessageCircle,
+  ShieldCheck,
+} from "lucide-react-native";
+import { Text } from "../ui/Text";
+import { Card } from "../ui/Card";
+import { colors, radius, spacing } from "../../theme";
+import { env } from "../../config/env";
+import { formatRupees } from "../../lib/format";
+
+export type UpiCommitResult = { bookingId?: string; error?: string } | void;
+
+interface Props {
+  amount: number;
+  isAdvance?: boolean;
+  advanceAmount?: number;
+  onPaymentInitiated: () => Promise<UpiCommitResult> | UpiCommitResult;
+  onCancel: () => void;
+  /** Called once the user indicates they've shared the screenshot — the
+   *  CheckoutScreen uses this to navigate to BookingDetail. */
+  onDone: (bookingId: string) => void;
+}
+
+// Absolute image URLs so RN's Image loader can fetch them from the same
+// backend that serves the web app's /public folder. Mirrors web's
+// TURF_QR_OPTIONS (3 random terminals).
+const TURF_QR_OPTIONS = [
+  { image: `${env.apiUrl}/phonepe-qr-1.png`, label: "Terminal 1" },
+  { image: `${env.apiUrl}/phonepe-qr-2.png`, label: "Terminal 2" },
+  { image: `${env.apiUrl}/phonepe-qr-3.png`, label: "Terminal 3" },
+];
+
+const WHATSAPP_NUMBER = "916396177261";
+
+type Step = "scan" | "paid";
+
+/**
+ * Mirrors `components/payment/upi-qr-checkout.tsx` on web.
+ *
+ *   Step 1 (scan): QR + amount + "I've Completed the Payment" button. Calling
+ *     onPaymentInitiated is expected to create the Booking(PENDING) server-
+ *     side and return its id — we stash that id for the WhatsApp deep-link.
+ *   Step 2 (paid): "Slot Reserved" confirmation + WhatsApp-screenshot CTA +
+ *     "View Booking Details" (which calls onDone with the bookingId).
+ */
+export function UpiQrCheckout({
+  amount,
+  isAdvance,
+  advanceAmount,
+  onPaymentInitiated,
+  onCancel,
+  onDone,
+}: Props) {
+  const [step, setStep] = useState<Step>("scan");
+  const [committing, setCommitting] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [bookingId, setBookingId] = useState<string | null>(null);
+
+  // Lock in one terminal QR per mount so the UI doesn't shuffle on re-render.
+  const selectedQr = useMemo(
+    () => TURF_QR_OPTIONS[Math.floor(Math.random() * TURF_QR_OPTIONS.length)],
+    []
+  );
+
+  const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
+
+  const whatsappUrl = useMemo(() => {
+    const msg = bookingId
+      ? `Hi, I've made a payment of ${formatRupees(displayAmount)} for Booking #${bookingId.slice(-8)}.\n\nPlease find the payment screenshot attached. Kindly confirm my booking.`
+      : `Hi, I've made a payment of ${formatRupees(displayAmount)}.\n\nPlease find the payment screenshot attached. Kindly confirm my booking.`;
+    return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+  }, [bookingId, displayAmount]);
+
+  async function handleDone() {
+    if (committing) return;
+    setCommitting(true);
+    setCommitError(null);
+    try {
+      const result = await onPaymentInitiated();
+      if (result && "error" in result && result.error) {
+        setCommitError(result.error);
+        return;
+      }
+      if (result && "bookingId" in result && result.bookingId) {
+        setBookingId(result.bookingId);
+      }
+      setStep("paid");
+    } catch (e) {
+      setCommitError(
+        e instanceof Error ? e.message : "Something went wrong"
+      );
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  async function openWhatsapp() {
+    const ok = await Linking.canOpenURL(whatsappUrl);
+    if (ok) void Linking.openURL(whatsappUrl);
+  }
+
+  if (step === "paid") {
+    return (
+      <View style={styles.stack}>
+        <View style={styles.reservedCard}>
+          <CheckCircle2 size={56} color={colors.emerald400} />
+          <Text variant="heading" weight="700" align="center">
+            Your Slot is Reserved!
+          </Text>
+          <Text
+            variant="small"
+            align="center"
+            color={colors.zinc400}
+            style={styles.reservedSub}
+          >
+            Please allow us 30 minutes to verify your payment and confirm your
+            booking.
+          </Text>
+        </View>
+
+        <Card style={styles.screenshotCard}>
+          <View style={styles.screenshotHeader}>
+            <ShieldCheck size={20} color="#fbbf24" />
+            <View style={styles.screenshotBody}>
+              <Text variant="body" weight="600">
+                Send Payment Screenshot
+              </Text>
+              <Text variant="small" color={colors.zinc400}>
+                Please share a screenshot of your payment on WhatsApp so our
+                team can verify and confirm your booking quickly.
+              </Text>
+            </View>
+          </View>
+
+          <Pressable
+            onPress={openWhatsapp}
+            style={({ pressed }) => [
+              styles.whatsappBtn,
+              pressed && { opacity: 0.9 },
+            ]}
+          >
+            <MessageCircle size={20} color="#fff" />
+            <Text variant="body" weight="600" color="#fff">
+              Share Screenshot on WhatsApp
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => bookingId && onDone(bookingId)}
+            disabled={!bookingId}
+            style={({ pressed }) => [
+              styles.viewBookingBtn,
+              !bookingId && { opacity: 0.5 },
+              pressed && bookingId ? { opacity: 0.85 } : null,
+            ]}
+          >
+            <Text variant="body" weight="600" color={colors.foreground}>
+              {bookingId ? "View Booking Details" : "My Bookings"}
+            </Text>
+          </Pressable>
+        </Card>
+
+        <Text variant="tiny" align="center" color={colors.zinc500}>
+          You'll receive a confirmation message once verified.
+        </Text>
+      </View>
+    );
+  }
+
+  // Step 1 — scan.
+  return (
+    <View style={styles.stack}>
+      <View style={styles.qrCard}>
+        <View style={styles.qrWrap}>
+          <Image
+            source={{ uri: selectedQr.image }}
+            style={styles.qrImage}
+            resizeMode="contain"
+          />
+        </View>
+        <Text
+          variant="heading"
+          weight="700"
+          color={colors.emerald400}
+          style={styles.amount}
+        >
+          Pay {formatRupees(displayAmount)}
+        </Text>
+        {isAdvance && advanceAmount ? (
+          <Text variant="tiny" color="#facc15" style={styles.amountSub}>
+            Advance payment · Remaining at venue:{" "}
+            {formatRupees(amount - advanceAmount)}
+          </Text>
+        ) : null}
+        <Text variant="small" color={colors.zinc400} style={styles.amountSub}>
+          Scan &amp; pay using any UPI app
+        </Text>
+        <Text variant="tiny" color={colors.zinc600}>
+          Sportive Ventures · {selectedQr.label}
+        </Text>
+      </View>
+
+      {commitError ? (
+        <View style={styles.errorBox}>
+          <Text variant="small" align="center" color={colors.destructive}>
+            {commitError}
+          </Text>
+        </View>
+      ) : null}
+
+      <Pressable
+        onPress={handleDone}
+        disabled={committing}
+        style={({ pressed }) => [
+          styles.primaryBtn,
+          pressed && !committing && { opacity: 0.9 },
+          committing && { opacity: 0.7 },
+        ]}
+      >
+        {committing ? (
+          <>
+            <ActivityIndicator color={colors.emerald400} />
+            <Text variant="body" weight="600" color={colors.emerald400}>
+              Reserving your slot…
+            </Text>
+          </>
+        ) : (
+          <>
+            <CircleCheck size={20} color={colors.emerald400} />
+            <Text variant="body" weight="600" color={colors.emerald400}>
+              I've Completed the Payment
+            </Text>
+          </>
+        )}
+      </Pressable>
+
+      <Text variant="tiny" align="center" color={colors.zinc600}>
+        Click above after you've successfully paid via UPI
+      </Text>
+
+      <Pressable
+        onPress={onCancel}
+        disabled={committing}
+        style={({ pressed }) => [
+          styles.cancelBtn,
+          pressed && !committing && { opacity: 0.7 },
+        ]}
+      >
+        <Text variant="small" align="center" color={colors.zinc500}>
+          ← Go back
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  stack: {
+    gap: spacing["5"],
+  },
+  qrCard: {
+    alignItems: "center",
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["6"],
+  },
+  qrWrap: {
+    padding: spacing["3"],
+    backgroundColor: "#fff",
+    borderRadius: radius.lg,
+  },
+  qrImage: {
+    width: 240,
+    height: 240,
+    borderRadius: radius.md,
+  },
+  amount: {
+    marginTop: spacing["5"],
+    fontSize: 28,
+    lineHeight: 32,
+  },
+  amountSub: {
+    marginTop: spacing["1"],
+  },
+  errorBox: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.30)",
+    backgroundColor: "rgba(239, 68, 68, 0.10)",
+    padding: spacing["3"],
+  },
+  primaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+    paddingVertical: 14,
+  },
+  cancelBtn: {
+    paddingVertical: spacing["2"],
+  },
+  reservedCard: {
+    alignItems: "center",
+    gap: spacing["3"],
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_05,
+    padding: spacing["8"],
+  },
+  reservedSub: {
+    maxWidth: 280,
+  },
+  screenshotCard: {
+    gap: spacing["4"],
+  },
+  screenshotHeader: {
+    flexDirection: "row",
+    gap: spacing["3"],
+  },
+  screenshotBody: {
+    flex: 1,
+    gap: spacing["1"],
+  },
+  whatsappBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    backgroundColor: "#16a34a", // green-600
+    paddingVertical: 14,
+    borderRadius: radius.lg,
+  },
+  viewBookingBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    backgroundColor: colors.zinc800,
+  },
+});
