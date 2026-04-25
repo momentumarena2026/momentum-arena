@@ -106,7 +106,7 @@ export function HomeScreen() {
   }, [refetch, signedIn]);
 
   function openSport(slug: (typeof SPORTS)[number]["slug"]) {
-    navigation.navigate("Book", {
+    navigation.navigate("Sports", {
       screen: "BookCourt",
       params: { sport: slug },
     });
@@ -184,7 +184,7 @@ export function HomeScreen() {
               label="🏟  Book a Court"
               size="lg"
               onPress={() =>
-                navigation.navigate("Book", { screen: "BookSport" })
+                navigation.navigate("Sports", { screen: "BookSport" })
               }
               fullWidth
               style={styles.heroBtnPrimary}

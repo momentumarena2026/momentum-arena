@@ -181,10 +181,10 @@ export function BookingDetailScreen() {
   }
 
   function goToBook() {
-    // Cross-tab: AccountStack → MainTabs → Book.
+    // Cross-tab: AccountStack → MainTabs → Sports.
     navigation
       .getParent<NativeStackNavigationProp<MainTabsParamList>>()
-      ?.navigate("Book", { screen: "BookSport" });
+      ?.navigate("Sports", { screen: "BookSport" });
   }
 
   return (

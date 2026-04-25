@@ -75,7 +75,7 @@ export function AccountScreen() {
   const goToBook = () =>
     navigation
       .getParent<BottomTabNavigationProp<MainTabsParamList>>()
-      ?.navigate("Book", { screen: "BookSport" });
+      ?.navigate("Sports", { screen: "BookSport" });
 
   function confirmSignOut() {
     Alert.alert(

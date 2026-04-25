@@ -23,9 +23,17 @@ export type BookStackParamList = {
 
 export type MainTabsParamList = {
   Home: undefined;
-  Book: NavigatorScreenParams<BookStackParamList>;
+  // Tab key kept as "Sports" to mirror the web bottom-nav label
+  // (`/book` → "Sports"). The underlying stack is still the booking
+  // funnel — naming is purely a UX decision so the user understands
+  // they're picking a sport, not a date.
+  Sports: NavigatorScreenParams<BookStackParamList>;
   Cafe: undefined;
   Account: NavigatorScreenParams<AccountStackParamList>;
+  // Mirrors web's ChatNavButton — 5th tab opens the Arena Assistant
+  // chat (same chat-engine, full-screen on mobile instead of a
+  // floating widget).
+  Chat: undefined;
 };
 
 /**

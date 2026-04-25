@@ -113,7 +113,7 @@ export function RecurringBookingsScreen() {
   const goToBook = useCallback(() => {
     navigation
       .getParent<BottomTabNavigationProp<MainTabsParamList>>()
-      ?.navigate("Book", { screen: "BookSport" });
+      ?.navigate("Sports", { screen: "BookSport" });
   }, [navigation]);
 
   const goToAllBookings = useCallback(

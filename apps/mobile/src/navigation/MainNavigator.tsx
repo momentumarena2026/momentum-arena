@@ -1,8 +1,15 @@
 import { StyleSheet } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { CalendarPlus, Coffee, Home, User } from "lucide-react-native";
+import {
+  Coffee,
+  Home,
+  MessageCircle,
+  Trophy,
+  User,
+} from "lucide-react-native";
 import { HomeScreen } from "../screens/home/HomeScreen";
 import { CafeMenuScreen } from "../screens/cafe/CafeMenuScreen";
+import { ChatScreen } from "../screens/chat/ChatScreen";
 import { AccountStack } from "./AccountStack";
 import { BookStack } from "./BookStack";
 import { colors } from "../theme";
@@ -31,12 +38,22 @@ export function MainNavigator() {
           switch (route.name) {
             case "Home":
               return <Home {...props} />;
-            case "Book":
-              return <CalendarPlus {...props} />;
+            case "Sports":
+              // Trophy stands in for the web's 🏟️ stadium emoji — the
+              // best general-purpose "sports" glyph in lucide. The
+              // tab leads into BookStack, where the user picks one of
+              // cricket / football / pickleball.
+              return <Trophy {...props} />;
             case "Cafe":
               return <Coffee {...props} />;
             case "Account":
               return <User {...props} />;
+            case "Chat":
+              // Matches the web ChatNavButton (💬). lucide's
+              // MessageCircle is also what the web chat-widget uses
+              // for its floating bubble — keeping the visual cue
+              // consistent across surfaces.
+              return <MessageCircle {...props} />;
             default:
               return null;
           }
@@ -45,12 +62,13 @@ export function MainNavigator() {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen
-        name="Book"
+        name="Sports"
         component={BookStack}
-        options={{ tabBarLabel: "Book" }}
+        options={{ tabBarLabel: "Sports" }}
       />
       <Tab.Screen name="Cafe" component={CafeMenuScreen} />
       <Tab.Screen name="Account" component={AccountStack} />
+      <Tab.Screen name="Chat" component={ChatScreen} />
     </Tab.Navigator>
   );
 }
