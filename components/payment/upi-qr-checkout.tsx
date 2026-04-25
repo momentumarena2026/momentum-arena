@@ -230,37 +230,11 @@ export function UpiQrCheckout({
   // ---------- Step 1: Scan QR and pay ----------
   return (
     <div className="space-y-5">
-      {/* Same-device payment CTA — opens an installed UPI app via the
-          `upi://pay?…` deep link. Only rendered on mobile browsers
-          (UA-sniffed) since desktop browsers have no handler for the
-          `upi://` scheme. */}
-      {showUpiAppButton ? (
-        <>
-          <a
-            href={upiDeepLink}
-            onClick={() => trackUpiAppLaunched(displayAmount)}
-            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 active:bg-emerald-700"
-          >
-            <Smartphone className="h-5 w-5" />
-            <div className="flex flex-col items-start leading-tight">
-              <span className="text-base">Pay with UPI App</span>
-              <span className="text-[11px] font-normal text-emerald-50/85">
-                Opens PhonePe, GPay, Paytm, BHIM…
-              </span>
-            </div>
-          </a>
-
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-zinc-800" />
-            <span className="text-[10px] font-semibold tracking-[0.12em] text-zinc-500">
-              OR SCAN WITH ANOTHER DEVICE
-            </span>
-            <div className="h-px flex-1 bg-zinc-800" />
-          </div>
-        </>
-      ) : null}
-
-      {/* QR Code */}
+      {/* QR-first layout. Most users scan from a second device, so the
+          QR is the primary surface. The "Pay with UPI App" CTA below
+          sits right above the "I've Completed the Payment" button so
+          users paying on the same device see it as the natural next
+          step. */}
       <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="rounded-xl bg-white p-3">
           <Image
@@ -296,6 +270,27 @@ export function UpiQrCheckout({
           {commitError}
         </div>
       )}
+
+      {/* Same-device alternative — opens an installed UPI app via the
+          `upi://pay?…` deep link with the VPA, payee, and amount
+          pre-filled. Only rendered on mobile browsers (UA-sniffed)
+          since desktop browsers have no handler for the `upi://`
+          scheme. */}
+      {showUpiAppButton ? (
+        <a
+          href={upiDeepLink}
+          onClick={() => trackUpiAppLaunched(displayAmount)}
+          className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 active:bg-emerald-700"
+        >
+          <Smartphone className="h-5 w-5" />
+          <div className="flex flex-col items-start leading-tight">
+            <span className="text-base">Pay with UPI App</span>
+            <span className="text-[11px] font-normal text-emerald-50/85">
+              Opens PhonePe, GPay, Paytm, BHIM…
+            </span>
+          </div>
+        </a>
+      ) : null}
 
       {/* Mark Payment Done button */}
       <button

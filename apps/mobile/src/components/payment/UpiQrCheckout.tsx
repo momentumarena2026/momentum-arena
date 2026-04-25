@@ -237,38 +237,10 @@ export function UpiQrCheckout({
   // Step 1 — scan.
   return (
     <View style={styles.stack}>
-      {/* Primary CTA for same-device payment: launches the user's
-          installed UPI app (PhonePe / Google Pay / Paytm / BHIM …)
-          via the standard `upi://pay?…` deep link. The QR card below
-          is the secondary fallback for users who want to scan from a
-          second device. */}
-      <Pressable
-        onPress={openUpiApp}
-        disabled={committing}
-        style={({ pressed }) => [
-          styles.upiAppBtn,
-          pressed && !committing && { opacity: 0.9 },
-        ]}
-      >
-        <Smartphone size={20} color="#fff" />
-        <View style={styles.upiAppBtnText}>
-          <Text variant="body" weight="700" color="#fff">
-            Pay with UPI App
-          </Text>
-          <Text variant="tiny" color="rgba(255,255,255,0.85)">
-            Opens PhonePe, GPay, Paytm, BHIM…
-          </Text>
-        </View>
-      </Pressable>
-
-      <View style={styles.divider}>
-        <View style={styles.dividerLine} />
-        <Text variant="tiny" color={colors.zinc500} style={styles.dividerText}>
-          OR SCAN WITH ANOTHER DEVICE
-        </Text>
-        <View style={styles.dividerLine} />
-      </View>
-
+      {/* QR-first layout. Most users scan from a second device, so the
+          QR is the primary surface. The "Pay with UPI App" CTA sits
+          right above the "I've Completed the Payment" button so users
+          paying on the same device see it just before they confirm. */}
       <View style={styles.qrCard}>
         <View style={styles.qrWrap}>
           <Image
@@ -306,6 +278,29 @@ export function UpiQrCheckout({
           </Text>
         </View>
       ) : null}
+
+      {/* Same-device alternative — opens an installed UPI app via the
+          `upi://pay?…` deep link with the VPA, payee, and amount
+          pre-filled. Sits directly above the "Completed" button so
+          users on the same phone see it as the natural next step. */}
+      <Pressable
+        onPress={openUpiApp}
+        disabled={committing}
+        style={({ pressed }) => [
+          styles.upiAppBtn,
+          pressed && !committing && { opacity: 0.9 },
+        ]}
+      >
+        <Smartphone size={20} color="#fff" />
+        <View style={styles.upiAppBtnText}>
+          <Text variant="body" weight="700" color="#fff">
+            Pay with UPI App
+          </Text>
+          <Text variant="tiny" color="rgba(255,255,255,0.85)">
+            Opens PhonePe, GPay, Paytm, BHIM…
+          </Text>
+        </View>
+      </Pressable>
 
       <Pressable
         onPress={handleDone}
@@ -357,8 +352,9 @@ const styles = StyleSheet.create({
   stack: {
     gap: spacing["5"],
   },
-  // Same-device "Pay with UPI App" CTA. Solid emerald to mark it as the
-  // primary path; the QR card below is the secondary fallback.
+  // Same-device "Pay with UPI App" CTA. Solid emerald, sits between
+  // the QR card (primary path) and the "Completed" confirmation
+  // button — visible to users who can't or don't want to scan.
   upiAppBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -372,22 +368,6 @@ const styles = StyleSheet.create({
   upiAppBtnText: {
     alignItems: "flex-start",
     gap: 2,
-  },
-  // "OR SCAN WITH ANOTHER DEVICE" rule between the deep-link button and
-  // the QR card — makes the two paths visually distinct.
-  divider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["3"],
-  },
-  dividerLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.zinc800,
-  },
-  dividerText: {
-    letterSpacing: 1.2,
-    fontWeight: "600",
   },
   qrCard: {
     alignItems: "center",
