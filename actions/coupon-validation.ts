@@ -164,12 +164,29 @@ export async function validateCoupon(
         for (const group of coupon.userGroupFilter) {
           switch (group) {
             case "FIRST_TIME": {
+              // Only count bookings / orders the user made themselves
+              // (createdByAdminId === null). An admin pre-booking a
+              // slot for a fresh customer shouldn't burn that
+              // customer's first-time eligibility — when they sign in
+              // and book online the first time, that's still their
+              // first *own* booking. PREMIUM_PLAYER / FREQUENT_VISITOR
+              // below intentionally don't add this filter: those
+              // reward venue patronage, and physical patronage is the
+              // same regardless of who pressed the booking button.
               const [bookingCount, orderCount] = await Promise.all([
                 db.booking.count({
-                  where: { userId: context.userId, status: "CONFIRMED" },
+                  where: {
+                    userId: context.userId,
+                    status: "CONFIRMED",
+                    createdByAdminId: null,
+                  },
                 }),
                 db.cafeOrder.count({
-                  where: { userId: context.userId, status: "COMPLETED" },
+                  where: {
+                    userId: context.userId,
+                    status: "COMPLETED",
+                    createdByAdminId: null,
+                  },
                 }),
               ]);
               if (bookingCount === 0 && orderCount === 0) matchesEligibility = true;

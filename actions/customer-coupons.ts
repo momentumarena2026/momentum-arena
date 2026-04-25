@@ -142,23 +142,49 @@ export async function getPersonalizedCouponsForUser(
     include: { conditions: true },
   });
 
-  // Check user stats
-  const [confirmedBookings, completedOrders, totalCouponUsages] =
-    await Promise.all([
-      db.booking.count({
-        where: { userId, status: "CONFIRMED" },
-      }),
-      db.cafeOrder.count({
-        where: { userId, status: "COMPLETED" },
-      }),
-      db.couponUsage.count({
-        where: { userId },
-      }),
-    ]);
+  // Check user stats. Two separate pairs of counts on purpose:
+  //
+  //   - `selfConfirmedBookings` / `selfCompletedOrders` — bookings the
+  //     user actually made themselves (createdByAdminId IS NULL).
+  //     Drives FIRST_TIME, where the question is "has this user ever
+  //     booked online for themselves yet?". An admin pre-booking on
+  //     behalf of a brand-new customer must NOT burn that customer's
+  //     first-time eligibility — when the customer signs in and books
+  //     online the first time, that's still their first own booking.
+  //
+  //   - `confirmedBookings` / `completedOrders` — every booking /
+  //     order regardless of creator. Drives PREMIUM_PLAYER and
+  //     FREQUENT_VISITOR, which reward physical venue patronage —
+  //     and the user genuinely has played here ten times even if
+  //     admin pressed the booking button.
+  const [
+    selfConfirmedBookings,
+    selfCompletedOrders,
+    confirmedBookings,
+    completedOrders,
+    totalCouponUsages,
+  ] = await Promise.all([
+    db.booking.count({
+      where: { userId, status: "CONFIRMED", createdByAdminId: null },
+    }),
+    db.cafeOrder.count({
+      where: { userId, status: "COMPLETED", createdByAdminId: null },
+    }),
+    db.booking.count({
+      where: { userId, status: "CONFIRMED" },
+    }),
+    db.cafeOrder.count({
+      where: { userId, status: "COMPLETED" },
+    }),
+    db.couponUsage.count({
+      where: { userId },
+    }),
+  ]);
 
   const isBirthdayMonth =
     user?.birthday && user.birthday.getMonth() === now.getMonth();
-  const isFirstTime = confirmedBookings === 0 && completedOrders === 0;
+  const isFirstTime =
+    selfConfirmedBookings === 0 && selfCompletedOrders === 0;
   const isPremiumPlayer = confirmedBookings >= 10;
   const isFrequentVisitor = completedOrders >= 5;
 

@@ -14,9 +14,15 @@ export async function getNewUserDiscount(
   sport: Sport,
   totalAmount: number
 ): Promise<NewUserDiscountInfo | null> {
-  // Check if user has any confirmed bookings
+  // Only count bookings the user made themselves. An admin pre-
+  // booking a slot on behalf of a brand-new customer should NOT
+  // disqualify that customer from the new-user discount when they
+  // come online and try to book the first time. Mirrors the same
+  // filter in coupon-validation.ts FIRST_TIME and customer-
+  // coupons.ts isFirstTime — kept consistent so all three "is this
+  // their first own booking?" surfaces agree.
   const confirmedCount = await db.booking.count({
-    where: { userId, status: "CONFIRMED" },
+    where: { userId, status: "CONFIRMED", createdByAdminId: null },
   });
 
   if (confirmedCount > 0) return null;
