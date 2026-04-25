@@ -44,7 +44,6 @@ import type {
 type Nav = NativeStackNavigationProp<BookStackParamList, "BookSlots">;
 type Rt = RouteProp<BookStackParamList, "BookSlots">;
 
-const MAX_CONSECUTIVE_HOURS = 6;
 const DATE_WINDOW_DAYS = 30; // Web shows 30 days of scrollable dates.
 
 export function BookSlotsScreen() {
@@ -93,26 +92,20 @@ export function BookSlotsScreen() {
     [slots, selected]
   );
 
+  // Toggle a slot in/out of the selection. Mirrors the web's
+  // `components/booking/slot-grid.tsx` exactly — any combination of
+  // available hours is allowed, no contiguity requirement and no UI
+  // cap. The earlier mobile implementation silently dropped the
+  // previous selection when the user tapped a non-consecutive hour,
+  // which made multi-select look broken (tap 5pm, then 8pm — only
+  // 8pm survived). The server doesn't enforce contiguity either, so
+  // this is purely a UI rule that shouldn't have existed.
   function toggleHour(hour: number) {
-    setSelected((prev) => {
-      if (prev.includes(hour)) {
-        return prev.filter((h) => h !== hour);
-      }
-      if (prev.length >= MAX_CONSECUTIVE_HOURS) {
-        Alert.alert(
-          "Max reached",
-          `You can book up to ${MAX_CONSECUTIVE_HOURS} hours at a time.`
-        );
-        return prev;
-      }
-      const next = [...prev, hour].sort((a, b) => a - b);
-      // Enforce contiguity — if the new set isn't a run of consecutive hours,
-      // start a fresh selection with just this hour.
-      for (let i = 1; i < next.length; i++) {
-        if (next[i] !== next[i - 1] + 1) return [hour];
-      }
-      return next;
-    });
+    setSelected((prev) =>
+      prev.includes(hour)
+        ? prev.filter((h) => h !== hour)
+        : [...prev, hour].sort((a, b) => a - b),
+    );
   }
 
   async function handleContinue() {
