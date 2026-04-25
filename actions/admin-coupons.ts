@@ -9,6 +9,7 @@ import {
   Sport,
   CafeItemCategory,
   UserGroupType,
+  Prisma,
 } from "@prisma/client";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
@@ -65,6 +66,12 @@ const couponSchema = z.object({
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
   conditions: z.array(conditionSchema).default([]),
+  // Admin-curated targeting. Both empty → no targeting (anyone can
+  // use, subject to other filters). Otherwise the user must appear
+  // in `eligibleUserIds` OR be a member of one of `eligibleGroupIds`
+  // (OR'd with userGroupFilter — see coupon-validation.ts).
+  eligibleUserIds: z.array(z.string()).default([]),
+  eligibleGroupIds: z.array(z.string()).default([]),
 });
 
 export async function getCoupons(filters?: {
@@ -93,6 +100,20 @@ export async function getCoupons(filters?: {
     where,
     include: {
       conditions: true,
+      eligibleUsers: {
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, phone: true },
+          },
+        },
+      },
+      eligibleGroups: {
+        include: {
+          group: {
+            select: { id: true, name: true, deletedAt: true },
+          },
+        },
+      },
       _count: { select: { usages: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -121,6 +142,8 @@ export async function createCoupon(data: {
   validFrom: string;
   validUntil: string;
   conditions?: { conditionType: CouponConditionType; conditionValue: string }[];
+  eligibleUserIds?: string[];
+  eligibleGroupIds?: string[];
 }) {
   const adminId = await requireAdmin();
 
@@ -142,6 +165,12 @@ export async function createCoupon(data: {
   if (parsed.data.type === "PERCENTAGE" && parsed.data.value > 10000) {
     return { success: false, error: "Percentage cannot exceed 100%" };
   }
+
+  // Dedupe targeting lists — admin pickers should already prevent
+  // duplicates but the unique index would reject them anyway, and
+  // skipping the round-trip is cheaper.
+  const eligibleUserIds = Array.from(new Set(parsed.data.eligibleUserIds));
+  const eligibleGroupIds = Array.from(new Set(parsed.data.eligibleGroupIds));
 
   try {
     await db.coupon.create({
@@ -171,6 +200,26 @@ export async function createCoupon(data: {
             conditionValue: c.conditionValue,
           })),
         },
+        ...(eligibleUserIds.length
+          ? {
+              eligibleUsers: {
+                createMany: {
+                  data: eligibleUserIds.map((userId) => ({ userId })),
+                  skipDuplicates: true,
+                },
+              },
+            }
+          : {}),
+        ...(eligibleGroupIds.length
+          ? {
+              eligibleGroups: {
+                createMany: {
+                  data: eligibleGroupIds.map((groupId) => ({ groupId })),
+                  skipDuplicates: true,
+                },
+              },
+            }
+          : {}),
       },
     });
 
@@ -203,6 +252,8 @@ export async function updateCoupon(
     validUntil?: string;
     isActive?: boolean;
     conditions?: { conditionType: CouponConditionType; conditionValue: string }[];
+    eligibleUserIds?: string[];
+    eligibleGroupIds?: string[];
   }
 ) {
   await requireAdmin();
@@ -229,9 +280,15 @@ export async function updateCoupon(
     if (data.validUntil !== undefined) updateData.validUntil = new Date(data.validUntil);
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
-    // If conditions are provided, delete old and create new
+    // Conditions and the two eligibility lists are all "replace
+    // wholesale when provided" semantics — we don't try to diff
+    // adds/removes from the client, the form ships the final state
+    // and the server reconciles. Wrapped in a single transaction so
+    // a coupon never sees a half-updated targeting state mid-edit.
+    const tx: Prisma.PrismaPromise<unknown>[] = [];
+
     if (data.conditions !== undefined) {
-      await db.$transaction([
+      tx.push(
         db.couponCondition.deleteMany({ where: { couponId: id } }),
         db.coupon.update({
           where: { id },
@@ -245,9 +302,39 @@ export async function updateCoupon(
             },
           },
         }),
-      ]);
-    } else {
-      await db.coupon.update({ where: { id }, data: updateData });
+      );
+    } else if (Object.keys(updateData).length > 0) {
+      tx.push(db.coupon.update({ where: { id }, data: updateData }));
+    }
+
+    if (data.eligibleUserIds !== undefined) {
+      const ids = Array.from(new Set(data.eligibleUserIds));
+      tx.push(db.couponEligibleUser.deleteMany({ where: { couponId: id } }));
+      if (ids.length > 0) {
+        tx.push(
+          db.couponEligibleUser.createMany({
+            data: ids.map((userId) => ({ couponId: id, userId })),
+            skipDuplicates: true,
+          }),
+        );
+      }
+    }
+
+    if (data.eligibleGroupIds !== undefined) {
+      const ids = Array.from(new Set(data.eligibleGroupIds));
+      tx.push(db.couponEligibleGroup.deleteMany({ where: { couponId: id } }));
+      if (ids.length > 0) {
+        tx.push(
+          db.couponEligibleGroup.createMany({
+            data: ids.map((groupId) => ({ couponId: id, groupId })),
+            skipDuplicates: true,
+          }),
+        );
+      }
+    }
+
+    if (tx.length > 0) {
+      await db.$transaction(tx);
     }
 
     return { success: true };

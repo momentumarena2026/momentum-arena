@@ -41,7 +41,11 @@ export async function validateCoupon(
     // 1. Find coupon case-insensitive
     const coupon = await db.coupon.findFirst({
       where: { code: upperCode },
-      include: { conditions: true },
+      include: {
+        conditions: true,
+        eligibleUsers: { select: { userId: true } },
+        eligibleGroups: { select: { groupId: true } },
+      },
     });
 
     if (!coupon) {
@@ -104,64 +108,108 @@ export async function validateCoupon(
       }
     }
 
-    // 8. Check userGroupFilter
-    if (coupon.userGroupFilter.length > 0) {
+    // 8. Eligibility — three independent paths, OR'd together. The
+    //    coupon "has targeting" if any of:
+    //      - eligibleUsers (admin pinned specific users)
+    //      - eligibleGroups (admin pinned admin-curated cohorts)
+    //      - userGroupFilter (auto-computed buckets like FIRST_TIME)
+    //    are non-empty. When targeting is set the user must satisfy
+    //    at least one path; otherwise anyone qualifies (subject to
+    //    the other filters above).
+    const eligibleUserIds = coupon.eligibleUsers.map((e) => e.userId);
+    const eligibleGroupIds = coupon.eligibleGroups.map((e) => e.groupId);
+    const hasTargeting =
+      eligibleUserIds.length > 0 ||
+      eligibleGroupIds.length > 0 ||
+      coupon.userGroupFilter.length > 0;
+
+    if (hasTargeting) {
       if (!context.userId) {
         return { valid: false, error: "You must be logged in to use this coupon" };
       }
 
-      const user = await db.user.findUnique({
-        where: { id: context.userId },
-        select: { birthday: true },
-      });
+      let matchesEligibility = false;
 
-      let matchesAnyGroup = false;
-
-      for (const group of coupon.userGroupFilter) {
-        switch (group) {
-          case "FIRST_TIME": {
-            const [bookingCount, orderCount] = await Promise.all([
-              db.booking.count({
-                where: { userId: context.userId, status: "CONFIRMED" },
-              }),
-              db.cafeOrder.count({
-                where: { userId: context.userId, status: "COMPLETED" },
-              }),
-            ]);
-            if (bookingCount === 0 && orderCount === 0) matchesAnyGroup = true;
-            break;
-          }
-          case "PREMIUM_PLAYER": {
-            const confirmedBookings = await db.booking.count({
-              where: { userId: context.userId, status: "CONFIRMED" },
-            });
-            if (confirmedBookings >= 10) matchesAnyGroup = true;
-            break;
-          }
-          case "FREQUENT_VISITOR": {
-            const completedOrders = await db.cafeOrder.count({
-              where: { userId: context.userId, status: "COMPLETED" },
-            });
-            if (completedOrders >= 5) matchesAnyGroup = true;
-            break;
-          }
-          case "BIRTHDAY_MONTH": {
-            if (user?.birthday) {
-              const birthMonth = user.birthday.getMonth();
-              const currentMonth = now.getMonth();
-              if (birthMonth === currentMonth) matchesAnyGroup = true;
-            }
-            break;
-          }
-          case "CUSTOM":
-            // Custom groups pass through — admin manages eligibility manually
-            matchesAnyGroup = true;
-            break;
-        }
-        if (matchesAnyGroup) break;
+      // Path A: direct user assignment (cheapest — already loaded).
+      if (eligibleUserIds.includes(context.userId)) {
+        matchesEligibility = true;
       }
 
-      if (!matchesAnyGroup) {
+      // Path B: admin-curated group membership.
+      if (!matchesEligibility && eligibleGroupIds.length > 0) {
+        const memberHit = await db.userGroupMember.findFirst({
+          where: {
+            userId: context.userId,
+            groupId: { in: eligibleGroupIds },
+            // Skip soft-deleted groups so removing a group from
+            // the admin tab doesn't accidentally keep it acting as
+            // a wildcard for its former members.
+            group: { deletedAt: null },
+          },
+          select: { id: true },
+        });
+        if (memberHit) matchesEligibility = true;
+      }
+
+      // Path C: auto-computed UserGroupType bucket. Only reached if
+      // the cheaper paths above didn't already match — saves the
+      // booking-count queries for the common case where the user
+      // was directly invited.
+      if (!matchesEligibility && coupon.userGroupFilter.length > 0) {
+        const user = await db.user.findUnique({
+          where: { id: context.userId },
+          select: { birthday: true },
+        });
+
+        for (const group of coupon.userGroupFilter) {
+          switch (group) {
+            case "FIRST_TIME": {
+              const [bookingCount, orderCount] = await Promise.all([
+                db.booking.count({
+                  where: { userId: context.userId, status: "CONFIRMED" },
+                }),
+                db.cafeOrder.count({
+                  where: { userId: context.userId, status: "COMPLETED" },
+                }),
+              ]);
+              if (bookingCount === 0 && orderCount === 0) matchesEligibility = true;
+              break;
+            }
+            case "PREMIUM_PLAYER": {
+              const confirmedBookings = await db.booking.count({
+                where: { userId: context.userId, status: "CONFIRMED" },
+              });
+              if (confirmedBookings >= 10) matchesEligibility = true;
+              break;
+            }
+            case "FREQUENT_VISITOR": {
+              const completedOrders = await db.cafeOrder.count({
+                where: { userId: context.userId, status: "COMPLETED" },
+              });
+              if (completedOrders >= 5) matchesEligibility = true;
+              break;
+            }
+            case "BIRTHDAY_MONTH": {
+              if (user?.birthday) {
+                const birthMonth = user.birthday.getMonth();
+                const currentMonth = now.getMonth();
+                if (birthMonth === currentMonth) matchesEligibility = true;
+              }
+              break;
+            }
+            case "CUSTOM":
+              // CUSTOM is the legacy "anyone the admin chose" bucket;
+              // the new eligibleUsers/eligibleGroups relations replace
+              // it for new coupons. Kept as a permissive pass-through
+              // so coupons created before this feature still work.
+              matchesEligibility = true;
+              break;
+          }
+          if (matchesEligibility) break;
+        }
+      }
+
+      if (!matchesEligibility) {
         return { valid: false, error: "You are not eligible for this coupon" };
       }
     }

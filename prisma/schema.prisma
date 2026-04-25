@@ -183,6 +183,14 @@ model User {
   waitlistEntries   Waitlist[]
   recurringBookings RecurringBooking[]
 
+  // Admin-curated targeting for coupons (vs the auto-computed
+  // UserGroupType buckets like FIRST_TIME). `groupMemberships` lets
+  // an admin drop a user into named cohorts ("VIP Customers",
+  // "Tournament Players"); `couponEligibilities` is a direct,
+  // per-user assignment that bypasses any group routing.
+  groupMemberships    UserGroupMember[]
+  couponEligibilities CouponEligibleUser[]
+
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -804,6 +812,15 @@ model Coupon {
   conditions CouponCondition[]
   usages     CouponUsage[]
 
+  // Admin-curated targeting (sits alongside the auto-computed
+  // userGroupFilter). When either of these is non-empty the coupon
+  // is restricted to the listed users / members of the listed
+  // groups. Empty on both means no targeting — anyone can use it.
+  // The validation rule is OR: directly-listed users, OR group
+  // members, OR userGroupFilter matches all qualify.
+  eligibleUsers  CouponEligibleUser[]
+  eligibleGroups CouponEligibleGroup[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -835,6 +852,73 @@ model CouponUsage {
   @@unique([couponId, userId, bookingId])
   @@index([userId])
   @@index([couponId])
+}
+
+// ===========================
+// ADMIN-CURATED USER GROUPS
+// ===========================
+// Custom cohorts an admin builds by hand (vs the auto-computed
+// UserGroupType buckets like FIRST_TIME / PREMIUM_PLAYER). These
+// power coupon targeting: a coupon can be restricted to specific
+// users (CouponEligibleUser) or to members of specific groups
+// (CouponEligibleGroup).
+
+model UserGroup {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+
+  // Soft-delete so coupons referencing the group keep working until
+  // the admin explicitly cleans them up. `members` and `coupons` are
+  // both Cascade-deleted on hard delete (rare; mostly for tests).
+  deletedAt   DateTime?
+  createdBy   String?  // admin userId — nullable so seed data is fine
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members UserGroupMember[]
+  coupons CouponEligibleGroup[]
+
+  @@index([deletedAt])
+}
+
+model UserGroupMember {
+  id      String   @id @default(cuid())
+  groupId String
+  userId  String
+  addedAt DateTime @default(now())
+
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model CouponEligibleUser {
+  id       String   @id @default(cuid())
+  couponId String
+  userId   String
+  addedAt  DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, userId])
+  @@index([userId])
+}
+
+model CouponEligibleGroup {
+  id       String   @id @default(cuid())
+  couponId String
+  groupId  String
+  addedAt  DateTime @default(now())
+
+  coupon Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  group  UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, groupId])
+  @@index([groupId])
 }
 
 // ===========================
