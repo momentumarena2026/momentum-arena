@@ -52,14 +52,21 @@ export async function POST(request: NextRequest) {
       process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
 
+    // Booking amounts (hold.totalAmount, overrideAmount) are stored in
+    // *rupees* — same convention as Razorpay's create-order which does
+    // its own ×100 internally. PhonePe v2's /checkout/v2/pay expects
+    // paise, so convert here before handing off. Without this, ₹1600
+    // ends up displayed as ₹16 on the PhonePe page (× 100 short).
+    const orderAmountPaise = orderAmount * 100;
+
     // v2 has no separate `callbackUrl` parameter — webhooks are
     // configured globally in the PhonePe dashboard's Webhooks tab,
     // not per-payment. We pass only the user-facing redirectUrl.
     const result = await initiatePhonePePayment({
       merchantOrderId,
-      amount: orderAmount,
+      amount: orderAmountPaise,
       redirectUrl: `${origin}/api/phonepe/redirect?holdId=${holdId}`,
-      message: `Booking — ${formatRupeesForMessage(orderAmount)}`,
+      message: `Booking — ${formatRupeesForMessage(orderAmountPaise)}`,
     });
 
     // Track attempt on the hold + extend TTL so payment flow has room to
