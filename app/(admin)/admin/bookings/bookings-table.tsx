@@ -303,7 +303,15 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
       {/* Mobile: right side summary + Arrow */}
       <div className="flex items-center gap-2 md:justify-end">
         <div className="md:hidden text-right">
-          <p className="text-sm font-semibold text-white">{formatPrice(booking.totalAmount)}</p>
+          {/* Date + slot range — desktop has its own "Date / Slots" column;
+              mobile previously had no time info at all, leaving admins
+              guessing when the booking actually was. Compact two-liner: date
+              on top, slot range below in mono so consecutive ranges align. */}
+          <p className="text-[10px] text-zinc-400">{formatDate(booking.date)}</p>
+          <p className="text-[10px] font-mono text-zinc-500">
+            {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-white">{formatPrice(booking.totalAmount)}</p>
           <div className="flex items-center gap-1 justify-end mt-0.5">
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
             <span className={`text-[10px] ${status.color}`}>{status.label}</span>
