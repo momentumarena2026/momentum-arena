@@ -236,6 +236,17 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
             <span className="text-zinc-700">·</span>
             <span className="text-zinc-600">{booking.courtConfig.label}</span>
           </div>
+          {/* Date + slot range — mobile only. Desktop has its own
+              "Date / Slots" column. Lives directly under the sport line so
+              the row reads top-to-bottom: who, what sport, when. Slot range
+              uses mono so consecutive ranges align. */}
+          <div className="md:hidden mt-1 flex items-center gap-1.5 text-[11px] text-zinc-400">
+            <span>{formatDate(booking.date)}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="font-mono text-zinc-500">
+              {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -303,15 +314,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
       {/* Mobile: right side summary + Arrow */}
       <div className="flex items-center gap-2 md:justify-end">
         <div className="md:hidden text-right">
-          {/* Date + slot range — desktop has its own "Date / Slots" column;
-              mobile previously had no time info at all, leaving admins
-              guessing when the booking actually was. Compact two-liner: date
-              on top, slot range below in mono so consecutive ranges align. */}
-          <p className="text-[10px] text-zinc-400">{formatDate(booking.date)}</p>
-          <p className="text-[10px] font-mono text-zinc-500">
-            {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
-          </p>
-          <p className="mt-0.5 text-sm font-semibold text-white">{formatPrice(booking.totalAmount)}</p>
+          <p className="text-sm font-semibold text-white">{formatPrice(booking.totalAmount)}</p>
           <div className="flex items-center gap-1 justify-end mt-0.5">
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
             <span className={`text-[10px] ${status.color}`}>{status.label}</span>
