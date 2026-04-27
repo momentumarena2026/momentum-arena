@@ -17,6 +17,13 @@ end
 target 'MomentumArena' do
   config = use_native_modules!
 
+  # Required by @react-native-firebase/messaging on iOS: Firebase's
+  # Swift pods (FirebaseCoreInternal et al) depend on GoogleUtilities,
+  # which doesn't define modules. Static linking refuses to integrate
+  # without this flag. Adding it globally is the upstream-recommended
+  # fix and has no effect on non-Firebase pods.
+  use_modular_headers!
+
   use_react_native!(
     :path => config[:reactNativePath],
     # An absolute path to your application root.

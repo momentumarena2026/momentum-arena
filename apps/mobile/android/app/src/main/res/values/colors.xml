@@ -5,4 +5,8 @@
          in the brief moment before the JS splash takes over. Mirrors
          apps/mobile/src/theme/colors.ts -> colors.background. -->
     <color name="splash_background">#000000</color>
+    <!-- Adaptive-icon background. Black so the meteor foreground sits on
+         the same canvas as the iOS app icon — keeps brand consistency
+         across platforms regardless of which mask the launcher applies. -->
+    <color name="ic_launcher_background">#000000</color>
 </resources>
