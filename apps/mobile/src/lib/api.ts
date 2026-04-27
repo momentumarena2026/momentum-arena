@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { env } from "../config/env";
 import { tokenStorage } from "./storage";
 
@@ -36,6 +37,11 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
   const headers: Record<string, string> = {
     Accept: "application/json",
+    // Tells the server which mobile platform the request originated from.
+    // Read by `getMobilePlatform()` in `lib/mobile-auth.ts` — currently
+    // surfaced on Booking.platform for funnel analytics, but available
+    // for any other route that wants to split iOS vs Android behavior.
+    "X-Platform": Platform.OS === "ios" ? "ios" : "android",
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
 

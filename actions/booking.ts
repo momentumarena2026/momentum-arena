@@ -450,10 +450,17 @@ type PaymentRecord = {
  * matching gateway reference, returns that bookingId (prevents double-booking
  * when gateway callbacks fire multiple times).
  */
+/** Origin of the booking — populates Booking.platform. Defaults to "web"
+ *  when callers omit it (every server-action call site we control runs
+ *  in the web app). Mobile API routes pass the value derived from the
+ *  request's `X-Platform` header so we can split funnel analytics. */
+export type BookingPlatform = "web" | "android" | "ios";
+
 export async function createBookingFromHold(
   holdId: string,
   payment: PaymentRecord,
-  bookingStatus: "PENDING" | "CONFIRMED"
+  bookingStatus: "PENDING" | "CONFIRMED",
+  platform: BookingPlatform = "web"
 ): Promise<string | null> {
   // Idempotency: if a prior attempt already consumed this hold and created a
   // Booking, find the matching booking by gateway reference and return it.
@@ -505,6 +512,7 @@ export async function createBookingFromHold(
         totalAmount: effectiveTotal,
         originalAmount: appliedDiscount > 0 ? hold.totalAmount : null,
         discountAmount: appliedDiscount,
+        platform,
         // Preserve the unified "Half Court" context from the hold so
         // customer-facing views can render a neutral label instead of the
         // concrete LEFT/RIGHT courtConfig label. Admin views keep the

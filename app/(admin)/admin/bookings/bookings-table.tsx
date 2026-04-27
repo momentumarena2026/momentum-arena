@@ -40,6 +40,11 @@ interface BookingData {
   createdAt: string | Date;
   createdByAdminId?: string | null;
   recurringBookingId?: string | null;
+  // Origin platform of the booking ("web", "android", "ios"). Plain
+  // String at the DB level so we can add new values (e.g. "kiosk")
+  // without a Prisma enum migration; render-side switches default to
+  // a generic globe pill for any unknown value.
+  platform: string;
   user: {
     id: string;
     name?: string | null;
@@ -110,6 +115,17 @@ const PAYMENT_STATUS_STYLES: Record<string, string> = {
   REFUNDED: "text-blue-400 bg-blue-500/10 border-blue-500/30",
   FAILED: "text-red-400 bg-red-500/10 border-red-500/30",
 };
+
+// Platform pill styling — keep it muted (zinc) so the platform column
+// doesn't compete visually with status. Emoji is enough to scan-match.
+const PLATFORM_STYLES: Record<string, { emoji: string; label: string }> = {
+  web: { emoji: "💻", label: "Web" },
+  android: { emoji: "🤖", label: "Android" },
+  ios: { emoji: "🍎", label: "iOS" },
+};
+function platformPill(platform: string): { emoji: string; label: string } {
+  return PLATFORM_STYLES[platform] ?? { emoji: "🌐", label: platform };
+}
 
 function formatPrice(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
@@ -204,7 +220,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
   return (
     <Link
       href={`/admin/bookings/${booking.id}`}
-      className={`group grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_1fr_auto] gap-3 items-center px-4 py-3 transition-all hover:bg-zinc-800/60 ${
+      className={`group grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_0.7fr_1fr_auto] gap-3 items-center px-4 py-3 transition-all hover:bg-zinc-800/60 ${
         isSeriesChild
           ? "ml-3 border-l-2 border-purple-500/20 pl-5"
           : ""
@@ -281,6 +297,19 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
         <p className="text-[10px] text-zinc-600">{created.time}</p>
       </div>
 
+      {/* Platform */}
+      <div className="hidden md:block">
+        {(() => {
+          const p = platformPill(booking.platform);
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-[10px] font-medium text-zinc-300">
+              <span>{p.emoji}</span>
+              {p.label}
+            </span>
+          );
+        })()}
+      </div>
+
       {/* Payment */}
       <div className="hidden md:block">
         {booking.payment ? (
@@ -347,7 +376,7 @@ function SeriesGroup({ group, sportInfo }: { group: GroupedBookings; sportInfo: 
       {/* Series Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_1fr_auto] gap-3 items-center px-4 py-3 hover:bg-purple-500/5 transition-all"
+        className="w-full grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_0.7fr_1fr_auto] gap-3 items-center px-4 py-3 hover:bg-purple-500/5 transition-all"
       >
         {/* Series Info */}
         <div className="flex items-center gap-3">
@@ -414,6 +443,23 @@ function SeriesGroup({ group, sportInfo }: { group: GroupedBookings; sportInfo: 
           </p>
         </div>
 
+        {/* Platform — same value across the series since the parent
+            booking propagates platform to its children. Read from the
+            first booking; if it differs across children for some
+            reason we still show the lead value (consistent with how
+            the other series-summary cells work). */}
+        <div className="hidden md:block">
+          {(() => {
+            const p = platformPill(first.platform);
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-[10px] font-medium text-zinc-300">
+                <span>{p.emoji}</span>
+                {p.label}
+              </span>
+            );
+          })()}
+        </div>
+
         {/* Payment */}
         <div className="hidden md:block">
           {payment ? (
@@ -462,6 +508,7 @@ export function BookingsTable({ bookings, sportInfo }: BookingsTableProps) {
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Amount</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Status</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Booked On</span>
+        <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Platform</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Payment</span>
         <span className="w-4" />
       </div>

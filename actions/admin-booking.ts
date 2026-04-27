@@ -369,6 +369,7 @@ export async function getAdminBookings(filters?: {
   sport?: string;
   status?: string;
   paymentMethod?: string;
+  platform?: string;
   page?: number;
   limit?: number;
 }) {
@@ -388,6 +389,9 @@ export async function getAdminBookings(filters?: {
   }
   if (filters?.sport) {
     where.courtConfig = { sport: filters.sport };
+  }
+  if (filters?.platform) {
+    where.platform = filters.platform;
   }
 
   const [bookings, total] = await Promise.all([

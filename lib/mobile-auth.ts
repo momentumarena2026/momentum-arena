@@ -72,6 +72,19 @@ export async function getMobileUser(request: NextRequest) {
   };
 }
 
+/**
+ * Read the platform of a request originating from the mobile app.
+ * Mobile sends `X-Platform: android` or `X-Platform: ios` automatically
+ * (set in apps/mobile/src/lib/api.ts). Falls back to "android" rather
+ * than "web" because anything hitting /api/mobile/* is, by definition,
+ * the mobile client — and this default still groups correctly when an
+ * older build that doesn't set the header makes a request.
+ */
+export function getMobilePlatform(request: NextRequest): "android" | "ios" {
+  const v = request.headers.get("x-platform")?.toLowerCase();
+  return v === "ios" ? "ios" : "android";
+}
+
 export function mobileUserResponse(user: {
   id: string;
   name: string | null;

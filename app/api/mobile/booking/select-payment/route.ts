@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileUser } from "@/lib/mobile-auth";
+import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
 import { notifyAdminPendingBooking } from "@/lib/notifications";
@@ -85,7 +85,8 @@ export async function POST(request: NextRequest) {
       advanceAmount,
       remainingAmount,
     },
-    "PENDING"
+    "PENDING",
+    getMobilePlatform(request)
   );
 
   if (!bookingId) {

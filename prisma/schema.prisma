@@ -341,6 +341,14 @@ model Booking {
   createdByAdminId String?
   createdByAdmin   AdminUser? @relation("BookingCreatedByAdmin", fields: [createdByAdminId], references: [id])
 
+  // Origin platform for this booking. "web" for the customer-facing
+  // Next.js app (and admin-created bookings), "android" / "ios" for
+  // the React Native mobile app. Used for admin analytics + funnel
+  // breakdowns. Existing rows backfill to "web" via the migration's
+  // column default. Plain String (not enum) so adding new platforms
+  // later — e.g. "kiosk" — doesn't require a Prisma enum migration.
+  platform String @default("web")
+
   slots       BookingSlot[]
   payment     Payment?
   editHistory BookingEditHistory[]

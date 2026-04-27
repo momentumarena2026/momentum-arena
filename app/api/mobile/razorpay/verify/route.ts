@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { getMobileUser } from "@/lib/mobile-auth";
+import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
 import {
@@ -100,7 +100,8 @@ export async function POST(request: NextRequest) {
       advanceAmount,
       remainingAmount,
     },
-    "CONFIRMED"
+    "CONFIRMED",
+    getMobilePlatform(request)
   );
 
   if (!bookingId) {

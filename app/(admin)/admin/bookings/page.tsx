@@ -24,6 +24,7 @@ export default async function AdminBookingsPage({
     status?: string;
     sport?: string;
     date?: string;
+    platform?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -39,6 +40,7 @@ export default async function AdminBookingsPage({
       status: activeStatus === "ALL" ? undefined : activeStatus,
       sport: params.sport,
       date: params.date,
+      platform: params.platform,
       limit: 20,
     }),
     getAdminStats(),
@@ -57,6 +59,7 @@ export default async function AdminBookingsPage({
       status: activeStatus || "",
       sport: params.sport || "",
       date: params.date || "",
+      platform: params.platform || "",
       page: "1",
     };
     const merged = { ...base, ...overrides };
@@ -110,7 +113,7 @@ export default async function AdminBookingsPage({
     },
   ];
 
-  const activeFilters = [params.status, params.sport, params.date].filter(Boolean).length;
+  const activeFilters = [params.status, params.sport, params.date, params.platform].filter(Boolean).length;
 
   return (
     <div className="space-y-6">
@@ -249,6 +252,33 @@ export default async function AdminBookingsPage({
             );
           })}
         </div>
+
+        {/* Platform row — origin of the booking. "web" includes both
+             customer-facing site and admin-created bookings (admin uses
+             web). "android" / "ios" come from the React Native app via
+             the X-Platform header. */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Platform</span>
+          {[
+            { label: "All", value: "", emoji: "" },
+            { label: "Web", value: "web", emoji: "💻" },
+            { label: "Android", value: "android", emoji: "🤖" },
+            { label: "iOS", value: "ios", emoji: "🍎" },
+          ].map((opt) => (
+            <Link
+              key={opt.label}
+              href={filterUrl({ platform: opt.value })}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                (params.platform || "") === opt.value
+                  ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+                  : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              }`}
+            >
+              {opt.emoji && <span>{opt.emoji}</span>}
+              {opt.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Bookings List */}
@@ -270,6 +300,7 @@ export default async function AdminBookingsPage({
             createdAt: b.createdAt instanceof Date ? b.createdAt.toISOString() : b.createdAt,
             createdByAdminId: b.createdByAdminId,
             recurringBookingId: b.recurringBookingId,
+            platform: b.platform,
             user: b.user,
             courtConfig: {
               sport: b.courtConfig.sport,
