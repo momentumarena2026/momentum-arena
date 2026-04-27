@@ -10,6 +10,7 @@ import {
 import { authApi } from "../lib/auth";
 import { setUnauthorizedHandler } from "../lib/api";
 import { tokenStorage, userCache, type CachedUser } from "../lib/storage";
+import { enablePushAfterLogin, disablePushBeforeLogout } from "../lib/push";
 
 type AuthState =
   | { status: "loading"; user: null }
@@ -42,6 +43,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     try {
       const fresh = await authApi.me();
       setState({ status: "signedIn", user: fresh });
+      // Cold start with an existing valid session — make sure the
+      // current FCM token is registered. Idempotent on backend
+      // (upsert by token).
+      void enablePushAfterLogin();
     } catch (err) {
       const status = (err as { status?: number }).status;
       if (status === 401) {
@@ -61,9 +66,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signIn = useCallback((user: CachedUser) => {
     setState({ status: "signedIn", user });
+    // Best-effort: register the FCM token with the backend so pushes
+    // start landing on this device. Promise is intentionally not
+    // awaited — the OS permission prompt shouldn't block the UI
+    // transition into the signed-in app.
+    void enablePushAfterLogin();
   }, []);
 
   const signOut = useCallback(async () => {
+    // Unregister the device FIRST so a stolen-or-borrowed phone
+    // doesn't keep getting pushes for the previous owner. If this
+    // fails (network), proceed anyway — the server falls back to
+    // dead-token cleanup on the next failed FCM send.
+    await disablePushBeforeLogout();
     await authApi.signOut();
     setState({ status: "signedOut", user: null });
   }, []);

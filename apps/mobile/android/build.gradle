@@ -15,6 +15,9 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Reads `apps/mobile/android/app/google-services.json` and wires
+        // FCM into the build. Required by @react-native-firebase/app.
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 

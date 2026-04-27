@@ -1,7 +1,13 @@
+import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { NavigationContainer, DarkTheme } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  DarkTheme,
+  useNavigationContainerRef,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../providers/AuthProvider";
+import { installPushTapHandlers } from "../lib/push";
 import { colors } from "../theme";
 import { MainNavigator } from "./MainNavigator";
 import { PhoneScreen } from "../screens/auth/PhoneScreen";
@@ -25,6 +31,56 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
   const { state } = useAuth();
+  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+
+  // Push-tap routing. Wires both cold-start (`getInitialNotification`)
+  // and background-tap (`onNotificationOpenedApp`). Lives here so it
+  // has direct access to the navigation ref; `installPushTapHandlers`
+  // is otherwise side-effect-free, so running it once on mount is fine.
+  useEffect(() => {
+    const unsub = installPushTapHandlers((payload) => {
+      // Wait until navigation is ready — cold-start payload may arrive
+      // before the container has mounted.
+      if (!navigationRef.isReady()) {
+        const id = setInterval(() => {
+          if (!navigationRef.isReady()) return;
+          clearInterval(id);
+          dispatchPushTap(payload);
+        }, 100);
+        // Defensive cap: stop polling after 5s if navigation never
+        // becomes ready (bug somewhere). Otherwise this would leak.
+        setTimeout(() => clearInterval(id), 5000);
+        return;
+      }
+      dispatchPushTap(payload);
+    });
+    return unsub;
+
+    function dispatchPushTap(payload: Parameters<Parameters<typeof installPushTapHandlers>[0]>[0]) {
+      switch (payload.kind) {
+        case "booking_confirmed":
+        case "booking_reminder_24h":
+        case "booking_reminder_2h":
+        case "payment_verified":
+        case "refund_processed":
+          if (payload.bookingId) {
+            navigationRef.navigate("Main", {
+              screen: "Account",
+              params: {
+                screen: "BookingDetail",
+                params: { bookingId: payload.bookingId },
+                initial: false,
+              },
+            });
+          }
+          break;
+        case "cafe_order_status":
+          // No CafeOrderDetail screen yet — drop into the cafe tab.
+          navigationRef.navigate("Main", { screen: "Cafe" });
+          break;
+      }
+    }
+  }, [navigationRef]);
 
   if (state.status === "loading") {
     return (
@@ -35,7 +91,7 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Stack.Navigator>
         <Stack.Screen
           name="Main"

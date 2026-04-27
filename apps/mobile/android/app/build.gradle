@@ -1,6 +1,11 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Must be applied after com.android.application. Reads
+// `google-services.json` and generates the FCM resources at build
+// time. Without this, @react-native-firebase/app throws
+// "No matching client found for package name com.momentumarena".
+apply plugin: "com.google.gms.google-services"
 
 /**
  * This is the configuration block to customize your React Native Android app.

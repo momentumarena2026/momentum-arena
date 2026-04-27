@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { formatHoursAsRanges } from "./court-config";
 import { normalizeIndianPhone } from "./phone";
+import { sendToUser } from "./push";
 
 // Parse + normalize + de-duplicate the admin phone list from env. Without
 // this, "+919876543210" and "919876543210" in the same env string both
@@ -68,8 +69,59 @@ export async function sendBookingConfirmation(
     promises.push(sendSmsConfirmation(bookingId, details));
   }
   promises.push(logInAppNotification(bookingId));
+  promises.push(sendPushConfirmation(bookingId));
 
   await Promise.allSettled(promises);
+}
+
+// FCM push for the booker. Best-effort — sendToUser silently no-ops
+// when FCM isn't configured (preview deploys without the service
+// account JSON) and prunes dead tokens automatically. We still log
+// the attempt as an in-app `Notification` row keyed by `push` so
+// admins can see whether the device fan-out happened.
+async function sendPushConfirmation(bookingId: string): Promise<void> {
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { slots: { orderBy: { startHour: "asc" } } },
+  });
+  if (!booking) return;
+
+  const dateLabel = booking.date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kolkata",
+  });
+  const timeLabel =
+    booking.slots.length > 0
+      ? formatHoursAsRanges(booking.slots.map((s) => s.startHour))
+      : "";
+  const when = [dateLabel, timeLabel].filter(Boolean).join(" ");
+
+  try {
+    const result = await sendToUser(booking.userId, {
+      title: "Booking confirmed",
+      body: when ? `Your slot on ${when} is locked in.` : "Your slot is locked in.",
+      data: { kind: "booking_confirmed", bookingId },
+    });
+    await logNotification(
+      bookingId,
+      "push",
+      result.succeeded > 0 ? "sent" : result.attempted === 0 ? "skipped" : "failed",
+      result.attempted === 0
+        ? "no registered devices"
+        : result.failed > 0
+          ? `${result.failed}/${result.attempted} failed`
+          : undefined
+    );
+  } catch (error) {
+    console.error("Push booking confirmation error:", error);
+    await logNotification(
+      bookingId,
+      "push",
+      "failed",
+      error instanceof Error ? error.message : "Unknown error"
+    );
+  }
 }
 
 // --- Send confirmation via MSG91 Flow API ---

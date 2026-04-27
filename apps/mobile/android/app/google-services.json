@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "669008764301",
+    "project_id": "momentum-arena-11975",
+    "storage_bucket": "momentum-arena-11975.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:669008764301:android:e1d9a44aa182372ee3f1c4",
+        "android_client_info": {
+          "package_name": "com.momentumarena"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-VKxJMn5so4mE0gbWd2EjywF8FvlII8M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

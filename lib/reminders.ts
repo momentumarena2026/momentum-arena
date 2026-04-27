@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { formatHourRangeCompact, SPORT_INFO } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
+import { sendToUser } from "@/lib/push";
+import type { PushKind } from "@/lib/push";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 
@@ -40,6 +42,28 @@ async function sendSmsReminder(
   } catch (error) {
     console.error("SMS reminder send error:", error);
     return false;
+  }
+}
+
+// Fire-and-forget push reminder. Mirrors the SMS but lands silently on
+// the lock screen for users who installed the mobile app — avoids the
+// SMS delay (and DLT cost) for the common case. SMS still goes out so
+// users without the app aren't left without a reminder.
+async function sendPushReminder(
+  userId: string,
+  bookingId: string,
+  kind: Extract<PushKind, "booking_reminder_24h" | "booking_reminder_2h">,
+  title: string,
+  body: string,
+): Promise<void> {
+  try {
+    await sendToUser(userId, {
+      title,
+      body,
+      data: { kind, bookingId },
+    });
+  } catch (error) {
+    console.error(`Push reminder ${kind} failed for booking ${bookingId}:`, error);
   }
 }
 
@@ -90,6 +114,16 @@ export async function sendBookingReminders(): Promise<{
       const message = `Reminder: Your ${sportName} booking at Momentum Arena is tomorrow at ${timeStr}. Booking ID: ${booking.id}`;
 
       const sent = await sendSmsReminder(booking.user.phone, message);
+
+      // Push goes out alongside SMS — best-effort, doesn't gate the
+      // 24h-sent state. If push fails the user still gets the SMS.
+      void sendPushReminder(
+        booking.userId,
+        booking.id,
+        "booking_reminder_24h",
+        `${sportName} tomorrow at ${timeStr}`,
+        "See you at Momentum Arena.",
+      );
 
       if (sent) {
         await db.booking.update({
@@ -152,6 +186,14 @@ export async function sendBookingReminders(): Promise<{
       const message = `Your ${sportName} booking at Momentum Arena starts in 2 hours at ${timeStr}. Court ready for you!`;
 
       const sent = await sendSmsReminder(booking.user.phone, message);
+
+      void sendPushReminder(
+        booking.userId,
+        booking.id,
+        "booking_reminder_2h",
+        `${sportName} in 2 hours`,
+        `Tap to view your booking. ${timeStr}.`,
+      );
 
       if (sent) {
         await db.booking.update({

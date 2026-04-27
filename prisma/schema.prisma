@@ -191,6 +191,12 @@ model User {
   groupMemberships    UserGroupMember[]
   couponEligibilities CouponEligibleUser[]
 
+  // FCM push tokens for the mobile app — one row per device the user
+  // signs into. Tokens rotate (FCM may invalidate them); the mobile
+  // client reposts on rotation, and dead tokens are pruned when FCM
+  // returns `messaging/registration-token-not-registered`.
+  pushDevices PushDevice[]
+
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -1367,3 +1373,36 @@ model ExpenseOption {
   @@index([field, isActive])
 }
 
+// ===========================
+// PUSH NOTIFICATIONS (FCM)
+// ===========================
+// One row per signed-in mobile device. The mobile app posts its FCM
+// token after login (and on token rotation), then we use these rows
+// to fan-out push payloads via Firebase Admin SDK from the existing
+// notification triggers (booking confirmation, 24h/2h reminders, UPI
+// verified, refund processed, etc.).
+//
+// `token` is unique because FCM tokens are globally unique to an
+// install. When a user signs out, the row is deleted. When FCM
+// returns `messaging/registration-token-not-registered` on send, the
+// dead row is also deleted (background cleanup; see lib/push.ts).
+
+model PushDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  // "ios" | "android" — used to keep platform-specific debugging and
+  // future per-platform throttling straightforward without a Prisma
+  // enum migration on every new value (e.g. "web-push" later).
+  platform   String
+  appVersion String?
+  // Bumped on every successful POST /api/mobile/devices so token-
+  // pruning crons can drop devices that haven't checked in in a long
+  // time (signaling app uninstall / sign-out from another device).
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([lastSeenAt])
+}

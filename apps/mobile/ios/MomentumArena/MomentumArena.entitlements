@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  APNs environment for the Push Notifications capability.
+
+	  Xcode normally rewrites this between "development" (debug builds
+	  on a development-provisioned signing identity) and "production"
+	  (release builds / TestFlight / App Store) automatically when you
+	  toggle the capability via the Signing & Capabilities pane. If you
+	  build a release IPA without the right APNs entitlement, FCM will
+	  fail to register tokens silently — `messaging().getToken()`
+	  resolves but pushes from APNs are dropped.
+
+	  Set to `development` here so the dev/Debug builds work out of the
+	  box. Xcode + the App Store automatic signing flow will swap it to
+	  `production` for release archives.
+	-->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>
