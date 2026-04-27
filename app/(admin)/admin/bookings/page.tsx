@@ -176,7 +176,7 @@ export default async function AdminBookingsPage({
 
         {/* Date row */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Date</span>
+          <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Date</span>
           {[
             { label: "All", value: "" },
             { label: "Today", value: today },
@@ -199,7 +199,7 @@ export default async function AdminBookingsPage({
 
         {/* Status row */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Status</span>
+          <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Status</span>
           {[
             { label: "All", value: "ALL", dot: "" },
             { label: "Confirmed", value: "CONFIRMED", dot: "bg-emerald-400" },
@@ -223,7 +223,7 @@ export default async function AdminBookingsPage({
 
         {/* Sport row */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Sport</span>
+          <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Sport</span>
           <Link
             href={filterUrl({ sport: "" })}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
@@ -258,7 +258,7 @@ export default async function AdminBookingsPage({
              web). "android" / "ios" come from the React Native app via
              the X-Platform header. */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="shrink-0 w-16 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Platform</span>
+          <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Platform</span>
           {[
             { label: "All", value: "", emoji: "" },
             { label: "Web", value: "web", emoji: "💻" },

@@ -502,7 +502,7 @@ export function BookingsTable({ bookings, sportInfo }: BookingsTableProps) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
       {/* Table header — desktop only */}
-      <div className="hidden md:grid grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_1fr_auto] gap-3 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/80">
+      <div className="hidden md:grid grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_0.7fr_1fr_auto] gap-3 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/80">
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Customer</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Date / Slots</span>
         <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Amount</span>
