@@ -30,8 +30,45 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 let cachedClient: PrismaClient | null = null;
+/**
+ * Patch `globalThis.WebSocket` to a `ws`-based, IPv4-forced wrapper.
+ *
+ * Why: `@neondatabase/serverless` falls back to `globalThis.WebSocket`
+ * when `neonConfig.webSocketConstructor` is unset on its local module
+ * instance. Setting `neonConfig` directly is unreliable under Turbopack
+ * because the dev server can bundle `@neondatabase/serverless` more
+ * than once (we see `lib/db.ts` itself loaded 3-4 times) — each bundle
+ * has its own `neonConfig` singleton. Patching the global is the one
+ * channel every bundle's fallback path agrees on.
+ *
+ * Why this is needed at all: Node 22's native WebSocket (undici) fails
+ * the WS upgrade against Neon when the local network has no IPv6 route
+ * to AWS — Happy Eyeballs surfaces the IPv6 ETIMEDOUT instead of
+ * falling back to IPv4, which the dev server logs as the unhelpful
+ * `Error: [object ErrorEvent]` 500. The `ws` package respects
+ * `{ family: 4 }` and works.
+ *
+ * Idempotent — re-runs on hot reload but skipped after first patch.
+ * Skipped on Edge runtime / browser (no `process` / `ws` package).
+ */
+function patchGlobalWebSocket(): void {
+  if ((globalThis as { __neonWsPatched?: boolean }).__neonWsPatched) return;
+  if (typeof process === "undefined") return;
+  if (process.env.NEXT_RUNTIME === "edge") return;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const NodeWebSocket = require("ws");
+  class IPv4WebSocket extends NodeWebSocket {
+    constructor(address: string, protocols?: string | string[]) {
+      super(address, protocols, { family: 4 });
+    }
+  }
+  (globalThis as { WebSocket?: unknown }).WebSocket = IPv4WebSocket;
+  (globalThis as { __neonWsPatched?: boolean }).__neonWsPatched = true;
+}
 
 function getClient(): PrismaClient {
+  patchGlobalWebSocket();
+
   if (cachedClient) return cachedClient;
   if (globalForPrisma.prisma) {
     cachedClient = globalForPrisma.prisma;
