@@ -428,16 +428,21 @@ model Payment {
   // remainder. `method` above continues to represent how the advance was
   // paid.
   //
-  // The remainder can be collected as a split between cash and UPI QR.
-  // Both amounts live on the row; their sum equals the remainder that was
-  // owed. `remainderMethod` is kept as a single-value convenience (set to
-  // CASH or UPI_QR when the collection was a single method; left null when
-  // the collection was split across both). Legacy rows that predate split
-  // collection have only `remainderMethod` set; the display layer falls
-  // back to that when the split fields are null.
-  remainderMethod     PaymentMethod?
-  remainderCashAmount Int?
-  remainderUpiAmount  Int?
+  // The remainder can be collected as a split between cash, UPI QR, and
+  // an optional on-the-spot discount the floor staff can apply (e.g. a
+  // ₹100 goodwill cut for a regular customer). The three amounts sum to
+  // the remainder that was owed. `Payment.amount` reflects only what was
+  // actually collected — the discounted portion does NOT count as paid.
+  //
+  // `remainderMethod` is kept as a single-value convenience (set to CASH
+  // or UPI_QR when the collection was a single method; left null when the
+  // collection was split). Legacy rows that predate split collection have
+  // only `remainderMethod` set; the display layer falls back to that when
+  // the split fields are null.
+  remainderMethod         PaymentMethod?
+  remainderCashAmount     Int?
+  remainderUpiAmount      Int?
+  remainderDiscountAmount Int?
 
   confirmedBy  String?
   confirmedAt  DateTime?

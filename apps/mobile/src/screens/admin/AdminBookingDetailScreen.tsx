@@ -124,14 +124,20 @@ export function AdminBookingDetailScreen() {
     open: boolean;
     cash: string;
     upi: string;
-  }>({ open: false, cash: "", upi: "" });
+    discount: string;
+  }>({ open: false, cash: "", upi: "", discount: "" });
 
   const markCollected = useMutation({
-    mutationFn: (vars: { cash: number; upi: number }) =>
-      adminBookingsApi.markCollected(params.bookingId, vars.cash, vars.upi),
+    mutationFn: (vars: { cash: number; upi: number; discount: number }) =>
+      adminBookingsApi.markCollected(
+        params.bookingId,
+        vars.cash,
+        vars.upi,
+        vars.discount,
+      ),
     onSuccess: () => {
       invalidate();
-      setCollectModal({ open: false, cash: "", upi: "" });
+      setCollectModal({ open: false, cash: "", upi: "", discount: "" });
       Alert.alert("Collected", "Remainder marked as collected at venue.");
     },
     onError: (err) =>
@@ -145,10 +151,16 @@ export function AdminBookingDetailScreen() {
   const [editSplitOpen, setEditSplitOpen] = useState(false);
   const [editSplitCash, setEditSplitCash] = useState("");
   const [editSplitUpi, setEditSplitUpi] = useState("");
+  const [editSplitDiscount, setEditSplitDiscount] = useState("");
 
   const editSplit = useMutation({
-    mutationFn: (vars: { cash: number; upi: number }) =>
-      adminBookingsApi.editSplit(params.bookingId, vars.cash, vars.upi),
+    mutationFn: (vars: { cash: number; upi: number; discount: number }) =>
+      adminBookingsApi.editSplit(
+        params.bookingId,
+        vars.cash,
+        vars.upi,
+        vars.discount,
+      ),
     onSuccess: () => {
       invalidate();
       setEditSplitOpen(false);
@@ -283,18 +295,26 @@ export function AdminBookingDetailScreen() {
   function onMarkCollectedSubmit() {
     const cash = Math.trunc(parseFloat(collectModal.cash) || 0);
     const upi = Math.trunc(parseFloat(collectModal.upi) || 0);
-    if (cash < 0 || upi < 0) {
+    const discount = Math.trunc(parseFloat(collectModal.discount) || 0);
+    if (cash < 0 || upi < 0 || discount < 0) {
       Alert.alert("Invalid", "Amounts cannot be negative.");
       return;
     }
-    if (cash + upi !== venueDue) {
+    if (cash + upi + discount !== venueDue) {
       Alert.alert(
         "Amounts don't match",
-        `Cash + UPI must equal ₹${venueDue}. Currently ₹${cash + upi}.`,
+        `Cash + UPI + Discount must equal ₹${venueDue}. Currently ₹${cash + upi + discount}.`,
       );
       return;
     }
-    markCollected.mutate({ cash, upi });
+    if (cash + upi <= 0) {
+      Alert.alert(
+        "Collection required",
+        "Enter at least one of Cash or UPI. A 100% discount is a refund, not a collection.",
+      );
+      return;
+    }
+    markCollected.mutate({ cash, upi, discount });
   }
 
   return (
@@ -410,6 +430,7 @@ export function AdminBookingDetailScreen() {
                   collected={(payment.remainingAmount ?? 0) <= 0}
                   remainderCash={payment.remainderCashAmount}
                   remainderUpi={payment.remainderUpiAmount}
+                  remainderDiscount={payment.remainderDiscountAmount}
                   remainderMethod={payment.remainderMethod}
                   advanceMethod={payment.method}
                   onCollect={() =>
@@ -417,6 +438,7 @@ export function AdminBookingDetailScreen() {
                       open: true,
                       cash: String(venueDue),
                       upi: "0",
+                      discount: "0",
                     })
                   }
                 />
@@ -524,6 +546,7 @@ export function AdminBookingDetailScreen() {
                     open: true,
                     cash: String(venueDue),
                     upi: "0",
+                    discount: "0",
                   })
                 }
               />
@@ -538,6 +561,9 @@ export function AdminBookingDetailScreen() {
                     String(payment?.remainderCashAmount ?? venueTotal),
                   );
                   setEditSplitUpi(String(payment?.remainderUpiAmount ?? 0));
+                  setEditSplitDiscount(
+                    String(payment?.remainderDiscountAmount ?? 0),
+                  );
                   setEditSplitOpen(true);
                 }}
               />
@@ -613,8 +639,8 @@ export function AdminBookingDetailScreen() {
               Edit collected split — ₹{venueTotal}
             </Text>
             <Text variant="small" color={colors.zinc500}>
-              Adjust how the venue-side remainder was split. Sum must
-              equal {formatRupees(venueTotal)}.
+              Adjust how the venue-side remainder was split. Cash + UPI +
+              Discount must equal {formatRupees(venueTotal)}.
             </Text>
             <View style={styles.collectRow}>
               <View style={styles.collectField}>
@@ -643,6 +669,19 @@ export function AdminBookingDetailScreen() {
                   placeholderTextColor={colors.zinc600}
                 />
               </View>
+              <View style={styles.collectField}>
+                <Text variant="tiny" color={colors.zinc500} style={styles.collectLabel}>
+                  DISCOUNT
+                </Text>
+                <TextInput
+                  style={styles.collectInput}
+                  keyboardType="numeric"
+                  value={editSplitDiscount}
+                  onChangeText={setEditSplitDiscount}
+                  placeholder="0"
+                  placeholderTextColor={colors.zinc600}
+                />
+              </View>
             </View>
             <View style={styles.collectActions}>
               <Pressable
@@ -657,14 +696,24 @@ export function AdminBookingDetailScreen() {
                 onPress={() => {
                   const cash = Math.trunc(parseFloat(editSplitCash) || 0);
                   const upi = Math.trunc(parseFloat(editSplitUpi) || 0);
-                  if (cash + upi !== venueTotal) {
+                  const discount = Math.trunc(
+                    parseFloat(editSplitDiscount) || 0,
+                  );
+                  if (cash + upi + discount !== venueTotal) {
                     Alert.alert(
                       "Amounts don't match",
-                      `Cash + UPI must equal ₹${venueTotal}.`,
+                      `Cash + UPI + Discount must equal ₹${venueTotal}.`,
                     );
                     return;
                   }
-                  editSplit.mutate({ cash, upi });
+                  if (cash + upi <= 0) {
+                    Alert.alert(
+                      "Collection required",
+                      "Enter at least one of Cash or UPI. A 100% discount is a refund.",
+                    );
+                    return;
+                  }
+                  editSplit.mutate({ cash, upi, discount });
                 }}
                 disabled={editSplit.isPending}
                 style={[
@@ -836,7 +885,9 @@ export function AdminBookingDetailScreen() {
               Mark ₹{venueDue} collected
             </Text>
             <Text variant="small" color={colors.zinc500}>
-              Split between cash and UPI QR. Either can be 0.
+              Split across cash, UPI QR, and any goodwill discount the
+              venue absorbs. Cash + UPI + Discount must equal{" "}
+              {formatRupees(venueDue)}.
             </Text>
             <View style={styles.collectRow}>
               <View style={styles.collectField}>
@@ -869,11 +920,31 @@ export function AdminBookingDetailScreen() {
                   placeholderTextColor={colors.zinc600}
                 />
               </View>
+              <View style={styles.collectField}>
+                <Text variant="tiny" color={colors.zinc500} style={styles.collectLabel}>
+                  DISCOUNT
+                </Text>
+                <TextInput
+                  style={styles.collectInput}
+                  keyboardType="numeric"
+                  value={collectModal.discount}
+                  onChangeText={(v) =>
+                    setCollectModal((s) => ({ ...s, discount: v }))
+                  }
+                  placeholder="0"
+                  placeholderTextColor={colors.zinc600}
+                />
+              </View>
             </View>
             <View style={styles.collectActions}>
               <Pressable
                 onPress={() =>
-                  setCollectModal({ open: false, cash: "", upi: "" })
+                  setCollectModal({
+                    open: false,
+                    cash: "",
+                    upi: "",
+                    discount: "",
+                  })
                 }
                 style={[styles.actionBtn, styles.actionBtnNeutral]}
               >
@@ -1011,6 +1082,7 @@ function PartialBlock({
   collected,
   remainderCash,
   remainderUpi,
+  remainderDiscount,
   remainderMethod,
   advanceMethod,
   onCollect,
@@ -1020,6 +1092,7 @@ function PartialBlock({
   collected: boolean;
   remainderCash: number | null;
   remainderUpi: number | null;
+  remainderDiscount: number | null;
   remainderMethod: string | null;
   advanceMethod: string;
   onCollect: () => void;
@@ -1029,17 +1102,27 @@ function PartialBlock({
   const percentPaid = total > 0 ? Math.round((advance / total) * 100) : 0;
   const cash = remainderCash ?? (remainderMethod === "CASH" ? venueTotal : 0);
   const upi = remainderUpi ?? (remainderMethod === "UPI_QR" ? venueTotal : 0);
-  const isSplit = (cash ?? 0) > 0 && (upi ?? 0) > 0;
+  const discount = remainderDiscount ?? 0;
+  const nonZeroLegs = [cash, upi, discount].filter((n) => (n ?? 0) > 0).length;
+  const isSplit = nonZeroLegs > 1;
   const remainderLabel = collected
     ? isSplit
-      ? `${formatRupees(cash)} Cash + ${formatRupees(upi)} UPI`
+      ? [
+          (cash ?? 0) > 0 ? `${formatRupees(cash)} Cash` : null,
+          (upi ?? 0) > 0 ? `${formatRupees(upi)} UPI` : null,
+          discount > 0 ? `${formatRupees(discount)} Discount` : null,
+        ]
+          .filter(Boolean)
+          .join(" + ")
       : (cash ?? 0) > 0
         ? "Cash"
         : (upi ?? 0) > 0
           ? "UPI QR"
-          : remainderMethod
-            ? methodLabel(remainderMethod)
-            : null
+          : discount > 0
+            ? "Discount"
+            : remainderMethod
+              ? methodLabel(remainderMethod)
+              : null
     : null;
 
   return (

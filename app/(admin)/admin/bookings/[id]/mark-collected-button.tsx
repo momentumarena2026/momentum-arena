@@ -3,7 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { markRemainderCollected } from "@/actions/admin-booking";
-import { CheckCircle2, Loader2, Banknote, QrCode, SplitSquareHorizontal } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  Banknote,
+  QrCode,
+  SplitSquareHorizontal,
+  Tag,
+} from "lucide-react";
 
 type Mode = "picker" | "split";
 
@@ -34,6 +41,7 @@ export function MarkCollectedButton({
   const [mode, setMode] = useState<Mode>("picker");
   const [cashStr, setCashStr] = useState("");
   const [upiStr, setUpiStr] = useState("");
+  const [discountStr, setDiscountStr] = useState("");
 
   function openPicker() {
     if (isPending) return;
@@ -41,13 +49,22 @@ export function MarkCollectedButton({
     setMode("picker");
     setCashStr("");
     setUpiStr("");
+    setDiscountStr("");
     setOpen(true);
   }
 
-  function submit(cashAmount: number, upiAmount: number) {
+  function submit(
+    cashAmount: number,
+    upiAmount: number,
+    discountAmount: number = 0,
+  ) {
     setError(null);
     startTransition(async () => {
-      const result = await markRemainderCollected(bookingId, { cashAmount, upiAmount });
+      const result = await markRemainderCollected(bookingId, {
+        cashAmount,
+        upiAmount,
+        discountAmount,
+      });
       if (result.success) {
         router.refresh();
       } else {
@@ -130,20 +147,35 @@ export function MarkCollectedButton({
     );
   }
 
-  // Split entry mode
+  // Split entry mode — three legs (Cash, UPI QR, Discount). The
+  // discount slice is optional; when omitted the previous two-input
+  // behaviour is preserved exactly. Cash + UPI must still be > 0
+  // because a 100%-discount collection is a refund-shaped operation
+  // and the action rejects it.
   const cash = parseInt(cashStr, 10);
   const upi = parseInt(upiStr, 10);
+  const discount = parseInt(discountStr, 10);
   const cashValid = !isNaN(cash) && cash >= 0;
   const upiValid = !isNaN(upi) && upi >= 0;
-  const sum = (cashValid ? cash : 0) + (upiValid ? upi : 0);
-  const canSubmit = cashValid && upiValid && sum === remainingAmount && (cash > 0 || upi > 0);
+  const discountValid =
+    discountStr === "" || (!isNaN(discount) && discount >= 0);
+  const cashN = cashValid ? cash : 0;
+  const upiN = upiValid ? upi : 0;
+  const discountN = discountStr === "" || isNaN(discount) ? 0 : discount;
+  const sum = cashN + upiN + discountN;
+  const canSubmit =
+    cashValid &&
+    upiValid &&
+    discountValid &&
+    sum === remainingAmount &&
+    cashN + upiN > 0;
 
   return (
     <div className="mt-2 space-y-2">
       <p className="text-[11px] font-medium text-amber-200">
         Split {formattedRemaining}:
       </p>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <label className="space-y-1">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
             Cash ₹
@@ -174,6 +206,22 @@ export function MarkCollectedButton({
             placeholder="0"
           />
         </label>
+        <label className="space-y-1">
+          <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+            <Tag className="h-2.5 w-2.5" />
+            Discount ₹
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            value={discountStr}
+            onChange={(e) => setDiscountStr(e.target.value)}
+            disabled={isPending}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs font-semibold text-white placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none"
+            placeholder="0"
+          />
+        </label>
       </div>
       <p
         className={`text-[11px] ${
@@ -185,9 +233,14 @@ export function MarkCollectedButton({
         }`}
       >
         Sum: ₹{sum.toLocaleString("en-IN")} / ₹{remainingAmount.toLocaleString("en-IN")}
+        {discountN > 0 ? (
+          <span className="ml-2 text-zinc-500">
+            (collected ₹{(cashN + upiN).toLocaleString("en-IN")})
+          </span>
+        ) : null}
       </p>
       <button
-        onClick={() => submit(cash, upi)}
+        onClick={() => submit(cashN, upiN, discountN)}
         disabled={!canSubmit || isPending}
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-200 transition-colors hover:bg-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
       >

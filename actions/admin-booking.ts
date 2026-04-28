@@ -122,19 +122,26 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
 }
 
 // Describe how the remainder was actually collected at the venue: the
-// amount paid in cash and the amount paid via UPI QR. Either can be zero
-// but not both; the sum must equal the remaining amount owed.
+// amount paid in cash, the amount paid via UPI QR, and any goodwill
+// discount the floor staff applied at collection time. The three legs
+// can be zero individually but their sum must equal the remainder
+// owed, and at least one of cash/upi must be > 0 (a "100% discount"
+// is technically valid only at booking creation, not at collection).
+//
+// `discountAmount` is OPTIONAL on the input for backwards compat with
+// older call sites; defaulted to 0 internally.
 export type RemainderSplit = {
   cashAmount: number;
   upiAmount: number;
+  discountAmount?: number;
 };
 
-function describeSplit(cash: number, upi: number): string {
-  if (cash > 0 && upi > 0) {
-    return `Rs.${cash} Cash + Rs.${upi} UPI QR`;
-  }
-  if (cash > 0) return `Rs.${cash} Cash`;
-  return `Rs.${upi} UPI QR`;
+function describeSplit(cash: number, upi: number, discount: number = 0): string {
+  const parts: string[] = [];
+  if (cash > 0) parts.push(`Rs.${cash} Cash`);
+  if (upi > 0) parts.push(`Rs.${upi} UPI QR`);
+  if (discount > 0) parts.push(`Rs.${discount} Discount`);
+  return parts.length > 0 ? parts.join(" + ") : "no collection";
 }
 
 // Mark the venue-side remainder of a partial-payment booking as collected.
@@ -154,11 +161,15 @@ export async function markRemainderCollected(
 
   const cashAmount = Math.trunc(split.cashAmount ?? 0);
   const upiAmount = Math.trunc(split.upiAmount ?? 0);
-  if (cashAmount < 0 || upiAmount < 0) {
+  const discountAmount = Math.trunc(split.discountAmount ?? 0);
+  if (cashAmount < 0 || upiAmount < 0 || discountAmount < 0) {
     return { success: false, error: "Amounts cannot be negative" };
   }
+  // At least one of cash/UPI must be > 0 — a 100%-discount collection
+  // would zero out Payment.amount, which is a refund-shaped operation,
+  // not a "remainder collected" one.
   if (cashAmount === 0 && upiAmount === 0) {
-    return { success: false, error: "Enter at least one amount" };
+    return { success: false, error: "Enter at least one collected amount" };
   }
 
   const booking = await db.booking.findUnique({
@@ -183,32 +194,46 @@ export async function markRemainderCollected(
   if (remaining <= 0) {
     return { success: false, error: "Remainder already collected" };
   }
-  if (cashAmount + upiAmount !== remaining) {
+  // Cash + UPI + Discount must equal the remainder. The discount slice
+  // is what the venue absorbs; it doesn't increase Payment.amount.
+  if (cashAmount + upiAmount + discountAmount !== remaining) {
     return {
       success: false,
-      error: `Split must total Rs.${remaining} (got Rs.${cashAmount + upiAmount})`,
+      error: `Cash + UPI + Discount must total Rs.${remaining} (got Rs.${
+        cashAmount + upiAmount + discountAmount
+      })`,
     };
   }
 
   const admin = await db.adminUser.findUnique({ where: { id: adminId } });
   const adminUsername = admin?.username ?? "unknown";
 
+  // `remainderMethod` keeps the legacy single-method label only when the
+  // collection was a single non-discount method. Anything mixed (or any
+  // discount applied) leaves it null and lets the display layer fall
+  // back to the per-leg amounts.
   const singleMethod =
-    cashAmount > 0 && upiAmount === 0
+    discountAmount === 0 && cashAmount > 0 && upiAmount === 0
       ? "CASH"
-      : upiAmount > 0 && cashAmount === 0
+      : discountAmount === 0 && upiAmount > 0 && cashAmount === 0
       ? "UPI_QR"
       : null;
+
+  // Only cash + UPI count as "actually collected" — the discount slice
+  // is not added to Payment.amount. remainingAmount drops to 0 because
+  // nothing more is owed (the venue absorbed the discount portion).
+  const collectedAtVenue = cashAmount + upiAmount;
 
   await db.$transaction([
     db.payment.update({
       where: { id: booking.payment.id },
       data: {
-        amount: booking.payment.amount + remaining,
+        amount: booking.payment.amount + collectedAtVenue,
         remainingAmount: 0,
         remainderMethod: singleMethod,
         remainderCashAmount: cashAmount,
         remainderUpiAmount: upiAmount,
+        remainderDiscountAmount: discountAmount > 0 ? discountAmount : null,
         // PARTIAL -> COMPLETED now that the venue collection has been
         // recorded. Idempotent: if a prior state was already COMPLETED
         // (legacy rows), this is a no-op write.
@@ -221,7 +246,11 @@ export async function markRemainderCollected(
         adminId,
         adminUsername,
         editType: "REMAINDER_COLLECTED",
-        note: `Collected remaining Rs.${remaining} at venue: ${describeSplit(cashAmount, upiAmount)}`,
+        note: `Collected remaining Rs.${remaining} at venue: ${describeSplit(
+          cashAmount,
+          upiAmount,
+          discountAmount,
+        )}`,
       },
     }),
   ]);
@@ -229,12 +258,13 @@ export async function markRemainderCollected(
   return { success: true };
 }
 
-// Edit the cash/UPI split on a partial-payment booking whose remainder has
-// already been collected. Does not change how much was collected — only
-// re-attributes the same total between cash and UPI. Used to correct
-// admin entry mistakes after the fact. Leaves Payment.amount /
-// remainingAmount / status untouched; updates the two split columns and
-// remainderMethod, and records an audit row with the before/after values.
+// Edit the cash/UPI/discount split on a partial-payment booking whose
+// remainder has already been collected. Re-attributes the same
+// venue-side total across the three legs to fix entry mistakes after
+// the fact. Updates Payment.amount when the discount portion changes
+// (since cash + UPI is what counts as "actually collected"), keeps
+// remainingAmount / status at COMPLETED, and writes an audit row with
+// the before/after values.
 export async function updateRemainderSplit(
   bookingId: string,
   split: RemainderSplit,
@@ -244,7 +274,8 @@ export async function updateRemainderSplit(
 
   const cashAmount = Math.trunc(split.cashAmount ?? 0);
   const upiAmount = Math.trunc(split.upiAmount ?? 0);
-  if (cashAmount < 0 || upiAmount < 0) {
+  const discountAmount = Math.trunc(split.discountAmount ?? 0);
+  if (cashAmount < 0 || upiAmount < 0 || discountAmount < 0) {
     return { success: false, error: "Amounts cannot be negative" };
   }
 
@@ -265,14 +296,16 @@ export async function updateRemainderSplit(
   // booking total. Reject any split that doesn't sum to that.
   const advance = booking.payment.advanceAmount ?? 0;
   const venueTotal = booking.totalAmount - advance;
-  if (cashAmount + upiAmount !== venueTotal) {
+  if (cashAmount + upiAmount + discountAmount !== venueTotal) {
     return {
       success: false,
-      error: `Split must total Rs.${venueTotal} (got Rs.${cashAmount + upiAmount})`,
+      error: `Cash + UPI + Discount must total Rs.${venueTotal} (got Rs.${
+        cashAmount + upiAmount + discountAmount
+      })`,
     };
   }
   if (cashAmount === 0 && upiAmount === 0) {
-    return { success: false, error: "Enter at least one amount" };
+    return { success: false, error: "Enter at least one collected amount" };
   }
 
   const priorCash =
@@ -281,7 +314,12 @@ export async function updateRemainderSplit(
   const priorUpi =
     booking.payment.remainderUpiAmount ??
     (booking.payment.remainderMethod === "UPI_QR" ? venueTotal : 0);
-  if (priorCash === cashAmount && priorUpi === upiAmount) {
+  const priorDiscount = booking.payment.remainderDiscountAmount ?? 0;
+  if (
+    priorCash === cashAmount &&
+    priorUpi === upiAmount &&
+    priorDiscount === discountAmount
+  ) {
     return { success: false, error: "No changes to save" };
   }
 
@@ -289,19 +327,30 @@ export async function updateRemainderSplit(
   const adminUsername = admin?.username ?? "unknown";
 
   const singleMethod =
-    cashAmount > 0 && upiAmount === 0
+    discountAmount === 0 && cashAmount > 0 && upiAmount === 0
       ? "CASH"
-      : upiAmount > 0 && cashAmount === 0
+      : discountAmount === 0 && upiAmount > 0 && cashAmount === 0
       ? "UPI_QR"
       : null;
+
+  // The actually-collected total (cash + UPI) drives Payment.amount. We
+  // adjust by the delta vs the prior cash+UPI so this stays correct
+  // when the discount slice grows or shrinks.
+  const newCollected = cashAmount + upiAmount;
+  const priorCollected = priorCash + priorUpi;
+  const delta = newCollected - priorCollected;
 
   await db.$transaction([
     db.payment.update({
       where: { id: booking.payment.id },
       data: {
+        ...(delta !== 0
+          ? { amount: booking.payment.amount + delta }
+          : {}),
         remainderMethod: singleMethod,
         remainderCashAmount: cashAmount,
         remainderUpiAmount: upiAmount,
+        remainderDiscountAmount: discountAmount > 0 ? discountAmount : null,
       },
     }),
     db.bookingEditHistory.create({
@@ -310,7 +359,11 @@ export async function updateRemainderSplit(
         adminId,
         adminUsername,
         editType: "REMAINDER_SPLIT_EDITED",
-        note: `Updated venue collection split from ${describeSplit(priorCash, priorUpi)} to ${describeSplit(cashAmount, upiAmount)}`,
+        note: `Updated venue collection split from ${describeSplit(
+          priorCash,
+          priorUpi,
+          priorDiscount,
+        )} to ${describeSplit(cashAmount, upiAmount, discountAmount)}`,
       },
     }),
   ]);

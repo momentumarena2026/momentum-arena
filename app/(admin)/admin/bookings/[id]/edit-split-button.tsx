@@ -3,24 +3,28 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateRemainderSplit } from "@/actions/admin-booking";
-import { Pencil, CheckCircle2, Loader2 } from "lucide-react";
+import { Pencil, CheckCircle2, Loader2, Tag } from "lucide-react";
 
 /**
  * Shown on the emerald "Paid in Full" block of a partial-payment booking
  * whose remainder has already been collected. Lets the admin re-attribute
- * the same venue total between Cash and UPI QR when they realize the
- * original entry was wrong — does not change the total collected.
+ * the same venue total between Cash, UPI QR, and an optional discount
+ * when they realize the original entry was wrong. Discount is the
+ * goodwill cut the venue absorbed at collection time; bumping it up
+ * here will shrink Payment.amount accordingly so reporting stays honest.
  */
 export function EditSplitButton({
   bookingId,
   venueTotal,
   initialCash,
   initialUpi,
+  initialDiscount,
 }: {
   bookingId: string;
   venueTotal: number;
   initialCash: number;
   initialUpi: number;
+  initialDiscount: number;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -28,15 +32,18 @@ export function EditSplitButton({
   const [open, setOpen] = useState(false);
   const [cashStr, setCashStr] = useState(initialCash.toString());
   const [upiStr, setUpiStr] = useState(initialUpi.toString());
+  const [discountStr, setDiscountStr] = useState(initialDiscount.toString());
 
   function submit() {
     const cash = parseInt(cashStr, 10);
     const upi = parseInt(upiStr, 10);
+    const discount = parseInt(discountStr, 10);
     setError(null);
     startTransition(async () => {
       const result = await updateRemainderSplit(bookingId, {
         cashAmount: isNaN(cash) ? 0 : cash,
         upiAmount: isNaN(upi) ? 0 : upi,
+        discountAmount: isNaN(discount) ? 0 : discount,
       });
       if (result.success) {
         setOpen(false);
@@ -53,35 +60,45 @@ export function EditSplitButton({
         onClick={() => {
           setCashStr(initialCash.toString());
           setUpiStr(initialUpi.toString());
+          setDiscountStr(initialDiscount.toString());
           setError(null);
           setOpen(true);
         }}
         className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/40 px-3 py-1.5 text-[11px] font-medium text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200"
       >
         <Pencil className="h-3 w-3" />
-        Edit Cash/UPI split
+        Edit collection split
       </button>
     );
   }
 
   const cash = parseInt(cashStr, 10);
   const upi = parseInt(upiStr, 10);
+  const discount = parseInt(discountStr, 10);
   const cashValid = !isNaN(cash) && cash >= 0;
   const upiValid = !isNaN(upi) && upi >= 0;
-  const sum = (cashValid ? cash : 0) + (upiValid ? upi : 0);
+  const discountValid =
+    discountStr === "" || (!isNaN(discount) && discount >= 0);
+  const cashN = cashValid ? cash : 0;
+  const upiN = upiValid ? upi : 0;
+  const discountN = discountStr === "" || isNaN(discount) ? 0 : discount;
+  const sum = cashN + upiN + discountN;
   const canSubmit =
     cashValid &&
     upiValid &&
+    discountValid &&
     sum === venueTotal &&
-    (cash > 0 || upi > 0) &&
-    (cash !== initialCash || upi !== initialUpi);
+    cashN + upiN > 0 &&
+    (cashN !== initialCash ||
+      upiN !== initialUpi ||
+      discountN !== initialDiscount);
 
   return (
     <div className="mt-2 space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-2.5">
       <p className="text-[11px] font-medium text-zinc-300">
         Re-attribute ₹{venueTotal.toLocaleString("en-IN")} collected at venue
       </p>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <label className="space-y-1">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
             Cash ₹
@@ -110,6 +127,21 @@ export function EditSplitButton({
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs font-semibold text-white focus:border-emerald-500 focus:outline-none"
           />
         </label>
+        <label className="space-y-1">
+          <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+            <Tag className="h-2.5 w-2.5" />
+            Discount ₹
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            value={discountStr}
+            onChange={(e) => setDiscountStr(e.target.value)}
+            disabled={isPending}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs font-semibold text-white focus:border-emerald-500 focus:outline-none"
+          />
+        </label>
       </div>
       <p
         className={`text-[11px] ${
@@ -121,6 +153,11 @@ export function EditSplitButton({
         }`}
       >
         Sum: ₹{sum.toLocaleString("en-IN")} / ₹{venueTotal.toLocaleString("en-IN")}
+        {discountN > 0 ? (
+          <span className="ml-2 text-zinc-500">
+            (collected ₹{(cashN + upiN).toLocaleString("en-IN")})
+          </span>
+        ) : null}
       </p>
       <div className="grid grid-cols-2 gap-2">
         <button

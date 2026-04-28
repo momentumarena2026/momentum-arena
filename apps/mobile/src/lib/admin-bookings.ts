@@ -33,6 +33,10 @@ export interface AdminBookingPayment {
   remainderMethod: AdminPaymentMethod | null;
   remainderCashAmount: number | null;
   remainderUpiAmount: number | null;
+  // Optional goodwill discount applied at collection time. null when no
+  // discount was used; otherwise sums alongside cash + UPI to the total
+  // remainder owed at the venue.
+  remainderDiscountAmount: number | null;
   razorpayPaymentId: string | null;
   utrNumber: string | null;
   confirmedAt: string | null;
@@ -230,14 +234,18 @@ export const adminBookingsApi = {
     });
   },
 
+  // Three-leg venue collection: cash + UPI + optional goodwill
+  // discount. discountAmount is treated as 0 when the screen passes
+  // undefined, preserving the previous two-input behaviour.
   markCollected(
     id: string,
     cashAmount: number,
     upiAmount: number,
+    discountAmount: number = 0,
   ): Promise<{ ok: true }> {
     return request(`/api/mobile/admin/bookings/${id}/mark-collected`, {
       method: "POST",
-      body: { cashAmount, upiAmount },
+      body: { cashAmount, upiAmount, discountAmount },
     });
   },
 
@@ -245,10 +253,11 @@ export const adminBookingsApi = {
     id: string,
     cashAmount: number,
     upiAmount: number,
+    discountAmount: number = 0,
   ): Promise<{ ok: true }> {
     return request(`/api/mobile/admin/bookings/${id}/edit-split`, {
       method: "POST",
-      body: { cashAmount, upiAmount },
+      body: { cashAmount, upiAmount, discountAmount },
     });
   },
 

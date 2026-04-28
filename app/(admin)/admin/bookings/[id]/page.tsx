@@ -315,14 +315,33 @@ export default async function AdminBookingDetailPage({
                 : booking.payment.remainderMethod === "UPI_QR"
                 ? venueTotal
                 : 0;
-              const isSplit = remainderCash > 0 && remainderUpi > 0;
+              const remainderDiscount =
+                booking.payment.remainderDiscountAmount ?? 0;
+              const isSplit =
+                [remainderCash, remainderUpi, remainderDiscount].filter(
+                  (n) => n > 0,
+                ).length > 1;
               const remainderLabel = collected
                 ? isSplit
-                  ? `${formatPrice(remainderCash)} Cash + ${formatPrice(remainderUpi)} UPI QR`
+                  ? [
+                      remainderCash > 0
+                        ? `${formatPrice(remainderCash)} Cash`
+                        : null,
+                      remainderUpi > 0
+                        ? `${formatPrice(remainderUpi)} UPI QR`
+                        : null,
+                      remainderDiscount > 0
+                        ? `${formatPrice(remainderDiscount)} Discount`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" + ")
                   : remainderCash > 0
                   ? "Cash"
                   : remainderUpi > 0
                   ? "UPI QR"
+                  : remainderDiscount > 0
+                  ? "Discount"
                   : booking.payment.remainderMethod
                   ? methodLabel(booking.payment.remainderMethod)
                   : null
@@ -366,6 +385,7 @@ export default async function AdminBookingDetailPage({
                     venueTotal={venueTotal}
                     initialCash={remainderCash}
                     initialUpi={remainderUpi}
+                    initialDiscount={remainderDiscount}
                   />
                 )}
               </div>
