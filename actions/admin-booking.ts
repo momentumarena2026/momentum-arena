@@ -278,6 +278,8 @@ export async function markRemainderCollected(
     }
   });
 
+  await revalidateBookingPaths(bookingId);
+
   return { success: true };
 }
 
@@ -415,6 +417,8 @@ export async function updateRemainderSplit(
       });
     }
   });
+
+  await revalidateBookingPaths(bookingId);
 
   return { success: true };
 }
@@ -559,6 +563,8 @@ export async function refundBooking(
       },
     }),
   ]);
+
+  await revalidateBookingPaths(bookingId);
 
   // Same lock-screen notification as plain cancellation, but with the
   // refunded copy + the refund_processed kind so analytics can split
@@ -1299,6 +1305,8 @@ export async function adminCreateBooking(data: {
       notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
     }
 
+    await revalidateBookingPaths(bookingId);
+
     return { success: true as const, bookingId };
   } catch (error) {
     return {
@@ -1526,6 +1534,8 @@ export async function adminEditBookingSlots(
         });
       }
     });
+
+    await revalidateBookingPaths(bookingId);
 
     return { success: true as const };
   } catch (error) {
@@ -1923,6 +1933,8 @@ export async function adminEditBookingFull(
         }
       }
     });
+
+    await revalidateBookingPaths(bookingId);
 
     return { success: true as const };
   } catch (error) {
