@@ -1,0 +1,70 @@
+name: Cron — Send Booking Reminders
+
+# Hourly trigger for /api/cron/send-reminders. Vercel Hobby caps cron
+# expressions at "once per day", but the 1h + 2h push reminders need
+# the cron to fire every hour to catch slots starting in the next 1–2
+# hours. Vercel's daily entry in vercel.json stays as a safety net for
+# the 24h-reminder pass; this workflow handles the hourly cadence using
+# GitHub Actions' free scheduler.
+#
+# Setup checklist (one-time):
+#   1. Repo Settings → Secrets and variables → Actions → New secret:
+#        - PRODUCTION_URL  (e.g. https://www.momentumarena.com)
+#        - CRON_SECRET     (same value as the Vercel env var)
+#   2. Workflow runs are visible under Actions tab. Manual run is
+#      available via "Run workflow" → workflow_dispatch.
+#
+# Costs nothing on private repos (GitHub Actions free tier covers
+# >>720 of these hourly runs per month).
+
+on:
+  schedule:
+    # Top of every hour, UTC. GitHub may delay scheduled jobs by
+    # several minutes during high load — the reminder logic is
+    # idempotent (reminderNSentAt flags) so duplicate or late triggers
+    # are safe.
+    - cron: "0 * * * *"
+  # Manual trigger for testing / one-off catch-up after a delivery
+  # incident.
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: POST /api/cron/send-reminders
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify required secrets
+        run: |
+          if [ -z "${{ secrets.PRODUCTION_URL }}" ]; then
+            echo "::error::PRODUCTION_URL secret missing — add it under repo Settings → Secrets → Actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::CRON_SECRET secret missing — add it under repo Settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "Secrets present (URL length: ${#URL}, secret length: ${#SECRET})"
+        env:
+          URL: ${{ secrets.PRODUCTION_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+
+      - name: Trigger send-reminders
+        env:
+          URL: ${{ secrets.PRODUCTION_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          # Endpoint accepts both GET and POST and verifies
+          # Authorization: Bearer <CRON_SECRET>. -fS makes curl exit
+          # non-zero on HTTP errors so a 4xx/5xx fails the workflow
+          # (so we get a GitHub email + the Actions tab marks red).
+          # --max-time 90 caps a stuck request — the route returns in
+          # well under 30s on a typical day's worth of reminders.
+          curl -fS --max-time 90 \
+            -H "Authorization: Bearer $SECRET" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$URL/api/cron/send-reminders"
+          echo
+          echo "OK — reminder cron acknowledged."
