@@ -35,6 +35,8 @@ export type PushKind =
   | "booking_confirmed"
   | "booking_reminder_24h"
   | "booking_reminder_2h"
+  | "booking_reminder_1h"
+  | "booking_cancelled"
   | "payment_verified"
   | "refund_processed"
   | "cafe_order_status"

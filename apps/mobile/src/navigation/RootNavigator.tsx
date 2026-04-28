@@ -61,6 +61,8 @@ export function RootNavigator() {
         case "booking_confirmed":
         case "booking_reminder_24h":
         case "booking_reminder_2h":
+        case "booking_reminder_1h":
+        case "booking_cancelled":
         case "payment_verified":
         case "refund_processed":
           if (payload.bookingId) {

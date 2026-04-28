@@ -360,6 +360,11 @@ model Booking {
   // Booking reminders
   reminder24SentAt DateTime?
   reminder2SentAt  DateTime?
+  // 1-hour reminder is push-only (no SMS) — fires from the hourly
+  // send-reminders cron and lands on the lock screen as a final
+  // "see you in an hour" nudge. Existing rows backfill to null,
+  // which is the "not yet sent" sentinel the cron logic expects.
+  reminder1SentAt  DateTime?
 
   // New feature relations
   feedback         Feedback?

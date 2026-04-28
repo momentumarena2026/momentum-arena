@@ -13,15 +13,17 @@ import {
   getPushStats,
   getRecentPushNotifications,
   getPushDevices,
+  getActiveUserGroupsForPush,
 } from "@/actions/admin-push";
 import { BroadcastForm } from "./broadcast-form";
 import { PruneStaleButton, DeleteDeviceButton } from "./maintenance-actions";
 
 export default async function AdminPushPage() {
-  const [stats, recent, deviceList] = await Promise.all([
+  const [stats, recent, deviceList, groups] = await Promise.all([
     getPushStats(),
     getRecentPushNotifications(50),
     getPushDevices({ limit: 25 }),
+    getActiveUserGroupsForPush(),
   ]);
 
   const statCards = [
@@ -117,6 +119,7 @@ export default async function AdminPushPage() {
           android: stats.androidDevices,
           ios: stats.iosDevices,
         }}
+        groups={groups}
       />
 
       {/* Two-column layout for the two tables on desktop */}

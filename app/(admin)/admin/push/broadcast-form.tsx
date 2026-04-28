@@ -9,6 +9,7 @@ import {
   Globe,
   Smartphone,
   Apple,
+  Users,
   Loader2,
   CheckCircle2,
   AlertTriangle,
@@ -20,7 +21,14 @@ import {
   type BroadcastAudience,
 } from "@/actions/admin-push";
 
-type AudienceKind = "all" | "android" | "ios" | "user";
+type AudienceKind = "all" | "android" | "ios" | "user" | "group";
+
+interface GroupOption {
+  id: string;
+  name: string;
+  memberCount: number;
+  deviceCount: number;
+}
 
 interface UserMatch {
   id: string;
@@ -32,15 +40,17 @@ interface UserMatch {
 
 interface BroadcastFormProps {
   initialReach: { all: number; android: number; ios: number };
+  groups: GroupOption[];
 }
 
-export function BroadcastForm({ initialReach }: BroadcastFormProps) {
+export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
   const [kind, setKind] = useState<AudienceKind>("all");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [userQuery, setUserQuery] = useState("");
   const [userMatches, setUserMatches] = useState<UserMatch[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserMatch | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>(groups[0]?.id ?? "");
   const [searching, setSearching] = useState(false);
   const [sending, startSending] = useTransition();
   const [result, setResult] = useState<
@@ -56,6 +66,10 @@ export function BroadcastForm({ initialReach }: BroadcastFormProps) {
     if (kind === "all") return { kind: "all" };
     if (kind === "android") return { kind: "platform", platform: "android" };
     if (kind === "ios") return { kind: "platform", platform: "ios" };
+    if (kind === "group") {
+      if (!selectedGroupId) return { error: "Pick a user group first" };
+      return { kind: "group", groupId: selectedGroupId };
+    }
     if (!selectedUser) return { error: "Pick a user first" };
     return { kind: "user", userId: selectedUser.id };
   }
@@ -64,6 +78,10 @@ export function BroadcastForm({ initialReach }: BroadcastFormProps) {
     if (kind === "all") return initialReach.all;
     if (kind === "android") return initialReach.android;
     if (kind === "ios") return initialReach.ios;
+    if (kind === "group") {
+      const g = groups.find((x) => x.id === selectedGroupId);
+      return g?.deviceCount ?? null;
+    }
     return selectedUser?.deviceCount ?? null;
   }
 
@@ -140,6 +158,7 @@ export function BroadcastForm({ initialReach }: BroadcastFormProps) {
               { value: "all" as const, label: "All devices", icon: Globe, count: initialReach.all },
               { value: "android" as const, label: "Android", icon: Smartphone, count: initialReach.android },
               { value: "ios" as const, label: "iOS", icon: Apple, count: initialReach.ios },
+              { value: "group" as const, label: "User group", icon: Users, count: null },
               { value: "user" as const, label: "Specific user", icon: Search, count: null },
             ]
           ).map((opt) => {
@@ -156,6 +175,9 @@ export function BroadcastForm({ initialReach }: BroadcastFormProps) {
                     setSelectedUser(null);
                     setUserMatches([]);
                     setUserQuery("");
+                  }
+                  if (opt.value === "group" && !selectedGroupId && groups[0]) {
+                    setSelectedGroupId(groups[0].id);
                   }
                 }}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
@@ -176,6 +198,37 @@ export function BroadcastForm({ initialReach }: BroadcastFormProps) {
           })}
         </div>
       </div>
+
+      {/* Group picker — only when audience = group */}
+      {kind === "group" && (
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Pick a user group</p>
+          {groups.length === 0 ? (
+            <p className="text-xs text-zinc-500 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2">
+              No user groups exist yet. Create one in{" "}
+              <a href="/admin/coupons" className="text-emerald-400 hover:underline">
+                Coupons → Groups
+              </a>{" "}
+              first.
+            </p>
+          ) : (
+            <select
+              value={selectedGroupId}
+              onChange={(e) => {
+                setSelectedGroupId(e.target.value);
+                setResult(null);
+              }}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+            >
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name} — {g.memberCount} member{g.memberCount === 1 ? "" : "s"} · {g.deviceCount} reachable
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {/* User search — only when audience = user */}
       {kind === "user" && (

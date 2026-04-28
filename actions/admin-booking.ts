@@ -7,6 +7,8 @@ import {
 } from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { normalizeIndianPhone } from "@/lib/phone";
+import { sendToUser } from "@/lib/push";
+import { formatHoursAsRanges } from "@/lib/court-config";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -309,7 +311,61 @@ export async function cancelBooking(bookingId: string, reason: string) {
     }),
   ]);
 
+  // Push notification to the customer. Best-effort — fire-and-forget so
+  // the admin's confirmation roundtrip stays fast and a flaky FCM call
+  // doesn't surface as a UI error on a successful cancellation.
+  void notifyBookingCancelled(bookingId, reason);
+
   return { success: true };
+}
+
+// Helper used by both cancelBooking and refundBooking. Only the title
+// differs ("cancelled" vs "refunded") — everything else is identical so
+// the customer sees a consistent notification.
+async function notifyBookingCancelled(
+  bookingId: string,
+  reason: string,
+  refunded: boolean = false,
+): Promise<void> {
+  try {
+    const b = await db.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        userId: true,
+        date: true,
+        slots: { orderBy: { startHour: "asc" }, select: { startHour: true } },
+      },
+    });
+    if (!b) return;
+    const dateLabel = b.date.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      timeZone: "Asia/Kolkata",
+    });
+    const timeLabel =
+      b.slots.length > 0
+        ? formatHoursAsRanges(b.slots.map((s) => s.startHour))
+        : "";
+    const when = [dateLabel, timeLabel].filter(Boolean).join(" ");
+    await sendToUser(b.userId, {
+      title: refunded ? "Booking refunded" : "Booking cancelled",
+      body: when
+        ? `Your slot on ${when} was ${refunded ? "refunded" : "cancelled"}.${
+            reason ? ` Reason: ${reason.slice(0, 120)}` : ""
+          }`
+        : reason
+          ? `Reason: ${reason.slice(0, 200)}`
+          : refunded
+            ? "Your refund has been processed."
+            : "Your booking was cancelled.",
+      data: {
+        kind: refunded ? "refund_processed" : "booking_cancelled",
+        bookingId,
+      },
+    });
+  } catch (err) {
+    console.error("Cancellation push failed for", bookingId, err);
+  }
 }
 
 export async function refundBooking(
@@ -360,6 +416,11 @@ export async function refundBooking(
       },
     }),
   ]);
+
+  // Same lock-screen notification as plain cancellation, but with the
+  // refunded copy + the refund_processed kind so analytics can split
+  // the two outcomes downstream.
+  void notifyBookingCancelled(bookingId, reason, true);
 
   return { success: true };
 }

@@ -205,6 +205,43 @@ export async function getPushDevices(filters?: {
   return { devices, total, page, totalPages: Math.ceil(total / limit) };
 }
 
+// User-group dropdown for the broadcast form. Returns each active group
+// with its member count and how many of those members have a registered
+// push device — so admins know the actual reach before they hit Send.
+export async function getActiveUserGroupsForPush() {
+  await requireAdmin(PERMISSION);
+
+  const groups = await db.userGroup.findMany({
+    where: { deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      _count: { select: { members: true } },
+      members: { select: { userId: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  if (groups.length === 0) return [];
+
+  // Compute reachable-device counts in one round-trip rather than N+1.
+  const allMemberIds = Array.from(
+    new Set(groups.flatMap((g) => g.members.map((m) => m.userId))),
+  );
+  const memberDevices = await db.pushDevice.findMany({
+    where: { userId: { in: allMemberIds } },
+    select: { userId: true },
+  });
+  const userIdToHasDevice = new Set(memberDevices.map((d) => d.userId));
+
+  return groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    memberCount: g._count.members,
+    deviceCount: g.members.filter((m) => userIdToHasDevice.has(m.userId)).length,
+  }));
+}
+
 // User search for the broadcast form's "specific user" audience. Restricted
 // to phone / name match — admins searching for "amazon" shouldn't enumerate
 // every user in the DB by typing a single character.
@@ -243,7 +280,10 @@ export async function searchUsersForPush(query: string) {
 export type BroadcastAudience =
   | { kind: "all" }
   | { kind: "platform"; platform: "android" | "ios" }
-  | { kind: "user"; userId: string };
+  | { kind: "user"; userId: string }
+  // Admin-curated cohort (UserGroup model — same one coupons target).
+  // Resolved at send time to all members' devices.
+  | { kind: "group"; groupId: string };
 
 export interface BroadcastInput {
   audience: BroadcastAudience;
@@ -282,6 +322,22 @@ export async function sendBroadcast(input: BroadcastInput) {
     where.platform = input.audience.platform;
   } else if (input.audience.kind === "user") {
     where.userId = input.audience.userId;
+  } else if (input.audience.kind === "group") {
+    // Translate group → list of member userIds → device filter. Doing
+    // this in two queries (instead of a relational `user: { groupMemberships: { some: ... } }`
+    // filter) keeps the query plan trivial and the audience-size
+    // preview cheap. Group must not be soft-deleted.
+    const group = await db.userGroup.findUnique({
+      where: { id: input.audience.groupId },
+      select: { id: true, deletedAt: true, members: { select: { userId: true } } },
+    });
+    if (!group || group.deletedAt) {
+      return { ok: false as const, error: "User group not found" };
+    }
+    if (group.members.length === 0) {
+      return { ok: false as const, error: "User group has no members" };
+    }
+    where.userId = { in: group.members.map((m) => m.userId) };
   }
   const devices = await db.pushDevice.findMany({
     where,

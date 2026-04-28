@@ -52,7 +52,10 @@ async function sendSmsReminder(
 async function sendPushReminder(
   userId: string,
   bookingId: string,
-  kind: Extract<PushKind, "booking_reminder_24h" | "booking_reminder_2h">,
+  kind: Extract<
+    PushKind,
+    "booking_reminder_24h" | "booking_reminder_2h" | "booking_reminder_1h"
+  >,
   title: string,
   body: string,
 ): Promise<void> {
@@ -70,10 +73,11 @@ async function sendPushReminder(
 export async function sendBookingReminders(): Promise<{
   sent24h: number;
   sent2h: number;
+  sent1h: number;
   errors: number;
 }> {
   const now = new Date();
-  const results = { sent24h: 0, sent2h: 0, errors: 0 };
+  const results = { sent24h: 0, sent2h: 0, sent1h: 0, errors: 0 };
 
   // -- 24-hour reminders --
   // Find bookings where date is tomorrow
@@ -206,6 +210,60 @@ export async function sendBookingReminders(): Promise<{
       }
     } catch (error) {
       console.error(`Failed to send 2h reminder for booking ${booking.id}:`, error);
+      results.errors++;
+    }
+  }
+
+  // -- 1-hour push reminder (PUSH ONLY, no SMS) --
+  // Final lock-screen nudge an hour before the slot starts. SMS is
+  // intentionally skipped — we already sent SMS at 24h + 2h, so a third
+  // SMS for the same booking would be noisy + DLT-cost overhead. Push is
+  // free and the right channel for "see you in an hour".
+  // Requires reminder2SentAt to be set so first-time users without the
+  // 2h reminder (e.g. same-day bookings created within the 2h window)
+  // don't get a stranded 1h-only ping.
+  const oneHourTargetHour = now.getHours() + 1;
+  const bookingsFor1h = await db.booking.findMany({
+    where: {
+      status: "CONFIRMED",
+      date: { gte: todayDate, lt: todayEnd },
+      reminder1SentAt: null,
+      reminder2SentAt: { not: null },
+    },
+    include: {
+      courtConfig: { select: { sport: true } },
+      slots: { orderBy: { startHour: "asc" }, take: 1 },
+    },
+  });
+
+  for (const booking of bookingsFor1h) {
+    try {
+      if (booking.slots.length === 0) continue;
+      const startHour = booking.slots[0].startHour;
+      // Tight 1h window — only fire when the slot is precisely the
+      // next-up hour (cron runs at the top of every hour).
+      if (startHour !== oneHourTargetHour) continue;
+
+      const sportName =
+        SPORT_INFO[booking.courtConfig.sport]?.name ||
+        booking.courtConfig.sport;
+      const timeStr = formatHourRangeCompact(startHour);
+
+      await sendPushReminder(
+        booking.userId,
+        booking.id,
+        "booking_reminder_1h",
+        `${sportName} in 1 hour`,
+        `Heading to Momentum Arena? ${timeStr}. Tap for booking details.`,
+      );
+
+      await db.booking.update({
+        where: { id: booking.id },
+        data: { reminder1SentAt: new Date() },
+      });
+      results.sent1h++;
+    } catch (error) {
+      console.error(`Failed to send 1h reminder for booking ${booking.id}:`, error);
       results.errors++;
     }
   }
