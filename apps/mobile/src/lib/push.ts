@@ -37,7 +37,8 @@ export type PushKind =
   | "booking_reminder_2h"
   | "payment_verified"
   | "refund_processed"
-  | "cafe_order_status";
+  | "cafe_order_status"
+  | "broadcast";
 
 export interface PushTapPayload {
   kind: PushKind;

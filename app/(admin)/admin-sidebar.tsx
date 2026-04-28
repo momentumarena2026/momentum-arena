@@ -30,6 +30,7 @@ import {
   Fuel,
   Receipt,
   PieChart,
+  Bell,
   type LucideIcon,
 } from "lucide-react";
 
@@ -60,6 +61,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/razorpay": CreditCard,
   "/admin/expenses": Receipt,
   "/admin/expenses/analytics": PieChart,
+  "/admin/push": Bell,
 };
 
 interface NavGroup {

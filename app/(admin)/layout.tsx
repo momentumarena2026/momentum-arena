@@ -26,6 +26,7 @@ const allNavItems = [
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
+  { href: "/admin/push", label: "Push Notifications", group: "Operations", permission: "MANAGE_PUSH" },
   { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
   { href: "/admin/generator", label: "Generator", group: "Settings", permission: "MANAGE_PRICING" },

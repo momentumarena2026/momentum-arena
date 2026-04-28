@@ -74,7 +74,11 @@ export type PushKind =
   | "booking_reminder_2h"
   | "payment_verified"
   | "refund_processed"
-  | "cafe_order_status";
+  | "cafe_order_status"
+  // Admin-initiated broadcast (manual send from /admin/push). The
+  // mobile tap handler treats this as a no-op deep-link — opening
+  // the app is enough action.
+  | "broadcast";
 
 export interface PushPayload {
   title: string;
