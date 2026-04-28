@@ -276,10 +276,7 @@ export const adminBookingsApi = {
     bookingId: string,
     courtConfigId: string,
     date: string,
-  ): Promise<{
-    slots: AvailableSlot[];
-    pricingExists: boolean;
-  }> {
+  ): Promise<{ slots: AvailableSlot[] }> {
     const params = new URLSearchParams({ courtConfigId, date });
     return request(
       `/api/mobile/admin/bookings/${bookingId}/available-slots?${params.toString()}`,

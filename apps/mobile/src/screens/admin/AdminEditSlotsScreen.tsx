@@ -187,9 +187,16 @@ export function AdminEditSlotsScreen() {
               ))}
             </View>
           ) : slotsQuery.isError ? (
-            <Text variant="small" color={colors.destructive}>
-              Couldn't load availability. Pull back and retry.
-            </Text>
+            <View style={{ gap: spacing["1"] }}>
+              <Text variant="small" color={colors.destructive}>
+                Couldn't load availability. Pull back and retry.
+              </Text>
+              <Text variant="tiny" color={colors.zinc500}>
+                {slotsQuery.error instanceof Error
+                  ? slotsQuery.error.message
+                  : "Unknown error"}
+              </Text>
+            </View>
           ) : (
             <View style={styles.grid}>
               {slotsQuery.data?.slots.map((s) => (

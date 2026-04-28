@@ -275,9 +275,16 @@ export function AdminEditBookingScreen() {
               ))}
             </View>
           ) : slotsQuery.isError ? (
-            <Text variant="small" color={colors.destructive}>
-              Couldn't load availability for this court+date.
-            </Text>
+            <View style={{ gap: spacing["1"] }}>
+              <Text variant="small" color={colors.destructive}>
+                Couldn't load availability for this court+date.
+              </Text>
+              <Text variant="tiny" color={colors.zinc500}>
+                {slotsQuery.error instanceof Error
+                  ? slotsQuery.error.message
+                  : "Unknown error"}
+              </Text>
+            </View>
           ) : (
             <View style={styles.grid}>
               {slotsQuery.data?.slots.map((s) => (

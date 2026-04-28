@@ -32,5 +32,19 @@ export async function GET(
   }
 
   const result = await getAvailableSlots(courtConfigId, date, bookingId, true);
-  return NextResponse.json(result);
+  if (!result.success) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
+  }
+  // Normalize field names. Server returns `available` (free to book)
+  // and `blocked` (admin-imposed); client wants the inverse + the
+  // semantically clearer `isBooked` / `isBlocked` so the picker can
+  // disable a tile and show a reason chip without inverting the
+  // boolean at every callsite.
+  const slots = result.slots.map((s) => ({
+    hour: s.hour,
+    price: s.price,
+    isBooked: !s.available && !s.blocked,
+    isBlocked: s.blocked,
+  }));
+  return NextResponse.json({ slots });
 }
