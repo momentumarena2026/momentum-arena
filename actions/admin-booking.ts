@@ -659,6 +659,8 @@ export async function getAdminStats() {
     venueDueAgg,
     lifetimeEarnings,
     firstBooking,
+    todayConfirmedAgg,
+    todayCollectedHistory,
   ] = await Promise.all([
     db.booking.count({ where: { status: "CONFIRMED" } }),
     db.booking.count({
@@ -724,6 +726,56 @@ export async function getAdminStats() {
       orderBy: { date: "asc" },
       select: { date: true },
     }),
+    // ── "Today's Earning" — actual cash flow today ──────────────────
+    // Two parts that don't overlap by construction:
+    //   (a) Money received via payment confirmation today: any
+    //       Payment whose confirmedAt is in today's window. For full
+    //       payments this is Payment.amount = total. For partial
+    //       payments confirmed today, Payment.amount = advance only
+    //       (any remainder collected today is captured in (b) below
+    //       via the BookingEditHistory row, but only when the
+    //       advance was on a different day; same-day advance+remainder
+    //       lands fully in Payment.amount and stays in this leg).
+    //   (b) Remainder collections today on bookings whose advance was
+    //       paid earlier. We restrict (b) to payments confirmed
+    //       BEFORE today so the same-day combo case (advance and
+    //       remainder both today) doesn't get double-counted —
+    //       Payment.amount in (a) already reflects the full sum.
+    db.payment.aggregate({
+      where: {
+        confirmedAt: { gte: today, lt: tomorrow },
+        booking: { status: "CONFIRMED" },
+        status: { in: ["PARTIAL", "COMPLETED"] },
+      },
+      _sum: { amount: true },
+    }),
+    db.bookingEditHistory.findMany({
+      where: {
+        editType: "REMAINDER_COLLECTED",
+        createdAt: { gte: today, lt: tomorrow },
+        booking: {
+          status: "CONFIRMED",
+          payment: {
+            // Only count remainders collected today on payments whose
+            // advance was confirmed BEFORE today; same-day combos are
+            // already in the (a) bucket.
+            confirmedAt: { lt: today },
+          },
+        },
+      },
+      include: {
+        booking: {
+          select: {
+            payment: {
+              select: {
+                remainderCashAmount: true,
+                remainderUpiAmount: true,
+              },
+            },
+          },
+        },
+      },
+    }),
   ]);
 
   // Gross (pre-discount) earnings = sum(totalAmount) + sum(discountAmount).
@@ -754,11 +806,26 @@ export async function getAdminStats() {
     averageDailyEarning = Math.round(grossEarnings / days);
   }
 
+  // Today's earning = today's confirmation cash + today's late-arriving
+  // remainder collections. The two queries are mutually exclusive by
+  // construction (confirmedAt today vs confirmedAt before today), so
+  // the simple sum is correct.
+  const todayConfirmedAmount = todayConfirmedAgg._sum.amount ?? 0;
+  const todayCollectedAmount = todayCollectedHistory.reduce(
+    (sum, h) =>
+      sum +
+      (h.booking?.payment?.remainderCashAmount ?? 0) +
+      (h.booking?.payment?.remainderUpiAmount ?? 0),
+    0,
+  );
+  const todayEarning = todayConfirmedAmount + todayCollectedAmount;
+
   return {
     totalBookings,
     todayBookings,
     totalUsers,
     todayRevenue: todayRevenue._sum.totalAmount ?? 0,
+    todayEarning,
     totalRevenue: totalRevenue._sum.totalAmount ?? 0,
     pendingPayments,
     venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,

@@ -88,8 +88,15 @@ export default async function AdminBookingsPage({
       border: "border-blue-500/20",
     },
     {
-      label: "Today's Revenue",
-      value: formatPrice(stats.todayRevenue),
+      // "Today's Earning" = actual cash flow today (advances + full
+      // payments confirmed today, plus remainders collected today on
+      // earlier-confirmed bookings). Replaces the older "Today's
+      // Revenue" tile that summed Booking.totalAmount on confirmedAt
+      // today — that under-counted PARTIAL bookings whose remainder
+      // arrived later, and ignored late-arriving venue cash on older
+      // partials entirely.
+      label: "Today's Earning",
+      value: formatPrice(stats.todayEarning),
       icon: IndianRupee,
       color: "text-yellow-400",
       bg: "bg-yellow-500/10",

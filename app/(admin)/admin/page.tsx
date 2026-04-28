@@ -29,8 +29,11 @@ export default async function AdminDashboardPage() {
       bg: "bg-blue-500/10",
     },
     {
-      label: "Revenue Today",
-      value: formatPrice(stats.todayRevenue),
+      // Cash flow today — advances and full payments confirmed today
+      // plus remainders collected today on earlier-confirmed bookings.
+      // See getAdminStats for the derivation.
+      label: "Today's Earning",
+      value: formatPrice(stats.todayEarning),
       icon: IndianRupee,
       color: "text-yellow-400",
       bg: "bg-yellow-500/10",
