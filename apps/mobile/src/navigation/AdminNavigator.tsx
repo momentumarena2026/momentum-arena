@@ -16,6 +16,7 @@ import { Text } from "../components/ui/Text";
 import { colors, spacing } from "../theme";
 import { useAdminAuth } from "../providers/AdminAuthProvider";
 import { AdminBookingsListScreen } from "../screens/admin/AdminBookingsListScreen";
+import { AdminUnconfirmedBookingsListScreen } from "../screens/admin/AdminUnconfirmedBookingsListScreen";
 import { AdminBookingDetailScreen } from "../screens/admin/AdminBookingDetailScreen";
 import { AdminEditSlotsScreen } from "../screens/admin/AdminEditSlotsScreen";
 import { AdminEditBookingScreen } from "../screens/admin/AdminEditBookingScreen";
@@ -44,6 +45,11 @@ function AdminBookingsStack() {
         name="AdminBookingsList"
         component={AdminBookingsListScreen}
         options={{ headerShown: false }}
+      />
+      <BookingsStack.Screen
+        name="AdminUnconfirmedBookingsList"
+        component={AdminUnconfirmedBookingsListScreen}
+        options={{ title: "Unconfirmed" }}
       />
       <BookingsStack.Screen
         name="AdminBookingDetail"

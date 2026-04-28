@@ -10,6 +10,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertCircle,
   CalendarRange,
   ChevronRight,
   Filter,
@@ -97,6 +98,19 @@ export function AdminBookingsListScreen() {
     refetchOnWindowFocus: false,
   });
 
+  // Lightweight count of the unconfirmed queue. Drives the amber
+  // shortcut pill at the top of the screen so the staffer sees how
+  // many UPI/cash payments are waiting on them without opening the
+  // dedicated view. Re-fetched on focus so the count stays fresh
+  // when navigating back.
+  const unconfirmedCount = useQuery({
+    queryKey: ["admin-unconfirmed-count"],
+    queryFn: () =>
+      adminBookingsApi.unconfirmed({ limit: 1 }).then((r) => r.total),
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  });
+
   // Quick-filter helper: match the web's "Today" / "Tomorrow" date
   // chips so admins land on the same default views.
   function todayStr(): string {
@@ -132,6 +146,37 @@ export function AdminBookingsListScreen() {
           />
         }
       >
+        {/* Unconfirmed shortcut — separate from the Pending status
+            chip below. The Pending chip filters this list by
+            booking.status; the Unconfirmed pill jumps to a dedicated
+            screen with the composite filter the web uses
+            (status=PENDING + payment.status=PENDING + method
+            UPI_QR/CASH) — the actionable "needs admin" queue. */}
+        <Pressable
+          onPress={() => navigation.navigate("AdminUnconfirmedBookingsList")}
+          style={({ pressed }) => [
+            styles.unconfirmedShortcut,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <View style={styles.unconfirmedIconWrap}>
+            <AlertCircle size={16} color={colors.yellow400} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text variant="bodyStrong" color={colors.yellow400}>
+              Unconfirmed bookings
+              {unconfirmedCount.data !== undefined &&
+              unconfirmedCount.data > 0
+                ? ` (${unconfirmedCount.data})`
+                : ""}
+            </Text>
+            <Text variant="tiny" color={colors.zinc500}>
+              UPI / cash payments awaiting verification
+            </Text>
+          </View>
+          <ChevronRight size={16} color={colors.yellow400} />
+        </Pressable>
+
         {/* Filters card — same chip style as web admin's bookings filter strip. */}
         <View style={styles.filtersCard}>
           <View style={styles.filtersHead}>
@@ -455,6 +500,28 @@ const styles = StyleSheet.create({
     paddingTop: spacing["3"],
     paddingBottom: spacing["8"],
     gap: spacing["4"],
+  },
+
+  // Unconfirmed shortcut
+  unconfirmedShortcut: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    padding: spacing["4"],
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: "rgba(250, 204, 21, 0.30)",
+    backgroundColor: "rgba(250, 204, 21, 0.06)",
+  },
+  unconfirmedIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(250, 204, 21, 0.40)",
+    backgroundColor: "rgba(250, 204, 21, 0.10)",
   },
 
   // Filters

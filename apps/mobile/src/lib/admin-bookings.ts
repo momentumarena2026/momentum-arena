@@ -173,6 +173,26 @@ export interface AvailableSlot {
 }
 
 export const adminBookingsApi = {
+  /**
+   * Same composite filter as the web /admin/bookings/unconfirmed page:
+   * status PENDING + payment.status PENDING + method UPI_QR/CASH. Not
+   * the same dataset as `list({ status: "PENDING" })`, which is the
+   * broader "all PENDING bookings regardless of payment" view used by
+   * the Pending status chip on the regular bookings list.
+   */
+  unconfirmed(
+    filters: { page?: number; limit?: number } = {},
+  ): Promise<ListResponse> {
+    const params = new URLSearchParams();
+    if (filters.page) params.set("page", String(filters.page));
+    if (filters.limit) params.set("limit", String(filters.limit));
+    const qs = params.toString();
+    return request(
+      `/api/mobile/admin/bookings/unconfirmed${qs ? `?${qs}` : ""}`,
+      { method: "GET" },
+    );
+  },
+
   list(filters: ListFilters = {}): Promise<ListResponse> {
     const params = new URLSearchParams();
     if (filters.status) params.set("status", filters.status);

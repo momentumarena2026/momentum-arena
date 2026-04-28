@@ -56,6 +56,10 @@ export type RootStackParamList = {
  *  signed-in admin context. The customer-app entry never sees these. */
 export type AdminBookingsStackParamList = {
   AdminBookingsList: undefined;
+  // Composite-filtered queue (status PENDING + payment PENDING +
+  // method UPI_QR/CASH) — the actionable "needs admin verification"
+  // list that mirrors the web /admin/bookings/unconfirmed page.
+  AdminUnconfirmedBookingsList: undefined;
   AdminBookingDetail: { bookingId: string };
   AdminEditSlots: { bookingId: string };
   AdminEditBooking: { bookingId: string };

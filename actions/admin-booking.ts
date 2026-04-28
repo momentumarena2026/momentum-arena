@@ -15,6 +15,29 @@ async function requireAdmin() {
   return user.id;
 }
 
+/**
+ * Bust the App Router cache for every page that renders the booking
+ * row(s) we just touched. Web form-action callers used to get this
+ * for free (they re-render after the action), but mobile API routes
+ * call these functions over JWT and never trigger a re-render — so
+ * without this the web admin / customer pages would keep showing the
+ * pre-mutation snapshot until the user manually refreshes.
+ *
+ * Wrapped in try/catch so unit tests / non-Next contexts that import
+ * the action don't break.
+ */
+async function revalidateBookingPaths(bookingId?: string) {
+  try {
+    const { revalidatePath } = await import("next/cache");
+    if (bookingId) revalidatePath(`/admin/bookings/${bookingId}`);
+    revalidatePath("/admin/bookings");
+    revalidatePath("/admin/bookings/unconfirmed");
+    revalidatePath("/admin/calendar");
+  } catch {
+    /* outside Next.js — fine */
+  }
+}
+
 // `adminIdOverride` lets the mobile-admin API routes call this action
 // after authenticating via JWT (instead of NextAuth web cookie). When
 // provided, the regular `requireAdmin()` check is skipped — the
@@ -55,6 +78,8 @@ export async function confirmCashPayment(bookingId: string, adminIdOverride?: st
   await sendBookingConfirmation(bookingId);
   notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
 
+  await revalidateBookingPaths(bookingId);
+
   return { success: true };
 }
 
@@ -90,6 +115,8 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
   notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+
+  await revalidateBookingPaths(bookingId);
 
   return { success: true };
 }
@@ -322,6 +349,8 @@ export async function cancelBooking(
       data: { status: "CANCELLED" },
     }),
   ]);
+
+  await revalidateBookingPaths(bookingId);
 
   // Push notification to the customer. Best-effort — fire-and-forget so
   // the admin's confirmation roundtrip stays fast and a flaky FCM call
