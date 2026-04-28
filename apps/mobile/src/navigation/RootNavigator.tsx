@@ -13,6 +13,7 @@ import { MainNavigator } from "./MainNavigator";
 import { PhoneScreen } from "../screens/auth/PhoneScreen";
 import { OtpScreen } from "../screens/auth/OtpScreen";
 import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
+import { AdminNavigator } from "./AdminNavigator";
 import type { RootStackParamList } from "./types";
 
 const navTheme = {
@@ -127,6 +128,18 @@ export function RootNavigator() {
             options={{ headerShown: false }}
           />
         </Stack.Group>
+        {/* Admin shell — full-screen, hides the customer tab bar
+            entirely while the staffer is in admin mode. They come
+            back via the in-shell "Customer view" button or sign-out. */}
+        <Stack.Screen
+          name="AdminShell"
+          component={AdminNavigator}
+          options={{
+            headerShown: false,
+            presentation: "fullScreenModal",
+            animation: "slide_from_right",
+          }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

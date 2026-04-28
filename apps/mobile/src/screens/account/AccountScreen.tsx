@@ -24,6 +24,7 @@ import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
+import { useAdminAuth } from "../../providers/AdminAuthProvider";
 import { bookingsApi } from "../../lib/bookings";
 import {
   formatHoursAsRanges,
@@ -548,6 +549,7 @@ function Divider() {
  */
 function VersionFooter() {
   const rootNav = useNavigation<RootNav>();
+  const adminAuth = useAdminAuth();
   const tapCountRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -559,7 +561,13 @@ function VersionFooter() {
     }
     if (tapCountRef.current >= 5) {
       tapCountRef.current = 0;
-      rootNav.navigate("AdminLogin");
+      // Already signed in as admin → skip the login form and go
+      // straight to the admin shell. Otherwise prompt for credentials.
+      if (adminAuth.state.status === "signedIn") {
+        rootNav.navigate("AdminShell", { screen: "AdminBookings" });
+      } else {
+        rootNav.navigate("AdminLogin");
+      }
       return;
     }
     timerRef.current = setTimeout(() => {

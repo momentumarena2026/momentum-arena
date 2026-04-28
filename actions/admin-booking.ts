@@ -15,8 +15,14 @@ async function requireAdmin() {
   return user.id;
 }
 
-export async function confirmCashPayment(bookingId: string) {
-  const adminId = await requireAdmin();
+// `adminIdOverride` lets the mobile-admin API routes call this action
+// after authenticating via JWT (instead of NextAuth web cookie). When
+// provided, the regular `requireAdmin()` check is skipped — the
+// caller is responsible for ensuring it has already validated an
+// AdminUser. Web call sites pass nothing and get the existing
+// cookie-based gate.
+export async function confirmCashPayment(bookingId: string, adminIdOverride?: string) {
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   const payment = await db.payment.findUnique({
     where: { bookingId },
@@ -52,8 +58,8 @@ export async function confirmCashPayment(bookingId: string) {
   return { success: true };
 }
 
-export async function confirmUpiPayment(bookingId: string) {
-  const adminId = await requireAdmin();
+export async function confirmUpiPayment(bookingId: string, adminIdOverride?: string) {
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   const payment = await db.payment.findUnique({
     where: { bookingId },
@@ -114,9 +120,10 @@ function describeSplit(cash: number, upi: number): string {
 // display code) and left null when the collection was split.
 export async function markRemainderCollected(
   bookingId: string,
-  split: RemainderSplit
+  split: RemainderSplit,
+  adminIdOverride?: string
 ) {
-  const adminId = await requireAdmin();
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   const cashAmount = Math.trunc(split.cashAmount ?? 0);
   const upiAmount = Math.trunc(split.upiAmount ?? 0);
@@ -283,8 +290,12 @@ export async function updateRemainderSplit(
   return { success: true };
 }
 
-export async function cancelBooking(bookingId: string, reason: string) {
-  const adminId = await requireAdmin();
+export async function cancelBooking(
+  bookingId: string,
+  reason: string,
+  adminIdOverride?: string
+) {
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   if (!reason.trim()) {
     return { success: false, error: "Cancellation reason is required" };

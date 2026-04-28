@@ -49,4 +49,18 @@ export type RootStackParamList = {
   Phone: undefined;
   Otp: { phone: string };
   AdminLogin: undefined;
+  AdminShell: NavigatorScreenParams<AdminTabsParamList>;
+};
+
+/** Admin nav stacks live inside AdminShell — reachable only from the
+ *  signed-in admin context. The customer-app entry never sees these. */
+export type AdminBookingsStackParamList = {
+  AdminBookingsList: undefined;
+  AdminBookingDetail: { bookingId: string };
+};
+
+export type AdminTabsParamList = {
+  AdminBookings: NavigatorScreenParams<AdminBookingsStackParamList>;
+  AdminCafe: undefined;
+  AdminExpenses: undefined;
 };

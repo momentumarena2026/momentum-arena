@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { CommonActions, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ShieldCheck, X } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -38,12 +38,17 @@ export function AdminLoginScreen() {
     try {
       const admin = await adminAuthApi.login(username.trim(), password);
       signIn(admin);
-      // Stash for replacement once AdminHome lands. For now bounce
-      // back to wherever the user came from with a confirmation.
-      Alert.alert(
-        "Signed in",
-        `Welcome, ${admin.username}. Admin screens are coming next.`,
-        [{ text: "OK", onPress: () => navigation.goBack() }],
+      // Replace the modal with the admin shell so the back stack
+      // doesn't preserve the login form behind it (otherwise a
+      // back-swipe from the shell would land back on the form).
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [
+            { name: "Main", params: { screen: "Home" } },
+            { name: "AdminShell" },
+          ],
+        }),
       );
     } catch (err) {
       setError(
