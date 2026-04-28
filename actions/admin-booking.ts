@@ -210,9 +210,10 @@ export async function markRemainderCollected(
 // remainderMethod, and records an audit row with the before/after values.
 export async function updateRemainderSplit(
   bookingId: string,
-  split: RemainderSplit
+  split: RemainderSplit,
+  adminIdOverride?: string
 ) {
-  const adminId = await requireAdmin();
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   const cashAmount = Math.trunc(split.cashAmount ?? 0);
   const upiAmount = Math.trunc(split.upiAmount ?? 0);
@@ -383,9 +384,10 @@ export async function refundBooking(
   bookingId: string,
   reason: string,
   refundMethod?: "ORIGINAL" | "CASH" | "UPI" | "BANK_TRANSFER",
-  refundAmount?: number
+  refundAmount?: number,
+  adminIdOverride?: string
 ) {
-  const adminId = await requireAdmin();
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   if (!reason.trim()) {
     return { success: false, error: "Refund reason is required" };
@@ -732,9 +734,10 @@ export async function createCustomerForBooking(data: {
 export async function getAvailableSlots(
   courtConfigId: string,
   dateStr: string,
-  excludeBookingId?: string
+  excludeBookingId?: string,
+  skipAuth?: boolean
 ) {
-  await requireAdmin();
+  if (!skipAuth) await requireAdmin();
 
   try {
     const dateOnly = new Date(dateStr + "T00:00:00Z");
@@ -1117,9 +1120,10 @@ export async function adminEditBookingSlots(
   // Optional new date for the booking. When provided, the slot grid is
   // re-validated against the target date (availability, blocks, pricing).
   // Passing undefined keeps the booking's current date.
-  newDate?: string
+  newDate?: string,
+  adminOverride?: { id: string; username: string }
 ) {
-  const admin = await requireAdminWithDetails();
+  const admin = adminOverride ?? (await requireAdminWithDetails());
 
   try {
     if (newHours.length === 0) {
@@ -1300,9 +1304,10 @@ export async function adminEditBookingFull(
     // as Cash, actually came in via static QR).
     newAdvanceAmount?: number;
     newAdvanceMethod?: "CASH" | "UPI_QR";
-  }
+  },
+  adminOverride?: { id: string; username: string }
 ) {
-  const admin = await requireAdminWithDetails();
+  const admin = adminOverride ?? (await requireAdminWithDetails());
 
   try {
     const booking = await db.booking.findUnique({

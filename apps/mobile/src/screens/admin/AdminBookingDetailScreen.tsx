@@ -7,7 +7,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRoute, type RouteProp } from "@react-navigation/native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Banknote,
@@ -17,8 +18,10 @@ import {
   CreditCard,
   History,
   IndianRupee,
+  Pencil,
   Phone,
   Receipt,
+  RotateCcw,
   Smartphone,
   XCircle,
 } from "lucide-react-native";
@@ -40,6 +43,10 @@ import {
 import type { AdminBookingsStackParamList } from "../../navigation/types";
 
 type Rt = RouteProp<AdminBookingsStackParamList, "AdminBookingDetail">;
+type Nav = NativeStackNavigationProp<
+  AdminBookingsStackParamList,
+  "AdminBookingDetail"
+>;
 
 const PAYMENT_STATUS_COLOR: Record<string, string> = {
   PENDING: colors.yellow400,
@@ -59,6 +66,7 @@ const PAYMENT_METHOD_ICONS: Record<string, typeof CreditCard> = {
 
 export function AdminBookingDetailScreen() {
   const { params } = useRoute<Rt>();
+  const navigation = useNavigation<Nav>();
   const qc = useQueryClient();
 
   const query = useQuery({
@@ -133,6 +141,58 @@ export function AdminBookingDetailScreen() {
       ),
   });
 
+  // ─── Edit-split inline form state (when remainder already collected) ──
+  const [editSplitOpen, setEditSplitOpen] = useState(false);
+  const [editSplitCash, setEditSplitCash] = useState("");
+  const [editSplitUpi, setEditSplitUpi] = useState("");
+
+  const editSplit = useMutation({
+    mutationFn: (vars: { cash: number; upi: number }) =>
+      adminBookingsApi.editSplit(params.bookingId, vars.cash, vars.upi),
+    onSuccess: () => {
+      invalidate();
+      setEditSplitOpen(false);
+      Alert.alert("Updated", "Split saved.");
+    },
+    onError: (err) =>
+      Alert.alert(
+        "Couldn't save",
+        err instanceof AdminApiError ? err.message : "Try again.",
+      ),
+  });
+
+  // ─── Refund inline form state ────────────────────────────────────────
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundReason, setRefundReason] = useState("");
+  const [refundType, setRefundType] = useState<"full" | "partial">("full");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundMethod, setRefundMethod] = useState<
+    "ORIGINAL" | "CASH" | "UPI" | "BANK_TRANSFER"
+  >("ORIGINAL");
+
+  const refund = useMutation({
+    mutationFn: () =>
+      adminBookingsApi.refund(params.bookingId, {
+        reason: refundReason.trim(),
+        refundMethod,
+        refundAmount:
+          refundType === "partial" && refundAmount
+            ? Math.trunc(parseFloat(refundAmount))
+            : undefined,
+      }),
+    onSuccess: () => {
+      invalidate();
+      setRefundOpen(false);
+      setRefundReason("");
+      Alert.alert("Refunded", "Booking refunded and cancelled.");
+    },
+    onError: (err) =>
+      Alert.alert(
+        "Couldn't refund",
+        err instanceof AdminApiError ? err.message : "Try again.",
+      ),
+  });
+
   if (query.isLoading) {
     return <DetailSkeleton />;
   }
@@ -169,11 +229,27 @@ export function AdminBookingDetailScreen() {
   const canConfirmCash =
     isPending && payment?.method === "CASH" && payment.status === "PENDING";
   const canCancel = isPending || isConfirmed;
+  const canEditSlots = isConfirmed;
+  // Same gate as the web: editing is allowed on any confirmed booking
+  // — gateway-paid customer bookings are now editable too. The action
+  // surfaces a refund-due / collect-extra pill when totals diverge.
+  const canEditBooking = isConfirmed;
+  const canRefund =
+    isConfirmed && payment?.status === "COMPLETED" && payment.method !== "FREE";
   const venueDue =
     payment?.isPartialPayment && (payment?.remainingAmount ?? 0) > 0
       ? Math.max(booking.totalAmount - (payment?.advanceAmount ?? 0), 0)
       : 0;
   const canMarkCollected = venueDue > 0;
+  // Edit-split is only meaningful AFTER the venue remainder has been
+  // collected (the partial block flips to "Paid in Full") and there's
+  // an actual venue-side total to redistribute.
+  const partialCollected =
+    !!payment?.isPartialPayment && (payment?.remainingAmount ?? 0) <= 0;
+  const venueTotal = payment
+    ? Math.max(booking.totalAmount - (payment.advanceAmount ?? 0), 0)
+    : 0;
+  const canEditSplit = partialCollected && venueTotal > 0;
   const refundDue =
     payment &&
     !payment.isPartialPayment &&
@@ -452,6 +528,44 @@ export function AdminBookingDetailScreen() {
                 }
               />
             ) : null}
+            {canEditSplit ? (
+              <ActionButton
+                label="Edit collected split"
+                icon={<Pencil size={16} color={colors.zinc300} />}
+                tone="neutral"
+                onPress={() => {
+                  setEditSplitCash(
+                    String(payment?.remainderCashAmount ?? venueTotal),
+                  );
+                  setEditSplitUpi(String(payment?.remainderUpiAmount ?? 0));
+                  setEditSplitOpen(true);
+                }}
+              />
+            ) : null}
+            {canEditSlots ? (
+              <ActionButton
+                label="Edit Slots"
+                icon={<Clock size={16} color="#60a5fa" />}
+                tone="info"
+                onPress={() =>
+                  navigation.navigate("AdminEditSlots", {
+                    bookingId: params.bookingId,
+                  })
+                }
+              />
+            ) : null}
+            {canEditBooking ? (
+              <ActionButton
+                label="Edit Booking"
+                icon={<Pencil size={16} color={colors.yellow400} />}
+                tone="warning"
+                onPress={() =>
+                  navigation.navigate("AdminEditBooking", {
+                    bookingId: params.bookingId,
+                  })
+                }
+              />
+            ) : null}
             {canCancel ? (
               <ActionButton
                 label="Cancel Booking"
@@ -461,13 +575,258 @@ export function AdminBookingDetailScreen() {
                 onPress={onCancelTap}
               />
             ) : null}
-            {!canConfirmUpi && !canConfirmCash && !canMarkCollected && !canCancel ? (
+            {canRefund ? (
+              <ActionButton
+                label="Refund & Cancel"
+                icon={<RotateCcw size={16} color={colors.destructive} />}
+                tone="danger"
+                onPress={() => {
+                  setRefundReason("");
+                  setRefundType("full");
+                  setRefundAmount(String(payment?.amount ?? booking.totalAmount));
+                  setRefundMethod("ORIGINAL");
+                  setRefundOpen(true);
+                }}
+              />
+            ) : null}
+            {!canConfirmUpi &&
+            !canConfirmCash &&
+            !canMarkCollected &&
+            !canEditSplit &&
+            !canEditSlots &&
+            !canEditBooking &&
+            !canCancel &&
+            !canRefund ? (
               <Text variant="small" color={colors.zinc600}>
                 No actions available for this booking state.
               </Text>
             ) : null}
           </View>
         </SectionCard>
+
+        {/* Edit-split inline form — only shown when remainder already
+            collected. Same shape as mark-collected but POSTs to the
+            edit-split endpoint instead. */}
+        {editSplitOpen ? (
+          <View style={[styles.collectCard, styles.editCard]}>
+            <Text variant="bodyStrong" style={styles.collectTitle}>
+              Edit collected split — ₹{venueTotal}
+            </Text>
+            <Text variant="small" color={colors.zinc500}>
+              Adjust how the venue-side remainder was split. Sum must
+              equal {formatRupees(venueTotal)}.
+            </Text>
+            <View style={styles.collectRow}>
+              <View style={styles.collectField}>
+                <Text variant="tiny" color={colors.zinc500} style={styles.collectLabel}>
+                  CASH
+                </Text>
+                <TextInput
+                  style={styles.collectInput}
+                  keyboardType="numeric"
+                  value={editSplitCash}
+                  onChangeText={setEditSplitCash}
+                  placeholder="0"
+                  placeholderTextColor={colors.zinc600}
+                />
+              </View>
+              <View style={styles.collectField}>
+                <Text variant="tiny" color={colors.zinc500} style={styles.collectLabel}>
+                  UPI QR
+                </Text>
+                <TextInput
+                  style={styles.collectInput}
+                  keyboardType="numeric"
+                  value={editSplitUpi}
+                  onChangeText={setEditSplitUpi}
+                  placeholder="0"
+                  placeholderTextColor={colors.zinc600}
+                />
+              </View>
+            </View>
+            <View style={styles.collectActions}>
+              <Pressable
+                onPress={() => setEditSplitOpen(false)}
+                style={[styles.actionBtn, styles.actionBtnNeutral]}
+              >
+                <Text variant="small" color={colors.zinc300} weight="600">
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const cash = Math.trunc(parseFloat(editSplitCash) || 0);
+                  const upi = Math.trunc(parseFloat(editSplitUpi) || 0);
+                  if (cash + upi !== venueTotal) {
+                    Alert.alert(
+                      "Amounts don't match",
+                      `Cash + UPI must equal ₹${venueTotal}.`,
+                    );
+                    return;
+                  }
+                  editSplit.mutate({ cash, upi });
+                }}
+                disabled={editSplit.isPending}
+                style={[
+                  styles.actionBtn,
+                  styles.actionBtnSuccess,
+                  editSplit.isPending && { opacity: 0.6 },
+                ]}
+              >
+                <Text variant="small" color={colors.emerald400} weight="600">
+                  {editSplit.isPending ? "Saving…" : "Save"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Refund inline form — replicates the web Refund & Cancel
+            modal: reason, full vs partial, method picker. The actual
+            money-movement happens out-of-band on the gateway side
+            (this just records + cancels). */}
+        {refundOpen ? (
+          <View style={styles.refundForm}>
+            <Text variant="bodyStrong" color={colors.destructive}>
+              Refund & Cancel
+            </Text>
+            <Text variant="small" color={colors.zinc500}>
+              Reason for the refund (audit log).
+            </Text>
+            <TextInput
+              style={styles.refundReasonInput}
+              value={refundReason}
+              onChangeText={setRefundReason}
+              placeholder="e.g. Customer couldn't make it; weather"
+              placeholderTextColor={colors.zinc600}
+              multiline
+            />
+            <Text variant="tiny" color={colors.zinc500} style={styles.collectLabel}>
+              REFUND TYPE
+            </Text>
+            <View style={styles.refundChoiceRow}>
+              {(["full", "partial"] as const).map((t) => (
+                <Pressable
+                  key={t}
+                  onPress={() => setRefundType(t)}
+                  style={[
+                    styles.refundChoice,
+                    refundType === t && styles.refundChoiceSelected,
+                  ]}
+                >
+                  <Text
+                    variant="small"
+                    color={
+                      refundType === t ? colors.destructive : colors.zinc400
+                    }
+                    weight="500"
+                  >
+                    {t === "full" ? "Full" : "Partial"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {refundType === "partial" ? (
+              <View>
+                <Text
+                  variant="tiny"
+                  color={colors.zinc500}
+                  style={styles.collectLabel}
+                >
+                  AMOUNT (₹)
+                </Text>
+                <TextInput
+                  style={styles.collectInput}
+                  keyboardType="numeric"
+                  value={refundAmount}
+                  onChangeText={setRefundAmount}
+                  placeholder="0"
+                  placeholderTextColor={colors.zinc600}
+                />
+              </View>
+            ) : null}
+            <Text variant="tiny" color={colors.zinc500} style={styles.collectLabel}>
+              REFUND METHOD
+            </Text>
+            <View style={styles.refundChoiceRow}>
+              {(["ORIGINAL", "CASH", "UPI", "BANK_TRANSFER"] as const).map((m) => (
+                <Pressable
+                  key={m}
+                  onPress={() => setRefundMethod(m)}
+                  style={[
+                    styles.refundChoice,
+                    refundMethod === m && styles.refundChoiceSelected,
+                  ]}
+                >
+                  <Text
+                    variant="tiny"
+                    color={
+                      refundMethod === m ? colors.destructive : colors.zinc400
+                    }
+                    weight="500"
+                  >
+                    {m === "ORIGINAL"
+                      ? "Original"
+                      : m === "BANK_TRANSFER"
+                        ? "Bank"
+                        : m}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.collectActions}>
+              <Pressable
+                onPress={() => setRefundOpen(false)}
+                style={[styles.actionBtn, styles.actionBtnNeutral]}
+              >
+                <Text variant="small" color={colors.zinc300} weight="600">
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (!refundReason.trim()) {
+                    Alert.alert("Reason required");
+                    return;
+                  }
+                  if (
+                    refundType === "partial" &&
+                    (!refundAmount ||
+                      Math.trunc(parseFloat(refundAmount)) <= 0)
+                  ) {
+                    Alert.alert("Invalid amount");
+                    return;
+                  }
+                  Alert.alert(
+                    "Refund and cancel?",
+                    "This cancels the booking. Process the actual money refund on the gateway dashboard.",
+                    [
+                      { text: "Back", style: "cancel" },
+                      {
+                        text: "Refund & Cancel",
+                        style: "destructive",
+                        onPress: () => refund.mutate(),
+                      },
+                    ],
+                  );
+                }}
+                disabled={refund.isPending}
+                style={[
+                  styles.actionBtn,
+                  {
+                    borderColor: "rgba(239, 68, 68, 0.30)",
+                    backgroundColor: "rgba(239, 68, 68, 0.10)",
+                  },
+                  refund.isPending && { opacity: 0.6 },
+                ]}
+              >
+                <Text variant="small" color={colors.destructive} weight="600">
+                  {refund.isPending ? "…" : "Refund & Cancel"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
         {/* Mark-collected sheet (RN doesn't have a native bottom-sheet
             in core; using an inline modal-ish card for simplicity). */}
@@ -758,7 +1117,7 @@ function ActionButton({
 }: {
   label: string;
   icon: React.ReactNode;
-  tone: "success" | "warning" | "danger" | "neutral";
+  tone: "success" | "warning" | "danger" | "neutral" | "info";
   onPress: () => void;
   loading?: boolean;
 }) {
@@ -767,6 +1126,7 @@ function ActionButton({
     warning: { border: "rgba(245, 158, 11, 0.40)", bg: "rgba(245, 158, 11, 0.10)" },
     danger: { border: "rgba(239, 68, 68, 0.30)", bg: "rgba(239, 68, 68, 0.10)" },
     neutral: { border: colors.zinc800, bg: colors.zinc900 },
+    info: { border: "rgba(96, 165, 250, 0.30)", bg: "rgba(96, 165, 250, 0.10)" },
   }[tone];
   return (
     <Pressable
@@ -978,6 +1338,49 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(245, 158, 11, 0.06)",
     padding: spacing["4"],
     gap: spacing["3"],
+  },
+  // Edit-split borrows the collect card style but recolors so the
+  // user sees this is an edit, not the initial collection.
+  editCard: {
+    borderColor: colors.zinc700,
+    backgroundColor: colors.zinc900,
+  },
+  refundForm: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.30)",
+    backgroundColor: "rgba(239, 68, 68, 0.06)",
+    padding: spacing["4"],
+    gap: spacing["3"],
+  },
+  refundReasonInput: {
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: 8,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+    color: colors.foreground,
+    backgroundColor: colors.background,
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: "top",
+  },
+  refundChoiceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing["2"],
+  },
+  refundChoice: {
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2"],
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc800_50,
+  },
+  refundChoiceSelected: {
+    borderColor: "rgba(239, 68, 68, 0.40)",
+    backgroundColor: "rgba(239, 68, 68, 0.10)",
   },
   collectTitle: { color: colors.yellow400 },
   collectRow: {

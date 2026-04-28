@@ -69,8 +69,12 @@ export interface AdminBookingListItem {
   _isRecurringChildPayment: boolean;
 }
 
-export interface AdminBookingDetail extends AdminBookingListItem {
+export interface AdminBookingDetail extends Omit<AdminBookingListItem, "courtConfig"> {
   user: AdminBookingListItem["user"] & { email: string | null };
+  // Detail endpoint returns the full court config (incl. id) so the
+  // edit screens can pre-fill the picker; the list endpoint trims to
+  // the display fields only.
+  courtConfig: AdminBookingListItem["courtConfig"] & { id: string };
   qrToken: string | null;
   checkedInAt: string | null;
   editHistory: Array<{
@@ -150,6 +154,24 @@ async function request<T>(
   return payload as T;
 }
 
+export interface AdminCourt {
+  id: string;
+  sport: "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+  label: string;
+  size: string;
+  position: string;
+  widthFt: number;
+  lengthFt: number;
+}
+
+export interface AvailableSlot {
+  hour: number;
+  price: number;
+  isBooked: boolean;
+  isBlocked: boolean;
+  blockReason?: string | null;
+}
+
 export const adminBookingsApi = {
   list(filters: ListFilters = {}): Promise<ListResponse> {
     const params = new URLSearchParams();
@@ -197,5 +219,75 @@ export const adminBookingsApi = {
       method: "POST",
       body: { cashAmount, upiAmount },
     });
+  },
+
+  editSplit(
+    id: string,
+    cashAmount: number,
+    upiAmount: number,
+  ): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/edit-split`, {
+      method: "POST",
+      body: { cashAmount, upiAmount },
+    });
+  },
+
+  refund(
+    id: string,
+    body: {
+      reason: string;
+      refundMethod?: "ORIGINAL" | "CASH" | "UPI" | "BANK_TRANSFER";
+      refundAmount?: number;
+    },
+  ): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/refund`, {
+      method: "POST",
+      body,
+    });
+  },
+
+  editSlots(
+    id: string,
+    body: { hours: number[]; date?: string },
+  ): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/edit-slots`, {
+      method: "POST",
+      body,
+    });
+  },
+
+  editBooking(
+    id: string,
+    body: {
+      newDate?: string;
+      newCourtConfigId?: string;
+      newHours?: number[];
+      newAdvanceAmount?: number;
+      newAdvanceMethod?: "CASH" | "UPI_QR";
+    },
+  ): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/edit-booking`, {
+      method: "POST",
+      body,
+    });
+  },
+
+  availableSlots(
+    bookingId: string,
+    courtConfigId: string,
+    date: string,
+  ): Promise<{
+    slots: AvailableSlot[];
+    pricingExists: boolean;
+  }> {
+    const params = new URLSearchParams({ courtConfigId, date });
+    return request(
+      `/api/mobile/admin/bookings/${bookingId}/available-slots?${params.toString()}`,
+      { method: "GET" },
+    );
+  },
+
+  courts(): Promise<{ courts: AdminCourt[] }> {
+    return request("/api/mobile/admin/courts", { method: "GET" });
   },
 };

@@ -17,6 +17,8 @@ import { colors, spacing } from "../theme";
 import { useAdminAuth } from "../providers/AdminAuthProvider";
 import { AdminBookingsListScreen } from "../screens/admin/AdminBookingsListScreen";
 import { AdminBookingDetailScreen } from "../screens/admin/AdminBookingDetailScreen";
+import { AdminEditSlotsScreen } from "../screens/admin/AdminEditSlotsScreen";
+import { AdminEditBookingScreen } from "../screens/admin/AdminEditBookingScreen";
 import { AdminPlaceholderScreen } from "../screens/admin/AdminPlaceholderScreen";
 import type {
   AdminBookingsStackParamList,
@@ -47,6 +49,16 @@ function AdminBookingsStack() {
         name="AdminBookingDetail"
         component={AdminBookingDetailScreen}
         options={{ title: "Booking" }}
+      />
+      <BookingsStack.Screen
+        name="AdminEditSlots"
+        component={AdminEditSlotsScreen}
+        options={{ title: "Edit Slots" }}
+      />
+      <BookingsStack.Screen
+        name="AdminEditBooking"
+        component={AdminEditBookingScreen}
+        options={{ title: "Edit Booking" }}
       />
     </BookingsStack.Navigator>
   );

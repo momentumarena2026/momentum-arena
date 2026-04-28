@@ -57,6 +57,8 @@ export type RootStackParamList = {
 export type AdminBookingsStackParamList = {
   AdminBookingsList: undefined;
   AdminBookingDetail: { bookingId: string };
+  AdminEditSlots: { bookingId: string };
+  AdminEditBooking: { bookingId: string };
 };
 
 export type AdminTabsParamList = {
