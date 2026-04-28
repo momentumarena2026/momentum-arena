@@ -89,17 +89,22 @@ export function AdminUnconfirmedBookingsListScreen() {
           </View>
         </View>
 
-        {/* Count chip */}
-        <View style={styles.countChip}>
-          <Clock size={14} color={colors.yellow400} />
-          <Text variant="small" color={colors.yellow400} weight="600">
-            {query.isLoading
-              ? "…"
-              : total === 0
-                ? "All caught up"
-                : `${total} unconfirmed`}
-          </Text>
-        </View>
+        {/* Count chip — only shown for the success path. While
+            loading we show "…", on error we suppress entirely so it
+            doesn't say "All caught up" alongside an error block
+            (which reads as a contradiction). */}
+        {!query.isError ? (
+          <View style={styles.countChip}>
+            <Clock size={14} color={colors.yellow400} />
+            <Text variant="small" color={colors.yellow400} weight="600">
+              {query.isLoading
+                ? "…"
+                : total === 0
+                  ? "All caught up"
+                  : `${total} unconfirmed`}
+            </Text>
+          </View>
+        ) : null}
 
         {/* List */}
         {query.isLoading ? (
