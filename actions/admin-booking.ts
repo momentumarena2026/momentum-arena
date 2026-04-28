@@ -224,11 +224,24 @@ export async function markRemainderCollected(
   // nothing more is owed (the venue absorbed the discount portion).
   const collectedAtVenue = cashAmount + upiAmount;
 
-  await db.$transaction([
-    db.payment.update({
-      where: { id: booking.payment.id },
+  // The at-collection discount also lowers the booking's effective
+  // total cost: a customer charged ₹2000 but given an ₹800 goodwill
+  // cut paid ₹1200 — so the "Amount" field on the detail page should
+  // read ₹1200, not ₹2000. We mirror the discount onto Booking.
+  // discountAmount (alongside any pre-existing coupon discount) and
+  // re-derive originalAmount so the strike-through "₹X" pill stays
+  // accurate. Skip the booking write when discountAmount is 0 to
+  // avoid touching the row unnecessarily.
+  const newBookingTotal = booking.totalAmount - discountAmount;
+  const newBookingDiscount = booking.discountAmount + discountAmount;
+  const newBookingOriginal =
+    newBookingDiscount > 0 ? newBookingTotal + newBookingDiscount : null;
+
+  await db.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: booking.payment!.id },
       data: {
-        amount: booking.payment.amount + collectedAtVenue,
+        amount: booking.payment!.amount + collectedAtVenue,
         remainingAmount: 0,
         remainderMethod: singleMethod,
         remainderCashAmount: cashAmount,
@@ -239,8 +252,8 @@ export async function markRemainderCollected(
         // (legacy rows), this is a no-op write.
         status: "COMPLETED",
       },
-    }),
-    db.bookingEditHistory.create({
+    });
+    await tx.bookingEditHistory.create({
       data: {
         bookingId,
         adminId,
@@ -252,8 +265,18 @@ export async function markRemainderCollected(
           discountAmount,
         )}`,
       },
-    }),
-  ]);
+    });
+    if (discountAmount > 0) {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          totalAmount: newBookingTotal,
+          discountAmount: newBookingDiscount,
+          originalAmount: newBookingOriginal,
+        },
+      });
+    }
+  });
 
   return { success: true };
 }
@@ -340,20 +363,35 @@ export async function updateRemainderSplit(
   const priorCollected = priorCash + priorUpi;
   const delta = newCollected - priorCollected;
 
-  await db.$transaction([
-    db.payment.update({
-      where: { id: booking.payment.id },
+  // The booking-level total/discount also need to slide by the inverse
+  // of the at-collection discount delta. Growing the discount portion
+  // lowers Booking.totalAmount (the venue absorbed more); shrinking it
+  // raises Booking.totalAmount. Coupon discounts that were already on
+  // the booking row stay folded into the running discountAmount.
+  const discountDelta = discountAmount - priorDiscount;
+  const newBookingTotal = booking.totalAmount - discountDelta;
+  const newBookingDiscount = booking.discountAmount + discountDelta;
+  // Invariant: originalAmount = totalAmount + discountAmount when a
+  // discount applies; null when no discount. Re-derive from the new
+  // figures rather than preserving the old originalAmount, so dropping
+  // the discount to zero clears the strike-through pill correctly.
+  const newBookingOriginal =
+    newBookingDiscount > 0 ? newBookingTotal + newBookingDiscount : null;
+
+  await db.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: booking.payment!.id },
       data: {
         ...(delta !== 0
-          ? { amount: booking.payment.amount + delta }
+          ? { amount: booking.payment!.amount + delta }
           : {}),
         remainderMethod: singleMethod,
         remainderCashAmount: cashAmount,
         remainderUpiAmount: upiAmount,
         remainderDiscountAmount: discountAmount > 0 ? discountAmount : null,
       },
-    }),
-    db.bookingEditHistory.create({
+    });
+    await tx.bookingEditHistory.create({
       data: {
         bookingId,
         adminId,
@@ -365,8 +403,18 @@ export async function updateRemainderSplit(
           priorDiscount,
         )} to ${describeSplit(cashAmount, upiAmount, discountAmount)}`,
       },
-    }),
-  ]);
+    });
+    if (discountDelta !== 0) {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          totalAmount: newBookingTotal,
+          discountAmount: newBookingDiscount,
+          originalAmount: newBookingOriginal,
+        },
+      });
+    }
+  });
 
   return { success: true };
 }
