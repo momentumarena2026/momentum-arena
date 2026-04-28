@@ -1286,7 +1286,45 @@ export async function adminEditBookingSlots(
     // Get new prices
     const slotPrices = await getSlotPricesForDate(config.id, dateOnly);
     const priceMap = new Map<number, number>(slotPrices.map((s) => [s.hour, s.price]));
-    const newTotalAmount = newHours.reduce((sum, h) => sum + (priceMap.get(h) ?? 0), 0);
+    const newPreDiscountTotal = newHours.reduce(
+      (sum, h) => sum + (priceMap.get(h) ?? 0),
+      0,
+    );
+
+    // Carry the booking-level discount through, same as
+    // adminEditBookingFull. Without this a slot-only edit silently
+    // drops a coupon: e.g. trimming one hour off a FLAT100 booking
+    // would charge the customer the full new slot total instead of
+    // (new total − ₹100).
+    let newDiscountAmount = 0;
+    if (booking.discountAmount > 0) {
+      if (booking.discountCodeId) {
+        const code = await db.discountCode.findUnique({
+          where: { id: booking.discountCodeId },
+          select: { type: true, value: true },
+        });
+        if (code?.type === "PERCENTAGE") {
+          // value is basis points (10000 = 100%) — matches the
+          // computation in discount-validation.ts.
+          newDiscountAmount = Math.floor(
+            (newPreDiscountTotal * code.value) / 10000,
+          );
+        } else {
+          newDiscountAmount = booking.discountAmount;
+        }
+      } else {
+        newDiscountAmount = booking.discountAmount;
+      }
+      newDiscountAmount = Math.min(newDiscountAmount, newPreDiscountTotal);
+    }
+
+    const newTotalAmount = Math.max(
+      newPreDiscountTotal - newDiscountAmount,
+      0,
+    );
+    const newOriginalAmount =
+      newDiscountAmount > 0 ? newPreDiscountTotal : null;
+
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
 
@@ -1303,12 +1341,24 @@ export async function adminEditBookingSlots(
         })),
       });
 
-      // Update booking total and (if the admin moved it) the date.
+      // Update booking total + discount fields and (if the admin moved
+      // it) the date. originalAmount/discountAmount are rewritten so a
+      // partial-court customer who edits down doesn't see a stale
+      // strike-through pill referencing the old slot configuration.
+      const bookingPatch: {
+        totalAmount: number;
+        originalAmount: number | null;
+        discountAmount: number;
+        date?: Date;
+      } = {
+        totalAmount: newTotalAmount,
+        originalAmount: newOriginalAmount,
+        discountAmount: newDiscountAmount,
+      };
+      if (dateChanged) bookingPatch.date = dateOnly;
       await tx.booking.update({
         where: { id: bookingId },
-        data: dateChanged
-          ? { totalAmount: newTotalAmount, date: dateOnly }
-          : { totalAmount: newTotalAmount },
+        data: bookingPatch,
       });
 
       // Update payment amount if exists. Partial-payment bookings have
@@ -1484,7 +1534,56 @@ export async function adminEditBookingFull(
     // Get new prices
     const slotPrices = await getSlotPricesForDate(finalCourtConfigId, finalDate);
     const priceMap = new Map<number, number>(slotPrices.map((s) => [s.hour, s.price]));
-    const newTotalAmount = finalHours.reduce((sum, h) => sum + (priceMap.get(h) ?? 0), 0);
+    const newPreDiscountTotal = finalHours.reduce(
+      (sum, h) => sum + (priceMap.get(h) ?? 0),
+      0,
+    );
+
+    // Carry the existing booking-level discount through to the new
+    // total. Without this step, switching from full → half court drops
+    // the customer's coupon discount on the floor: e.g. a ₹2000 booking
+    // with FLAT100 (₹1900 charged) edited to a ₹1200 half court would
+    // bill the customer ₹1200 instead of the correct ₹1100.
+    //
+    // We recompute against the new pre-discount total so PERCENTAGE
+    // coupons stay proportional, and preserve the absolute amount for
+    // FLAT coupons (and admin-applied custom discounts where
+    // discountCodeId is null). The discount is always capped at the
+    // new pre-discount total to avoid negative totals on shrinkage.
+    let newDiscountAmount = 0;
+    if (booking.discountAmount > 0) {
+      if (booking.discountCodeId) {
+        const code = await db.discountCode.findUnique({
+          where: { id: booking.discountCodeId },
+          select: { type: true, value: true },
+        });
+        if (code?.type === "PERCENTAGE") {
+          // value is basis points (10000 = 100%), matching how
+          // discount-validation.ts computes it at booking time.
+          newDiscountAmount = Math.floor(
+            (newPreDiscountTotal * code.value) / 10000,
+          );
+        } else {
+          // FLAT (or coupon row deleted): preserve the absolute amount.
+          newDiscountAmount = booking.discountAmount;
+        }
+      } else {
+        // No coupon row — treat as a pre-existing flat admin discount.
+        newDiscountAmount = booking.discountAmount;
+      }
+      newDiscountAmount = Math.min(newDiscountAmount, newPreDiscountTotal);
+    }
+
+    const newTotalAmount = Math.max(
+      newPreDiscountTotal - newDiscountAmount,
+      0,
+    );
+    // originalAmount tracks the pre-discount slot total whenever a
+    // discount is applied, so the UI can render the strike-through
+    // "₹X" alongside the actual charge. Null it out if the new total
+    // is undiscounted (e.g. a FLAT coupon was capped to zero by a
+    // tiny new total).
+    const newOriginalAmount = newDiscountAmount > 0 ? newPreDiscountTotal : null;
 
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
@@ -1530,13 +1629,20 @@ export async function adminEditBookingFull(
     }
 
     await db.$transaction(async (tx) => {
-      // Update booking
+      // Update booking. We rewrite originalAmount alongside totalAmount
+      // because the previous originalAmount referred to the OLD slot
+      // configuration (e.g. ₹2000 full court); after a court swap that
+      // figure is misleading. Setting it from `newOriginalAmount`
+      // keeps the strike-through "₹X" pill in the UI accurate, or
+      // clears it when no discount applies post-edit.
       await tx.booking.update({
         where: { id: bookingId },
         data: {
           date: finalDate,
           courtConfigId: finalCourtConfigId,
           totalAmount: newTotalAmount,
+          originalAmount: newOriginalAmount,
+          discountAmount: newDiscountAmount,
         },
       });
 
