@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -131,11 +132,21 @@ function AdminHeader({ title }: { title: string }) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { state, signOut } = useAdminAuth();
+  const insets = useSafeAreaInsets();
   const adminName =
     state.status === "signedIn" ? state.admin.username : null;
 
   return (
-    <View style={styles.header}>
+    <View
+      style={[
+        styles.header,
+        // Add the device's status-bar / notch inset so the header
+        // sits below the carrier/clock row instead of overlapping it.
+        // Tab navigators don't auto-pad their custom `header` like
+        // native-stack does, so we apply it manually.
+        { paddingTop: insets.top + spacing["3"] },
+      ]}
+    >
       <View style={styles.headerLeft}>
         <View style={styles.headerBadge}>
           <ShieldCheck size={16} color={colors.yellow400} />
@@ -189,7 +200,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing["5"],
-    paddingTop: spacing["4"],
+    // paddingTop is set inline to insets.top + spacing[3] to push the
+    // header below the device's status bar / notch / dynamic island.
     paddingBottom: spacing["3"],
     backgroundColor: colors.background,
     borderBottomWidth: StyleSheet.hairlineWidth,

@@ -204,7 +204,12 @@ export function AdminBookingsListScreen() {
         {query.isLoading ? (
           <ListSkeleton />
         ) : query.isError ? (
-          <ErrorBlock onRetry={() => void query.refetch()} />
+          <ErrorBlock
+            onRetry={() => void query.refetch()}
+            message={
+              query.error instanceof Error ? query.error.message : null
+            }
+          />
         ) : bookings.length === 0 ? (
           <EmptyState />
         ) : (
@@ -418,13 +423,26 @@ function EmptyState() {
   );
 }
 
-function ErrorBlock({ onRetry }: { onRetry: () => void }) {
+function ErrorBlock({
+  onRetry,
+  message,
+}: {
+  onRetry: () => void;
+  message?: string | null;
+}) {
   return (
     <Pressable onPress={onRetry} style={styles.error}>
       <UserIcon size={22} color={colors.destructive} />
-      <Text variant="body" color={colors.destructive}>
-        Couldn't load bookings. Tap to retry.
-      </Text>
+      <View style={{ flex: 1 }}>
+        <Text variant="body" color={colors.destructive}>
+          Couldn't load bookings. Tap to retry.
+        </Text>
+        {message ? (
+          <Text variant="tiny" color={colors.zinc500} style={{ marginTop: 4 }}>
+            {message}
+          </Text>
+        ) : null}
+      </View>
     </Pressable>
   );
 }
