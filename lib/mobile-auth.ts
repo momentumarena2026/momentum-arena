@@ -15,9 +15,40 @@ export interface MobileTokenPayload {
   type: "mobile";
 }
 
+/**
+ * Admin variant of the mobile token. Issued by /api/mobile/admin/login
+ * after username + password verification against the AdminUser table.
+ * Same signing key as the customer token but `type: "mobile-admin"`,
+ * so the two are not interchangeable — `verifyMobileToken` rejects
+ * admin tokens and `verifyMobileAdminToken` rejects customer tokens.
+ */
+export interface MobileAdminTokenPayload {
+  adminId: string;
+  username: string;
+  role: string;
+  permissions: string[];
+  type: "mobile-admin";
+}
+
 export function signMobileToken(userId: string, email: string): string {
   return jwt.sign(
     { userId, email, type: "mobile" } satisfies MobileTokenPayload,
+    getJwtSecret(),
+    { expiresIn: JWT_EXPIRES_IN }
+  );
+}
+
+export function signMobileAdminToken(
+  admin: { id: string; username: string; role: string; permissions: string[] }
+): string {
+  return jwt.sign(
+    {
+      adminId: admin.id,
+      username: admin.username,
+      role: admin.role,
+      permissions: admin.permissions,
+      type: "mobile-admin",
+    } satisfies MobileAdminTokenPayload,
     getJwtSecret(),
     { expiresIn: JWT_EXPIRES_IN }
   );
@@ -27,6 +58,18 @@ export function verifyMobileToken(token: string): MobileTokenPayload | null {
   try {
     const payload = jwt.verify(token, getJwtSecret()) as MobileTokenPayload;
     if (payload.type !== "mobile") return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyMobileAdminToken(
+  token: string
+): MobileAdminTokenPayload | null {
+  try {
+    const payload = jwt.verify(token, getJwtSecret()) as MobileAdminTokenPayload;
+    if (payload.type !== "mobile-admin") return null;
     return payload;
   } catch {
     return null;
@@ -70,6 +113,35 @@ export async function getMobileUser(request: NextRequest) {
     hasPassword: !!user.passwordHash,
     image: user.image,
   };
+}
+
+/**
+ * Mobile admin auth gate. Reads the bearer token, verifies it as a
+ * `mobile-admin` JWT, then re-fetches the AdminUser row to confirm
+ * the row still exists. Returns null on any failure so route handlers
+ * can early-return 401 without surfacing internal errors.
+ */
+export async function getMobileAdmin(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+
+  const token = authHeader.slice(7);
+  const payload = verifyMobileAdminToken(token);
+  if (!payload) return null;
+
+  const admin = await db.adminUser.findUnique({
+    where: { id: payload.adminId },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      permissions: true,
+    },
+  });
+  if (!admin) return null;
+
+  return admin;
 }
 
 /**

@@ -39,9 +39,14 @@ export type MainTabsParamList = {
 /**
  * Root stack. Auth (Phone, Otp) is presented as a modal flow triggered when
  * a user chooses to sign in — the landing experience is public.
+ *
+ * AdminLogin is a hidden modal reached by 5-tapping the version footer
+ * on the Account screen. Same modal-stack pattern as Phone/Otp so it
+ * sits visually above the tab navigator.
  */
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabsParamList>;
   Phone: undefined;
   Otp: { phone: string };
+  AdminLogin: undefined;
 };

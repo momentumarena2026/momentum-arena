@@ -12,6 +12,7 @@ import { colors } from "../theme";
 import { MainNavigator } from "./MainNavigator";
 import { PhoneScreen } from "../screens/auth/PhoneScreen";
 import { OtpScreen } from "../screens/auth/OtpScreen";
+import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
 import type { RootStackParamList } from "./types";
 
 const navTheme = {
@@ -119,6 +120,11 @@ export function RootNavigator() {
             name="Otp"
             component={OtpScreen}
             options={{ title: "" }}
+          />
+          <Stack.Screen
+            name="AdminLogin"
+            component={AdminLoginScreen}
+            options={{ headerShown: false }}
           />
         </Stack.Group>
       </Stack.Navigator>

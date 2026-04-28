@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -200,7 +201,7 @@ export function AccountScreen() {
         fullWidth
         style={styles.signOut}
       />
-      <Text style={styles.version}>Momentum Arena · v0.1.0</Text>
+      <VersionFooter />
     </Screen>
   );
 }
@@ -448,7 +449,7 @@ function SignedOutAccount() {
         />
       </Card>
 
-      <Text style={styles.version}>Momentum Arena · v0.1.0</Text>
+      <VersionFooter />
     </Screen>
   );
 }
@@ -533,6 +534,44 @@ function Perk({
 
 function Divider() {
   return <View style={styles.divider} />;
+}
+
+/**
+ * Version footer with a hidden admin entry. 5 taps within 1.5s
+ * navigates to the AdminLogin modal — same idea as Android's
+ * "tap build number 7 times to enable Developer mode" easter egg.
+ *
+ * No visual feedback on the first 4 taps so customers tapping idly
+ * don't think anything is happening. The reset timer is cleared on
+ * each tap so a deliberate 5-in-a-row always succeeds even on slower
+ * devices.
+ */
+function VersionFooter() {
+  const rootNav = useNavigation<RootNav>();
+  const tapCountRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function onTap() {
+    tapCountRef.current += 1;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (tapCountRef.current >= 5) {
+      tapCountRef.current = 0;
+      rootNav.navigate("AdminLogin");
+      return;
+    }
+    timerRef.current = setTimeout(() => {
+      tapCountRef.current = 0;
+    }, 1500);
+  }
+
+  return (
+    <Pressable onPress={onTap} hitSlop={8}>
+      <Text style={styles.version}>Momentum Arena · v0.1.0</Text>
+    </Pressable>
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────

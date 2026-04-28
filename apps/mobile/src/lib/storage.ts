@@ -12,6 +12,7 @@ export const mmkv = new MMKV({ id: "momentum-arena-cache" });
  * namespace so we can hold a single token at a time.
  */
 const TOKEN_SERVICE = "com.momentumarena.app.token";
+const ADMIN_TOKEN_SERVICE = "com.momentumarena.app.admintoken";
 const TOKEN_ACCOUNT = "access";
 
 export const tokenStorage = {
@@ -30,6 +31,34 @@ export const tokenStorage = {
 
   async clear(): Promise<void> {
     await Keychain.resetGenericPassword({ service: TOKEN_SERVICE });
+  },
+};
+
+/**
+ * Separate storage slot for the admin bearer token. Keeps the customer
+ * and admin sessions independent — a staff phone can hold an admin
+ * token without ever having had a customer login, and a customer
+ * phone can preserve their session even if a staff member borrows the
+ * device to do an admin sign-in.
+ */
+export const adminTokenStorage = {
+  async save(token: string): Promise<void> {
+    await Keychain.setGenericPassword(TOKEN_ACCOUNT, token, {
+      service: ADMIN_TOKEN_SERVICE,
+      accessible: Keychain.ACCESSIBLE.AFTER_FIRST_UNLOCK,
+    });
+  },
+
+  async read(): Promise<string | null> {
+    const creds = await Keychain.getGenericPassword({
+      service: ADMIN_TOKEN_SERVICE,
+    });
+    if (!creds) return null;
+    return creds.password;
+  },
+
+  async clear(): Promise<void> {
+    await Keychain.resetGenericPassword({ service: ADMIN_TOKEN_SERVICE });
   },
 };
 
