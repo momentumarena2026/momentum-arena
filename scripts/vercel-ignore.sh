@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # Vercel ignoreCommand — wired up via vercel.json.
 #
-# Skips the Next.js web build whenever a deploy's diff lives entirely
-# under apps/mobile/ (the React Native workspace). Anything outside
-# apps/mobile/ — server actions, API routes, web pages, prisma schema,
-# vercel.json itself — triggers a normal build.
+# Two-stage gate:
+#   1. Branch allowlist. Only `main` (production) and `development`
+#      (preview) ever produce a Vercel deploy. Every other branch —
+#      claude/* feature branches, mobile-only side branches,
+#      experimental forks — is skipped at the top so Vercel doesn't
+#      burn build minutes on previews nobody asked for.
+#   2. Path filter. On the allowlisted branches, we still skip the
+#      Next.js web build when the diff lives entirely under
+#      apps/mobile/ (the React Native workspace). Anything outside
+#      apps/mobile/ — server actions, API routes, web pages, prisma
+#      schema, vercel.json itself — triggers a normal build.
 #
 # Vercel semantics:
 #   exit 0  → ignore (skip) the build
@@ -17,6 +24,21 @@
 # run.
 
 set -u
+
+# Stage 1: branch allowlist. VERCEL_GIT_COMMIT_REF is the branch being
+# deployed (set by Vercel for git-driven builds). Empty / unset means
+# we're outside Vercel's deploy environment — fall through to the diff
+# check rather than refusing every local invocation.
+BRANCH="${VERCEL_GIT_COMMIT_REF:-}"
+case "$BRANCH" in
+  main|development|"")
+    # Allowed (or local invocation). Continue to the path filter.
+    ;;
+  *)
+    echo "↪ Branch '$BRANCH' is not on the deploy allowlist (main, development) — skipping build."
+    exit 0
+    ;;
+esac
 
 PREV="${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}"
 
