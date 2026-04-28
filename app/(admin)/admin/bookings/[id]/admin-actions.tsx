@@ -80,7 +80,13 @@ export function AdminBookingActions({
   const [showEditBooking, setShowEditBooking] = useState(false);
 
   const canEditSlots = bookingStatus === "CONFIRMED";
-  const canEditBooking = bookingStatus === "CONFIRMED" && isAdminCreated;
+  // Customer-paid bookings are now editable too (e.g. customer
+  // requests full → half court). The action layer preserves the
+  // gateway-captured Payment.amount so the audit trail stays intact;
+  // the booking detail surfaces a refund-due / collect-extra pill
+  // when the new total differs from the captured amount.
+  const canEditBooking = bookingStatus === "CONFIRMED";
+  void isAdminCreated; // kept for future per-permission gating
 
   const canConfirmPayment =
     (bookingStatus === "CONFIRMED" || bookingStatus === "PENDING") &&

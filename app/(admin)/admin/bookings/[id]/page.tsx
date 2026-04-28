@@ -371,6 +371,56 @@ export default async function AdminBookingDetailPage({
               </div>
               );
             })()}
+
+            {/* Refund-due pill: surfaces when the booking was edited
+                after a full payment and the new total is below what
+                was actually captured (e.g. customer asked to switch
+                full court → half court). The captured amount on
+                Payment.amount stays intact (audit trail of what
+                Razorpay/PhonePe charged); the difference is what the
+                admin needs to refund out-of-band via the gateway
+                dashboard. The complementary "collect ₹X extra at
+                venue" case is handled automatically by the
+                partial-payment block above — adminEditBookingFull
+                flips the payment to PARTIAL when newTotal > captured. */}
+            {!booking.payment.isPartialPayment &&
+              booking.payment.status === "COMPLETED" &&
+              booking.payment.amount > booking.totalAmount && (
+                <div className="mt-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 space-y-1.5">
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-blue-400">
+                    <Receipt className="h-3.5 w-3.5" />
+                    Booking modified · Refund due
+                  </p>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-400">Captured</span>
+                    <span className="text-zinc-200">
+                      {formatPrice(booking.payment.amount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-400">New total</span>
+                    <span className="text-zinc-200">
+                      {formatPrice(booking.totalAmount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-blue-200">Refund to customer</span>
+                    <span className="font-bold text-blue-300">
+                      {formatPrice(booking.payment.amount - booking.totalAmount)}
+                    </span>
+                  </div>
+                  <p className="pt-1 text-[10px] text-zinc-500">
+                    Process the refund via the{" "}
+                    {booking.payment.method === "RAZORPAY"
+                      ? "Razorpay"
+                      : booking.payment.method === "PHONEPE"
+                      ? "PhonePe"
+                      : "payment gateway"}{" "}
+                    dashboard, then mark Payment refunded above if it should
+                    no longer count toward revenue.
+                  </p>
+                </div>
+              )}
             {booking.payment.razorpayPaymentId && (
               <div className="flex justify-between">
                 <span className="text-zinc-400">Razorpay ID</span>

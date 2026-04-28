@@ -1300,12 +1300,13 @@ export async function adminEditBookingFull(
     });
 
     if (!booking) return { success: false as const, error: "Booking not found" };
-    if (!booking.createdByAdminId) {
-      return { success: false as const, error: "Only admin-created bookings can be fully edited" };
-    }
     if (booking.status !== "CONFIRMED") {
       return { success: false as const, error: "Only confirmed bookings can be edited" };
     }
+    // Customer-created bookings paid via gateway are now editable too
+    // (e.g. customer asks to switch from full court to half) — see the
+    // payment-amount branch below for how we keep the captured-amount
+    // record intact while still letting the booking total change.
 
     // Determine final values
     const finalDate = data.newDate
@@ -1452,32 +1453,68 @@ export async function adminEditBookingFull(
       });
 
       // Update payment amount / advance fields if payment exists.
+      //
+      // Three cases:
+      //
+      //  1. Partial-payment edit (admin tweaks advance / method).
+      //     Keep `amount` synced with advanceAmount as today.
+      //
+      //  2. Admin-created cash booking that's been edited.
+      //     Payment.amount tracks "what was collected", admin can
+      //     adjust freely → overwrite with the new total. Same as
+      //     the previous behavior.
+      //
+      //  3. Customer booking paid via gateway (Razorpay / PhonePe /
+      //     UPI QR / FREE), now being edited.
+      //     Payment.amount is the captured amount on the gateway side
+      //     (or the recorded UTR / coupon-zero) — overwriting it
+      //     would lose the audit trail. Leave Payment.amount alone;
+      //     Booking.totalAmount carries the new value, and the UI
+      //     shows the delta as either "refund due to customer" or
+      //     "collect ₹X extra at venue". If the new total exceeds the
+      //     captured amount, flip the payment to PARTIAL with the
+      //     remainder so existing partial-payment UX kicks in.
       if (booking.payment) {
         const paymentUpdate: {
           amount?: number;
           advanceAmount?: number;
           remainingAmount?: number;
           method?: "CASH" | "UPI_QR";
+          isPartialPayment?: boolean;
         } = {};
 
         if (booking.payment.isPartialPayment && finalAdvance !== null) {
-          // Partial bookings: `amount` stores the advance collected, not
-          // the slot total. Keep advanceAmount + remainingAmount in sync.
           paymentUpdate.amount = finalAdvance;
           paymentUpdate.advanceAmount = finalAdvance;
           paymentUpdate.remainingAmount = newTotalAmount - finalAdvance;
-        } else {
+        } else if (booking.createdByAdminId) {
+          // Admin-created cash flow — case (2).
           paymentUpdate.amount = newTotalAmount;
+        } else {
+          // Case (3): customer paid via gateway. Don't touch
+          // Payment.amount. If the booking just got more expensive,
+          // flip to PARTIAL so "Collect ₹X at venue" surfaces.
+          const captured = booking.payment.amount;
+          if (newTotalAmount > captured) {
+            paymentUpdate.isPartialPayment = true;
+            paymentUpdate.advanceAmount = captured;
+            paymentUpdate.remainingAmount = newTotalAmount - captured;
+          }
+          // If newTotal <= captured, leave Payment as-is. UI shows
+          // a "Refund ₹delta due" pill that admin reconciles via the
+          // gateway dashboard (or refundBooking later).
         }
 
         if (data.newAdvanceMethod) {
           paymentUpdate.method = data.newAdvanceMethod;
         }
 
-        await tx.payment.update({
-          where: { id: booking.payment.id },
-          data: paymentUpdate,
-        });
+        if (Object.keys(paymentUpdate).length > 0) {
+          await tx.payment.update({
+            where: { id: booking.payment.id },
+            data: paymentUpdate,
+          });
+        }
       }
 
       // Create edit history entries for each change type
