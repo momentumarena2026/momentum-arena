@@ -17,6 +17,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { CourtDiagram } from "../../components/CourtDiagram";
 import { colors, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
@@ -127,8 +128,17 @@ export function BookCourtScreen() {
       // only one tile — keep the loader on-screen for that single frame so
       // the user never glimpses a redundant one-tile picker.
       (data && buildTiles(data).length === 1) ? (
-        <View style={styles.loader}>
-          <ActivityIndicator color={colors.primary} />
+        <View style={courtSkeletonStyles.list}>
+          {[0, 1, 2].map((i) => (
+            <View key={i} style={courtSkeletonStyles.tile}>
+              <Skeleton width={64} height={64} rounded="lg" />
+              <View style={courtSkeletonStyles.tileBody}>
+                <Skeleton width="55%" height={15} />
+                <Skeleton width="35%" height={11} />
+              </View>
+              <Skeleton width={20} height={20} rounded="sm" />
+            </View>
+          ))}
         </View>
       ) : isError || !data ? (
         <Card style={styles.state}>
@@ -231,6 +241,23 @@ export function BookCourtScreen() {
     </Screen>
   );
 }
+
+// Skeleton-only styles. Mirrors the court tile (icon + 2 text lines +
+// chevron) so first-paint matches the loaded layout.
+const courtSkeletonStyles = StyleSheet.create({
+  list: { gap: spacing["3"], marginTop: spacing["4"] },
+  tile: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    padding: spacing["4"],
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+  },
+  tileBody: { flex: 1, gap: spacing["1.5"] },
+});
 
 const styles = StyleSheet.create({
   header: {

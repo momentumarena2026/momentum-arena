@@ -26,6 +26,7 @@ import {
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
 import {
@@ -250,8 +251,21 @@ export function RecurringBookingsScreen() {
 
         {/* ─── Loading / Error / List / Empty ──────────────────────────── */}
         {isLoading && (
-          <View style={styles.center}>
-            <ActivityIndicator color={colors.primary} />
+          <View style={recurringSkeletonStyles.list}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={recurringSkeletonStyles.card}>
+                <View style={recurringSkeletonStyles.row}>
+                  <Skeleton width={40} height={40} rounded="full" />
+                  <View style={recurringSkeletonStyles.col}>
+                    <Skeleton width={150} height={14} />
+                    <Skeleton width={90} height={11} />
+                  </View>
+                  <Skeleton width={56} height={20} rounded="full" />
+                </View>
+                <Skeleton width="100%" height={11} />
+                <Skeleton width="80%" height={11} />
+              </View>
+            ))}
           </View>
         )}
 
@@ -484,6 +498,22 @@ function ErrorState({ onRetry }: ErrorStateProps) {
 // ────────────────────────────────────────────────────────────────────────────
 // Styles
 // ────────────────────────────────────────────────────────────────────────────
+
+// Skeleton-only styles for the first-paint loading state. Mirrors the
+// real RecurringCard layout (avatar + title + meta + body lines).
+const recurringSkeletonStyles = StyleSheet.create({
+  list: { paddingHorizontal: spacing["6"], gap: spacing["3"] },
+  card: {
+    padding: spacing["4"],
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    gap: spacing["3"],
+  },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing["3"] },
+  col: { flex: 1, gap: spacing["1.5"] },
+});
 
 const styles = StyleSheet.create({
   scrollContent: {

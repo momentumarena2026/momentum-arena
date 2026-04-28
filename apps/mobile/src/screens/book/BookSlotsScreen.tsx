@@ -21,6 +21,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { bookingApi, type SlotAvailability } from "../../lib/booking";
 import { ApiError } from "../../lib/api";
@@ -196,8 +197,19 @@ export function BookSlotsScreen() {
             </Text>
           </View>
           {isLoading ? (
-            <View style={styles.loader}>
-              <ActivityIndicator color={colors.primary} />
+            // Slots render as a 2-col grid of pill buttons. Match
+            // that shape with skeleton tiles so the picker doesn't
+            // jump when availability resolves.
+            <View style={slotSkeletonStyles.grid}>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton
+                  key={i}
+                  width="48%"
+                  height={56}
+                  rounded="lg"
+                  style={slotSkeletonStyles.tile}
+                />
+              ))}
             </View>
           ) : isError ? (
             <Card>
@@ -416,6 +428,16 @@ function SlotGrid({
     </View>
   );
 }
+
+// Skeleton-only styles for the 2-col slot grid loading state.
+const slotSkeletonStyles = StyleSheet.create({
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing["2"],
+  },
+  tile: { marginBottom: 0 },
+});
 
 const styles = StyleSheet.create({
   scroll: {

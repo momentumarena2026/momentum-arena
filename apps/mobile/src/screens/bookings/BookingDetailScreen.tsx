@@ -25,6 +25,7 @@ import QRCode from "react-native-qrcode-svg";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
 import {
@@ -132,10 +133,38 @@ export function BookingDetailScreen() {
 
   if (isLoading) {
     return (
-      <Screen>
-        <View style={styles.loader}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
+      <Screen padded={false}>
+        <ScrollView contentContainerStyle={detailSkeletonStyles.scroll}>
+          {/* Header */}
+          <Skeleton width="60%" height={26} />
+          <Skeleton width="40%" height={14} />
+
+          {/* Hero booking card */}
+          <View style={detailSkeletonStyles.card}>
+            <View style={detailSkeletonStyles.row}>
+              <Skeleton width={56} height={56} rounded="lg" />
+              <View style={detailSkeletonStyles.colGap}>
+                <Skeleton width={140} height={16} />
+                <Skeleton width={100} height={12} />
+              </View>
+            </View>
+            <View style={detailSkeletonStyles.divider} />
+            <View style={detailSkeletonStyles.kvList}>
+              {[0, 1, 2, 3].map((i) => (
+                <View key={i} style={detailSkeletonStyles.kv}>
+                  <Skeleton width={70} height={11} />
+                  <Skeleton width={120} height={11} />
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* QR / actions card */}
+          <View style={detailSkeletonStyles.card}>
+            <Skeleton width={160} height={160} rounded="md" style={detailSkeletonStyles.qr} />
+            <Skeleton width="50%" height={12} />
+          </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -435,6 +464,39 @@ function DetailRow({
 // ──────────────────────────────────────────────────────────────────────────────
 // Styles
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Skeleton-only styles for the loading state. Kept separate so the
+// real screen styles below stay readable.
+const detailSkeletonStyles = StyleSheet.create({
+  scroll: {
+    paddingHorizontal: spacing["5"],
+    paddingTop: spacing["4"],
+    paddingBottom: spacing["8"],
+    gap: spacing["4"],
+  },
+  card: {
+    padding: spacing["5"],
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    gap: spacing["4"],
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+  },
+  colGap: { gap: spacing["1.5"], flex: 1 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.zinc800,
+  },
+  kvList: { gap: spacing["3"] },
+  kv: { flexDirection: "row", justifyContent: "space-between" },
+  qr: { alignSelf: "center" },
+});
+
 const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: spacing["5"],

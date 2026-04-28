@@ -25,6 +25,7 @@ import {
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { BookingCard } from "../../components/BookingCard";
 import { colors, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
@@ -165,9 +166,7 @@ export function BookingsListScreen() {
 
         {/* ─── Body ────────────────────────────────────────────────────── */}
         {isLoading ? (
-          <View style={styles.loader}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
+          <BookingListSkeleton />
         ) : isError ? (
           <View style={styles.errorCard}>
             <Text variant="body" color={colors.mutedForeground}>
@@ -454,6 +453,50 @@ function EmptyState({ onBook }: EmptyStateProps) {
     </View>
   );
 }
+
+// Skeleton stack mirroring the BookingCard layout. Used in place of a
+// centered ActivityIndicator on first paint so the screen looks
+// populated immediately and doesn't reflow when data arrives.
+function BookingListSkeleton() {
+  return (
+    <View style={skeletonStyles.wrap}>
+      <Skeleton width={120} height={14} />
+      <View style={skeletonStyles.list}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={skeletonStyles.card}>
+            <Skeleton width={44} height={44} rounded="full" />
+            <View style={skeletonStyles.cardBody}>
+              <Skeleton width="60%" height={14} />
+              <Skeleton width="40%" height={11} />
+              <Skeleton width="50%" height={11} />
+            </View>
+            <View style={skeletonStyles.cardRight}>
+              <Skeleton width={56} height={14} />
+              <Skeleton width={48} height={10} />
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const skeletonStyles = StyleSheet.create({
+  wrap: { paddingHorizontal: spacing["6"], gap: spacing["3"] },
+  list: { gap: spacing["3"] },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    padding: spacing["4"],
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+  },
+  cardBody: { flex: 1, gap: spacing["1.5"] },
+  cardRight: { gap: spacing["1.5"], alignItems: "flex-end" },
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // Styles
