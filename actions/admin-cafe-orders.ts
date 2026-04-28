@@ -21,13 +21,23 @@ async function requireCafeAdminWithDetails() {
   return adminUser;
 }
 
-export async function getCafeOrders(filters?: {
-  date?: string;
-  status?: CafeOrderStatus;
-  search?: string;
-  page?: number;
-}) {
-  await requireCafeAdmin();
+/**
+ * Mobile admin routes pre-authenticate via JWT. Reads accept
+ * `skipAuth: true` and writes that need an admin identity accept
+ * `adminOverride: { id, username }` so the mobile JWT identity flows
+ * through to the audit log + push-notification author.
+ */
+
+export async function getCafeOrders(
+  filters?: {
+    date?: string;
+    status?: CafeOrderStatus;
+    search?: string;
+    page?: number;
+  },
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireCafeAdmin();
 
   const page = filters?.page ?? 1;
   const limit = 20;
@@ -76,8 +86,8 @@ export async function getCafeOrders(filters?: {
   return { orders, total, page, totalPages: Math.ceil(total / limit) };
 }
 
-export async function getCafeOrderStats() {
-  await requireCafeAdmin();
+export async function getCafeOrderStats(skipAuth?: boolean) {
+  if (!skipAuth) await requireCafeAdmin();
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -127,8 +137,8 @@ export async function getCafeOrderStats() {
   };
 }
 
-export async function getLiveCafeOrders() {
-  await requireCafeAdmin();
+export async function getLiveCafeOrders(skipAuth?: boolean) {
+  if (!skipAuth) await requireCafeAdmin();
 
   // Bound the result so a runaway queue can't OOM the serverless worker.
   // A kitchen realistically never has more than ~50 open orders; 200 is a
@@ -165,9 +175,10 @@ const STATUS_PIPELINE: Record<CafeOrderStatus, CafeOrderStatus[]> = {
 
 export async function updateCafeOrderStatus(
   orderId: string,
-  newStatus: CafeOrderStatus
+  newStatus: CafeOrderStatus,
+  adminOverride?: { id: string; username: string },
 ) {
-  const admin = await requireCafeAdminWithDetails();
+  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
 
   try {
     const order = await db.cafeOrder.findUnique({
@@ -329,8 +340,12 @@ export async function adminCreateCafeOrder(data: {
   }
 }
 
-export async function cancelCafeOrder(orderId: string, reason: string) {
-  const admin = await requireCafeAdminWithDetails();
+export async function cancelCafeOrder(
+  orderId: string,
+  reason: string,
+  adminOverride?: { id: string; username: string },
+) {
+  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
 
   try {
     const order = await db.cafeOrder.findUnique({

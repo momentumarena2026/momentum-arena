@@ -6,9 +6,11 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import {
   CalendarCheck,
+  CalendarRange,
   Coffee,
   IndianRupee,
   LogOut,
+  ScanLine,
   ShieldCheck,
   UserSquare2,
 } from "lucide-react-native";
@@ -20,15 +22,112 @@ import { AdminUnconfirmedBookingsListScreen } from "../screens/admin/AdminUnconf
 import { AdminBookingDetailScreen } from "../screens/admin/AdminBookingDetailScreen";
 import { AdminEditSlotsScreen } from "../screens/admin/AdminEditSlotsScreen";
 import { AdminEditBookingScreen } from "../screens/admin/AdminEditBookingScreen";
-import { AdminPlaceholderScreen } from "../screens/admin/AdminPlaceholderScreen";
+import { AdminCheckinScreen } from "../screens/admin/AdminCheckinScreen";
+import { AdminCalendarScreen } from "../screens/admin/AdminCalendarScreen";
+import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
+import { AdminCafeOrdersScreen } from "../screens/admin/AdminCafeOrdersScreen";
+import { AdminCafeMenuScreen } from "../screens/admin/AdminCafeMenuScreen";
+import { AdminExpensesListScreen } from "../screens/admin/AdminExpensesListScreen";
+import { AdminExpenseFormScreen } from "../screens/admin/AdminExpenseFormScreen";
+import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyticsScreen";
 import type {
   AdminBookingsStackParamList,
+  AdminCafeStackParamList,
+  AdminCalendarStackParamList,
+  AdminExpensesStackParamList,
   AdminTabsParamList,
   RootStackParamList,
 } from "./types";
 
 const BookingsStack = createNativeStackNavigator<AdminBookingsStackParamList>();
+const CalendarStack =
+  createNativeStackNavigator<AdminCalendarStackParamList>();
+const CafeStack = createNativeStackNavigator<AdminCafeStackParamList>();
+const ExpensesStack =
+  createNativeStackNavigator<AdminExpensesStackParamList>();
 const Tabs = createBottomTabNavigator<AdminTabsParamList>();
+
+function AdminExpensesStackNav() {
+  return (
+    <ExpensesStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
+        headerTintColor: colors.primary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <ExpensesStack.Screen
+        name="AdminExpensesList"
+        component={AdminExpensesListScreen}
+        options={{ headerShown: false }}
+      />
+      <ExpensesStack.Screen
+        name="AdminExpenseForm"
+        component={AdminExpenseFormScreen}
+        options={({ route }) => ({
+          title: route.params?.expenseId ? "Edit expense" : "Add expense",
+        })}
+      />
+      <ExpensesStack.Screen
+        name="AdminExpenseAnalytics"
+        component={AdminExpenseAnalyticsScreen}
+        options={{ title: "Analytics" }}
+      />
+    </ExpensesStack.Navigator>
+  );
+}
+
+function AdminCafeStackNav() {
+  return (
+    <CafeStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
+        headerTintColor: colors.primary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <CafeStack.Screen
+        name="AdminCafeOrders"
+        component={AdminCafeOrdersScreen}
+        options={{ headerShown: false }}
+      />
+      <CafeStack.Screen
+        name="AdminCafeMenu"
+        component={AdminCafeMenuScreen}
+        options={{ title: "Menu" }}
+      />
+    </CafeStack.Navigator>
+  );
+}
+
+function AdminCalendarStackNav() {
+  return (
+    <CalendarStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
+        headerTintColor: colors.primary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <CalendarStack.Screen
+        name="AdminCalendar"
+        component={AdminCalendarScreen}
+        options={{ headerShown: false }}
+      />
+      <CalendarStack.Screen
+        name="AdminSlotBlocks"
+        component={AdminSlotBlocksScreen}
+        options={{ title: "Slot blocks" }}
+      />
+    </CalendarStack.Navigator>
+  );
+}
 
 function AdminBookingsStack() {
   return (
@@ -75,11 +174,14 @@ function AdminBookingsStack() {
  * or by 5-tapping the Account-screen version footer when an admin
  * session already exists in Keychain.
  *
- * Three bottom tabs mirror the seven web admin sections the user
- * cares about, grouped by floor-staff workflow:
- *   - Bookings: list + detail + filters + actions (covers 1–5).
- *   - Cafe: menu + orders kanban (placeholder for now).
- *   - Expenses: list + analytics (placeholder for now).
+ * Five bottom tabs mirror the seven web admin sections, grouped by
+ * floor-staff workflow:
+ *   - Bookings: list + detail + filters + actions (covers the
+ *     all-bookings + unconfirmed views).
+ *   - Check-in: today's confirmed bookings + QR-token entry.
+ *   - Calendar: court×hour grid for any single date + slot-blocks.
+ *   - Cafe: orders kanban + menu availability toggle.
+ *   - Expenses: list + add/edit form + analytics.
  *
  * The header on every tab carries the same two utility buttons:
  *   - "Customer view" → switches to the customer Main stack without
@@ -108,6 +210,10 @@ export function AdminNavigator() {
           switch (route.name) {
             case "AdminBookings":
               return <CalendarCheck {...props} />;
+            case "AdminCheckin":
+              return <ScanLine {...props} />;
+            case "AdminCalendar":
+              return <CalendarRange {...props} />;
             case "AdminCafe":
               return <Coffee {...props} />;
             case "AdminExpenses":
@@ -122,13 +228,23 @@ export function AdminNavigator() {
         options={{ tabBarLabel: "Bookings" }}
       />
       <Tabs.Screen
+        name="AdminCheckin"
+        component={AdminCheckinScreen}
+        options={{ tabBarLabel: "Check-in" }}
+      />
+      <Tabs.Screen
+        name="AdminCalendar"
+        component={AdminCalendarStackNav}
+        options={{ tabBarLabel: "Calendar" }}
+      />
+      <Tabs.Screen
         name="AdminCafe"
-        component={AdminPlaceholderScreen}
+        component={AdminCafeStackNav}
         options={{ tabBarLabel: "Cafe" }}
       />
       <Tabs.Screen
         name="AdminExpenses"
-        component={AdminPlaceholderScreen}
+        component={AdminExpensesStackNav}
         options={{ tabBarLabel: "Expenses" }}
       />
     </Tabs.Navigator>
@@ -139,6 +255,10 @@ function titleFor(name: keyof AdminTabsParamList): string {
   switch (name) {
     case "AdminBookings":
       return "Bookings";
+    case "AdminCheckin":
+      return "Check-in";
+    case "AdminCalendar":
+      return "Calendar";
     case "AdminCafe":
       return "Cafe";
     case "AdminExpenses":

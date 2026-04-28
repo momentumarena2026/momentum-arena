@@ -9,12 +9,18 @@ async function requireCafeMenuAdmin() {
   return user.id;
 }
 
+/**
+ * Mobile admin routes pre-authenticate via JWT and pass `skipAuth:
+ * true` here to bypass the NextAuth web cookie gate. Web call sites
+ * omit the flag.
+ */
+
 export async function getCafeItems(filters?: {
   category?: CafeItemCategory;
   search?: string;
   showUnavailable?: boolean;
-}) {
-  await requireCafeMenuAdmin();
+}, skipAuth?: boolean) {
+  if (!skipAuth) await requireCafeMenuAdmin();
 
   const where: Record<string, unknown> = {};
 
@@ -149,8 +155,11 @@ export async function deleteCafeItem(id: string) {
   }
 }
 
-export async function toggleCafeItemAvailability(id: string) {
-  await requireCafeMenuAdmin();
+export async function toggleCafeItemAvailability(
+  id: string,
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireCafeMenuAdmin();
 
   try {
     const item = await db.cafeItem.findUnique({ where: { id } });

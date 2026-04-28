@@ -17,9 +17,17 @@ export async function getBookingByQrToken(qrToken: string) {
   return booking;
 }
 
-export async function markCheckedIn(qrToken: string) {
-  const session = await adminAuth();
-  if (!session?.user) return { success: false, error: "Unauthorized" };
+export async function markCheckedIn(
+  qrToken: string,
+  // Mobile admin routes pre-authenticate via JWT and pass true here so
+  // we don't require a NextAuth web cookie. Web call sites omit the
+  // flag and get the existing cookie-based gate.
+  preAuthorized?: boolean,
+) {
+  if (!preAuthorized) {
+    const session = await adminAuth();
+    if (!session?.user) return { success: false, error: "Unauthorized" };
+  }
 
   const booking = await db.booking.findUnique({ where: { qrToken } });
   if (!booking) return { success: false, error: "Booking not found" };

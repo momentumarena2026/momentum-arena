@@ -10,6 +10,13 @@ async function requireAdmin() {
   return user.id;
 }
 
+/**
+ * Mobile admin routes pre-authenticate via JWT, then call these
+ * actions with `adminIdOverride` (for create) or `skipAuth: true`
+ * (for read/delete) to bypass the NextAuth web cookie gate. Web
+ * call sites continue to omit both flags.
+ */
+
 const blockSlotSchema = z.object({
   courtConfigId: z.string().optional(),
   sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]).optional(),
@@ -18,14 +25,17 @@ const blockSlotSchema = z.object({
   reason: z.string().optional(),
 });
 
-export async function blockSlot(data: {
-  courtConfigId?: string;
-  sport?: Sport;
-  date: string;
-  startHour?: number;
-  reason?: string;
-}) {
-  const adminId = await requireAdmin();
+export async function blockSlot(
+  data: {
+    courtConfigId?: string;
+    sport?: Sport;
+    date: string;
+    startHour?: number;
+    reason?: string;
+  },
+  adminIdOverride?: string,
+) {
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   const parsed = blockSlotSchema.safeParse(data);
   if (!parsed.success) {
@@ -46,15 +56,15 @@ export async function blockSlot(data: {
   return { success: true };
 }
 
-export async function unblockSlot(blockId: string) {
-  await requireAdmin();
+export async function unblockSlot(blockId: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireAdmin();
 
   await db.slotBlock.delete({ where: { id: blockId } });
   return { success: true };
 }
 
-export async function getSlotBlocks(date: string) {
-  await requireAdmin();
+export async function getSlotBlocks(date: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireAdmin();
 
   const blocks = await db.slotBlock.findMany({
     where: { date: new Date(date) },
@@ -87,8 +97,8 @@ export async function toggleConfigActive(configId: string, isActive: boolean) {
   return { success: true };
 }
 
-export async function getAllSportsWithConfigs() {
-  await requireAdmin();
+export async function getAllSportsWithConfigs(skipAuth?: boolean) {
+  if (!skipAuth) await requireAdmin();
 
   const configs = await db.courtConfig.findMany({
     orderBy: [{ sport: "asc" }, { size: "asc" }, { position: "asc" }],

@@ -65,8 +65,42 @@ export type AdminBookingsStackParamList = {
   AdminEditBooking: { bookingId: string };
 };
 
+// Calendar tab is a tiny stack so it can host both the day grid and
+// the slot-blocks editor. Web has these as two separate pages
+// (/admin/calendar, /admin/slots); we collapse them into one tab
+// because they share the date context.
+export type AdminCalendarStackParamList = {
+  AdminCalendar: undefined;
+  AdminSlotBlocks: undefined;
+};
+
+// Cafe tab: orders kanban (default) + menu (availability toggle).
+// Mirrors web /admin/cafe + /admin/cafe-orders rolled into one tab.
+export type AdminCafeStackParamList = {
+  AdminCafeOrders: undefined;
+  AdminCafeMenu: undefined;
+};
+
+// Expenses tab: list (default) + per-row edit + add + analytics.
+// Add and edit share one form screen — the param `expenseId` is the
+// editing flag (undefined ⇒ creating).
+export type AdminExpensesStackParamList = {
+  AdminExpensesList: undefined;
+  AdminExpenseForm: { expenseId?: string };
+  AdminExpenseAnalytics: undefined;
+};
+
 export type AdminTabsParamList = {
   AdminBookings: NavigatorScreenParams<AdminBookingsStackParamList>;
-  AdminCafe: undefined;
-  AdminExpenses: undefined;
+  // Check-in: today's confirmed bookings list with manual-entry +
+  // QR-token paste fallbacks. Mirrors the web /admin/checkin page,
+  // minus the live camera scanner (we surface a manual entry form
+  // and the today-list instead so a staffer can always proceed even
+  // when camera permission is denied).
+  AdminCheckin: undefined;
+  // Calendar tab — stack containing the court×hour grid and the
+  // slot-blocks editor.
+  AdminCalendar: NavigatorScreenParams<AdminCalendarStackParamList>;
+  AdminCafe: NavigatorScreenParams<AdminCafeStackParamList>;
+  AdminExpenses: NavigatorScreenParams<AdminExpensesStackParamList>;
 };

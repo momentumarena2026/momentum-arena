@@ -40,9 +40,15 @@ export interface CalendarData {
 
 export async function getCalendarData(
   date: string,
-  sportFilter?: string
+  sportFilter?: string,
+  // Mobile admin routes authenticate via JWT before calling this
+  // server action. Pass true to skip the NextAuth cookie check that
+  // `requireAdmin` performs. Web call sites omit the flag.
+  skipAuth?: boolean,
 ): Promise<CalendarData> {
-  await requireAdmin("MANAGE_BOOKINGS");
+  if (!skipAuth) {
+    await requireAdmin("MANAGE_BOOKINGS");
+  }
 
   const dateOnly = new Date(date + "T00:00:00Z");
 

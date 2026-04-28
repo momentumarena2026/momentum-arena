@@ -24,6 +24,13 @@ async function requireExpenseAdmin() {
   return await requireAdminBase("MANAGE_EXPENSES");
 }
 
+/**
+ * Mobile admin routes pre-authenticate via JWT and pass `skipAuth`
+ * (reads, delete) or `adminOverride: { id, name }` (create, update)
+ * so the cookie-based gate doesn't fire and the audit trail still
+ * records the mobile admin's identity.
+ */
+
 // ---------------------------------------------------------------------
 // Validation schemas
 // ---------------------------------------------------------------------
@@ -123,8 +130,11 @@ export interface ListExpensesFilters {
   pageSize?: number;
 }
 
-export async function listExpenses(filters: ListExpensesFilters = {}) {
-  await requireExpenseAdmin();
+export async function listExpenses(
+  filters: ListExpensesFilters = {},
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireExpenseAdmin();
 
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(200, Math.max(10, filters.pageSize ?? 50));
@@ -169,8 +179,8 @@ export async function listExpenses(filters: ListExpensesFilters = {}) {
   };
 }
 
-export async function getExpenseById(id: string) {
-  await requireExpenseAdmin();
+export async function getExpenseById(id: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireExpenseAdmin();
   const expense = await db.expense.findUnique({
     where: { id },
     include: {
@@ -184,8 +194,11 @@ export async function getExpenseById(id: string) {
 // Create + update + delete
 // ---------------------------------------------------------------------
 
-export async function createExpense(input: ExpenseInput) {
-  const admin = await requireExpenseAdmin();
+export async function createExpense(
+  input: ExpenseInput,
+  adminOverride?: { id: string; name: string },
+) {
+  const admin = adminOverride ?? (await requireExpenseAdmin());
 
   const parsed = expenseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -217,7 +230,10 @@ export async function createExpense(input: ExpenseInput) {
         data: {
           expenseId: expense.id,
           adminId: admin.id,
-          adminUsername: admin.name || admin.email || "admin",
+          adminUsername:
+            admin.name ||
+            ("email" in admin ? admin.email : undefined) ||
+            "admin",
           editType: "CREATED",
           changes: [] as unknown as Prisma.InputJsonValue,
         },
@@ -238,9 +254,10 @@ export async function createExpense(input: ExpenseInput) {
 export async function updateExpense(
   id: string,
   input: ExpenseInput,
-  note?: string
+  note?: string,
+  adminOverride?: { id: string; name: string },
 ) {
-  const admin = await requireExpenseAdmin();
+  const admin = adminOverride ?? (await requireExpenseAdmin());
 
   const parsed = expenseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -278,7 +295,10 @@ export async function updateExpense(
             data: {
               expenseId: id,
               adminId: admin.id,
-              adminUsername: admin.name || admin.email || "admin",
+              adminUsername:
+            admin.name ||
+            ("email" in admin ? admin.email : undefined) ||
+            "admin",
               editType: "UPDATED",
               changes: [] as unknown as Prisma.InputJsonValue,
               note: note.trim(),
@@ -294,7 +314,10 @@ export async function updateExpense(
         data: {
           expenseId: id,
           adminId: admin.id,
-          adminUsername: admin.name || admin.email || "admin",
+          adminUsername:
+            admin.name ||
+            ("email" in admin ? admin.email : undefined) ||
+            "admin",
           editType: "UPDATED",
           changes: changes as unknown as Prisma.InputJsonValue,
           note: note?.trim() || null,
@@ -312,8 +335,8 @@ export async function updateExpense(
   }
 }
 
-export async function deleteExpense(id: string) {
-  await requireExpenseAdmin();
+export async function deleteExpense(id: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireExpenseAdmin();
   try {
     // Cascade-deletes the ExpenseEditHistory rows via the FK.
     await db.expense.delete({ where: { id } });
@@ -335,8 +358,11 @@ export interface AnalyticsFilters {
   to?: string;
 }
 
-export async function getExpenseAnalytics(filters: AnalyticsFilters = {}) {
-  await requireExpenseAdmin();
+export async function getExpenseAnalytics(
+  filters: AnalyticsFilters = {},
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireExpenseAdmin();
 
   const where: Prisma.ExpenseWhereInput = {};
   if (filters.from || filters.to) {
@@ -419,8 +445,8 @@ export async function listExpenseOptions() {
   return rows;
 }
 
-export async function listActiveExpenseOptionsByField() {
-  await requireExpenseAdmin();
+export async function listActiveExpenseOptionsByField(skipAuth?: boolean) {
+  if (!skipAuth) await requireExpenseAdmin();
   const rows = await db.expenseOption.findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
