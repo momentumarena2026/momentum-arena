@@ -1,36 +1,63 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Plus,
-  X,
   ExternalLink,
-  Pencil,
   List,
-  CalendarDays,
   Loader2,
+  Lock,
+  Pencil,
+  Plus,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import {
   getCalendarData,
   type CalendarData,
   type CellBooking,
-  type CalendarConfig,
 } from "@/actions/admin-calendar";
-import { formatHourCompact, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
+import {
+  formatHourCompact,
+  formatHourRangeCompact,
+  formatHoursAsRanges,
+} from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
+import type { Sport } from "@prisma/client";
 
 // --------------- Constants ---------------
 
-const SPORT_COLORS: Record<string, string> = {
-  CRICKET: "#10b981",
-  FOOTBALL: "#3b82f6",
-  PICKLEBALL: "#f59e0b",
+// Per-sport visual palette — same accents as the mobile calendar
+// redesign so the two surfaces feel identical. Each entry is a
+// Tailwind class fragment for the chip background + a text colour.
+const SPORT_STYLE: Record<
+  Sport,
+  { emoji: string; chip: string; text: string; dot: string }
+> = {
+  CRICKET: {
+    emoji: "🏏",
+    chip: "border-emerald-500/40 bg-emerald-500/15",
+    text: "text-emerald-300",
+    dot: "bg-emerald-500",
+  },
+  FOOTBALL: {
+    emoji: "⚽",
+    chip: "border-blue-500/40 bg-blue-500/15",
+    text: "text-blue-300",
+    dot: "bg-blue-500",
+  },
+  PICKLEBALL: {
+    emoji: "🏓",
+    chip: "border-purple-500/40 bg-purple-500/15",
+    text: "text-purple-300",
+    dot: "bg-purple-500",
+  },
 };
 
-const SPORT_LABELS: Record<string, string> = {
+const SPORT_LABELS: Record<Sport, string> = {
   CRICKET: "Cricket",
   FOOTBALL: "Football",
   PICKLEBALL: "Pickleball",
@@ -43,24 +70,13 @@ const SPORT_FILTERS: { value: string; label: string }[] = [
   { value: "PICKLEBALL", label: "Pickleball" },
 ];
 
-// --------------- Helpers ---------------
+// --------------- Date helpers ---------------
 
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function formatDateDisplay(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("en-IN", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 function isToday(dateStr: string): boolean {
@@ -72,13 +88,72 @@ function getCurrentHour(): number {
 }
 
 function shiftDate(dateStr: string, days: number): string {
+  // Local-time arithmetic — input/output both flow through local
+  // year/month/day fields, so the round-trip is consistent. (The
+  // mobile/calendar-view stepper bug came from mixing local
+  // construction with UTC `toISOString()`, which we don't do here.)
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
   dt.setDate(dt.getDate() + days);
   return toDateStr(dt);
 }
 
-// --------------- Component ---------------
+function formatHero(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    weekday: "short",
+  });
+}
+
+// --------------- Hour pivot ---------------
+
+interface HourEntry {
+  bookings: Array<{
+    booking: CellBooking;
+    sport: Sport;
+    courtLabel: string;
+  }>;
+  blocks: Array<{ courtLabel: string; reason?: string }>;
+}
+
+function buildHourMap(data: CalendarData): Map<number, HourEntry> {
+  const map = new Map<number, HourEntry>();
+  for (const h of data.hours) map.set(h, { bookings: [], blocks: [] });
+
+  for (const config of data.configs) {
+    const row = data.grid[config.id] ?? {};
+    for (const [hStr, cell] of Object.entries(row)) {
+      const h = Number(hStr);
+      const entry = map.get(h);
+      if (!entry) continue;
+
+      if (cell.booking) {
+        // Multiple courts can register the same booking when zones
+        // overlap. Dedup by booking id so each booking surfaces as
+        // exactly one chip per hour cell.
+        if (!entry.bookings.some((b) => b.booking.id === cell.booking!.id)) {
+          entry.bookings.push({
+            booking: cell.booking,
+            sport: config.sport,
+            courtLabel: config.label,
+          });
+        }
+      }
+      if (cell.blocked) {
+        entry.blocks.push({
+          courtLabel: config.label,
+          reason: cell.blockReason,
+        });
+      }
+    }
+  }
+  return map;
+}
+
+// --------------- Main component ---------------
 
 interface BookingCalendarProps {
   initialData: CalendarData;
@@ -89,133 +164,133 @@ interface BookingCalendarProps {
 export default function BookingCalendar({
   initialData,
   initialDate,
-  onViewChange,
 }: BookingCalendarProps) {
   const [data, setData] = useState<CalendarData>(initialData);
   const [date, setDate] = useState(initialDate);
   const [sportFilter, setSportFilter] = useState("");
   const [isPending, startTransition] = useTransition();
 
-  // Modal state
   const [selectedBooking, setSelectedBooking] = useState<{
     booking: CellBooking;
-    config: CalendarConfig;
-    hour: number;
+    sport: Sport;
+    courtLabel: string;
   } | null>(null);
-  const [quickBookCell, setQuickBookCell] = useState<{
-    config: CalendarConfig;
-    hour: number;
-  } | null>(null);
+  const [quickBookHour, setQuickBookHour] = useState<number | null>(null);
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const currentHourRef = useRef<HTMLTableRowElement>(null);
-
-  // Auto-scroll to current hour on mount
-  useEffect(() => {
-    if (currentHourRef.current && scrollContainerRef.current) {
-      const container = scrollContainerRef.current;
-      const row = currentHourRef.current;
-      const containerRect = container.getBoundingClientRect();
-      const rowRect = row.getBoundingClientRect();
-      const offset = rowRect.top - containerRect.top - containerRect.height / 3;
-      container.scrollTop += offset;
-    }
+  const fetchData = useCallback((newDate: string, newSport: string) => {
+    startTransition(async () => {
+      const result = await getCalendarData(newDate, newSport || undefined);
+      setData(result);
+    });
   }, []);
 
-  // Fetch data on date/sport change
-  const fetchData = useCallback(
-    (newDate: string, newSport: string) => {
-      startTransition(async () => {
-        const result = await getCalendarData(
-          newDate,
-          newSport || undefined
-        );
-        setData(result);
-      });
-    },
-    []
-  );
-
-  const handleDateChange = (newDate: string) => {
+  function handleDateChange(newDate: string) {
     setDate(newDate);
     fetchData(newDate, sportFilter);
-  };
+  }
 
-  const handleSportChange = (sport: string) => {
+  function handleSportChange(sport: string) {
     setSportFilter(sport);
     fetchData(date, sport);
-  };
+  }
 
-  const handleToday = () => {
+  function handleToday() {
     const today = toDateStr(new Date());
     setDate(today);
     fetchData(today, sportFilter);
-  };
+  }
 
-  const currentHour = getCurrentHour();
-  const { configs, grid, hours } = data;
+  const hourMap = useMemo(() => buildHourMap(data), [data]);
+  const heroLabel = useMemo(() => formatHero(date), [date]);
+  const isOnToday = isToday(date);
+  const nowHour = getCurrentHour();
 
   return (
     <div className="space-y-4">
-      {/* ---- Top Controls ---- */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* Date Slider */}
+      {/* Header / controls */}
+      <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Date stepper */}
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => handleDateChange(shiftDate(date, -1))}
-            className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
+            className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+            aria-label="Previous day"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="min-w-[180px] text-center text-sm font-semibold text-white">
-            {formatDateDisplay(date)}
+          <div className="flex items-center gap-2 px-1">
+            <CalendarDays className="h-4 w-4 text-yellow-400" />
+            <span className="text-lg font-semibold text-white">
+              {heroLabel}
+            </span>
           </div>
-          <button
-            onClick={() => handleDateChange(shiftDate(date, 1))}
-            className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          {!isToday(date) && (
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => handleDateChange(e.target.value)}
+            className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+          {!isOnToday && (
             <button
+              type="button"
               onClick={handleToday}
-              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
+              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
             >
+              <RotateCcw className="h-3 w-3" />
               Today
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => handleDateChange(shiftDate(date, 1))}
+            className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+            aria-label="Next day"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
           {isPending && (
             <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Sport Filter */}
-          <div className="flex items-center gap-1.5">
-            {SPORT_FILTERS.map((sf) => (
-              <button
-                key={sf.value}
-                onClick={() => handleSportChange(sf.value)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                  sportFilter === sf.value
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300"
-                }`}
-              >
-                {sf.value && (
-                  <span
-                    className="mr-1.5 inline-block h-2 w-2 rounded-full"
-                    style={{ backgroundColor: SPORT_COLORS[sf.value] }}
-                  />
-                )}
-                {sf.label}
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Sport filter */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {SPORT_FILTERS.map((sf) => {
+              const active = sportFilter === sf.value;
+              return (
+                <button
+                  key={sf.value}
+                  type="button"
+                  onClick={() => handleSportChange(sf.value)}
+                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    active
+                      ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-300"
+                      : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:bg-zinc-800"
+                  }`}
+                >
+                  {sf.value && (
+                    <span
+                      className={`inline-block h-2 w-2 rounded-full ${
+                        SPORT_STYLE[sf.value as Sport]?.dot ?? ""
+                      }`}
+                    />
+                  )}
+                  {sf.label}
+                </button>
+              );
+            })}
           </div>
 
-          {/* View Toggle */}
-          <div className="flex items-center rounded-lg border border-zinc-700 bg-zinc-800 p-0.5">
-            <button className="flex items-center gap-1.5 rounded-md bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-400">
+          {/* View toggle (Calendar / Table) — preserved from the old
+              layout so admins can still drop into the bookings table
+              when they want to slice the data. */}
+          <div className="flex items-center rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-md bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-400"
+            >
               <CalendarDays className="h-3.5 w-3.5" />
               Calendar
             </button>
@@ -230,231 +305,195 @@ export default function BookingCalendar({
         </div>
       </div>
 
-      {/* ---- Calendar Grid ---- */}
-      <div
-        ref={scrollContainerRef}
-        className="relative overflow-auto rounded-xl border border-zinc-800 bg-zinc-950"
-        style={{ maxHeight: "calc(100vh - 220px)" }}
-      >
-        {/* Loading overlay */}
-        {isPending && (
-          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/50 backdrop-blur-[1px]">
-            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
-          </div>
-        )}
-
-        <table className="w-full border-collapse">
-          {/* Sticky header */}
-          <thead>
-            <tr className="sticky top-0 z-20">
-              {/* Time column header */}
-              <th className="sticky left-0 z-30 min-w-[80px] border-b border-r border-zinc-800 bg-zinc-900 px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-                Time
-              </th>
-              {/* Court config headers */}
-              {configs.map((config) => {
-                const sportColor = SPORT_COLORS[config.sport] || "#6b7280";
-                return (
-                  <th
-                    key={config.id}
-                    className="min-w-[140px] border-b border-r border-zinc-800 bg-zinc-900 px-3 py-3 text-center last:border-r-0"
-                  >
-                    <div className="flex flex-col items-center gap-1">
-                      <span
-                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                        style={{
-                          backgroundColor: `${sportColor}15`,
-                          color: sportColor,
-                        }}
-                      >
-                        {SPORT_LABELS[config.sport] || config.sport}
-                      </span>
-                      <span className="text-xs font-medium text-zinc-300 whitespace-nowrap">
-                        {config.label}
-                      </span>
-                    </div>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-
-          <tbody>
-            {hours.map((hour) => {
-              const isCurrentHour = isToday(date) && hour === currentHour;
+      {/* Grid — responsive 2/3/4/5 cols, one cell per hour */}
+      {data.hours.length === 0 || data.configs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 py-20 text-zinc-500">
+          <CalendarDays className="mb-3 h-10 w-10 text-zinc-600" />
+          <p className="text-sm">Nothing to show</p>
+          <p className="mt-1 text-xs text-zinc-600">
+            Try a different sport filter
+          </p>
+        </div>
+      ) : (
+        <div className="relative">
+          {isPending && (
+            <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/40 backdrop-blur-[1px]">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {data.hours.map((hour) => {
+              const entry = hourMap.get(hour);
+              const isCurrentHour = isOnToday && hour === nowHour;
               return (
-                <tr
+                <HourCell
                   key={hour}
-                  ref={isCurrentHour ? currentHourRef : undefined}
-                  className={`group/row transition-colors ${
-                    isCurrentHour
-                      ? "bg-emerald-500/[0.04]"
-                      : "hover:bg-zinc-900/50"
-                  }`}
-                >
-                  {/* Time label */}
-                  <td
-                    className={`sticky left-0 z-10 border-b border-r border-zinc-800 px-3 py-0 text-right align-top ${
-                      isCurrentHour ? "bg-emerald-500/[0.06]" : "bg-zinc-950"
-                    }`}
-                    style={{ minHeight: 48 }}
-                  >
-                    <span
-                      className={`text-[11px] font-medium leading-none ${
-                        isCurrentHour ? "text-emerald-400" : "text-zinc-500"
-                      }`}
-                    >
-                      {formatHourCompact(hour)}
-                    </span>
-                    {isCurrentHour && (
-                      <div className="mt-0.5">
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      </div>
-                    )}
-                  </td>
-
-                  {/* Grid cells */}
-                  {configs.map((config) => {
-                    const cell = grid[config.id]?.[hour];
-                    return (
-                      <td
-                        key={config.id}
-                        className="relative border-b border-r border-zinc-800 p-0 last:border-r-0"
-                        style={{ minHeight: 48, height: 48 }}
-                      >
-                        <CalendarCell
-                          cell={cell}
-                          config={config}
-                          hour={hour}
-                          date={date}
-                          isCurrentHour={isCurrentHour}
-                          onBookingClick={(booking) =>
-                            setSelectedBooking({ booking, config, hour })
-                          }
-                          onEmptyClick={() =>
-                            setQuickBookCell({ config, hour })
-                          }
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
+                  hour={hour}
+                  entry={entry}
+                  isCurrentHour={isCurrentHour}
+                  onSelectBooking={(booking, sport, courtLabel) =>
+                    setSelectedBooking({ booking, sport, courtLabel })
+                  }
+                  onEmptyClick={() => setQuickBookHour(hour)}
+                />
               );
             })}
-          </tbody>
-        </table>
-
-        {/* Empty state */}
-        {configs.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
-            <CalendarDays className="h-10 w-10 mb-3 text-zinc-600" />
-            <p className="text-sm">No court configurations found</p>
-            <p className="text-xs text-zinc-600 mt-1">
-              Try a different sport filter
-            </p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* ---- Booking Detail Modal ---- */}
+      {/* Booking detail modal (chip click) */}
       {selectedBooking && (
         <BookingDetailModal
           booking={selectedBooking.booking}
-          config={selectedBooking.config}
+          sport={selectedBooking.sport}
+          courtLabel={selectedBooking.courtLabel}
           date={date}
           onClose={() => setSelectedBooking(null)}
         />
       )}
 
-      {/* ---- Quick Book Modal ---- */}
-      {quickBookCell && (
+      {/* Quick book modal (empty-cell click) — opens a date+hour
+          prefilled link to /admin/bookings/create. The cell-per-hour
+          layout doesn't bind to a specific court, so the user picks
+          the court on the create form. */}
+      {quickBookHour !== null && (
         <QuickBookModal
-          config={quickBookCell.config}
-          hour={quickBookCell.hour}
+          hour={quickBookHour}
           date={date}
-          onClose={() => setQuickBookCell(null)}
+          onClose={() => setQuickBookHour(null)}
         />
+      )}
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500">
+        <Legend className="border-emerald-500/40 bg-emerald-500/15">
+          🏏 Cricket
+        </Legend>
+        <Legend className="border-blue-500/40 bg-blue-500/15">
+          ⚽ Football
+        </Legend>
+        <Legend className="border-purple-500/40 bg-purple-500/15">
+          🏓 Pickleball
+        </Legend>
+        <Legend className="border-yellow-500/40 bg-yellow-500/15">
+          Pending (dashed)
+        </Legend>
+        <Legend className="border-red-500/30 bg-red-500/10">Blocked</Legend>
+      </div>
+    </div>
+  );
+}
+
+// --------------- HourCell ---------------
+
+function HourCell({
+  hour,
+  entry,
+  isCurrentHour,
+  onSelectBooking,
+  onEmptyClick,
+}: {
+  hour: number;
+  entry?: HourEntry;
+  isCurrentHour: boolean;
+  onSelectBooking: (
+    booking: CellBooking,
+    sport: Sport,
+    courtLabel: string,
+  ) => void;
+  onEmptyClick: () => void;
+}) {
+  const isEmpty = !entry || (entry.bookings.length === 0 && entry.blocks.length === 0);
+
+  return (
+    <div
+      className={`flex min-h-[110px] flex-col gap-1.5 rounded-lg border p-3 transition-colors ${
+        isCurrentHour
+          ? "border-emerald-500/40 bg-emerald-500/5"
+          : "border-zinc-800 bg-zinc-900"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span
+          className={`text-xs font-semibold ${
+            isCurrentHour ? "text-emerald-400" : "text-zinc-400"
+          }`}
+        >
+          {formatHourCompact(hour)} – {formatHourCompact(hour + 1)}
+        </span>
+        {isCurrentHour && (
+          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-400">
+            Now
+          </span>
+        )}
+      </div>
+
+      {isEmpty ? (
+        <button
+          type="button"
+          onClick={onEmptyClick}
+          className="flex flex-1 items-center justify-center rounded-md border border-dashed border-zinc-800 text-[10px] text-zinc-700 transition-colors hover:border-zinc-700 hover:text-zinc-500"
+        >
+          <Plus className="h-3 w-3" />
+          <span className="ml-1">Add</span>
+        </button>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {entry!.blocks.length > 0 && (
+            <div
+              className="flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-300"
+              title={entry!.blocks.map((b) => b.courtLabel).join(", ")}
+            >
+              <Lock className="h-3 w-3" />
+              <span className="truncate">
+                {entry!.blocks[0].reason || "Blocked"}
+                {entry!.blocks.length > 1 ? ` +${entry!.blocks.length - 1}` : ""}
+              </span>
+            </div>
+          )}
+          {entry!.bookings.map(({ booking, sport, courtLabel }) => {
+            const palette = SPORT_STYLE[sport];
+            const dashed = booking.status === "PENDING";
+            return (
+              <button
+                key={booking.id}
+                type="button"
+                onClick={() => onSelectBooking(booking, sport, courtLabel)}
+                className={`flex flex-col items-start gap-0.5 rounded-md border px-2 py-1 text-left transition-all hover:brightness-125 ${
+                  palette.chip
+                } ${dashed ? "border-dashed" : ""}`}
+              >
+                <span className={`text-[11px] font-semibold ${palette.text}`}>
+                  {palette.emoji} {SPORT_LABELS[sport]}
+                </span>
+                <span
+                  className={`w-full truncate text-[10px] opacity-80 ${palette.text}`}
+                >
+                  {courtLabel}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-// --------------- CalendarCell ---------------
+// --------------- Legend chip ---------------
 
-function CalendarCell({
-  cell,
-  config,
-  hour,
-  date,
-  isCurrentHour,
-  onBookingClick,
-  onEmptyClick,
+function Legend({
+  className,
+  children,
 }: {
-  cell?: { booking?: CellBooking; blocked?: boolean; blockReason?: string };
-  config: CalendarConfig;
-  hour: number;
-  date: string;
-  isCurrentHour: boolean;
-  onBookingClick: (booking: CellBooking) => void;
-  onEmptyClick: () => void;
+  className: string;
+  children: React.ReactNode;
 }) {
-  // Blocked cell
-  if (cell?.blocked) {
-    return (
-      <div
-        className="flex h-12 items-center px-2"
-        style={{
-          background:
-            "repeating-linear-gradient(-45deg, transparent, transparent 4px, rgba(113,113,122,0.1) 4px, rgba(113,113,122,0.1) 8px)",
-        }}
-      >
-        <span className="truncate text-[10px] font-medium text-zinc-600">
-          {cell.blockReason || "Blocked"}
-        </span>
-      </div>
-    );
-  }
-
-  // Booked cell
-  if (cell?.booking) {
-    const isConfirmed = cell.booking.status === "CONFIRMED";
-    const accentColor = isConfirmed ? "#10b981" : "#f59e0b";
-    const firstName = cell.booking.userName.split(" ")[0];
-
-    return (
-      <button
-        onClick={() => onBookingClick(cell.booking!)}
-        className="group/cell flex h-12 w-full items-center gap-1.5 border-l-[3px] px-2 text-left transition-all hover:brightness-125"
-        style={{
-          borderLeftColor: accentColor,
-          backgroundColor: `${accentColor}10`,
-        }}
-      >
-        <div className="min-w-0 flex-1">
-          <p
-            className="truncate text-xs font-medium"
-            style={{ color: accentColor }}
-          >
-            {isConfirmed ? firstName : "Locked"}
-          </p>
-          {isConfirmed && cell.booking.paymentStatus && (
-            <p className="truncate text-[10px] text-zinc-500">
-              {formatPrice(cell.booking.totalAmount)}
-            </p>
-          )}
-        </div>
-      </button>
-    );
-  }
-
-  // Empty / available cell
   return (
-    <button
-      onClick={onEmptyClick}
-      className="group/cell flex h-12 w-full items-center justify-center transition-colors hover:bg-zinc-800/50"
-    >
-      <Plus className="h-3.5 w-3.5 text-zinc-700 opacity-0 transition-opacity group-hover/cell:opacity-100" />
-    </button>
+    <span className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] ${className}`}>
+      {children}
+    </span>
   );
 }
 
@@ -462,33 +501,31 @@ function CalendarCell({
 
 function BookingDetailModal({
   booking,
-  config,
+  sport,
+  courtLabel,
   date,
   onClose,
 }: {
   booking: CellBooking;
-  config: CalendarConfig;
+  sport: Sport;
+  courtLabel: string;
   date: string;
   onClose: () => void;
 }) {
-  const sportColor = SPORT_COLORS[config.sport] || "#6b7280";
+  const palette = SPORT_STYLE[sport];
   const isConfirmed = booking.status === "CONFIRMED";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      {/* Modal */}
-      <div className="relative w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
+      <div className="animate-in fade-in zoom-in-95 relative w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl duration-200">
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
-          <h3 className="text-base font-semibold text-white">
-            Booking Details
-          </h3>
+          <h3 className="text-base font-semibold text-white">Booking Details</h3>
           <button
+            type="button"
             onClick={onClose}
             className="rounded-lg p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
           >
@@ -496,29 +533,21 @@ function BookingDetailModal({
           </button>
         </div>
 
-        {/* Body */}
         <div className="space-y-4 px-5 py-4">
-          {/* Status row */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <span
-              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
-              style={{
-                backgroundColor: isConfirmed
-                  ? "rgba(16,185,129,0.1)"
-                  : "rgba(245,158,11,0.1)",
-                borderColor: isConfirmed
-                  ? "rgba(16,185,129,0.3)"
-                  : "rgba(245,158,11,0.3)",
-                color: isConfirmed ? "#10b981" : "#f59e0b",
-              }}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                isConfirmed
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+              }`}
             >
               <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{
-                  backgroundColor: isConfirmed ? "#10b981" : "#f59e0b",
-                }}
+                className={`h-1.5 w-1.5 rounded-full ${
+                  isConfirmed ? "bg-emerald-400" : "bg-yellow-400"
+                }`}
               />
-              {isConfirmed ? "Confirmed" : "Locked"}
+              {isConfirmed ? "Confirmed" : "Pending"}
             </span>
             {booking.paymentStatus && (
               <span
@@ -526,22 +555,19 @@ function BookingDetailModal({
                   booking.paymentStatus === "COMPLETED"
                     ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                     : booking.paymentStatus === "PENDING"
-                    ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-                    : "border-zinc-700 bg-zinc-800 text-zinc-400"
+                      ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                      : "border-zinc-700 bg-zinc-800 text-zinc-400"
                 }`}
               >
                 {booking.paymentStatus}
                 {booking.paymentMethod &&
-                  ` \u00B7 ${booking.paymentMethod.replace("_", " ")}`}
+                  ` · ${booking.paymentMethod.replace("_", " ")}`}
               </span>
             )}
           </div>
 
-          {/* Customer */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 space-y-1.5">
-            <p className="text-sm font-medium text-white">
-              {booking.userName}
-            </p>
+          <div className="space-y-1.5 rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+            <p className="text-sm font-medium text-white">{booking.userName}</p>
             {booking.userEmail && (
               <p className="text-xs text-zinc-400">{booking.userEmail}</p>
             )}
@@ -550,36 +576,31 @@ function BookingDetailModal({
             )}
           </div>
 
-          {/* Booking Info */}
           <div className="grid grid-cols-2 gap-3">
             <InfoBlock label="Sport">
               <span className="flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: sportColor }}
-                />
-                {SPORT_LABELS[config.sport]}
+                <span className={`h-2 w-2 rounded-full ${palette.dot}`} />
+                {SPORT_LABELS[sport]}
               </span>
             </InfoBlock>
-            <InfoBlock label="Court">{config.label}</InfoBlock>
-            <InfoBlock label="Date">{formatDateDisplay(date)}</InfoBlock>
+            <InfoBlock label="Court">{courtLabel}</InfoBlock>
+            <InfoBlock label="Date">{formatHero(date)}</InfoBlock>
             <InfoBlock label="Time">
               {formatHoursAsRanges(booking.slots)}
             </InfoBlock>
             <InfoBlock label="Amount">
-              <span className="text-emerald-400 font-semibold">
+              <span className="font-semibold text-emerald-400">
                 {formatPrice(booking.totalAmount)}
               </span>
             </InfoBlock>
             <InfoBlock label="Booking ID">
               <span className="font-mono text-[10px]">
-                {booking.id.slice(0, 8)}...
+                {booking.id.slice(0, 8)}…
               </span>
             </InfoBlock>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center gap-2 border-t border-zinc-800 px-5 py-4">
           <Link
             href={`/admin/bookings/${booking.id}`}
@@ -604,35 +625,30 @@ function BookingDetailModal({
 // --------------- QuickBookModal ---------------
 
 function QuickBookModal({
-  config,
   hour,
   date,
   onClose,
 }: {
-  config: CalendarConfig;
   hour: number;
   date: string;
   onClose: () => void;
 }) {
-  const sportColor = SPORT_COLORS[config.sport] || "#6b7280";
-
-  const createUrl = `/admin/bookings/create?courtConfigId=${config.id}&date=${date}&hour=${hour}`;
+  // No court is selected from the cell (the new layout aggregates
+  // hours, not court×hour combos). The create form lets the user
+  // pick a court that's free for this date+hour.
+  const createUrl = `/admin/bookings/create?date=${date}&hour=${hour}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      {/* Modal */}
-      <div className="relative w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
+      <div className="animate-in fade-in zoom-in-95 relative w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl duration-200">
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
-          <h3 className="text-base font-semibold text-white">
-            Quick Book
-          </h3>
+          <h3 className="text-base font-semibold text-white">Quick Book</h3>
           <button
+            type="button"
             onClick={onClose}
             className="rounded-lg p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
           >
@@ -640,32 +656,24 @@ function QuickBookModal({
           </button>
         </div>
 
-        {/* Body */}
         <div className="space-y-3 px-5 py-4">
           <div className="grid grid-cols-2 gap-3">
-            <InfoBlock label="Sport">
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: sportColor }}
-                />
-                {SPORT_LABELS[config.sport]}
-              </span>
-            </InfoBlock>
-            <InfoBlock label="Court">{config.label}</InfoBlock>
-            <InfoBlock label="Date">{formatDateDisplay(date)}</InfoBlock>
+            <InfoBlock label="Date">{formatHero(date)}</InfoBlock>
             <InfoBlock label="Time">{formatHourRangeCompact(hour)}</InfoBlock>
           </div>
+          <p className="text-xs text-zinc-500">
+            Pick a court on the next screen — only courts that are free
+            in this slot will be selectable.
+          </p>
         </div>
 
-        {/* Footer */}
         <div className="border-t border-zinc-800 px-5 py-4">
           <Link
             href={createUrl}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
           >
             <Plus className="h-4 w-4" />
-            Create Booking
+            Continue
           </Link>
         </div>
       </div>
@@ -684,7 +692,7 @@ function InfoBlock({
 }) {
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 mb-0.5">
+      <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
         {label}
       </p>
       <p className="text-xs text-zinc-200">{children}</p>
