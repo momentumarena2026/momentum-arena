@@ -40,6 +40,11 @@ export interface CellBooking {
   totalAmount: number;
   paymentStatus: string | null;
   paymentMethod: string | null;
+  // The booking's actual owning court, populated by the server so
+  // grid-pivot views can label chips correctly even when the same
+  // booking appears under multiple overlapping configs.
+  courtLabel: string;
+  courtSport: AdminCalendarSport;
 }
 
 export interface CellData {

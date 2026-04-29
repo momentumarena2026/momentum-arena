@@ -289,11 +289,15 @@ function buildHourMap(data: CalendarData): Map<number, HourEntry> {
       if (!entry) continue;
 
       if (cell.booking) {
+        // Read sport/courtLabel from the booking itself — the same
+        // booking is duplicated into every overlapping config's
+        // cell, so trusting the iterated config would relabel a
+        // Cricket Full Field booking as Medium (Left Half).
         if (!entry.bookings.some((b) => b.booking.id === cell.booking!.id)) {
           entry.bookings.push({
             booking: cell.booking,
-            sport: config.sport,
-            courtLabel: config.label,
+            sport: cell.booking.courtSport,
+            courtLabel: cell.booking.courtLabel,
           });
         }
       }

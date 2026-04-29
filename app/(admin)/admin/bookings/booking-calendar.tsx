@@ -131,14 +131,17 @@ function buildHourMap(data: CalendarData): Map<number, HourEntry> {
       if (!entry) continue;
 
       if (cell.booking) {
-        // Multiple courts can register the same booking when zones
-        // overlap. Dedup by booking id so each booking surfaces as
-        // exactly one chip per hour cell.
+        // The same booking shows up under every config whose zones
+        // overlap with the booking's court (e.g. Cricket Full Field
+        // → Medium (Left Half) too). Dedup by booking id, and read
+        // sport/courtLabel from the BOOKING itself so the chip
+        // always reflects the owning court instead of whichever
+        // overlapping config we iterated first.
         if (!entry.bookings.some((b) => b.booking.id === cell.booking!.id)) {
           entry.bookings.push({
             booking: cell.booking,
-            sport: config.sport,
-            courtLabel: config.label,
+            sport: cell.booking.courtSport,
+            courtLabel: cell.booking.courtLabel,
           });
         }
       }

@@ -306,14 +306,17 @@ function buildHourMap(data: CalendarData | null): Map<number, HourEntry> {
       if (!entry) continue;
       if (cell.booking) {
         // Multiple courts may register the same booking when zones
-        // overlap. Dedup by booking id so the cell renders one chip
-        // per booking rather than one per court the booking touches.
+        // overlap (e.g. a Cricket Full Field booking shows up under
+        // Medium (Left Half) too). Dedup by booking id so the cell
+        // renders one chip per booking, and read sport/courtLabel
+        // from the BOOKING — not the iterated config — so the chip
+        // always reflects the booking's actual owning court.
         if (!entry.bookings.some((b) => b.id === cell.booking!.id)) {
           entry.bookings.push({
             id: cell.booking.id,
-            sport: config.sport,
+            sport: cell.booking.courtSport,
             status: cell.booking.status,
-            courtLabel: config.label,
+            courtLabel: cell.booking.courtLabel,
           });
         }
       }

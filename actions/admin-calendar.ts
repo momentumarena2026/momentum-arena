@@ -15,6 +15,16 @@ export interface CellBooking {
   totalAmount: number;
   paymentStatus: string | null;
   paymentMethod: string | null;
+  // The booking's actual owning court — NOT the iterated config the
+  // cell happens to live under. The grid duplicates a booking into
+  // every config whose zones overlap with the booking's court (so a
+  // Cricket Full Field booking shows up under Medium (Left Half) and
+  // Medium (Right Half) too). Clients that pivot the grid by hour
+  // need to know the real owner to render the right court label and
+  // sport chip; without it they'd pick whichever overlapping config
+  // they iterated first.
+  courtLabel: string;
+  courtSport: Sport;
 }
 
 export interface CellData {
@@ -171,6 +181,13 @@ export async function getCalendarData(
           totalAmount: matchingBooking.totalAmount,
           paymentStatus: matchingBooking.payment?.status || null,
           paymentMethod: matchingBooking.payment?.method || null,
+          // Always the booking's OWN court, not the iterated config
+          // we're populating. Lets the grid-pivot clients (mobile +
+          // web new layout) render the correct sport chip + court
+          // label even when the same booking appears under multiple
+          // overlapping configs.
+          courtLabel: matchingBooking.courtConfig.label,
+          courtSport: matchingBooking.courtConfig.sport,
         };
       }
 
