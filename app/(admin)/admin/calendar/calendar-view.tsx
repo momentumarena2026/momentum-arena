@@ -102,8 +102,15 @@ export function CalendarView({ initialDate, initialData }: CalendarViewProps) {
   }
 
   function navigateDay(offset: number) {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + offset);
+    // Parse + arithmetic in UTC. `new Date("YYYY-MM-DDT00:00:00")` is
+    // local time, so toISOString() shifts the date by the local
+    // timezone offset (IST = +5:30). For users east of UTC that meant
+    // "+1 day" produced the same ISO string as today (right arrow
+    // dead) and "-1 day" jumped two days back (left arrow skip).
+    // Anchoring at UTC midnight + setUTCDate keeps the YYYY-MM-DD
+    // string stable across timezones.
+    const d = new Date(date + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + offset);
     const newDate = d.toISOString().split("T")[0];
     handleDateChange(newDate);
   }

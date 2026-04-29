@@ -128,8 +128,12 @@ export function AdminCalendarScreen() {
   ]);
 
   function shiftDay(offset: number) {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + offset);
+    // UTC arithmetic — `new Date("YYYY-MM-DDT00:00:00")` is local
+    // time, so toISOString() shifts the date by the local TZ offset
+    // (IST = +5:30) and the resulting YYYY-MM-DD lands a day off.
+    // Anchoring at UTC midnight + setUTCDate keeps the string stable.
+    const d = new Date(date + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + offset);
     setDate(d.toISOString().split("T")[0]);
   }
 

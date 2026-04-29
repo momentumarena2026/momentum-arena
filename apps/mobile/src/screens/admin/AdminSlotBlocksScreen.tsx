@@ -106,8 +106,12 @@ export function AdminSlotBlocksScreen() {
   });
 
   function shiftDay(offset: number) {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + offset);
+    // UTC arithmetic — local-time parse + toISOString roundtrip
+    // shifts the YYYY-MM-DD by the local TZ offset (IST = +5:30),
+    // which made the right arrow appear dead and the left arrow
+    // skip a day. Anchoring at UTC midnight keeps the string stable.
+    const d = new Date(date + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + offset);
     setDate(d.toISOString().split("T")[0]);
   }
 
