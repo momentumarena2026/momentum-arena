@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { formatHoursAsRanges } from "./court-config";
 import { normalizeIndianPhone } from "./phone";
-import { sendToUser } from "./push";
+import { sendToAdmins, sendToUser } from "./push";
 
 // Parse + normalize + de-duplicate the admin phone list from env. Without
 // this, "+919876543210" and "919876543210" in the same env string both
@@ -234,6 +234,19 @@ export async function notifyAdminPendingBooking(
   const details = await getBookingDetails(bookingId);
   if (!details) return;
 
+  // FCM fan-out to every signed-in admin device. Best-effort —
+  // a missing service-account key just no-ops sendToAdmins. The
+  // mobile shell tap handler routes this kind to the unconfirmed
+  // queue. Runs in parallel with the SMS path below.
+  void sendToAdmins({
+    title: "New booking awaiting verification",
+    body: `${details.userName} just booked — verify the screenshot or collect cash to confirm.`,
+    data: {
+      kind: "admin_pending_booking",
+      bookingId,
+    },
+  }).catch((err) => console.error("[push] admin pending booking failed:", err));
+
   const adminPhones = parseAdminPhones();
 
   if (adminPhones.length === 0) {
@@ -308,12 +321,10 @@ export async function notifyAdminBookingConfirmed(
     where: { id: bookingId },
     include: {
       slots: { orderBy: { startHour: "asc" } },
+      user: { select: { name: true, phone: true } },
     },
   });
   if (!booking) return;
-
-  const adminPhones = parseAdminPhones();
-  if (adminPhones.length === 0) return;
 
   // Build "17 Apr 6pm-7pm" — fits under DLT's 30-char variable limit for
   // typical bookings. Use IST so the date matches the venue timezone.
@@ -329,6 +340,24 @@ export async function notifyAdminBookingConfirmed(
   const date = [dateLabel, timeLabel].filter(Boolean).join(" ").trim();
 
   const amount = `Rs.${booking.totalAmount.toLocaleString("en-IN")}`;
+
+  // FCM fan-out to admin devices. Tap routes to AdminBookingDetail.
+  // Independent of the SMS path (which depends on the DLT template
+  // env vars) so the mobile alert lands even when SMS isn't set up.
+  const customerName = booking.user?.name?.trim() || "A customer";
+  void sendToAdmins({
+    title: "Booking confirmed",
+    body: `${customerName} · ${date} · ${amount}`,
+    data: {
+      kind: "admin_booking_confirmed",
+      bookingId,
+    },
+  }).catch((err) =>
+    console.error("[push] admin booking confirmed failed:", err),
+  );
+
+  const adminPhones = parseAdminPhones();
+  if (adminPhones.length === 0) return;
 
   if (!MSG91_AUTH_KEY || !MSG91_ADMIN_BOOKING_CONFIRMED_TEMPLATE_ID) {
     console.log(
@@ -365,4 +394,43 @@ export async function notifyAdminBookingConfirmed(
   } catch (error) {
     console.error("MSG91 admin booking confirmed notification error:", error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// notifyAdminBookingCancelled
+// ---------------------------------------------------------------------------
+// FCM-only (no SMS template for cancellations yet — adds bandwidth
+// without obvious incremental value when admins are already in the
+// loop on every cancel they initiate). Useful for the OTHER admins
+// on the team who didn't trigger the cancel themselves: they see a
+// banner, can tap into the booking, optionally reach out to the
+// customer if there's context to capture.
+//
+// `refunded` flips the body copy to mention the refund — same call
+// pattern admins use for cancelBooking vs refundBooking.
+
+export async function notifyAdminBookingCancelled(
+  bookingId: string,
+  reason: string,
+  refunded = false,
+): Promise<void> {
+  const details = await getBookingDetails(bookingId);
+  if (!details) return;
+
+  const trimmedReason = reason.trim();
+  const body = refunded
+    ? `${details.userName} · refund processed${trimmedReason ? ` — ${trimmedReason}` : ""}`
+    : `${details.userName} cancelled${trimmedReason ? ` — ${trimmedReason}` : ""}`;
+
+  void sendToAdmins({
+    title: refunded ? "Booking refunded" : "Booking cancelled",
+    body,
+    data: {
+      kind: "admin_booking_cancelled",
+      bookingId,
+      refunded: refunded ? "1" : "0",
+    },
+  }).catch((err) =>
+    console.error("[push] admin booking cancelled failed:", err),
+  );
 }

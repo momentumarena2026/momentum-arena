@@ -594,8 +594,9 @@ model AdminUser {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  createdBookings   Booking[]   @relation("BookingCreatedByAdmin")
-  createdCafeOrders CafeOrder[] @relation("CafeOrderCreatedByAdmin")
+  createdBookings   Booking[]         @relation("BookingCreatedByAdmin")
+  createdCafeOrders CafeOrder[]       @relation("CafeOrderCreatedByAdmin")
+  pushDevices       AdminPushDevice[]
 }
 
 model BookingEditHistory {
@@ -1422,5 +1423,32 @@ model PushDevice {
   createdAt  DateTime @default(now())
 
   @@index([userId])
+  @@index([lastSeenAt])
+}
+
+/// FCM token registry for admin devices. Separate from PushDevice
+/// because admins log in through AdminUser (not User), and we want
+/// fan-outs to either group to be a single SQL query without
+/// nullable foreign keys or a discriminator column.
+///
+/// A single physical device can hold rows in BOTH tables — a staffer
+/// who's signed in as both customer and admin will get customer
+/// pushes for their own bookings AND admin pushes for the floor's
+/// queue. The unique `token` constraint is global; an FCM token only
+/// ever lives in one row per table at a time, but can exist in both.
+///
+/// Dead-token cleanup in lib/push.ts removes from both tables when
+/// FCM reports the token is no longer registered.
+model AdminPushDevice {
+  id         String    @id @default(cuid())
+  adminId    String
+  admin      AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  token      String    @unique
+  platform   String
+  appVersion String?
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  @@index([adminId])
   @@index([lastSeenAt])
 }

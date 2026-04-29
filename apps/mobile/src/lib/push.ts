@@ -3,6 +3,7 @@ import messaging, {
   type FirebaseMessagingTypes,
 } from "@react-native-firebase/messaging";
 import { api, ApiError } from "./api";
+import { request as adminApiRequest, AdminApiError } from "./admin-api";
 
 /**
  * Mobile-side push notifications wiring.
@@ -30,6 +31,7 @@ import { api, ApiError } from "./api";
  */
 
 const DEVICES_ENDPOINT = "/api/mobile/devices";
+const ADMIN_DEVICES_ENDPOINT = "/api/mobile/admin/devices";
 
 export type PushKind =
   | "booking_confirmed"
@@ -40,7 +42,11 @@ export type PushKind =
   | "payment_verified"
   | "refund_processed"
   | "cafe_order_status"
-  | "broadcast";
+  | "broadcast"
+  // Admin-bound — only delivered to AdminPushDevice rows server-side.
+  | "admin_pending_booking"
+  | "admin_booking_confirmed"
+  | "admin_booking_cancelled";
 
 export interface PushTapPayload {
   kind: PushKind;
@@ -49,8 +55,16 @@ export interface PushTapPayload {
   raw: Record<string, string>;
 }
 
+// Two independent lifecycles — customer auth and admin auth can be
+// signed in and out on the same device independently. We keep
+// separate caches/unsubscribes so each side owns its own token-
+// refresh loop and doesn't accidentally clear the other when an
+// admin signs out (or vice versa).
 let unsubscribeTokenRefresh: (() => void) | null = null;
 let cachedToken: string | null = null;
+
+let unsubscribeAdminTokenRefresh: (() => void) | null = null;
+let cachedAdminToken: string | null = null;
 
 /**
  * Ask the OS for permission to display notifications. iOS uses the
@@ -122,6 +136,83 @@ export async function enablePushAfterLogin(): Promise<void> {
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return;
     console.warn("[push] enablePushAfterLogin failed:", err);
+  }
+}
+
+/**
+ * Admin equivalent of `enablePushAfterLogin`. Wires the same FCM
+ * token to /api/mobile/admin/devices via the admin bearer auth.
+ *
+ * Call after admin sign-in (and on cold-start once the admin auth
+ * provider hydrates a signed-in state) so the device starts
+ * receiving floor-staff alerts: new bookings, the unconfirmed
+ * verification queue, cancellations.
+ *
+ * Idempotent. Permission prompt is reused — if the customer side
+ * already asked, the OS won't re-prompt.
+ */
+export async function enableAdminPushAfterLogin(): Promise<void> {
+  try {
+    const granted = await requestPermission();
+    if (!granted) return;
+
+    const token = await messaging().getToken();
+    if (token) {
+      await adminApiRequest(ADMIN_DEVICES_ENDPOINT, {
+        method: "POST",
+        body: {
+          token,
+          platform: Platform.OS === "ios" ? "ios" : "android",
+        },
+      });
+      cachedAdminToken = token;
+    }
+
+    unsubscribeAdminTokenRefresh?.();
+    unsubscribeAdminTokenRefresh = messaging().onTokenRefresh(
+      async (newToken) => {
+        try {
+          await adminApiRequest(ADMIN_DEVICES_ENDPOINT, {
+            method: "POST",
+            body: {
+              token: newToken,
+              platform: Platform.OS === "ios" ? "ios" : "android",
+            },
+          });
+          cachedAdminToken = newToken;
+        } catch (err) {
+          console.warn(
+            "[push:admin] token refresh registration failed:",
+            err,
+          );
+        }
+      },
+    );
+  } catch (err) {
+    if (err instanceof AdminApiError && err.status === 401) return;
+    console.warn("[push:admin] enableAdminPushAfterLogin failed:", err);
+  }
+}
+
+/** Admin equivalent of `disablePushBeforeLogout`. */
+export async function disableAdminPushBeforeLogout(): Promise<void> {
+  unsubscribeAdminTokenRefresh?.();
+  unsubscribeAdminTokenRefresh = null;
+
+  const token =
+    cachedAdminToken ?? (await messaging().getToken().catch(() => null));
+  cachedAdminToken = null;
+  if (!token) return;
+
+  try {
+    await adminApiRequest(ADMIN_DEVICES_ENDPOINT, {
+      method: "DELETE",
+      body: { token },
+    });
+  } catch (err) {
+    // Best-effort. Server-side dead-token cleanup catches stragglers
+    // when FCM next reports the token isn't registered.
+    console.warn("[push:admin] disableAdminPushBeforeLogout failed:", err);
   }
 }
 

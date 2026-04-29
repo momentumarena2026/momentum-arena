@@ -82,6 +82,37 @@ export function RootNavigator() {
           // No CafeOrderDetail screen yet — drop into the cafe tab.
           navigationRef.navigate("Main", { screen: "Cafe" });
           break;
+        // Admin-bound payloads land here when an admin device taps a
+        // notification. We jump straight into the AdminShell tabs —
+        // pending routes to the unconfirmed queue (where the floor
+        // staffer needs to verify the screenshot/cash); confirmed +
+        // cancelled route to the booking detail. No fallback for
+        // missing bookingId because the server always includes it
+        // for admin pushes; if it ever doesn't, opening the app at
+        // the bookings tab is still useful.
+        case "admin_pending_booking":
+          navigationRef.navigate("AdminShell", {
+            screen: "AdminBookings",
+            params: { screen: "AdminUnconfirmedBookingsList" },
+          });
+          break;
+        case "admin_booking_confirmed":
+        case "admin_booking_cancelled":
+          if (payload.bookingId) {
+            navigationRef.navigate("AdminShell", {
+              screen: "AdminBookings",
+              params: {
+                screen: "AdminBookingDetail",
+                params: { bookingId: payload.bookingId },
+              },
+            });
+          } else {
+            navigationRef.navigate("AdminShell", {
+              screen: "AdminBookings",
+              params: { screen: "AdminBookingsList" },
+            });
+          }
+          break;
       }
     }
   }, [navigationRef]);

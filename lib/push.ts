@@ -69,6 +69,7 @@ async function getMessaging(): Promise<Messaging> {
 
 /** Discriminated union of every push payload kind the app handles. */
 export type PushKind =
+  // Customer-bound kinds — sent to PushDevice rows.
   | "booking_confirmed"
   | "booking_reminder_24h"
   | "booking_reminder_2h"
@@ -80,7 +81,13 @@ export type PushKind =
   // Admin-initiated broadcast (manual send from /admin/push). The
   // mobile tap handler treats this as a no-op deep-link — opening
   // the app is enough action.
-  | "broadcast";
+  | "broadcast"
+  // Admin-bound kinds — sent to AdminPushDevice rows. The mobile
+  // admin shell routes taps to the booking detail or unconfirmed
+  // queue accordingly.
+  | "admin_pending_booking"
+  | "admin_booking_confirmed"
+  | "admin_booking_cancelled";
 
 export interface PushPayload {
   title: string;
@@ -107,6 +114,30 @@ export async function sendToUser(
 ): Promise<SendResult> {
   const devices = await db.pushDevice.findMany({
     where: { userId },
+    select: { token: true },
+  });
+  if (devices.length === 0) {
+    return { attempted: 0, succeeded: 0, failed: 0, cleanedUp: 0 };
+  }
+  return sendToTokens(
+    devices.map((d) => d.token),
+    payload,
+  );
+}
+
+/**
+ * Fan out a push to every admin device. Use this for any
+ * booking-team alert that should hit the floor staff (new booking,
+ * pending verification queue, cancellations, etc.) — never to
+ * customer phones.
+ *
+ * The query is intentionally unfiltered by AdminUser.permissions or
+ * .role because the venue's admin team is small and they all care
+ * about the same booking events. If we ever scale to multi-venue or
+ * specialized roles, add a `permissionFilter` argument and a join.
+ */
+export async function sendToAdmins(payload: PushPayload): Promise<SendResult> {
+  const devices = await db.adminPushDevice.findMany({
     select: { token: true },
   });
   if (devices.length === 0) {
@@ -175,10 +206,16 @@ export async function sendToTokens(
 
   let cleanedUp = 0;
   if (deadTokens.length > 0) {
-    const del = await db.pushDevice.deleteMany({
-      where: { token: { in: deadTokens } },
-    });
-    cleanedUp = del.count;
+    // Dead tokens can live in either PushDevice (customer) or
+    // AdminPushDevice (admin) — and the same FCM token can appear
+    // in both when a staffer is signed in to both surfaces on one
+    // device. Wipe from both so subsequent fan-outs don't re-hit
+    // the dead row from the other table.
+    const [customerDel, adminDel] = await Promise.all([
+      db.pushDevice.deleteMany({ where: { token: { in: deadTokens } } }),
+      db.adminPushDevice.deleteMany({ where: { token: { in: deadTokens } } }),
+    ]);
+    cleanedUp = customerDel.count + adminDel.count;
   }
 
   return {

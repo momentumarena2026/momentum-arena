@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
+  notifyAdminBookingCancelled,
 } from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { normalizeIndianPhone } from "@/lib/phone";
@@ -461,6 +462,10 @@ export async function cancelBooking(
   // the admin's confirmation roundtrip stays fast and a flaky FCM call
   // doesn't surface as a UI error on a successful cancellation.
   void notifyBookingCancelled(bookingId, reason);
+  // Same fire-and-forget pattern for the floor-staff fan-out: the
+  // OTHER admins on the team learn about the cancel without paging
+  // them via SMS.
+  void notifyAdminBookingCancelled(bookingId, reason, false);
 
   return { success: true };
 }
@@ -570,6 +575,9 @@ export async function refundBooking(
   // refunded copy + the refund_processed kind so analytics can split
   // the two outcomes downstream.
   void notifyBookingCancelled(bookingId, reason, true);
+  // Mirror to the admin team — the `refunded=true` flag flips the
+  // admin push body to mention the refund instead of cancellation.
+  void notifyAdminBookingCancelled(bookingId, reason, true);
 
   return { success: true };
 }
