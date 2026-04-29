@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -26,14 +26,9 @@ import { colors, radius, spacing } from "../../theme";
 import {
   adminCalendarApi,
   type AdminCalendarSport,
-  type CalendarConfig,
   type CalendarData,
-  type CellData,
 } from "../../lib/admin-calendar";
-import {
-  formatHourCompact,
-  sportLabel,
-} from "../../lib/format";
+import { formatHourCompact, sportLabel } from "../../lib/format";
 import { getTodayIST } from "../../lib/ist-date";
 import type {
   AdminBookingsStackParamList,
@@ -41,16 +36,37 @@ import type {
   AdminTabsParamList,
 } from "../../navigation/types";
 
-const SPORT_EMOJI: Record<string, string> = {
-  CRICKET: "🏏",
-  FOOTBALL: "⚽",
-  PICKLEBALL: "🏓",
+// Per-sport visual palette — used both for the chip background inside
+// each cell and as the at-a-glance legend at the top. Mirrors the web
+// admin's accent colours so the two surfaces feel consistent.
+const SPORT_STYLE: Record<
+  AdminCalendarSport,
+  { emoji: string; bg: string; border: string; fg: string }
+> = {
+  CRICKET: {
+    emoji: "🏏",
+    bg: "rgba(34, 197, 94, 0.12)",
+    border: "rgba(34, 197, 94, 0.40)",
+    fg: colors.emerald400,
+  },
+  FOOTBALL: {
+    emoji: "⚽",
+    bg: "rgba(59, 130, 246, 0.12)",
+    border: "rgba(59, 130, 246, 0.40)",
+    fg: "#60a5fa",
+  },
+  PICKLEBALL: {
+    emoji: "🏓",
+    bg: "rgba(168, 85, 247, 0.14)",
+    border: "rgba(168, 85, 247, 0.40)",
+    fg: "#c084fc",
+  },
 };
 
 // Calendar lives inside its own stack inside the bottom tabs. From
-// here we can navigate sideways to AdminSlotBlocks (within stack)
-// and cross-tab to AdminBookings → AdminBookingDetail when a booking
-// pill is tapped.
+// here we navigate sideways to AdminSlotBlocks (within stack) and
+// cross-tab to AdminBookings → AdminBookingDetail when a booking chip
+// is tapped.
 type Nav = CompositeNavigationProp<
   NativeStackNavigationProp<AdminCalendarStackParamList, "AdminCalendar">,
   CompositeNavigationProp<
@@ -67,15 +83,24 @@ const SPORT_FILTERS: { value: AdminCalendarSport | ""; label: string }[] = [
 ];
 
 /**
- * Mirrors the web /admin/calendar page. On mobile the orientation
- * flips: web shows hours as rows × courts as columns; we render one
- * card per court and lay the hours out as a horizontally scrolling
- * row of pills. Tap a booking pill to land on the booking detail —
- * same destination the web "External link" button hits.
+ * Calendar-style hour grid for a single date.
  *
- * Empty cells render as a price-less, dim "free" pill rather than
- * being suppressed entirely, so a staffer can scan a court row and
- * see at a glance which slots are open.
+ * Header shows the chosen date as "29 Apr Wed". Each cell represents
+ * one hour slot ("5am - 6am") and surfaces a chip per booking that
+ * occupies that hour, coloured by sport. Empty hours render as a
+ * blank cell with only the time label, so floor staff can see at a
+ * glance which hours are still free.
+ *
+ * Tap a chip to deep-link into AdminBookingDetail (cross-tab into
+ * the Bookings stack). Tap "Manage slot blocks" to push the
+ * SlotBlocks editor within this same Calendar tab.
+ *
+ * The data shape coming back from /api/mobile/admin/calendar is
+ * `configId → hour → CellData` (a per-court grid). We pivot it here
+ * into `hour → list of bookings` because the mobile view doesn't
+ * have a per-court column — bookings from any court that overlaps
+ * a given hour appear in the same hour cell, with the courtConfig
+ * label inside the chip's secondary line.
  */
 export function AdminCalendarScreen() {
   const navigation = useNavigation<Nav>();
@@ -92,6 +117,15 @@ export function AdminCalendarScreen() {
 
   const refreshing =
     (query.isFetching && !query.isLoading) || query.isRefetching;
+
+  // Pivot configId×hour grid into a flat hour-keyed map of bookings,
+  // each tagged with the court that owns it (so the chip can show
+  // "🏏 Cricket · Full Field" for staff who need to know which court
+  // the entry is on). Memoised because the pivot iterates every
+  // configured hour × court.
+  const hourMap = useMemo(() => buildHourMap(query.data ?? null), [
+    query.data,
+  ]);
 
   function shiftDay(offset: number) {
     const d = new Date(date + "T00:00:00");
@@ -111,7 +145,9 @@ export function AdminCalendarScreen() {
           />
         }
       >
-        {/* Date stepper */}
+        {/* Header — replaces "January 2015" with the chosen date.
+            Centered over the prev/next steppers like the reference
+            calendar's month title. */}
         <View style={styles.dateBar}>
           <Pressable
             onPress={() => shiftDay(-1)}
@@ -124,8 +160,10 @@ export function AdminCalendarScreen() {
             <ChevronLeft size={16} color={colors.zinc300} />
           </Pressable>
           <View style={styles.dateLabel}>
-            <CalendarDays size={14} color={colors.yellow400} />
-            <Text variant="bodyStrong">{prettyDate(date)}</Text>
+            <CalendarDays size={16} color={colors.yellow400} />
+            <Text variant="title" style={styles.dateTitle}>
+              {prettyDate(date)}
+            </Text>
             {date !== today ? (
               <Pressable
                 onPress={() => setDate(today)}
@@ -151,9 +189,7 @@ export function AdminCalendarScreen() {
           </Pressable>
         </View>
 
-        {/* Manage blocks shortcut — same date context carries through
-            via the stack params, but the slot-blocks screen has its
-            own date stepper too so deep-linking isn't required. */}
+        {/* Manage slot blocks shortcut — same Calendar tab stack. */}
         <Pressable
           onPress={() => navigation.navigate("AdminSlotBlocks")}
           style={({ pressed }) => [
@@ -197,14 +233,6 @@ export function AdminCalendarScreen() {
           })}
         </ScrollView>
 
-        {/* Legend */}
-        <View style={styles.legend}>
-          <Legend color={colors.emerald400} label="Confirmed" />
-          <Legend color={colors.yellow400} label="Pending" />
-          <Legend color={colors.destructive} label="Blocked" />
-          <Legend color={colors.zinc500} label="Free" />
-        </View>
-
         {/* Body */}
         {query.isLoading ? (
           <CalendarSkeleton />
@@ -222,182 +250,150 @@ export function AdminCalendarScreen() {
                 : "Unknown error"}
             </Text>
           </Pressable>
-        ) : !query.data || query.data.configs.length === 0 ? (
+        ) : !query.data || query.data.hours.length === 0 ? (
           <View style={styles.empty}>
             <Text variant="bodyStrong" color={colors.zinc300}>
-              No courts to show
+              Nothing to show
             </Text>
             <Text variant="tiny" color={colors.zinc500} align="center">
-              Try a different sport filter.
+              Try a different date or sport filter.
             </Text>
           </View>
         ) : (
-          <View style={styles.grid}>
-            {query.data.configs.map((config) => (
-              <CourtRow
-                key={config.id}
-                config={config}
-                hours={query.data!.hours}
-                cells={query.data!.grid[config.id] || {}}
-                onPressBooking={(bookingId) =>
-                  navigation.navigate("AdminBookings", {
-                    screen: "AdminBookingDetail",
-                    params: { bookingId },
-                  })
-                }
-              />
-            ))}
-          </View>
+          <HourGrid
+            hours={query.data.hours}
+            hourMap={hourMap}
+            onPressBooking={(bookingId) =>
+              navigation.navigate("AdminBookings", {
+                screen: "AdminBookingDetail",
+                params: { bookingId },
+              })
+            }
+          />
         )}
       </ScrollView>
     </Screen>
   );
 }
 
-function CourtRow({
-  config,
+// ──────────────────────────────────────────────────────────────────
+// Hour grid
+
+interface HourEntry {
+  bookings: Array<{
+    id: string;
+    sport: AdminCalendarSport;
+    status: "CONFIRMED" | "PENDING";
+    courtLabel: string;
+  }>;
+  blocks: Array<{ courtLabel: string; reason?: string }>;
+}
+
+function buildHourMap(data: CalendarData | null): Map<number, HourEntry> {
+  const map = new Map<number, HourEntry>();
+  if (!data) return map;
+  for (const h of data.hours) map.set(h, { bookings: [], blocks: [] });
+
+  for (const config of data.configs) {
+    const row = data.grid[config.id] ?? {};
+    for (const [hStr, cell] of Object.entries(row)) {
+      const h = Number(hStr);
+      const entry = map.get(h);
+      if (!entry) continue;
+      if (cell.booking) {
+        // Multiple courts may register the same booking when zones
+        // overlap. Dedup by booking id so the cell renders one chip
+        // per booking rather than one per court the booking touches.
+        if (!entry.bookings.some((b) => b.id === cell.booking!.id)) {
+          entry.bookings.push({
+            id: cell.booking.id,
+            sport: config.sport,
+            status: cell.booking.status,
+            courtLabel: config.label,
+          });
+        }
+      }
+      if (cell.blocked) {
+        entry.blocks.push({ courtLabel: config.label, reason: cell.blockReason });
+      }
+    }
+  }
+  return map;
+}
+
+function HourGrid({
   hours,
-  cells,
+  hourMap,
   onPressBooking,
 }: {
-  config: CalendarConfig;
   hours: number[];
-  cells: Record<number, CellData>;
+  hourMap: Map<number, HourEntry>;
   onPressBooking: (id: string) => void;
 }) {
-  const stats = useMemo(() => {
-    let booked = 0;
-    let blocked = 0;
-    for (const h of hours) {
-      const c = cells[h];
-      if (!c) continue;
-      if (c.booking) booked += 1;
-      if (c.blocked) blocked += 1;
-    }
-    return { booked, blocked, free: hours.length - booked - blocked };
-  }, [hours, cells]);
-
   return (
-    <View style={styles.courtCard}>
-      <View style={styles.courtHead}>
-        <Text variant="bodyStrong">
-          {SPORT_EMOJI[config.sport] ?? "🎯"} {sportLabel(config.sport)} ·{" "}
-          {config.label}
-        </Text>
-        <Text variant="tiny" color={colors.zinc500}>
-          {stats.booked} booked · {stats.blocked} blocked · {stats.free} free
-        </Text>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.hourRow}
-      >
-        {hours.map((h) => {
-          const cell = cells[h];
-          return (
-            <HourPill
-              key={h}
-              hour={h}
-              cell={cell}
-              onPress={
-                cell?.booking
-                  ? () => onPressBooking(cell.booking!.id)
-                  : undefined
-              }
-            />
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-}
-
-function HourPill({
-  hour,
-  cell,
-  onPress,
-}: {
-  hour: number;
-  cell?: CellData;
-  onPress?: () => void;
-}) {
-  const isBooking = !!cell?.booking;
-  const isBlocked = !!cell?.blocked;
-  const isPending = cell?.booking?.status === "PENDING";
-
-  let borderColor = colors.zinc800;
-  let backgroundColor = colors.zinc900;
-  let labelColor = colors.zinc500;
-  let icon: ReactNode = null;
-  let secondary = "Free";
-
-  if (isBooking) {
-    if (isPending) {
-      borderColor = "rgba(250, 204, 21, 0.40)";
-      backgroundColor = "rgba(250, 204, 21, 0.10)";
-      labelColor = colors.yellow400;
-    } else {
-      borderColor = "rgba(34, 197, 94, 0.40)";
-      backgroundColor = "rgba(34, 197, 94, 0.10)";
-      labelColor = colors.emerald400;
-    }
-    secondary = cell!.booking!.userName;
-  } else if (isBlocked) {
-    borderColor = "rgba(239, 68, 68, 0.30)";
-    backgroundColor = "rgba(239, 68, 68, 0.10)";
-    labelColor = colors.destructive;
-    icon = <Lock size={10} color={colors.destructive} />;
-    secondary = cell!.blockReason || "Blocked";
-  }
-
-  const inner = (
-    <>
-      <View style={styles.pillTop}>
-        {icon}
-        <Text variant="tiny" color={labelColor} weight="600">
-          {formatHourCompact(hour)}
-        </Text>
-      </View>
-      <Text
-        variant="tiny"
-        color={labelColor}
-        numberOfLines={1}
-        style={styles.pillSecondary}
-      >
-        {secondary}
-      </Text>
-    </>
-  );
-
-  if (onPress) {
-    return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.pill,
-          { borderColor, backgroundColor },
-          pressed && { opacity: 0.7 },
-        ]}
-      >
-        {inner}
-      </Pressable>
-    );
-  }
-  return (
-    <View style={[styles.pill, { borderColor, backgroundColor }]}>
-      {inner}
-    </View>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <View style={styles.legendItem}>
-      <View style={[styles.legendDot, { backgroundColor: color }]} />
-      <Text variant="tiny" color={colors.zinc400}>
-        {label}
-      </Text>
+    <View style={styles.grid}>
+      {hours.map((h) => {
+        const entry = hourMap.get(h);
+        return (
+          <View key={h} style={styles.cell}>
+            {/* Time label — replaces the date number from the
+                reference calendar layout. */}
+            <Text variant="tiny" color={colors.zinc500} weight="600">
+              {formatHourCompact(h)} – {formatHourCompact(h + 1)}
+            </Text>
+            <View style={styles.cellBody}>
+              {entry?.blocks.length ? (
+                <View style={styles.blockedChip}>
+                  <Lock size={10} color={colors.destructive} />
+                  <Text
+                    variant="tiny"
+                    color={colors.destructive}
+                    weight="600"
+                    numberOfLines={1}
+                  >
+                    Blocked
+                  </Text>
+                </View>
+              ) : null}
+              {entry?.bookings.map((b) => (
+                <Pressable
+                  key={b.id}
+                  onPress={() => onPressBooking(b.id)}
+                  style={({ pressed }) => [
+                    styles.sportChip,
+                    {
+                      backgroundColor: SPORT_STYLE[b.sport].bg,
+                      borderColor: SPORT_STYLE[b.sport].border,
+                      // PENDING bookings get a dashed border to call
+                      // out that they're not yet confirmed — easy to
+                      // spot when scanning a packed grid.
+                      borderStyle: b.status === "PENDING" ? "dashed" : "solid",
+                    },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text
+                    variant="tiny"
+                    color={SPORT_STYLE[b.sport].fg}
+                    weight="600"
+                    numberOfLines={1}
+                  >
+                    {SPORT_STYLE[b.sport].emoji} {sportLabel(b.sport)}
+                  </Text>
+                  <Text
+                    variant="tiny"
+                    color={SPORT_STYLE[b.sport].fg}
+                    numberOfLines={1}
+                    style={styles.sportChipMeta}
+                  >
+                    {b.courtLabel}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -405,15 +401,10 @@ function Legend({ color, label }: { color: string; label: string }) {
 function CalendarSkeleton() {
   return (
     <View style={styles.grid}>
-      {[0, 1, 2].map((i) => (
-        <View key={i} style={styles.courtCard}>
-          <Skeleton width="60%" height={14} />
-          <Skeleton width="40%" height={11} />
-          <View style={styles.hourRow}>
-            {[0, 1, 2, 3, 4, 5].map((j) => (
-              <Skeleton key={j} width={64} height={48} rounded="md" />
-            ))}
-          </View>
+      {Array.from({ length: 12 }).map((_, i) => (
+        <View key={i} style={styles.cell}>
+          <Skeleton width="60%" height={11} />
+          <Skeleton width="100%" height={28} rounded="md" />
         </View>
       ))}
     </View>
@@ -421,18 +412,20 @@ function CalendarSkeleton() {
 }
 
 function prettyDate(dateStr: string): string {
+  // Renders "29 Apr Wed" — replaces the reference image's "January
+  // 2015" header.
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("en-IN", {
-    weekday: "short",
     day: "numeric",
     month: "short",
+    weekday: "short",
     timeZone: "Asia/Kolkata",
   });
 }
 
 const styles = StyleSheet.create({
   scroll: {
-    paddingHorizontal: spacing["5"],
+    paddingHorizontal: spacing["3"],
     paddingTop: spacing["3"],
     paddingBottom: spacing["8"],
     gap: spacing["3"],
@@ -464,6 +457,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing["2"],
   },
+  // Bigger than the regular bodyStrong so the date headline reads
+  // like a calendar's month label.
+  dateTitle: { fontSize: 18, fontWeight: "700", color: colors.foreground },
   todayBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -473,11 +469,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.zinc800,
-  },
-  chipRow: {
-    flexDirection: "row",
-    gap: spacing["2"],
-    paddingVertical: spacing["1"],
   },
   manageBlocksBtn: {
     flexDirection: "row",
@@ -489,6 +480,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.zinc800,
     backgroundColor: colors.zinc900,
+  },
+  chipRow: {
+    flexDirection: "row",
+    gap: spacing["2"],
+    paddingVertical: spacing["1"],
+    paddingHorizontal: spacing["2"],
   },
   chip: {
     paddingHorizontal: spacing["3"],
@@ -502,44 +499,53 @@ const styles = StyleSheet.create({
     borderColor: "rgba(250, 204, 21, 0.40)",
     backgroundColor: "rgba(250, 204, 21, 0.10)",
   },
-  legend: {
+  // 3-column grid with `gap` between cells. Cell width is held at
+  // 32% (just under 100/3) so three side-by-side fit with the gap
+  // above without spilling onto the next row. Operating hours 5..24
+  // (20 slots) fill ~7 rows — fits a single mobile scroll.
+  grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing["3"],
-    paddingHorizontal: spacing["1"],
+    gap: spacing["1.5"],
   },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  grid: { gap: spacing["3"] },
-  courtCard: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
+  cell: {
+    // 3 columns → cell ≈ 32.5% wide. We use a fractional percentage
+    // so RN's layout engine can fit three side-by-side with the
+    // parent gap above without overflowing onto the next row.
+    width: "32%",
+    minHeight: 88,
+    padding: spacing["2"],
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.zinc800,
     backgroundColor: colors.zinc900,
-    padding: spacing["3"],
-    gap: spacing["2"],
+    gap: 4,
   },
-  courtHead: { gap: 2 },
-  hourRow: { flexDirection: "row", gap: spacing["1.5"] },
-  pill: {
-    width: 72,
-    paddingVertical: spacing["1.5"],
+  cellBody: {
+    flex: 1,
+    gap: 4,
+  },
+  sportChip: {
     paddingHorizontal: spacing["2"],
-    borderRadius: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
     borderWidth: 1,
-    gap: 2,
+    gap: 1,
   },
-  pillTop: {
+  sportChipMeta: {
+    fontSize: 9,
+    opacity: 0.85,
+  },
+  blockedChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-  },
-  pillSecondary: {
-    fontSize: 9,
+    paddingHorizontal: spacing["2"],
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.30)",
+    backgroundColor: "rgba(239, 68, 68, 0.10)",
   },
   empty: {
     alignItems: "center",
@@ -559,3 +565,4 @@ const styles = StyleSheet.create({
     gap: spacing["1"],
   },
 });
+
