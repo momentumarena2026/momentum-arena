@@ -312,7 +312,19 @@ function AdminHeader({ title }: { title: string }) {
       </View>
       <View style={styles.headerActions}>
         <Pressable
-          onPress={() => navigation.navigate("Main", { screen: "Home" })}
+          // Use reset() instead of navigate() so AdminShell is
+          // actually POPPED from the root native-stack — not just
+          // visually covered by Main pushed on top. Otherwise a
+          // swipe-down (or any iOS modal-dismiss gesture on the
+          // root navigator) re-reveals AdminShell underneath, which
+          // surfaces as "I went back to customer, then a fast pull
+          // on Account brought admin back".
+          onPress={() =>
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "Main", params: { screen: "Home" } }],
+            })
+          }
           hitSlop={8}
           style={({ pressed }) => [
             styles.headerBtn,
@@ -328,7 +340,13 @@ function AdminHeader({ title }: { title: string }) {
           onPress={() =>
             void (async () => {
               await signOut();
-              navigation.navigate("Main", { screen: "Home" });
+              // Same reset for the sign-out path — wipe AdminShell
+              // off the stack so a stale gesture can't navigate
+              // back into a logged-out admin context.
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "Main", params: { screen: "Home" } }],
+              });
             })()
           }
           hitSlop={8}
