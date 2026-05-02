@@ -14,6 +14,7 @@ import {
   CalendarRange,
   ChevronRight,
   Filter,
+  Plus,
   Search as SearchIcon,
   User as UserIcon,
 } from "lucide-react-native";
@@ -146,6 +147,23 @@ export function AdminBookingsListScreen() {
           />
         }
       >
+        {/* + New Booking — primary action above the unconfirmed
+            queue. Mirrors the web "+ New Booking" button on the top
+            of /admin/bookings; pushes onto the AdminCreateBooking
+            screen which mirrors the web form. */}
+        <Pressable
+          onPress={() => navigation.navigate("AdminCreateBooking")}
+          style={({ pressed }) => [
+            styles.newBookingBtn,
+            pressed && { opacity: 0.85 },
+          ]}
+        >
+          <Plus size={16} color={colors.background} />
+          <Text variant="bodyStrong" color={colors.background}>
+            New Booking
+          </Text>
+        </Pressable>
+
         {/* Unconfirmed shortcut — separate from the Pending status
             chip below. The Pending chip filters this list by
             booking.status; the Unconfirmed pill jumps to a dedicated
@@ -500,6 +518,19 @@ const styles = StyleSheet.create({
     paddingTop: spacing["3"],
     paddingBottom: spacing["8"],
     gap: spacing["4"],
+  },
+
+  // + New Booking — primary CTA at the top of the list. Emerald
+  // background mirrors the web admin's "+ New Booking" button so
+  // muscle memory across the two surfaces stays the same.
+  newBookingBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["1.5"],
+    paddingVertical: spacing["3"],
+    borderRadius: radius.xl,
+    backgroundColor: colors.emerald400,
   },
 
   // Unconfirmed shortcut

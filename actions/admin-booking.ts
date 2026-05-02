@@ -1138,8 +1138,8 @@ async function requireAdminWithDetails() {
 // ---------------------------------------------------------------------------
 // searchCustomers
 // ---------------------------------------------------------------------------
-export async function searchCustomers(query: string) {
-  await requireAdmin();
+export async function searchCustomers(query: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireAdmin();
 
   try {
     const customers = await db.user.findMany({
@@ -1166,12 +1166,15 @@ export async function searchCustomers(query: string) {
 // ---------------------------------------------------------------------------
 // createCustomerForBooking
 // ---------------------------------------------------------------------------
-export async function createCustomerForBooking(data: {
-  name: string;
-  phone: string;
-  email?: string;
-}) {
-  await requireAdmin();
+export async function createCustomerForBooking(
+  data: {
+    name: string;
+    phone: string;
+    email?: string;
+  },
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireAdmin();
 
   try {
     // Client-side PhoneInput already caps at 10 digits, but we normalize
@@ -1334,8 +1337,8 @@ export async function adminCreateBooking(data: {
   // the negotiated figure. Must be 0 for FREE bookings.
   customTotalAmount?: number;
   note?: string;
-}) {
-  const admin = await requireAdminWithDetails();
+}, adminOverride?: { id: string; username: string }) {
+  const admin = adminOverride ?? (await requireAdminWithDetails());
 
   try {
     // Validate hours

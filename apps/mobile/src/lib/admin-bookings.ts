@@ -236,6 +236,70 @@ export const adminBookingsApi = {
     });
   },
 
+  // Search existing customers by name / phone / email. Returns up to
+  // 10 matches; client throttles to 2+ chars before calling.
+  searchCustomers(query: string): Promise<{
+    customers: Array<{
+      id: string;
+      name: string | null;
+      email: string | null;
+      phone: string | null;
+    }>;
+  }> {
+    const params = new URLSearchParams({ q: query });
+    return request(
+      `/api/mobile/admin/customers/search?${params.toString()}`,
+      { method: "GET" },
+    );
+  },
+
+  // Create a customer (or attach to existing on phone match). Used
+  // by the create-booking flow when the admin types in a name+phone
+  // for a customer not in the search results.
+  createCustomer(body: {
+    name: string;
+    phone: string;
+    email?: string;
+  }): Promise<{ ok: true; userId: string; isNew: boolean }> {
+    return request("/api/mobile/admin/customers/create", {
+      method: "POST",
+      body,
+    });
+  },
+
+  // Available-slots check before a booking exists. Each slot tile
+  // surfaces price + isBooked + isBlocked so the picker can disable
+  // taken/blocked hours.
+  availableSlotsForCreate(
+    courtConfigId: string,
+    date: string,
+  ): Promise<{ slots: AvailableSlot[] }> {
+    const params = new URLSearchParams({ courtConfigId, date });
+    return request(
+      `/api/mobile/admin/available-slots?${params.toString()}`,
+      { method: "GET" },
+    );
+  },
+
+  // Create a fresh booking from the mobile admin shell. Mirrors the
+  // web /admin/bookings/create form's payload shape.
+  create(body: {
+    courtConfigId: string;
+    date: string;
+    hours: number[];
+    userId: string;
+    paymentMethod: "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
+    razorpayPaymentId?: string;
+    advanceAmount?: number;
+    customTotalAmount?: number;
+    note?: string;
+  }): Promise<{ ok: true; bookingId: string }> {
+    return request("/api/mobile/admin/bookings/create", {
+      method: "POST",
+      body,
+    });
+  },
+
   // Edit any payment field on an existing booking (method, status,
   // total, advance, gateway IDs). Fields omitted are left as-is on
   // the server; null clears the gateway-id fields explicitly.

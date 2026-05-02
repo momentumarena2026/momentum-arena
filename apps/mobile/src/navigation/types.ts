@@ -64,6 +64,7 @@ export type AdminBookingsStackParamList = {
   AdminEditSlots: { bookingId: string };
   AdminEditBooking: { bookingId: string };
   AdminEditPayment: { bookingId: string };
+  AdminCreateBooking: undefined;
 };
 
 // Calendar tab is a tiny stack so it can host both the day grid and

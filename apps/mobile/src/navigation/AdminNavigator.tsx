@@ -23,6 +23,7 @@ import { AdminBookingDetailScreen } from "../screens/admin/AdminBookingDetailScr
 import { AdminEditSlotsScreen } from "../screens/admin/AdminEditSlotsScreen";
 import { AdminEditBookingScreen } from "../screens/admin/AdminEditBookingScreen";
 import { AdminEditPaymentScreen } from "../screens/admin/AdminEditPaymentScreen";
+import { AdminCreateBookingScreen } from "../screens/admin/AdminCreateBookingScreen";
 import { AdminCheckinScreen } from "../screens/admin/AdminCheckinScreen";
 import { AdminCalendarScreen } from "../screens/admin/AdminCalendarScreen";
 import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
@@ -170,6 +171,11 @@ function AdminBookingsStack() {
         name="AdminEditPayment"
         component={AdminEditPaymentScreen}
         options={{ title: "Edit Payment" }}
+      />
+      <BookingsStack.Screen
+        name="AdminCreateBooking"
+        component={AdminCreateBookingScreen}
+        options={{ title: "New Booking" }}
       />
     </BookingsStack.Navigator>
   );
