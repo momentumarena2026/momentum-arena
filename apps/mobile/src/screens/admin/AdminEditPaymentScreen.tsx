@@ -164,6 +164,15 @@ export function AdminEditPaymentScreen() {
   const canSave =
     seeded && totalValid && advanceValid && !!method && !!status && !save.isPending;
 
+  // Hooks BEFORE any conditional return — Rules of Hooks. Putting
+  // useMemo below the early returns crashed with "Rendered more
+  // hooks than during the previous render" the moment the loading
+  // state resolved.
+  const remaining = useMemo(
+    () => Math.max(parsedTotal - parsedAdvance, 0),
+    [parsedTotal, parsedAdvance],
+  );
+
   if (detail.isLoading || !seeded) return <LoadingShell />;
   if (detail.isError || !detail.data?.booking.payment) {
     return (
@@ -178,11 +187,6 @@ export function AdminEditPaymentScreen() {
       </Screen>
     );
   }
-
-  const remaining = useMemo(
-    () => Math.max(parsedTotal - parsedAdvance, 0),
-    [parsedTotal, parsedAdvance],
-  );
 
   return (
     <Screen padded={false}>
