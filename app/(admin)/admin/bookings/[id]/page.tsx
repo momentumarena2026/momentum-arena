@@ -475,11 +475,14 @@ export default async function AdminBookingDetailPage({
       <AdminBookingActions
         bookingId={booking.id}
         bookingStatus={booking.status}
+        totalAmount={booking.totalAmount}
         paymentMethod={booking.payment?.method || null}
         paymentStatus={booking.payment?.status || null}
         paymentAmount={booking.payment?.amount || null}
         isPartialPayment={booking.payment?.isPartialPayment ?? false}
         currentAdvanceAmount={booking.payment?.advanceAmount ?? null}
+        razorpayPaymentId={booking.payment?.razorpayPaymentId ?? null}
+        utrNumber={booking.payment?.utrNumber ?? null}
         isAdminCreated={!!booking.createdByAdminId}
         courtConfigId={booking.courtConfigId}
         date={booking.date.toISOString().split("T")[0]}

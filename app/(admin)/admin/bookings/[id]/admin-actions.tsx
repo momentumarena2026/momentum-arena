@@ -12,6 +12,7 @@ import {
 import {
   CheckCircle2,
   CheckCheck,
+  CreditCard,
   RotateCcw,
   Loader2,
   Pencil,
@@ -20,16 +21,20 @@ import {
 } from "lucide-react";
 import { EditSlotsModal } from "@/components/admin/edit-slots-modal";
 import { EditBookingModal } from "@/components/admin/edit-booking-modal";
+import { EditPaymentModal } from "@/components/admin/edit-payment-modal";
 import type { Sport } from "@prisma/client";
 
 interface AdminBookingActionsProps {
   bookingId: string;
   bookingStatus: string;
+  totalAmount: number;
   paymentMethod: string | null;
   paymentStatus: string | null;
   paymentAmount: number | null;
   isPartialPayment: boolean;
   currentAdvanceAmount: number | null;
+  razorpayPaymentId: string | null;
+  utrNumber: string | null;
   isAdminCreated: boolean;
   courtConfigId: string;
   date: string;
@@ -47,11 +52,14 @@ interface AdminBookingActionsProps {
 export function AdminBookingActions({
   bookingId,
   bookingStatus,
+  totalAmount,
   paymentMethod,
   paymentStatus,
   paymentAmount,
   isPartialPayment,
   currentAdvanceAmount,
+  razorpayPaymentId,
+  utrNumber,
   isAdminCreated,
   courtConfigId,
   date,
@@ -80,6 +88,7 @@ export function AdminBookingActions({
   // Edit state
   const [showEditSlots, setShowEditSlots] = useState(false);
   const [showEditBooking, setShowEditBooking] = useState(false);
+  const [showEditPayment, setShowEditPayment] = useState(false);
 
   const canEditSlots = bookingStatus === "CONFIRMED";
   // Customer-paid bookings are now editable too (e.g. customer
@@ -108,6 +117,13 @@ export function AdminBookingActions({
 
   const canCancel =
     bookingStatus === "CONFIRMED" || bookingStatus === "PENDING";
+
+  // Edit-payment is available on every non-cancelled booking that has
+  // a payment row — covers both stuck states (admin recorded the
+  // wrong method, needs to fix) and routine corrections (logging the
+  // Razorpay reference after the fact).
+  const canEditPayment =
+    bookingStatus !== "CANCELLED" && paymentMethod !== null;
 
   const canRefund =
     bookingStatus === "CONFIRMED" &&
@@ -268,6 +284,17 @@ export function AdminBookingActions({
           >
             <Pencil className="h-4 w-4" />
             Edit Booking
+          </button>
+        )}
+
+        {canEditPayment && (
+          <button
+            onClick={() => setShowEditPayment(true)}
+            className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-sm font-medium text-purple-300 hover:bg-purple-500/20"
+            title="Edit payment method, amount, status, gateway IDs"
+          >
+            <CreditCard className="h-4 w-4" />
+            Edit Payment
           </button>
         )}
 
@@ -488,6 +515,39 @@ export function AdminBookingActions({
           router.refresh();
         }}
       />
+
+      {paymentMethod !== null && paymentStatus !== null && (
+        <EditPaymentModal
+          bookingId={bookingId}
+          totalAmount={totalAmount}
+          current={{
+            method: paymentMethod as
+              | "CASH"
+              | "UPI_QR"
+              | "RAZORPAY"
+              | "PHONEPE"
+              | "FREE",
+            status: paymentStatus as
+              | "PENDING"
+              | "PARTIAL"
+              | "COMPLETED"
+              | "REFUNDED"
+              | "FAILED",
+            amount: paymentAmount ?? 0,
+            isPartialPayment,
+            advanceAmount: currentAdvanceAmount,
+            razorpayPaymentId,
+            utrNumber,
+          }}
+          isOpen={showEditPayment}
+          onClose={() => setShowEditPayment(false)}
+          onSuccess={() => {
+            setShowEditPayment(false);
+            setSuccessMsg("Payment updated successfully!");
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

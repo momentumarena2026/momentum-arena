@@ -269,6 +269,10 @@ export function AdminBookingDetailScreen() {
   // — gateway-paid customer bookings are now editable too. The action
   // surfaces a refund-due / collect-extra pill when totals diverge.
   const canEditBooking = isConfirmed;
+  // Edit-payment is the escape hatch for stuck states — admin can
+  // change method, status, total, advance, gateway IDs on any non-
+  // cancelled booking that has a payment row.
+  const canEditPayment = booking.status !== "CANCELLED" && payment !== null;
   const canRefund =
     isConfirmed && payment?.status === "COMPLETED" && payment.method !== "FREE";
   const venueDue =
@@ -636,6 +640,18 @@ export function AdminBookingDetailScreen() {
                 }
               />
             ) : null}
+            {canEditPayment ? (
+              <ActionButton
+                label="Edit Payment"
+                icon={<CreditCard size={16} color="#c084fc" />}
+                tone="info"
+                onPress={() =>
+                  navigation.navigate("AdminEditPayment", {
+                    bookingId: params.bookingId,
+                  })
+                }
+              />
+            ) : null}
             {canCancel ? (
               <ActionButton
                 label="Cancel Booking"
@@ -666,6 +682,7 @@ export function AdminBookingDetailScreen() {
             !canEditSplit &&
             !canEditSlots &&
             !canEditBooking &&
+            !canEditPayment &&
             !canCancel &&
             !canRefund ? (
               <Text variant="small" color={colors.zinc600}>

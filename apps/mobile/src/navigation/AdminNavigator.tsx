@@ -22,6 +22,7 @@ import { AdminUnconfirmedBookingsListScreen } from "../screens/admin/AdminUnconf
 import { AdminBookingDetailScreen } from "../screens/admin/AdminBookingDetailScreen";
 import { AdminEditSlotsScreen } from "../screens/admin/AdminEditSlotsScreen";
 import { AdminEditBookingScreen } from "../screens/admin/AdminEditBookingScreen";
+import { AdminEditPaymentScreen } from "../screens/admin/AdminEditPaymentScreen";
 import { AdminCheckinScreen } from "../screens/admin/AdminCheckinScreen";
 import { AdminCalendarScreen } from "../screens/admin/AdminCalendarScreen";
 import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
@@ -164,6 +165,11 @@ function AdminBookingsStack() {
         name="AdminEditBooking"
         component={AdminEditBookingScreen}
         options={{ title: "Edit Booking" }}
+      />
+      <BookingsStack.Screen
+        name="AdminEditPayment"
+        component={AdminEditPaymentScreen}
+        options={{ title: "Edit Payment" }}
       />
     </BookingsStack.Navigator>
   );

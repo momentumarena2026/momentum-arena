@@ -236,6 +236,28 @@ export const adminBookingsApi = {
     });
   },
 
+  // Edit any payment field on an existing booking (method, status,
+  // total, advance, gateway IDs). Fields omitted are left as-is on
+  // the server; null clears the gateway-id fields explicitly.
+  editPayment(
+    id: string,
+    body: {
+      method?: AdminPaymentMethod;
+      status?: AdminPaymentStatus;
+      totalAmount?: number;
+      advanceAmount?: number | null;
+      isPartialPayment?: boolean;
+      razorpayPaymentId?: string | null;
+      utrNumber?: string | null;
+      note?: string;
+    },
+  ): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/edit-payment`, {
+      method: "POST",
+      body,
+    });
+  },
+
   cancel(id: string, reason: string): Promise<{ ok: true }> {
     return request(`/api/mobile/admin/bookings/${id}/cancel`, {
       method: "POST",

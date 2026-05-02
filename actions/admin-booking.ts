@@ -636,6 +636,225 @@ export async function refundBooking(
   return { success: true };
 }
 
+// ---------------------------------------------------------------------------
+// adminEditPayment
+// ---------------------------------------------------------------------------
+// Edit an existing booking's payment record after the fact. Covers
+// cases the create form can't catch:
+//
+//   - Customer paid via Razorpay but the gateway callback failed,
+//     admin had to re-create the booking manually as Cash/UPI_QR;
+//     now wants to fix the method + record the Razorpay reference.
+//   - Wrong payment method recorded (e.g. UPI_QR logged as Cash).
+//   - Total amount needs adjustment without going through the
+//     slot-edit / refund paths.
+//   - Admin needs to retroactively log a UTR or Razorpay transaction
+//     id on a partial-payment booking.
+//
+// Every field is optional; pass only what changed. The action
+// rewrites Booking.totalAmount alongside the payment so the two stay
+// in lockstep, recomputes the partial-payment derived fields
+// (advance/remaining/status), and writes a BookingEditHistory row.
+//
+// Status transitions are NOT auto-derived — admin can override
+// status independently. Combined with the new "Confirm Booking"
+// button this is the full escape hatch toolbox for stuck states.
+type EditablePaymentMethod = "CASH" | "UPI_QR" | "RAZORPAY" | "PHONEPE" | "FREE";
+type EditablePaymentStatus =
+  | "PENDING"
+  | "PARTIAL"
+  | "COMPLETED"
+  | "REFUNDED"
+  | "FAILED";
+
+export async function adminEditPayment(
+  bookingId: string,
+  patch: {
+    method?: EditablePaymentMethod;
+    status?: EditablePaymentStatus;
+    totalAmount?: number;
+    advanceAmount?: number | null;
+    isPartialPayment?: boolean;
+    razorpayPaymentId?: string | null;
+    utrNumber?: string | null;
+    note?: string;
+  },
+  adminOverride?: { id: string; username: string },
+) {
+  const admin = adminOverride ?? (await requireAdminWithDetails());
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
+  });
+  if (!booking) {
+    return { success: false as const, error: "Booking not found" };
+  }
+  if (!booking.payment) {
+    return { success: false as const, error: "No payment row to edit" };
+  }
+  const prior = booking.payment;
+
+  // Resolve final field values: take the explicit patch when given,
+  // else keep the existing value. Cast through the enums so the Prisma
+  // update accepts them.
+  const newMethod = (patch.method ?? prior.method) as EditablePaymentMethod;
+  const newStatus = (patch.status ?? prior.status) as EditablePaymentStatus;
+  const newTotal =
+    typeof patch.totalAmount === "number"
+      ? Math.max(0, Math.trunc(patch.totalAmount))
+      : booking.totalAmount;
+  const newIsPartial =
+    typeof patch.isPartialPayment === "boolean"
+      ? patch.isPartialPayment
+      : prior.isPartialPayment;
+
+  // Advance handling. When isPartial is false we zero out the advance
+  // fields so the row state stays internally consistent; when true,
+  // the advance must be ≥0 and < total.
+  let newAdvance: number | null;
+  if (!newIsPartial) {
+    newAdvance = null;
+  } else {
+    const candidate =
+      patch.advanceAmount === undefined
+        ? (prior.advanceAmount ?? 0)
+        : patch.advanceAmount;
+    if (candidate === null || !Number.isFinite(candidate) || candidate < 0) {
+      return {
+        success: false as const,
+        error: "Advance must be ≥ 0 for a partial payment",
+      };
+    }
+    if (candidate >= newTotal) {
+      return {
+        success: false as const,
+        error: "Advance must be less than the total",
+      };
+    }
+    newAdvance = Math.trunc(candidate);
+  }
+  const newRemaining = newIsPartial && newAdvance !== null ? newTotal - newAdvance : null;
+
+  // Payment.amount semantics:
+  //   - Non-partial: equals total (the full charge captured).
+  //   - Partial PARTIAL: equals advance (only what's been collected).
+  //   - Partial COMPLETED: equals total (advance + remainder both in).
+  // Admin can still override via the explicit status; we recompute
+  // amount from the (status, advance, total) trio so Payment.amount
+  // never lies about how much actually flowed in.
+  const newAmount = (() => {
+    if (!newIsPartial) return newTotal;
+    if (newStatus === "COMPLETED") return newTotal;
+    return newAdvance ?? 0;
+  })();
+
+  // Gateway-id fields — only meaningful for the matching method.
+  // Setting an explicit empty string clears the field; null clears;
+  // undefined leaves the existing value alone.
+  function resolveOptionalString(
+    incoming: string | null | undefined,
+    existing: string | null,
+  ): string | null {
+    if (incoming === undefined) return existing;
+    if (incoming === null) return null;
+    const trimmed = incoming.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  const newRazorpayId = resolveOptionalString(
+    patch.razorpayPaymentId,
+    prior.razorpayPaymentId,
+  );
+  const newUtr = resolveOptionalString(patch.utrNumber, prior.utrNumber);
+
+  await db.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: prior.id },
+      data: {
+        method: newMethod,
+        status: newStatus,
+        amount: newAmount,
+        isPartialPayment: newIsPartial,
+        advanceAmount: newAdvance,
+        remainingAmount: newRemaining,
+        razorpayPaymentId: newRazorpayId,
+        utrNumber: newUtr,
+      },
+    });
+
+    if (newTotal !== booking.totalAmount) {
+      // Re-derive originalAmount alongside total — same invariant the
+      // edit-slots / mark-collected paths use: originalAmount =
+      // totalAmount + discountAmount when there's a discount, else
+      // null. discountAmount is preserved as-is here because the
+      // admin is editing payment, not the booking-level discount.
+      const newOriginal =
+        booking.discountAmount > 0 ? newTotal + booking.discountAmount : null;
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { totalAmount: newTotal, originalAmount: newOriginal },
+      });
+    }
+
+    const summaryParts: string[] = [];
+    if (patch.method && patch.method !== prior.method) {
+      summaryParts.push(`method ${prior.method} → ${newMethod}`);
+    }
+    if (patch.status && patch.status !== prior.status) {
+      summaryParts.push(`status ${prior.status} → ${newStatus}`);
+    }
+    if (
+      typeof patch.totalAmount === "number" &&
+      patch.totalAmount !== booking.totalAmount
+    ) {
+      summaryParts.push(`total ${booking.totalAmount} → ${newTotal}`);
+    }
+    if (
+      patch.advanceAmount !== undefined &&
+      patch.advanceAmount !== prior.advanceAmount
+    ) {
+      summaryParts.push(`advance ${prior.advanceAmount ?? "—"} → ${newAdvance ?? "—"}`);
+    }
+    if (
+      patch.isPartialPayment !== undefined &&
+      patch.isPartialPayment !== prior.isPartialPayment
+    ) {
+      summaryParts.push(`isPartial ${prior.isPartialPayment} → ${newIsPartial}`);
+    }
+    if (
+      patch.razorpayPaymentId !== undefined &&
+      newRazorpayId !== prior.razorpayPaymentId
+    ) {
+      summaryParts.push(
+        `razorpayId ${prior.razorpayPaymentId ?? "—"} → ${newRazorpayId ?? "—"}`,
+      );
+    }
+    if (patch.utrNumber !== undefined && newUtr !== prior.utrNumber) {
+      summaryParts.push(`utr ${prior.utrNumber ?? "—"} → ${newUtr ?? "—"}`);
+    }
+
+    if (summaryParts.length > 0 || patch.note?.trim()) {
+      await tx.bookingEditHistory.create({
+        data: {
+          bookingId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType: "PAYMENT_EDITED",
+          previousAmount: booking.totalAmount,
+          newAmount: newTotal,
+          note: [summaryParts.join(", "), patch.note?.trim()]
+            .filter(Boolean)
+            .join(" — "),
+        },
+      });
+    }
+  });
+
+  await revalidateBookingPaths(bookingId);
+
+  return { success: true as const };
+}
+
 export async function getAdminBookings(filters?: {
   date?: string;
   sport?: string;

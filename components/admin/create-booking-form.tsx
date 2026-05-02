@@ -129,11 +129,12 @@ export function CreateBookingForm({
   // as cash-in-hand or via the venue's static UPI QR — Razorpay isn't in
   // play here (admin can't charge a card on the customer's behalf).
   const [advanceMethod, setAdvanceMethod] = useState<"CASH" | "UPI_QR">("CASH");
-  // Negotiated price override. When toggled on, the admin can enter a
-  // custom total that replaces the slot-sum price. Useful for regulars,
-  // discounts, or corporate rates. Stored as a string so the input can be
-  // empty while the user is typing.
-  const [useCustomAmount, setUseCustomAmount] = useState(false);
+  // Custom total. Always editable, defaults to the slot-sum the moment
+  // hours are picked. Admin can overwrite it to negotiate a regular's
+  // rate, log a corporate price, or record exactly what the customer
+  // paid through any payment channel (including Razorpay) — without
+  // first hunting for a "use custom amount" toggle.
+  // Stored as a string so the input can be empty while typing.
   const [customAmountStr, setCustomAmountStr] = useState("");
 
   // Step 5 state
@@ -166,15 +167,17 @@ export function CreateBookingForm({
     return sum + (slot?.price ?? 0);
   }, 0);
 
-  // Effective total — custom override wins when valid, falls back to the
-  // slot sum. Used everywhere downstream (partial-advance validation,
-  // review summary, submit payload).
+  // Effective total — admin's typed value wins when present + valid,
+  // falls back to the slot sum. Used everywhere downstream (partial-
+  // advance validation, review summary, submit payload). FREE bookings
+  // are always ₹0 — the input is locked there.
   const parsedCustom = parseInt(customAmountStr, 10);
   const customAmountValid =
-    useCustomAmount &&
+    customAmountStr.trim().length > 0 &&
     Number.isFinite(parsedCustom) &&
     parsedCustom >= 0 &&
     (paymentMethod !== "FREE" ? parsedCustom > 0 : parsedCustom === 0);
+  const customAmountOverride = customAmountValid && parsedCustom !== totalPrice;
   const effectiveTotal =
     paymentMethod === "FREE"
       ? 0
@@ -309,11 +312,11 @@ export function CreateBookingForm({
       const effectivePaymentMethod: PaymentMethod =
         isPartial && advanceAmount !== undefined ? advanceMethod : paymentMethod;
 
-      // Only pass customTotalAmount when admin actually toggled the
-      // override on AND entered a valid number — otherwise let the server
-      // compute from slot prices as usual.
-      const customTotalAmount =
-        useCustomAmount && customAmountValid ? parsedCustom : undefined;
+      // Only pass customTotalAmount when admin entered a value that
+      // differs from the slot-sum — otherwise let the server compute
+      // from slot prices as usual (keeps Booking.originalAmount null
+      // when no override was applied).
+      const customTotalAmount = customAmountOverride ? parsedCustom : undefined;
 
       const result = await adminCreateBooking({
         courtConfigId: selectedConfigId,
@@ -843,68 +846,70 @@ export function CreateBookingForm({
             </div>
           )}
 
-          {/* Negotiated price override — available for all non-free methods.
-              Admins often close a booking at a different number than the
-              slot-sum (regulars, corporate rates, last-minute cash deals).
-              When enabled, the input replaces the total used everywhere
-              downstream. The original slot-sum is preserved server-side on
-              Booking.originalAmount so the ledger stays auditable. */}
-          {paymentMethod !== "FREE" && (
-            <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-3">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={useCustomAmount}
-                  onChange={(e) => setUseCustomAmount(e.target.checked)}
-                  className="accent-emerald-400 h-4 w-4"
-                />
-                <span className="text-sm font-medium text-white">
-                  Override amount (negotiated price)
-                </span>
+          {/* Total amount — always visible, always editable for any
+              non-FREE payment method. Defaults to the slot-sum so the
+              admin can hit Continue without typing if no negotiation
+              applies. Replacing the value carries through every
+              downstream check (partial-advance validation, review
+              summary, submit payload). The original slot-sum is
+              preserved server-side on Booking.originalAmount for audit
+              whenever the typed value differs. */}
+          <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-white">
+                Total amount
               </label>
-              {useCustomAmount && (
-                <div className="space-y-2 pl-7">
-                  <label className="block text-xs text-zinc-400">
-                    Custom total
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-zinc-400">₹</span>
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      placeholder={`Slot price: ${totalPrice}`}
-                      value={customAmountStr}
-                      onChange={(e) => setCustomAmountStr(e.target.value)}
-                      className="w-40 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-emerald-400 focus:outline-none"
-                    />
-                    {customAmountValid && parsedCustom !== totalPrice && (
-                      <span
-                        className={`text-xs ${
-                          parsedCustom < totalPrice
-                            ? "text-amber-300"
-                            : "text-emerald-300"
-                        }`}
-                      >
-                        {parsedCustom < totalPrice
-                          ? `Discount: ${formatPrice(totalPrice - parsedCustom)}`
-                          : `Markup: ${formatPrice(parsedCustom - totalPrice)}`}
-                      </span>
-                    )}
-                  </div>
-                  {customAmountStr && !customAmountValid && (
-                    <p className="text-xs text-red-400">
-                      Enter a positive whole number.
-                    </p>
-                  )}
-                  <p className="text-[11px] text-zinc-500">
-                    Slot-sum of {formatPrice(totalPrice)} will still be
-                    recorded on the booking for audit.
-                  </p>
-                </div>
+              {paymentMethod === "FREE" ? (
+                <span className="text-[11px] text-zinc-500">
+                  Locked at ₹0 for FREE bookings
+                </span>
+              ) : (
+                <span className="text-[11px] text-zinc-500">
+                  Slot-sum: {formatPrice(totalPrice)}
+                </span>
               )}
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-zinc-400">₹</span>
+              <input
+                type="number"
+                min={paymentMethod === "FREE" ? 0 : 1}
+                step={1}
+                placeholder={String(paymentMethod === "FREE" ? 0 : totalPrice)}
+                value={paymentMethod === "FREE" ? "0" : customAmountStr}
+                onChange={(e) => setCustomAmountStr(e.target.value)}
+                disabled={paymentMethod === "FREE"}
+                className="w-40 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-emerald-400 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+              />
+              {paymentMethod !== "FREE" && customAmountOverride && (
+                <span
+                  className={`text-xs ${
+                    parsedCustom < totalPrice
+                      ? "text-amber-300"
+                      : "text-emerald-300"
+                  }`}
+                >
+                  {parsedCustom < totalPrice
+                    ? `Discount: ${formatPrice(totalPrice - parsedCustom)}`
+                    : `Markup: ${formatPrice(parsedCustom - totalPrice)}`}
+                </span>
+              )}
+            </div>
+            {paymentMethod !== "FREE" &&
+              customAmountStr.trim().length > 0 &&
+              !customAmountValid && (
+                <p className="text-xs text-red-400">
+                  Enter a positive whole number.
+                </p>
+              )}
+            {paymentMethod !== "FREE" && (
+              <p className="text-[11px] text-zinc-500">
+                Leave blank to use the slot-sum, or type any amount the
+                customer actually paid through this channel (incl.
+                Razorpay refs that landed off-system).
+              </p>
+            )}
+          </div>
 
           <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-3 flex items-center justify-between">
             <span className="text-sm text-zinc-400">Total Amount</span>
@@ -914,14 +919,11 @@ export function CreateBookingForm({
                   ? "\u20B90"
                   : formatPrice(effectiveTotal)}
               </div>
-              {useCustomAmount &&
-                customAmountValid &&
-                parsedCustom !== totalPrice &&
-                paymentMethod !== "FREE" && (
-                  <div className="text-[11px] text-zinc-500 line-through">
-                    {formatPrice(totalPrice)}
-                  </div>
-                )}
+              {customAmountOverride && paymentMethod !== "FREE" && (
+                <div className="text-[11px] text-zinc-500 line-through">
+                  {formatPrice(totalPrice)}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1020,9 +1022,7 @@ export function CreateBookingForm({
                     <>
                       {label}
                       {partialValid && " \u00B7 Partial"}
-                      {useCustomAmount &&
-                        customAmountValid &&
-                        parsedCustom !== totalPrice &&
+                      {customAmountOverride &&
                         paymentMethod !== "FREE" &&
                         " \u00B7 Negotiated"}
                     </>
@@ -1039,14 +1039,11 @@ export function CreateBookingForm({
                   ? "\u20B90"
                   : formatPrice(effectiveTotal)}
               </p>
-              {useCustomAmount &&
-                customAmountValid &&
-                parsedCustom !== totalPrice &&
-                paymentMethod !== "FREE" && (
-                  <p className="text-[11px] text-zinc-500">
-                    Slot-sum: <span className="line-through">{formatPrice(totalPrice)}</span>
-                  </p>
-                )}
+              {customAmountOverride && paymentMethod !== "FREE" && (
+                <p className="text-[11px] text-zinc-500">
+                  Slot-sum: <span className="line-through">{formatPrice(totalPrice)}</span>
+                </p>
+              )}
               {isPartial && advanceAmountStr && (() => {
                 const parsed = parseInt(advanceAmountStr, 10);
                 if (!Number.isFinite(parsed) || parsed < 0 || parsed >= effectiveTotal) return null;
