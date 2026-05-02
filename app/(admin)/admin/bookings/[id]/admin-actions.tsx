@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import {
   confirmCashPayment,
   confirmUpiPayment,
+  confirmBookingManually,
   cancelBooking,
   refundBooking,
 } from "@/actions/admin-booking";
 import {
   CheckCircle2,
+  CheckCheck,
   RotateCcw,
   Loader2,
   Pencil,
@@ -93,6 +95,17 @@ export function AdminBookingActions({
     paymentStatus === "PENDING" &&
     (paymentMethod === "CASH" || paymentMethod === "UPI_QR");
 
+  // Generic "Confirm Booking" escape hatch — flips a PENDING booking
+  // straight to CONFIRMED regardless of payment method/status. Useful
+  // when the regular confirmCashPayment / confirmUpiPayment buttons
+  // don't apply (e.g. payment is already COMPLETED but the booking
+  // status didn't get flipped, or a partial-payment remainder was
+  // collected without first confirming the advance). Hidden when the
+  // payment-specific button already covers the case to avoid two
+  // adjacent confirm buttons.
+  const canConfirmBooking =
+    bookingStatus === "PENDING" && !canConfirmPayment;
+
   const canCancel =
     bookingStatus === "CONFIRMED" || bookingStatus === "PENDING";
 
@@ -112,6 +125,19 @@ export function AdminBookingActions({
       router.refresh();
     } else {
       setError(result.error || "Failed to confirm");
+    }
+    setProcessing(null);
+  };
+
+  const handleConfirmBooking = async () => {
+    setProcessing("confirm-booking");
+    setError(null);
+    const result = await confirmBookingManually(bookingId);
+    if (result.success) {
+      setSuccessMsg("Booking confirmed.");
+      router.refresh();
+    } else {
+      setError(result.error || "Failed to confirm booking");
     }
     setProcessing(null);
   };
@@ -206,6 +232,22 @@ export function AdminBookingActions({
               <CheckCircle2 className="h-4 w-4" />
             )}
             Confirm {paymentMethod === "CASH" ? "Cash" : "UPI"} Payment
+          </button>
+        )}
+
+        {canConfirmBooking && (
+          <button
+            onClick={handleConfirmBooking}
+            disabled={processing !== null}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            title="Force the booking to CONFIRMED — use when the regular payment-confirm button doesn't apply"
+          >
+            {processing === "confirm-booking" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCheck className="h-4 w-4" />
+            )}
+            Confirm Booking
           </button>
         )}
 

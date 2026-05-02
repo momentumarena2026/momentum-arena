@@ -106,6 +106,24 @@ export function AdminBookingDetailScreen() {
       ),
   });
 
+  // Generic "force confirm" — flips PENDING → CONFIRMED regardless
+  // of payment state. Used as the escape hatch when the regular
+  // confirm-cash / confirm-upi buttons aren't applicable (payment
+  // already COMPLETED via some other path, partial-payment
+  // remainder collected without confirming the advance, etc.).
+  const confirmBooking = useMutation({
+    mutationFn: () => adminBookingsApi.confirm(params.bookingId),
+    onSuccess: () => {
+      invalidate();
+      Alert.alert("Confirmed", "Booking marked as confirmed.");
+    },
+    onError: (err) =>
+      Alert.alert(
+        "Couldn't confirm",
+        err instanceof AdminApiError ? err.message : "Try again.",
+      ),
+  });
+
   const cancel = useMutation({
     mutationFn: (reason: string) =>
       adminBookingsApi.cancel(params.bookingId, reason),
@@ -240,6 +258,11 @@ export function AdminBookingDetailScreen() {
     payment.status === "PENDING";
   const canConfirmCash =
     isPending && payment?.method === "CASH" && payment.status === "PENDING";
+  // Generic "force confirm" — only shown when the booking is PENDING
+  // AND neither payment-specific button applies (e.g. payment already
+  // COMPLETED via some out-of-band path while the booking row is
+  // stuck on PENDING). Avoids two adjacent confirm buttons.
+  const canConfirmBooking = isPending && !canConfirmUpi && !canConfirmCash;
   const canCancel = isPending || isConfirmed;
   const canEditSlots = isConfirmed;
   // Same gate as the web: editing is allowed on any confirmed booking
@@ -536,6 +559,27 @@ export function AdminBookingDetailScreen() {
                 }
               />
             ) : null}
+            {canConfirmBooking ? (
+              <ActionButton
+                label="Confirm Booking"
+                icon={<CheckCircle2 size={16} color={colors.emerald400} />}
+                tone="success"
+                loading={confirmBooking.isPending}
+                onPress={() =>
+                  Alert.alert(
+                    "Confirm booking?",
+                    "Force this booking to CONFIRMED. Use when the regular payment-confirm button doesn't apply. Customer will be notified.",
+                    [
+                      { text: "Back", style: "cancel" },
+                      {
+                        text: "Confirm",
+                        onPress: () => confirmBooking.mutate(),
+                      },
+                    ],
+                  )
+                }
+              />
+            ) : null}
             {canMarkCollected ? (
               <ActionButton
                 label={`Mark ${formatRupees(venueDue)} collected`}
@@ -617,6 +661,7 @@ export function AdminBookingDetailScreen() {
             ) : null}
             {!canConfirmUpi &&
             !canConfirmCash &&
+            !canConfirmBooking &&
             !canMarkCollected &&
             !canEditSplit &&
             !canEditSlots &&

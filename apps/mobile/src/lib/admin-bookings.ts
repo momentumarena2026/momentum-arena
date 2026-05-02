@@ -227,6 +227,15 @@ export const adminBookingsApi = {
     });
   },
 
+  // Generic "force confirm" — flips PENDING → CONFIRMED regardless
+  // of payment method/status. Escape hatch when the regular
+  // confirm-cash / confirm-upi paths don't apply.
+  confirm(id: string): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/confirm`, {
+      method: "POST",
+    });
+  },
+
   cancel(id: string, reason: string): Promise<{ ok: true }> {
     return request(`/api/mobile/admin/bookings/${id}/cancel`, {
       method: "POST",

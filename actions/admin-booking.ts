@@ -122,6 +122,60 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
   return { success: true };
 }
 
+/**
+ * Manually flip a PENDING booking to CONFIRMED. The escape hatch
+ * for stuck states the regular flows can't reach — e.g. a UPI QR
+ * partial whose advance was approved but the status flip didn't
+ * fire, or a booking marked-collected directly without going
+ * through confirmUpiPayment first.
+ *
+ * Unlike confirmCashPayment / confirmUpiPayment, this is NOT gated
+ * by Payment.method; it just rescues the booking row. The Payment
+ * row is left alone — its status is whatever it already is.
+ *
+ * Fires the same customer SMS/push (sendBookingConfirmation) +
+ * admin push (notifyAdminBookingConfirmed) that the gateway-
+ * specific paths fire, so customers learn about the confirmation
+ * the same way regardless of which path got them there.
+ */
+export async function confirmBookingManually(
+  bookingId: string,
+  adminIdOverride?: string,
+) {
+  if (!adminIdOverride) await requireAdmin();
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    select: { id: true, status: true },
+  });
+  if (!booking) {
+    return { success: false as const, error: "Booking not found" };
+  }
+  if (booking.status === "CONFIRMED") {
+    return { success: false as const, error: "Already confirmed" };
+  }
+  if (booking.status === "CANCELLED") {
+    return {
+      success: false as const,
+      error: "Cancelled bookings can't be re-confirmed",
+    };
+  }
+
+  await db.booking.update({
+    where: { id: bookingId },
+    data: { status: "CONFIRMED" },
+  });
+
+  await sendBookingConfirmation(bookingId);
+  notifyAdminBookingConfirmed(bookingId).catch((err) =>
+    console.error("Notification dispatch failed:", err),
+  );
+
+  await revalidateBookingPaths(bookingId);
+
+  return { success: true as const };
+}
+
 // Describe how the remainder was actually collected at the venue: the
 // amount paid in cash, the amount paid via UPI QR, and any goodwill
 // discount the floor staff applied at collection time. The three legs
