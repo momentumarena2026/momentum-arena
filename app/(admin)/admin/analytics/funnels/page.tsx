@@ -1,4 +1,5 @@
-import { FUNNELS, type FunnelKey, getFunnel, getInsightsOverview } from "@/actions/admin-insights";
+import { getFunnel, getInsightsOverview } from "@/actions/admin-insights";
+import { FUNNELS, type FunnelKey } from "@/lib/analytics-funnels";
 import { FunnelsClient } from "./funnels-client";
 
 const VALID_KEYS = Object.keys(FUNNELS) as FunnelKey[];

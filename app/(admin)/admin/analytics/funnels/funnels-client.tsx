@@ -11,7 +11,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { FunnelKey, FunnelResult, OverviewKpis } from "@/actions/admin-insights";
+import type { FunnelResult, OverviewKpis } from "@/actions/admin-insights";
+import type { FunnelKey } from "@/lib/analytics-funnels";
 
 interface Props {
   initialFunnel: FunnelResult;

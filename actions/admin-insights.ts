@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
+import { FUNNELS, type FunnelKey } from "@/lib/analytics-funnels";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -15,61 +16,14 @@ import type { Prisma } from "@prisma/client";
  * specific funnels with custom filters).
  *
  * Auth: requireAdmin("VIEW_ANALYTICS") on every export.
+ *
+ * Note: this file is a Next.js Server Actions module ("use server"
+ * directive above). EVERY export must be an async function. Static
+ * data like the FUNNELS const lives in lib/analytics-funnels.ts —
+ * importing it here is fine.
  */
 
 // ---------- Funnels ----------
-
-/**
- * Funnel definitions. Step name MUST match an emitted event name
- * (lib/analytics.ts on web, apps/mobile/src/lib/analytics.ts on
- * mobile). Order = display order = drop-off computation order.
- */
-export const FUNNELS = {
-  booking: {
-    label: "Booking",
-    steps: [
-      "sport_selected",
-      "court_config_selected",
-      "date_changed",
-      "slot_toggled",
-      "proceed_to_checkout_click",
-      "checkout_started",
-      "payment_initiated",
-      "payment_completed",
-      "booking_confirmed_view",
-    ] as const,
-  },
-  cafe: {
-    label: "Cafe",
-    steps: [
-      "cafe_browse",
-      "cafe_item_added",
-      "cafe_checkout_started",
-      "cafe_payment_completed",
-      "cafe_order_confirmation_view",
-    ] as const,
-  },
-  waitlist: {
-    label: "Waitlist",
-    steps: [
-      "slot_unavailable_tap",
-      "waitlist_joined",
-      "waitlist_notification_tapped",
-      "waitlist_book_now_click",
-    ] as const,
-  },
-  auth: {
-    label: "Auth",
-    steps: [
-      "login_modal_opened",
-      "login_phone_submitted",
-      "login_otp_submitted",
-      "login_success",
-    ] as const,
-  },
-} as const;
-
-export type FunnelKey = keyof typeof FUNNELS;
 
 export interface FunnelStepRow {
   step: string;
