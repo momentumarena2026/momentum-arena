@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Lock,
+  Plus,
   RotateCcw,
   Settings2,
 } from "lucide-react-native";
@@ -273,6 +274,22 @@ export function AdminCalendarScreen() {
                 params: { bookingId },
               })
             }
+            onAddBooking={(hour) =>
+              // Mirrors web's "+ Add" link inside empty calendar
+              // cells (app/(admin)/admin/calendar/calendar-view.tsx:362).
+              // Cross-tabs into AdminBookings → AdminCreateBooking
+              // with the cell's date / hour / current sport
+              // pre-selected so the staffer skips three picks.
+              navigation.navigate("AdminBookings", {
+                screen: "AdminCreateBooking",
+                params: {
+                  prefillDate: date,
+                  prefillHour: hour,
+                  prefillSport:
+                    sport === "" ? undefined : sport,
+                },
+              })
+            }
           />
         )}
       </ScrollView>
@@ -332,15 +349,25 @@ function HourGrid({
   hours,
   hourMap,
   onPressBooking,
+  onAddBooking,
 }: {
   hours: number[];
   hourMap: Map<number, HourEntry>;
   onPressBooking: (id: string) => void;
+  onAddBooking: (hour: number) => void;
 }) {
   return (
     <View style={styles.grid}>
       {hours.map((h) => {
         const entry = hourMap.get(h);
+        // Empty cell = no bookings AND nothing blocked. Web shows
+        // a dashed "+ Add" affordance in this case (and we mirror
+        // that here) so the staffer can drop into the create form
+        // pre-filled for this exact slot.
+        const isEmpty =
+          (!entry?.bookings || entry.bookings.length === 0) &&
+          (!entry?.blocks || entry.blocks.length === 0);
+
         return (
           <View key={h} style={styles.cell}>
             {/* Time label — replaces the date number from the
@@ -349,54 +376,73 @@ function HourGrid({
               {formatHourCompact(h)} – {formatHourCompact(h + 1)}
             </Text>
             <View style={styles.cellBody}>
-              {entry?.blocks.length ? (
-                <View style={styles.blockedChip}>
-                  <Lock size={10} color={colors.destructive} />
-                  <Text
-                    variant="tiny"
-                    color={colors.destructive}
-                    weight="600"
-                    numberOfLines={1}
-                  >
-                    Blocked
-                  </Text>
-                </View>
-              ) : null}
-              {entry?.bookings.map((b) => (
+              {isEmpty ? (
                 <Pressable
-                  key={b.id}
-                  onPress={() => onPressBooking(b.id)}
+                  onPress={() => onAddBooking(h)}
                   style={({ pressed }) => [
-                    styles.sportChip,
-                    {
-                      backgroundColor: SPORT_STYLE[b.sport].bg,
-                      borderColor: SPORT_STYLE[b.sport].border,
-                      // PENDING bookings get a dashed border to call
-                      // out that they're not yet confirmed — easy to
-                      // spot when scanning a packed grid.
-                      borderStyle: b.status === "PENDING" ? "dashed" : "solid",
-                    },
+                    styles.addTile,
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text
-                    variant="tiny"
-                    color={SPORT_STYLE[b.sport].fg}
-                    weight="600"
-                    numberOfLines={1}
-                  >
-                    {SPORT_STYLE[b.sport].emoji} {sportLabel(b.sport)}
-                  </Text>
-                  <Text
-                    variant="tiny"
-                    color={SPORT_STYLE[b.sport].fg}
-                    numberOfLines={1}
-                    style={styles.sportChipMeta}
-                  >
-                    {b.courtLabel}
+                  <Plus size={12} color={colors.zinc500} />
+                  <Text variant="tiny" color={colors.zinc500} weight="600">
+                    Add
                   </Text>
                 </Pressable>
-              ))}
+              ) : (
+                <>
+                  {entry?.blocks.length ? (
+                    <View style={styles.blockedChip}>
+                      <Lock size={10} color={colors.destructive} />
+                      <Text
+                        variant="tiny"
+                        color={colors.destructive}
+                        weight="600"
+                        numberOfLines={1}
+                      >
+                        Blocked
+                      </Text>
+                    </View>
+                  ) : null}
+                  {entry?.bookings.map((b) => (
+                    <Pressable
+                      key={b.id}
+                      onPress={() => onPressBooking(b.id)}
+                      style={({ pressed }) => [
+                        styles.sportChip,
+                        {
+                          backgroundColor: SPORT_STYLE[b.sport].bg,
+                          borderColor: SPORT_STYLE[b.sport].border,
+                          // PENDING bookings get a dashed border to
+                          // call out that they're not yet confirmed
+                          // — easy to spot when scanning a packed
+                          // grid.
+                          borderStyle:
+                            b.status === "PENDING" ? "dashed" : "solid",
+                        },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text
+                        variant="tiny"
+                        color={SPORT_STYLE[b.sport].fg}
+                        weight="600"
+                        numberOfLines={1}
+                      >
+                        {SPORT_STYLE[b.sport].emoji} {sportLabel(b.sport)}
+                      </Text>
+                      <Text
+                        variant="tiny"
+                        color={SPORT_STYLE[b.sport].fg}
+                        numberOfLines={1}
+                        style={styles.sportChipMeta}
+                      >
+                        {b.courtLabel}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </>
+              )}
             </View>
           </View>
         );
@@ -531,6 +577,21 @@ const styles = StyleSheet.create({
   cellBody: {
     flex: 1,
     gap: 4,
+  },
+  // Empty-cell affordance — dashed border + Plus icon. Mirrors web's
+  // `.flex flex-1 items-center justify-center rounded-md border
+  // border-dashed border-zinc-800` pattern.
+  addTile: {
+    flex: 1,
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.zinc800,
   },
   sportChip: {
     paddingHorizontal: spacing["2"],

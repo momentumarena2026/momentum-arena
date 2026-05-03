@@ -15,6 +15,7 @@ import {
   Banknote,
 } from "lucide-react";
 import { BookingsTable } from "./bookings-table";
+import { FiltersCollapsible } from "./filters-collapsible";
 
 export default async function AdminBookingsPage({
   searchParams,
@@ -165,25 +166,14 @@ export default async function AdminBookingsPage({
         })}
       </div>
 
-      {/* Filters */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
-            <Calendar className="h-3.5 w-3.5" />
-            Filters
-            {activeFilters > 0 && (
-              <span className="rounded-full bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 text-[10px] font-bold">
-                {activeFilters}
-              </span>
-            )}
-          </div>
-          {activeFilters > 0 && (
-            <Link href="/admin/bookings" className="text-[10px] text-zinc-500 hover:text-white transition-colors uppercase tracking-wider">
-              Clear all
-            </Link>
-          )}
-        </div>
-
+      {/* Filters — collapsed by default so the booking list isn't
+          shoved off-screen by 5 stacked chip rows. Auto-expands when
+          the URL already has any non-default filter applied. */}
+      <FiltersCollapsible
+        activeFilters={activeFilters}
+        totalLabel={`${total} ${total === 1 ? "booking" : "bookings"}`}
+        defaultExpanded={activeFilters > 0}
+      >
         {/* Date row */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Date</span>
@@ -316,7 +306,7 @@ export default async function AdminBookingsPage({
             </Link>
           ))}
         </div>
-      </div>
+      </FiltersCollapsible>
 
       {/* Bookings List */}
       {bookings.length === 0 ? (

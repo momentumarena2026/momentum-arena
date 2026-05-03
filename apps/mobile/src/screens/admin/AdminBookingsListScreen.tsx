@@ -12,11 +12,14 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
   CalendarRange,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Filter,
   Plus,
   Search as SearchIcon,
   User as UserIcon,
+  X as XIcon,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -106,6 +109,10 @@ export function AdminBookingsListScreen() {
     page: 1,
     limit: 25,
   });
+  // Filters card collapsed by default — five rows of chips were
+  // crowding out the actual booking list. Auto-expand once when the
+  // user has any non-default filter applied.
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const query = useQuery({
     queryKey: ["admin-bookings", filters],
@@ -209,85 +216,159 @@ export function AdminBookingsListScreen() {
           <ChevronRight size={16} color={colors.yellow400} />
         </Pressable>
 
-        {/* Filters card — same chip style as web admin's bookings filter strip. */}
+        {/* Filters card — collapsed by default so the booking list
+            isn't shoved off-screen by 5 stacked chip rows. The
+            header stays visible always: tap to expand, "active"
+            badge shows whenever the current filters diverge from
+            the defaults so the staffer never loses sight of an
+            applied filter. */}
         <View style={styles.filtersCard}>
-          <View style={styles.filtersHead}>
+          <Pressable
+            onPress={() => setFiltersExpanded((v) => !v)}
+            style={({ pressed }) => [
+              styles.filtersHead,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
             <Filter size={14} color={colors.zinc500} />
             <Text variant="tiny" color={colors.zinc500} style={styles.filtersTitle}>
               FILTERS
             </Text>
+            {(() => {
+              // Default-aware count: status=CONFIRMED is the
+              // landing default and shouldn't be counted as an
+              // "active" filter. Anything else does.
+              const activeCount =
+                (filters.status && filters.status !== "CONFIRMED" ? 1 : 0) +
+                (filters.sport ? 1 : 0) +
+                (filters.date ? 1 : 0) +
+                (filters.platform ? 1 : 0) +
+                (filters.payment ? 1 : 0);
+              return activeCount > 0 ? (
+                <View style={styles.activeBadge}>
+                  <Text
+                    variant="tiny"
+                    weight="700"
+                    color={colors.emerald400}
+                  >
+                    {activeCount}
+                  </Text>
+                </View>
+              ) : null;
+            })()}
             <Text variant="tiny" color={colors.zinc500} style={styles.totalCount}>
               {total} {total === 1 ? "booking" : "bookings"}
             </Text>
-          </View>
+            {filtersExpanded ? (
+              <ChevronUp size={14} color={colors.zinc500} />
+            ) : (
+              <ChevronDown size={14} color={colors.zinc500} />
+            )}
+          </Pressable>
 
-          {/* Date row */}
-          <FilterRow label="Date">
-            {[
-              { label: "All", value: "" },
-              { label: "Today", value: todayStr() },
-              { label: "Tomorrow", value: tomorrowStr() },
-            ].map((opt) => (
-              <Chip
-                key={opt.label}
-                label={opt.label}
-                active={(filters.date ?? "") === opt.value}
-                onPress={() => setFilter("date", opt.value || undefined)}
-              />
-            ))}
-          </FilterRow>
+          {filtersExpanded ? (
+            <View style={styles.filtersBody}>
+              {/* Date row */}
+              <FilterRow label="Date">
+                {[
+                  { label: "All", value: "" },
+                  { label: "Today", value: todayStr() },
+                  { label: "Tomorrow", value: tomorrowStr() },
+                ].map((opt) => (
+                  <Chip
+                    key={opt.label}
+                    label={opt.label}
+                    active={(filters.date ?? "") === opt.value}
+                    onPress={() => setFilter("date", opt.value || undefined)}
+                  />
+                ))}
+              </FilterRow>
 
-          {/* Status row */}
-          <FilterRow label="Status">
-            {STATUS_OPTIONS.map((opt) => (
-              <Chip
-                key={opt.label}
-                label={opt.label}
-                dotColor={opt.dot}
-                active={filters.status === opt.value}
-                onPress={() => setFilter("status", opt.value)}
-              />
-            ))}
-          </FilterRow>
+              {/* Status row */}
+              <FilterRow label="Status">
+                {STATUS_OPTIONS.map((opt) => (
+                  <Chip
+                    key={opt.label}
+                    label={opt.label}
+                    dotColor={opt.dot}
+                    active={filters.status === opt.value}
+                    onPress={() => setFilter("status", opt.value)}
+                  />
+                ))}
+              </FilterRow>
 
-          {/* Sport row */}
-          <FilterRow label="Sport">
-            {SPORT_OPTIONS.map((opt) => (
-              <Chip
-                key={opt.label}
-                label={opt.label}
-                emoji={opt.emoji}
-                active={filters.sport === opt.value}
-                onPress={() => setFilter("sport", opt.value)}
-              />
-            ))}
-          </FilterRow>
+              {/* Sport row */}
+              <FilterRow label="Sport">
+                {SPORT_OPTIONS.map((opt) => (
+                  <Chip
+                    key={opt.label}
+                    label={opt.label}
+                    emoji={opt.emoji}
+                    active={filters.sport === opt.value}
+                    onPress={() => setFilter("sport", opt.value)}
+                  />
+                ))}
+              </FilterRow>
 
-          {/* Platform row */}
-          <FilterRow label="Platform">
-            {PLATFORM_OPTIONS.map((opt) => (
-              <Chip
-                key={opt.label}
-                label={opt.label}
-                emoji={opt.emoji}
-                active={filters.platform === opt.value}
-                onPress={() => setFilter("platform", opt.value)}
-              />
-            ))}
-          </FilterRow>
+              {/* Platform row */}
+              <FilterRow label="Platform">
+                {PLATFORM_OPTIONS.map((opt) => (
+                  <Chip
+                    key={opt.label}
+                    label={opt.label}
+                    emoji={opt.emoji}
+                    active={filters.platform === opt.value}
+                    onPress={() => setFilter("platform", opt.value)}
+                  />
+                ))}
+              </FilterRow>
 
-          {/* Payment row — completion state on top of Status. */}
-          <FilterRow label="Payment">
-            {PAYMENT_OPTIONS.map((opt) => (
-              <Chip
-                key={opt.label}
-                label={opt.label}
-                dotColor={opt.dot}
-                active={filters.payment === opt.value}
-                onPress={() => setFilter("payment", opt.value)}
-              />
-            ))}
-          </FilterRow>
+              {/* Payment row — completion state on top of Status. */}
+              <FilterRow label="Payment">
+                {PAYMENT_OPTIONS.map((opt) => (
+                  <Chip
+                    key={opt.label}
+                    label={opt.label}
+                    dotColor={opt.dot}
+                    active={filters.payment === opt.value}
+                    onPress={() => setFilter("payment", opt.value)}
+                  />
+                ))}
+              </FilterRow>
+
+              {/* Clear-all only renders when at least one filter is
+                  off-default — otherwise it'd be a no-op and just
+                  add visual noise. */}
+              {(filters.status !== "CONFIRMED" ||
+                filters.sport ||
+                filters.date ||
+                filters.platform ||
+                filters.payment) && (
+                <Pressable
+                  onPress={() =>
+                    setFilters({
+                      status: "CONFIRMED",
+                      sport: undefined,
+                      date: undefined,
+                      platform: undefined,
+                      payment: undefined,
+                      page: 1,
+                      limit: 25,
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.clearAllBtn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <XIcon size={12} color={colors.zinc400} />
+                  <Text variant="tiny" color={colors.zinc400} weight="600">
+                    Clear all
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
         </View>
 
         {/* Results */}
@@ -598,6 +679,38 @@ const styles = StyleSheet.create({
   },
   filtersTitle: { letterSpacing: 1.5, fontWeight: "700" },
   totalCount: { marginLeft: "auto" },
+  filtersBody: {
+    gap: spacing["3"],
+    paddingTop: spacing["3"],
+    borderTopWidth: 1,
+    borderTopColor: colors.zinc800,
+  },
+  // Small green pill that surfaces the active-filter count next to
+  // the FILTERS header when the strip is collapsed. Visible when at
+  // least one filter is non-default (status != CONFIRMED counts).
+  activeBadge: {
+    minWidth: 20,
+    height: 16,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(16, 185, 129, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clearAllBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing["2.5"],
+    paddingVertical: spacing["1.5"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+  },
   filterRow: {
     gap: spacing["2"],
   },

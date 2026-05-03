@@ -65,7 +65,18 @@ export type AdminBookingsStackParamList = {
   AdminEditSlots: { bookingId: string };
   AdminEditBooking: { bookingId: string };
   AdminEditPayment: { bookingId: string };
-  AdminCreateBooking: undefined;
+  // Optional prefill from the calendar's "+ Add" tile so the
+  // staffer lands on the create form with date / hour / sport
+  // already populated. All three optional — the entry point from
+  // "+ New Booking" on the list passes nothing and gets blank
+  // defaults (today + first available sport).
+  AdminCreateBooking:
+    | {
+        prefillDate?: string;
+        prefillHour?: number;
+        prefillSport?: "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+      }
+    | undefined;
 };
 
 // Calendar tab is a tiny stack so it can host both the day grid and

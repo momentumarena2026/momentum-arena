@@ -7,7 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -41,6 +41,7 @@ type Nav = NativeStackNavigationProp<
   AdminBookingsStackParamList,
   "AdminCreateBooking"
 >;
+type Rt = RouteProp<AdminBookingsStackParamList, "AdminCreateBooking">;
 
 type Sport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
 type Method = "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
@@ -115,11 +116,19 @@ export function AdminCreateBookingScreen() {
   });
 
   // ---- Booking state ----
+  // Optional prefill from the calendar "+ Add" tile (or any other
+  // future entry point that wants to drop the staffer on a specific
+  // (date, hour, sport) combo). Falls through to today / null /
+  // empty when not provided — same defaults as before.
+  const route = useRoute<Rt>();
+  const prefill = route.params ?? {};
   const today = getTodayIST();
-  const [sport, setSport] = useState<Sport | null>(null);
+  const [sport, setSport] = useState<Sport | null>(prefill.prefillSport ?? null);
   const [courtConfigId, setCourtConfigId] = useState<string | null>(null);
-  const [date, setDate] = useState(today);
-  const [hours, setHours] = useState<number[]>([]);
+  const [date, setDate] = useState(prefill.prefillDate ?? today);
+  const [hours, setHours] = useState<number[]>(
+    prefill.prefillHour !== undefined ? [prefill.prefillHour] : [],
+  );
 
   // ---- Payment state ----
   const [method, setMethod] = useState<Method>("CASH");
