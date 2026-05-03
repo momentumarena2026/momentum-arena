@@ -73,6 +73,20 @@ const PLATFORM_OPTIONS: Array<{
   { label: "iOS", value: "ios", emoji: "🍎" },
 ];
 
+// Payment-completion filter — mirrors the web admin's Payment row.
+// "pending" is "money still owed" — booking is CONFIRMED but
+// payment is non-COMPLETED (or null), so this surfaces partial
+// remainders + recurring children awaiting cash collection.
+const PAYMENT_OPTIONS: Array<{
+  label: string;
+  value: ListFilters["payment"] | undefined;
+  dot?: string;
+}> = [
+  { label: "All", value: undefined },
+  { label: "Completed", value: "completed", dot: colors.emerald400 },
+  { label: "Pending", value: "pending", dot: colors.warning },
+];
+
 const STATUS_TEXT: Record<string, string> = {
   CONFIRMED: colors.emerald400,
   PENDING: colors.yellow400,
@@ -258,6 +272,19 @@ export function AdminBookingsListScreen() {
                 emoji={opt.emoji}
                 active={filters.platform === opt.value}
                 onPress={() => setFilter("platform", opt.value)}
+              />
+            ))}
+          </FilterRow>
+
+          {/* Payment row — completion state on top of Status. */}
+          <FilterRow label="Payment">
+            {PAYMENT_OPTIONS.map((opt) => (
+              <Chip
+                key={opt.label}
+                label={opt.label}
+                dotColor={opt.dot}
+                active={filters.payment === opt.value}
+                onPress={() => setFilter("payment", opt.value)}
               />
             ))}
           </FilterRow>

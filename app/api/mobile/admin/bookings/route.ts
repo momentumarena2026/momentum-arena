@@ -11,10 +11,14 @@ import { getMobileAdmin } from "@/lib/mobile-auth";
  * inheritance) so the mobile list screen can render the same chips
  * and pills as the web admin table.
  *
- * Query params: status, sport, date, platform, page, limit.
+ * Query params: status, sport, date, platform, payment, page, limit.
  *   - status defaults to CONFIRMED (mirrors the web default).
  *   - status="ALL" → no status filter.
  *   - date is "YYYY-MM-DD".
+ *   - payment="completed" / "pending" — completion-state filter on
+ *     top of status. "pending" pins booking.status = CONFIRMED and
+ *     matches payments that are not yet COMPLETED (or null). Same
+ *     semantics as the web getAdminBookings filter.
  */
 export async function GET(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -27,6 +31,7 @@ export async function GET(request: NextRequest) {
   const sport = searchParams.get("sport") || undefined;
   const date = searchParams.get("date") || undefined;
   const platform = searchParams.get("platform") || undefined;
+  const payment = searchParams.get("payment") || undefined;
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.min(
     100,
@@ -38,6 +43,25 @@ export async function GET(request: NextRequest) {
   if (sport) where.courtConfig = { sport };
   if (platform) where.platform = platform;
   if (date) where.date = new Date(date);
+
+  // Payment-completion filter — see web's getAdminBookings for the
+  // rationale. "pending" overrides any non-CONFIRMED status pick to
+  // empty results so the result accurately reflects what the floor
+  // staffer asked for (instead of silently dropping the filter).
+  if (payment === "completed") {
+    where.payment = { is: { status: "COMPLETED" } };
+  } else if (payment === "pending") {
+    const existingStatus = where.status as string | undefined;
+    if (existingStatus && existingStatus !== "CONFIRMED") {
+      where.id = "__no_match__";
+    } else {
+      where.status = "CONFIRMED";
+      where.OR = [
+        { payment: { is: { status: { not: "COMPLETED" } } } },
+        { payment: { is: null } },
+      ];
+    }
+  }
 
   const [bookings, total] = await Promise.all([
     db.booking.findMany({

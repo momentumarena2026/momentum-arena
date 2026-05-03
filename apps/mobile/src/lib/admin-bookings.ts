@@ -104,6 +104,10 @@ export interface ListFilters {
   sport?: "CRICKET" | "FOOTBALL" | "PICKLEBALL";
   date?: string;
   platform?: "web" | "android" | "ios";
+  // Completion-state filter on top of `status`. "pending" pins
+  // booking.status to CONFIRMED and matches non-COMPLETED (or null)
+  // payments — same semantics as the web payment filter.
+  payment?: "completed" | "pending";
   page?: number;
   limit?: number;
 }
@@ -203,6 +207,7 @@ export const adminBookingsApi = {
     if (filters.sport) params.set("sport", filters.sport);
     if (filters.date) params.set("date", filters.date);
     if (filters.platform) params.set("platform", filters.platform);
+    if (filters.payment) params.set("payment", filters.payment);
     if (filters.page) params.set("page", String(filters.page));
     if (filters.limit) params.set("limit", String(filters.limit));
     const qs = params.toString();
