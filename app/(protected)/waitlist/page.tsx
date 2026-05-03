@@ -17,16 +17,16 @@ export default async function WaitlistPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mb-6 flex items-center gap-3">
+      <div className="mb-6 space-y-4">
         <BackButton />
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
             <Bell className="h-6 w-6 text-amber-400" />
             My waitlist
           </h1>
-          <p className="text-sm text-zinc-400">
-            We&apos;ll alert you on push, SMS, and email the moment any of these
-            slots opens up.
+          <p className="mt-1 text-sm text-zinc-400">
+            We&apos;ll alert you on push, SMS, and email the moment any of
+            these slots opens up.
           </p>
         </div>
       </div>
