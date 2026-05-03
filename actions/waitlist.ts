@@ -7,7 +7,16 @@ import { formatBookingDate } from "@/lib/pricing";
 import { sendToUser } from "@/lib/push";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
-const MSG91_WAITLIST_TEMPLATE_ID = process.env.MSG91_WAITLIST_TEMPLATE_ID;
+// DLT-approved template baked in as the default — keeps SMS working
+// without an env var change. Set MSG91_WAITLIST_TEMPLATE_ID in env
+// to override (useful if you want a different template in
+// dev/staging vs prod). The template body is documented in the
+// commit that introduced the 2-variable shape:
+//
+//   "Hi {{name}}, {{slot}} just opened up at Momentum Arena. Book
+//    quickly before someone else grabs it. - Momentum Arena"
+const MSG91_WAITLIST_TEMPLATE_ID =
+  process.env.MSG91_WAITLIST_TEMPLATE_ID || "69f73490fb5c4a5b7e0c9083";
 
 export interface WaitlistResult {
   success: boolean;
