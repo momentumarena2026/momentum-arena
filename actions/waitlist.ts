@@ -2,19 +2,12 @@
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { sendEmail } from "@/lib/email";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { formatBookingDate } from "@/lib/pricing";
 import { sendToUser } from "@/lib/push";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_WAITLIST_TEMPLATE_ID = process.env.MSG91_WAITLIST_TEMPLATE_ID;
-
-const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ||
-  process.env.AUTH_URL ||
-  process.env.NEXTAUTH_URL ||
-  "https://momentumarena.com";
 
 export interface WaitlistResult {
   success: boolean;
@@ -232,7 +225,7 @@ export async function notifyWaitlistersForFreedSlots(
     },
     include: {
       user: {
-        select: { id: true, phone: true, name: true, email: true },
+        select: { id: true, phone: true, name: true },
       },
       courtConfig: {
         select: { id: true, sport: true, label: true },
@@ -271,12 +264,12 @@ export async function notifyWaitlistersForFreedSlots(
   );
 }
 
-// ---------- Notification dispatch (push + SMS + email) ----------
+// ---------- Notification dispatch (push + SMS) ----------
 
 type WaitlistEntryWithRelations = Awaited<
   ReturnType<typeof db.waitlist.findMany>
 >[number] & {
-  user: { id: string; phone: string | null; name: string | null; email: string | null } | null;
+  user: { id: string; phone: string | null; name: string | null } | null;
   courtConfig: { id: string; sport: string; label: string };
 };
 
@@ -289,21 +282,18 @@ async function dispatchSlotAvailableNotification(
     month: "short",
   });
   const timeStr = formatHourRange(entry.startHour, entry.endHour);
-  const sport = entry.courtConfig.sport.replace(/_/g, " ").toLowerCase();
+  const sport = capitalise(
+    entry.courtConfig.sport.replace(/_/g, " ").toLowerCase(),
+  );
   const courtLabel = entry.courtConfig.label;
-
-  const shortBody =
-    `Good news! ${capitalise(sport)} at ${courtLabel} on ${dateStr} ` +
-    `${timeStr} just opened up. Book now before someone else grabs it.`;
-
-  const bookUrl = `${APP_URL}/book?courtConfigId=${entry.courtConfigId}&date=${toYMD(entry.date)}`;
+  const recipientName = entry.user?.name?.trim() || "there";
 
   // 1. Push (logged-in users only — guests have no device token).
   if (entry.userId) {
     try {
       await sendToUser(entry.userId, {
         title: "A slot just opened up",
-        body: shortBody,
+        body: `${sport} at ${courtLabel} on ${dateStr} ${timeStr} just opened up. Book now before someone else grabs it.`,
         data: {
           kind: "slot_available",
           waitlistId: entry.id,
@@ -319,29 +309,43 @@ async function dispatchSlotAvailableNotification(
   }
 
   // 2. SMS — prefer logged-in user.phone, fall back to guestPhone.
+  // Variables map 1:1 to the DLT-approved MSG91 template (see
+  // README/comment by sendWaitlistSms below).
   const phone = entry.user?.phone || entry.guestPhone;
   if (phone) {
-    void sendWaitlistSms(phone, shortBody);
-  }
-
-  // 3. Email — prefer logged-in user.email, fall back to guestEmail.
-  const email = entry.user?.email || entry.guestEmail;
-  if (email) {
-    void sendWaitlistEmail({
-      to: email,
-      name: entry.user?.name || undefined,
-      sport: capitalise(sport),
-      courtLabel,
-      dateStr,
-      timeStr,
-      bookUrl,
+    void sendWaitlistSms({
+      phone,
+      name: recipientName,
+      sport,
+      court: courtLabel,
+      date: dateStr,
+      time: timeStr,
     });
   }
 }
 
-async function sendWaitlistSms(phone: string, message: string): Promise<void> {
+/**
+ * Fires a single waitlist SMS via MSG91 Flow API.
+ *
+ * The `recipients[0]` object's keys MUST match the variables in the
+ * DLT-approved MSG91 template. The exact template body is documented
+ * in the commit message that introduced this function — keep them in
+ * sync if either changes.
+ */
+async function sendWaitlistSms(opts: {
+  phone: string;
+  name: string;
+  sport: string;
+  court: string;
+  date: string;
+  time: string;
+}): Promise<void> {
+  const { phone, name, sport, court, date, time } = opts;
+
   if (!MSG91_AUTH_KEY || !MSG91_WAITLIST_TEMPLATE_ID) {
-    console.log(`[DEV] Waitlist SMS to ${phone}: ${message}`);
+    console.log(
+      `[DEV] Waitlist SMS to ${phone}: Hi ${name}, ${sport} at ${court} on ${date} ${time} just opened up.`,
+    );
     return;
   }
 
@@ -355,51 +359,28 @@ async function sendWaitlistSms(phone: string, message: string): Promise<void> {
       },
       body: JSON.stringify({
         template_id: MSG91_WAITLIST_TEMPLATE_ID,
-        recipients: [{ mobiles: normalizeIndianPhone(phone), message }],
+        recipients: [
+          {
+            mobiles: normalizeIndianPhone(phone),
+            name,
+            sport,
+            court,
+            date,
+            time,
+          },
+        ],
       }),
     });
     if (!response.ok) {
-      console.error("[waitlist] SMS HTTP", response.status, await response.text());
+      console.error(
+        "[waitlist] SMS HTTP",
+        response.status,
+        await response.text(),
+      );
     }
   } catch (err) {
     console.error("[waitlist] SMS error:", err);
   }
-}
-
-async function sendWaitlistEmail(opts: {
-  to: string;
-  name?: string;
-  sport: string;
-  courtLabel: string;
-  dateStr: string;
-  timeStr: string;
-  bookUrl: string;
-}): Promise<void> {
-  const { to, name, sport, courtLabel, dateStr, timeStr, bookUrl } = opts;
-  await sendEmail({
-    to: [{ email: to, name }],
-    subject: `${sport} slot opened up — ${dateStr} ${timeStr}`,
-    body: `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #111;">
-        <h2 style="color: #059669;">A slot just opened up</h2>
-        <p>${name ? `Hi ${name}, ` : ""}good news — a slot you were waiting for at Momentum Arena is now available:</p>
-        <table style="margin: 16px 0; font-size: 15px;">
-          <tr><td style="padding: 4px 12px 4px 0; color:#666;">Sport</td><td><strong>${sport}</strong></td></tr>
-          <tr><td style="padding: 4px 12px 4px 0; color:#666;">Court</td><td><strong>${courtLabel}</strong></td></tr>
-          <tr><td style="padding: 4px 12px 4px 0; color:#666;">Date</td><td><strong>${dateStr}</strong></td></tr>
-          <tr><td style="padding: 4px 12px 4px 0; color:#666;">Time</td><td><strong>${timeStr}</strong></td></tr>
-        </table>
-        <p style="margin: 24px 0;">
-          <a href="${bookUrl}" style="background:#059669;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">
-            Book this slot
-          </a>
-        </p>
-        <p style="color:#666;font-size:13px;">
-          Slots are first-come-first-served. Book quickly before someone else does.
-        </p>
-      </div>
-    `,
-  });
 }
 
 // ---------- Small helpers ----------

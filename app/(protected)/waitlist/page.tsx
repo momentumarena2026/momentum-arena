@@ -25,8 +25,8 @@ export default async function WaitlistPage() {
             My waitlist
           </h1>
           <p className="mt-1 text-sm text-zinc-400">
-            We&apos;ll alert you on push, SMS, and email the moment any of
-            these slots opens up.
+            We&apos;ll alert you on push and SMS the moment any of these slots
+            opens up.
           </p>
         </div>
       </div>
@@ -41,8 +41,8 @@ export default async function WaitlistPage() {
           </h2>
           <p className="mt-2 text-sm text-zinc-400">
             Tap any unavailable slot in the booking flow and we&apos;ll add it
-            here. As soon as someone cancels, you&apos;ll get a push, SMS, and
-            email so you can grab it first.
+            here. As soon as someone cancels, you&apos;ll get a push and SMS so
+            you can grab it first.
           </p>
           <Link
             href="/book"

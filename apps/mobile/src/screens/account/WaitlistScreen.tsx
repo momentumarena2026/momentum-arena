@@ -119,8 +119,8 @@ export function WaitlistScreen() {
           <View style={{ flex: 1 }}>
             <Text variant="title">My waitlist</Text>
             <Text variant="small" color={colors.zinc400}>
-              We'll alert you on push, SMS, and email the moment any of these
-              slots opens up.
+              We'll alert you on push and SMS the moment any of these slots
+              opens up.
             </Text>
           </View>
         </View>
@@ -171,8 +171,8 @@ function EmptyState() {
         style={styles.emptyBody}
       >
         Tap any unavailable slot in the booking flow and we'll add it here.
-        As soon as someone cancels, you'll get a push, SMS, and email so you
-        can grab it first.
+        As soon as someone cancels, you'll get a push and SMS so you can
+        grab it first.
       </Text>
     </View>
   );

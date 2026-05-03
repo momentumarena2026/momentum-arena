@@ -738,8 +738,8 @@ function WaitlistSheet({
                   color={colors.zinc400}
                   style={{ marginTop: 4 }}
                 >
-                  We'll send a push, SMS, and email the moment this slot
-                  opens up. First to book wins.
+                  We'll send a push and SMS the moment this slot opens up.
+                  First to book wins.
                 </Text>
               </View>
             </View>
@@ -750,7 +750,7 @@ function WaitlistSheet({
               style={sheetStyles.body}
             >
               {signedIn
-                ? "We'll alert you on push, SMS, and email the moment this slot is freed by a cancellation. First to book wins."
+                ? "We'll alert you on push and SMS the moment this slot is freed by a cancellation. First to book wins."
                 : "Sign in once and we'll alert you whenever a slot you're waiting for opens up."}
             </Text>
           )}

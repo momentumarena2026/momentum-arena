@@ -73,7 +73,7 @@ export function WaitlistDialog({
       if (res.success) {
         setJoined(true);
         toast.success("You're on the waitlist", {
-          description: "We'll ping you on push, SMS, and email if it opens up.",
+          description: "We'll ping you on push and SMS if it opens up.",
         });
       } else {
         toast.error(res.error || "Couldn't join the waitlist");
@@ -147,8 +147,8 @@ export function WaitlistDialog({
                     You&apos;re on the waitlist
                   </p>
                   <p className="mt-1 text-emerald-300/80">
-                    We&apos;ll send a push, SMS, and email the moment this slot
-                    opens up. First to book wins.
+                    We&apos;ll send a push and SMS the moment this slot opens
+                    up. First to book wins.
                   </p>
                 </div>
               </div>
@@ -171,9 +171,8 @@ export function WaitlistDialog({
         ) : isLoggedIn ? (
           <div className="space-y-3">
             <p className="text-sm text-zinc-400">
-              We&apos;ll alert you on <strong className="text-zinc-200">push</strong>,{" "}
-              <strong className="text-zinc-200">SMS</strong>, and{" "}
-              <strong className="text-zinc-200">email</strong> the moment this
+              We&apos;ll alert you on <strong className="text-zinc-200">push</strong>{" "}
+              and <strong className="text-zinc-200">SMS</strong> the moment this
               slot is freed by a cancellation. Slots are first-come-first-
               served, so book quickly.
             </p>
@@ -188,8 +187,8 @@ export function WaitlistDialog({
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-zinc-400">
-              Sign in once and we&apos;ll alert you whenever a slot you&apos;re waiting
-              for opens up — push, SMS, and email all in one tap.
+              Sign in once and we&apos;ll alert you whenever a slot you&apos;re
+              waiting for opens up — push and SMS, both in one tap.
             </p>
             <Button
               onClick={() => setShowLogin(true)}
