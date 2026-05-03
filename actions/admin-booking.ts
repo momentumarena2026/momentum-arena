@@ -876,6 +876,14 @@ export async function getAdminBookings(filters?: {
   status?: string;
   paymentMethod?: string;
   platform?: string;
+  // Payment-completion filter on top of the payment.status enum.
+  // Two values are surfaced to admin staff:
+  //   - "completed"  payment.status === COMPLETED (everything settled)
+  //   - "pending"    booking.status === CONFIRMED AND
+  //                  (payment.status != COMPLETED OR payment is null)
+  //                  i.e. confirmed-but-money-still-owed: PARTIAL
+  //                  remainders, UPI awaiting cash collection, etc.
+  payment?: string;
   page?: number;
   limit?: number;
 }) {
@@ -898,6 +906,34 @@ export async function getAdminBookings(filters?: {
   }
   if (filters?.platform) {
     where.platform = filters.platform;
+  }
+
+  // Payment-completion filter — applies on top of any explicit
+  // status filter set above. The "pending" case is more nuanced
+  // than a single column check: it pins booking.status to CONFIRMED
+  // (we don't want CANCELLED bookings showing up as "money owed"
+  // even if their payment row is PARTIAL) and matches both rows
+  // with a non-COMPLETED payment AND rows with no payment at all
+  // (recurring children frequently have payment === null).
+  if (filters?.payment === "completed") {
+    where.payment = { is: { status: "COMPLETED" } };
+  } else if (filters?.payment === "pending") {
+    // Combine with any user-provided status filter via AND: if the
+    // user picked "Cancelled + Pending payment" it should return
+    // empty, not silently override. Same applies if status was left
+    // unspecified — we still pin to CONFIRMED here.
+    const existingStatus = where.status as string | undefined;
+    if (existingStatus && existingStatus !== "CONFIRMED") {
+      // Mutually exclusive — return nothing instead of silently
+      // ignoring the payment filter.
+      where.id = "__no_match__";
+    } else {
+      where.status = "CONFIRMED";
+      where.OR = [
+        { payment: { is: { status: { not: "COMPLETED" } } } },
+        { payment: { is: null } },
+      ];
+    }
   }
 
   const [bookings, total] = await Promise.all([

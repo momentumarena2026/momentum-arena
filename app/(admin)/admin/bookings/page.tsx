@@ -25,6 +25,7 @@ export default async function AdminBookingsPage({
     sport?: string;
     date?: string;
     platform?: string;
+    payment?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -41,6 +42,7 @@ export default async function AdminBookingsPage({
       sport: params.sport,
       date: params.date,
       platform: params.platform,
+      payment: params.payment,
       limit: 20,
     }),
     getAdminStats(),
@@ -60,6 +62,7 @@ export default async function AdminBookingsPage({
       sport: params.sport || "",
       date: params.date || "",
       platform: params.platform || "",
+      payment: params.payment || "",
       page: "1",
     };
     const merged = { ...base, ...overrides };
@@ -120,7 +123,7 @@ export default async function AdminBookingsPage({
     },
   ];
 
-  const activeFilters = [params.status, params.sport, params.date, params.platform].filter(Boolean).length;
+  const activeFilters = [params.status, params.sport, params.date, params.platform, params.payment].filter(Boolean).length;
 
   return (
     <div className="space-y-6">
@@ -282,6 +285,33 @@ export default async function AdminBookingsPage({
               }`}
             >
               {opt.emoji && <span>{opt.emoji}</span>}
+              {opt.label}
+            </Link>
+          ))}
+        </div>
+
+        {/* Payment row — completion-state filter on top of the
+             Status filter. "Pending" is a custom predicate
+             (CONFIRMED + payment != COMPLETED OR null) so the floor
+             staff can quickly find every confirmed booking that
+             still has money owed at the venue. */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Payment</span>
+          {[
+            { label: "All", value: "", dot: "" },
+            { label: "Completed", value: "completed", dot: "bg-emerald-400" },
+            { label: "Pending", value: "pending", dot: "bg-amber-400" },
+          ].map((opt) => (
+            <Link
+              key={opt.label}
+              href={filterUrl({ payment: opt.value })}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                (params.payment || "") === opt.value
+                  ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+                  : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              }`}
+            >
+              {opt.dot && <span className={`h-1.5 w-1.5 rounded-full ${opt.dot}`} />}
               {opt.label}
             </Link>
           ))}
