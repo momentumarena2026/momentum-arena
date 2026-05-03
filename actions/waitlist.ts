@@ -288,12 +288,18 @@ async function dispatchSlotAvailableNotification(
   const courtLabel = entry.courtConfig.label;
   const recipientName = entry.user?.name?.trim() || "there";
 
+  // Single combined "slot" string used for both the push body and the
+  // SMS template variable. Keeping the wording identical across
+  // channels avoids confusion when a user gets both notifications
+  // about the same slot.
+  const slotLine = `${sport} at ${courtLabel} on ${dateStr} ${timeStr}`;
+
   // 1. Push (logged-in users only — guests have no device token).
   if (entry.userId) {
     try {
       await sendToUser(entry.userId, {
         title: "A slot just opened up",
-        body: `${sport} at ${courtLabel} on ${dateStr} ${timeStr} just opened up. Book now before someone else grabs it.`,
+        body: `${slotLine} just opened up. Book now before someone else grabs it.`,
         data: {
           kind: "slot_available",
           waitlistId: entry.id,
@@ -309,17 +315,14 @@ async function dispatchSlotAvailableNotification(
   }
 
   // 2. SMS — prefer logged-in user.phone, fall back to guestPhone.
-  // Variables map 1:1 to the DLT-approved MSG91 template (see
-  // README/comment by sendWaitlistSms below).
+  // The recipient object's keys map 1:1 to variables in the
+  // DLT-approved MSG91 template — see sendWaitlistSms below.
   const phone = entry.user?.phone || entry.guestPhone;
   if (phone) {
     void sendWaitlistSms({
       phone,
       name: recipientName,
-      sport,
-      court: courtLabel,
-      date: dateStr,
-      time: timeStr,
+      slot: slotLine,
     });
   }
 }
@@ -327,24 +330,25 @@ async function dispatchSlotAvailableNotification(
 /**
  * Fires a single waitlist SMS via MSG91 Flow API.
  *
- * The `recipients[0]` object's keys MUST match the variables in the
- * DLT-approved MSG91 template. The exact template body is documented
- * in the commit message that introduced this function — keep them in
- * sync if either changes.
+ * Two variables only — DLT-friendly. The template body registered
+ * with TRAI must use {{name}} + {{slot}} (or the ##VAR## form,
+ * depending on which template version was approved):
+ *
+ *   "Hi {{name}}, {{slot}} just opened up at Momentum Arena. Book
+ *    quickly before someone else grabs it. - Momentum Arena"
+ *
+ * Keep this signature in sync with the approved template.
  */
 async function sendWaitlistSms(opts: {
   phone: string;
   name: string;
-  sport: string;
-  court: string;
-  date: string;
-  time: string;
+  slot: string;
 }): Promise<void> {
-  const { phone, name, sport, court, date, time } = opts;
+  const { phone, name, slot } = opts;
 
   if (!MSG91_AUTH_KEY || !MSG91_WAITLIST_TEMPLATE_ID) {
     console.log(
-      `[DEV] Waitlist SMS to ${phone}: Hi ${name}, ${sport} at ${court} on ${date} ${time} just opened up.`,
+      `[DEV] Waitlist SMS to ${phone}: Hi ${name}, ${slot} just opened up.`,
     );
     return;
   }
@@ -363,10 +367,7 @@ async function sendWaitlistSms(opts: {
           {
             mobiles: normalizeIndianPhone(phone),
             name,
-            sport,
-            court,
-            date,
-            time,
+            slot,
           },
         ],
       }),

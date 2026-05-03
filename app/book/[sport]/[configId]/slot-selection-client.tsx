@@ -13,7 +13,7 @@ import type { SlotAvailability } from "@/lib/availability";
 import { Loader2, RefreshCw, Calendar } from "lucide-react";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
 import type { RecurringTier, DailyTier } from "@/actions/admin-recurring";
-import { getTodayIST } from "@/lib/ist-date";
+import { getCurrentHourIST, getTodayIST } from "@/lib/ist-date";
 import {
   trackSlotToggled,
   trackDateChanged,
@@ -408,6 +408,12 @@ export function SlotSelectionClient({
             // CourtConfig.id, so the server can't store it.
             onUnavailableClick={
               mediumMode ? undefined : (h) => setWaitlistHour(h)
+            }
+            // Past slots aren't joinable — pass the current IST hour
+            // ONLY when the user has selected today, so the grid can
+            // render past tiles as plain disabled (no Bell, no notify).
+            pastHourCutoff={
+              selectedDate === getTodayIST() ? getCurrentHourIST() : undefined
             }
           />
 

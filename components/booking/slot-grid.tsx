@@ -11,11 +11,22 @@ interface SlotGridProps {
   selectedHours: number[];
   onSelectionChange: (hours: number[]) => void;
   /**
-   * Called when a user taps an unavailable slot. If provided, the
-   * tile becomes interactive (no `disabled` attribute) and shows a
-   * subtle "Notify me" hint. Wire this to open a waitlist dialog.
+   * Called when a user taps an unavailable (but still future) slot.
+   * If provided, future-booked tiles become interactive with a RED
+   * highlight + Bell + "Notify me" label so users can join the
+   * waitlist. Past slots (`hour <= pastHourCutoff`) ignore this
+   * callback — they're rendered as plain disabled grey since you
+   * can't waitlist for a slot that's already started.
    */
   onUnavailableClick?: (hour: number) => void;
+  /**
+   * The current IST hour, ONLY when the selected date is today.
+   * `undefined` means the selected date is in the future (no slots
+   * are past). Slots with `hour <= pastHourCutoff` are treated as
+   * past — see `joinWaitlist` server-side check for the matching
+   * cutoff semantics.
+   */
+  pastHourCutoff?: number;
 }
 
 export function SlotGrid({
@@ -23,6 +34,7 @@ export function SlotGrid({
   selectedHours,
   onSelectionChange,
   onUnavailableClick,
+  pastHourCutoff,
 }: SlotGridProps) {
   const toggleSlot = useCallback(
     (hour: number) => {
@@ -47,11 +59,16 @@ export function SlotGrid({
           const isSelected = selectedHours.includes(slot.hour);
           const isAvailable = slot.status === "available";
 
-          // Unavailable tiles stay clickable when a waitlist handler is
-          // wired so the user can recover from the dead-end with a single
-          // tap. Without the handler we keep the original disabled UX.
-          const unavailableInteractive =
-            !isAvailable && Boolean(onUnavailableClick);
+          // A slot is "past" when the selected date is today and the
+          // slot's start hour has already arrived. Matches the server's
+          // joinWaitlist cutoff (expiresAt <= now). Past slots get the
+          // plain disabled treatment — no Bell, no waitlist option.
+          const isPast =
+            pastHourCutoff !== undefined && slot.hour <= pastHourCutoff;
+          // Booked AND in the future AND a waitlist handler is wired.
+          // Only these tiles get the RED + Bell + "Notify me" treatment.
+          const bookedFutureInteractive =
+            !isAvailable && !isPast && Boolean(onUnavailableClick);
 
           return (
             <button
@@ -59,18 +76,18 @@ export function SlotGrid({
               onClick={() => {
                 if (isAvailable) {
                   toggleSlot(slot.hour);
-                } else if (onUnavailableClick) {
+                } else if (bookedFutureInteractive && onUnavailableClick) {
                   onUnavailableClick(slot.hour);
                 }
               }}
-              disabled={!isAvailable && !onUnavailableClick}
+              disabled={!isAvailable && !bookedFutureInteractive}
               className={`relative rounded-xl border p-3 text-left transition-all duration-200 ${
                 isSelected
                   ? "border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50"
                   : isAvailable
                     ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30"
-                    : unavailableInteractive
-                      ? "bg-zinc-800/50 border-zinc-700 hover:bg-amber-500/5 hover:border-amber-500/30 cursor-pointer opacity-70"
+                    : bookedFutureInteractive
+                      ? "bg-red-500/10 border-red-500/40 hover:bg-red-500/15 hover:border-red-500/60 cursor-pointer"
                       : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
               }`}
             >
@@ -82,16 +99,26 @@ export function SlotGrid({
                   </span>
                 </div>
                 {isSelected && <Check className="h-4 w-4 text-emerald-400" />}
-                {unavailableInteractive && (
-                  <Bell className="h-3.5 w-3.5 text-amber-400/70" />
+                {bookedFutureInteractive && (
+                  <Bell className="h-3.5 w-3.5 text-red-400" />
                 )}
               </div>
-              <div className={`mt-1 text-xs ${isAvailable ? "text-zinc-400" : "text-zinc-500"}`}>
+              <div
+                className={`mt-1 text-xs ${
+                  isAvailable
+                    ? "text-zinc-400"
+                    : bookedFutureInteractive
+                      ? "text-red-300/90"
+                      : "text-zinc-500"
+                }`}
+              >
                 {isAvailable
                   ? formatPrice(slot.price)
-                  : unavailableInteractive
-                    ? "Notify me"
-                    : "Unavailable"}
+                  : bookedFutureInteractive
+                    ? "Booked · Notify me"
+                    : isPast
+                      ? "Past"
+                      : "Unavailable"}
               </div>
             </button>
           );

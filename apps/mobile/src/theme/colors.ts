@@ -53,6 +53,11 @@ export const colors = {
   // Semantic
   destructive: "#ef4444",
   destructiveSoft: "rgba(239, 68, 68, 0.12)",
+  // Tints used for "this slot is booked" tile in the slot picker —
+  // matches the web `bg-red-500/10` + `border-red-500/40` styling.
+  destructive_10: "rgba(239, 68, 68, 0.10)",
+  destructive_30: "rgba(239, 68, 68, 0.40)",
+  destructive_300: "#fca5a5",
   warning: "#f59e0b",
   warningSoft: "rgba(245, 158, 11, 0.12)",
 

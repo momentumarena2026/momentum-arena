@@ -35,6 +35,7 @@ import {
 } from "../../lib/format";
 import {
   formatDateIST,
+  getCurrentHourIST,
   getTodayIST,
   getUpcomingDatesIST,
 } from "../../lib/ist-date";
@@ -237,6 +238,14 @@ export function BookSlotsScreen() {
               onUnavailableTap={
                 isMedium ? undefined : (h) => setWaitlistHour(h)
               }
+              // Past slots aren't waitlist-able. Pass the current IST
+              // hour ONLY when today is selected so the grid can render
+              // those tiles as plain disabled (no Bell, no notify).
+              pastHourCutoff={
+                selectedDate === getTodayIST()
+                  ? getCurrentHourIST()
+                  : undefined
+              }
             />
           )}
         </View>
@@ -403,38 +412,50 @@ function SlotGrid({
   selected,
   onToggle,
   onUnavailableTap,
+  pastHourCutoff,
 }: {
   slots: SlotAvailability[];
   selected: number[];
   onToggle: (hour: number) => void;
-  /** When provided, unavailable tiles become interactive (open waitlist). */
+  /** When provided, future-booked tiles become interactive (open waitlist). */
   onUnavailableTap?: (hour: number) => void;
+  /**
+   * Current IST hour, ONLY when the selected date is today. Slots
+   * with `hour <= pastHourCutoff` are treated as past — plain disabled,
+   * no Bell, no waitlist option. `undefined` means no slots are past.
+   */
+  pastHourCutoff?: number;
 }) {
   return (
     <View style={styles.slotsGrid}>
       {slots.map((slot) => {
         const isSelected = selected.includes(slot.hour);
         const isAvailable = slot.status === "available";
-        const unavailableInteractive = !isAvailable && Boolean(onUnavailableTap);
+        const isPast =
+          pastHourCutoff !== undefined && slot.hour <= pastHourCutoff;
+        const bookedFutureInteractive =
+          !isAvailable && !isPast && Boolean(onUnavailableTap);
 
         return (
           <Pressable
             key={slot.hour}
             onPress={() => {
               if (isAvailable) onToggle(slot.hour);
-              else if (onUnavailableTap) onUnavailableTap(slot.hour);
+              else if (bookedFutureInteractive && onUnavailableTap)
+                onUnavailableTap(slot.hour);
             }}
-            disabled={!isAvailable && !onUnavailableTap}
+            disabled={!isAvailable && !bookedFutureInteractive}
             style={({ pressed }) => [
               styles.slot,
               isSelected
                 ? styles.slotSelected
                 : isAvailable
                 ? styles.slotAvailable
-                : unavailableInteractive
-                ? styles.slotUnavailableInteractive
+                : bookedFutureInteractive
+                ? styles.slotBookedFuture
                 : styles.slotUnavailable,
-              pressed && (isAvailable || unavailableInteractive) && { opacity: 0.85 },
+              pressed &&
+                (isAvailable || bookedFutureInteractive) && { opacity: 0.85 },
             ]}
           >
             <View style={styles.slotHeader}>
@@ -446,19 +467,27 @@ function SlotGrid({
               </View>
               {isSelected ? (
                 <Check size={16} color={colors.emerald400} />
-              ) : unavailableInteractive ? (
-                <Bell size={14} color={colors.warning} />
+              ) : bookedFutureInteractive ? (
+                <Bell size={14} color={colors.destructive} />
               ) : null}
             </View>
             <Text
               variant="tiny"
-              color={isAvailable ? colors.zinc400 : colors.zinc500}
+              color={
+                isAvailable
+                  ? colors.zinc400
+                  : bookedFutureInteractive
+                  ? colors.destructive_300
+                  : colors.zinc500
+              }
               style={styles.slotFooter}
             >
               {isAvailable
                 ? formatRupees(slot.price)
-                : unavailableInteractive
-                ? "Notify me"
+                : bookedFutureInteractive
+                ? "Booked · Notify me"
+                : isPast
+                ? "Past"
                 : "Unavailable"}
             </Text>
           </Pressable>
@@ -556,13 +585,12 @@ const styles = StyleSheet.create({
     borderColor: colors.zinc700,
     opacity: 0.5,
   },
-  // Same dimmed look as `slotUnavailable` but with a faint amber edge
-  // so the user reads "this isn't available, but it's interactive
-  // (waitlist)" at a glance.
-  slotUnavailableInteractive: {
-    backgroundColor: colors.zinc800_50,
-    borderColor: colors.warningSoft,
-    opacity: 0.7,
+  // Booked-but-still-future slot — reads as "blocked by another
+  // booking, but you can join the waitlist". Mirrors web's
+  // `bg-red-500/10 border-red-500/40`.
+  slotBookedFuture: {
+    backgroundColor: colors.destructive_10,
+    borderColor: colors.destructive_30,
   },
   slotSelected: {
     backgroundColor: colors.emerald500_20,
