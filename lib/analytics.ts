@@ -308,3 +308,86 @@ export function trackChatMessageSent() {
 export function trackError(errorType: string, message: string) {
   trackEvent("app_error", { error_type: errorType, error_message: message });
 }
+
+// ─── Waitlist ────────────────────────────────────────────────────
+// First entry-point of the waitlist funnel. Fired the moment the
+// user taps an unavailable (but future) slot — even if they don't
+// complete the join. Lets us measure drop-off between "tapped" and
+// "joined" so we can tighten the dialog copy if needed.
+
+export function trackSlotUnavailableTap(
+  courtConfigId: string,
+  hour: number,
+  date: string,
+  sport: string,
+) {
+  trackEvent(
+    "slot_unavailable_tap",
+    { court_config_id: courtConfigId, hour, date, sport },
+    "WAITLIST",
+  );
+}
+
+export function trackWaitlistJoined(
+  courtConfigId: string,
+  hour: number,
+  date: string,
+  sport: string,
+) {
+  trackEvent(
+    "waitlist_joined",
+    { court_config_id: courtConfigId, hour, date, sport },
+    "WAITLIST",
+  );
+}
+
+export function trackWaitlistJoinFailed(
+  courtConfigId: string,
+  hour: number,
+  reason: string,
+) {
+  trackEvent(
+    "waitlist_join_failed",
+    { court_config_id: courtConfigId, hour, reason },
+    "WAITLIST",
+  );
+}
+
+export function trackWaitlistCancelled(waitlistId: string) {
+  trackEvent("waitlist_cancelled", { waitlist_id: waitlistId }, "WAITLIST");
+}
+
+export function trackWaitlistRowBookNow(waitlistId: string) {
+  trackEvent("waitlist_book_now_click", { waitlist_id: waitlistId }, "WAITLIST");
+}
+
+// ─── Navigation ──────────────────────────────────────────────────
+// Fires once per route change (client-side). Wired in
+// app/layout.tsx via a small client-only PageViewTracker. Don't
+// call this from feature code — let the tracker handle it.
+
+export function trackPageView(path: string, referrerPath?: string) {
+  trackEvent(
+    "page_view",
+    { path, referrer_path: referrerPath },
+    "NAVIGATION",
+  );
+}
+
+// ─── Admin ───────────────────────────────────────────────────────
+
+export function trackAdminLogin(adminUsername: string) {
+  trackEvent("admin_login", { admin_username: adminUsername }, "ADMIN");
+}
+
+export function trackAdminAction(
+  action: string,
+  bookingId?: string,
+  meta?: Record<string, string | number | boolean | undefined>,
+) {
+  trackEvent(
+    "admin_action",
+    { action, booking_id: bookingId, ...meta },
+    "ADMIN",
+  );
+}

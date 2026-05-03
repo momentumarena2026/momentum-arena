@@ -28,6 +28,11 @@ import { bookingApi, type SlotAvailability } from "../../lib/booking";
 import { ApiError } from "../../lib/api";
 import { waitlistApi } from "../../lib/waitlist";
 import {
+  trackSlotUnavailableTap,
+  trackWaitlistJoinFailed,
+  trackWaitlistJoined,
+} from "../../lib/analytics";
+import {
   formatHourRangeCompact,
   formatHoursAsRanges,
   formatRupees,
@@ -685,6 +690,10 @@ function WaitlistSheet({
   if (visible && lastKey !== sheetKey) {
     setLastKey(sheetKey);
     if (joined) setJoined(false);
+    // Funnel-entry event — fires for every fresh slot the sheet
+    // opens for. Pairs 1:1 with the waitlist_joined event below
+    // so the dashboard can compute tap→join conversion.
+    trackSlotUnavailableTap(courtConfigId, hour, date, sport);
   }
 
   const handleJoin = async () => {
@@ -699,11 +708,14 @@ function WaitlistSheet({
       });
       if (res.success) {
         setJoined(true);
+        trackWaitlistJoined(courtConfigId, hour, date, sport);
       } else {
+        trackWaitlistJoinFailed(courtConfigId, hour, res.error || "unknown");
         Alert.alert("Couldn't join the waitlist", res.error || "Try again.");
       }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Network error.";
+      trackWaitlistJoinFailed(courtConfigId, hour, msg);
       Alert.alert("Couldn't join the waitlist", msg);
     } finally {
       setJoining(false);

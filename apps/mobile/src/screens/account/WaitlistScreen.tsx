@@ -27,6 +27,10 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { waitlistApi, type WaitlistEntry } from "../../lib/waitlist";
 import {
+  trackWaitlistCancelled,
+  trackWaitlistRowBookNow,
+} from "../../lib/analytics";
+import {
   formatDate,
   formatHourRangeCompact,
   sportEmoji,
@@ -53,7 +57,8 @@ export function WaitlistScreen() {
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => waitlistApi.cancel(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      trackWaitlistCancelled(id);
       void queryClient.invalidateQueries({ queryKey: ["waitlist", "mine"] });
     },
     onError: (err: unknown) => {
@@ -82,6 +87,7 @@ export function WaitlistScreen() {
 
   const handleBookNow = useCallback(
     (entry: WaitlistEntry) => {
+      trackWaitlistRowBookNow(entry.id);
       // Jump into the regular booking flow on the same court so the
       // user can lock + checkout. The slot grid will refetch
       // availability and reveal the now-open hour.

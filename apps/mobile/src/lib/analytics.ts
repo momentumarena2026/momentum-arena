@@ -139,24 +139,61 @@ export function trackSignOutClick() {
   trackEvent("sign_out_click", {}, "AUTH");
 }
 
-// ─── Waitlist ────────────────────────────────────────────────────
+// ─── Waitlist — kept name+arg-shape identical to lib/analytics.ts on web
+//                so funnel queries are platform-agnostic.
 
-export function trackSlotUnavailableTap(courtConfigId: string, hour: number, date: string) {
+export function trackSlotUnavailableTap(
+  courtConfigId: string,
+  hour: number,
+  date: string,
+  sport: string,
+) {
   trackEvent(
     "slot_unavailable_tap",
-    { court_config_id: courtConfigId, hour, date },
+    { court_config_id: courtConfigId, hour, date, sport },
     "WAITLIST",
   );
 }
-export function trackWaitlistJoined(courtConfigId: string, hour: number, date: string) {
+export function trackWaitlistJoined(
+  courtConfigId: string,
+  hour: number,
+  date: string,
+  sport: string,
+) {
   trackEvent(
     "waitlist_joined",
-    { court_config_id: courtConfigId, hour, date },
+    { court_config_id: courtConfigId, hour, date, sport },
     "WAITLIST",
   );
 }
-export function trackWaitlistTapped(waitlistId: string) {
-  trackEvent("waitlist_notification_tapped", { waitlist_id: waitlistId }, "WAITLIST");
+export function trackWaitlistJoinFailed(
+  courtConfigId: string,
+  hour: number,
+  reason: string,
+) {
+  trackEvent(
+    "waitlist_join_failed",
+    { court_config_id: courtConfigId, hour, reason },
+    "WAITLIST",
+  );
+}
+export function trackWaitlistCancelled(waitlistId: string) {
+  trackEvent("waitlist_cancelled", { waitlist_id: waitlistId }, "WAITLIST");
+}
+export function trackWaitlistRowBookNow(waitlistId: string) {
+  trackEvent(
+    "waitlist_book_now_click",
+    { waitlist_id: waitlistId },
+    "WAITLIST",
+  );
+}
+/** Fired when the user taps the slot_available push notification. */
+export function trackWaitlistNotificationTapped(waitlistId?: string) {
+  trackEvent(
+    "waitlist_notification_tapped",
+    { waitlist_id: waitlistId },
+    "WAITLIST",
+  );
 }
 
 // ─── Cafe ────────────────────────────────────────────────────────

@@ -11,6 +11,11 @@ import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { LoginModal } from "@/components/login-modal";
 import { joinWaitlist } from "@/actions/waitlist";
+import {
+  trackSlotUnavailableTap,
+  trackWaitlistJoinFailed,
+  trackWaitlistJoined,
+} from "@/lib/analytics";
 import { formatHourRangeCompact } from "@/lib/court-config";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +52,14 @@ export function WaitlistDialog({
   if (slotKey !== lastSlotKey) {
     setLastSlotKey(slotKey);
     setJoined(false);
+    // Fire the funnel-entry event the moment the dialog opens for a
+    // particular slot — drives the "tapped → joined" conversion rate
+    // in /admin/analytics/funnels. We do this here (not in the
+    // parent slot grid) so we capture EVERY open including same-slot
+    // re-opens; the join event below pairs it 1:1.
+    if (isOpen) {
+      trackSlotUnavailableTap(courtConfigId, hour, date, sport);
+    }
   }
 
   const handleEsc = useCallback(
@@ -72,10 +85,16 @@ export function WaitlistDialog({
       });
       if (res.success) {
         setJoined(true);
+        trackWaitlistJoined(courtConfigId, hour, date, sport);
         toast.success("You're on the waitlist", {
           description: "We'll ping you on push and SMS if it opens up.",
         });
       } else {
+        trackWaitlistJoinFailed(
+          courtConfigId,
+          hour,
+          res.error || "unknown",
+        );
         toast.error(res.error || "Couldn't join the waitlist");
       }
     });

@@ -1,0 +1,53 @@
+name: Cron — Analytics Rollup Metrics
+
+# Hourly trigger for /api/cron/rollup-metrics. Vercel Hobby caps cron
+# expressions at "once per day", so we run the hourly cadence from
+# GitHub Actions (free tier covers >>720 runs/month). The rollup
+# writer is idempotent — late or duplicated runs only refresh the
+# affected hour buckets.
+#
+# Reuses the same secrets as cron-send-reminders.yml (PRODUCTION_URL,
+# CRON_SECRET) — no new setup needed.
+
+on:
+  schedule:
+    # Run at :05 of every hour, UTC. The :05 (vs :00) gives the just-
+    # closed hour a few minutes for any in-flight requests to land
+    # in the AnalyticsEvent table before we count them.
+    - cron: "5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: POST /api/cron/rollup-metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify required secrets
+        run: |
+          if [ -z "${{ secrets.PRODUCTION_URL }}" ]; then
+            echo "::error::PRODUCTION_URL secret missing — add it under repo Settings → Secrets → Actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::CRON_SECRET secret missing — add it under repo Settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "Secrets present (URL length: ${#URL}, secret length: ${#SECRET})"
+        env:
+          URL: ${{ secrets.PRODUCTION_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+
+      - name: Trigger rollup-metrics
+        env:
+          URL: ${{ secrets.PRODUCTION_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fS --max-time 60 \
+            -H "Authorization: Bearer $SECRET" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$URL/api/cron/rollup-metrics"
+          echo
+          echo "OK — rollup cron acknowledged."

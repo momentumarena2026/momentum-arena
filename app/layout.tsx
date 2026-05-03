@@ -12,6 +12,7 @@ import { auth } from "@/lib/auth";
 import { ChatWidgetWrapper } from "@/components/chatbot/chat-widget-wrapper";
 import { BottomNav } from "@/components/bottom-nav";
 import { GoogleAnalytics } from "@/components/google-analytics";
+import { PageViewTracker } from "@/components/page-view-tracker";
 import "./globals.css";
 
 
@@ -115,6 +116,7 @@ export default async function RootLayout({
         className={`antialiased bg-black text-white ${michroma.className}`}
       >
         <SessionProvider session={session}>
+          <PageViewTracker />
           {children}
           <BottomNav />
           <ChatWidgetWrapper />

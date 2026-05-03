@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cancelWaitlist } from "@/actions/waitlist";
+import { trackWaitlistCancelled, trackWaitlistRowBookNow } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
 export function WaitlistRowActions({
@@ -27,6 +28,7 @@ export function WaitlistRowActions({
     start(async () => {
       const res = await cancelWaitlist(waitlistId);
       if (res.success) {
+        trackWaitlistCancelled(waitlistId);
         toast.success("Removed from waitlist");
         router.refresh();
       } else {
@@ -44,6 +46,7 @@ export function WaitlistRowActions({
       {isNotified && (
         <Link
           href={bookHref}
+          onClick={() => trackWaitlistRowBookNow(waitlistId)}
           className={cn(
             buttonVariants(),
             "bg-emerald-600 text-white hover:bg-emerald-700",

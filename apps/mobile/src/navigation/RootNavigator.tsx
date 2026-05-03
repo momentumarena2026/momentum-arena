@@ -8,6 +8,10 @@ import {
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../providers/AuthProvider";
 import { installPushTapHandlers } from "../lib/push";
+import {
+  trackPageView,
+  trackWaitlistNotificationTapped,
+} from "../lib/analytics";
 import { colors } from "../theme";
 import { MainNavigator } from "./MainNavigator";
 import { PhoneScreen } from "../screens/auth/PhoneScreen";
@@ -87,6 +91,7 @@ export function RootNavigator() {
           // entry that's been notified (a single freeing event can
           // unblock several entries at once when the user's range
           // covers multiple hours). They tap "Book now" from there.
+          trackWaitlistNotificationTapped(payload.raw?.waitlistId);
           navigationRef.navigate("Main", {
             screen: "Account",
             params: {
@@ -139,7 +144,22 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navTheme}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navTheme}
+      // Stamp a page_view event on every screen transition. Fired as
+      // `route_name` (not URL — there's no URL on mobile) so the
+      // dashboard can group by screen the same way the web tracker
+      // groups by pathname.
+      onReady={() => {
+        const route = navigationRef.getCurrentRoute()?.name;
+        if (route) trackPageView(route);
+      }}
+      onStateChange={() => {
+        const route = navigationRef.getCurrentRoute()?.name;
+        if (route) trackPageView(route);
+      }}
+    >
       <Stack.Navigator>
         <Stack.Screen
           name="Main"

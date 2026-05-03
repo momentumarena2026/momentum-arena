@@ -6,6 +6,14 @@
       "schedule": "0 3 * * *"
     },
     {
+      "path": "/api/cron/analytics-retention",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/cohort-backfill",
+      "schedule": "30 4 * * *"
+    },
+    {
       "path": "/api/cron/send-reminders",
       "schedule": "0 8 * * *"
     },
