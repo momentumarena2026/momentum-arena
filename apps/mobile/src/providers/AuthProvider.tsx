@@ -10,6 +10,12 @@ import {
 import { authApi } from "../lib/auth";
 import { setUnauthorizedHandler } from "../lib/api";
 import { tokenStorage, userCache, type CachedUser } from "../lib/storage";
+import {
+  flushAnalytics,
+  rotateAnalyticsSession,
+  trackLoginSuccess,
+  trackSignOutClick,
+} from "../lib/analytics";
 import { enablePushAfterLogin, disablePushBeforeLogout } from "../lib/push";
 
 type AuthState =
@@ -71,9 +77,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // awaited — the OS permission prompt shouldn't block the UI
     // transition into the signed-in app.
     void enablePushAfterLogin();
+    // Stamp the login + flush so the next analytics batch lands
+    // attributed to the new user. The server backfills the session
+    // and prior anon events on the same flush.
+    trackLoginSuccess();
+    void flushAnalytics();
   }, []);
 
   const signOut = useCallback(async () => {
+    // Stamp + flush BEFORE we drop the JWT so the sign-out event is
+    // attributed to the OUTGOING user. Then rotate the analytics
+    // session so the next user on the same device starts fresh.
+    trackSignOutClick();
+    await flushAnalytics();
+    rotateAnalyticsSession();
     // Unregister the device FIRST so a stolen-or-borrowed phone
     // doesn't keep getting pushes for the previous owner. If this
     // fails (network), proceed anyway — the server falls back to

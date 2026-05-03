@@ -2,6 +2,7 @@
 
 import { signOut } from "next-auth/react";
 import { trackSignOutClick } from "@/lib/analytics";
+import { flush as flushAnalytics, rotateSession } from "@/lib/analytics-session";
 
 export function SignOutButton({
   className,
@@ -16,6 +17,10 @@ export function SignOutButton({
     <button
       onClick={async () => {
         trackSignOutClick();
+        // Flush before rotating so the sign-out event itself
+        // gets attributed to the OUTGOING user.
+        await flushAnalytics();
+        rotateSession();
         if (isAdmin) {
           // Admin uses separate auth endpoint — clear admin cookie
           await fetch("/api/admin-auth/signout", { method: "POST" });

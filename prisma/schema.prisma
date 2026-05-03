@@ -37,9 +37,9 @@ enum CourtZone {
 }
 
 enum BookingStatus {
-  PENDING      // UPI/cash committed, awaiting admin verification
-  CONFIRMED    // paid & verified — slot is booked
-  CANCELLED    // admin-cancelled, refunded, or UPI rejected
+  PENDING // UPI/cash committed, awaiting admin verification
+  CONFIRMED // paid & verified — slot is booked
+  CANCELLED // admin-cancelled, refunded, or UPI rejected
 }
 
 enum PaymentMethod {
@@ -56,15 +56,15 @@ enum PaymentGateway {
 }
 
 model PaymentGatewayConfig {
-  id              String         @id @default("singleton")
-  activeGateway   PaymentGateway @default(PHONEPE)
+  id             String         @id @default("singleton")
+  activeGateway  PaymentGateway @default(PHONEPE)
   // Per-method enablement flags. All default on so existing installs keep
   // their behavior. Admin can toggle any of these off via the Payment
   // Settings page. At least one must stay enabled (enforced server-side).
-  onlineEnabled   Boolean        @default(true)
-  upiQrEnabled    Boolean        @default(true)
-  advanceEnabled  Boolean        @default(true)
-  updatedAt       DateTime       @updatedAt
+  onlineEnabled  Boolean        @default(true)
+  upiQrEnabled   Boolean        @default(true)
+  advanceEnabled Boolean        @default(true)
+  updatedAt      DateTime       @updatedAt
 }
 
 enum PaymentStatus {
@@ -157,22 +157,22 @@ enum PointsTransactionType {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   name          String?
-  email         String?   @unique
-  phone         String?   @unique
+  email         String?     @unique
+  phone         String?     @unique
   emailVerified DateTime?
   phoneVerified DateTime?
   image         String?
   passwordHash  String?
   passwordSetAt DateTime?
-  role          UserRole  @default(CUSTOMER)
+  role          UserRole    @default(CUSTOMER)
   accounts      Account[]
   sessions      Session[]
   bookings      Booking[]
   slotHolds     SlotHold[]
   cafeOrders    CafeOrder[]
-  referralCode  String?   @unique
+  referralCode  String?     @unique
   referredBy    String?
   birthday      DateTime?
 
@@ -197,9 +197,19 @@ model User {
   // returns `messaging/registration-token-not-registered`.
   pushDevices PushDevice[]
 
-  deletedAt     DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  // First-party analytics — every event the user fires (web + mobile)
+  // and every session they've been part of. Anonymous events have
+  // null userId until sign-in, then we backfill via the
+  // AnalyticsSession's userId once the auth event lands.
+  analyticsEvents   AnalyticsEvent[]
+  analyticsSessions AnalyticsSession[]
+  // Cohort assignment — frozen at first event. Used for week-on-week
+  // and month-on-month retention queries in the analytics dashboard.
+  cohort            UserCohort?        @relation("UserCohortFK")
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Account {
@@ -239,25 +249,25 @@ model VerificationToken {
 }
 
 model RateLimit {
-  id         String   @id @default(cuid())
-  identifier String
-  action     String
-  count      Int      @default(1)
+  id          String   @id @default(cuid())
+  identifier  String
+  action      String
+  count       Int      @default(1)
   windowStart DateTime @default(now())
 
   @@unique([identifier, action])
 }
 
 model CourtConfig {
-  id        String      @id @default(cuid())
-  sport     Sport
-  size      ConfigSize
-  label     String
-  position  String
-  widthFt   Int
-  lengthFt  Int         @default(90)
-  zones     CourtZone[]
-  isActive  Boolean     @default(true)
+  id       String      @id @default(cuid())
+  sport    Sport
+  size     ConfigSize
+  label    String
+  position String
+  widthFt  Int
+  lengthFt Int         @default(90)
+  zones    CourtZone[]
+  isActive Boolean     @default(true)
 
   bookings          Booking[]
   slotHolds         SlotHold[]
@@ -284,7 +294,7 @@ model SlotHold {
   courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
   date          DateTime    @db.Date
   hours         Int[]
-  slotPrices    Json        // [{ hour: number, price: number }, ...]
+  slotPrices    Json // [{ hour: number, price: number }, ...]
   totalAmount   Int
   expiresAt     DateTime
 
@@ -301,9 +311,9 @@ model SlotHold {
   // booking is created (createBookingFromHold) we can record the usage on
   // the Booking row and create a CouponUsage link. None of these are
   // authoritative — they are just a carrier from checkout to booking.
-  couponId         String?
-  couponCode       String?
-  discountAmount   Int?
+  couponId       String?
+  couponCode     String?
+  discountAmount Int?
 
   // Set true when the hold was created through the unified "Half Court
   // (40x90)" customer flow rather than a direct LEFT/RIGHT selection.
@@ -323,16 +333,16 @@ model SlotHold {
 }
 
 model Booking {
-  id            String        @id @default(cuid())
-  userId        String
-  user          User          @relation(fields: [userId], references: [id])
-  courtConfigId String
-  courtConfig   CourtConfig   @relation(fields: [courtConfigId], references: [id])
-  date          DateTime      @db.Date
-  status        BookingStatus @default(PENDING)
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id])
+  courtConfigId  String
+  courtConfig    CourtConfig   @relation(fields: [courtConfigId], references: [id])
+  date           DateTime      @db.Date
+  status         BookingStatus @default(PENDING)
   totalAmount    Int
   originalAmount Int?
-  discountAmount Int          @default(0)
+  discountAmount Int           @default(0)
   discountCodeId String?
 
   rewardPointsUsed   Int @default(0)
@@ -354,8 +364,8 @@ model Booking {
   editHistory BookingEditHistory[]
 
   // QR check-in
-  checkedInAt  DateTime?
-  qrToken      String?   @unique @default(cuid())
+  checkedInAt DateTime?
+  qrToken     String?   @unique @default(cuid())
 
   // Booking reminders
   reminder24SentAt DateTime?
@@ -367,8 +377,8 @@ model Booking {
   reminder1SentAt  DateTime?
 
   // New feature relations
-  feedback         Feedback?
-  equipmentRentals EquipmentRental[]
+  feedback           Feedback?
+  equipmentRentals   EquipmentRental[]
   recurringBookingId String?
   recurringBooking   RecurringBooking? @relation(fields: [recurringBookingId], references: [id])
 
@@ -400,12 +410,12 @@ model BookingSlot {
 }
 
 model Payment {
-  id                String        @id @default(cuid())
-  bookingId         String        @unique
-  booking           Booking       @relation(fields: [bookingId], references: [id])
-  method            PaymentMethod
-  status            PaymentStatus @default(PENDING)
-  amount            Int
+  id        String        @id @default(cuid())
+  bookingId String        @unique
+  booking   Booking       @relation(fields: [bookingId], references: [id])
+  method    PaymentMethod
+  status    PaymentStatus @default(PENDING)
+  amount    Int
 
   razorpayOrderId   String?
   razorpayPaymentId String?
@@ -421,9 +431,9 @@ model Payment {
   utrVerifiedAt  DateTime?
   utrExpiresAt   DateTime?
 
-  isPartialPayment Boolean @default(false)
-  advanceAmount    Int?
-  remainingAmount  Int?
+  isPartialPayment        Boolean        @default(false)
+  advanceAmount           Int?
+  remainingAmount         Int?
   // For partial payments: the method(s) used to collect the venue-side
   // remainder. `method` above continues to represent how the advance was
   // paid.
@@ -530,22 +540,22 @@ model PromoBanner {
 }
 
 model DiscountCode {
-  id              String        @id @default(cuid())
-  code            String        @unique
-  type            DiscountType
-  value           Int
-  maxUses         Int?
-  usedCount       Int           @default(0)
-  maxUsesPerUser  Int           @default(1)
+  id               String       @id @default(cuid())
+  code             String       @unique
+  type             DiscountType
+  value            Int
+  maxUses          Int?
+  usedCount        Int          @default(0)
+  maxUsesPerUser   Int          @default(1)
   minBookingAmount Int?
-  sportFilter     Sport[]
-  validFrom       DateTime
-  validUntil      DateTime
-  isSystemCode    Boolean       @default(false)
-  isActive        Boolean       @default(true)
-  createdBy       String
+  sportFilter      Sport[]
+  validFrom        DateTime
+  validUntil       DateTime
+  isSystemCode     Boolean      @default(false)
+  isActive         Boolean      @default(true)
+  createdBy        String
 
-  usages    DiscountUsage[]
+  usages DiscountUsage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -600,12 +610,12 @@ model AdminUser {
 }
 
 model BookingEditHistory {
-  id            String   @id @default(cuid())
+  id            String  @id @default(cuid())
   bookingId     String
-  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking       Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   adminId       String
-  adminUsername  String
-  editType      String   // CREATED | SLOTS_CHANGED | DATE_CHANGED | COURT_CHANGED
+  adminUsername String
+  editType      String // CREATED | SLOTS_CHANGED | DATE_CHANGED | COURT_CHANGED
 
   previousDate          DateTime? @db.Date
   newDate               DateTime? @db.Date
@@ -647,12 +657,12 @@ model CafeItem {
   name        String
   description String?
   category    CafeItemCategory
-  price       Int              // in paise
+  price       Int // in paise
   image       String?
   isVeg       Boolean          @default(true)
   isAvailable Boolean          @default(true)
   sortOrder   Int              @default(0)
-  tags        String[]         // "Bestseller", "New", "Spicy", etc.
+  tags        String[] // "Bestseller", "New", "Spicy", etc.
 
   orderItems CafeOrderItem[]
 
@@ -663,24 +673,24 @@ model CafeItem {
 }
 
 model CafeOrder {
-  id               String          @id @default(cuid())
-  userId           String?
-  user             User?           @relation(fields: [userId], references: [id])
-  guestName        String?
-  guestPhone       String?
-  orderNumber      String          @unique
-  status           CafeOrderStatus @default(PENDING)
-  totalAmount      Int
-  originalAmount   Int?
-  discountAmount   Int             @default(0)
-  discountCodeId   String?
-  note             String?
-  tableNumber      Int?
-  rewardPointsUsed   Int @default(0)
-  rewardPointsEarned Int @default(0)
+  id                 String          @id @default(cuid())
+  userId             String?
+  user               User?           @relation(fields: [userId], references: [id])
+  guestName          String?
+  guestPhone         String?
+  orderNumber        String          @unique
+  status             CafeOrderStatus @default(PENDING)
+  totalAmount        Int
+  originalAmount     Int?
+  discountAmount     Int             @default(0)
+  discountCodeId     String?
+  note               String?
+  tableNumber        Int?
+  rewardPointsUsed   Int             @default(0)
+  rewardPointsEarned Int             @default(0)
 
   createdByAdminId String?
-  createdByAdmin   AdminUser?      @relation("CafeOrderCreatedByAdmin", fields: [createdByAdminId], references: [id])
+  createdByAdmin   AdminUser? @relation("CafeOrderCreatedByAdmin", fields: [createdByAdminId], references: [id])
 
   items       CafeOrderItem[]
   payment     CafePayment?
@@ -696,26 +706,26 @@ model CafeOrder {
 }
 
 model CafeOrderItem {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   orderId    String
   order      CafeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   cafeItemId String
   cafeItem   CafeItem  @relation(fields: [cafeItemId], references: [id])
-  itemName   String    // snapshot of name at time of order
+  itemName   String // snapshot of name at time of order
   quantity   Int
-  unitPrice  Int       // paise
-  totalPrice Int       // quantity * unitPrice
+  unitPrice  Int // paise
+  totalPrice Int // quantity * unitPrice
 
   @@index([orderId])
 }
 
 model CafePayment {
-  id                String        @id @default(cuid())
-  orderId           String        @unique
-  order             CafeOrder     @relation(fields: [orderId], references: [id])
-  method            PaymentMethod
-  status            PaymentStatus @default(PENDING)
-  amount            Int
+  id      String        @id @default(cuid())
+  orderId String        @unique
+  order   CafeOrder     @relation(fields: [orderId], references: [id])
+  method  PaymentMethod
+  status  PaymentStatus @default(PENDING)
+  amount  Int
 
   razorpayOrderId   String?
   razorpayPaymentId String?
@@ -751,11 +761,11 @@ model CafeDiscount {
   id             String             @id @default(cuid())
   code           String             @unique
   type           DiscountType
-  value          Int                // percentage (basis points) or flat (paise)
+  value          Int // percentage (basis points) or flat (paise)
   maxUses        Int?
   usedCount      Int                @default(0)
   maxUsesPerUser Int                @default(1)
-  minOrderAmount Int?               // minimum order in paise
+  minOrderAmount Int? // minimum order in paise
   categoryFilter CafeItemCategory[]
   validFrom      DateTime
   validUntil     DateTime
@@ -787,8 +797,8 @@ model CafeOrderEditHistory {
   orderId       String
   order         CafeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   adminId       String
-  adminUsername  String
-  editType      String    // ITEMS_ADDED | ITEMS_REMOVED | QUANTITY_CHANGED | STATUS_CHANGED | ORDER_CANCELLED | ORDER_CREATED
+  adminUsername String
+  editType      String // ITEMS_ADDED | ITEMS_REMOVED | QUANTITY_CHANGED | STATUS_CHANGED | ORDER_CANCELLED | ORDER_CREATED
 
   previousItems  Json?
   newItems       Json?
@@ -806,17 +816,17 @@ model CafeOrderEditHistory {
 // ===========================
 
 model Coupon {
-  id              String             @id @default(cuid())
-  code            String             @unique
-  description     String?
-  scope           CouponScope        @default(BOTH)
-  type            DiscountType
-  value           Int                // basis points (percentage) or paise (flat)
-  maxDiscount     Int?               // cap on discount amount in paise (for percentage)
-  maxUses         Int?               // null = unlimited
-  usedCount       Int                @default(0)
-  maxUsesPerUser  Int                @default(1)
-  minAmount       Int?               // minimum order/booking amount in paise
+  id             String       @id @default(cuid())
+  code           String       @unique
+  description    String?
+  scope          CouponScope  @default(BOTH)
+  type           DiscountType
+  value          Int // basis points (percentage) or paise (flat)
+  maxDiscount    Int? // cap on discount amount in paise (for percentage)
+  maxUses        Int? // null = unlimited
+  usedCount      Int          @default(0)
+  maxUsesPerUser Int          @default(1)
+  minAmount      Int? // minimum order/booking amount in paise
 
   // Filters
   sportFilter     Sport[]
@@ -824,15 +834,15 @@ model Coupon {
   userGroupFilter UserGroupType[]
 
   // Behavior
-  isStackable     Boolean            @default(false)
-  stackGroup      String?
-  isPublic        Boolean            @default(true)   // visible on customer coupon page
-  isSystemCode    Boolean            @default(false)  // auto-applied (new user, referral, etc.)
+  isStackable  Boolean @default(false)
+  stackGroup   String?
+  isPublic     Boolean @default(true) // visible on customer coupon page
+  isSystemCode Boolean @default(false) // auto-applied (new user, referral, etc.)
 
-  validFrom       DateTime
-  validUntil      DateTime
-  isActive        Boolean            @default(true)
-  createdBy       String
+  validFrom  DateTime
+  validUntil DateTime
+  isActive   Boolean  @default(true)
+  createdBy  String
 
   conditions CouponCondition[]
   usages     CouponUsage[]
@@ -858,7 +868,7 @@ model CouponCondition {
   couponId       String
   coupon         Coupon              @relation(fields: [couponId], references: [id], onDelete: Cascade)
   conditionType  CouponConditionType
-  conditionValue String              // JSON-encoded value
+  conditionValue String // JSON-encoded value
 
   @@index([couponId])
 }
@@ -889,17 +899,17 @@ model CouponUsage {
 // (CouponEligibleGroup).
 
 model UserGroup {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   description String?
 
   // Soft-delete so coupons referencing the group keep working until
   // the admin explicitly cleans them up. `members` and `coupons` are
   // both Cascade-deleted on hard delete (rare; mostly for tests).
-  deletedAt   DateTime?
-  createdBy   String?  // admin userId — nullable so seed data is fine
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  deletedAt DateTime?
+  createdBy String? // admin userId — nullable so seed data is fine
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   members UserGroupMember[]
   coupons CouponEligibleGroup[]
@@ -951,13 +961,13 @@ model CouponEligibleGroup {
 // ===========================
 
 model RewardPointsBalance {
-  id             String      @id @default(cuid())
-  userId         String      @unique
-  user           User        @relation(fields: [userId], references: [id])
-  totalEarned    Int         @default(0)
-  totalRedeemed  Int         @default(0)
-  currentBalance Int         @default(0)
-  tier           RewardTier  @default(BRONZE)
+  id             String     @id @default(cuid())
+  userId         String     @unique
+  user           User       @relation(fields: [userId], references: [id])
+  totalEarned    Int        @default(0)
+  totalRedeemed  Int        @default(0)
+  currentBalance Int        @default(0)
+  tier           RewardTier @default(BRONZE)
 
   transactions PointsTransaction[]
 
@@ -971,7 +981,7 @@ model PointsTransaction {
   balance     RewardPointsBalance   @relation(fields: [balanceId], references: [id])
   userId      String
   type        PointsTransactionType
-  points      Int                   // positive = earn, negative = redeem
+  points      Int // positive = earn, negative = redeem
   description String
   bookingId   String?
   cafeOrderId String?
@@ -985,31 +995,31 @@ model PointsTransaction {
 }
 
 model RewardConfig {
-  id                 String @id @default(cuid())
+  id String @id @default(cuid())
 
   // Earn rates (points per 100 paise / ₹1)
-  sportsEarnRate     Int    @default(1)
-  cafeEarnRate       Int    @default(2)
-  referralBonus      Int    @default(100)
+  sportsEarnRate Int @default(1)
+  cafeEarnRate   Int @default(2)
+  referralBonus  Int @default(100)
 
   // Redemption
-  pointsPerRupee     Int    @default(10)   // 10 points = ₹1
-  minRedeemPoints    Int    @default(100)
-  maxRedeemPercent   Int    @default(5000) // 5000 basis points = 50%
+  pointsPerRupee   Int @default(10) // 10 points = ₹1
+  minRedeemPoints  Int @default(100)
+  maxRedeemPercent Int @default(5000) // 5000 basis points = 50%
 
   // Tier thresholds (lifetime earned points)
-  silverThreshold    Int    @default(500)
-  goldThreshold      Int    @default(2000)
-  platinumThreshold  Int    @default(5000)
+  silverThreshold   Int @default(500)
+  goldThreshold     Int @default(2000)
+  platinumThreshold Int @default(5000)
 
   // Tier multipliers (basis points: 10000 = 1x)
-  bronzeMultiplier   Int    @default(10000) // 1x
-  silverMultiplier   Int    @default(12500) // 1.25x
-  goldMultiplier     Int    @default(15000) // 1.5x
-  platinumMultiplier Int    @default(20000) // 2x
+  bronzeMultiplier   Int @default(10000) // 1x
+  silverMultiplier   Int @default(12500) // 1.25x
+  goldMultiplier     Int @default(15000) // 1.5x
+  platinumMultiplier Int @default(20000) // 2x
 
   // Expiry
-  pointsExpiryDays  Int    @default(365)   // 0 = no expiry
+  pointsExpiryDays Int @default(365) // 0 = no expiry
 
   updatedAt DateTime @updatedAt
 }
@@ -1024,6 +1034,7 @@ model CafeSettings {
 
   updatedAt DateTime @updatedAt
 }
+
 // ===========================
 // QR CHECK-IN
 // ===========================
@@ -1040,7 +1051,7 @@ model Feedback {
   booking   Booking  @relation(fields: [bookingId], references: [id])
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
-  rating    Int      // 1-5
+  rating    Int // 1-5
   comment   String?
   tags      String[] // e.g. ["great_court", "clean", "staff_friendly"]
   createdAt DateTime @default(now())
@@ -1089,7 +1100,7 @@ model Equipment {
   id             String            @id @default(cuid())
   name           String
   sport          Sport?
-  pricePerHour   Int               // paise
+  pricePerHour   Int // paise
   totalUnits     Int               @default(1)
   availableUnits Int               @default(1)
   isActive       Boolean           @default(true)
@@ -1106,7 +1117,7 @@ model EquipmentRental {
   equipmentId String
   equipment   Equipment @relation(fields: [equipmentId], references: [id])
   quantity    Int       @default(1)
-  totalPrice  Int       // paise
+  totalPrice  Int // paise
   createdAt   DateTime  @default(now())
 
   @@index([bookingId])
@@ -1118,32 +1129,32 @@ model EquipmentRental {
 // ===========================
 
 model RecurringConfig {
-  id        String @id @default(cuid())
+  id String @id @default(cuid())
 
   // Weekly discount tiers stored as JSON: [{ weeks: 4, discountPercent: 5 }, { weeks: 8, discountPercent: 10 }, ...]
   // Sorted by weeks ascending
-  tiers     Json   @default("[]")
+  tiers Json @default("[]")
 
   // Allowed recurring days (0=Sun … 6=Sat). Empty = all days allowed
   allowedDays Json @default("[0,1,2,3,4,5,6]")
 
   // Max weeks a customer can book recurring
-  maxWeeks  Int    @default(12)
+  maxWeeks Int @default(12)
 
   // Min weeks to qualify for recurring
-  minWeeks  Int    @default(2)
+  minWeeks Int @default(2)
 
   // Daily recurring discount tiers: [{ days: 5, discountPercent: 3 }, { days: 10, discountPercent: 7 }, ...]
   dailyTiers Json @default("[]")
 
   // Max consecutive days allowed for daily recurring
-  maxDays   Int    @default(30)
+  maxDays Int @default(30)
 
   // Min days for daily recurring
-  minDays   Int    @default(2)
+  minDays Int @default(2)
 
   // Whether recurring bookings are enabled
-  enabled   Boolean @default(true)
+  enabled Boolean @default(true)
 
   updatedAt DateTime @updatedAt
 }
@@ -1163,9 +1174,9 @@ model RecurringBooking {
   courtConfig   CourtConfig     @relation(fields: [courtConfigId], references: [id])
   startHour     Int
   endHour       Int
-  dayOfWeek     Int             // 0=Sun … 6=Sat
+  dayOfWeek     Int // 0=Sun … 6=Sat
   startDate     DateTime
-  endDate       DateTime?       // null = indefinite (max 3 months enforced in code)
+  endDate       DateTime? // null = indefinite (max 3 months enforced in code)
   mode          String          @default("weekly") // "weekly" or "daily"
   status        RecurringStatus @default(ACTIVE)
   bookings      Booking[]
@@ -1181,86 +1192,86 @@ model RecurringBooking {
 // ===========================
 
 model Generator {
-  id          String   @id          // manually assigned e.g. "xgen_2026"
-  name        String   // e.g. "Generator 1"
-  isActive    Boolean  @default(true)
+  id       String  @id // manually assigned e.g. "xgen_2026"
+  name     String // e.g. "Generator 1"
+  isActive Boolean @default(true)
 
-  fuelLogs    GeneratorFuelLog[]
-  oilChanges  GeneratorOilChange[]
-  runLogs     GeneratorRunLog[]
+  fuelLogs   GeneratorFuelLog[]
+  oilChanges GeneratorOilChange[]
+  runLogs    GeneratorRunLog[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model GeneratorConfig {
-  id                    String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  petrolPricePerLitre   Int      @default(9500)   // paise — ₹95
-  oilPricePerLitre      Int      @default(29500)  // paise — ₹295
-  consumptionRate       Float    @default(2.0)     // litres per hour
+  petrolPricePerLitre Int   @default(9500) // paise — ₹95
+  oilPricePerLitre    Int   @default(29500) // paise — ₹295
+  consumptionRate     Float @default(2.0) // litres per hour
 
   // Oil change schedule (in running hours)
-  firstOilChangeHours   Int      @default(20)
-  secondOilChangeHours  Int      @default(50)    // interval after first
-  regularOilChangeHours Int      @default(100)   // interval after second, repeating
+  firstOilChangeHours   Int @default(20)
+  secondOilChangeHours  Int @default(50) // interval after first
+  regularOilChangeHours Int @default(100) // interval after second, repeating
 
   // Alert threshold
-  oilChangeAlertHours   Int      @default(10)    // send email when X hrs remain
+  oilChangeAlertHours Int @default(10) // send email when X hrs remain
 
   // Notification emails (comma-separated)
-  notificationEmails    String   @default("y12.nakul@gmail.com,tangrianand@gmail.com,saxenautkarsh193@gmail.com,momentumarena2026@gmail.com")
+  notificationEmails String @default("y12.nakul@gmail.com,tangrianand@gmail.com,saxenautkarsh193@gmail.com,momentumarena2026@gmail.com")
 
   // MSG91 template IDs
-  oilChangeTemplateId   String   @default("Oil_Change_Reminder")
-  monthlyTemplateId     String   @default("Generator_Monthly_Summary")
-  pinChangeTemplateId   String   @default("generator_pin_change")
+  oilChangeTemplateId String @default("Oil_Change_Reminder")
+  monthlyTemplateId   String @default("Generator_Monthly_Summary")
+  pinChangeTemplateId String @default("generator_pin_change")
 
   // Mobile access PIN (6-digit)
-  generatorPin          String   @default("987065")
+  generatorPin String @default("987065")
 
   // Hardware API key for bulk log endpoint
-  hardwareApiKey        String   @default("ma-gen-hw-2026-secret")
+  hardwareApiKey String @default("ma-gen-hw-2026-secret")
 
-  updatedAt             DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 model GeneratorFuelLog {
-  id            String    @id @default(cuid())
-  generatorId   String
-  generator     Generator @relation(fields: [generatorId], references: [id])
+  id          String    @id @default(cuid())
+  generatorId String
+  generator   Generator @relation(fields: [generatorId], references: [id])
 
-  date          DateTime  @db.Date
-  litres        Float                    // litres filled
-  pricePerLitre Int                      // paise at time of fill
-  totalCost     Int                      // paise (litres * pricePerLitre)
+  date          DateTime @db.Date
+  litres        Float // litres filled
+  pricePerLitre Int // paise at time of fill
+  totalCost     Int // paise (litres * pricePerLitre)
 
   // Fuel stock tracking
   isStockPurchase Boolean @default(false) // true = bought fuel into stock, false = filled into generator
 
-  notes         String?
-  createdAt     DateTime  @default(now())
+  notes     String?
+  createdAt DateTime @default(now())
 
   @@index([generatorId])
   @@index([date])
 }
 
 model GeneratorOilChange {
-  id            String    @id @default(cuid())
-  generatorId   String
-  generator     Generator @relation(fields: [generatorId], references: [id])
+  id          String    @id @default(cuid())
+  generatorId String
+  generator   Generator @relation(fields: [generatorId], references: [id])
 
-  date          DateTime  @db.Date
-  runningHoursAtChange Float           // total running hours when oil was changed
-  litres        Float     @default(1)  // oil quantity used
-  costPerLitre  Int                    // paise at time of change
-  totalCost     Int                    // paise
-  notes         String?
+  date                 DateTime @db.Date
+  runningHoursAtChange Float // total running hours when oil was changed
+  litres               Float    @default(1) // oil quantity used
+  costPerLitre         Int // paise at time of change
+  totalCost            Int // paise
+  notes                String?
 
   // Which change in sequence (1st, 2nd, 3rd...)
   sequenceNumber Int
 
-  createdAt     DateTime  @default(now())
+  createdAt DateTime @default(now())
 
   @@index([generatorId])
   @@index([date])
@@ -1268,19 +1279,19 @@ model GeneratorOilChange {
 
 // Optional: manual start/stop logging for accurate runtime tracking
 model GeneratorRunLog {
-  id            String    @id @default(cuid())
-  generatorId   String
-  generator     Generator @relation(fields: [generatorId], references: [id])
+  id          String    @id @default(cuid())
+  generatorId String
+  generator   Generator @relation(fields: [generatorId], references: [id])
 
-  entryId       Int?              // sequential ID from device or auto-generated
-  source        String  @default("website") // "website" or "hardware"
+  entryId Int? // sequential ID from device or auto-generated
+  source  String @default("website") // "website" or "hardware"
 
   startTime     DateTime
   endTime       DateTime?
-  durationHours Float?    // calculated from start/end, or manually entered
+  durationHours Float? // calculated from start/end, or manually entered
   notes         String?
 
-  createdAt     DateTime  @default(now())
+  createdAt DateTime @default(now())
 
   @@index([generatorId])
   @@index([startTime])
@@ -1328,9 +1339,9 @@ model Expense {
   spentType   String // category ("Turf" / "Rent" / "Paint"…)
   note        String?
 
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
-  createdByAdminId  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdByAdminId String?
 
   editHistory ExpenseEditHistory[]
 
@@ -1451,4 +1462,152 @@ model AdminPushDevice {
 
   @@index([adminId])
   @@index([lastSeenAt])
+}
+
+// ===========================
+// FIRST-PARTY ANALYTICS
+// ===========================
+// Self-hosted CTA tracking + funnel + cohort + retention dashboard.
+// Schema designed to be queried directly for ad-hoc lookups AND
+// rolled up hourly/daily into MetricRollup for fast dashboards.
+//
+// Naming: `AnalyticsEvent` and `AnalyticsSession` (not just `Event`
+// and `Session`) so we don't collide with NextAuth's existing
+// `Session` model and to make the analytics origin obvious in code.
+
+enum AnalyticsCategory {
+  BOOKING // sport_selected, slot_toggled, proceed_to_checkout, ...
+  PAYMENT // payment_initiated, payment_completed, payment_failed, ...
+  AUTH // login_modal_opened, otp_submitted, login_success, ...
+  CAFE // cafe_browse, item_added, cafe_payment_completed, ...
+  WAITLIST // slot_unavailable_tap, waitlist_joined, ...
+  NAVIGATION // page_view, tab_switched, deep_link_opened
+  ADMIN // admin_login, admin_action_*
+  ERROR // client_error, payment_error, push_subscribe_failed
+  SYSTEM // session_started, session_ended, app_foreground
+}
+
+model AnalyticsSession {
+  id          String    @id @default(cuid())
+  userId      String? // null while anonymous; populated on first auth event
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  platform    String // "web" | "android" | "ios"
+  // First-touch attribution. Captured from the URL on the first
+  // page view of the session and frozen — these don't change even
+  // if the user navigates around.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+  // First-page context (web only). Useful for landing-page A/B and
+  // referral-source analysis. Mobile leaves these null.
+  landingPath String?
+  referrer    String?
+  // Lightweight UA parse (web). NEVER store raw UA — too much PII +
+  // pointless noise. Mobile captures appVersion + osVersion instead.
+  uaBrowser   String? // e.g. "Chrome", "Safari"
+  uaOs        String? // e.g. "iOS", "macOS", "Windows"
+  uaDevice    String? // e.g. "mobile", "desktop", "tablet"
+  appVersion  String? // mobile-only
+  startedAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  // Backfilled once the session ends (>30min idle on web, app-
+  // background on mobile). Lets us aggregate session length without
+  // recomputing from the events table.
+  endedAt     DateTime?
+
+  events AnalyticsEvent[]
+
+  @@index([userId])
+  @@index([startedAt])
+  @@index([userId, startedAt])
+}
+
+model AnalyticsEvent {
+  id         String            @id @default(cuid())
+  // Stable machine name — keep these snake_case and grep-able.
+  // Existing trackXxx() helpers in lib/analytics.ts produce names
+  // like "slot_toggled", "proceed_to_checkout_click", etc.; mobile
+  // mirrors the same names so funnels are platform-agnostic.
+  name       String
+  category   AnalyticsCategory
+  // Optional FK to User. Anonymous events leave this null and
+  // backfill it later via AnalyticsSession.userId once the user
+  // signs in. The session FK is the join key for that backfill.
+  userId     String?
+  user       User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId  String
+  session    AnalyticsSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  platform   String // "web" | "android" | "ios"
+  // Free-form structured payload. Per-event keys differ — keep the
+  // SCHEMA documented in lib/analytics.ts (the trackXxx helper that
+  // produces the event is the source of truth for what keys land
+  // here). Logged user PII (name, phone) lives under `properties.user`.
+  properties Json
+  pageUrl    String? // web only — exact URL when event fired
+  occurredAt DateTime          @default(now())
+
+  @@index([name, occurredAt])
+  @@index([sessionId, occurredAt])
+  @@index([userId, occurredAt])
+  // BRIN-friendly time-only index for the daily retention cron and
+  // for the rollup writer's "events since last bucket" scan.
+  @@index([occurredAt])
+  @@index([category, occurredAt])
+}
+
+// Pre-aggregated counters keyed by (bucket, metric, dimensions).
+// Written by an hourly cron — see /api/cron/rollup-metrics. Lets
+// the dashboard render 90-day trends with a single indexed scan
+// instead of a Big GROUP BY over every Event row.
+model MetricRollup {
+  id          String   @id @default(cuid())
+  // Hour-aligned (or day-aligned, see bucketKind). Always UTC.
+  bucketStart DateTime
+  bucketKind  String // "hour" | "day"
+  // Dotted name. e.g. "funnel.booking.proceed_to_checkout",
+  // "kpi.bookings_confirmed", "waitlist.notified".
+  metric      String
+  // Group-by keys for slicing in the dashboard. Common keys:
+  // { sport, platform, courtConfigId, paymentMethod }. Empty
+  // object {} means "global / no slicing".
+  dimensions  Json
+  count       Int      @default(0)
+  // Optional aggregate (e.g. revenue sum for booking_confirmed).
+  // Null for pure count metrics.
+  sumValue    Float?
+  // Optional unique-cardinality (e.g. distinct users who hit step).
+  // Null for non-uniqueness metrics.
+  uniqueCount Int?
+
+  // (bucketStart + bucketKind + metric + dimensions) is the natural
+  // key. We hash dimensions to a sorted JSON string for the unique
+  // index because Prisma can't unique-index Json directly.
+  dimensionsKey String
+
+  @@unique([bucketStart, bucketKind, metric, dimensionsKey])
+  @@index([metric, bucketStart])
+  @@index([bucketStart])
+}
+
+// Cohort assignment per user. Built once per user at first event
+// (cohortStart = first session's calendar week, IST). Lets us run
+// classic week-on-week retention queries in O(N) without window
+// functions. Updated only when the cohort assignment is missing —
+// it's frozen for the lifetime of the user.
+model UserCohort {
+  userId      String   @id
+  user        User     @relation("UserCohortFK", fields: [userId], references: [id], onDelete: Cascade)
+  // ISO week start in IST (Mon 00:00 IST). e.g. 2026-05-04T00:00 IST
+  // for the week of 4-10 May 2026.
+  cohortWeek  DateTime
+  // Same idea, month-aligned (1st of month IST). Useful for the
+  // monthly retention grid.
+  cohortMonth DateTime
+  // First event timestamp — handy for "how long until they did X?".
+  firstSeenAt DateTime
+
+  @@index([cohortWeek])
+  @@index([cohortMonth])
 }

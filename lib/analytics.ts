@@ -1,19 +1,67 @@
 /**
- * Google Analytics 4 event tracking utilities
- * Central module for all GA4 custom events across Momentum Arena
+ * Event tracking utilities — dual-writes to:
+ *  1. Google Analytics 4 (production domain only — kept as a parallel
+ *     pipe during the v1 rollout of our first-party analytics; will
+ *     be removed once dashboards reach parity).
+ *  2. First-party Postgres via /api/events (all environments).
+ *
+ * Source of truth for event names + properties. Every CTA / funnel
+ * call site goes through one of the typed helpers below — keep them
+ * grep-able (snake_case names, descriptive helpers).
  */
+
+import { queueEvent } from "./analytics-session";
 
 type GtagParams = Record<string, string | number | boolean | undefined>;
 
 const GA_MEASUREMENT_ID = "G-JV1973H52L";
 const PRODUCTION_HOST = "www.momentumarena.com";
 
-/** Core event dispatcher — only fires on production domain */
-export function trackEvent(eventName: string, params?: GtagParams) {
-  if (typeof window === "undefined") return;
-  if (window.location.hostname !== PRODUCTION_HOST) return;
-  if (!window.gtag) return;
-  window.gtag("event", eventName, params);
+type EventCategory =
+  | "BOOKING"
+  | "PAYMENT"
+  | "AUTH"
+  | "CAFE"
+  | "WAITLIST"
+  | "NAVIGATION"
+  | "ADMIN"
+  | "ERROR"
+  | "SYSTEM";
+
+/**
+ * Core event dispatcher.
+ *
+ * Fires the event into BOTH:
+ *   - GA4 (production-domain only — preserves existing GA setup)
+ *   - First-party /api/events queue (all environments, including dev)
+ *
+ * The second arg form `(name, params)` keeps existing call sites
+ * working unchanged — none of the 30+ trackXxx() helpers below need
+ * to be touched. The optional `category` overload lets new helpers
+ * tag events properly so the dashboard can group them.
+ */
+export function trackEvent(
+  eventName: string,
+  params?: GtagParams,
+  category?: EventCategory,
+) {
+  // 1) GA4 — same behavior as before. Production-domain only.
+  if (typeof window !== "undefined" && window.location.hostname === PRODUCTION_HOST && window.gtag) {
+    window.gtag("event", eventName, params);
+  }
+
+  // 2) First-party — all environments. The queue is debounced + batched
+  // so a flurry of trackXxx() calls produces one network roundtrip.
+  // Sanitize undefined values before posting (JSON would drop them
+  // silently anyway, but keep the wire payload tidy).
+  if (typeof window !== "undefined") {
+    const properties = params
+      ? Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v !== undefined),
+        )
+      : undefined;
+    queueEvent({ name: eventName, properties, category });
+  }
 }
 
 // ─── Booking Funnel ───────────────────────────────────────────────
