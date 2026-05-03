@@ -7,6 +7,7 @@ export type AccountStackParamList = {
   BookingsList: undefined;
   RecurringBookings: undefined;
   BookingDetail: { bookingId: string };
+  Waitlist: undefined;
 };
 
 export type BookStackParamList = {

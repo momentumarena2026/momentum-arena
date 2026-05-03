@@ -42,6 +42,7 @@ export type PushKind =
   | "payment_verified"
   | "refund_processed"
   | "cafe_order_status"
+  | "slot_available"
   | "broadcast"
   // Admin-bound — only delivered to AdminPushDevice rows server-side.
   | "admin_pending_booking"

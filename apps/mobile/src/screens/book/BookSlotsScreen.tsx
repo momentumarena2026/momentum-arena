@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,7 +17,7 @@ import {
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { NativeStackNavigationProp as RootNavType } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Check, Clock, Lock } from "lucide-react-native";
+import { Bell, BellRing, CalendarDays, Check, Clock, Lock, X } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -25,6 +26,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { bookingApi, type SlotAvailability } from "../../lib/booking";
 import { ApiError } from "../../lib/api";
+import { waitlistApi } from "../../lib/waitlist";
 import {
   formatHourRangeCompact,
   formatHoursAsRanges,
@@ -57,6 +59,10 @@ export function BookSlotsScreen() {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayIST());
   const [selected, setSelected] = useState<number[]>([]);
   const [locking, setLocking] = useState(false);
+  // Waitlist sheet state — `null` = closed, hour value = open for that
+  // slot. Only enabled in single-court mode (mediumMode lacks a stable
+  // courtConfigId until lock time, same as web).
+  const [waitlistHour, setWaitlistHour] = useState<number | null>(null);
 
   const pickDate = useCallback((dateStr: string) => {
     setSelectedDate(dateStr);
@@ -228,6 +234,9 @@ export function BookSlotsScreen() {
               slots={slots}
               selected={selected}
               onToggle={toggleHour}
+              onUnavailableTap={
+                isMedium ? undefined : (h) => setWaitlistHour(h)
+              }
             />
           )}
         </View>
@@ -283,6 +292,21 @@ export function BookSlotsScreen() {
           fullWidth
         />
       </View>
+
+      <WaitlistSheet
+        visible={waitlistHour !== null}
+        onClose={() => setWaitlistHour(null)}
+        courtConfigId={params.courtConfigId ?? ""}
+        courtLabel={params.courtLabel}
+        sport={params.sport}
+        date={selectedDate}
+        hour={waitlistHour ?? 0}
+        signedIn={signedIn}
+        onRequireSignIn={() => {
+          const rootNav = navigation.getParent<RootNavType<RootStackParamList>>();
+          rootNav?.navigate("Phone");
+        }}
+      />
     </Screen>
   );
 }
@@ -378,30 +402,39 @@ function SlotGrid({
   slots,
   selected,
   onToggle,
+  onUnavailableTap,
 }: {
   slots: SlotAvailability[];
   selected: number[];
   onToggle: (hour: number) => void;
+  /** When provided, unavailable tiles become interactive (open waitlist). */
+  onUnavailableTap?: (hour: number) => void;
 }) {
   return (
     <View style={styles.slotsGrid}>
       {slots.map((slot) => {
         const isSelected = selected.includes(slot.hour);
         const isAvailable = slot.status === "available";
+        const unavailableInteractive = !isAvailable && Boolean(onUnavailableTap);
 
         return (
           <Pressable
             key={slot.hour}
-            onPress={() => isAvailable && onToggle(slot.hour)}
-            disabled={!isAvailable}
+            onPress={() => {
+              if (isAvailable) onToggle(slot.hour);
+              else if (onUnavailableTap) onUnavailableTap(slot.hour);
+            }}
+            disabled={!isAvailable && !onUnavailableTap}
             style={({ pressed }) => [
               styles.slot,
               isSelected
                 ? styles.slotSelected
                 : isAvailable
                 ? styles.slotAvailable
+                : unavailableInteractive
+                ? styles.slotUnavailableInteractive
                 : styles.slotUnavailable,
-              pressed && isAvailable && { opacity: 0.85 },
+              pressed && (isAvailable || unavailableInteractive) && { opacity: 0.85 },
             ]}
           >
             <View style={styles.slotHeader}>
@@ -413,6 +446,8 @@ function SlotGrid({
               </View>
               {isSelected ? (
                 <Check size={16} color={colors.emerald400} />
+              ) : unavailableInteractive ? (
+                <Bell size={14} color={colors.warning} />
               ) : null}
             </View>
             <Text
@@ -420,7 +455,11 @@ function SlotGrid({
               color={isAvailable ? colors.zinc400 : colors.zinc500}
               style={styles.slotFooter}
             >
-              {isAvailable ? formatRupees(slot.price) : "Unavailable"}
+              {isAvailable
+                ? formatRupees(slot.price)
+                : unavailableInteractive
+                ? "Notify me"
+                : "Unavailable"}
             </Text>
           </Pressable>
         );
@@ -517,6 +556,14 @@ const styles = StyleSheet.create({
     borderColor: colors.zinc700,
     opacity: 0.5,
   },
+  // Same dimmed look as `slotUnavailable` but with a faint amber edge
+  // so the user reads "this isn't available, but it's interactive
+  // (waitlist)" at a glance.
+  slotUnavailableInteractive: {
+    backgroundColor: colors.zinc800_50,
+    borderColor: colors.warningSoft,
+    opacity: 0.7,
+  },
   slotSelected: {
     backgroundColor: colors.emerald500_20,
     borderColor: colors.emerald400,
@@ -570,5 +617,254 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+});
+
+/**
+ * Bottom-sheet modal shown when the user taps an unavailable slot.
+ * Mirrors the web `<WaitlistDialog>` UX: shows the slot details, plus
+ * either a "Notify me" CTA (signed in) or a "Sign in to join" CTA
+ * (signed out). On success, switches to a confirmation panel.
+ */
+function WaitlistSheet({
+  visible,
+  onClose,
+  courtConfigId,
+  courtLabel,
+  sport,
+  date,
+  hour,
+  signedIn,
+  onRequireSignIn,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  courtConfigId: string;
+  courtLabel: string;
+  sport: string;
+  date: string;
+  hour: number;
+  signedIn: boolean;
+  onRequireSignIn: () => void;
+}) {
+  const [joining, setJoining] = useState(false);
+  const [joined, setJoined] = useState(false);
+
+  // Reset to fresh state every time the sheet re-opens for a new slot —
+  // otherwise the success panel from a previous join would persist.
+  const sheetKey = `${courtConfigId}-${date}-${hour}`;
+  const [lastKey, setLastKey] = useState<string | null>(null);
+  if (visible && lastKey !== sheetKey) {
+    setLastKey(sheetKey);
+    if (joined) setJoined(false);
+  }
+
+  const handleJoin = async () => {
+    if (joining) return;
+    setJoining(true);
+    try {
+      const res = await waitlistApi.join({
+        courtConfigId,
+        date,
+        startHour: hour,
+        endHour: hour + 1,
+      });
+      if (res.success) {
+        setJoined(true);
+      } else {
+        Alert.alert("Couldn't join the waitlist", res.error || "Try again.");
+      }
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Network error.";
+      Alert.alert("Couldn't join the waitlist", msg);
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const friendlyDate = formatDateIST(date);
+  const dateStr = `${friendlyDate.dayName}, ${friendlyDate.date} ${friendlyDate.month}`;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <Pressable style={sheetStyles.backdrop} onPress={onClose}>
+        <Pressable style={sheetStyles.sheet} onPress={(e) => e.stopPropagation()}>
+          <View style={sheetStyles.handleRow}>
+            <View style={sheetStyles.handle} />
+          </View>
+
+          <View style={sheetStyles.header}>
+            <View style={sheetStyles.headerIcon}>
+              <Bell size={20} color={colors.warning} />
+            </View>
+            <View style={sheetStyles.headerText}>
+              <Text variant="heading" weight="700">
+                This slot is booked
+              </Text>
+              <Text variant="small" color={colors.zinc400}>
+                Get notified if it opens up
+              </Text>
+            </View>
+            <Pressable
+              onPress={onClose}
+              hitSlop={8}
+              style={sheetStyles.closeBtn}
+            >
+              <X size={18} color={colors.zinc500} />
+            </Pressable>
+          </View>
+
+          <View style={sheetStyles.detailsCard}>
+            <SheetRow label="Sport" value={sportLabel(sport)} />
+            <SheetRow label="Court" value={courtLabel} />
+            <SheetRow label="Date" value={dateStr} />
+            <SheetRow label="Time" value={formatHourRangeCompact(hour)} />
+          </View>
+
+          {joined ? (
+            <View style={sheetStyles.successCard}>
+              <BellRing size={18} color={colors.emerald400} />
+              <View style={{ flex: 1, marginLeft: spacing["2"] }}>
+                <Text variant="body" weight="600" color={colors.emerald400}>
+                  You're on the waitlist
+                </Text>
+                <Text
+                  variant="small"
+                  color={colors.zinc400}
+                  style={{ marginTop: 4 }}
+                >
+                  We'll send a push, SMS, and email the moment this slot
+                  opens up. First to book wins.
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <Text
+              variant="small"
+              color={colors.zinc400}
+              style={sheetStyles.body}
+            >
+              {signedIn
+                ? "We'll alert you on push, SMS, and email the moment this slot is freed by a cancellation. First to book wins."
+                : "Sign in once and we'll alert you whenever a slot you're waiting for opens up."}
+            </Text>
+          )}
+
+          <View style={sheetStyles.actions}>
+            {joined ? (
+              <Button label="Done" onPress={onClose} fullWidth />
+            ) : signedIn ? (
+              <Button
+                label="Notify me when it opens up"
+                onPress={handleJoin}
+                loading={joining}
+                fullWidth
+              />
+            ) : (
+              <Button
+                label="Sign in to join the waitlist"
+                onPress={() => {
+                  onClose();
+                  onRequireSignIn();
+                }}
+                fullWidth
+              />
+            )}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function SheetRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={sheetStyles.row}>
+      <Text variant="small" color={colors.zinc500} style={sheetStyles.rowLabel}>
+        {label}
+      </Text>
+      <Text variant="small" color={colors.foreground} weight="600">
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: colors.cardElevated,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing["6"],
+    paddingBottom: spacing["8"],
+    paddingTop: spacing["3"],
+    gap: spacing["4"],
+  },
+  handleRow: {
+    alignItems: "center",
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.zinc700,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+  },
+  headerIcon: {
+    backgroundColor: colors.warningSoft,
+    borderRadius: 999,
+    padding: spacing["2.5"],
+  },
+  headerText: {
+    flex: 1,
+    gap: 2,
+  },
+  closeBtn: {
+    padding: spacing["1"],
+  },
+  detailsCard: {
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    borderRadius: radius.lg,
+    padding: spacing["3"],
+    gap: spacing["1.5"],
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  rowLabel: {
+    width: 60,
+  },
+  body: {
+    lineHeight: 20,
+  },
+  successCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+    borderRadius: radius.lg,
+    padding: spacing["3"],
+  },
+  actions: {
+    marginTop: spacing["1"],
   },
 });

@@ -6,6 +6,7 @@ import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
+  Bell,
   Calendar,
   ChevronRight,
   Clock,
@@ -156,6 +157,12 @@ export function AccountScreen() {
           title="Recurring Bookings"
           subtitle="Weekly series"
           onPress={() => navigation.navigate("RecurringBookings")}
+        />
+        <ActionTile
+          icon={<Bell size={20} color={colors.warning} />}
+          title="My Waitlist"
+          subtitle="Get notified when slots open"
+          onPress={() => navigation.navigate("Waitlist")}
         />
       </View>
 

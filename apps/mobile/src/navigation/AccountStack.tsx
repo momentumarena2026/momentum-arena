@@ -1,6 +1,7 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AccountScreen } from "../screens/account/AccountScreen";
 import { EditNameScreen } from "../screens/account/EditNameScreen";
+import { WaitlistScreen } from "../screens/account/WaitlistScreen";
 import { BookingsListScreen } from "../screens/bookings/BookingsListScreen";
 import { RecurringBookingsScreen } from "../screens/bookings/RecurringBookingsScreen";
 import { BookingDetailScreen } from "../screens/bookings/BookingDetailScreen";
@@ -48,6 +49,11 @@ export function AccountStack() {
         name="BookingDetail"
         component={BookingDetailScreen}
         options={{ title: "Booking" }}
+      />
+      <Stack.Screen
+        name="Waitlist"
+        component={WaitlistScreen}
+        options={{ title: "My waitlist" }}
       />
     </Stack.Navigator>
   );

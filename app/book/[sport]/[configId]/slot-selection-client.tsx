@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
 import { SlotGrid } from "@/components/booking/slot-grid";
+import { WaitlistDialog } from "@/components/booking/waitlist-dialog";
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
 import { formatHoursAsRanges } from "@/lib/court-config";
@@ -45,6 +46,7 @@ interface SlotSelectionClientProps {
 export function SlotSelectionClient({
   configId,
   sport,
+  courtLabel,
   userId,
   mediumMode = false,
 }: SlotSelectionClientProps) {
@@ -57,6 +59,10 @@ export function SlotSelectionClient({
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
+  // Waitlist dialog state. `null` = closed; an hour value = open for
+  // that specific slot. Only enabled in single-court mode (mediumMode
+  // doesn't have a stable courtConfigId until lock time).
+  const [waitlistHour, setWaitlistHour] = useState<number | null>(null);
   const pendingAuthRef = useRef(false);
   const storageKey = `slot_selection_${configId}`;
 
@@ -397,6 +403,12 @@ export function SlotSelectionClient({
               });
               setSelectedHours(hours);
             }}
+            // Waitlist on unavailable tap is single-court only —
+            // mediumMode's configId is a synthetic key, not a real
+            // CourtConfig.id, so the server can't store it.
+            onUnavailableClick={
+              mediumMode ? undefined : (h) => setWaitlistHour(h)
+            }
           />
 
         </>
@@ -635,6 +647,15 @@ export function SlotSelectionClient({
         </div>
       )}
 
+      <WaitlistDialog
+        isOpen={waitlistHour !== null}
+        onClose={() => setWaitlistHour(null)}
+        courtConfigId={configId}
+        courtLabel={courtLabel}
+        sport={sport}
+        date={selectedDate}
+        hour={waitlistHour ?? 0}
+      />
     </div>
   );
 }

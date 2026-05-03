@@ -78,6 +78,11 @@ export type PushKind =
   | "payment_verified"
   | "refund_processed"
   | "cafe_order_status"
+  // A slot the user joined the waitlist for has just opened up
+  // (someone else cancelled / refunded / had their slots edited
+  // off). Mobile tap handler routes to the user's waitlist screen
+  // so they can book in one tap.
+  | "slot_available"
   // Admin-initiated broadcast (manual send from /admin/push). The
   // mobile tap handler treats this as a no-op deep-link — opening
   // the app is enough action.

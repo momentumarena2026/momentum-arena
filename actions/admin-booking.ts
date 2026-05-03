@@ -10,6 +10,7 @@ import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { sendToUser } from "@/lib/push";
 import { formatHoursAsRanges } from "@/lib/court-config";
+import { notifyWaitlistersForFreedSlots } from "@/actions/waitlist";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -520,6 +521,14 @@ export async function cancelBooking(
   // OTHER admins on the team learn about the cancel without paging
   // them via SMS.
   void notifyAdminBookingCancelled(bookingId, reason, false);
+  // Fan out to anyone waitlisted for the now-freed slots. Race is
+  // resolved by the existing 10-min slot lock, so we deliberately
+  // notify EVERY matching waitlister at once.
+  void notifyWaitlistersForFreedSlots({
+    courtConfigId: booking.courtConfigId,
+    date: booking.date,
+    hours: booking.slots.map((s) => s.startHour),
+  });
 
   return { success: true };
 }
@@ -632,6 +641,12 @@ export async function refundBooking(
   // Mirror to the admin team — the `refunded=true` flag flips the
   // admin push body to mention the refund instead of cancellation.
   void notifyAdminBookingCancelled(bookingId, reason, true);
+  // Refund frees the slot just like a cancel — notify waitlisters.
+  void notifyWaitlistersForFreedSlots({
+    courtConfigId: booking.courtConfigId,
+    date: booking.date,
+    hours: booking.slots.map((s) => s.startHour),
+  });
 
   return { success: true };
 }
@@ -1820,6 +1835,22 @@ export async function adminEditBookingSlots(
     });
 
     await revalidateBookingPaths(bookingId);
+
+    // Compute the slots that were FREED on the old date so we can
+    // notify waitlisters. If the date changed, every previously held
+    // hour on booking.date is freed (none of them survive on that
+    // date). Otherwise only hours not in the new selection are freed.
+    const newHourSet = new Set(newHours);
+    const freedHours = dateChanged
+      ? previousHours
+      : previousHours.filter((h) => !newHourSet.has(h));
+    if (freedHours.length > 0) {
+      void notifyWaitlistersForFreedSlots({
+        courtConfigId: booking.courtConfigId,
+        date: booking.date, // OLD date — booking was loaded pre-tx
+        hours: freedHours,
+      });
+    }
 
     return { success: true as const };
   } catch (error) {

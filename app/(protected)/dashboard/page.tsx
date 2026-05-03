@@ -4,6 +4,7 @@ import { SPORT_INFO, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
+  Bell,
   Calendar,
   Clock,
   ArrowRight,
@@ -231,6 +232,20 @@ export default async function DashboardPage() {
           <div className="flex-1">
             <p className="text-sm font-medium text-white">Recurring Bookings</p>
             <p className="text-xs text-zinc-600">Weekly bookings</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
+        </Link>
+
+        <Link
+          href="/waitlist"
+          className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
+        >
+          <div className="rounded-lg bg-amber-500/10 p-2">
+            <Bell className="h-4 w-4 text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-white">My Waitlist</p>
+            <p className="text-xs text-zinc-600">Get notified when slots open</p>
           </div>
           <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
         </Link>

@@ -4,15 +4,26 @@ import { useCallback } from "react";
 import { formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import type { SlotAvailability } from "@/lib/availability";
-import { Clock, Check } from "lucide-react";
+import { Bell, Clock, Check } from "lucide-react";
 
 interface SlotGridProps {
   slots: SlotAvailability[];
   selectedHours: number[];
   onSelectionChange: (hours: number[]) => void;
+  /**
+   * Called when a user taps an unavailable slot. If provided, the
+   * tile becomes interactive (no `disabled` attribute) and shows a
+   * subtle "Notify me" hint. Wire this to open a waitlist dialog.
+   */
+  onUnavailableClick?: (hour: number) => void;
 }
 
-export function SlotGrid({ slots, selectedHours, onSelectionChange }: SlotGridProps) {
+export function SlotGrid({
+  slots,
+  selectedHours,
+  onSelectionChange,
+  onUnavailableClick,
+}: SlotGridProps) {
   const toggleSlot = useCallback(
     (hour: number) => {
       if (selectedHours.includes(hour)) {
@@ -36,17 +47,31 @@ export function SlotGrid({ slots, selectedHours, onSelectionChange }: SlotGridPr
           const isSelected = selectedHours.includes(slot.hour);
           const isAvailable = slot.status === "available";
 
+          // Unavailable tiles stay clickable when a waitlist handler is
+          // wired so the user can recover from the dead-end with a single
+          // tap. Without the handler we keep the original disabled UX.
+          const unavailableInteractive =
+            !isAvailable && Boolean(onUnavailableClick);
+
           return (
             <button
               key={slot.hour}
-              onClick={() => isAvailable && toggleSlot(slot.hour)}
-              disabled={!isAvailable}
+              onClick={() => {
+                if (isAvailable) {
+                  toggleSlot(slot.hour);
+                } else if (onUnavailableClick) {
+                  onUnavailableClick(slot.hour);
+                }
+              }}
+              disabled={!isAvailable && !onUnavailableClick}
               className={`relative rounded-xl border p-3 text-left transition-all duration-200 ${
                 isSelected
                   ? "border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50"
                   : isAvailable
                     ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30"
-                    : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
+                    : unavailableInteractive
+                      ? "bg-zinc-800/50 border-zinc-700 hover:bg-amber-500/5 hover:border-amber-500/30 cursor-pointer opacity-70"
+                      : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
               }`}
             >
               <div className="flex items-center justify-between">
@@ -57,9 +82,16 @@ export function SlotGrid({ slots, selectedHours, onSelectionChange }: SlotGridPr
                   </span>
                 </div>
                 {isSelected && <Check className="h-4 w-4 text-emerald-400" />}
+                {unavailableInteractive && (
+                  <Bell className="h-3.5 w-3.5 text-amber-400/70" />
+                )}
               </div>
               <div className={`mt-1 text-xs ${isAvailable ? "text-zinc-400" : "text-zinc-500"}`}>
-                {isAvailable ? formatPrice(slot.price) : "Unavailable"}
+                {isAvailable
+                  ? formatPrice(slot.price)
+                  : unavailableInteractive
+                    ? "Notify me"
+                    : "Unavailable"}
               </div>
             </button>
           );

@@ -82,6 +82,19 @@ export function RootNavigator() {
           // No CafeOrderDetail screen yet — drop into the cafe tab.
           navigationRef.navigate("Main", { screen: "Cafe" });
           break;
+        case "slot_available":
+          // Drop the user into their waitlist screen so they see EVERY
+          // entry that's been notified (a single freeing event can
+          // unblock several entries at once when the user's range
+          // covers multiple hours). They tap "Book now" from there.
+          navigationRef.navigate("Main", {
+            screen: "Account",
+            params: {
+              screen: "Waitlist",
+              initial: false,
+            },
+          });
+          break;
         // Admin-bound payloads land here when an admin device taps a
         // notification. We jump straight into the AdminShell tabs —
         // pending routes to the unconfirmed queue (where the floor
