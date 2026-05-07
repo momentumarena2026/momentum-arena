@@ -12,6 +12,7 @@ import {
   trackPageView,
   trackWaitlistNotificationTapped,
 } from "../lib/analytics";
+import { NavLoader } from "../components/NavLoader";
 import { colors } from "../theme";
 import { MainNavigator } from "./MainNavigator";
 import { PhoneScreen } from "../screens/auth/PhoneScreen";
@@ -144,6 +145,7 @@ export function RootNavigator() {
   }
 
   return (
+    <>
     <NavigationContainer
       ref={navigationRef}
       theme={navTheme}
@@ -206,6 +208,11 @@ export function RootNavigator() {
         />
       </Stack.Navigator>
     </NavigationContainer>
+    {/* Top progress bar — overlay sibling of the navigator so it
+        sits above every screen, customer + admin alike. Driven by
+        TanStack Query in-flight state. */}
+    <NavLoader />
+    </>
   );
 }
 
