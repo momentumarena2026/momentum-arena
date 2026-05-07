@@ -738,8 +738,11 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.06)",
   },
   logo: {
-    width: 120,
-    height: 36,
+    // Doubled from 120x36 — the original was visually too small in
+    // the top nav. The flex row still has plenty of headroom for
+    // the greeting / sign-in button on the right.
+    width: 240,
+    height: 72,
   },
   promo: {
     paddingHorizontal: spacing["4"],
