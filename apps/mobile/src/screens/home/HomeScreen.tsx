@@ -727,9 +727,16 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   topNav: {
-    paddingHorizontal: spacing["6"],
-    paddingTop: spacing["2"],
-    paddingBottom: spacing["3"],
+    // Reduced left/right padding from spacing["6"] (24px) so the
+    // logo sits closer to the screen edge — was floating too far in
+    // from the left at the bigger logo size. Sign-in button on the
+    // right benefits from the same.
+    paddingHorizontal: spacing["1"],
+    // Tightened from spacing["2"]/["3"] — the logo carries the
+    // visual weight here, the row doesn't need extra breathing room
+    // above/below it.
+    paddingTop: spacing["1"],
+    paddingBottom: spacing["1"],
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -738,11 +745,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.06)",
   },
   logo: {
-    // Doubled from 120x36 — the original was visually too small in
-    // the top nav. The flex row still has plenty of headroom for
-    // the greeting / sign-in button on the right.
-    width: 240,
-    height: 72,
+    // 1.5x original 120x36 — the doubled 240x72 was too wide given
+    // the logo PNG's actual aspect ratio (lots of internal
+    // whitespace inside the box made it look misaligned). 180x54
+    // hugs the visual content of the logo more tightly while still
+    // being noticeably bigger than the original tiny header logo.
+    width: 180,
+    height: 54,
   },
   promo: {
     paddingHorizontal: spacing["4"],
