@@ -62,12 +62,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "daily",
       priority: 0.7,
     },
-    {
-      url: `${base}/rewards`,
-      lastModified: now,
-      changeFrequency: "monthly",
-      priority: 0.6,
-    },
+    // `/rewards` intentionally absent — feature is disabled
+    // customer-side while it's being redesigned. Page returns 404
+    // and is in robots.ts disallow. Add back when the new surface
+    // ships.
 
     // ── Help / support / legal ──────────────────────────────────
     {

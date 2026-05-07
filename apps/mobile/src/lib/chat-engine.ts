@@ -29,7 +29,9 @@ export type Intent =
   | "parking"
   | "amenities"
   | "cafe"
-  | "rewards"
+  // "rewards" intent + responder removed while the rewards
+  // feature is disabled customer-side (being redesigned). Add
+  // back to the union when the new surface ships.
   | "coupons"
   | "slot_duration"
   | "booking_advance"
@@ -246,12 +248,16 @@ const INTENT_PATTERNS: IntentPattern[] = [
     hindiKeywords: ["khana", "chai", "coffee", "canteen"],
     priority: 3,
   },
-  {
-    intent: "rewards",
-    patterns: [/\b(reward|loyalty|points?|tier|bronze|silver|gold|platinum)\b/i],
-    keywords: ["rewards", "points", "loyalty", "tier"],
-    priority: 3,
-  },
+  // Rewards intent intentionally omitted — the rewards feature is
+  // disabled customer-side while it's being redesigned. Re-enable
+  // by uncommenting the block below + the responder + the `rewards`
+  // entry in the IntentName union when the new surface ships.
+  // {
+  //   intent: "rewards",
+  //   patterns: [/\b(reward|loyalty|points?|tier|bronze|silver|gold|platinum)\b/i],
+  //   keywords: ["rewards", "points", "loyalty", "tier"],
+  //   priority: 3,
+  // },
   {
     intent: "coupons",
     patterns: [/\b(coupon|discount|promo|offer|code)\b/i, /\bnew\s*user\s*discount\b/i],
@@ -443,11 +449,15 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
     quickActions: [{ label: "Order from Café →", href: "/cafe" }],
   }),
 
-  rewards: () => ({
-    content: "🏆 **Momentum Rewards Program:**\n\nEarn points on every booking & café order!\n\n🥉 **Bronze** → Starting tier\n🥈 **Silver** → Unlock at 500 pts\n🥇 **Gold** → Unlock at 1,500 pts\n💎 **Platinum** → Unlock at 5,000 pts\n\nHigher tiers = better rewards & exclusive perks!",
-    suggestions: ["View my rewards", "Coupons", "Book now"],
-    quickActions: [{ label: "My Rewards →", href: "/rewards" }],
-  }),
+  // `rewards` responder removed while the rewards feature is
+  // disabled customer-side. Restore the block below + the
+  // matching pattern + the IntentName entry when the redesign
+  // ships.
+  // rewards: () => ({
+  //   content: "🏆 **Momentum Rewards Program:** ...",
+  //   suggestions: ["View my rewards", "Coupons", "Book now"],
+  //   quickActions: [{ label: "My Rewards →", href: "/rewards" }],
+  // }),
 
   coupons: () => ({
     content: "🏷️ **Discounts & Coupons:**\n\n🎉 **New users** get an automatic welcome discount on first booking!\n🎟️ Check active promotional codes on our banners\n💰 Enter coupon code at checkout\n\nKeep an eye on our announcements for flash deals!",

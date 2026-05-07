@@ -46,6 +46,10 @@ export default function robots(): MetadataRoute.Robots {
           "/book/confirmation",
           "/cafe/checkout",
           "/cafe/orders",
+          // Rewards is disabled while it's being redesigned — page
+          // returns 404, also stripped from sitemap.ts. Remove this
+          // entry when the new surface ships.
+          "/rewards",
         ],
       },
     ],

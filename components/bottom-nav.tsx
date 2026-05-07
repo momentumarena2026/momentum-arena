@@ -32,7 +32,10 @@ export function BottomNav() {
     { href: "/", label: "Home", emoji: "\u{1F3E0}", match: (p: string) => p === "/" },
     { href: "/book", label: "Sports", emoji: "\u{1F3DF}\uFE0F", match: (p: string) => p.startsWith("/book") },
     { href: "/cafe", label: "Cafe", emoji: "\u2615", match: (p: string) => p.startsWith("/cafe") },
-    { href: "/dashboard", label: "Account", emoji: "\u{1F464}", match: (p: string) => p === "/dashboard" || p.startsWith("/bookings") || p.startsWith("/profile") || p.startsWith("/referral") || p.startsWith("/rewards") },
+    // `/rewards` removed from the match predicate while rewards is
+    // disabled customer-side (returns 404). Re-add when the redesign
+    // ships if you want Account to highlight on /rewards again.
+    { href: "/dashboard", label: "Account", emoji: "\u{1F464}", match: (p: string) => p === "/dashboard" || p.startsWith("/bookings") || p.startsWith("/profile") || p.startsWith("/referral") || p.startsWith("/waitlist") },
   ];
 
   return (
