@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -144,6 +144,29 @@ export function AdminBookingDetailScreen() {
     upi: string;
     discount: string;
   }>({ open: false, cash: "", upi: "", discount: "" });
+
+  // Refs for the auto-scroll-to-collect-form UX. The collect form
+  // mounts way down the page (after the action button stack), so on
+  // tap we (1) open it, (2) wait for the View to onLayout so we know
+  // its Y position, (3) scroll the ScrollView there, and (4) focus
+  // the Cash input so the keyboard pops up immediately. Without this
+  // the user just sees the action button "do nothing" because the
+  // form is below the fold.
+  const scrollRef = useRef<ScrollView>(null);
+  const collectCashInputRef = useRef<TextInput>(null);
+  // Set true the moment the user taps "Mark X collected"; cleared
+  // by the collect card's onLayout once it has run the scroll. Using
+  // a ref (not state) so toggling it doesn't trigger an extra render.
+  const shouldScrollToCollectRef = useRef(false);
+
+  function openCollectModal(initial: {
+    cash: string;
+    upi: string;
+    discount: string;
+  }) {
+    shouldScrollToCollectRef.current = true;
+    setCollectModal({ open: true, ...initial });
+  }
 
   const markCollected = useMutation({
     mutationFn: (vars: { cash: number; upi: number; discount: number }) =>
@@ -346,7 +369,7 @@ export function AdminBookingDetailScreen() {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         {/* Status banner */}
         <View
           style={[
@@ -461,8 +484,7 @@ export function AdminBookingDetailScreen() {
                   remainderMethod={payment.remainderMethod}
                   advanceMethod={payment.method}
                   onCollect={() =>
-                    setCollectModal({
-                      open: true,
+                    openCollectModal({
                       cash: String(venueDue),
                       upi: "0",
                       discount: "0",
@@ -590,8 +612,7 @@ export function AdminBookingDetailScreen() {
                 icon={<IndianRupee size={16} color={colors.yellow400} />}
                 tone="warning"
                 onPress={() =>
-                  setCollectModal({
-                    open: true,
+                  openCollectModal({
                     cash: String(venueDue),
                     upi: "0",
                     discount: "0",
@@ -940,9 +961,30 @@ export function AdminBookingDetailScreen() {
         ) : null}
 
         {/* Mark-collected sheet (RN doesn't have a native bottom-sheet
-            in core; using an inline modal-ish card for simplicity). */}
+            in core; using an inline modal-ish card for simplicity).
+            onLayout fires once the card has its real Y position; if
+            the user just tapped a Mark Collected button (the ref
+            flag is set), we scroll there + focus the Cash input so
+            the keyboard pops without the user hunting for it. */}
         {collectModal.open ? (
-          <View style={styles.collectCard}>
+          <View
+            style={styles.collectCard}
+            onLayout={(e) => {
+              if (!shouldScrollToCollectRef.current) return;
+              shouldScrollToCollectRef.current = false;
+              const y = e.nativeEvent.layout.y;
+              // Scroll a bit ABOVE the card's top so the heading +
+              // helper text are clearly in view, not flush with the
+              // status bar.
+              scrollRef.current?.scrollTo({
+                y: Math.max(y - 24, 0),
+                animated: true,
+              });
+              // 350ms ≈ scroll animation duration. Focusing earlier
+              // pops the keyboard mid-scroll which feels janky.
+              setTimeout(() => collectCashInputRef.current?.focus(), 350);
+            }}
+          >
             <Text variant="bodyStrong" style={styles.collectTitle}>
               Mark ₹{venueDue} collected
             </Text>
@@ -957,6 +999,7 @@ export function AdminBookingDetailScreen() {
                   CASH
                 </Text>
                 <TextInput
+                  ref={collectCashInputRef}
                   style={styles.collectInput}
                   keyboardType="numeric"
                   value={collectModal.cash}
@@ -965,6 +1008,9 @@ export function AdminBookingDetailScreen() {
                   }
                   placeholder="0"
                   placeholderTextColor={colors.zinc600}
+                  // Highlight the whole pre-filled value so the user
+                  // can either accept it or just type to overwrite.
+                  selectTextOnFocus
                 />
               </View>
               <View style={styles.collectField}>
