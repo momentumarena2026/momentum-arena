@@ -122,6 +122,7 @@ export async function exportMonthlyXlsx(
       user: { select: { name: true, phone: true } },
       items: { select: { quantity: true } },
       createdByAdmin: { select: { username: true } },
+      payment: true,
     },
     orderBy: { createdAt: "asc" },
   });
@@ -243,9 +244,61 @@ export async function exportMonthlyXlsx(
     summary.addRow([p, v.count, v.revenue]);
   }
 
+  // Per-collection-mode breakdown — answers "how much physical
+  // cash did the venue handle this month vs UPI QR vs online
+  // gateways". Rolls up the cash/upiQr/online split from BOTH the
+  // bookings sheet and the cafe orders sheet so the totals match
+  // the column SUMs across both.
+  summary.addRow([]);
+  summary.addRow(["By collection mode", "Bookings (₹)", "Cafe (₹)", "Total (₹)"]);
+  summary.lastRow!.font = HEADER_FONT;
+  summary.lastRow!.fill = HEADER_FILL;
+  const bookingTotals = { cash: 0, upiQr: 0, online: 0, venueDiscount: 0 };
+  for (const b of bookings) {
+    if (b.status === "CANCELLED") continue;
+    const s = splitBookingPayment(b.payment);
+    bookingTotals.cash += s.cash;
+    bookingTotals.upiQr += s.upiQr;
+    bookingTotals.online += s.online;
+    bookingTotals.venueDiscount += s.venueDiscount;
+  }
+  const cafeTotals = { cash: 0, upiQr: 0, online: 0 };
+  for (const o of cafeOrders) {
+    if (o.status === "CANCELLED") continue;
+    const s = splitCafePayment(o.payment);
+    cafeTotals.cash += s.cash;
+    cafeTotals.upiQr += s.upiQr;
+    cafeTotals.online += s.online;
+  }
+  summary.addRow([
+    "Cash",
+    bookingTotals.cash,
+    cafeTotals.cash,
+    bookingTotals.cash + cafeTotals.cash,
+  ]);
+  summary.addRow([
+    "UPI QR",
+    bookingTotals.upiQr,
+    cafeTotals.upiQr,
+    bookingTotals.upiQr + cafeTotals.upiQr,
+  ]);
+  summary.addRow([
+    "Online (Razorpay/PhonePe)",
+    bookingTotals.online,
+    cafeTotals.online,
+    bookingTotals.online + cafeTotals.online,
+  ]);
+  summary.addRow([
+    "Discount at venue (booking only)",
+    bookingTotals.venueDiscount,
+    "",
+    bookingTotals.venueDiscount,
+  ]);
+
   summary.getColumn(1).width = 32;
   summary.getColumn(2).width = 18;
   summary.getColumn(3).width = 18;
+  summary.getColumn(4).width = 18;
 
   // ─── Sheet 2: Bookings ────────────────────────────────────────
   const bookingsSheet = wb.addWorksheet("Bookings");
@@ -260,6 +313,16 @@ export async function exportMonthlyXlsx(
     { header: "Total (₹)", key: "total", width: 12 },
     { header: "Discount (₹)", key: "discount", width: 12 },
     { header: "Paid (₹)", key: "paid", width: 12 },
+    // ── Bifurcation by collection mode (advance + venue split) ──
+    // For partial-payment bookings, the advance is paid via `method`
+    // and the venue-side remainder is split across cash + UPI QR +
+    // an optional goodwill discount. Each row's three columns sum
+    // to "Paid (₹)" (Discount-at-venue is shown separately because
+    // it's not money in — it's money written off).
+    { header: "Cash (₹)", key: "cash", width: 12 },
+    { header: "UPI QR (₹)", key: "upiQr", width: 12 },
+    { header: "Online (₹)", key: "online", width: 12 },
+    { header: "Discount at venue (₹)", key: "venueDiscount", width: 18 },
     { header: "Method", key: "method", width: 12 },
     { header: "Payment status", key: "paymentStatus", width: 14 },
     { header: "Booking status", key: "status", width: 14 },
@@ -270,6 +333,7 @@ export async function exportMonthlyXlsx(
   styleHeaderRow(bookingsSheet, HEADER_FILL, HEADER_FONT);
 
   for (const b of bookings) {
+    const split = splitBookingPayment(b.payment);
     bookingsSheet.addRow({
       id: b.id,
       date: fmtIstDate(b.date),
@@ -281,6 +345,10 @@ export async function exportMonthlyXlsx(
       total: b.totalAmount,
       discount: b.discountAmount,
       paid: b.payment?.amount ?? 0,
+      cash: split.cash,
+      upiQr: split.upiQr,
+      online: split.online,
+      venueDiscount: split.venueDiscount,
       method: b.payment?.method ?? "—",
       paymentStatus: b.payment?.status ?? "—",
       status: b.status,
@@ -305,6 +373,14 @@ export async function exportMonthlyXlsx(
     { header: "Subtotal (₹)", key: "subtotal", width: 12 },
     { header: "Discount (₹)", key: "discount", width: 12 },
     { header: "Total (₹)", key: "total", width: 12 },
+    // Cafe doesn't have partial payments, so each order is paid via
+    // exactly one method — Cash, UPI QR, or Online (Razorpay/PhonePe).
+    // Three columns kept for layout symmetry with the Bookings sheet
+    // so a finance person can SUM across both sheets in one go.
+    { header: "Cash (₹)", key: "cash", width: 12 },
+    { header: "UPI QR (₹)", key: "upiQr", width: 12 },
+    { header: "Online (₹)", key: "online", width: 12 },
+    { header: "Method", key: "method", width: 12 },
     { header: "Status", key: "status", width: 12 },
     { header: "Table", key: "table", width: 8 },
     { header: "Created by admin", key: "createdByAdmin", width: 18 },
@@ -313,6 +389,7 @@ export async function exportMonthlyXlsx(
 
   for (const o of cafeOrders) {
     const itemQty = o.items.reduce((s, it) => s + it.quantity, 0);
+    const split = splitCafePayment(o.payment);
     cafeSheet.addRow({
       orderNumber: o.orderNumber,
       date: fmtIst(o.createdAt),
@@ -322,6 +399,10 @@ export async function exportMonthlyXlsx(
       subtotal: (o.originalAmount ?? o.totalAmount + o.discountAmount),
       discount: o.discountAmount,
       total: o.totalAmount,
+      cash: split.cash,
+      upiQr: split.upiQr,
+      online: split.online,
+      method: o.payment?.method ?? "—",
       status: o.status,
       table: o.tableNumber ?? "—",
       createdByAdmin: o.createdByAdmin?.username ?? "—",
@@ -343,6 +424,81 @@ export async function exportMonthlyXlsx(
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
+
+/**
+ * Bifurcate a booking's Payment row into Cash / UPI QR / Online
+ * (Razorpay + PhonePe) / Discount-at-venue components.
+ *
+ * For partial-payment bookings, the advance is paid via
+ * `payment.method` (one of CASH / UPI_QR / RAZORPAY / PHONEPE) and
+ * the venue-side remainder is split across `remainderCashAmount`,
+ * `remainderUpiAmount`, `remainderDiscountAmount`. We add the two
+ * legs together. For non-partial bookings, the whole `amount` lands
+ * in the column matching `method`.
+ *
+ * Legacy rows that predate the split-collection feature have only
+ * `remainderMethod` populated (no per-method amounts) — we fall
+ * back to that and bucket the whole `remainingAmount`.
+ *
+ * cash + upiQr + online === payment.amount in every case.
+ * venueDiscount is shown separately because it's NOT money in —
+ * it's money the venue wrote off at collection time.
+ */
+type BookingPayment = {
+  method: string;
+  amount: number;
+  isPartialPayment: boolean;
+  advanceAmount: number | null;
+  remainingAmount: number | null;
+  remainderMethod: string | null;
+  remainderCashAmount: number | null;
+  remainderUpiAmount: number | null;
+  remainderDiscountAmount: number | null;
+};
+
+function splitBookingPayment(p: BookingPayment | null | undefined) {
+  if (!p) return { cash: 0, upiQr: 0, online: 0, venueDiscount: 0 };
+
+  const advance = p.isPartialPayment ? (p.advanceAmount ?? 0) : p.amount;
+  const cashAdv = p.method === "CASH" ? advance : 0;
+  const upiAdv = p.method === "UPI_QR" ? advance : 0;
+  const onlineAdv =
+    p.method === "RAZORPAY" || p.method === "PHONEPE" ? advance : 0;
+
+  // Remainder split. Prefer the explicit per-method amounts; fall
+  // back to remainderMethod for legacy rows.
+  const remCash =
+    p.remainderCashAmount ??
+    (p.remainderMethod === "CASH" ? p.remainingAmount ?? 0 : 0);
+  const remUpi =
+    p.remainderUpiAmount ??
+    (p.remainderMethod === "UPI_QR" ? p.remainingAmount ?? 0 : 0);
+  const remDiscount = p.remainderDiscountAmount ?? 0;
+
+  return {
+    cash: cashAdv + remCash,
+    upiQr: upiAdv + remUpi,
+    online: onlineAdv,
+    venueDiscount: remDiscount,
+  };
+}
+
+/**
+ * Cafe payments are simpler — no partial-payment flow, so each
+ * order's amount lives entirely in one bucket (Cash / UPI QR /
+ * Online).
+ */
+type CafePaymentRow = { method: string; amount: number } | null | undefined;
+
+function splitCafePayment(p: CafePaymentRow) {
+  if (!p) return { cash: 0, upiQr: 0, online: 0 };
+  return {
+    cash: p.method === "CASH" ? p.amount : 0,
+    upiQr: p.method === "UPI_QR" ? p.amount : 0,
+    online:
+      p.method === "RAZORPAY" || p.method === "PHONEPE" ? p.amount : 0,
+  };
+}
 
 function styleHeaderRow(
   sheet: ExcelJS.Worksheet,
