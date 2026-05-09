@@ -203,3 +203,74 @@ export async function fetchDisputes(
   });
   return { items: result.items, count: result.count };
 }
+
+// --- Settlement recon (combined) -------------------------------------------
+// Razorpay's "combined" recon endpoint returns the per-line settlement
+// breakdown — every payment / refund / adjustment / transfer that contributed
+// to settlements in the window, with fees, tax, debit/credit, settlement_id,
+// UTR, processed_at, etc. This is what the dashboard's "Settlement
+// Reconciliation" XLSX export uses.
+//
+// Endpoint: GET /v1/settlements/recon/combined?year=YYYY&month=M&count=N&skip=N
+// (year/month are Razorpay's preferred form for monthly recon — they
+// internally translate to the right from/to range).
+//
+// We page through with count=100 (RZP cap) until the response is short. The
+// queue worker calls this once per report build.
+
+export interface RzpReconRow {
+  entity_id: string;
+  type: string;
+  debit: number;
+  credit: number;
+  amount: number;
+  currency: string;
+  fee: number;
+  tax: number;
+  on_hold: 0 | 1;
+  settled: 0 | 1;
+  created_at: number;
+  settled_at: number | null;
+  settlement_id: string | null;
+  posted_at: number | null;
+  credit_type: string | null;
+  payment_id: string | null;
+  description: string | null;
+  notes: Record<string, string> | null;
+  order_id: string | null;
+  order_receipt: string | null;
+  method: string | null;
+  card_network: string | null;
+  card_issuer: string | null;
+  card_type: string | null;
+  dispute_id: string | null;
+  bank: string | null;
+  email: string | null;
+  contact: string | null;
+  transfer_id: string | null;
+  international: boolean | null;
+}
+
+const RECON_PAGE_SIZE = 100;
+const RECON_HARD_PAGE_LIMIT = 50; // 5000 rows/month — way beyond our scale.
+
+export async function fetchSettlementReconForMonth(
+  year: number,
+  month1to12: number,
+): Promise<RzpReconRow[]> {
+  const all: RzpReconRow[] = [];
+  for (let page = 0; page < RECON_HARD_PAGE_LIMIT; page++) {
+    const batch = await razorpayFetch<RzpCollection<RzpReconRow>>(
+      "/settlements/recon/combined",
+      {
+        year,
+        month: month1to12,
+        count: RECON_PAGE_SIZE,
+        skip: page * RECON_PAGE_SIZE,
+      },
+    );
+    all.push(...batch.items);
+    if (batch.items.length < RECON_PAGE_SIZE) break;
+  }
+  return all;
+}

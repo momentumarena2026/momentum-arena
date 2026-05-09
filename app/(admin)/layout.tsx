@@ -10,6 +10,7 @@ import { AdminSidebar } from "./admin-sidebar";
 const allNavItems = [
   { href: "/admin", label: "Overview", group: "General", permission: null },
   { href: "/admin/analytics", label: "Analytics", group: "General", permission: "VIEW_ANALYTICS" },
+  { href: "/admin/reports", label: "Reports", group: "General", permission: "VIEW_ANALYTICS" },
   { href: "/admin/bookings", label: "All Bookings", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/bookings/unconfirmed", label: "Unconfirmed", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/bookings/calendar", label: "Calendar", group: "Bookings", permission: "MANAGE_BOOKINGS" },

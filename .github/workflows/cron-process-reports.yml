@@ -1,0 +1,45 @@
+name: Cron — Process Report Queue
+
+# Drains the Report queue every minute. Workers are quick (sub-
+# second to a few seconds) so a 1-minute cadence keeps the
+# admin-perceived "queued → ready" wait short without burning
+# meaningful Action minutes (1440 fires/day × ~3s each = ~72 min/day,
+# well under GitHub's 2000 min/month free tier on private repos).
+#
+# Reuses PRODUCTION_URL + CRON_SECRET from cron-send-reminders.yml.
+
+on:
+  schedule:
+    - cron: "* * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: POST /api/cron/process-reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify required secrets
+        run: |
+          if [ -z "${{ secrets.PRODUCTION_URL }}" ]; then
+            echo "::error::PRODUCTION_URL secret missing — add it under repo Settings → Secrets → Actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::CRON_SECRET secret missing — add it under repo Settings → Secrets → Actions"
+            exit 1
+          fi
+
+      - name: Drain the report queue
+        env:
+          URL: ${{ secrets.PRODUCTION_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fS --max-time 90 \
+            -H "Authorization: Bearer $SECRET" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$URL/api/cron/process-reports"
+          echo
+          echo "OK — drain pass complete."

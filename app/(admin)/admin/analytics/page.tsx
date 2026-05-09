@@ -1,7 +1,6 @@
 import { getKPIStats } from "@/actions/admin-analytics";
 import { db } from "@/lib/db";
 import { AnalyticsDashboard } from "./analytics-dashboard";
-import { ExportButton } from "./export-button";
 
 export default async function AnalyticsPage() {
   const now = new Date();
@@ -28,17 +27,12 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Analytics</h1>
-          <p className="mt-1 text-zinc-400">
-            Revenue, bookings, and performance insights
-          </p>
-        </div>
-        {/* Month-wise revenue + sales download. Independent of the
-            dashboard's date filter — admins usually want the
-            previous calendar month's books for accounting. */}
-        <ExportButton />
+      <div>
+        <h1 className="text-2xl font-bold text-white">Analytics</h1>
+        <p className="mt-1 text-zinc-400">
+          Revenue, bookings, and performance insights. For monthly
+          downloadable reports, use the <strong>Reports</strong> tab.
+        </p>
       </div>
       <AnalyticsDashboard
         initialKPI={kpiResult.success && kpiResult.data ? kpiResult.data : null}
