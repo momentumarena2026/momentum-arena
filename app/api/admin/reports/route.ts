@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/lib/admin-auth-session";
 import { hasPermission } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { enqueueReport } from "@/lib/reports/queue";
+import { enqueueReport, processNextQueuedReport } from "@/lib/reports/queue";
 
 const PERMISSION = "VIEW_ANALYTICS" as const;
 
@@ -109,5 +109,27 @@ export async function POST(request: NextRequest) {
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
+
+  // Drain the queue right after responding. The cron-process-reports
+  // workflow is supposed to fire every minute but GitHub Actions
+  // schedule reliability on the free tier is poor (hours of drift,
+  // sometimes "active but never run"), so we kick off the worker
+  // inline. Vercel's after() keeps the function alive until the
+  // promise resolves (or hits the platform max-duration limit), and
+  // the response has already been streamed so the admin sees
+  // "Queued" instantly. The page's 4s poll then picks up the
+  // "Ready" status the moment the worker writes it.
+  //
+  // The cron stays in place as a safety net for stuck-state recovery
+  // (e.g. if a worker dies mid-process before flipping the row to
+  // READY/FAILED — see processNextQueuedReport for the recovery).
+  after(async () => {
+    try {
+      await processNextQueuedReport();
+    } catch (err) {
+      console.error("[reports] inline drain failed:", err);
+    }
+  });
+
   return NextResponse.json({ success: true, report: result.report });
 }

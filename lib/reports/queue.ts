@@ -121,7 +121,32 @@ export interface ProcessResult {
   durationMs?: number;
 }
 
+// A worker that crashed (Vercel function timeout, container kill,
+// uncaught throw between the GENERATING flip and the READY flip)
+// would leave a Report row stuck at GENERATING forever. On every
+// queue scan, we mark any GENERATING row older than this as FAILED
+// so the queue keeps moving. Picked generously enough to cover the
+// slowest realistic worker run (Razorpay recon over a busy month
+// can take ~10s).
+const STUCK_GENERATING_THRESHOLD_MS = 5 * 60 * 1000;
+
 export async function processNextQueuedReport(): Promise<ProcessResult> {
+  // Recover any GENERATING rows that have been stuck past the
+  // threshold. Idempotent — fine to run on every scan.
+  const stuckCutoff = new Date(Date.now() - STUCK_GENERATING_THRESHOLD_MS);
+  await db.report.updateMany({
+    where: {
+      status: "GENERATING",
+      startedAt: { lt: stuckCutoff },
+    },
+    data: {
+      status: "FAILED",
+      completedAt: new Date(),
+      errorMessage:
+        "Worker timed out before completing — re-queue the report to retry.",
+    },
+  });
+
   const next = await db.report.findFirst({
     where: { status: "QUEUED" },
     orderBy: { createdAt: "asc" },
