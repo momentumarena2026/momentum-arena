@@ -84,7 +84,11 @@ export async function GET(request: NextRequest) {
 }
 
 const enqueueBody = z.object({
-  type: z.enum(["SALES_MONTHLY", "RAZORPAY_RECON_MONTHLY"]),
+  type: z.enum([
+    "SALES_MONTHLY",
+    "RAZORPAY_RECON_MONTHLY",
+    "CA_MONTHLY",
+  ]),
   year: z.number().int().min(2024).max(2100),
   month: z.number().int().min(1).max(12),
 });

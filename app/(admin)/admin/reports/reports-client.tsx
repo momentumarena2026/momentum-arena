@@ -40,6 +40,11 @@ const TYPES = [
     label: "Razorpay settlement reconciliation",
     desc: "Per-line settlement breakdown pulled from Razorpay's API — payments, refunds, fees, GST, settlement IDs, UTRs.",
   },
+  {
+    value: "CA_MONTHLY",
+    label: "CA monthly report",
+    desc: "Same column shape as the sales report, filename-tagged for the chartered accountant's monthly filing.",
+  },
 ] as const;
 
 const MONTHS = [
@@ -144,7 +149,7 @@ export function ReportsClient({ initialReports }: Props) {
           <label className="mb-2 block text-xs font-medium uppercase text-zinc-500">
             Report type
           </label>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-3">
             {TYPES.map((t) => (
               <button
                 key={t.value}

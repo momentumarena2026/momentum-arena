@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { generateSalesReport } from "./workers/sales";
 import { generateRazorpayReconReport } from "./workers/razorpay-recon";
+import { generateCaMonthlyReport } from "./workers/ca";
 
 /**
  * Async report queue.
@@ -18,7 +19,7 @@ import { generateRazorpayReconReport } from "./workers/razorpay-recon";
  */
 
 interface EnqueueInput {
-  type: "SALES_MONTHLY" | "RAZORPAY_RECON_MONTHLY";
+  type: "SALES_MONTHLY" | "RAZORPAY_RECON_MONTHLY" | "CA_MONTHLY";
   year: number;
   month: number; // 1-12
   requestedById: string;
@@ -36,7 +37,11 @@ export interface EnqueueResult {
   error?: string;
 }
 
-const VALID_TYPES = ["SALES_MONTHLY", "RAZORPAY_RECON_MONTHLY"] as const;
+const VALID_TYPES = [
+  "SALES_MONTHLY",
+  "RAZORPAY_RECON_MONTHLY",
+  "CA_MONTHLY",
+] as const;
 
 export async function enqueueReport(input: EnqueueInput): Promise<EnqueueResult> {
   if (!VALID_TYPES.includes(input.type)) {
@@ -220,6 +225,8 @@ async function runWorker(
       return generateSalesReport({ year, month });
     case "RAZORPAY_RECON_MONTHLY":
       return generateRazorpayReconReport({ year, month });
+    case "CA_MONTHLY":
+      return generateCaMonthlyReport({ year, month });
     default:
       throw new Error(`Unknown report type: ${type}`);
   }

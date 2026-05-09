@@ -1634,6 +1634,10 @@ model UserCohort {
 enum ReportType {
   SALES_MONTHLY // Bookings + cafe revenue, generated from our DB.
   RAZORPAY_RECON_MONTHLY // Settlement reconciliation pulled from Razorpay.
+  // Same column shape as SALES_MONTHLY — separate type so the CA's
+  // copy of the books is filename-tagged for easy filing
+  // ("…_ca-report.xlsx" vs the internal "…_revenue.xlsx").
+  CA_MONTHLY
 }
 
 enum ReportStatus {
