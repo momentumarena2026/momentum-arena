@@ -17,6 +17,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  Sparkles,
   User as UserIcon,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -27,6 +28,7 @@ import { colors, spacing } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
 import { useAdminAuth } from "../../providers/AdminAuthProvider";
 import { bookingsApi } from "../../lib/bookings";
+import { rewardsApi } from "../../lib/rewards";
 import {
   formatHoursAsRanges,
   formatRupees,
@@ -67,6 +69,14 @@ export function AccountScreen() {
   const { data: dashboard } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => bookingsApi.dashboard(),
+    enabled: !!user,
+  });
+
+  // Rewards balance teaser for the Momentum Points tile. Same enable-on-
+  // signin gate; the response shape is { overview } with possible null.
+  const { data: rewards } = useQuery({
+    queryKey: ["rewards", "overview"],
+    queryFn: () => rewardsApi.overview(),
     enabled: !!user,
   });
 
@@ -146,6 +156,27 @@ export function AccountScreen() {
 
       {/* ─── Quick action tiles (full-width, stacked) ────────────────── */}
       <View style={styles.tilesStack}>
+        {rewards?.overview?.config.enabled && (
+          <Pressable
+            onPress={() => navigation.navigate("Rewards")}
+            style={({ pressed }) => [
+              styles.tile,
+              styles.rewardsTile,
+              pressed && styles.tilePressed,
+            ]}
+          >
+            <View style={[styles.tileIcon, styles.rewardsTileIcon]}>
+              <Sparkles size={20} color={colors.emerald400} />
+            </View>
+            <View style={styles.tileBody}>
+              <Text style={styles.tileTitle}>Momentum Points</Text>
+              <Text style={styles.rewardsSubtitle}>
+                {(rewards.overview.pointsAvailable ?? 0).toLocaleString("en-IN")} pts available
+              </Text>
+            </View>
+            <ChevronRight size={16} color={colors.emerald400} />
+          </Pressable>
+        )}
         <ActionTile
           icon={<History size={20} color={colors.zinc400} />}
           title="Booking History"
@@ -767,6 +798,20 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     color: colors.zinc500,
+  },
+  // Emerald-tinted tile for the Momentum Points entry — mirrors the web
+  // dashboard's special-case Rewards quick-link.
+  rewardsTile: {
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_05,
+  },
+  rewardsTileIcon: {
+    backgroundColor: colors.emerald500_20,
+  },
+  rewardsSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    color: colors.emerald400,
   },
 
   // ── Upcoming Sessions section (web dashboard parity)
