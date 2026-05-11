@@ -6,6 +6,7 @@ import {
   getMyRewardTransactions,
 } from "@/actions/rewards";
 import { RewardsTransactionList } from "@/components/rewards/transaction-list";
+import { TrackRewardsView } from "@/components/rewards/track-rewards-view";
 import {
   Gift,
   TrendingUp,
@@ -38,6 +39,7 @@ export default async function RewardsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
+      <TrackRewardsView pointsAvailable={overview.pointsAvailable} />
       <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Hero balance card */}
         <div className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/60 via-zinc-950 to-zinc-950 p-6 sm:p-8">

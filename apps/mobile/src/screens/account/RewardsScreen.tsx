@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -22,6 +22,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { colors, radius, spacing } from "../../theme";
 import { rewardsApi, type RewardTxnRow } from "../../lib/rewards";
+import { trackRewardsView } from "../../lib/analytics";
 
 function paiseAsRupees(paise: number): string {
   const rupees = Math.round(paise / 100);
@@ -146,6 +147,17 @@ export function RewardsScreen() {
   ]);
 
   const overview = overviewQ.data?.overview ?? null;
+
+  // Fire-once discovery event for the Rewards funnel. Waits for the
+  // first overview load so we can include the user's balance — useful
+  // for cohorting "did high-balance users come back vs low-balance".
+  const trackedRef = useRef(false);
+  useEffect(() => {
+    if (!trackedRef.current && overview) {
+      trackedRef.current = true;
+      trackRewardsView(overview.pointsAvailable);
+    }
+  }, [overview]);
   const firstRows = firstPageQ.data?.rows ?? [];
   const rows = [...firstRows, ...extraRows];
   const isLoading = overviewQ.isLoading || firstPageQ.isLoading;

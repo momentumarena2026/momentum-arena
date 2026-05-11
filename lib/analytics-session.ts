@@ -31,6 +31,7 @@ type EventCategory =
   | "AUTH"
   | "CAFE"
   | "WAITLIST"
+  | "REWARDS"
   | "NAVIGATION"
   | "ADMIN"
   | "ERROR"

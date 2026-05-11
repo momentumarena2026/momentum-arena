@@ -40,6 +40,7 @@ const analyticsCategoryEnum = z.enum([
   "AUTH",
   "CAFE",
   "WAITLIST",
+  "REWARDS",
   "NAVIGATION",
   "ADMIN",
   "ERROR",
@@ -365,6 +366,7 @@ function deriveCategory(name: string): AnalyticsCategory {
   if (name.startsWith("waitlist_") || name === "slot_unavailable_tap") {
     return "WAITLIST" as AnalyticsCategory;
   }
+  if (name.startsWith("rewards_")) return "REWARDS" as AnalyticsCategory;
   if (name.startsWith("admin_")) return "ADMIN" as AnalyticsCategory;
   if (name.endsWith("_error") || name.endsWith("_failed")) {
     return "ERROR" as AnalyticsCategory;

@@ -23,6 +23,7 @@ type EventCategory =
   | "AUTH"
   | "CAFE"
   | "WAITLIST"
+  | "REWARDS"
   | "NAVIGATION"
   | "ADMIN"
   | "ERROR"
@@ -390,4 +391,35 @@ export function trackAdminAction(
     { action, booking_id: bookingId, ...meta },
     "ADMIN",
   );
+}
+
+// ─── Rewards ─────────────────────────────────────────────────────
+
+/** Fired on /rewards page mount — drives the Rewards funnel step 2. */
+export function trackRewardsView(pointsAvailable: number) {
+  trackEvent("rewards_view", { points_available: pointsAvailable }, "REWARDS");
+}
+
+/** Fired when a user opens the redeem flow in checkout. Wired up
+ *  alongside the redeem-slider integration (deferred). */
+export function trackRewardsRedeemStarted(billPaise: number, maxPoints: number) {
+  trackEvent(
+    "rewards_redeem_started",
+    { bill_paise: billPaise, max_points: maxPoints },
+    "REWARDS",
+  );
+}
+
+/** Fired after a successful redemption commits server-side. */
+export function trackRewardsRedeemCompleted(points: number, paiseSaved: number) {
+  trackEvent(
+    "rewards_redeem_completed",
+    { points, paise_saved: paiseSaved },
+    "REWARDS",
+  );
+}
+
+/** Header chip / dashboard tile tap — discovery signal. */
+export function trackRewardsChipClick(source: "header" | "dashboard_tile") {
+  trackEvent("rewards_chip_click", { source }, "REWARDS");
 }

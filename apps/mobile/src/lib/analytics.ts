@@ -40,6 +40,7 @@ type EventCategory =
   | "AUTH"
   | "CAFE"
   | "WAITLIST"
+  | "REWARDS"
   | "NAVIGATION"
   | "ADMIN"
   | "ERROR"
@@ -212,6 +213,26 @@ export function trackCafePaymentCompleted(orderId: string, amount: number) {
     "cafe_payment_completed",
     { order_id: orderId, amount },
     "PAYMENT",
+  );
+}
+
+// ─── Rewards ─────────────────────────────────────────────────────
+
+/** Fired on RewardsScreen mount — drives the Rewards funnel step 2. */
+export function trackRewardsView(pointsAvailable: number) {
+  trackEvent(
+    "rewards_view",
+    { points_available: pointsAvailable },
+    "REWARDS",
+  );
+}
+
+/** Tap on the Momentum Points tile in the Account screen. */
+export function trackRewardsTileTap(pointsAvailable: number) {
+  trackEvent(
+    "rewards_chip_click",
+    { source: "account_tile", points_available: pointsAvailable },
+    "REWARDS",
   );
 }
 

@@ -29,6 +29,7 @@ import { useAuth } from "../../providers/AuthProvider";
 import { useAdminAuth } from "../../providers/AdminAuthProvider";
 import { bookingsApi } from "../../lib/bookings";
 import { rewardsApi } from "../../lib/rewards";
+import { trackRewardsTileTap } from "../../lib/analytics";
 import {
   formatHoursAsRanges,
   formatRupees,
@@ -158,7 +159,10 @@ export function AccountScreen() {
       <View style={styles.tilesStack}>
         {rewards?.overview?.config.enabled && (
           <Pressable
-            onPress={() => navigation.navigate("Rewards")}
+            onPress={() => {
+              trackRewardsTileTap(rewards.overview.pointsAvailable);
+              navigation.navigate("Rewards");
+            }}
             style={({ pressed }) => [
               styles.tile,
               styles.rewardsTile,

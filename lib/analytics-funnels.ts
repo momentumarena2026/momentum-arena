@@ -52,6 +52,21 @@ export const FUNNELS = {
       "login_success",
     ] as const,
   },
+  // Rewards funnel — measures discovery → engagement → redemption.
+  // `rewards_view` is emitted from the /rewards page (web) and the
+  // RewardsScreen (mobile). The redeem-side events will start
+  // populating once the checkout slider integration lands; until
+  // then they show 0 in the funnel view, which is the correct signal
+  // (we genuinely don't have a redemption path live yet).
+  rewards: {
+    label: "Rewards",
+    steps: [
+      "login_success",
+      "rewards_view",
+      "rewards_redeem_started",
+      "rewards_redeem_completed",
+    ] as const,
+  },
 } as const;
 
 export type FunnelKey = keyof typeof FUNNELS;
