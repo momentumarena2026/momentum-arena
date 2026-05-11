@@ -45,6 +45,11 @@ const TYPES = [
     label: "CA monthly report",
     desc: "Same column shape as the sales report, filename-tagged for the chartered accountant's monthly filing.",
   },
+  {
+    value: "EXPENSES_MONTHLY",
+    label: "Expenses",
+    desc: "All expense entries for the month plus a per-person summary showing who spent how much collectively.",
+  },
 ] as const;
 
 const MONTHS = [

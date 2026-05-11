@@ -1638,6 +1638,10 @@ enum ReportType {
   // copy of the books is filename-tagged for easy filing
   // ("…_ca-report.xlsx" vs the internal "…_revenue.xlsx").
   CA_MONTHLY
+  // All Expense rows for the month + a per-person spend summary
+  // so the operations team can see who is spending how much
+  // (mapped to Expense.doneBy — the staff member who paid out).
+  EXPENSES_MONTHLY
 }
 
 enum ReportStatus {
