@@ -134,7 +134,37 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // 5. Insert events. We use createMany so a single round-trip
+  // 5. Drop admin-source events. Defense in depth — the web
+  //    PageViewTracker already skips admin paths, but an admin
+  //    panel page that fires trackXxx() from a feature button would
+  //    otherwise bypass that. We never want admin clicks polluting
+  //    the customer-funnel analytics.
+  const filteredEvents = events.filter((e) => {
+    // Drop if pageUrl is on the admin/godmode tree.
+    if (e.pageUrl) {
+      try {
+        const u = new URL(e.pageUrl);
+        const p = u.pathname;
+        if (
+          p === "/admin" ||
+          p.startsWith("/admin/") ||
+          p === "/godmode" ||
+          p.startsWith("/godmode/")
+        ) {
+          return false;
+        }
+      } catch {
+        // Bad URL — let it through; we'd rather over-include than
+        // accidentally swallow legitimate events on a bad referrer.
+      }
+    }
+    // Drop the admin-bucket events too — they're not part of any
+    // customer funnel.
+    if (e.category === "ADMIN" || e.name.startsWith("admin_")) return false;
+    return true;
+  });
+
+  // 6. Insert events. We use createMany so a single round-trip
   //    handles the whole batch. We deliberately don't return the
   //    inserted rows — saves ~30% on payload + the client doesn't
   //    need the IDs back.
@@ -143,24 +173,29 @@ export async function POST(request: NextRequest) {
       ? { id: userId, name: userName, phone: userPhone }
       : null;
 
-  const rows: Prisma.AnalyticsEventCreateManyInput[] = events.map((e) => ({
-    name: e.name,
-    category: (e.category ?? deriveCategory(e.name)) as AnalyticsCategory,
-    userId: userId ?? null,
-    sessionId: session.id,
-    platform,
-    pageUrl: e.pageUrl ?? null,
-    occurredAt: e.occurredAt ? new Date(e.occurredAt) : new Date(),
-    properties: {
-      ...(e.properties ?? {}),
-      // Snapshot the user's identity at write-time. If the user later
-      // changes their name/phone, past events still reflect who they
-      // were when the event happened — that's the intent.
-      ...(userPiiSnapshot ? { user: userPiiSnapshot } : {}),
-    },
-  }));
+  const rows: Prisma.AnalyticsEventCreateManyInput[] = filteredEvents.map(
+    (e) => ({
+      name: e.name,
+      category: (e.category ?? deriveCategory(e.name)) as AnalyticsCategory,
+      userId: userId ?? null,
+      sessionId: session.id,
+      platform,
+      pageUrl: e.pageUrl ?? null,
+      occurredAt: e.occurredAt ? new Date(e.occurredAt) : new Date(),
+      properties: {
+        ...(e.properties ?? {}),
+        // Snapshot the user's identity at write-time. If the user later
+        // changes their name/phone, past events still reflect who they
+        // were when the event happened — that's the intent.
+        ...(userPiiSnapshot ? { user: userPiiSnapshot } : {}),
+      },
+    }),
+  );
 
-  const result = await db.analyticsEvent.createMany({ data: rows });
+  const result =
+    rows.length > 0
+      ? await db.analyticsEvent.createMany({ data: rows })
+      : { count: 0 };
 
   return NextResponse.json({
     sessionId: session.id,
