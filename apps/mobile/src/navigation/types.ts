@@ -118,4 +118,13 @@ export type AdminTabsParamList = {
   AdminCalendar: NavigatorScreenParams<AdminCalendarStackParamList>;
   AdminCafe: NavigatorScreenParams<AdminCafeStackParamList>;
   AdminExpenses: NavigatorScreenParams<AdminExpensesStackParamList>;
+  // Momentum Rewards monitoring + bulk grant. Mirrors the web
+  // /admin/rewards Overview/Alerts/Distribute surface; the full
+  // 5-tab admin remains on web only.
+  AdminRewards: NavigatorScreenParams<AdminRewardsStackParamList>;
+};
+
+export type AdminRewardsStackParamList = {
+  AdminRewardsHome: undefined;
+  AdminRewardsDistribute: undefined;
 };

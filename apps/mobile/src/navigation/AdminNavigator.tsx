@@ -12,6 +12,7 @@ import {
   LogOut,
   ScanLine,
   ShieldCheck,
+  Sparkles,
   UserSquare2,
 } from "lucide-react-native";
 import { Text } from "../components/ui/Text";
@@ -32,11 +33,14 @@ import { AdminCafeMenuScreen } from "../screens/admin/AdminCafeMenuScreen";
 import { AdminExpensesListScreen } from "../screens/admin/AdminExpensesListScreen";
 import { AdminExpenseFormScreen } from "../screens/admin/AdminExpenseFormScreen";
 import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyticsScreen";
+import { AdminRewardsScreen } from "../screens/admin/AdminRewardsScreen";
+import { AdminRewardsDistributeScreen } from "../screens/admin/AdminRewardsDistributeScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
   AdminCalendarStackParamList,
   AdminExpensesStackParamList,
+  AdminRewardsStackParamList,
   AdminTabsParamList,
   RootStackParamList,
 } from "./types";
@@ -47,7 +51,33 @@ const CalendarStack =
 const CafeStack = createNativeStackNavigator<AdminCafeStackParamList>();
 const ExpensesStack =
   createNativeStackNavigator<AdminExpensesStackParamList>();
+const RewardsStack = createNativeStackNavigator<AdminRewardsStackParamList>();
 const Tabs = createBottomTabNavigator<AdminTabsParamList>();
+
+function AdminRewardsStackNav() {
+  return (
+    <RewardsStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
+        headerTintColor: colors.primary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <RewardsStack.Screen
+        name="AdminRewardsHome"
+        component={AdminRewardsScreen}
+        options={{ headerShown: false }}
+      />
+      <RewardsStack.Screen
+        name="AdminRewardsDistribute"
+        component={AdminRewardsDistributeScreen}
+        options={{ title: "Distribute points" }}
+      />
+    </RewardsStack.Navigator>
+  );
+}
 
 function AdminExpensesStackNav() {
   return (
@@ -230,6 +260,8 @@ export function AdminNavigator() {
               return <Coffee {...props} />;
             case "AdminExpenses":
               return <IndianRupee {...props} />;
+            case "AdminRewards":
+              return <Sparkles {...props} />;
           }
         },
       })}
@@ -259,6 +291,11 @@ export function AdminNavigator() {
         component={AdminExpensesStackNav}
         options={{ tabBarLabel: "Expenses" }}
       />
+      <Tabs.Screen
+        name="AdminRewards"
+        component={AdminRewardsStackNav}
+        options={{ tabBarLabel: "Rewards" }}
+      />
     </Tabs.Navigator>
   );
 }
@@ -275,6 +312,8 @@ function titleFor(name: keyof AdminTabsParamList): string {
       return "Cafe";
     case "AdminExpenses":
       return "Expenses";
+    case "AdminRewards":
+      return "Rewards";
   }
 }
 
