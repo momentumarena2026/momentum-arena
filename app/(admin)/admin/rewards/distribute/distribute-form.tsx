@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search, Sparkles } from "lucide-react";
 import {
   adminBulkGrantPoints,
+  getAllMatchingUserIdsForRewards,
   searchUsersForRewards,
   type AdminUserBalanceRow,
 } from "@/actions/admin-rewards";
@@ -21,6 +22,7 @@ export function DistributeForm({ initialUsers }: Props) {
   const [points, setPoints] = useState<number>(100);
   const [reason, setReason] = useState<string>("");
   const [searching, startSearch] = useTransition();
+  const [selectingAll, startSelectAll] = useTransition();
   const [granting, startGrant] = useTransition();
   const [result, setResult] = useState<{
     granted: number;
@@ -28,24 +30,61 @@ export function DistributeForm({ initialUsers }: Props) {
     totalPointsAwarded: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // When true, the user has clicked "Select all matching" and the
+  // `selected` Set contains EVERY user (not just the visible page)
+  // that matches the current query. We surface a small banner so the
+  // admin understands the grant scope.
+  const [selectAllMode, setSelectAllMode] = useState(false);
+  const [selectAllTruncated, setSelectAllTruncated] = useState(false);
 
-  const allChecked =
+  // The "visible" header checkbox is checked when every loaded row is
+  // in the selection. Note this is local to the table — the proper
+  // "select all matching" is a separate button below.
+  const allVisibleChecked =
     users.length > 0 && users.every((u) => selected.has(u.userId));
 
-  function toggleAll() {
-    if (allChecked) {
+  function toggleAllVisible() {
+    setSelectAllMode(false);
+    if (allVisibleChecked) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(users.map((u) => u.userId)));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const u of users) next.add(u.userId);
+        return next;
+      });
     }
   }
+
   function toggleOne(id: string) {
+    setSelectAllMode(false);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }
+
+  /**
+   * Select every user matching the current query — not just the
+   * visible page. Hits getAllMatchingUserIdsForRewards which is
+   * capped at 10k IDs (above any realistic single-venue customer
+   * count). When `query` is empty this picks the entire user base.
+   */
+  function selectAllMatching() {
+    startSelectAll(async () => {
+      const res = await getAllMatchingUserIdsForRewards({ query });
+      setSelected(new Set(res.userIds));
+      setSelectAllMode(true);
+      setSelectAllTruncated(res.truncated);
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+    setSelectAllMode(false);
+    setSelectAllTruncated(false);
   }
 
   function runSearch(q: string) {
@@ -184,6 +223,47 @@ export function DistributeForm({ initialUsers }: Props) {
           </button>
         </div>
 
+        {/* Select-all bar: pick everyone in the DB matching this query,
+            not just the visible page. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={selectAllMatching}
+              disabled={selectingAll}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+            >
+              {selectingAll
+                ? "Selecting…"
+                : query
+                  ? "Select all matching"
+                  : "Select all users"}
+            </button>
+            {selected.size > 0 && (
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-zinc-400 hover:text-zinc-200"
+              >
+                Clear selection
+              </button>
+            )}
+          </div>
+          {selectAllMode ? (
+            <p className="text-emerald-300">
+              {selected.size.toLocaleString("en-IN")} users selected — entire
+              {query ? ` "${query}" match` : " customer base"}
+              {selectAllTruncated && " (capped at 10,000)"}
+            </p>
+          ) : (
+            <p className="text-zinc-500">
+              {selected.size > 0
+                ? `${selected.size.toLocaleString("en-IN")} selected from the visible page`
+                : "Or check rows individually below"}
+            </p>
+          )}
+        </div>
+
         <div className="overflow-x-auto rounded-xl border border-zinc-800">
           <table className="min-w-full divide-y divide-zinc-800 text-sm">
             <thead className="bg-zinc-950/60 text-zinc-500">
@@ -191,10 +271,11 @@ export function DistributeForm({ initialUsers }: Props) {
                 <th className="w-10 px-3 py-2 text-left">
                   <input
                     type="checkbox"
-                    checked={allChecked}
-                    onChange={toggleAll}
+                    checked={allVisibleChecked}
+                    onChange={toggleAllVisible}
                     className="h-4 w-4 accent-emerald-500"
-                    aria-label="Select all visible users"
+                    aria-label="Toggle visible-page selection"
+                    title="Toggle visible rows (not the same as 'Select all matching' above)"
                   />
                 </th>
                 <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-xs">
@@ -253,8 +334,9 @@ export function DistributeForm({ initialUsers }: Props) {
         </div>
 
         <p className="text-xs text-zinc-500">
-          Tip: rows scroll independently of the form above. "Select all" only
-          applies to the currently visible search results.
+          Tip: "Select all matching" picks every user in the database that
+          matches the current search — not just the visible page. Clear the
+          search box to target the entire customer base.
         </p>
       </div>
     </form>

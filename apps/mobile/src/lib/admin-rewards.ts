@@ -66,6 +66,17 @@ export const adminRewardsApi = {
       { method: "GET" },
     ),
 
+  /** Resolve every user ID matching the search query (no pagination
+   *  cap, but bounded at 10k IDs server-side). Drives "Select all
+   *  matching" on the mobile distribute screen. */
+  allMatchingUserIds: (query: string) =>
+    request<{ userIds: string[]; total: number; truncated: boolean }>(
+      `/api/mobile/admin/rewards/users/all-matching?query=${encodeURIComponent(
+        query,
+      )}`,
+      { method: "GET" },
+    ),
+
   grant: (input: { userIds: string[]; points: number; reason: string }) =>
     request<{
       granted: number;

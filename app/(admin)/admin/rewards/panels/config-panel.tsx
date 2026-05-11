@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Save } from "lucide-react";
 import {
@@ -138,11 +138,11 @@ export function RewardsConfigPanel({ config }: Props) {
           value={form.earnRateCafeBps}
           onChange={(v) => update("earnRateCafeBps", v)}
         />
-        <NumberField
-          label="Point value (paise)"
-          desc="100 = ₹1 per point"
-          value={form.pointValuePaise}
-          onChange={(v) => update("pointValuePaise", v)}
+        <RupeeField
+          label="Point value (₹)"
+          desc="How many rupees each point is worth. Default ₹1."
+          paiseValue={form.pointValuePaise}
+          onChangePaise={(v) => update("pointValuePaise", v)}
         />
       </Section>
 
@@ -158,11 +158,11 @@ export function RewardsConfigPanel({ config }: Props) {
           value={form.maxRedemptionPctOfBill}
           onChange={(v) => update("maxRedemptionPctOfBill", v)}
         />
-        <NumberField
-          label="Max paise per txn"
-          desc="Absolute cap, e.g. 50000 = ₹500"
-          value={form.maxRedemptionPaisePerTxn}
-          onChange={(v) => update("maxRedemptionPaisePerTxn", v)}
+        <RupeeField
+          label="Max redemption per txn (₹)"
+          desc="Absolute cap on a single redemption. Default ₹500."
+          paiseValue={form.maxRedemptionPaisePerTxn}
+          onChangePaise={(v) => update("maxRedemptionPaisePerTxn", v)}
         />
         <NumberField
           label="Earn→redeem hold (hours)"
@@ -208,11 +208,11 @@ export function RewardsConfigPanel({ config }: Props) {
           value={form.highVelocityEarnDailyThreshold}
           onChange={(v) => update("highVelocityEarnDailyThreshold", v)}
         />
-        <NumberField
-          label="Bulk redemption (paise)"
-          desc="Trigger BULK_REDEMPTION at or above this"
-          value={form.bulkRedemptionPaiseThreshold}
-          onChange={(v) => update("bulkRedemptionPaiseThreshold", v)}
+        <RupeeField
+          label="Bulk redemption threshold (₹)"
+          desc="Trigger BULK_REDEMPTION alert at or above this. Default ₹500."
+          paiseValue={form.bulkRedemptionPaiseThreshold}
+          onChangePaise={(v) => update("bulkRedemptionPaiseThreshold", v)}
         />
       </Section>
 
@@ -279,6 +279,74 @@ function NumberField({
       />
     </label>
   );
+}
+
+/**
+ * Decimal-rupee input that internally stores paise. The DB column
+ * `pointValuePaise` (and friends) stays Int so existing math doesn't
+ * change — the admin just sees and edits values in ₹.
+ *
+ * A local `draft` state lets the user type partial values like "1."
+ * or "" without the field snapping back; we only call onChangePaise
+ * when the input parses to a non-negative number. Math.round at the
+ * boundary so "1.555" becomes 156 paise rather than 155.5.
+ */
+function RupeeField({
+  label,
+  desc,
+  paiseValue,
+  onChangePaise,
+}: {
+  label: string;
+  desc?: string;
+  paiseValue: number;
+  onChangePaise: (paise: number) => void;
+}) {
+  const canonical = Number.isFinite(paiseValue)
+    ? formatRupeeDraft(paiseValue / 100)
+    : "0";
+  const [draft, setDraft] = useState(canonical);
+
+  // Sync when the form resets externally (e.g., a config reload). We
+  // compare against the canonical formatted string so user typing
+  // doesn't bounce — only changes from outside our control resync.
+  useEffect(() => {
+    setDraft(canonical);
+  }, [canonical]);
+
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-zinc-300">{label}</span>
+      {desc && <span className="block text-[11px] text-zinc-600">{desc}</span>}
+      <div className="relative mt-1">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">
+          ₹
+        </span>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={draft}
+          onChange={(e) => {
+            const v = e.target.value;
+            setDraft(v);
+            const n = parseFloat(v);
+            if (Number.isFinite(n) && n >= 0) {
+              onChangePaise(Math.round(n * 100));
+            }
+          }}
+          className="w-full rounded-lg border border-zinc-800 bg-zinc-950 pl-7 pr-3 py-1.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+        />
+      </div>
+    </label>
+  );
+}
+
+function formatRupeeDraft(rupees: number): string {
+  // Show at most 2 decimal places, trim trailing zeros so the common
+  // "₹1" case doesn't display as "1.00".
+  if (!Number.isFinite(rupees)) return "0";
+  if (Number.isInteger(rupees)) return String(rupees);
+  return rupees.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function Toggle({

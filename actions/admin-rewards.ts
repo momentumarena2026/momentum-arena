@@ -249,8 +249,56 @@ export async function searchUsersForRewards(args: {
   }));
 }
 
+/**
+ * Returns IDs (and a count) of every user matching the search query,
+ * regardless of pagination. Drives the "Select all" button on the
+ * /admin/rewards/distribute screen so an admin can grant points to
+ * the entire customer base in one click rather than scrolling the
+ * paginated table.
+ *
+ * Hard-capped at 10_000 IDs so a runaway query can't ship megabytes
+ * of strings over the wire — well above any realistic single-venue
+ * customer count, but bounded.
+ */
+export async function getAllMatchingUserIdsForRewards(args: {
+  query?: string;
+}): Promise<{ userIds: string[]; total: number; truncated: boolean }> {
+  await requireAdmin();
+  const q = args.query?.trim();
+  const CAP = 10_000;
+
+  const where = q
+    ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" as const } },
+          { email: { contains: q, mode: "insensitive" as const } },
+          { phone: { contains: q } },
+        ],
+      }
+    : {};
+
+  const [users, total] = await Promise.all([
+    db.user.findMany({
+      where,
+      take: CAP,
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    }),
+    db.user.count({ where }),
+  ]);
+
+  return {
+    userIds: users.map((u) => u.id),
+    total,
+    truncated: total > CAP,
+  };
+}
+
 const grantSchema = z.object({
-  userIds: z.array(z.string().min(1)).min(1).max(1000),
+  // Bumped from 1000 to 10000 so "Select all matching" can hit the
+  // full customer base in a single grant. Anything above 10k should
+  // be done via a cron-driven bulk distribute (not yet implemented).
+  userIds: z.array(z.string().min(1)).min(1).max(10_000),
   points: z.number().int().min(1).max(1_000_000),
   reason: z.string().min(3).max(500),
 });

@@ -57,25 +57,43 @@ export function AdminRewardsDistributeScreen() {
     },
   });
 
-  const users = usersQ.data?.users ?? [];
-  const allChecked =
-    users.length > 0 && users.every((u) => selected.has(u.userId));
+  // When true, the user has tapped "Select all matching" — the
+  // `selected` Set contains every user ID in the DB that matches the
+  // current query (capped at 10k server-side), not just the visible
+  // page. We show a small banner so the admin understands the scope.
+  const [selectAllMode, setSelectAllMode] = useState(false);
+  const [selectAllTruncated, setSelectAllTruncated] = useState(false);
+  const selectAllM = useMutation({
+    mutationFn: () => adminRewardsApi.allMatchingUserIds(query),
+    onSuccess: (data) => {
+      setSelected(new Set(data.userIds));
+      setSelectAllMode(true);
+      setSelectAllTruncated(data.truncated);
+    },
+    onError: (err: unknown) => {
+      Alert.alert(
+        "Couldn't select all",
+        err instanceof Error ? err.message : "Try again.",
+      );
+    },
+  });
 
-  const toggleAll = useCallback(() => {
-    if (allChecked) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(users.map((u) => u.userId)));
-    }
-  }, [allChecked, users]);
+  const users = usersQ.data?.users ?? [];
 
   const toggleOne = useCallback((id: string) => {
+    setSelectAllMode(false);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setSelectAllMode(false);
+    setSelectAllTruncated(false);
   }, []);
 
   const totalPreview = useMemo(
@@ -177,20 +195,45 @@ export function AdminRewardsDistributeScreen() {
               autoCapitalize="none"
             />
           </View>
-          {users.length > 0 && (
-            <Pressable
-              onPress={toggleAll}
-              style={({ pressed }) => [
-                styles.selectAllBtn,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Text style={styles.selectAllText}>
-                {allChecked ? "Clear" : "Select all"}
+        </View>
+
+        {/* Select-all bar — picks every user matching the query (not
+            just the loaded page). Empty query targets the whole DB. */}
+        <View style={styles.selectAllBar}>
+          <Pressable
+            onPress={() => selectAllM.mutate()}
+            disabled={selectAllM.isPending}
+            style={({ pressed }) => [
+              styles.selectAllPrimary,
+              pressed && { opacity: 0.85 },
+              selectAllM.isPending && { opacity: 0.6 },
+            ]}
+          >
+            {selectAllM.isPending ? (
+              <ActivityIndicator color={colors.foreground} size="small" />
+            ) : (
+              <Text style={styles.selectAllPrimaryText}>
+                {query ? "Select all matching" : "Select all users"}
               </Text>
+            )}
+          </Pressable>
+          {selected.size > 0 && (
+            <Pressable
+              onPress={clearSelection}
+              style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.clearLink}>Clear</Text>
             </Pressable>
           )}
         </View>
+
+        {selectAllMode && (
+          <Text style={styles.selectAllBanner}>
+            {selected.size.toLocaleString("en-IN")} users selected —{" "}
+            {query ? `entire "${query}" match` : "entire customer base"}
+            {selectAllTruncated && " (capped at 10,000)"}
+          </Text>
+        )}
 
         {usersQ.isLoading ? (
           <View style={styles.loadingBlock}>
@@ -363,17 +406,35 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     fontSize: 14,
   },
-  selectAllBtn: {
-    paddingHorizontal: spacing["3"],
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.zinc700,
-    backgroundColor: colors.zinc900,
+  selectAllBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing["3"],
+    paddingVertical: spacing["1"],
   },
-  selectAllText: {
+  selectAllPrimary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.primaryHover,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: 8,
+    borderRadius: radius.md,
+  },
+  selectAllPrimaryText: {
     fontSize: 12,
-    color: colors.zinc300,
+    fontWeight: "600",
+    color: colors.foreground,
+  },
+  clearLink: {
+    fontSize: 12,
+    color: colors.zinc400,
+  },
+  selectAllBanner: {
+    fontSize: 11,
+    color: colors.emerald400,
+    paddingHorizontal: spacing["1"],
   },
   loadingBlock: {
     paddingVertical: spacing["6"],
