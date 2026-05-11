@@ -50,6 +50,11 @@ const TYPES = [
     label: "Expenses",
     desc: "All expense entries for the month plus a per-person summary showing who spent how much collectively.",
   },
+  {
+    value: "EXPENSES_LIFETIME",
+    label: "Expenses (all-time)",
+    desc: "Every expense ever recorded plus the per-person summary. Same structure as the monthly report — no date filter. Month picker is ignored for this type.",
+  },
 ] as const;
 
 const MONTHS = [
@@ -122,8 +127,14 @@ export function ReportsClient({ initialReports }: Props) {
           toast.error(json.error || "Couldn't queue report");
           return;
         }
+        // Lifetime reports don't have a meaningful month — the
+        // worker ignores year/month and exports everything. The
+        // success toast reflects that so admins don't think the
+        // month picker was applied.
         toast.success(
-          `${TYPES.find((t) => t.value === type)?.label} queued for ${MONTHS[month - 1]} ${year}`,
+          type === "EXPENSES_LIFETIME"
+            ? `${TYPES.find((t) => t.value === type)?.label} queued (all-time)`
+            : `${TYPES.find((t) => t.value === type)?.label} queued for ${MONTHS[month - 1]} ${year}`,
         );
         await refresh();
       } catch {
@@ -183,38 +194,51 @@ export function ReportsClient({ initialReports }: Props) {
         </div>
 
         <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs font-medium uppercase text-zinc-500">
-              Year
-            </label>
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium uppercase text-zinc-500">
-              Month
-            </label>
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-              className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
-            >
-              {MONTHS.map((m, i) => (
-                <option key={m} value={i + 1}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Year/Month pickers — hidden for the all-time expenses
+              report since the worker exports every row regardless
+              of month. Inline note replaces them so the admin
+              knows what's happening. */}
+          {type === "EXPENSES_LIFETIME" ? (
+            <div className="flex-1 rounded-md border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-xs text-zinc-400">
+              Covers every expense entry ever recorded — no month
+              filter applied.
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-medium uppercase text-zinc-500">
+                  Year
+                </label>
+                <select
+                  value={year}
+                  onChange={(e) => setYear(Number(e.target.value))}
+                  className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+                >
+                  {yearOptions.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium uppercase text-zinc-500">
+                  Month
+                </label>
+                <select
+                  value={month}
+                  onChange={(e) => setMonth(Number(e.target.value))}
+                  className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+                >
+                  {MONTHS.map((m, i) => (
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
           <button
             type="submit"
             disabled={pending}
@@ -275,7 +299,12 @@ export function ReportsClient({ initialReports }: Props) {
 
 function ReportTableRow({ row }: { row: ReportRow }) {
   const typeLabel = TYPES.find((t) => t.value === row.type)?.label ?? row.type;
-  const period = `${MONTHS[row.month - 1]} ${row.year}`;
+  // Lifetime reports don't have a meaningful month — the year/month
+  // on the Report row were just the request-time placeholders.
+  const period =
+    row.type === "EXPENSES_LIFETIME"
+      ? "All-time"
+      : `${MONTHS[row.month - 1]} ${row.year}`;
   const queuedAt = new Date(row.createdAt).toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "2-digit",

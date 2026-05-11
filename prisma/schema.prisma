@@ -1642,6 +1642,11 @@ enum ReportType {
   // so the operations team can see who is spending how much
   // (mapped to Expense.doneBy — the staff member who paid out).
   EXPENSES_MONTHLY
+  // Same structure as EXPENSES_MONTHLY but covering every Expense
+  // row ever (from day 1). `year` and `month` on the Report row
+  // store the request timestamp's month for naming/ordering only —
+  // the worker ignores them and pulls everything.
+  EXPENSES_LIFETIME
 }
 
 enum ReportStatus {

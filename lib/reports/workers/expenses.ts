@@ -45,9 +45,47 @@ export async function generateExpensesMonthlyReport(input: {
 }): Promise<{ filename: string; bytes: Buffer }> {
   const monthStart = new Date(Date.UTC(input.year, input.month - 1, 1));
   const monthEnd = new Date(Date.UTC(input.year, input.month, 1));
-
-  const expenses = await db.expense.findMany({
+  const yyyy = String(input.year).padStart(4, "0");
+  const mm = String(input.month).padStart(2, "0");
+  return buildExpensesReport({
     where: { date: { gte: monthStart, lt: monthEnd } },
+    filename: `momentum-arena_${yyyy}-${mm}_expenses.xlsx`,
+  });
+}
+
+/**
+ * "From day 1" variant. No date filter — every Expense row in the
+ * DB ends up in the workbook. The request's year/month are
+ * persisted on the Report row for ordering/audit but ignored by
+ * the worker. Filename uses today's date so re-runs land in
+ * separate downloads (admins can tell "the all-time pull as of
+ * the day they queued it").
+ */
+export async function generateExpensesLifetimeReport(_input: {
+  year: number;
+  month: number;
+}): Promise<{ filename: string; bytes: Buffer }> {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  return buildExpensesReport({
+    where: {}, // no date filter
+    filename: `momentum-arena_${yyyy}-${mm}-${dd}_expenses-lifetime.xlsx`,
+  });
+}
+
+/**
+ * Shared workbook builder. Identical layout for monthly vs
+ * lifetime — only the Prisma `where` clause + the output filename
+ * differ. Extracted so the two entrypoints can't drift apart.
+ */
+async function buildExpensesReport(opts: {
+  where: { date?: { gte: Date; lt: Date } };
+  filename: string;
+}): Promise<{ filename: string; bytes: Buffer }> {
+  const expenses = await db.expense.findMany({
+    where: opts.where,
     orderBy: [{ date: "asc" }, { createdAt: "asc" }],
     select: {
       date: true,
@@ -163,10 +201,7 @@ export async function generateExpensesMonthlyReport(input: {
   // ─── Output ────────────────────────────────────────────────────
   const ab = await wb.xlsx.writeBuffer();
   const bytes = Buffer.from(ab);
-  const yyyy = String(input.year).padStart(4, "0");
-  const mm = String(input.month).padStart(2, "0");
-  const filename = `momentum-arena_${yyyy}-${mm}_expenses.xlsx`;
-  return { filename, bytes };
+  return { filename: opts.filename, bytes };
 }
 
 // ─── Local helpers ────────────────────────────────────────────────

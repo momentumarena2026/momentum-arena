@@ -89,6 +89,7 @@ const enqueueBody = z.object({
     "RAZORPAY_RECON_MONTHLY",
     "CA_MONTHLY",
     "EXPENSES_MONTHLY",
+    "EXPENSES_LIFETIME",
   ]),
   year: z.number().int().min(2024).max(2100),
   month: z.number().int().min(1).max(12),
