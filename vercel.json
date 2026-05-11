@@ -18,6 +18,14 @@
       "schedule": "45 4 * * *"
     },
     {
+      "path": "/api/cron/rewards-expire",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/rewards-alerts",
+      "schedule": "30 5 * * *"
+    },
+    {
       "path": "/api/cron/send-reminders",
       "schedule": "0 8 * * *"
     },
