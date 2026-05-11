@@ -17,6 +17,8 @@ import {
 } from "@/lib/notifications";
 import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
+import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
+import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import type { Prisma } from "@prisma/client";
 
 const lockSlotsSchema = z.object({
@@ -164,12 +166,19 @@ export async function applyCouponToHold(
     return { success: false, error: result.error ?? "Invalid coupon" };
   }
 
+  // Reset any points-redemption pick — the 20%-of-bill cap is
+  // computed off the post-coupon bill, so a freshly-applied coupon
+  // would invalidate the previous slider position. Customer re-picks
+  // points after the coupon lands; the slider UI auto-refetches the
+  // preview when the hold mutates.
   await db.slotHold.update({
     where: { id: holdId },
     data: {
       couponId: result.couponId,
       couponCode: code.toUpperCase().trim(),
       discountAmount: result.discountAmount,
+      pointsToRedeem: null,
+      pointsRedeemPaiseSaved: null,
     },
   });
 
@@ -187,9 +196,112 @@ export async function clearCouponFromHold(
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) return { success: false };
 
+  // Same reset as applyCouponToHold — clearing the coupon also
+  // changes the cap base, so we force a fresh redemption pick.
   await db.slotHold.update({
     where: { id: holdId },
-    data: { couponId: null, couponCode: null, discountAmount: null },
+    data: {
+      couponId: null,
+      couponCode: null,
+      discountAmount: null,
+      pointsToRedeem: null,
+      pointsRedeemPaiseSaved: null,
+    },
+  });
+  return { success: true };
+}
+
+// ─── Momentum Points redemption (same carrier pattern as the coupon) ──
+
+export interface ApplyPointsResult {
+  success: boolean;
+  pointsToRedeem?: number;
+  paiseSaved?: number;
+  error?: string;
+}
+
+/**
+ * Persist the user's points redemption pick on the SlotHold.
+ * Validates via previewRedemption against the POST-coupon bill so the
+ * 20%-of-bill cap is computed off the correct base.
+ *
+ * Idempotent: re-calling with a new value overwrites the previous pick.
+ */
+export async function applyPointsRedemptionToHold(
+  holdId: string,
+  points: number,
+): Promise<ApplyPointsResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const hold = await getValidHold(holdId, session.user.id);
+  if (!hold) {
+    return { success: false, error: "Hold not found or expired" };
+  }
+  if (!Number.isInteger(points) || points <= 0) {
+    return { success: false, error: "Points must be a positive integer" };
+  }
+
+  const cfg = await getRewardConfig();
+  // Cap is computed off the bill the customer would actually pay
+  // (post-coupon) so a stacked coupon doesn't artificially inflate
+  // the redemption ceiling.
+  const couponDiscount =
+    hold.couponId && hold.discountAmount && hold.discountAmount > 0
+      ? hold.discountAmount
+      : 0;
+  const postCouponRupees = Math.max(0, hold.totalAmount - couponDiscount);
+  const billPaise = postCouponRupees * 100;
+
+  const preview = await previewRedemption({
+    userId: session.user.id,
+    billPaise,
+  });
+  if (preview.blockedReason) {
+    return { success: false, error: preview.blockedReason };
+  }
+  if (points > preview.maxPoints) {
+    return {
+      success: false,
+      error: `Max ${preview.maxPoints} points allowed on this bill`,
+    };
+  }
+  if (points < cfg.minPointsToRedeem) {
+    return {
+      success: false,
+      error: `Need at least ${cfg.minPointsToRedeem} points`,
+    };
+  }
+
+  const paiseSaved = pointsToPaise(points, cfg);
+  await db.slotHold.update({
+    where: { id: holdId },
+    data: {
+      pointsToRedeem: points,
+      pointsRedeemPaiseSaved: paiseSaved,
+    },
+  });
+
+  return { success: true, pointsToRedeem: points, paiseSaved };
+}
+
+export async function clearPointsRedemptionFromHold(
+  holdId: string,
+): Promise<{ success: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false };
+
+  const hold = await getValidHold(holdId, session.user.id);
+  if (!hold) return { success: false };
+
+  await db.slotHold.update({
+    where: { id: holdId },
+    data: {
+      pointsToRedeem: null,
+      pointsRedeemPaiseSaved: null,
+    },
   });
   return { success: true };
 }
@@ -493,7 +605,26 @@ export async function createBookingFromHold(
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
       : 0;
-  const effectiveTotal = hold.totalAmount - appliedDiscount;
+
+  // Reward redemption stacked on top of any coupon. We bake it INTO
+  // `discountAmount` so the existing Booking.discountAmount column
+  // continues to mean "total discount off the bill". The per-source
+  // breakdown lives in the RewardTransaction ledger (the
+  // REDEEMED_BOOKING row references this booking) + the CouponUsage
+  // table — both of which are queryable when the admin needs to split
+  // "how much was coupon vs how much was points".
+  const pointsToRedeem = hold.pointsToRedeem ?? 0;
+  const pointsRedeemRupees =
+    pointsToRedeem > 0 && hold.pointsRedeemPaiseSaved
+      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+      : 0;
+  const combinedDiscount = appliedDiscount + pointsRedeemRupees;
+  const effectiveTotal = hold.totalAmount - combinedDiscount;
+
+  // If we're going to commit a redemption, pre-load the config once so
+  // the transaction's path doesn't take a fresh DB hit. The config
+  // accessor has its own 1-minute cache so this is essentially free.
+  const rewardCfg = pointsToRedeem > 0 ? await getRewardConfig() : null;
 
   const result = await db.$transaction(
     async (tx) => {
@@ -510,8 +641,8 @@ export async function createBookingFromHold(
         date: hold.date,
         status: bookingStatus,
         totalAmount: effectiveTotal,
-        originalAmount: appliedDiscount > 0 ? hold.totalAmount : null,
-        discountAmount: appliedDiscount,
+        originalAmount: combinedDiscount > 0 ? hold.totalAmount : null,
+        discountAmount: combinedDiscount,
         platform,
         // Preserve the unified "Half Court" context from the hold so
         // customer-facing views can render a neutral label instead of the
@@ -562,7 +693,31 @@ export async function createBookingFromHold(
         });
       }
 
-      return booking.id;
+      // Commit the points redemption inside the same transaction so a
+      // paid booking and its REDEEMED_BOOKING ledger row land atomically.
+      // commitRedeemInTx throws if the user's balance dropped below
+      // pointsToRedeem between checkout-apply time and now, which rolls
+      // back the whole booking — the caller's payment.confirm webhook
+      // will see the throw and the customer's payment will be refunded
+      // upstream (Razorpay auto-refunds when our verify endpoint 500s).
+      let redemptionMeta:
+        | { txnId: string; discountPaise: number; bulkRedemption: boolean }
+        | null = null;
+      if (pointsToRedeem > 0 && rewardCfg) {
+        redemptionMeta = await commitRedeemInTx(tx, {
+          userId: hold.userId,
+          type: "REDEEMED_BOOKING",
+          points: pointsToRedeem,
+          bookingId: booking.id,
+          cafeOrderId: null,
+          cfg: {
+            pointValuePaise: rewardCfg.pointValuePaise,
+            bulkRedemptionPaiseThreshold: rewardCfg.bulkRedemptionPaiseThreshold,
+          },
+        });
+      }
+
+      return { id: booking.id, redemptionMeta };
     },
     // Default 5s is too tight during Neon cold starts — a slow cold-start
     // lookup inside the transaction could silently roll back a successful
@@ -570,5 +725,34 @@ export async function createBookingFromHold(
     { timeout: 15000 }
   );
 
-  return result;
+  if (!result) return null;
+
+  // Raise the BULK_REDEMPTION alert out-of-band (fire-and-forget). Kept
+  // outside the transaction so a slow alert insert doesn't extend the
+  // booking commit, and so an alert-insert failure can't roll back the
+  // booking + redemption ledger row.
+  if (result.redemptionMeta?.bulkRedemption) {
+    const meta = result.redemptionMeta;
+    void db.rewardAlert.create({
+      data: {
+        userId: hold.userId,
+        kind: "BULK_REDEMPTION",
+        severity: "MEDIUM",
+        status: "OPEN",
+        details: {
+          txnId: meta.txnId,
+          points: pointsToRedeem,
+          paise: meta.discountPaise,
+          bookingId: result.id,
+        },
+      },
+    }).catch((err) => {
+      console.warn(
+        "[rewards] failed to insert BULK_REDEMPTION alert:",
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }
+
+  return result.id;
 }

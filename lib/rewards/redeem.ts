@@ -3,6 +3,17 @@ import type { Prisma, RewardTransaction, RewardTxnType } from "@prisma/client";
 import { applyBalanceDelta, ensureBalance } from "./balance";
 import { getRewardConfig, pointsToPaise } from "./config";
 
+/** Marker so we can swallow the Prisma unique-constraint code without
+ *  pulling in the full PrismaClientKnownRequestError type everywhere. */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === "object" &&
+    "code" in err &&
+    (err as { code: string }).code === "P2002"
+  );
+}
+
 /**
  * Redeem-paths. Validates against the four guards in RewardConfig
  * (minPointsToRedeem, maxRedemptionPctOfBill, maxRedemptionPaise,
@@ -160,6 +171,85 @@ export async function redeemForCafeOrder(args: {
   });
 }
 
+/**
+ * Insert the REDEEMED ledger row + balance delta inside an EXISTING
+ * transaction. Used by createBookingFromHold so the booking row and
+ * its redemption are atomic (no chance of a paid-but-points-untouched
+ * partial-failure).
+ *
+ * The caller must have already validated the redemption with
+ * previewRedemption() at hold-apply time. This helper still
+ * defensively re-checks the balance is sufficient — if the user
+ * spent points elsewhere between apply-to-hold and pay, we throw
+ * so the outer transaction rolls back and the customer sees a
+ * "balance changed, please re-confirm" error in the checkout client.
+ *
+ * Returns enough info for the caller to raise a BULK_REDEMPTION
+ * alert OUTSIDE the transaction (kept out of band so a slow alert
+ * insert doesn't extend the booking transaction).
+ */
+export async function commitRedeemInTx(
+  tx: Prisma.TransactionClient,
+  args: {
+    userId: string;
+    type: "REDEEMED_BOOKING" | "REDEEMED_CAFE";
+    points: number;
+    bookingId: string | null;
+    cafeOrderId: string | null;
+    /** Cached config — caller looked it up to compute pointsRedeemPaiseSaved
+     *  on the hold; re-pass it here so we don't double-fetch inside the txn. */
+    cfg: { pointValuePaise: number; bulkRedemptionPaiseThreshold: number };
+  },
+): Promise<{
+  txnId: string;
+  discountPaise: number;
+  bulkRedemption: boolean;
+}> {
+  if (args.points <= 0) {
+    throw new Error("Cannot commit a non-positive redemption");
+  }
+
+  await ensureBalance(tx, args.userId);
+
+  // Defensive: balance might have changed between previewRedemption
+  // (at hold-apply time) and now. Refuse rather than risk a negative
+  // balance — the outer createBookingFromHold transaction will roll
+  // back and surface the error to the checkout client.
+  const balance = await tx.rewardBalance.findUnique({
+    where: { userId: args.userId },
+  });
+  const available = balance?.pointsAvailable ?? 0;
+  if (available < args.points) {
+    throw new Error(
+      `Insufficient reward balance: ${available} available, ${args.points} requested`,
+    );
+  }
+
+  const discountPaise = args.points * args.cfg.pointValuePaise;
+  const row = await tx.rewardTransaction.create({
+    data: {
+      type: args.type,
+      points: -args.points,
+      pointsValuePaise: -discountPaise,
+      userId: args.userId,
+      bookingId: args.bookingId,
+      cafeOrderId: args.cafeOrderId,
+    },
+  });
+  await applyBalanceDelta(tx, {
+    userId: args.userId,
+    points: -args.points,
+    type: "REDEEMED",
+    now: new Date(),
+  });
+
+  return {
+    txnId: row.id,
+    discountPaise,
+    bulkRedemption: discountPaise >= args.cfg.bulkRedemptionPaiseThreshold,
+  };
+}
+
 async function commitRedeem(args: {
   userId: string;
   type: RewardTxnType;
@@ -245,12 +335,7 @@ async function commitRedeem(args: {
       txnId: txn.id,
     };
   } catch (err) {
-    if (
-      err !== null &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code: string }).code === "P2002"
-    ) {
+    if (isUniqueViolation(err)) {
       return { redeemed: false, error: "already redeemed" };
     }
     throw err;

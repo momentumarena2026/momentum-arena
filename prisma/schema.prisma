@@ -343,6 +343,16 @@ model SlotHold {
   couponCode     String?
   discountAmount Int?
 
+  // Momentum Points redemption applied during checkout. Same carrier
+  // pattern as the coupon fields above — populated by
+  // applyPointsRedemptionToHold() after previewRedemption() validates
+  // the user's pick, then consumed atomically by createBookingFromHold
+  // which inserts the REDEEMED_BOOKING ledger row inside the same
+  // transaction. Snapshot the paise value so a mid-checkout config
+  // change to pointValuePaise doesn't shift what the customer was shown.
+  pointsToRedeem         Int?
+  pointsRedeemPaiseSaved Int?
+
   // Set true when the hold was created through the unified "Half Court
   // (40x90)" customer flow rather than a direct LEFT/RIGHT selection.
   // The hold still points at a concrete LEFT or RIGHT courtConfigId (the

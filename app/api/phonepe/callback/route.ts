@@ -79,14 +79,19 @@ export async function POST(request: NextRequest) {
 
     const paymentAmount = hold.paymentAmount ?? hold.totalAmount;
     const isAdvance = hold.paymentMethod === "CASH"; // advance-via-phonepe flag
-    // fullAmount is POST-discount so the venue isn't told to collect
-    // back the coupon. Mirrors the `effectiveTotal` used in
-    // createBookingFromHold and the redirect handler.
+    // fullAmount is POST-discount (coupon + points redemption) so the
+    // venue isn't told to collect back either discount. Mirrors the
+    // `combinedDiscount` math inside createBookingFromHold and the
+    // redirect handler.
     const appliedDiscount =
       hold.couponId && hold.discountAmount && hold.discountAmount > 0
         ? hold.discountAmount
         : 0;
-    const fullAmount = hold.totalAmount - appliedDiscount;
+    const pointsRedeemRupees =
+      hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
+        ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+        : 0;
+    const fullAmount = hold.totalAmount - appliedDiscount - pointsRedeemRupees;
     const advanceAmount = isAdvance ? paymentAmount : undefined;
     const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
 

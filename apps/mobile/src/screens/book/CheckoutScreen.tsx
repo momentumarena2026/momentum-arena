@@ -26,6 +26,10 @@ import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
 import { DiscountInput } from "../../components/booking/DiscountInput";
 import {
+  RedeemPoints,
+  fireRedeemCompleted,
+} from "../../components/booking/RedeemPoints";
+import {
   PaymentMethodTiles,
   type PaymentMethodType,
 } from "../../components/payment/PaymentMethodTiles";
@@ -102,9 +106,20 @@ export function CheckoutScreen() {
   const appliedAmount = serverDiscount > 0 ? serverDiscount : 0;
   const effectiveAmount = Math.max(0, baseAmount - appliedAmount);
 
-  // Advance is always 50% of the post-discount amount, ceil-rounded.
-  const advanceAmount = Math.ceil(effectiveAmount * 0.5);
-  const remainingAmount = effectiveAmount - advanceAmount;
+  // Reward redemption state — driven by the RedeemPoints child. The
+  // server keeps the canonical pointsToRedeem on the SlotHold; this
+  // local copy is just so we can compute the final payable and pass
+  // it to the Razorpay/UPI initiators.
+  const [pointsRedeemed, setPointsRedeemed] = useState(0);
+  const [pointsRedeemPaiseSaved, setPointsRedeemPaiseSaved] = useState(0);
+  const pointsRedeemRupees = Math.floor(pointsRedeemPaiseSaved / 100);
+  const payableAmount = Math.max(0, effectiveAmount - pointsRedeemRupees);
+
+  // Advance is always 50% of the FINAL payable (post-coupon +
+  // post-points), ceil-rounded — so the half customers pay now and
+  // the remainder collected at the venue both reflect the redemption.
+  const advanceAmount = Math.ceil(payableAmount * 0.5);
+  const remainingAmount = payableAmount - advanceAmount;
 
   // ── Auto-apply coupons on mount ────────────────────────────────────────────
   // Mirrors web's CheckoutClient:
@@ -353,7 +368,7 @@ export function CheckoutScreen() {
     const order = await bookingApi.createOrder({
       holdId: params.holdId,
       isAdvance,
-      overrideAmount: effectiveAmount,
+      overrideAmount: payableAmount,
     });
 
     const options: RazorpayOptions = {
@@ -413,6 +428,7 @@ export function CheckoutScreen() {
       throw new ApiError("Payment verification failed.", 0, null);
     }
 
+    fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
     goToBookingDetail(verify.bookingId);
   }
 
@@ -495,7 +511,7 @@ export function CheckoutScreen() {
   // ── UPI QR flow (inline, matches web) ──────────────────────────────────────
   if (showUpiQr) {
     const isAdvanceFlow = method === "cash";
-    const upiAmount = isAdvanceFlow ? advanceAmount : effectiveAmount;
+    const upiAmount = isAdvanceFlow ? advanceAmount : payableAmount;
     return (
       <Screen padded={false}>
         <ScrollView contentContainerStyle={styles.scroll}>
@@ -506,7 +522,7 @@ export function CheckoutScreen() {
             <Text variant="title">Scan &amp; pay</Text>
           </View>
           <UpiQrCheckout
-            amount={effectiveAmount}
+            amount={payableAmount}
             isAdvance={isAdvanceFlow}
             advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
             onCancel={() => setShowUpiQr(false)}
@@ -524,6 +540,7 @@ export function CheckoutScreen() {
                 if (!res.success || !res.bookingId) {
                   return { error: res.error || "Failed to create booking" };
                 }
+                fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
                 return { bookingId: res.bookingId };
               } catch (err) {
                 return {
@@ -563,10 +580,10 @@ export function CheckoutScreen() {
   // CTA label matches web: "Pay ₹X" / "Show QR — ₹X" / "Pay Advance ₹Y — Book Now"
   const ctaLabel =
     method === "upi_qr"
-      ? `Show QR — ${formatRupees(effectiveAmount)}`
+      ? `Show QR — ${formatRupees(payableAmount)}`
       : method === "cash"
       ? `Pay Advance ${formatRupees(advanceAmount)} — Book Now`
-      : `Pay ${formatRupees(effectiveAmount)}`;
+      : `Pay ${formatRupees(payableAmount)}`;
 
   return (
     <Screen padded={false}>
@@ -648,15 +665,27 @@ export function CheckoutScreen() {
             </View>
           ) : null}
 
+          {pointsRedeemRupees > 0 ? (
+            <View style={styles.breakdownRow}>
+              <Text variant="small" color={colors.emerald400}>
+                {pointsRedeemed.toLocaleString("en-IN")} pts applied
+              </Text>
+              <Text variant="small" color={colors.emerald400}>
+                -{formatRupees(pointsRedeemRupees)}
+              </Text>
+            </View>
+          ) : null}
+
           <View
             style={[
               styles.totalRow,
-              sortedSlots.length > 1 && styles.totalRowSeparated,
+              (sortedSlots.length > 1 || pointsRedeemRupees > 0) &&
+                styles.totalRowSeparated,
             ]}
           >
             <Text variant="bodyStrong">Total</Text>
             <Text variant="heading" weight="700" color={colors.emerald400}>
-              {formatRupees(effectiveAmount)}
+              {formatRupees(payableAmount)}
             </Text>
           </View>
         </View>
@@ -693,6 +722,22 @@ export function CheckoutScreen() {
             />
           </View>
         ) : null}
+
+        {/* Momentum Points redemption — auto-hides when disabled / no
+            balance / cap below min. `nonce` = serverDiscount keeps the
+            preview in sync whenever a coupon changes (apply/clear), so
+            the cap recomputes off the post-coupon bill. The hold's
+            redemption columns are server-cleared on coupon mutations
+            via the apply-coupon route, so both sides stay aligned. */}
+        <RedeemPoints
+          holdId={params.holdId}
+          billRupees={effectiveAmount}
+          nonce={serverDiscount}
+          onChange={({ points, paiseSaved }) => {
+            setPointsRedeemed(points);
+            setPointsRedeemPaiseSaved(paiseSaved);
+          }}
+        />
 
         {/* Equipment banner — CRICKET / FOOTBALL match web's zinc-800/60
             rounded banner with emoji + copy. */}
@@ -738,7 +783,7 @@ export function CheckoutScreen() {
             }}
           >
             <AdvancePaymentPicker
-              totalAmount={effectiveAmount}
+              totalAmount={payableAmount}
               advanceAmount={advanceAmount}
               remainingAmount={remainingAmount}
               selected={advanceMethod}
@@ -763,7 +808,7 @@ export function CheckoutScreen() {
           onPress={handleContinue}
           loading={processing || applying}
           disabled={
-            msLeft <= 0 || effectiveAmount <= 0 || !signedInUser
+            msLeft <= 0 || payableAmount <= 0 || !signedInUser
           }
           size="lg"
           fullWidth

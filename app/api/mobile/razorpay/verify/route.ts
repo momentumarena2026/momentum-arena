@@ -82,7 +82,11 @@ export async function POST(request: NextRequest) {
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
       : 0;
-  const fullAmount = hold.totalAmount - appliedDiscount;
+  const pointsRedeemRupees =
+    hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
+      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+      : 0;
+  const fullAmount = hold.totalAmount - appliedDiscount - pointsRedeemRupees;
   const advanceAmount = isAdvance ? paymentAmount : undefined;
   const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
 

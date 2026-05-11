@@ -35,6 +35,8 @@ export async function GET(
     couponId: hold.couponId,
     couponCode: hold.couponCode,
     discountAmount: hold.discountAmount,
+    pointsToRedeem: hold.pointsToRedeem,
+    pointsRedeemPaiseSaved: hold.pointsRedeemPaiseSaved,
     courtConfig: hold.courtConfig,
   });
 }

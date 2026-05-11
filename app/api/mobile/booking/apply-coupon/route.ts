@@ -48,12 +48,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Also reset any previously-applied points redemption — the
+  // 20%-of-bill cap is computed off the post-coupon total, so the
+  // slider needs a fresh preview after a coupon mutation. The web
+  // action applyCouponToHold has the same null-out.
   await db.slotHold.update({
     where: { id: holdId },
     data: {
       couponId: result.couponId,
       couponCode: code.toUpperCase().trim(),
       discountAmount: result.discountAmount,
+      pointsToRedeem: null,
+      pointsRedeemPaiseSaved: null,
     },
   });
 
@@ -83,7 +89,14 @@ export async function DELETE(request: NextRequest) {
 
   await db.slotHold.update({
     where: { id: holdId },
-    data: { couponId: null, couponCode: null, discountAmount: null },
+    data: {
+      couponId: null,
+      couponCode: null,
+      discountAmount: null,
+      // Same cap-base reset as the apply path.
+      pointsToRedeem: null,
+      pointsRedeemPaiseSaved: null,
+    },
   });
 
   return NextResponse.json({ success: true });

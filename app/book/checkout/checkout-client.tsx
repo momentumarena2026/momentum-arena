@@ -6,6 +6,7 @@ import { CountdownTimer } from "@/components/booking/countdown-timer";
 import { PaymentSelector, type PaymentMethodType } from "@/components/payment/payment-selector";
 import { AdvancePaymentSelector, type AdvancePaymentMethod } from "@/components/payment/advance-payment-selector";
 import { DiscountInput } from "@/components/booking/discount-input";
+import { RedeemSlider } from "@/components/rewards/redeem-slider";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { formatPrice } from "@/lib/pricing";
 import { validateCoupon } from "@/actions/coupon-validation";
@@ -109,11 +110,28 @@ export function CheckoutClient({
   const [error, setError] = useState<string | null>(null);
   const [showUpiQr, setShowUpiQr] = useState(false);
 
-  // Discount state
+  // Discount state — `effectiveAmount` is the post-coupon total (in rupees),
+  // i.e. the bill the points-redemption cap is computed against. The
+  // user's final payable is `effectiveAmount - pointsRedeemRupees`.
   const [effectiveAmount, setEffectiveAmount] = useState(amount);
   const [discountApplied, setDiscountApplied] = useState(false);
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
   const [newUserApplied, setNewUserApplied] = useState(false);
+
+  // Reward redemption state — driven by the RedeemSlider child. The
+  // server keeps the canonical pointsToRedeem on the SlotHold; this
+  // local copy is just so we can compute the payable and pass it to
+  // the gateway initiation calls.
+  const [pointsRedeemed, setPointsRedeemed] = useState(0);
+  const [pointsRedeemPaiseSaved, setPointsRedeemPaiseSaved] = useState(0);
+  // Bumped whenever the coupon mutates so the slider re-fetches the
+  // preview (and resets to 0). applyCouponToHold / clearCouponFromHold
+  // already null out the redemption columns server-side; bumping the
+  // nonce keeps the UI in lockstep.
+  const [billNonce, setBillNonce] = useState(0);
+
+  const pointsRedeemRupees = Math.floor(pointsRedeemPaiseSaved / 100);
+  const payableAmount = Math.max(0, effectiveAmount - pointsRedeemRupees);
 
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
@@ -169,6 +187,7 @@ export function CheckoutClient({
           setDiscountApplied(true);
           setNewUserApplied(true);
           setDiscountLabel(`New User: ${newUserDiscount.label}`);
+          setBillNonce((n) => n + 1);
           trackNewUserDiscountApplied(result.discountAmount);
         }
       });
@@ -193,6 +212,7 @@ export function CheckoutClient({
           setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
           setDiscountLabel(`Flat ₹100 OFF applied`);
+          setBillNonce((n) => n + 1);
           trackCouponApplied("FLAT100", result.discountAmount);
         }
       } catch {
@@ -203,9 +223,11 @@ export function CheckoutClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount, sport, newUserApplied, holdId]);
 
-  // Advance payment calculation
-  const advanceAmount = Math.ceil(effectiveAmount * 0.5);
-  const remainingAmount = effectiveAmount - advanceAmount;
+  // Advance payment calculation — computed against the FINAL payable
+  // (post-coupon + post-points), so the 50% advance and remainder
+  // line-items both already reflect the redemption discount.
+  const advanceAmount = Math.ceil(payableAmount * 0.5);
+  const remainingAmount = payableAmount - advanceAmount;
 
   const handleExpired = () => {
     trackLockExpired(holdId);
@@ -221,6 +243,12 @@ export function CheckoutClient({
     setEffectiveAmount(newTotal);
     setDiscountApplied(true);
     setDiscountLabel(`Code: ${code} — ${formatPrice(discountAmt)} off`);
+    // Also reset the points slider on user-driven coupon apply — same
+    // reason as the auto-coupon path: the redemption cap is computed
+    // off the post-coupon bill, so the slider needs a fresh preview.
+    setPointsRedeemed(0);
+    setPointsRedeemPaiseSaved(0);
+    setBillNonce((n) => n + 1);
     trackCouponApplied(code, discountAmt);
   };
 
@@ -253,11 +281,12 @@ export function CheckoutClient({
 
   // PhonePe: redirect-based flow
   const handlePhonePePayment = async (isAdvance = false) => {
-    trackPaymentInitiated("PHONEPE", effectiveAmount, holdId);
+    const initAmount = isAdvance ? advanceAmount : payableAmount;
+    trackPaymentInitiated("PHONEPE", initAmount, holdId);
     const res = await fetch("/api/phonepe/initiate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ holdId, isAdvance, overrideAmount: effectiveAmount }),
+      body: JSON.stringify({ holdId, isAdvance, overrideAmount: initAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
@@ -269,11 +298,12 @@ export function CheckoutClient({
 
   // Razorpay: modal-based flow
   const handleRazorpayPayment = async (isAdvance = false) => {
-    trackPaymentInitiated("RAZORPAY", effectiveAmount, holdId);
+    const initAmount = isAdvance ? advanceAmount : payableAmount;
+    trackPaymentInitiated("RAZORPAY", initAmount, holdId);
     const res = await fetch("/api/razorpay/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ holdId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance, overrideAmount: effectiveAmount }),
+      body: JSON.stringify({ holdId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance, overrideAmount: initAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
@@ -302,7 +332,21 @@ export function CheckoutClient({
           const verifyData = await verifyRes.json();
           if (verifyRes.ok && verifyData.bookingId) {
             paymentCompletedRef.current = true;
-            trackPaymentCompleted("RAZORPAY", effectiveAmount, verifyData.bookingId);
+            trackPaymentCompleted("RAZORPAY", initAmount, verifyData.bookingId);
+            // RedeemSlider listens for this event to fire the
+            // rewards_redeem_completed funnel step. Doing it via a
+            // CustomEvent rather than a callback keeps the slider
+            // component independent of every payment path.
+            if (pointsRedeemed > 0) {
+              window.dispatchEvent(
+                new CustomEvent("rewards:redeem-completed", {
+                  detail: {
+                    points: pointsRedeemed,
+                    paiseSaved: pointsRedeemPaiseSaved,
+                  },
+                }),
+              );
+            }
             if (!isAdvance) await handleRecurringAfterPayment();
             router.push(`/book/confirmation?id=${verifyData.bookingId}`);
           } else {
@@ -365,7 +409,7 @@ export function CheckoutClient({
   };
 
   if (showUpiQr) {
-    const upiAmount = paymentMethod === "cash" ? advanceAmount : effectiveAmount;
+    const upiAmount = paymentMethod === "cash" ? advanceAmount : payableAmount;
     return (
       <div className="space-y-4">
         <UpiQrCheckout
@@ -384,9 +428,19 @@ export function CheckoutClient({
             const commit =
               paymentMethod === "cash"
                 ? await selectCashPayment(holdId, advanceAmount, { isAdvance: true })
-                : await selectUpiPayment(holdId, effectiveAmount);
+                : await selectUpiPayment(holdId, payableAmount);
 
             if (commit.success && commit.bookingId) {
+              if (pointsRedeemed > 0) {
+                window.dispatchEvent(
+                  new CustomEvent("rewards:redeem-completed", {
+                    detail: {
+                      points: pointsRedeemed,
+                      paiseSaved: pointsRedeemPaiseSaved,
+                    },
+                  }),
+                );
+              }
               // Fire-and-forget recurring series creation for non-advance UPI.
               if (paymentMethod === "upi_qr") {
                 handleRecurringAfterPayment().catch(() => {});
@@ -476,6 +530,32 @@ export function CheckoutClient({
         </div>
       )}
 
+      {/* Momentum Points redemption — auto-hidden if disabled / no balance */}
+      <RedeemSlider
+        holdId={holdId}
+        billRupees={effectiveAmount}
+        billNonce={billNonce}
+        onChange={({ points, paiseSaved }) => {
+          setPointsRedeemed(points);
+          setPointsRedeemPaiseSaved(paiseSaved);
+        }}
+      />
+
+      {/* Redemption summary line — only shows when the user has actually
+          dragged the slider above 0. Kept compact so it doesn't fight
+          the existing "discount applied" pill. */}
+      {pointsRedeemed > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm">
+          <span className="text-emerald-300">
+            {pointsRedeemed.toLocaleString("en-IN")} pts applied
+          </span>
+          <span className="text-emerald-300">
+            -{formatPrice(pointsRedeemRupees)} · New total{" "}
+            <strong className="text-white">{formatPrice(payableAmount)}</strong>
+          </span>
+        </div>
+      )}
+
       {/* Included Equipment Banner */}
       {sport === "CRICKET" && (
         <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
@@ -506,7 +586,7 @@ export function CheckoutClient({
       {/* Advance Payment for Cash */}
       {paymentMethod === "cash" && (
         <AdvancePaymentSelector
-          totalAmount={effectiveAmount}
+          totalAmount={payableAmount}
           advanceAmount={advanceAmount}
           remainingAmount={remainingAmount}
           selected={advanceMethod}
@@ -533,9 +613,9 @@ export function CheckoutClient({
             Processing...
           </span>
         ) : paymentMethod === "online" ? (
-          `Pay ${formatPrice(effectiveAmount)}`
+          `Pay ${formatPrice(payableAmount)}`
         ) : paymentMethod === "upi_qr" ? (
-          `Show QR — ${formatPrice(effectiveAmount)}`
+          `Show QR — ${formatPrice(payableAmount)}`
         ) : (
           `Pay Advance ${formatPrice(advanceAmount)} — Book Now`
         )}

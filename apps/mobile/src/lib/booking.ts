@@ -33,7 +33,16 @@ export interface Hold {
   couponId: string | null;
   couponCode: string | null;
   discountAmount: number | null;
+  pointsToRedeem: number | null;
+  pointsRedeemPaiseSaved: number | null;
   courtConfig: CourtConfig;
+}
+
+export interface ApplyPointsResult {
+  success: boolean;
+  pointsToRedeem?: number;
+  paiseSaved?: number;
+  error?: string;
 }
 
 export interface NewUserDiscount {
@@ -177,6 +186,20 @@ export const bookingApi = {
     api
       .delete<{ success: boolean }>(
         `/api/mobile/booking/apply-coupon?holdId=${encodeURIComponent(holdId)}`
+      )
+      .catch(() => ({ success: false })),
+
+  /** Persist a Momentum-Points redemption pick onto the hold so the
+   *  booking-creation transaction picks it up and writes the
+   *  REDEEMED_BOOKING ledger row atomically. */
+  applyPoints: (body: { holdId: string; points: number }) =>
+    api.post<ApplyPointsResult>("/api/mobile/booking/apply-points", body),
+
+  /** Clear any previously-applied points redemption. */
+  clearPoints: (holdId: string) =>
+    api
+      .delete<{ success: boolean }>(
+        `/api/mobile/booking/apply-points?holdId=${encodeURIComponent(holdId)}`,
       )
       .catch(() => ({ success: false })),
 

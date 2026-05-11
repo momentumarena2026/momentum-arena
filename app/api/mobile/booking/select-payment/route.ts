@@ -54,15 +54,22 @@ export async function POST(request: NextRequest) {
   const amount =
     overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
 
-  // For the 50% advance flow the customer paid `amount` (already post-discount,
-  // passed from the client) via UPI QR. Compute the remainder against the
-  // post-discount total so the coupon savings aren't clawed back at the venue.
+  // For the 50% advance flow the customer paid `amount` (already
+  // post-discount + post-points, passed from the client) via UPI QR.
+  // Compute the remainder against the post-discount + post-redemption
+  // total so neither the coupon nor the points are clawed back at
+  // the venue.
   const advance = !!isAdvance;
   const appliedDiscount =
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
       : 0;
-  const effectiveTotal = hold.totalAmount - appliedDiscount;
+  const pointsRedeemRupees =
+    hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
+      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+      : 0;
+  const effectiveTotal =
+    hold.totalAmount - appliedDiscount - pointsRedeemRupees;
   const advanceAmount = advance ? amount : undefined;
   const remainingAmount = advance
     ? Math.max(effectiveTotal - amount, 0)
