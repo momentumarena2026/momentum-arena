@@ -135,25 +135,51 @@ enum UserGroupType {
 }
 
 // ===========================
-// REWARD POINTS
+// REWARD POINTS (v2 — full rewrite)
 // ===========================
+// The old RewardTier / PointsTransactionType / RewardPointsBalance /
+// PointsTransaction / RewardConfig set was dropped — see
+// migration 20260512010000_drop_old_rewards_create_v2 for the data
+// teardown.
 
-enum RewardTier {
-  BRONZE
-  SILVER
-  GOLD
-  PLATINUM
-}
-
-enum PointsTransactionType {
+enum RewardTxnType {
+  // Credits
   EARNED_BOOKING
   EARNED_CAFE
+  EARNED_SIGNUP
   EARNED_REFERRAL
-  EARNED_BONUS
+  EARNED_BIRTHDAY
+  EARNED_ADJUSTMENT  // admin grants points (bulk distribute / one-off)
+  ADJUSTMENT_REFUND  // re-credit after a cancelled redemption
+  // Debits
   REDEEMED_BOOKING
   REDEEMED_CAFE
-  EXPIRED
-  ADJUSTMENT
+  REVOKED            // earn clawed back (booking refund/cancel)
+  EXPIRED            // expiry cron sweep
+  ADJUSTMENT_DEBIT   // admin debits manually
+}
+
+enum RewardAlertKind {
+  RAPID_EARN_REDEEM         // earned + redeemed within `earnToRedeemMinHours`
+  HIGH_VELOCITY_EARN        // > threshold points earned in 24h
+  REFUND_THEN_RETAIN        // booking refunded but earn wasn't auto-revoked
+  DUPLICATE_PHONE_USERS     // >1 User row on same normalised phone
+  BULK_REDEMPTION           // single redemption > threshold
+  NEGATIVE_BALANCE          // shouldn't happen; if it does, page an admin
+  PARTIAL_REVOKE_SHORTFALL  // revoke wanted N, only N-K was available
+  ADJUSTMENT_AUDIT          // surfaces every manual admin ADJUSTMENT
+}
+
+enum RewardAlertStatus {
+  OPEN
+  DISMISSED
+  ACTIONED
+}
+
+enum RewardAlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
 }
 
 model User {
@@ -176,7 +202,9 @@ model User {
   referredBy    String?
   birthday      DateTime?
 
-  rewardBalance RewardPointsBalance?
+  rewardBalance      RewardBalance?
+  rewardTransactions RewardTransaction[]
+  rewardAlerts       RewardAlert[]
 
   // New feature relations
   feedbacks         Feedback[]
@@ -345,8 +373,8 @@ model Booking {
   discountAmount Int           @default(0)
   discountCodeId String?
 
-  rewardPointsUsed   Int @default(0)
-  rewardPointsEarned Int @default(0)
+  // Reward bookkeeping moved out — see RewardTransaction (rows tied
+  // back to this booking via bookingId).
 
   createdByAdminId String?
   createdByAdmin   AdminUser? @relation("BookingCreatedByAdmin", fields: [createdByAdminId], references: [id])
@@ -690,8 +718,7 @@ model CafeOrder {
   discountCodeId     String?
   note               String?
   tableNumber        Int?
-  rewardPointsUsed   Int             @default(0)
-  rewardPointsEarned Int             @default(0)
+  // Reward bookkeeping moved out — see RewardTransaction.
 
   createdByAdminId String?
   createdByAdmin   AdminUser? @relation("CafeOrderCreatedByAdmin", fields: [createdByAdminId], references: [id])
@@ -964,68 +991,152 @@ model CouponEligibleGroup {
 // REWARD POINTS SYSTEM
 // ===========================
 
-model RewardPointsBalance {
-  id             String     @id @default(cuid())
-  userId         String     @unique
-  user           User       @relation(fields: [userId], references: [id])
-  totalEarned    Int        @default(0)
-  totalRedeemed  Int        @default(0)
-  currentBalance Int        @default(0)
-  tier           RewardTier @default(BRONZE)
+// Singleton — every admin-tunable rewards knob. Default id is
+// "singleton" so seed/upsert code can address the single row by
+// stable key without a separate lookup.
+model RewardConfig {
+  id String @id @default("singleton")
 
-  transactions PointsTransaction[]
+  // Earn rates as basis points per ₹1 of bill. 200 bps = 2% earn.
+  // 1 point is worth (pointValuePaise / 100) ₹.
+  earnRateBookingBps Int @default(200)
+  earnRateCafeBps    Int @default(500)
+  // 1 point = pointValuePaise / 100 rupees. 100 = 1 point worth ₹1.
+  pointValuePaise    Int @default(100)
 
-  createdAt DateTime @default(now())
+  // Redemption guard rails
+  minPointsToRedeem        Int @default(50)
+  maxRedemptionPctOfBill   Int @default(20)     // % cap
+  maxRedemptionPaisePerTxn Int @default(50000)  // ₹500 absolute cap
+
+  // Expiry — points are EARNED with expiresAt = now() + this window.
+  // LIFO consumption (oldest first) keeps the math simple.
+  pointExpiryMonths Int @default(12)
+
+  // Anti-abuse hold: points earned within this many hours can't be
+  // redeemed yet. Catches the "book micro-slot → earn → redeem on
+  // next big booking in same hour" cycle.
+  earnToRedeemMinHours Int @default(24)
+
+  // Bonuses (defaults 0 — admin distributes manually via the
+  // /admin/rewards/distribute bulk-grant flow instead of via an
+  // automatic signup hook). Birthday + referral kept as auto.
+  signupBonusPoints      Int @default(0)
+  referralEarnerPoints   Int @default(0)
+  referralReferredPoints Int @default(0)
+  birthdayBonusPoints    Int @default(0)
+
+  // Alert thresholds
+  highVelocityEarnDailyThreshold Int @default(5000)
+  bulkRedemptionPaiseThreshold   Int @default(50000) // ₹500
+
+  // Kill switches
+  enabled          Boolean @default(true)
+  cafeEarnEnabled  Boolean @default(true)
+  // Empty list = all sports earn. Otherwise restrict to the listed
+  // ones (e.g. cricket-only earn for a campaign).
+  enabledSports    Sport[]
+
   updatedAt DateTime @updatedAt
 }
 
-model PointsTransaction {
-  id          String                @id @default(cuid())
-  balanceId   String
-  balance     RewardPointsBalance   @relation(fields: [balanceId], references: [id])
-  userId      String
-  type        PointsTransactionType
-  points      Int // positive = earn, negative = redeem
-  description String
+// Materialized per-user balance. Kept in sync with the transaction
+// ledger via the server engine — never edit this row directly,
+// always go through a RewardTransaction write.
+model RewardBalance {
+  userId                  String   @id
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pointsAvailable         Int      @default(0)
+  pointsLifetimeEarned    Int      @default(0)
+  pointsLifetimeRedeemed  Int      @default(0)
+  pointsLifetimeExpired   Int      @default(0)
+  pointsLifetimeRevoked   Int      @default(0)
+  lastTransactionAt       DateTime?
+
+  @@index([pointsAvailable])
+}
+
+// Immutable audit log. Every points movement creates a row.
+// Balance updates happen in the same transaction as the ledger
+// insert so the materialized balance can never diverge from
+// SUM(points) for a user.
+model RewardTransaction {
+  id    String        @id @default(cuid())
+  type  RewardTxnType
+  // Signed integer: positive for credit (earn / refund), negative
+  // for debit (redeem / expired / revoked / adjust-debit).
+  points Int
+  // Snapshot of the ₹ value of these points at txn time so the
+  // ledger can be exported without re-computing against the
+  // current pointValuePaise (which the admin may change later).
+  pointsValuePaise Int
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Source FK — exactly one of these is non-null per row, depending
+  // on the type:
+  //   EARNED_BOOKING / REDEEMED_BOOKING / REVOKED → bookingId
+  //   EARNED_CAFE / REDEEMED_CAFE                → cafeOrderId
+  //   EARNED_SIGNUP / BIRTHDAY / REFERRAL /
+  //   ADJUSTMENT_* / EXPIRED                     → both null
   bookingId   String?
   cafeOrderId String?
-  expiresAt   DateTime?
+
+  // FIFO accounting for debits — REDEEMED / EXPIRED / REVOKED rows
+  // point at the EARNED row they consumed. Lets liability reports
+  // answer "did Nakul's expired points come from his Jan booking
+  // or his April booking?".
+  sourceTxnId String?
+  sourceTxn   RewardTransaction?  @relation("RewardTxnConsumedFrom", fields: [sourceTxnId], references: [id], onDelete: SetNull)
+  consumers   RewardTransaction[] @relation("RewardTxnConsumedFrom")
+
+  // Set on EARNED rows; null on others. Drives the expiry cron.
+  expiresAt DateTime?
+
+  // Free text — required for ADJUSTMENT_* rows for audit trail.
+  reason       String?
+  actorAdminId String?
+
+  // Idempotency keys — partial unique indexes via @@unique below.
+  // Lets us safely retry awardBookingPoints(bookingId) without
+  // double-crediting.
 
   createdAt DateTime @default(now())
 
-  @@index([userId])
-  @@index([balanceId])
+  @@index([userId, createdAt])
+  @@index([userId, type])
   @@index([expiresAt])
+  @@index([bookingId])
+  @@index([cafeOrderId])
+  // Idempotency: a given booking can only have one EARNED_BOOKING
+  // and one REDEEMED_BOOKING and one REVOKED row. NULL bookingId
+  // is allowed multiple times (Postgres unique-with-null semantics).
+  @@unique([type, bookingId])
+  @@unique([type, cafeOrderId])
 }
 
-model RewardConfig {
-  id String @id @default(cuid())
+// Fraud / misuse flags. Generated by the hourly alert cron + by
+// inline guards inside the server engine (e.g. on revoke shortfall).
+model RewardAlert {
+  id       String               @id @default(cuid())
+  userId   String
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind     RewardAlertKind
+  severity RewardAlertSeverity
+  status   RewardAlertStatus    @default(OPEN)
+  // Raw signal data (e.g. points/threshold ratio, related txn ids).
+  details  Json
+  // Resolution audit
+  resolvedBy String?
+  resolvedAt DateTime?
+  resolution String?
 
-  // Earn rates (points per 100 paise / ₹1)
-  sportsEarnRate Int @default(1)
-  cafeEarnRate   Int @default(2)
-  referralBonus  Int @default(100)
+  createdAt DateTime @default(now())
 
-  // Redemption
-  pointsPerRupee   Int @default(10) // 10 points = ₹1
-  minRedeemPoints  Int @default(100)
-  maxRedeemPercent Int @default(5000) // 5000 basis points = 50%
-
-  // Tier thresholds (lifetime earned points)
-  silverThreshold   Int @default(500)
-  goldThreshold     Int @default(2000)
-  platinumThreshold Int @default(5000)
-
-  // Tier multipliers (basis points: 10000 = 1x)
-  bronzeMultiplier   Int @default(10000) // 1x
-  silverMultiplier   Int @default(12500) // 1.25x
-  goldMultiplier     Int @default(15000) // 1.5x
-  platinumMultiplier Int @default(20000) // 2x
-
-  // Expiry
-  pointsExpiryDays Int @default(365) // 0 = no expiry
-
-  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@index([kind, status])
 }
 
 // ===========================
