@@ -1758,6 +1758,17 @@ enum ReportType {
   // store the request timestamp's month for naming/ordering only —
   // the worker ignores them and pulls everything.
   EXPENSES_LIFETIME
+  // Rewards liability snapshot for the calendar month — per-user
+  // outstanding balance + lifetime totals + month-bucketed earn /
+  // redeem / expire counts. Sheet "By user" + sheet "Summary".
+  REWARD_LIABILITY_MONTHLY
+  // Same shape as REWARD_LIABILITY_MONTHLY but covers every
+  // RewardTransaction since the v2 schema landed. Year/month on the
+  // Report row are request-timestamp only.
+  REWARD_LIABILITY_LIFETIME
+  // Open + resolved RewardAlert rows for the month with full details
+  // JSON expanded into columns. Two sheets: "Alerts" + "By kind".
+  REWARD_ALERTS_MONTHLY
 }
 
 enum ReportStatus {

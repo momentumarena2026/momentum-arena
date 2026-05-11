@@ -55,6 +55,21 @@ const TYPES = [
     label: "Expenses (all-time)",
     desc: "Every expense ever recorded plus the per-person summary. Same structure as the monthly report — no date filter. Month picker is ignored for this type.",
   },
+  {
+    value: "REWARD_LIABILITY_MONTHLY",
+    label: "Rewards liability (monthly)",
+    desc: "Per-user balance + earn/redeem/expire for the selected month. Two sheets: per-user detail and summary metrics.",
+  },
+  {
+    value: "REWARD_LIABILITY_LIFETIME",
+    label: "Rewards liability (all-time)",
+    desc: "Same shape as the monthly version but activity columns cover every RewardTransaction ever. Month picker is ignored for this type.",
+  },
+  {
+    value: "REWARD_ALERTS_MONTHLY",
+    label: "Rewards alerts (monthly)",
+    desc: "Every RewardAlert raised in the month with full details JSON expanded into columns. Includes a 'By kind' summary sheet.",
+  },
 ] as const;
 
 const MONTHS = [
@@ -131,8 +146,10 @@ export function ReportsClient({ initialReports }: Props) {
         // worker ignores year/month and exports everything. The
         // success toast reflects that so admins don't think the
         // month picker was applied.
+        const isLifetime =
+          type === "EXPENSES_LIFETIME" || type === "REWARD_LIABILITY_LIFETIME";
         toast.success(
-          type === "EXPENSES_LIFETIME"
+          isLifetime
             ? `${TYPES.find((t) => t.value === type)?.label} queued (all-time)`
             : `${TYPES.find((t) => t.value === type)?.label} queued for ${MONTHS[month - 1]} ${year}`,
         );
@@ -198,10 +215,12 @@ export function ReportsClient({ initialReports }: Props) {
               report since the worker exports every row regardless
               of month. Inline note replaces them so the admin
               knows what's happening. */}
-          {type === "EXPENSES_LIFETIME" ? (
+          {type === "EXPENSES_LIFETIME" ||
+          type === "REWARD_LIABILITY_LIFETIME" ? (
             <div className="flex-1 rounded-md border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-xs text-zinc-400">
-              Covers every expense entry ever recorded — no month
-              filter applied.
+              {type === "EXPENSES_LIFETIME"
+                ? "Covers every expense entry ever recorded — no month filter applied."
+                : "Activity columns cover every reward transaction ever recorded — no month filter applied."}
             </div>
           ) : (
             <>
@@ -302,7 +321,7 @@ function ReportTableRow({ row }: { row: ReportRow }) {
   // Lifetime reports don't have a meaningful month — the year/month
   // on the Report row were just the request-time placeholders.
   const period =
-    row.type === "EXPENSES_LIFETIME"
+    row.type === "EXPENSES_LIFETIME" || row.type === "REWARD_LIABILITY_LIFETIME"
       ? "All-time"
       : `${MONTHS[row.month - 1]} ${row.year}`;
   const queuedAt = new Date(row.createdAt).toLocaleString("en-IN", {

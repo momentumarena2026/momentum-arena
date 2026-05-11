@@ -6,6 +6,11 @@ import {
   generateExpensesLifetimeReport,
   generateExpensesMonthlyReport,
 } from "./workers/expenses";
+import {
+  generateRewardAlertsMonthlyReport,
+  generateRewardLiabilityLifetimeReport,
+  generateRewardLiabilityMonthlyReport,
+} from "./workers/rewards";
 
 /**
  * Async report queue.
@@ -28,7 +33,10 @@ interface EnqueueInput {
     | "RAZORPAY_RECON_MONTHLY"
     | "CA_MONTHLY"
     | "EXPENSES_MONTHLY"
-    | "EXPENSES_LIFETIME";
+    | "EXPENSES_LIFETIME"
+    | "REWARD_LIABILITY_MONTHLY"
+    | "REWARD_LIABILITY_LIFETIME"
+    | "REWARD_ALERTS_MONTHLY";
   year: number;
   month: number; // 1-12
   requestedById: string;
@@ -52,6 +60,9 @@ const VALID_TYPES = [
   "CA_MONTHLY",
   "EXPENSES_MONTHLY",
   "EXPENSES_LIFETIME",
+  "REWARD_LIABILITY_MONTHLY",
+  "REWARD_LIABILITY_LIFETIME",
+  "REWARD_ALERTS_MONTHLY",
 ] as const;
 
 export async function enqueueReport(input: EnqueueInput): Promise<EnqueueResult> {
@@ -242,6 +253,12 @@ async function runWorker(
       return generateExpensesMonthlyReport({ year, month });
     case "EXPENSES_LIFETIME":
       return generateExpensesLifetimeReport({ year, month });
+    case "REWARD_LIABILITY_MONTHLY":
+      return generateRewardLiabilityMonthlyReport({ year, month });
+    case "REWARD_LIABILITY_LIFETIME":
+      return generateRewardLiabilityLifetimeReport({ year, month });
+    case "REWARD_ALERTS_MONTHLY":
+      return generateRewardAlertsMonthlyReport({ year, month });
     default:
       throw new Error(`Unknown report type: ${type}`);
   }
