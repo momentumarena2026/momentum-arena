@@ -228,6 +228,16 @@ export async function updateCafeOrderStatus(
       }).catch((err) => console.error("Cafe order push failed:", err));
     }
 
+    // Award reward points when the order is COMPLETED (food delivered).
+    // Idempotent at the lib layer — safe even if the order toggles
+    // backwards through COMPLETED.
+    if (newStatus === "COMPLETED" && order.userId) {
+      const { awardCafePoints } = await import("@/lib/rewards/earn");
+      void awardCafePoints(orderId).catch((err) =>
+        console.error("[rewards] cafe award failed for", orderId, err),
+      );
+    }
+
     return { success: true };
   } catch (error) {
     console.error("Failed to update order status:", error);

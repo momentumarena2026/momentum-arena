@@ -11,6 +11,8 @@ import { normalizeIndianPhone } from "@/lib/phone";
 import { sendToUser } from "@/lib/push";
 import { formatHoursAsRanges } from "@/lib/court-config";
 import { notifyWaitlistersForFreedSlots } from "@/actions/waitlist";
+import { awardBookingPoints } from "@/lib/rewards/earn";
+import { revokeBookingRewards } from "@/lib/rewards/revoke";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -79,6 +81,10 @@ export async function confirmCashPayment(bookingId: string, adminIdOverride?: st
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
   notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  // Award reward points (idempotent — safe to re-run on retries).
+  void awardBookingPoints(bookingId).catch((err) =>
+    console.error("[rewards] award failed for", bookingId, err),
+  );
 
   await revalidateBookingPaths(bookingId);
 
@@ -117,6 +123,10 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
   notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  // Award reward points (idempotent — safe to re-run on retries).
+  void awardBookingPoints(bookingId).catch((err) =>
+    console.error("[rewards] award failed for", bookingId, err),
+  );
 
   await revalidateBookingPaths(bookingId);
 
@@ -170,6 +180,9 @@ export async function confirmBookingManually(
   await sendBookingConfirmation(bookingId);
   notifyAdminBookingConfirmed(bookingId).catch((err) =>
     console.error("Notification dispatch failed:", err),
+  );
+  void awardBookingPoints(bookingId).catch((err) =>
+    console.error("[rewards] award failed for", bookingId, err),
   );
 
   await revalidateBookingPaths(bookingId);
@@ -529,6 +542,11 @@ export async function cancelBooking(
     date: booking.date,
     hours: booking.slots.map((s) => s.startHour),
   });
+  // Unwind reward points — revoke any earn + refund any redemption.
+  // Idempotent so safe to run from both cancel + refund paths.
+  void revokeBookingRewards(bookingId).catch((err) =>
+    console.error("[rewards] revoke failed for", bookingId, err),
+  );
 
   return { success: true };
 }
@@ -647,6 +665,10 @@ export async function refundBooking(
     date: booking.date,
     hours: booking.slots.map((s) => s.startHour),
   });
+  // Same rewards unwind as cancelBooking.
+  void revokeBookingRewards(bookingId).catch((err) =>
+    console.error("[rewards] revoke failed for", bookingId, err),
+  );
 
   return { success: true };
 }
