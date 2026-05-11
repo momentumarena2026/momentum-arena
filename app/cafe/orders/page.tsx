@@ -91,15 +91,9 @@ export default async function CafeOrdersPage() {
                     <p className="text-white font-bold text-sm">
                       {formatPrice(order.totalAmount)}
                     </p>
+                    {/* Invoice link removed customer-side — see
+                        app/book/confirmation for the rationale. */}
                     <div className="flex gap-2 mt-2">
-                      <a
-                        href={`/api/cafe-invoice?orderId=${order.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-zinc-400 hover:text-emerald-400 transition-colors"
-                      >
-                        Invoice
-                      </a>
                       <Link
                         href={`/cafe/confirmation/${order.id}`}
                         className="text-xs text-zinc-400 hover:text-emerald-400 transition-colors"
