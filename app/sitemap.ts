@@ -62,10 +62,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "daily",
       priority: 0.7,
     },
-    // `/rewards` intentionally absent — feature is disabled
-    // customer-side while it's being redesigned. Page returns 404
-    // and is in robots.ts disallow. Add back when the new surface
-    // ships.
+    // `/rewards` intentionally absent — auth-gated user surface
+    // (Momentum Points balance + activity). Stays in robots.ts
+    // disallow alongside other authed pages.
 
     // ── Help / support / legal ──────────────────────────────────
     {

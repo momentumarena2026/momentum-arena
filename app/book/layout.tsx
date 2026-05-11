@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { auth } from "@/lib/auth";
 import { LoginButton } from "@/components/login-modal";
+import { RewardsChip } from "@/components/rewards/rewards-chip";
 
 export default async function BookLayout({
   children,
@@ -39,7 +40,8 @@ export default async function BookLayout({
               </Link>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              {session?.user?.id && <RewardsChip userId={session.user.id} />}
               {session?.user ? (
                 <Link
                   href="/dashboard"

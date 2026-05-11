@@ -15,7 +15,10 @@ import {
   ChevronRight,
   Phone,
   User as UserIcon,
+  Sparkles,
 } from "lucide-react";
+import { readBalance } from "@/lib/rewards/balance";
+import { getRewardConfig } from "@/lib/rewards/config";
 import { SignOutButton } from "@/components/sign-out-button";
 import {
   MdSportsCricket,
@@ -78,7 +81,7 @@ export default async function DashboardPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [upcomingBookings, totalBookings, thisMonthBookings, user] = await Promise.all([
+  const [upcomingBookings, totalBookings, thisMonthBookings, user, rewardBalance, rewardCfg] = await Promise.all([
     db.booking.findMany({
       where: {
         userId: session.user.id,
@@ -110,6 +113,8 @@ export default async function DashboardPage() {
       where: { id: session.user.id },
       select: { name: true, phone: true },
     }),
+    readBalance(session.user.id),
+    getRewardConfig(),
   ]);
 
   const nextBooking = upcomingBookings[0];
@@ -208,6 +213,24 @@ export default async function DashboardPage() {
 
       {/* Quick Links */}
       <div className="space-y-3">
+        {rewardCfg.enabled && (
+          <Link
+            href="/rewards"
+            className="group flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 transition-all hover:border-emerald-500/50 hover:bg-emerald-500/10"
+          >
+            <div className="rounded-lg bg-emerald-500/15 p-2">
+              <Sparkles className="h-4 w-4 text-emerald-400" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-white">Momentum Points</p>
+              <p className="text-xs text-emerald-300/70">
+                {rewardBalance.pointsAvailable.toLocaleString("en-IN")} pts available
+              </p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-emerald-500/60 transition-all group-hover:text-emerald-400 group-hover:translate-x-0.5" />
+          </Link>
+        )}
+
         <Link
           href="/bookings"
           className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
