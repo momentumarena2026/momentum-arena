@@ -83,6 +83,10 @@ export type PushKind =
   // off). Mobile tap handler routes to the user's waitlist screen
   // so they can book in one tap.
   | "slot_available"
+  // Reward earn events — booking, cafe, manual admin grant, signup
+  // bonus, etc. The mobile tap handler deep-links to RewardsScreen.
+  // data block includes `points` (string) and the source `txnType`.
+  | "rewards_earned"
   // Admin-initiated broadcast (manual send from /admin/push). The
   // mobile tap handler treats this as a no-op deep-link — opening
   // the app is enough action.

@@ -87,6 +87,18 @@ export function RootNavigator() {
           // No CafeOrderDetail screen yet — drop into the cafe tab.
           navigationRef.navigate("Main", { screen: "Cafe" });
           break;
+        case "rewards_earned":
+          // Tap on a "you earned N pts" notification → land on the
+          // Momentum Points screen (under Account tab). Account stack
+          // already mounts RewardsScreen as a child.
+          navigationRef.navigate("Main", {
+            screen: "Account",
+            params: {
+              screen: "Rewards",
+              initial: false,
+            },
+          });
+          break;
         case "slot_available":
           // Drop the user into their waitlist screen so they see EVERY
           // entry that's been notified (a single freeing event can

@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import type { Prisma, RewardTransaction, RewardTxnType } from "@prisma/client";
 import { applyBalanceDelta, ensureBalance } from "./balance";
 import { getRewardConfig, pointsToPaise } from "./config";
+import { sendToUser } from "@/lib/push";
 
 /**
  * Earn-paths. Every entry point is idempotent — the
@@ -232,6 +233,11 @@ export async function adminGrantPoints(args: {
     });
     return txn;
   });
+  void sendEarnedPush({
+    userId: args.userId,
+    points: args.points,
+    type: "EARNED_ADJUSTMENT",
+  });
   return { awarded: true, points: args.points, txnId: result.id };
 }
 
@@ -284,6 +290,13 @@ async function insertEarn(args: {
       });
       return txn;
     });
+    // Best-effort push so the user sees their balance bump. Fire-and-
+    // forget — push delivery failures shouldn't block the booking flow.
+    void sendEarnedPush({
+      userId: args.userId,
+      points: args.points,
+      type: args.type,
+    });
     return { awarded: true, points: args.points, txnId: result.id };
   } catch (err) {
     // P2002 = unique violation on the idempotency index. Means
@@ -323,7 +336,65 @@ async function insertBonusEarn(args: {
     });
     return txn;
   });
+  void sendEarnedPush({
+    userId: args.userId,
+    points: args.points,
+    type: args.type,
+  });
   return { awarded: true, points: args.points, txnId: result.id };
+}
+
+/**
+ * Push notification helper for "you earned N points" events. Maps the
+ * specific RewardTxnType to a friendly title so cafe earns / signup
+ * bonuses don't all read "Booking reward". Best-effort — wraps in
+ * try/catch so a push failure can never break the underlying earn
+ * transaction.
+ */
+async function sendEarnedPush(args: {
+  userId: string;
+  points: number;
+  type: RewardTxnType;
+}): Promise<void> {
+  let title = "You earned Momentum Points";
+  switch (args.type) {
+    case "EARNED_BOOKING":
+      title = "Points for your booking";
+      break;
+    case "EARNED_CAFE":
+      title = "Points for your cafe order";
+      break;
+    case "EARNED_SIGNUP":
+      title = "Welcome bonus";
+      break;
+    case "EARNED_REFERRAL":
+      title = "Referral bonus";
+      break;
+    case "EARNED_BIRTHDAY":
+      title = "🎂 Happy birthday!";
+      break;
+    case "EARNED_ADJUSTMENT":
+      title = "Bonus points added";
+      break;
+    default:
+      break;
+  }
+  try {
+    await sendToUser(args.userId, {
+      title,
+      body: `+${args.points.toLocaleString("en-IN")} pts added — tap to view`,
+      data: {
+        kind: "rewards_earned",
+        points: String(args.points),
+        txnType: args.type,
+      },
+    });
+  } catch (err) {
+    console.warn(
+      "[rewards] earn push failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 // Tiny Prisma error type-guard helper. Inline so we don't pull in
