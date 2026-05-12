@@ -37,6 +37,7 @@ import { Card } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { BookingCard } from "../../components/BookingCard";
+import { RewardsChip } from "../../components/RewardsChip";
 import { colors, radius, spacing } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
 import { bookingsApi } from "../../lib/bookings";
@@ -131,7 +132,12 @@ export function HomeScreen() {
           ) : undefined
         }
       >
-        {/* Top nav */}
+        {/* Top nav — signed-in users see the rewards chip in place of
+            the "Hi, name 👋" greeting. The chip itself signals the
+            signed-in state and shows a functional metric (current
+            balance) that the greeting didn't. When rewards are
+            disabled in admin config the chip renders nothing, so we
+            keep the greeting as a fallback in that branch. */}
         <View style={styles.topNav}>
           <Image
             source={{ uri: `${ASSETS}/blackLogo.png` }}
@@ -139,9 +145,9 @@ export function HomeScreen() {
             resizeMode="contain"
           />
           {signedIn ? (
-            <Text variant="small" color={colors.primary} weight="700">
-              Hi{firstName ? `, ${firstName}` : ""} 👋
-            </Text>
+            <View style={styles.topNavRight}>
+              <RewardsChip enabled={signedIn} />
+            </View>
           ) : (
             <Button label="Sign in" variant="secondary" size="sm" onPress={signIn} />
           )}
@@ -752,6 +758,15 @@ const styles = StyleSheet.create({
     // being noticeably bigger than the original tiny header logo.
     width: 180,
     height: 54,
+  },
+  // Right-side cluster of the top nav: rewards chip + greeting.
+  // Compact gap so both fit comfortably alongside the 180px-wide
+  // logo on the smallest phone widths.
+  topNavRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    paddingRight: spacing["2"],
   },
   promo: {
     paddingHorizontal: spacing["4"],
