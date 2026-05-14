@@ -15,6 +15,7 @@ import {
   Sport,
   CafeItemCategory,
   UserGroupType,
+  BookingCategory,
 } from "@prisma/client";
 import {
   Plus,
@@ -73,6 +74,10 @@ export interface CouponRow {
   minAmount: number | null;
   sportFilter: Sport[];
   categoryFilter: CafeItemCategory[];
+  /** Sport sub-category exclusions — currently scoped to CRICKET
+   *  (BOX_CRICKET / BOWLING_MACHINE). Empty = applies to every
+   *  sub-flow of the matched sport(s). */
+  categoryExclude: BookingCategory[];
   userGroupFilter: UserGroupType[];
   isStackable: boolean;
   stackGroup: string | null;
@@ -110,6 +115,19 @@ const CATEGORIES: CafeItemCategory[] = [
   "DESSERTS",
   "COMBOS",
 ];
+
+// Sub-categories live under specific sports. Today only CRICKET
+// branches into BOX_CRICKET and BOWLING_MACHINE — keep this map
+// open so adding e.g. football variants later is just one entry.
+const SPORT_SUBCATEGORIES: Partial<Record<Sport, {
+  value: BookingCategory;
+  label: string;
+}[]>> = {
+  CRICKET: [
+    { value: "BOX_CRICKET", label: "Box Cricket" },
+    { value: "BOWLING_MACHINE", label: "Bowling Machine" },
+  ],
+};
 const USER_GROUPS: { value: UserGroupType; label: string }[] = [
   { value: "FIRST_TIME", label: "First Time" },
   { value: "PREMIUM_PLAYER", label: "Premium Player (10+ bookings)" },
@@ -141,6 +159,7 @@ function emptyForm() {
     minAmount: "",
     sportFilter: [] as Sport[],
     categoryFilter: [] as CafeItemCategory[],
+    categoryExclude: [] as BookingCategory[],
     userGroupFilter: [] as UserGroupType[],
     isStackable: false,
     stackGroup: "",
@@ -212,6 +231,7 @@ export function CouponsManager({
       minAmount: coupon.minAmount ? String(coupon.minAmount) : "",
       sportFilter: [...coupon.sportFilter],
       categoryFilter: [...coupon.categoryFilter],
+      categoryExclude: [...coupon.categoryExclude],
       userGroupFilter: [...coupon.userGroupFilter],
       isStackable: coupon.isStackable,
       stackGroup: coupon.stackGroup || "",
@@ -253,6 +273,7 @@ export function CouponsManager({
       minAmount: form.minAmount ? parseInt(form.minAmount) : null,
       sportFilter: form.sportFilter,
       categoryFilter: form.categoryFilter,
+      categoryExclude: form.categoryExclude,
       userGroupFilter: form.userGroupFilter,
       isStackable: form.isStackable,
       stackGroup: form.stackGroup || null,
@@ -320,6 +341,19 @@ export function CouponsManager({
       categoryFilter: p.categoryFilter.includes(cat)
         ? p.categoryFilter.filter((c) => c !== cat)
         : [...p.categoryFilter, cat],
+    }));
+  };
+
+  // Sub-category exclusion toggle. Storing as an *exclude* list
+  // (rather than an "applies to" list) keeps the default — empty
+  // array — meaning "applies to every sub-flow", which is the safe
+  // behaviour for a brand-new coupon.
+  const toggleCategoryExclude = (cat: BookingCategory) => {
+    setForm((p) => ({
+      ...p,
+      categoryExclude: p.categoryExclude.includes(cat)
+        ? p.categoryExclude.filter((c) => c !== cat)
+        : [...p.categoryExclude, cat],
     }));
   };
 
@@ -485,6 +519,13 @@ export function CouponsManager({
                       )}
                       {coupon.categoryFilter.length > 0 && (
                         <span>{coupon.categoryFilter.join(", ")}</span>
+                      )}
+                      {coupon.categoryExclude.length > 0 && (
+                        <span className="text-red-400/80">
+                          Excl: {coupon.categoryExclude
+                            .map((c) => c.replace("_", " ").toLowerCase())
+                            .join(", ")}
+                        </span>
                       )}
                       {coupon.userGroupFilter.length > 0 && (
                         <span className="flex items-center gap-1">
@@ -798,30 +839,82 @@ export function CouponsManager({
                 </div>
               </div>
 
-              {/* Sport Filter */}
+              {/* Sport Filter + nested sub-category exclusions.
+                  Sub-category toggles surface for every sport whose
+                  scope is "in play" (sportFilter empty = all sports,
+                  otherwise only the explicitly-checked ones) AND
+                  that has sub-categories registered in
+                  SPORT_SUBCATEGORIES. Storing as `categoryExclude`
+                  rather than an "applies to" list means new coupons
+                  default to "applies everywhere" instead of "nowhere". */}
               {showSports && (
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">
-                    Sport Filter{" "}
-                    <span className="text-zinc-600">
-                      (empty = all sports)
-                    </span>
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {SPORTS.map((sport) => (
-                      <button
-                        key={sport}
-                        onClick={() => toggleSportFilter(sport)}
-                        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                          form.sportFilter.includes(sport)
-                            ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
-                            : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
-                        }`}
-                      >
-                        {sport}
-                      </button>
-                    ))}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+                      Sport Filter{" "}
+                      <span className="text-zinc-600">
+                        (empty = all sports)
+                      </span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {SPORTS.map((sport) => (
+                        <button
+                          key={sport}
+                          onClick={() => toggleSportFilter(sport)}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                            form.sportFilter.includes(sport)
+                              ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                              : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+                          }`}
+                        >
+                          {sport}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
+                  {SPORTS.flatMap((sport) => {
+                    const subs = SPORT_SUBCATEGORIES[sport];
+                    if (!subs) return [];
+                    const sportInScope =
+                      form.sportFilter.length === 0 ||
+                      form.sportFilter.includes(sport);
+                    if (!sportInScope) return [];
+                    return [
+                      <div
+                        key={sport}
+                        className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3"
+                      >
+                        <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                          {sport} sub-categories to exclude{" "}
+                          <span className="text-zinc-600">
+                            (checked = coupon does NOT apply)
+                          </span>
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {subs.map((s) => {
+                            const excluded = form.categoryExclude.includes(
+                              s.value,
+                            );
+                            return (
+                              <button
+                                key={s.value}
+                                onClick={() => toggleCategoryExclude(s.value)}
+                                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                  excluded
+                                    ? "border-red-500/30 bg-red-500/10 text-red-400"
+                                    : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+                                }`}
+                              >
+                                {excluded ? "✕ " : ""}
+                                {s.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>,
+                    ];
+                  })}
                 </div>
               )}
 

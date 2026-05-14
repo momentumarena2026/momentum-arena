@@ -9,6 +9,7 @@ import {
   Sport,
   CafeItemCategory,
   UserGroupType,
+  BookingCategory,
   Prisma,
 } from "@prisma/client";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
@@ -47,6 +48,12 @@ const couponSchema = z.object({
     .default([]),
   categoryFilter: z
     .array(z.enum(["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"]))
+    .default([]),
+  // Sport sub-category exclusions — currently only CRICKET has
+  // sub-categories (BOX_CRICKET / BOWLING_MACHINE). Empty array =
+  // coupon applies to every sub-flow of the matched sport(s).
+  categoryExclude: z
+    .array(z.enum(["BOX_CRICKET", "BOWLING_MACHINE"]))
     .default([]),
   userGroupFilter: z
     .array(
@@ -134,6 +141,7 @@ export async function createCoupon(data: {
   minAmount?: number | null;
   sportFilter?: Sport[];
   categoryFilter?: CafeItemCategory[];
+  categoryExclude?: BookingCategory[];
   userGroupFilter?: UserGroupType[];
   isStackable?: boolean;
   stackGroup?: string | null;
@@ -186,6 +194,7 @@ export async function createCoupon(data: {
         minAmount: parsed.data.minAmount ?? null,
         sportFilter: parsed.data.sportFilter,
         categoryFilter: parsed.data.categoryFilter,
+        categoryExclude: parsed.data.categoryExclude,
         userGroupFilter: parsed.data.userGroupFilter,
         isStackable: parsed.data.isStackable,
         stackGroup: parsed.data.stackGroup ?? null,
@@ -243,6 +252,7 @@ export async function updateCoupon(
     minAmount?: number | null;
     sportFilter?: Sport[];
     categoryFilter?: CafeItemCategory[];
+    categoryExclude?: BookingCategory[];
     userGroupFilter?: UserGroupType[];
     isStackable?: boolean;
     stackGroup?: string | null;
@@ -271,6 +281,7 @@ export async function updateCoupon(
     if (data.minAmount !== undefined) updateData.minAmount = data.minAmount;
     if (data.sportFilter !== undefined) updateData.sportFilter = data.sportFilter;
     if (data.categoryFilter !== undefined) updateData.categoryFilter = data.categoryFilter;
+    if (data.categoryExclude !== undefined) updateData.categoryExclude = data.categoryExclude;
     if (data.userGroupFilter !== undefined) updateData.userGroupFilter = data.userGroupFilter;
     if (data.isStackable !== undefined) updateData.isStackable = data.isStackable;
     if (data.stackGroup !== undefined) updateData.stackGroup = data.stackGroup;

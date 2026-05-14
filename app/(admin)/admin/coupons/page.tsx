@@ -46,6 +46,7 @@ export default async function AdminCouponsPage() {
           minAmount: c.minAmount,
           sportFilter: c.sportFilter,
           categoryFilter: c.categoryFilter,
+          categoryExclude: c.categoryExclude,
           userGroupFilter: c.userGroupFilter,
           isStackable: c.isStackable,
           stackGroup: c.stackGroup,
