@@ -991,7 +991,7 @@ model Coupon {
   maxUses        Int? // null = unlimited
   usedCount      Int          @default(0)
   maxUsesPerUser Int          @default(1)
-  minAmount      Int? // minimum order/booking amount in paise
+  minAmount      Int? // minimum order/booking amount in WHOLE RUPEES
 
   // Filters
   sportFilter     Sport[]

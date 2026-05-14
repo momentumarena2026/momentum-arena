@@ -260,11 +260,14 @@ export async function validateCoupon(
 
       switch (condition.conditionType) {
         case "MIN_AMOUNT": {
+          // Both `context.amount` (= hold.totalAmount) and the
+          // stored `minAmount` are whole rupees post Phase 9 unit
+          // unification. No paise conversion anywhere on the path.
           const minAmount = condValue.minAmount as number;
           if (context.amount < minAmount) {
             return {
               valid: false,
-              error: `Minimum order amount is ₹${(minAmount / 100).toLocaleString("en-IN")}`,
+              error: `Minimum order amount is ₹${minAmount.toLocaleString("en-IN")}`,
             };
           }
           break;
@@ -313,11 +316,11 @@ export async function validateCoupon(
       }
     }
 
-    // Check minAmount on coupon itself
+    // Check minAmount on coupon itself. Both sides are whole rupees.
     if (coupon.minAmount !== null && context.amount < coupon.minAmount) {
       return {
         valid: false,
-        error: `Minimum amount is ₹${(coupon.minAmount / 100).toLocaleString("en-IN")}`,
+        error: `Minimum amount is ₹${coupon.minAmount.toLocaleString("en-IN")}`,
       };
     }
 
