@@ -7,7 +7,7 @@ import {
   updateEquipment,
   deleteEquipment,
 } from "@/actions/admin-equipment";
-import { Sport } from "@prisma/client";
+import { Sport, BookingCategory } from "@prisma/client";
 import { formatPrice } from "@/lib/pricing";
 import { Plus, X, Loader2, Package, Pencil, Trash2 } from "lucide-react";
 
@@ -15,11 +15,14 @@ interface EquipmentRow {
   id: string;
   name: string;
   sport: Sport | null;
+  category: BookingCategory | null;
   pricePerHour: number;
   totalUnits: number;
   availableUnits: number;
   isActive: boolean;
   imageUrl: string | null;
+  isCustomerSelectable: boolean;
+  displayOrder: number;
   rentalCount: number;
 }
 
@@ -30,12 +33,23 @@ const SPORTS: { value: Sport | ""; label: string }[] = [
   { value: "PICKLEBALL", label: "Pickleball" },
 ];
 
+// Sub-category narrowing within CRICKET. Empty option = "all cricket
+// flows", BOWLING_MACHINE = only the bowling-practice checkout.
+const CATEGORIES: { value: BookingCategory | ""; label: string }[] = [
+  { value: "", label: "All Cricket" },
+  { value: "BOX_CRICKET", label: "Box Cricket only" },
+  { value: "BOWLING_MACHINE", label: "Bowling Machine only" },
+];
+
 const defaultForm = {
   name: "",
   sport: "" as Sport | "",
+  category: "" as BookingCategory | "",
   pricePerHour: "",
   totalUnits: "1",
   imageUrl: "",
+  isCustomerSelectable: true,
+  displayOrder: "0",
 };
 
 export function EquipmentManager({ equipment }: { equipment: EquipmentRow[] }) {
@@ -56,9 +70,15 @@ export function EquipmentManager({ equipment }: { equipment: EquipmentRow[] }) {
     setForm({
       name: eq.name,
       sport: eq.sport || "",
+      category: eq.category || "",
+      // pricePerHour is stored in paise but every other surface
+      // (customer checkout, admin booking detail) shows ₹ values.
+      // Divide here, multiply back on save. Same convention as before.
       pricePerHour: String(eq.pricePerHour / 100),
       totalUnits: String(eq.totalUnits),
       imageUrl: eq.imageUrl || "",
+      isCustomerSelectable: eq.isCustomerSelectable,
+      displayOrder: String(eq.displayOrder),
     });
     setEditingId(eq.id);
     setShowForm(true);
@@ -86,9 +106,18 @@ export function EquipmentManager({ equipment }: { equipment: EquipmentRow[] }) {
     const data = {
       name: form.name,
       sport: (form.sport as Sport) || null,
+      // Category only meaningful for CRICKET; explicit null otherwise
+      // so editing a Football item won't silently retain a Cricket
+      // sub-category. The Prisma column is nullable.
+      category:
+        form.sport === "CRICKET" && form.category
+          ? (form.category as BookingCategory)
+          : null,
       pricePerHour,
       totalUnits,
       imageUrl: form.imageUrl || undefined,
+      isCustomerSelectable: form.isCustomerSelectable,
+      displayOrder: parseInt(form.displayOrder, 10) || 0,
     };
 
     let result;
@@ -165,13 +194,40 @@ export function EquipmentManager({ equipment }: { equipment: EquipmentRow[] }) {
                 </option>
               ))}
             </select>
+
+            {/* Sub-category only meaningful inside CRICKET, so we
+                show the picker for that case alone. Hidden for other
+                sports to keep the form tight. */}
+            {form.sport === "CRICKET" ? (
+              <select
+                value={form.category}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    category: e.target.value as BookingCategory | "",
+                  }))
+                }
+                className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white"
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    Cricket type · {c.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 text-xs text-zinc-600">
+                Cricket sub-type — pick a Sport first
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <span className="text-zinc-400 text-sm">₹</span>
               <input
                 type="number"
                 value={form.pricePerHour}
                 onChange={(e) => setForm((p) => ({ ...p, pricePerHour: e.target.value }))}
-                placeholder="Price per hour (₹)"
+                placeholder="Flat price per booking (₹)"
                 className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
               />
             </div>
@@ -183,6 +239,30 @@ export function EquipmentManager({ equipment }: { equipment: EquipmentRow[] }) {
               placeholder="Total units available"
               className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
             />
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-zinc-400 text-sm">Order</span>
+              <input
+                type="number"
+                value={form.displayOrder}
+                onChange={(e) => setForm((p) => ({ ...p, displayOrder: e.target.value }))}
+                placeholder="Sort order (lower = first)"
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              />
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-zinc-200">
+              <input
+                type="checkbox"
+                checked={form.isCustomerSelectable}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    isCustomerSelectable: e.target.checked,
+                  }))
+                }
+                className="h-4 w-4 accent-emerald-500"
+              />
+              Show on customer checkout
+            </label>
             <input
               type="url"
               value={form.imageUrl}
@@ -230,11 +310,26 @@ export function EquipmentManager({ equipment }: { equipment: EquipmentRow[] }) {
                   <Package className="h-4 w-4 text-zinc-400" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-white">{eq.name}</span>
                     {eq.sport && (
                       <span className="rounded-full bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[10px] text-blue-400">
                         {eq.sport}
+                      </span>
+                    )}
+                    {eq.category === "BOWLING_MACHINE" && (
+                      <span className="rounded-full bg-yellow-500/10 border border-yellow-500/30 px-2 py-0.5 text-[10px] text-yellow-300">
+                        Bowling Machine
+                      </span>
+                    )}
+                    {eq.category === "BOX_CRICKET" && (
+                      <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] text-emerald-300">
+                        Box Cricket
+                      </span>
+                    )}
+                    {!eq.isCustomerSelectable && (
+                      <span className="rounded-full bg-zinc-700/60 border border-zinc-600 px-2 py-0.5 text-[10px] text-zinc-300">
+                        Admin-only
                       </span>
                     )}
                     {!eq.isActive && (
@@ -244,8 +339,9 @@ export function EquipmentManager({ equipment }: { equipment: EquipmentRow[] }) {
                     )}
                   </div>
                   <p className="text-xs text-zinc-500">
-                    {formatPrice(eq.pricePerHour)}/hr •{" "}
-                    {eq.availableUnits}/{eq.totalUnits} units •{" "}
+                    {formatPrice(eq.pricePerHour)}/booking ·{" "}
+                    {eq.availableUnits}/{eq.totalUnits} units ·{" "}
+                    order #{eq.displayOrder} ·{" "}
                     {eq.rentalCount} total rental{eq.rentalCount !== 1 ? "s" : ""}
                   </p>
                 </div>

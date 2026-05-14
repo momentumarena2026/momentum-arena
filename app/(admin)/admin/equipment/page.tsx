@@ -18,11 +18,14 @@ export default async function AdminEquipmentPage() {
           id: e.id,
           name: e.name,
           sport: e.sport,
+          category: e.category,
           pricePerHour: e.pricePerHour,
           totalUnits: e.totalUnits,
           availableUnits: e.availableUnits,
           isActive: e.isActive,
           imageUrl: e.imageUrl,
+          isCustomerSelectable: e.isCustomerSelectable,
+          displayOrder: e.displayOrder,
           rentalCount: e._count.rentals,
         }))}
       />
