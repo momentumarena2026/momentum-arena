@@ -17,6 +17,13 @@ interface ValidateCouponContext {
   userId?: string;
   sport?: string;
   categories?: string[];
+  /**
+   * Sub-category of the booking being validated against (BOX_CRICKET
+   * or BOWLING_MACHINE). When a coupon's `categoryExclude` contains
+   * this value the coupon is rejected. Optional so cafe/check-coupon
+   * paths that don't have a booking-category in context still work.
+   */
+  bookingCategory?: "BOX_CRICKET" | "BOWLING_MACHINE" | null;
 }
 
 export async function validateCoupon(
@@ -94,6 +101,22 @@ export async function validateCoupon(
       if (!context.sport || !coupon.sportFilter.includes(context.sport as never)) {
         return { valid: false, error: "This coupon is not valid for this sport" };
       }
+    }
+
+    // 6b. Sub-category exclusion — Coupon.categoryExclude lists
+    // BookingCategory values that the coupon explicitly does NOT
+    // apply to (the only one in use today is BOWLING_MACHINE for
+    // the new-user welcome discount). An empty array means the
+    // coupon applies to every sub-category.
+    if (
+      coupon.categoryExclude.length > 0 &&
+      context.bookingCategory &&
+      coupon.categoryExclude.includes(context.bookingCategory as never)
+    ) {
+      return {
+        valid: false,
+        error: "This coupon is not valid for bowling machine bookings",
+      };
     }
 
     // 7. Check categoryFilter (if non-empty, context.categories must intersect)

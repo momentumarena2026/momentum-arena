@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { Sport } from "@prisma/client";
+import { Sport, BookingCategory } from "@prisma/client";
 
 export interface NewUserDiscountInfo {
   codeId: string;
@@ -12,7 +12,13 @@ export interface NewUserDiscountInfo {
 export async function getNewUserDiscount(
   userId: string,
   sport: Sport,
-  totalAmount: number
+  totalAmount: number,
+  // Sub-category of the booking the discount would be applied to.
+  // The active system code is seeded with categoryExclude =
+  // [BOWLING_MACHINE], so passing that value short-circuits before
+  // computing the discount. Callers that aren't booking-specific
+  // (e.g. cafe surfaces) just omit it.
+  bookingCategory?: BookingCategory | null,
 ): Promise<NewUserDiscountInfo | null> {
   // Only count bookings the user made themselves. An admin pre-
   // booking a slot on behalf of a brand-new customer should NOT
@@ -42,6 +48,17 @@ export async function getNewUserDiscount(
 
   // Check sport filter
   if (systemCode.sportFilter.length > 0 && !systemCode.sportFilter.includes(sport)) {
+    return null;
+  }
+
+  // Check sub-category exclusion. Empty array means the code applies
+  // to every cricket sub-flow; the migration seeds the active code
+  // with [BOWLING_MACHINE] so welcome discounts never land on bowling.
+  if (
+    bookingCategory &&
+    systemCode.categoryExclude.length > 0 &&
+    systemCode.categoryExclude.includes(bookingCategory)
+  ) {
     return null;
   }
 

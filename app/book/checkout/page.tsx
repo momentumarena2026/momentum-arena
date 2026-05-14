@@ -83,7 +83,12 @@ export default async function CheckoutPage({
   const recurringCountDisplay = recurringCount || 0;
 
   const [newUserDiscount, paymentConfig, equipmentOptions] = await Promise.all([
-    getNewUserDiscount(session.user.id, hold.courtConfig.sport, hold.totalAmount).catch(() => null),
+    getNewUserDiscount(
+      session.user.id,
+      hold.courtConfig.sport,
+      hold.totalAmount,
+      hold.courtConfig.category,
+    ).catch(() => null),
     getCheckoutPaymentConfig(),
     // Equipment list filtered to this booking's sport + category.
     // For bowling-machine bookings this returns the kit / bat /

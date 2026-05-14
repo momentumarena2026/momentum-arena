@@ -160,6 +160,10 @@ export async function applyCouponToHold(
     amount: hold.totalAmount,
     userId: session.user.id,
     sport: hold.courtConfig.sport,
+    // Bowling-machine bookings get rejected here when the coupon
+    // has BOWLING_MACHINE in its categoryExclude list — the
+    // new-user welcome discount is pre-seeded that way.
+    bookingCategory: hold.courtConfig.category,
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {
