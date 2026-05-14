@@ -28,6 +28,7 @@ import {
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { AdminEquipmentEditor } from "../../components/admin/AdminEquipmentEditor";
 import { colors, radius, spacing } from "../../theme";
 import {
   adminBookingsApi,
@@ -542,6 +543,15 @@ export function AdminBookingDetailScreen() {
             </Text>
           )}
         </SectionCard>
+
+        {/* Equipment rentals — admin can add/remove rentals after the
+            booking was created. Renders unconditionally so the empty-
+            state message and the "Add equipment" affordance stay
+            available regardless of sport/category. */}
+        <AdminEquipmentEditor
+          bookingId={booking.id}
+          paymentAmountRupees={payment?.amount ?? null}
+        />
 
         {/* Admin Actions */}
         <SectionCard

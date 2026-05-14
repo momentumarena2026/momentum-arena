@@ -416,4 +416,56 @@ export const adminBookingsApi = {
   courts(): Promise<{ courts: AdminCourt[] }> {
     return request("/api/mobile/admin/courts", { method: "GET" });
   },
+
+  /** Equipment editor — snapshot + catalog for a booking. Mirrors
+   *  the web /admin/bookings/[id] page's EquipmentEditor. */
+  equipmentSnapshot(
+    id: string,
+  ): Promise<{
+    rentals: AdminEquipmentRow[];
+    catalog: AdminEquipmentCatalogItem[];
+    equipmentTotalRupees: number;
+    bookingTotalRupees: number;
+  }> {
+    return request(`/api/mobile/admin/bookings/${id}/equipment`, {
+      method: "GET",
+    });
+  },
+
+  equipmentMutate(
+    id: string,
+    body:
+      | { op: "add"; equipmentId: string; quantity: number }
+      | { op: "update"; rentalId: string; quantity: number }
+      | { op: "remove"; rentalId: string },
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    rentals?: AdminEquipmentRow[];
+    equipmentTotalRupees?: number;
+    bookingTotalRupees?: number;
+  }> {
+    return request(`/api/mobile/admin/bookings/${id}/equipment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  },
 };
+
+export interface AdminEquipmentRow {
+  id: string;
+  equipmentId: string;
+  name: string;
+  quantity: number;
+  pricePerUnitPaise: number;
+  totalPricePaise: number;
+}
+
+export interface AdminEquipmentCatalogItem {
+  id: string;
+  name: string;
+  pricePerUnitPaise: number;
+  sport: string | null;
+  category: string | null;
+}
