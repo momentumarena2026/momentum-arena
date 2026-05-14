@@ -184,12 +184,26 @@ export function ReportsClient({ initialReports }: Props) {
           </label>
           {/*
             8 report types — pick a column count that divides 8 evenly
-            so no row trails with an empty slot. md:grid-cols-3 left
-            a hole in the bottom-right corner; switching to a 1/2/4
-            ladder gives 8×1 on phones, 4×2 on tablets, 2×4 on
-            desktops — every row fully populated.
+            so no row trails with an empty slot. The 1/2/4 ladder
+            gives 8×1 on phones, 4×2 on tablets, 2×4 on desktops —
+            every row fully populated.
+
+            The grid is bounded by max-h ONLY at sm+ so the form
+            footer (Year / Month / Queue report) stays reachable
+            without scrolling the page first on tablet+desktop, no
+            matter how many report types land here over time.
+
+            On phones there's no cap — the page already scrolls
+            vertically, so adding an inner scrollbar would just
+            create a scroll-within-scroll trap. The cards stack
+            full-bleed and page-scroll handles it naturally.
+
+            pr-1 reserves space for the scrollbar so the rightmost
+            column doesn't jump when overflow appears. overscroll-
+            contain stops trackpad scrolls from bleeding into the
+            page underneath once they reach the picker's edge.
           */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:max-h-[28rem] sm:overflow-y-auto sm:overscroll-contain sm:pr-1 sm:grid-cols-2 lg:grid-cols-4">
             {TYPES.map((t) => (
               <button
                 key={t.value}
