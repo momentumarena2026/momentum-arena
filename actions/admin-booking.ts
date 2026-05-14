@@ -36,7 +36,7 @@ async function revalidateBookingPaths(bookingId?: string) {
     if (bookingId) revalidatePath(`/admin/bookings/${bookingId}`);
     revalidatePath("/admin/bookings");
     revalidatePath("/admin/bookings/unconfirmed");
-    revalidatePath("/admin/calendar");
+    revalidatePath("/admin/bookings/calendar");
   } catch {
     /* outside Next.js — fine */
   }

@@ -108,6 +108,19 @@ function formatHero(dateStr: string): string {
   });
 }
 
+/**
+ * First whitespace-separated token of a user's full name. Trims +
+ * collapses spaces, returns null on empty so a tile with no name
+ * renders as "🏏 Cricket" rather than "🏏 Cricket · ".
+ */
+function firstNameOf(fullName: string | null | undefined): string | null {
+  if (!fullName) return null;
+  const trimmed = fullName.trim();
+  if (!trimmed) return null;
+  const first = trimmed.split(/\s+/)[0];
+  return first.length > 0 ? first : null;
+}
+
 // --------------- Hour pivot ---------------
 
 interface HourEntry {
@@ -210,10 +223,19 @@ export default function BookingCalendar({
 
   return (
     <div className="space-y-4">
-      {/* Header / controls */}
+      {/* Header / controls
+          ────────────────────────────────────────────────────────────
+          Mobile note: the date stepper holds 5+ children (prev arrow,
+          hero text, native date input, optional Today button, next
+          arrow, spinner). Without `flex-wrap` it overflows ~360px and
+          drags the rest of the page horizontally, which clipped both
+          the stepper and the grid columns to the left edge of the
+          viewport. The hero label is also dropped below `sm:` because
+          the native date input already shows the date — keeping both
+          on a phone wastes ~140px we don't have. */}
       <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Date stepper */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => handleDateChange(shiftDate(date, -1))}
@@ -222,9 +244,9 @@ export default function BookingCalendar({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="flex items-center gap-2 px-1">
+          <div className="hidden items-center gap-2 px-1 sm:flex">
             <CalendarDays className="h-4 w-4 text-yellow-400" />
-            <span className="text-lg font-semibold text-white">
+            <span className="whitespace-nowrap text-lg font-semibold text-white">
               {heroLabel}
             </span>
           </div>
@@ -458,6 +480,7 @@ function HourCell({
           {entry!.bookings.map(({ booking, sport, courtLabel }) => {
             const palette = SPORT_STYLE[sport];
             const dashed = booking.status === "PENDING";
+            const firstName = firstNameOf(booking.userName);
             return (
               <button
                 key={booking.id}
@@ -467,8 +490,13 @@ function HourCell({
                   palette.chip
                 } ${dashed ? "border-dashed" : ""}`}
               >
-                <span className={`text-[11px] font-semibold ${palette.text}`}>
+                <span
+                  className={`w-full truncate text-[11px] font-semibold ${palette.text}`}
+                >
                   {palette.emoji} {SPORT_LABELS[sport]}
+                  {firstName ? (
+                    <span className="opacity-70"> · {firstName}</span>
+                  ) : null}
                 </span>
                 <span
                   className={`w-full truncate text-[10px] opacity-80 ${palette.text}`}
