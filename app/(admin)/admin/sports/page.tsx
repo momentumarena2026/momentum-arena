@@ -47,7 +47,11 @@ export default async function AdminSportsPage() {
 
       {Object.entries(configsBySport).map(([sport, sportConfigs]) => {
         const sportInfo = SPORT_INFO[sport as keyof typeof SPORT_INFO];
-        const allActive = sportConfigs.every((c) => c.isActive);
+        // Parent toggle reflects "is this sport operating at all" so a
+        // mixed-state sport (some configs on, some off) reads as ON.
+        // The child rows below surface the per-config state, so the
+        // admin still sees which specific configs are disabled.
+        const someActive = sportConfigs.some((c) => c.isActive);
 
         return (
           <div
@@ -66,7 +70,7 @@ export default async function AdminSportsPage() {
                 widthFt: c.widthFt,
                 lengthFt: c.lengthFt,
               }))}
-              allActive={allActive}
+              someActive={someActive}
             />
           </div>
         );

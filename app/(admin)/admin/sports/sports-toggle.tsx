@@ -20,21 +20,21 @@ interface SportsToggleProps {
   sport: string;
   sportName: string;
   configs: Config[];
-  allActive: boolean;
+  someActive: boolean;
 }
 
 export function SportsToggle({
   sport,
   sportName,
   configs,
-  allActive,
+  someActive,
 }: SportsToggleProps) {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
 
   const handleToggleSport = async () => {
     setLoading("sport");
-    await toggleSportActive(sport as Sport, !allActive);
+    await toggleSportActive(sport as Sport, !someActive);
     setLoading(null);
     router.refresh();
   };
@@ -55,7 +55,7 @@ export function SportsToggle({
           onClick={handleToggleSport}
           disabled={loading !== null}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            allActive ? "bg-emerald-600" : "bg-zinc-700"
+            someActive ? "bg-emerald-600" : "bg-zinc-700"
           }`}
         >
           {loading === "sport" ? (
@@ -63,7 +63,7 @@ export function SportsToggle({
           ) : (
             <span
               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                allActive ? "translate-x-6" : "translate-x-1"
+                someActive ? "translate-x-6" : "translate-x-1"
               }`}
             />
           )}
