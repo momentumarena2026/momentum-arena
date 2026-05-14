@@ -36,13 +36,94 @@ const RIGHT_HALF_ZONES: CourtZone[] = ["LEATHER_2", "BOX_B"];
 
 export type BowlingHalf = "LEFT" | "RIGHT";
 
+// Default seed values for the singleton bowling-machine court.
+// Mirrors the Phase 1 migration so we can recreate the row on demand
+// when an environment lands here without the seed having run (fresh
+// branch deploys, restored DB snapshots, etc).
+const BOWLING_DEFAULTS = {
+  id: "bowling_machine_court",
+  label: "Bowling Machine",
+  position: "BOWLING_MACHINE",
+  widthFt: 10,
+  lengthFt: 90,
+  zones: LEFT_HALF_ZONES,
+  slotDurationMinutes: 30,
+};
+
+const DEFAULT_OPERATING_WINDOWS: Array<{
+  dayType: DayType;
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+  sortOrder: number;
+}> = [
+  { dayType: "WEEKDAY", startHour: 5, startMinute: 0, endHour: 16, endMinute: 0, sortOrder: 0 },
+  { dayType: "WEEKEND", startHour: 5, startMinute: 0, endHour: 7, endMinute: 0, sortOrder: 0 },
+  { dayType: "WEEKEND", startHour: 12, startMinute: 0, endHour: 16, endMinute: 0, sortOrder: 1 },
+];
+
+/**
+ * Self-heal the singleton row when it's missing. The Phase 1
+ * migration seeds this on apply, but environments that bypass the
+ * seed (e.g. a DB restored from a snapshot taken pre-Phase 1) end
+ * up looking it up cold. Creating the row from defaults here lets
+ * the admin keep using the page instead of blocking on engineering.
+ */
+async function ensureBowlingMachineConfig() {
+  const existing = await db.courtConfig.findFirst({
+    where: { category: "BOWLING_MACHINE" },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  await db.courtConfig.upsert({
+    where: { id: BOWLING_DEFAULTS.id },
+    update: {
+      category: "BOWLING_MACHINE",
+      slotDurationMinutes: BOWLING_DEFAULTS.slotDurationMinutes,
+    },
+    create: {
+      id: BOWLING_DEFAULTS.id,
+      sport: "CRICKET",
+      size: "SHARED",
+      label: BOWLING_DEFAULTS.label,
+      position: BOWLING_DEFAULTS.position,
+      widthFt: BOWLING_DEFAULTS.widthFt,
+      lengthFt: BOWLING_DEFAULTS.lengthFt,
+      zones: BOWLING_DEFAULTS.zones,
+      category: "BOWLING_MACHINE",
+      slotDurationMinutes: BOWLING_DEFAULTS.slotDurationMinutes,
+      isActive: true,
+    },
+  });
+
+  // Seed default operating windows only when none exist yet — admin
+  // edits made elsewhere shouldn't be clobbered by this recovery
+  // path.
+  const windowCount = await db.operatingWindow.count({
+    where: { courtConfigId: BOWLING_DEFAULTS.id },
+  });
+  if (windowCount === 0) {
+    await db.operatingWindow.createMany({
+      data: DEFAULT_OPERATING_WINDOWS.map((w) => ({
+        ...w,
+        courtConfigId: BOWLING_DEFAULTS.id,
+      })),
+    });
+  }
+}
+
 /**
  * Read the singleton bowling-machine config + every operating
- * window row attached to it. Returns null when the config row
- * isn't present (e.g. someone deleted it post-migration).
+ * window row attached to it. Self-heals when the row is missing
+ * (recreates from defaults) so the admin page never lands on a
+ * dead-end error message.
  */
 export async function getBowlingMachineSettings() {
   await requireAdmin();
+
+  await ensureBowlingMachineConfig();
 
   const config = await db.courtConfig.findFirst({
     where: { category: "BOWLING_MACHINE" },
