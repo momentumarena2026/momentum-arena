@@ -139,7 +139,12 @@ export function CalendarView({ initialDate, initialData }: CalendarViewProps) {
     <div className="space-y-4">
       {/* Date hero — prev | label + date input + Today | next */}
       <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
+        {/* Flex-wrap so the row spills onto a second line on narrow
+            phones rather than running off the right edge (which was
+            also squeezing the date label into a 1-word-per-line
+            column). whitespace-nowrap on the label keeps "Thu, 14
+            May" intact regardless of the row's available width. */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => navigateDay(-1)}
@@ -148,12 +153,20 @@ export function CalendarView({ initialDate, initialData }: CalendarViewProps) {
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="flex items-center gap-2 px-1">
+          <div className="flex items-center gap-2 px-1 whitespace-nowrap">
             <CalendarDays className="h-4 w-4 text-yellow-400" />
-            <span className="text-lg font-semibold text-white">
+            <span className="text-base sm:text-lg font-semibold text-white">
               {heroLabel}
             </span>
           </div>
+          <button
+            type="button"
+            onClick={() => navigateDay(1)}
+            className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+            aria-label="Next day"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
           <input
             type="date"
             value={date}
@@ -170,14 +183,6 @@ export function CalendarView({ initialDate, initialData }: CalendarViewProps) {
               Today
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => navigateDay(1)}
-            className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
-            aria-label="Next day"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
           {isPending && (
             <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
           )}

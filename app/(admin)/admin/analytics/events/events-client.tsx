@@ -187,9 +187,17 @@ function EventListItem({
   });
   return (
     <li>
+      {/*
+        Flex-wrap so the row never pushes the page wider than the
+        viewport on mobile. The non-wrap version was forcing the
+        whole /admin/analytics/events page into horizontal scroll
+        on phones (badges + ml-auto user-info needed ~500px). With
+        wrap, badges + user-info spill onto a second line; min-w-0
+        + truncate let the user-info actually shorten.
+      */}
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-zinc-800/40"
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left hover:bg-zinc-800/40"
       >
         {open ? (
           <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
@@ -207,7 +215,7 @@ function EventListItem({
           {row.platform}
         </span>
         {row.userName && (
-          <span className="ml-auto text-xs text-zinc-400">
+          <span className="ml-auto min-w-0 max-w-full truncate text-xs text-zinc-400 sm:max-w-[260px]">
             {row.userName}{row.userPhone ? ` · ${row.userPhone}` : ""}
           </span>
         )}
