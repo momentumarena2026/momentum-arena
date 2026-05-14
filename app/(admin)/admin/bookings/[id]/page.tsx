@@ -471,30 +471,37 @@ export default async function AdminBookingDetailPage({
         )}
       </div>
 
-      {/* Admin Actions — hosts the "Edit" / "Cancel" / status-change
+      {/* Admin Actions — hosts the Edit / Cancel / status-change
           controls. Tagged with #admin-actions so external "Edit"
           affordances (e.g. the booking-calendar tile's Edit CTA)
-          can deep-link straight to it instead of falling through to
-          a non-existent /edit route. */}
-      <div id="admin-actions" className="scroll-mt-20" />
-      <AdminBookingActions
-        bookingId={booking.id}
-        bookingStatus={booking.status}
-        totalAmount={booking.totalAmount}
-        paymentMethod={booking.payment?.method || null}
-        paymentStatus={booking.payment?.status || null}
-        paymentAmount={booking.payment?.amount || null}
-        isPartialPayment={booking.payment?.isPartialPayment ?? false}
-        currentAdvanceAmount={booking.payment?.advanceAmount ?? null}
-        razorpayPaymentId={booking.payment?.razorpayPaymentId ?? null}
-        utrNumber={booking.payment?.utrNumber ?? null}
-        isAdminCreated={!!booking.createdByAdminId}
-        courtConfigId={booking.courtConfigId}
-        date={booking.date.toISOString().split("T")[0]}
-        currentSlots={booking.slots.map((s) => s.startHour)}
-        sport={booking.courtConfig.sport}
-        courtConfigs={courtConfigs}
-      />
+          can deep-link straight here instead of falling through to a
+          non-existent /edit route. Wrapped in a labelled <section>
+          so a deep-link from the calendar lands on the visible
+          "Manage this booking" heading, giving the staffer immediate
+          confirmation they're in the right place. */}
+      <section id="admin-actions" className="scroll-mt-20">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+          Manage this booking
+        </h2>
+        <AdminBookingActions
+          bookingId={booking.id}
+          bookingStatus={booking.status}
+          totalAmount={booking.totalAmount}
+          paymentMethod={booking.payment?.method || null}
+          paymentStatus={booking.payment?.status || null}
+          paymentAmount={booking.payment?.amount || null}
+          isPartialPayment={booking.payment?.isPartialPayment ?? false}
+          currentAdvanceAmount={booking.payment?.advanceAmount ?? null}
+          razorpayPaymentId={booking.payment?.razorpayPaymentId ?? null}
+          utrNumber={booking.payment?.utrNumber ?? null}
+          isAdminCreated={!!booking.createdByAdminId}
+          courtConfigId={booking.courtConfigId}
+          date={booking.date.toISOString().split("T")[0]}
+          currentSlots={booking.slots.map((s) => s.startHour)}
+          sport={booking.courtConfig.sport}
+          courtConfigs={courtConfigs}
+        />
+      </section>
 
       {/* Edit History */}
       {booking.editHistory.length > 0 && (
