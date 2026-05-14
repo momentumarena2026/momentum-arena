@@ -825,7 +825,7 @@ export function CouponsManager({
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1">
                     Min Amount{" "}
-                    <span className="text-zinc-600">(paise, optional)</span>
+                    <span className="text-zinc-600">(₹, optional)</span>
                   </label>
                   <input
                     type="number"
@@ -833,7 +833,7 @@ export function CouponsManager({
                     onChange={(e) =>
                       setForm((p) => ({ ...p, minAmount: e.target.value }))
                     }
-                    placeholder="e.g. 50000 = ₹500"
+                    placeholder="e.g. 500 for ₹500"
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
                   />
                 </div>
@@ -1123,7 +1123,7 @@ export function CouponsManager({
                                 })
                               )
                             }
-                            placeholder="Min amount in paise"
+                            placeholder="Min amount in ₹"
                             className="w-full rounded-md border border-zinc-700 bg-zinc-800 p-2 text-xs text-white placeholder-zinc-500"
                           />
                         )}

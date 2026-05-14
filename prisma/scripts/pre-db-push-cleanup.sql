@@ -50,3 +50,25 @@ BEGIN
       WHERE 'BADMINTON' = ANY("sportFilter"::text[]);
   END IF;
 END $$;
+
+-- ---- Coupon.minAmount: paise → rupees one-shot (2026-05) ----
+-- The admin form historically stored this as paise (placeholder
+-- "50000 = ₹500"). The validator compared it against rupees, and
+-- the display chips treated it as rupees too — so the stored value
+-- was off by 100× from what admins intended. Divide existing rows
+-- once. Idempotency uses a Postgres COMMENT ON COLUMN marker — db
+-- push doesn't strip column comments, so once set, this block is
+-- a strict no-op forever.
+DO $$
+BEGIN
+  IF (
+    SELECT pg_catalog.col_description('"Coupon"'::regclass::oid, attnum)
+    FROM pg_attribute
+    WHERE attrelid = '"Coupon"'::regclass AND attname = 'minAmount'
+  ) IS DISTINCT FROM 'rupees:1.0' THEN
+    UPDATE "Coupon"
+      SET "minAmount" = "minAmount" / 100
+      WHERE "minAmount" IS NOT NULL AND "minAmount" > 0;
+    COMMENT ON COLUMN "Coupon"."minAmount" IS 'rupees:1.0';
+  END IF;
+END $$;
