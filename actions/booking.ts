@@ -589,13 +589,39 @@ export async function createBookingFromHold(
     if (existing) return existing.bookingId;
   }
 
-  const hold = await db.slotHold.findUnique({ where: { id: holdId } });
+  const hold = await db.slotHold.findUnique({
+    where: { id: holdId },
+    include: { courtConfig: { select: { category: true, slotDurationMinutes: true } } },
+  });
   if (!hold) return null;
 
+  // slotPrices is a Json blob; the bowling-machine flow stores an
+  // extra `minute` key on each entry. Older holds don't have it —
+  // default to 0 so the BookingSlot.startMinute fallback is correct.
   const slotPrices = hold.slotPrices as unknown as {
     hour: number;
+    minute?: number;
     price: number;
   }[];
+
+  // Derive the per-slot duration once. CourtConfig.slotDurationMinutes
+  // is 30 for the bowling-machine court and 60 for everything else.
+  const slotDuration = hold.courtConfig.slotDurationMinutes ?? 60;
+
+  // Equipment selection carried on the hold becomes EquipmentRental
+  // rows tied to the booking. Snapshot the price the customer
+  // agreed to (not the live Equipment.pricePerHour) so admin edits
+  // to the catalog mid-checkout don't change the bill.
+  const equipmentSelection = (hold.equipmentSelection ?? null) as
+    | Array<{
+        equipmentId: string;
+        name: string;
+        quantity: number;
+        priceEach: number;
+        totalPrice: number;
+      }>
+    | null;
+  const equipmentTotalRupees = hold.equipmentTotalAmount ?? 0;
 
   // If a coupon was applied on the hold, carry it through to the Booking.
   // originalAmount + discountAmount + (reduced) totalAmount mirror what the
@@ -619,7 +645,10 @@ export async function createBookingFromHold(
       ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
       : 0;
   const combinedDiscount = appliedDiscount + pointsRedeemRupees;
-  const effectiveTotal = hold.totalAmount - combinedDiscount;
+  // Equipment rentals are PLUSed on top — the customer pays the
+  // slot total minus discounts PLUS the gear they ticked.
+  const effectiveTotal =
+    hold.totalAmount - combinedDiscount + equipmentTotalRupees;
 
   // If we're going to commit a redemption, pre-load the config once so
   // the transaction's path doesn't take a fresh DB hit. The config
@@ -641,8 +670,15 @@ export async function createBookingFromHold(
         date: hold.date,
         status: bookingStatus,
         totalAmount: effectiveTotal,
-        originalAmount: combinedDiscount > 0 ? hold.totalAmount : null,
+        originalAmount:
+          combinedDiscount > 0
+            ? hold.totalAmount + equipmentTotalRupees
+            : null,
         discountAmount: combinedDiscount,
+        // Denormalised from the court config so coupon validation /
+        // analytics / reports can filter by category without a join.
+        category: hold.courtConfig.category,
+        equipmentTotalAmount: equipmentTotalRupees,
         platform,
         // Preserve the unified "Half Court" context from the hold so
         // customer-facing views can render a neutral label instead of the
@@ -650,8 +686,14 @@ export async function createBookingFromHold(
         // concrete label regardless.
         wasBookedAsHalfCourt: hold.wasBookedAsHalfCourt,
         slots: {
-          create: slotPrices.map((s) => ({
+          // Each BookingSlot now carries the explicit minute + duration so
+          // the booking detail page, reports, and edit flows can render
+          // 30-min bowling slots cleanly alongside legacy 60-min cricket
+          // ones without re-deriving from courtConfig at query time.
+          create: slotPrices.map((s, i) => ({
             startHour: s.hour,
+            startMinute: hold.startMinutes[i] ?? s.minute ?? 0,
+            durationMinutes: slotDuration,
             price: s.price,
           })),
         },
@@ -674,6 +716,25 @@ export async function createBookingFromHold(
         },
       },
     });
+
+      // Equipment rentals — one row per ticked item, snapshotted at
+      // the price the customer agreed to (from hold.equipmentSelection)
+      // rather than the live Equipment.pricePerHour catalog price.
+      // Admin can add MORE rentals later via Phase 8's post-booking
+      // editor; the totals there go to Booking.equipmentTotalAmount.
+      if (equipmentSelection && equipmentSelection.length > 0) {
+        await tx.equipmentRental.createMany({
+          data: equipmentSelection.map((e) => ({
+            bookingId: booking.id,
+            equipmentId: e.equipmentId,
+            quantity: e.quantity,
+            // EquipmentRental.totalPrice is paise per Phase 1's column
+            // convention. The hold stores it as PAISE already
+            // (priceEach is the paise per unit; totalPrice the row sum).
+            totalPrice: e.totalPrice,
+          })),
+        });
+      }
 
       // Record the coupon usage + increment its counter so validators honor
       // max-uses/per-user limits on the next booking. Kept inside the same

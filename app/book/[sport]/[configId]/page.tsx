@@ -4,7 +4,9 @@ import { CourtZone } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { Maximize2 } from "lucide-react";
 import { CourtDiagram } from "@/components/booking/court-diagram";
+import { BowlingMachineDiagram } from "@/components/booking/bowling-machine-diagram";
 import { SlotSelectionClient } from "./slot-selection-client";
+import { BowlingSlotPickerClient } from "./bowling-slot-picker-client";
 import { auth } from "@/lib/auth";
 import { BackButton } from "@/components/back-button";
 
@@ -26,27 +28,41 @@ export default async function SlotSelectionPage({
 
   const sportInfo = SPORT_INFO[config.sport];
   const sizeInfo = SIZE_INFO[config.size];
+  const isBowling = config.category === "BOWLING_MACHINE";
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
         <h1 className="text-2xl font-bold text-white">
-          {sportInfo.name} — {sizeInfo.name}
+          {isBowling
+            ? `${sportInfo.name} — Bowling Machine practice`
+            : `${sportInfo.name} — ${sizeInfo.name}`}
         </h1>
-        <p className="mt-1 text-zinc-400">{config.label}</p>
+        <p className="mt-1 text-zinc-400">
+          {isBowling
+            ? "30-minute slots · use the picker below"
+            : config.label}
+        </p>
       </div>
 
-      {/* Config Info Card */}
+      {/* Config Info Card — bowling uses its own SVG / copy so the
+          customer immediately sees the 10×90 strip context. */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <CourtDiagram
-              highlightedZones={config.zones as CourtZone[]}
-              size="sm"
-            />
+            {isBowling ? (
+              <BowlingMachineDiagram size="sm" />
+            ) : (
+              <CourtDiagram
+                highlightedZones={config.zones as CourtZone[]}
+                size="sm"
+              />
+            )}
             <div>
-              <p className="font-medium text-white">{config.label}</p>
+              <p className="font-medium text-white">
+                {isBowling ? "Bowling Machine" : config.label}
+              </p>
               <p className="flex items-center gap-1 text-sm text-zinc-400">
                 <Maximize2 className="h-3 w-3" />
                 {config.widthFt} x {config.lengthFt} ft
@@ -56,16 +72,26 @@ export default async function SlotSelectionPage({
         </div>
       </div>
 
-      {/* Client-side slot selection */}
-      <SlotSelectionClient
-        configId={configId}
-        sport={sport}
-        sportName={sportInfo.name}
-        courtLabel={config.label}
-        courtSize={sizeInfo.name}
-        userId={session?.user?.id}
-        userPhone={(session?.user as { phone?: string })?.phone}
-      />
+      {/* Dispatch to the bowling picker (30-min) vs the regular
+          slot-selection client (hour). Both shells share this page
+          frame so the back button + sticky title stay consistent. */}
+      {isBowling ? (
+        <BowlingSlotPickerClient
+          configId={configId}
+          sport={sport}
+          userId={session?.user?.id}
+        />
+      ) : (
+        <SlotSelectionClient
+          configId={configId}
+          sport={sport}
+          sportName={sportInfo.name}
+          courtLabel={config.label}
+          courtSize={sizeInfo.name}
+          userId={session?.user?.id}
+          userPhone={(session?.user as { phone?: string })?.phone}
+        />
+      )}
     </div>
   );
 }

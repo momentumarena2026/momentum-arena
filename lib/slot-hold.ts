@@ -12,6 +12,17 @@ export interface HoldResult {
 
 export interface SlotPrice {
   hour: number;
+  // 0 (default, hour granularity) or 30 (bowling-machine half-hour
+  // slot). The Json blob persisted on SlotHold.slotPrices keeps this
+  // optional so legacy entries without a minute key remain valid;
+  // any consumer reading them defaults to 0.
+  minute?: number;
+  price: number;
+}
+
+export interface BowlingSlotPrice {
+  hour: number;
+  minute: 0 | 30;
   price: number;
 }
 
@@ -370,6 +381,191 @@ export async function createMediumHalfCourtHold(
       };
     }
 
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Bowling-machine variant of createSlotHold. The two flows differ
+ * only in granularity: bowling stores parallel `hours[]` +
+ * `startMinutes[]` arrays so each entry identifies a single 30-min
+ * slot. Existing cricket / football holds keep `startMinutes` empty,
+ * which downstream code (availability, createBookingFromHold) treats
+ * as "all entries start at :00 for 60 minutes" — backwards compatible.
+ *
+ * Conflict detection runs against the full overlapping-zones set,
+ * just like createSlotHold: a 60-min cricket booking on the
+ * matching half blocks BOTH halves of an hour, and a 30-min bowling
+ * booking blocks only its specific half. Advisory locks are keyed
+ * on the half-hour slot index so two customers picking different
+ * 30-min slots within the same hour can race safely.
+ */
+export async function createBowlingMachineHold(
+  userId: string,
+  courtConfigId: string,
+  date: Date,
+  slots: BowlingSlotPrice[],
+): Promise<HoldResult> {
+  const dateOnly = new Date(date.toISOString().split("T")[0]);
+  const dateStr = date.toISOString().split("T")[0];
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + LOCK_TTL_MINUTES * 60 * 1000);
+
+  // Encode each (hour, minute) as a single integer for the
+  // advisory-lock key. hour*2 + halfOffset gives stable, small
+  // values 10..50 for the venue's operating hours.
+  function slotKey(h: number, m: number) {
+    return h * 2 + (m === 30 ? 1 : 0);
+  }
+
+  try {
+    const holdId = await db.$transaction(
+      async (tx) => {
+        // 1. Acquire advisory locks
+        const sorted = [...slots].sort(
+          (a, b) => slotKey(a.hour, a.minute) - slotKey(b.hour, b.minute),
+        );
+        for (const s of sorted) {
+          const lockKey = advisoryLockKey(
+            courtConfigId,
+            dateStr,
+            slotKey(s.hour, s.minute),
+          );
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+        }
+
+        // 2. Validate the court config
+        const config = await tx.courtConfig.findUnique({
+          where: { id: courtConfigId },
+        });
+        if (!config) throw new Error("Court config not found");
+        if (!config.isActive) throw new Error("This court is currently unavailable");
+
+        // 3. Conflict check via zone overlap.
+        const conflictingBookings = await tx.booking.findMany({
+          where: {
+            date: dateOnly,
+            status: { in: ["CONFIRMED", "PENDING"] },
+            courtConfig: {
+              zones: { hasSome: config.zones as CourtZone[] },
+            },
+          },
+          include: { slots: true },
+        });
+        const requested = new Set(slots.map((s) => `${s.hour}:${s.minute}`));
+        const conflictKeys: string[] = [];
+        for (const b of conflictingBookings) {
+          for (const s of b.slots) {
+            if (s.durationMinutes === 30) {
+              if (requested.has(`${s.startHour}:${s.startMinute}`)) {
+                conflictKeys.push(`${s.startHour}:${s.startMinute}`);
+              }
+            } else {
+              // 60-min booking → blocks BOTH halves of that hour
+              if (requested.has(`${s.startHour}:0`)) conflictKeys.push(`${s.startHour}:0`);
+              if (requested.has(`${s.startHour}:30`)) conflictKeys.push(`${s.startHour}:30`);
+            }
+          }
+        }
+
+        // 4. Conflict check against in-flight holds (excluding this user's own)
+        const otherHolds = await tx.slotHold.findMany({
+          where: {
+            date: dateOnly,
+            expiresAt: { gt: now },
+            userId: { not: userId },
+            courtConfig: {
+              zones: { hasSome: config.zones as CourtZone[] },
+            },
+          },
+        });
+        for (const h of otherHolds) {
+          for (let i = 0; i < h.hours.length; i++) {
+            const hr = h.hours[i];
+            const mn = h.startMinutes[i] ?? 0;
+            // Hour-granular hold (legacy / non-bowling) blocks BOTH halves
+            if (h.startMinutes.length === 0) {
+              if (requested.has(`${hr}:0`)) conflictKeys.push(`${hr}:0`);
+              if (requested.has(`${hr}:30`)) conflictKeys.push(`${hr}:30`);
+            } else if (requested.has(`${hr}:${mn}`)) {
+              conflictKeys.push(`${hr}:${mn}`);
+            }
+          }
+        }
+
+        if (conflictKeys.length > 0) {
+          // Re-encode as half-hour slot indices so the client can
+          // highlight them. Caller maps these back to {hour,minute}.
+          const conflictIndices = Array.from(new Set(conflictKeys)).map((k) => {
+            const [h, m] = k.split(":").map(Number);
+            return slotKey(h, m);
+          });
+          throw new Error(`CONFLICTS:${conflictIndices.join(",")}`);
+        }
+
+        // 5. Slot-block check
+        const blocks = await tx.slotBlock.findMany({
+          where: {
+            date: dateOnly,
+            OR: [{ courtConfigId }, { sport: config.sport }, { courtConfigId: null, sport: null }],
+          },
+        });
+        for (const b of blocks) {
+          if (b.startHour === null) {
+            throw new Error("All bowling slots are blocked for this day");
+          }
+          for (const s of slots) {
+            if (s.hour !== b.startHour) continue;
+            if (b.startMinute === 30 && s.minute === 30) {
+              throw new Error("This slot is blocked");
+            }
+            if (b.startMinute === 0) {
+              throw new Error("This slot is blocked");
+            }
+          }
+        }
+
+        // 6. Clean prior bowling holds from this user on the same date
+        await tx.slotHold.deleteMany({
+          where: { userId, courtConfigId, date: dateOnly },
+        });
+
+        const totalAmount = slots.reduce((sum, s) => sum + s.price, 0);
+
+        const hold = await tx.slotHold.create({
+          data: {
+            userId,
+            courtConfigId,
+            date: dateOnly,
+            hours: slots.map((s) => s.hour),
+            startMinutes: slots.map((s) => s.minute),
+            slotPrices: slots as unknown as Prisma.InputJsonValue,
+            totalAmount,
+            expiresAt,
+          },
+        });
+
+        return hold.id;
+      },
+      { timeout: 15000 },
+    );
+
+    return { success: true, holdId };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to reserve slots";
+
+    if (message.startsWith("CONFLICTS:")) {
+      const conflicts = message
+        .replace("CONFLICTS:", "")
+        .split(",")
+        .map(Number);
+      return {
+        success: false,
+        error: "Some slots are no longer available",
+        conflicts,
+      };
+    }
     return { success: false, error: message };
   }
 }
