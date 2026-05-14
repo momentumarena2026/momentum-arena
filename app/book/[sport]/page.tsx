@@ -241,13 +241,11 @@ export default async function SportConfigPage({
               </div>
               <p className="mt-1 text-sm text-zinc-300">
                 {bowlingConfig.widthFt}×{bowlingConfig.lengthFt} ft strip on the
-                left corner. Practice batting against the machine for as long
-                as you like, in 30-minute blocks.
+                corner. Practice batting against the machine for as long as you
+                like, in 30-minute blocks.
               </p>
               <p className="mt-2 text-xs text-zinc-500">
-                Rent kit, bat, or L-guard at checkout. Booking this also
-                reserves the matching half of the pitch and the full field
-                for the duration of your slot.
+                Rent kit, bat, or L-guard at checkout.
               </p>
               <div className="mt-3 flex items-center justify-end text-emerald-400 text-sm font-medium opacity-0 transition-opacity group-hover:opacity-100">
                 Pick a time →
