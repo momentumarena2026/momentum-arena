@@ -620,7 +620,10 @@ export default function Home() {
         </section>
 
         {/* FOOTER */}
-        <footer className="border-t border-zinc-900 py-8 pb-24 md:pb-8">
+        {/* BottomNav now ships its own spacer (see components/bottom-nav.tsx),
+            so the footer no longer needs `pb-24` mobile clearance — that
+            was double-padding once the spacer landed. */}
+        <footer className="border-t border-zinc-900 py-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex flex-col items-center sm:items-start gap-1">
               <p className="text-zinc-600 text-sm">

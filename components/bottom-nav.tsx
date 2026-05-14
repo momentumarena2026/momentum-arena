@@ -36,28 +36,50 @@ export function BottomNav() {
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-black/95 backdrop-blur-md border-t border-zinc-800">
-      <div className="flex items-center justify-around py-2.5">
-        {tabs.map((tab) => {
-          const isActive = tab.match(pathname);
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              onClick={() => trackBottomNavClick(tab.label)}
-              className={`flex flex-col items-center gap-0.5 transition ${
-                isActive ? "text-emerald-400" : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              <span className="text-lg">{tab.emoji}</span>
-              <span className={`text-[10px] font-medium ${isActive ? "text-emerald-400" : ""}`}>
-                {tab.label}
-              </span>
-            </Link>
-          );
-        })}
-        <ChatNavButton />
+    <>
+      {/*
+        Document-flow spacer so page content never sits underneath the
+        fixed bar at the bottom. Without this, the last ~80px of any
+        scrollable mobile page is hidden behind the nav — which reads
+        as "content runs out one page early / blank section at the
+        bottom". Sized to cover the nav itself (~56px) plus the iOS
+        home-indicator safe area on notched devices.
+
+        Kept inside this component (rather than added to every layout)
+        so the spacer disappears automatically wherever the nav itself
+        is hidden (admin / godmode / checkout / slot picker).
+      */}
+      <div
+        aria-hidden
+        className="md:hidden"
+        style={{ height: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
+      />
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-black/95 backdrop-blur-md border-t border-zinc-800"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      >
+        <div className="flex items-center justify-around py-2.5">
+          {tabs.map((tab) => {
+            const isActive = tab.match(pathname);
+            return (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                onClick={() => trackBottomNavClick(tab.label)}
+                className={`flex flex-col items-center gap-0.5 transition ${
+                  isActive ? "text-emerald-400" : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                <span className="text-lg">{tab.emoji}</span>
+                <span className={`text-[10px] font-medium ${isActive ? "text-emerald-400" : ""}`}>
+                  {tab.label}
+                </span>
+              </Link>
+            );
+          })}
+          <ChatNavButton />
+        </div>
       </div>
-    </div>
+    </>
   );
 }

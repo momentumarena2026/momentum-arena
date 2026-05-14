@@ -157,7 +157,10 @@ export function CafeMenuPage({
   }
 
   return (
-    <div className="min-h-screen bg-black pb-28">
+    // pb-28 used to be the manual clearance for the fixed BottomNav.
+    // BottomNav now ships its own document-flow spacer, so we drop the
+    // padding here to avoid double-stacking.
+    <div className="min-h-screen bg-black">
       {/* Hero header */}
       <div className="relative overflow-hidden bg-gradient-to-br from-amber-900/40 via-black to-black border-b border-amber-800/20">
         <div className="absolute inset-0 opacity-10">
