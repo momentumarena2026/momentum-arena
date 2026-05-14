@@ -126,6 +126,13 @@ async function main() {
     },
   };
 
+  // Create-if-missing only — NEVER overwrite an existing row. The
+  // seed-production workflow re-runs this script on every push to
+  // `main`, so an `upsert(..., update: { pricePerSlot })` would
+  // clobber any admin edits made via /admin/pricing each deploy.
+  // Bowling-machine prices in particular kept resetting from ₹250
+  // (set in the Phase 1 migration) back to the SHARED defaults
+  // below until this changed.
   for (const config of configs) {
     const prices = defaultPrices[config.size];
     if (!prices) continue;
@@ -134,7 +141,7 @@ async function main() {
       const parts = key.split("_");
       const dayType = parts[0] as "WEEKDAY" | "WEEKEND";
       const timeType = parts.slice(1).join("_") as "PEAK" | "OFF_PEAK";
-      await prisma.pricingRule.upsert({
+      const existing = await prisma.pricingRule.findUnique({
         where: {
           courtConfigId_dayType_timeType: {
             courtConfigId: config.id,
@@ -142,8 +149,11 @@ async function main() {
             timeType,
           },
         },
-        update: { pricePerSlot: price },
-        create: {
+        select: { id: true },
+      });
+      if (existing) continue;
+      await prisma.pricingRule.create({
+        data: {
           courtConfigId: config.id,
           dayType,
           timeType,
@@ -152,7 +162,7 @@ async function main() {
       });
     }
   }
-  console.log("Seeded default pricing rules");
+  console.log("Seeded default pricing rules (only missing rows)");
 
   // Legacy 10% new-user discount — superseded by the first-time FLAT100
   // coupon seeded below. Keep the row for audit history but mark inactive so
@@ -172,6 +182,11 @@ async function main() {
       isSystemCode: true,
       isActive: false,
       createdBy: "system",
+      // Explicit empty array — the schema now defaults this column
+      // to `[]`, but pinning it here keeps the seed working even
+      // when `prisma db push` hits a staging DB whose column
+      // predates the @default() addition.
+      categoryExclude: [],
     },
   });
   console.log("Deactivated legacy NEWUSER 10% discount");

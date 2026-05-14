@@ -707,7 +707,10 @@ model DiscountCode {
   // Coupon.categoryExclude — kept in lock-step). The system
   // new-user code is migrated with [BOWLING_MACHINE] so welcome
   // discounts never apply to bowling-machine bookings.
-  categoryExclude  BookingCategory[]
+  // `@default([])` keeps `prisma db push` from creating a NOT-NULL
+  // column without a default, which broke the staging seed when
+  // upserting rows that don't specify the field.
+  categoryExclude  BookingCategory[] @default([])
   validFrom        DateTime
   validUntil       DateTime
   isSystemCode     Boolean      @default(false)
@@ -999,8 +1002,10 @@ model Coupon {
   // having to exclude all of CRICKET. New-user auto-applied codes
   // are seeded with [BOWLING_MACHINE] so the welcome discount
   // never lands on bowling, while regular cricket bookings stay
-  // eligible.
-  categoryExclude BookingCategory[]
+  // eligible. `@default([])` matches the migration's NOT NULL
+  // DEFAULT '{}' so `prisma db push` doesn't recreate the column
+  // without a default.
+  categoryExclude BookingCategory[] @default([])
 
   // Behavior
   isStackable  Boolean @default(false)
