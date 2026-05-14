@@ -83,6 +83,23 @@ enum DayType {
   WEEKEND
 }
 
+// Sub-category of bookings within the CRICKET sport. Used to keep
+// the two Cricket flows distinct without growing the Sport enum:
+//   - BOX_CRICKET  : the regular full-pitch / half-court cricket
+//                    bookings (1-hour slots).
+//   - BOWLING_MACHINE : 30-minute bowling-machine practice that
+//                    occupies a thin 10×90 strip and zone-blocks
+//                    one of the half-courts (and therefore the
+//                    full field) for the booked window.
+//
+// Nullable on Coupon / Booking / CourtConfig — non-cricket configs
+// stay null, and any code that doesn't care about the split treats
+// `null` and `BOX_CRICKET` interchangeably.
+enum BookingCategory {
+  BOX_CRICKET
+  BOWLING_MACHINE
+}
+
 enum TimeType {
   PEAK
   OFF_PEAK
@@ -297,17 +314,65 @@ model CourtConfig {
   zones    CourtZone[]
   isActive Boolean     @default(true)
 
+  // Within CRICKET, this distinguishes the regular Box-Cricket
+  // configs (full field + the two half courts) from the
+  // Bowling-Machine practice config. NULL for FOOTBALL /
+  // PICKLEBALL configs and other future sports — callers may
+  // treat NULL as BOX_CRICKET when computing pricing / coupon /
+  // analytics fan-outs.
+  category BookingCategory?
+
+  // Length of a single slot for this court. Always 60 for the
+  // existing hour-granular sports; the bowling-machine config is
+  // seeded as 30 so its slot picker, pricing and availability grid
+  // all work in half-hour steps. Stored on CourtConfig (rather than
+  // Sport) so a future "training" config could be 30 without
+  // implying anything about the rest of the sport.
+  slotDurationMinutes Int @default(60)
+
   bookings          Booking[]
   slotHolds         SlotHold[]
   prices            PricingRule[]
   slotBlocks        SlotBlock[]
   waitlistEntries   Waitlist[]
   recurringBookings RecurringBooking[]
+  operatingWindows  OperatingWindow[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([sport, size, position])
+}
+
+// Open-hours windows specific to a court config. Lets the bowling-
+// machine court declare disjoint operating windows ("5–7am AND
+// 12–4pm on weekends") that don't necessarily match the venue-wide
+// schedule. Empty list for a config = fall back to the legacy
+// venue-wide OPERATING_HOURS constant (5am–1am).
+//
+// `startMinute` / `endMinute` are stored alongside the hour so a
+// window can begin/end at :30 — needed for the half-hour bowling
+// flow. `endMinute` is exclusive: 16:00 means the last bookable
+// 30-min slot starts at 15:30.
+model OperatingWindow {
+  id            String      @id @default(cuid())
+  courtConfigId String
+  courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id], onDelete: Cascade)
+
+  dayType     DayType
+  startHour   Int
+  startMinute Int     @default(0)
+  endHour     Int
+  endMinute   Int     @default(0)
+
+  // For display ordering inside the admin editor when multiple
+  // disjoint windows are configured for the same day-type.
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courtConfigId, dayType])
 }
 
 // Transient slot reservation during checkout (5 min TTL, extended during payment).
@@ -322,7 +387,19 @@ model SlotHold {
   courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
   date          DateTime    @db.Date
   hours         Int[]
-  slotPrices    Json // [{ hour: number, price: number }, ...]
+  // Parallel array to `hours` — startMinutes[i] is the minute
+  // offset (0 or 30) of the slot whose hour lives at hours[i].
+  // Stored as a separate column rather than packed into `hours`
+  // so existing Int[] consumers keep working unchanged: for any
+  // pre-bowling hold this column is empty and code treats every
+  // entry as starting at :00. Bowling-machine holds always fill
+  // it. Same length as `hours` when populated.
+  startMinutes  Int[]       @default([])
+  // [{ hour: number, minute?: number, price: number }, ...] — the
+  // optional `minute` defaults to 0 when missing, keeping legacy
+  // payloads valid while letting bowling-machine slot prices be
+  // disambiguated for the :30 slot inside the same hour.
+  slotPrices    Json
   totalAmount   Int
   expiresAt     DateTime
 
@@ -353,6 +430,19 @@ model SlotHold {
   pointsToRedeem         Int?
   pointsRedeemPaiseSaved Int?
 
+  // Equipment rentals the user ticked on the checkout page. Shape:
+  // `Array<{ equipmentId: string, name: string, quantity: number,
+  // priceEach: number, totalPrice: number }>`. Snapshot of price +
+  // name kept here so an admin-side price edit between checkout and
+  // commit doesn't change what the customer agreed to. Consumed in
+  // createBookingFromHold which creates one EquipmentRental row per
+  // entry inside the booking transaction.
+  equipmentSelection     Json?
+  // Cached SUM of equipmentSelection[].totalPrice in ₹ so payment
+  // initiation can include it in the gateway amount without
+  // re-parsing the Json. Mirrors hold.discountAmount semantics.
+  equipmentTotalAmount   Int?
+
   // Set true when the hold was created through the unified "Half Court
   // (40x90)" customer flow rather than a direct LEFT/RIGHT selection.
   // The hold still points at a concrete LEFT or RIGHT courtConfigId (the
@@ -382,6 +472,18 @@ model Booking {
   originalAmount Int?
   discountAmount Int           @default(0)
   discountCodeId String?
+
+  // Denormalised from CourtConfig.category at booking time so
+  // analytics / reports / coupon validation can filter on
+  // "is this a bowling-machine booking?" without a join. NULL for
+  // every pre-bowling booking + every non-cricket booking.
+  category BookingCategory?
+
+  // Total ₹ added by EquipmentRental rows below (kit, bat, L-guard,
+  // …). Denormalised so the booking detail page + reports can show
+  // the equipment-portion of totalAmount without re-summing the
+  // rentals every render. Always equals SUM(rentals.totalPrice).
+  equipmentTotalAmount Int @default(0)
 
   // Reward bookkeeping moved out — see RewardTransaction (rows tied
   // back to this booking via bookingId).
@@ -442,9 +544,18 @@ model BookingSlot {
   bookingId String
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   startHour Int
-  price     Int
+  // 0 or 30 — together with startHour, identifies the actual
+  // wall-clock start of this slot. Existing rows backfill to 0
+  // via the migration's column default; only bowling-machine
+  // bookings ever set 30.
+  startMinute      Int @default(0)
+  // 60 for every hour-granular booking; 30 for bowling-machine
+  // slots. Lets reports / analytics compute "session minutes"
+  // without re-deriving from courtConfig.slotDurationMinutes.
+  durationMinutes  Int @default(60)
+  price            Int
 
-  @@unique([bookingId, startHour])
+  @@unique([bookingId, startHour, startMinute])
 }
 
 model Payment {
@@ -538,6 +649,11 @@ model SlotBlock {
   sport         Sport?
   date          DateTime     @db.Date
   startHour     Int?
+  // 0 = block the whole hour (legacy behaviour, preserved by
+  // default). 30 = block only the :30 half — used by the
+  // bowling-machine flow so admin can block a single 30-min slot
+  // without dimming the entire hour for the hour-granular sports.
+  startMinute   Int          @default(0)
   reason        String?
   blockedBy     String
 
@@ -587,6 +703,11 @@ model DiscountCode {
   maxUsesPerUser   Int          @default(1)
   minBookingAmount Int?
   sportFilter      Sport[]
+  // Sub-category exclusions WITHIN a sport (same semantics as
+  // Coupon.categoryExclude — kept in lock-step). The system
+  // new-user code is migrated with [BOWLING_MACHINE] so welcome
+  // discounts never apply to bowling-machine bookings.
+  categoryExclude  BookingCategory[]
   validFrom        DateTime
   validUntil       DateTime
   isSystemCode     Boolean      @default(false)
@@ -873,6 +994,13 @@ model Coupon {
   sportFilter     Sport[]
   categoryFilter  CafeItemCategory[]
   userGroupFilter UserGroupType[]
+  // Sub-category exclusions WITHIN a sport. Used today only to
+  // mark a coupon as not-valid-on-bowling-machine bookings without
+  // having to exclude all of CRICKET. New-user auto-applied codes
+  // are seeded with [BOWLING_MACHINE] so the welcome discount
+  // never lands on bowling, while regular cricket bookings stay
+  // eligible.
+  categoryExclude BookingCategory[]
 
   // Behavior
   isStackable  Boolean @default(false)
@@ -1225,11 +1353,28 @@ model Equipment {
   id             String            @id @default(cuid())
   name           String
   sport          Sport?
-  pricePerHour   Int // paise
+  // Narrows applicability inside CRICKET. NULL = available for
+  // every cricket booking type; BOWLING_MACHINE = only shown in
+  // the bowling-machine checkout (kit, bat, L-guard etc).
+  category       BookingCategory?
+  // Rental price in PAISE for the FULL booking, regardless of
+  // duration. Renamed in code as `pricePerBooking` — the column
+  // keeps its historical name so existing data and the related
+  // EquipmentRental.totalPrice math (which already treats this
+  // field as a per-booking flat fee) stay unchanged.
+  pricePerHour   Int
   totalUnits     Int               @default(1)
   availableUnits Int               @default(1)
   isActive       Boolean           @default(true)
   imageUrl       String?
+  // Surfaces the item in the customer-facing checkout (web +
+  // mobile). Items that exist only as admin-managed bookkeeping
+  // — e.g. one-off venue extras — can be hidden by flipping this
+  // false without deleting the row.
+  isCustomerSelectable Boolean      @default(true)
+  // Sort key within the checkout list. Lower = closer to the top.
+  // Admin reorders via /admin/equipment.
+  displayOrder   Int               @default(0)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   rentals        EquipmentRental[]
@@ -1298,7 +1443,12 @@ model RecurringBooking {
   courtConfigId String
   courtConfig   CourtConfig     @relation(fields: [courtConfigId], references: [id])
   startHour     Int
+  // 0 by default — the bowling-machine recurring flow uses 30 so a
+  // weekly 9:30–10:00 session can recur correctly. Both `startHour`
+  // and `endHour` get a paired `*Minute` to disambiguate.
+  startMinute   Int             @default(0)
   endHour       Int
+  endMinute     Int             @default(0)
   dayOfWeek     Int // 0=Sun … 6=Sat
   startDate     DateTime
   endDate       DateTime? // null = indefinite (max 3 months enforced in code)
