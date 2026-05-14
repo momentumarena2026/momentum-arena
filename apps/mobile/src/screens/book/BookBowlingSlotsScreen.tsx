@@ -53,10 +53,25 @@ function keyOf(hour: number, minute: number) {
   return `${hour}:${minute}`;
 }
 
+// Render a 30-min slot as a range (e.g. "6:00 - 6:30 AM") to mirror
+// the cricket/football tiles. When the slot straddles noon/midnight
+// the two halves carry different meridiems so we surface both
+// ("11:30 AM - 12:00 PM").
 function fmtTime(hour: number, minute: number) {
-  const am = hour < 12 || hour === 24;
-  const display = hour % 12 === 0 ? 12 : hour % 12;
-  return `${display}:${minute.toString().padStart(2, "0")} ${am ? "AM" : "PM"}`;
+  const endTotalMin = hour * 60 + minute + 30;
+  const endH = Math.floor(endTotalMin / 60);
+  const endM = endTotalMin % 60;
+  const clock = (hr: number, min: number) => {
+    const hh = hr % 24;
+    const display = hh % 12 === 0 ? 12 : hh % 12;
+    return `${display}:${min.toString().padStart(2, "0")}`;
+  };
+  const meridiem = (hr: number) => ((hr % 24) < 12 ? "AM" : "PM");
+  const startMer = meridiem(hour);
+  const endMer = meridiem(endH);
+  return startMer === endMer
+    ? `${clock(hour, minute)} - ${clock(endH, endM)} ${endMer}`
+    : `${clock(hour, minute)} ${startMer} - ${clock(endH, endM)} ${endMer}`;
 }
 
 /**

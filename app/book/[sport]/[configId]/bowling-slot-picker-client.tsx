@@ -153,10 +153,25 @@ export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
     }
   }
 
+  // Render the slot as a 30-min range (e.g. "6:00 - 6:30 AM") to mirror
+  // the cricket/football tiles which show "5pm - 6pm". When the slot
+  // straddles noon/midnight the two halves carry different meridiems
+  // so we surface both ("11:30 AM - 12:00 PM").
   function fmtTime(h: number, m: number) {
-    const am = h < 12 || h === 24;
-    const display = h % 12 === 0 ? 12 : h % 12;
-    return `${display}:${m.toString().padStart(2, "0")} ${am ? "AM" : "PM"}`;
+    const endTotalMin = h * 60 + m + 30;
+    const endH = Math.floor(endTotalMin / 60);
+    const endM = endTotalMin % 60;
+    const clock = (hr: number, min: number) => {
+      const hh = hr % 24;
+      const display = hh % 12 === 0 ? 12 : hh % 12;
+      return `${display}:${min.toString().padStart(2, "0")}`;
+    };
+    const meridiem = (hr: number) => ((hr % 24) < 12 ? "AM" : "PM");
+    const startMer = meridiem(h);
+    const endMer = meridiem(endH);
+    return startMer === endMer
+      ? `${clock(h, m)} - ${clock(endH, endM)} ${endMer}`
+      : `${clock(h, m)} ${startMer} - ${clock(endH, endM)} ${endMer}`;
   }
 
   return (
