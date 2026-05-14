@@ -19,6 +19,11 @@ export type BookStackParamList = {
   BookSlots:
     | { courtConfigId: string; courtLabel: string; sport: Sport; mode?: undefined }
     | { mode: "medium"; courtLabel: string; sport: Sport; courtConfigId?: undefined };
+  // Bowling-machine 30-min slot picker — separate screen from BookSlots
+  // because the picker UI (consecutive 30-min tiles) and the lock
+  // payload (`slots[]` instead of `hours[]`) differ enough that
+  // forking is simpler than branching.
+  BookBowlingSlots: { courtConfigId: string; courtLabel: string; sport: Sport };
   Checkout: { holdId: string };
   BookingConfirmed: { bookingId: string };
 };

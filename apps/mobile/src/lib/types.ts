@@ -44,6 +44,11 @@ export type CafeItemCategory =
   | "DESSERTS"
   | "COMBOS";
 
+// Sub-category within CRICKET. Mirror of the Prisma BookingCategory
+// enum — used to distinguish the bowling-machine flow from regular
+// box-cricket configs without growing the Sport union.
+export type BookingCategory = "BOX_CRICKET" | "BOWLING_MACHINE";
+
 export interface CourtConfig {
   id: string;
   sport: Sport;
@@ -54,6 +59,13 @@ export interface CourtConfig {
   lengthFt: number;
   zones: CourtZone[];
   isActive: boolean;
+  // BOWLING_MACHINE for the half-hour court, BOX_CRICKET for the
+  // regular cricket configs, null for football / pickleball.
+  category?: BookingCategory | null;
+  // 30 for the bowling-machine court, 60 otherwise. Lets the slot
+  // picker show consecutive 30-min tiles vs hourly without an
+  // additional round-trip.
+  slotDurationMinutes?: number;
 }
 
 export interface BookingSlot {

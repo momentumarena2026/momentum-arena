@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BookSportScreen } from "../screens/book/BookSportScreen";
 import { BookCourtScreen } from "../screens/book/BookCourtScreen";
 import { BookSlotsScreen } from "../screens/book/BookSlotsScreen";
+import { BookBowlingSlotsScreen } from "../screens/book/BookBowlingSlotsScreen";
 import { CheckoutScreen } from "../screens/book/CheckoutScreen";
 import { BookingConfirmedScreen } from "../screens/book/BookingConfirmedScreen";
 import { colors } from "../theme";
@@ -35,6 +36,11 @@ export function BookStack() {
       <Stack.Screen
         name="BookSlots"
         component={BookSlotsScreen}
+        options={({ route }) => ({ title: route.params.courtLabel })}
+      />
+      <Stack.Screen
+        name="BookBowlingSlots"
+        component={BookBowlingSlotsScreen}
         options={({ route }) => ({ title: route.params.courtLabel })}
       />
       <Stack.Screen

@@ -39,6 +39,9 @@ export async function POST(request: NextRequest) {
     amount: hold.totalAmount,
     userId: user.id,
     sport: hold.courtConfig.sport,
+    // Lets the validator honour DiscountCode.categoryExclude — e.g. the
+    // new-user coupon is configured to exclude BOWLING_MACHINE.
+    bookingCategory: hold.courtConfig.category ?? null,
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {

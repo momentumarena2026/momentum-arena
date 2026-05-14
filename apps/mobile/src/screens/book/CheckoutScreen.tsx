@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -20,7 +21,7 @@ import type {
   PaymentSuccessData,
   RazorpayOptions,
 } from "react-native-razorpay/src/types";
-import { AlarmClock, Sparkles } from "lucide-react-native";
+import { AlarmClock, Check, Sparkles } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
@@ -100,6 +101,7 @@ export function CheckoutScreen() {
 
   const baseAmount = hold?.totalAmount ?? 0;
   const sport = hold?.courtConfig.sport;
+  const bookingCategory = hold?.courtConfig.category ?? null;
 
   const serverDiscount = hold?.discountAmount ?? 0;
   const serverCouponCode = hold?.couponCode ?? null;
@@ -113,7 +115,71 @@ export function CheckoutScreen() {
   const [pointsRedeemed, setPointsRedeemed] = useState(0);
   const [pointsRedeemPaiseSaved, setPointsRedeemPaiseSaved] = useState(0);
   const pointsRedeemRupees = Math.floor(pointsRedeemPaiseSaved / 100);
-  const payableAmount = Math.max(0, effectiveAmount - pointsRedeemRupees);
+
+  // ── Rentable equipment ─────────────────────────────────────────────────────
+  // Only fetched when we know the sport. The endpoint returns an empty
+  // list for non-rental flows (cricket box / football / pickleball) so
+  // the UI just doesn't render anything. Bowling-machine has 3 rows.
+  const equipmentQuery = useQuery({
+    queryKey: ["equipment", sport, bookingCategory],
+    queryFn: () =>
+      bookingApi.listEquipment({
+        sport: sport!,
+        category: bookingCategory ?? undefined,
+      }),
+    enabled: !!sport,
+    staleTime: 60_000,
+  });
+  const equipmentOptions = equipmentQuery.data?.equipment ?? [];
+
+  // Seed selected ids from the hold's existing snapshot exactly once
+  // (so back-navigation preserves the picks).
+  const [equipmentIds, setEquipmentIds] = useState<Set<string>>(new Set());
+  const seededEquipmentRef = useRef(false);
+  useEffect(() => {
+    if (seededEquipmentRef.current) return;
+    if (!hold) return;
+    seededEquipmentRef.current = true;
+    if (hold.equipmentSelection && hold.equipmentSelection.length > 0) {
+      setEquipmentIds(
+        new Set(hold.equipmentSelection.map((e) => e.equipmentId)),
+      );
+    }
+  }, [hold]);
+
+  // Compute rental total from the catalog the server gave us so the UI
+  // line item matches whatever the server will recompute on commit.
+  const equipmentTotalRupees = useMemo(() => {
+    return Array.from(equipmentIds).reduce((sum, id) => {
+      const opt = equipmentOptions.find((o) => o.id === id);
+      return sum + (opt ? Math.round(opt.pricePaise / 100) : 0);
+    }, 0);
+  }, [equipmentIds, equipmentOptions]);
+
+  const payableAmount = Math.max(
+    0,
+    effectiveAmount - pointsRedeemRupees + equipmentTotalRupees,
+  );
+
+  const applyEquipmentMutation = useMutation({
+    mutationFn: (picks: Array<{ equipmentId: string; quantity: number }>) =>
+      bookingApi.applyEquipment({ holdId: params.holdId, picks }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["hold", params.holdId] });
+    },
+  });
+
+  function toggleEquipment(id: string) {
+    setEquipmentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      applyEquipmentMutation.mutate(
+        Array.from(next).map((eid) => ({ equipmentId: eid, quantity: 1 })),
+      );
+      return next;
+    });
+  }
 
   // Advance is always 50% of the FINAL payable (post-coupon +
   // post-points), ceil-rounded — so the half customers pay now and
@@ -132,8 +198,9 @@ export function CheckoutScreen() {
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
 
   const newUserDiscountQuery = useQuery({
-    queryKey: ["new-user-discount", sport, baseAmount],
-    queryFn: () => bookingApi.newUserDiscount(sport!, baseAmount),
+    queryKey: ["new-user-discount", sport, bookingCategory, baseAmount],
+    queryFn: () =>
+      bookingApi.newUserDiscount(sport!, baseAmount, bookingCategory),
     enabled: !!sport && baseAmount > 0 && !!signedInUser,
   });
 
@@ -676,10 +743,23 @@ export function CheckoutScreen() {
             </View>
           ) : null}
 
+          {equipmentTotalRupees > 0 ? (
+            <View style={styles.breakdownRow}>
+              <Text variant="small" color={colors.zinc300}>
+                Gear rental
+              </Text>
+              <Text variant="small" color={colors.zinc300}>
+                +{formatRupees(equipmentTotalRupees)}
+              </Text>
+            </View>
+          ) : null}
+
           <View
             style={[
               styles.totalRow,
-              (sortedSlots.length > 1 || pointsRedeemRupees > 0) &&
+              (sortedSlots.length > 1 ||
+                pointsRedeemRupees > 0 ||
+                equipmentTotalRupees > 0) &&
                 styles.totalRowSeparated,
             ]}
           >
@@ -739,9 +819,11 @@ export function CheckoutScreen() {
           }}
         />
 
-        {/* Equipment banner — CRICKET / FOOTBALL match web's zinc-800/60
-            rounded banner with emoji + copy. */}
-        {sportKey === "CRICKET" ? (
+        {/* Equipment banner — only shown when there's no rentable
+            equipment for this sport (i.e. cricket box / football
+            without configured rentals). Bowling-machine surfaces the
+            checkbox list below instead. */}
+        {sportKey === "CRICKET" && equipmentOptions.length === 0 ? (
           <View style={styles.equipmentBanner}>
             <Text variant="body">🏏</Text>
             <Text variant="small" color={colors.zinc300} style={styles.equipmentText}>
@@ -755,6 +837,76 @@ export function CheckoutScreen() {
             <Text variant="small" color={colors.zinc300} style={styles.equipmentText}>
               Equipment (football and keeping gloves) is covered in the pricing.
             </Text>
+          </View>
+        ) : null}
+
+        {/* Rentable equipment — currently only the bowling-machine
+            checkout populates a non-empty list. Each toggle persists
+            via applyEquipmentSelectionToHold; the server re-prices so
+            the client can't smuggle a cheaper rental. */}
+        {equipmentOptions.length > 0 ? (
+          <View style={styles.equipmentBlock}>
+            <View style={styles.equipmentHead}>
+              <Text variant="bodyStrong">Rent gear</Text>
+              <Text variant="tiny" color={colors.zinc500}>
+                Optional · pay-per-booking
+              </Text>
+            </View>
+            <View style={styles.equipmentList}>
+              {equipmentOptions.map((opt) => {
+                const checked = equipmentIds.has(opt.id);
+                const priceRupees = Math.round(opt.pricePaise / 100);
+                return (
+                  <Pressable
+                    key={opt.id}
+                    onPress={() => toggleEquipment(opt.id)}
+                    style={({ pressed }) => [
+                      styles.equipmentRow,
+                      checked
+                        ? styles.equipmentRowChecked
+                        : styles.equipmentRowUnchecked,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        checked && styles.checkboxChecked,
+                      ]}
+                    >
+                      {checked ? (
+                        <Check size={14} color={colors.primaryForeground} />
+                      ) : null}
+                    </View>
+                    <Text
+                      variant="small"
+                      color={colors.foreground}
+                      style={styles.equipmentName}
+                    >
+                      {opt.name}
+                    </Text>
+                    <Text
+                      variant="small"
+                      weight="600"
+                      color={checked ? colors.emerald400 : colors.zinc400}
+                    >
+                      +{formatRupees(priceRupees)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {equipmentTotalRupees > 0 ? (
+              <View style={styles.equipmentTotal}>
+                <Text variant="small" color={colors.zinc300}>
+                  Gear rental · {equipmentIds.size} item
+                  {equipmentIds.size === 1 ? "" : "s"}
+                </Text>
+                <Text variant="small" weight="600" color={colors.emerald400}>
+                  +{formatRupees(equipmentTotalRupees)}
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -953,6 +1105,66 @@ const styles = StyleSheet.create({
   },
   equipmentText: {
     flex: 1,
+  },
+
+  // ── Rentable equipment list (bowling-machine) ───────────────────────────
+  equipmentBlock: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["4"],
+    gap: spacing["2"],
+  },
+  equipmentHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  equipmentList: {
+    gap: spacing["1.5"],
+  },
+  equipmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  equipmentRowChecked: {
+    backgroundColor: colors.emerald500_05,
+    borderColor: colors.emerald500_30,
+  },
+  equipmentRowUnchecked: {
+    backgroundColor: colors.background,
+    borderColor: colors.zinc800,
+  },
+  equipmentName: {
+    flex: 1,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.zinc600,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxChecked: {
+    backgroundColor: colors.emerald500,
+    borderColor: colors.emerald500,
+  },
+  equipmentTotal: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: radius.md,
+    backgroundColor: colors.emerald500_05,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2"],
   },
 
   // ── Payment method section ──────────────────────────────────────────────

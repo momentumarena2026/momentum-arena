@@ -12,14 +12,15 @@ import {
 } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight } from "lucide-react-native";
+import { ChevronRight, Target } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { CourtDiagram } from "../../components/CourtDiagram";
-import { colors, spacing } from "../../theme";
+import { BowlingMachineDiagram } from "../../components/BowlingMachineDiagram";
+import { colors, radius, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
 import { ApiError } from "../../lib/api";
 import { sportLabel } from "../../lib/format";
@@ -53,18 +54,28 @@ function sizeLabel(size: string): string {
 // Collapse MEDIUM Left + MEDIUM Right into a single synthetic "Half Field"
 // tile — same treatment the web book page uses. The customer never picks a
 // side; the venue assigns one at game time via the /lock?mode=medium path.
+//
+// The bowling-machine config (category=BOWLING_MACHINE) is pulled out of
+// the tile list entirely; the cricket screen renders it as a separate
+// "Bowling Machine practice" section below the Box Cricket grid, matching
+// the web /book/cricket layout.
 type Tile =
   | { kind: "config"; config: CourtConfig }
   | { kind: "medium"; representative: CourtConfig };
 
 function buildTiles(configs: CourtConfig[]): Tile[] {
-  const medium = configs.filter((c) => c.size === "MEDIUM");
-  const rest = configs.filter((c) => c.size !== "MEDIUM");
+  const filtered = configs.filter((c) => c.category !== "BOWLING_MACHINE");
+  const medium = filtered.filter((c) => c.size === "MEDIUM");
+  const rest = filtered.filter((c) => c.size !== "MEDIUM");
   const tiles: Tile[] = rest.map((config) => ({ kind: "config", config }));
   if (medium.length > 0) {
     tiles.push({ kind: "medium", representative: medium[0] });
   }
   return tiles;
+}
+
+function findBowlingConfig(configs: CourtConfig[]): CourtConfig | undefined {
+  return configs.find((c) => c.category === "BOWLING_MACHINE");
 }
 
 export function BookCourtScreen() {
@@ -77,15 +88,16 @@ export function BookCourtScreen() {
     retry: false,
   });
 
-  // Auto-skip the size picker when there's only one tile — matches the web
-  // behaviour in `app/book/[sport]/page.tsx` (lines 66-74), where sports like
-  // football/pickleball that have a single CourtConfig redirect straight to
-  // slot selection. We use `replace` so the user's back-chevron returns to
-  // the sport list instead of a blanked-out court picker.
+  // Auto-skip the size picker when there's only one tile AND there's no
+  // bowling-machine option (which must always remain visible on the
+  // cricket screen). Matches the web behaviour in `app/book/[sport]/page.tsx`.
   const autoSkippedRef = useRef(false);
   useEffect(() => {
     if (!data || autoSkippedRef.current) return;
     const tiles = buildTiles(data);
+    const bowling = findBowlingConfig(data);
+    // Never auto-skip on cricket — the bowling tile must show.
+    if (params.sport === "CRICKET" && bowling) return;
     if (tiles.length !== 1) return;
     autoSkippedRef.current = true;
     const tile = tiles[0];
@@ -123,86 +135,77 @@ export function BookCourtScreen() {
         </Text>
       </View>
 
-      {isLoading ||
-      // Data loaded but we're about to `navigation.replace` because there's
-      // only one tile — keep the loader on-screen for that single frame so
-      // the user never glimpses a redundant one-tile picker.
-      (data && buildTiles(data).length === 1) ? (
-        <View style={courtSkeletonStyles.list}>
-          {[0, 1, 2].map((i) => (
-            <View key={i} style={courtSkeletonStyles.tile}>
-              <Skeleton width={64} height={64} rounded="lg" />
-              <View style={courtSkeletonStyles.tileBody}>
-                <Skeleton width="55%" height={15} />
-                <Skeleton width="35%" height={11} />
-              </View>
-              <Skeleton width={20} height={20} rounded="sm" />
+      {(() => {
+        // When auto-skip is going to fire (single tile, non-cricket), we
+        // keep the skeleton up for the brief moment between data
+        // resolving and navigation.replace. For cricket-with-bowling
+        // the skip never fires, so don't trap the user in a skeleton.
+        const willAutoSkip =
+          data &&
+          buildTiles(data).length === 1 &&
+          !(params.sport === "CRICKET" && findBowlingConfig(data));
+
+        if (isLoading || willAutoSkip) {
+          return (
+            <View style={courtSkeletonStyles.list}>
+              {[0, 1, 2].map((i) => (
+                <View key={i} style={courtSkeletonStyles.tile}>
+                  <Skeleton width={64} height={64} rounded="lg" />
+                  <View style={courtSkeletonStyles.tileBody}>
+                    <Skeleton width="55%" height={15} />
+                    <Skeleton width="35%" height={11} />
+                  </View>
+                  <Skeleton width={20} height={20} rounded="sm" />
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-      ) : isError || !data ? (
-        <Card style={styles.state}>
-          <Text variant="body" color={colors.mutedForeground}>
-            Couldn't load courts. Try again in a moment.
-          </Text>
-          {errorDetail ? (
-            <Text variant="small" color={colors.destructive} style={styles.errorDetail}>
-              {errorDetail}
-            </Text>
-          ) : null}
-        </Card>
-      ) : data.length === 0 ? (
-        <Card style={styles.state}>
-          <Text variant="bodyStrong">No courts configured</Text>
-          <Text variant="small" color={colors.mutedForeground}>
-            Check back soon — courts for this sport will appear here.
-          </Text>
-        </Card>
-      ) : (
-        <View style={styles.list}>
-          {buildTiles(data).map((tile) => {
-            if (tile.kind === "medium") {
-              const rep = tile.representative;
-              return (
-                <Pressable
-                  key="medium"
-                  onPress={() =>
-                    navigation.navigate("BookSlots", {
-                      mode: "medium",
-                      courtLabel: "Half Field",
-                      sport: params.sport,
-                    })
-                  }
-                  style={({ pressed }) => pressed && styles.pressed}
+          );
+        }
+
+        if (isError || !data) {
+          return (
+            <Card style={styles.state}>
+              <Text variant="body" color={colors.mutedForeground}>
+                Couldn't load courts. Try again in a moment.
+              </Text>
+              {errorDetail ? (
+                <Text
+                  variant="small"
+                  color={colors.destructive}
+                  style={styles.errorDetail}
                 >
-                  <Card>
-                    <View style={styles.headerRow}>
-                      <View style={styles.headerText}>
-                        <Text variant="heading">Half Field</Text>
-                        <Text variant="small" color={colors.mutedForeground}>
-                          {sizeLabel(rep.size)} · {rep.widthFt}×{rep.lengthFt} ft
-                        </Text>
-                      </View>
-                      <ChevronRight size={20} color={colors.subtleForeground} />
-                    </View>
-                    <View style={styles.diagramWrap}>
-                      <CourtDiagram highlightedZones={rep.zones} size="sm" />
-                    </View>
-                    <Text variant="tiny" color={colors.subtleForeground}>
-                      Venue assigns a side at game time.
-                    </Text>
-                  </Card>
-                </Pressable>
-              );
-            }
-            const c = tile.config;
+                  {errorDetail}
+                </Text>
+              ) : null}
+            </Card>
+          );
+        }
+
+        if (data.length === 0) {
+          return (
+            <Card style={styles.state}>
+              <Text variant="bodyStrong">No courts configured</Text>
+              <Text variant="small" color={colors.mutedForeground}>
+                Check back soon — courts for this sport will appear here.
+              </Text>
+            </Card>
+          );
+        }
+
+        const tiles = buildTiles(data);
+        const bowling =
+          params.sport === "CRICKET" ? findBowlingConfig(data) : undefined;
+
+        const renderTile = (tile: Tile) => {
+          if (tile.kind === "medium") {
+            const rep = tile.representative;
             return (
               <Pressable
-                key={c.id}
+                key="medium"
                 onPress={() =>
                   navigation.navigate("BookSlots", {
-                    courtConfigId: c.id,
-                    courtLabel: c.label,
+                    mode: "medium",
+                    courtLabel: "Half Field",
                     sport: params.sport,
                   })
                 }
@@ -211,33 +214,144 @@ export function BookCourtScreen() {
                 <Card>
                   <View style={styles.headerRow}>
                     <View style={styles.headerText}>
-                      <Text variant="heading">{c.label}</Text>
+                      <Text variant="heading">Half Field</Text>
                       <Text variant="small" color={colors.mutedForeground}>
-                        {sizeLabel(c.size)} · {c.widthFt}×{c.lengthFt} ft
+                        {sizeLabel(rep.size)} · {rep.widthFt}×{rep.lengthFt} ft
                       </Text>
                     </View>
-                    <ChevronRight size={20} color={colors.subtleForeground} />
+                    <ChevronRight
+                      size={20}
+                      color={colors.subtleForeground}
+                    />
                   </View>
                   <View style={styles.diagramWrap}>
-                    <CourtDiagram highlightedZones={c.zones} size="sm" />
+                    <CourtDiagram highlightedZones={rep.zones} size="sm" />
                   </View>
-                  {c.zones.length > 0 ? (
-                    <View style={styles.zonesRow}>
-                      {c.zones.slice(0, 3).map((z) => (
-                        <Badge
-                          key={z}
-                          label={z.replace("_", " ")}
-                          tone="neutral"
-                        />
-                      ))}
-                    </View>
-                  ) : null}
+                  <Text variant="tiny" color={colors.subtleForeground}>
+                    Venue assigns a side at game time.
+                  </Text>
                 </Card>
               </Pressable>
             );
-          })}
-        </View>
-      )}
+          }
+          const c = tile.config;
+          return (
+            <Pressable
+              key={c.id}
+              onPress={() =>
+                navigation.navigate("BookSlots", {
+                  courtConfigId: c.id,
+                  courtLabel: c.label,
+                  sport: params.sport,
+                })
+              }
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <Card>
+                <View style={styles.headerRow}>
+                  <View style={styles.headerText}>
+                    <Text variant="heading">{c.label}</Text>
+                    <Text variant="small" color={colors.mutedForeground}>
+                      {sizeLabel(c.size)} · {c.widthFt}×{c.lengthFt} ft
+                    </Text>
+                  </View>
+                  <ChevronRight size={20} color={colors.subtleForeground} />
+                </View>
+                <View style={styles.diagramWrap}>
+                  <CourtDiagram highlightedZones={c.zones} size="sm" />
+                </View>
+                {c.zones.length > 0 ? (
+                  <View style={styles.zonesRow}>
+                    {c.zones.slice(0, 3).map((z) => (
+                      <Badge
+                        key={z}
+                        label={z.replace("_", " ")}
+                        tone="neutral"
+                      />
+                    ))}
+                  </View>
+                ) : null}
+              </Card>
+            </Pressable>
+          );
+        };
+
+        const bowlingTile = bowling ? (
+          <Pressable
+            key="bowling"
+            onPress={() =>
+              navigation.navigate("BookBowlingSlots", {
+                courtConfigId: bowling.id,
+                courtLabel: "Bowling Machine",
+                sport: params.sport,
+              })
+            }
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <Card style={styles.bowlingCard}>
+              <View style={styles.headerRow}>
+                <View style={styles.bowlingIcon}>
+                  <Target size={20} color={colors.emerald400} />
+                </View>
+                <View style={styles.headerText}>
+                  <Text variant="heading">Bowling Machine</Text>
+                  <Text variant="small" color={colors.mutedForeground}>
+                    30-min slots · {bowling.widthFt}×{bowling.lengthFt} ft
+                  </Text>
+                </View>
+                <ChevronRight size={20} color={colors.subtleForeground} />
+              </View>
+              <View style={styles.diagramWrap}>
+                <BowlingMachineDiagram size="sm" />
+              </View>
+              <View style={styles.zonesRow}>
+                <Badge label="30-min slots" tone="neutral" />
+                <Badge label="Venue picks side" tone="neutral" />
+              </View>
+            </Card>
+          </Pressable>
+        ) : null;
+
+        // Cricket layout: two labelled sections, "Box Cricket" + the
+        // Bowling Machine tile underneath. Other sports keep the
+        // unlabelled single-list layout.
+        if (params.sport === "CRICKET") {
+          return (
+            <View style={styles.sections}>
+              {tiles.length > 0 ? (
+                <View>
+                  <Text
+                    variant="tiny"
+                    color={colors.subtleForeground}
+                    style={styles.sectionLabel}
+                  >
+                    BOX CRICKET
+                  </Text>
+                  <View style={styles.list}>{tiles.map(renderTile)}</View>
+                </View>
+              ) : null}
+              {bowlingTile ? (
+                <View>
+                  <Text
+                    variant="tiny"
+                    color={colors.subtleForeground}
+                    style={styles.sectionLabel}
+                  >
+                    BOWLING MACHINE PRACTICE
+                  </Text>
+                  <View style={styles.list}>{bowlingTile}</View>
+                </View>
+              ) : null}
+            </View>
+          );
+        }
+
+        return (
+          <View style={[styles.list, styles.listSpaced]}>
+            {tiles.map(renderTile)}
+          </View>
+        );
+      })()}
     </Screen>
   );
 }
@@ -280,8 +394,31 @@ const styles = StyleSheet.create({
     marginTop: spacing["1"],
   },
   list: {
-    marginTop: spacing["6"],
     gap: spacing["3"],
+  },
+  listSpaced: {
+    marginTop: spacing["6"],
+  },
+  sections: {
+    marginTop: spacing["6"],
+    gap: spacing["6"],
+  },
+  sectionLabel: {
+    letterSpacing: 1.5,
+    fontWeight: "700",
+    marginBottom: spacing["2"],
+  },
+  bowlingCard: {
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_05,
+  },
+  bowlingIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    backgroundColor: colors.emerald500_10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pressed: {
     opacity: 0.75,

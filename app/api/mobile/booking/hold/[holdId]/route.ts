@@ -28,6 +28,9 @@ export async function GET(
     courtConfigId: hold.courtConfigId,
     date: hold.date,
     hours: hold.hours,
+    // Bowling-machine holds carry per-slot start minutes (0 or 30)
+    // parallel to `hours`. Hourly holds send an empty array.
+    startMinutes: hold.startMinutes ?? [],
     slotPrices: hold.slotPrices,
     totalAmount: hold.totalAmount,
     expiresAt: hold.expiresAt,
@@ -37,6 +40,8 @@ export async function GET(
     discountAmount: hold.discountAmount,
     pointsToRedeem: hold.pointsToRedeem,
     pointsRedeemPaiseSaved: hold.pointsRedeemPaiseSaved,
+    equipmentSelection: hold.equipmentSelection ?? null,
+    equipmentTotalAmount: hold.equipmentTotalAmount ?? null,
     courtConfig: hold.courtConfig,
   });
 }
