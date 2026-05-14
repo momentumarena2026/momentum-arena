@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ArrowRight, Target } from "lucide-react";
 import { getAllSportsWithConfigs } from "@/actions/admin-slots";
 import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
 import { SportsToggle } from "./sports-toggle";
@@ -20,6 +22,28 @@ export default async function AdminSportsPage() {
           Enable or disable sports and court configurations
         </p>
       </div>
+
+      {/* Bowling-machine sub-page — owns the half-court picker +
+          per-day-type operating windows. Linked here so admins
+          discover it from /admin/sports without a dedicated nav
+          entry (it's a niche surface). */}
+      <Link
+        href="/admin/sports/bowling-machine"
+        className="group flex items-center gap-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 transition-colors hover:bg-emerald-500/10"
+      >
+        <div className="rounded-lg bg-emerald-500/15 p-2.5">
+          <Target className="h-5 w-5 text-emerald-400" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-white">
+            Bowling Machine practice
+          </p>
+          <p className="text-xs text-zinc-400">
+            Pick LEFT vs RIGHT half + configure open-hours windows
+          </p>
+        </div>
+        <ArrowRight className="h-4 w-4 text-emerald-400 transition-transform group-hover:translate-x-0.5" />
+      </Link>
 
       {Object.entries(configsBySport).map(([sport, sportConfigs]) => {
         const sportInfo = SPORT_INFO[sport as keyof typeof SPORT_INFO];
