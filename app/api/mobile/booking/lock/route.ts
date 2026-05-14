@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
-import { createSlotHold, createMediumHalfCourtHold } from "@/lib/slot-hold";
+import {
+  createSlotHold,
+  createMediumHalfCourtHold,
+  createBowlingMachineHold,
+  type BowlingSlotPrice,
+} from "@/lib/slot-hold";
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { getMediumConfigs } from "@/lib/availability";
+import { getBowlingMachineAvailability } from "@/lib/bowling-availability";
 import { Sport } from "@prisma/client";
 
 // POST /api/mobile/booking/lock — JSON-body wrapper around the web lock
@@ -20,6 +26,10 @@ export async function POST(request: NextRequest) {
     courtConfigId?: string;
     date?: string;
     hours?: number[];
+    // Bowling-machine mode only — parallel slot payload at 30-min
+    // granularity. Same shape as the web /api/booking/lock?mode=
+    // bowling-machine path.
+    slots?: Array<{ hour: number; minute: 0 | 30 }>;
   };
   try {
     body = await request.json();
@@ -27,7 +37,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { mode, sport, courtConfigId, date, hours } = body;
+  const { mode, sport, courtConfigId, date, hours, slots } = body;
+
+  // Bowling-machine path uses `slots[]` instead of `hours[]`.
+  if (mode === "bowling-machine") {
+    if (!courtConfigId || !date || !Array.isArray(slots) || slots.length === 0) {
+      return NextResponse.json({ error: "Invalid data" }, { status: 400 });
+    }
+    const avail = await getBowlingMachineAvailability(
+      courtConfigId,
+      new Date(date),
+    );
+    const lookup = new Map(
+      avail.map((s) => [`${s.hour}:${s.minute}`, s.price] as const),
+    );
+    const slotPrices: BowlingSlotPrice[] = slots.map((s) => ({
+      hour: s.hour,
+      minute: s.minute,
+      price: lookup.get(`${s.hour}:${s.minute}`) ?? 0,
+    }));
+    const result = await createBowlingMachineHold(
+      user.id,
+      courtConfigId,
+      new Date(date),
+      slotPrices,
+    );
+    return NextResponse.json(result);
+  }
+
   if (!date || !Array.isArray(hours) || hours.length === 0) {
     return NextResponse.json({ error: "Invalid data" }, { status: 400 });
   }

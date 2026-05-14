@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { validateCoupon } from "@/actions/coupon-validation";
-import type { Sport } from "@prisma/client";
+import type { BookingCategory, Sport } from "@prisma/client";
 
 // POST /api/mobile/coupons/validate — HTTP wrapper around validateCoupon.
 // Returns { valid, discountAmount?, couponId?, error? } so the native
@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
     amount?: number;
     sport?: Sport;
     categories?: string[];
+    bookingCategory?: BookingCategory;
   };
   try {
     body = await request.json();
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { code, scope = "SPORTS", amount, sport, categories } = body;
+  const { code, scope = "SPORTS", amount, sport, categories, bookingCategory } = body;
   if (!code || typeof amount !== "number") {
     return NextResponse.json({ error: "Missing code or amount" }, { status: 400 });
   }
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
     userId: user.id,
     sport,
     categories,
+    bookingCategory: bookingCategory ?? null,
   });
 
   return NextResponse.json(result);

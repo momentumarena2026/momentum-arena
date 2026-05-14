@@ -9,11 +9,32 @@ export interface SlotAvailability {
   price: number;
 }
 
+// Bowling-machine 30-minute slot — `minute` is 0 or 30, `price` is rupees.
+export interface BowlingSlotAvailability {
+  hour: number;
+  minute: 0 | 30;
+  status: SlotStatus;
+  price: number;
+}
+
 export interface LockResult {
   success: boolean;
   holdId?: string;
   error?: string;
   conflicts?: number[];
+}
+
+export interface EquipmentOption {
+  id: string;
+  name: string;
+  pricePaise: number;
+  imageUrl: string | null;
+}
+
+export interface ApplyEquipmentResult {
+  success: boolean;
+  totalPaise?: number;
+  error?: string;
 }
 
 export interface SlotPriceEntry {
@@ -26,6 +47,9 @@ export interface Hold {
   courtConfigId: string;
   date: string;
   hours: number[];
+  // Bowling-machine holds carry per-slot start minutes (0 or 30) parallel
+  // to `hours`. Hourly holds omit this or send all zeros.
+  startMinutes?: number[];
   slotPrices: SlotPriceEntry[];
   totalAmount: number;
   expiresAt: string;
@@ -35,6 +59,17 @@ export interface Hold {
   discountAmount: number | null;
   pointsToRedeem: number | null;
   pointsRedeemPaiseSaved: number | null;
+  // Bowling-machine equipment selection snapshot, written by
+  // /api/mobile/booking/apply-equipment. Stays null when no rentals
+  // picked or for non-bowling holds.
+  equipmentSelection?: Array<{
+    equipmentId: string;
+    name: string;
+    quantity: number;
+    priceEach: number;
+    totalPrice: number;
+  }> | null;
+  equipmentTotalAmount?: number | null;
   courtConfig: CourtConfig;
 }
 
@@ -145,17 +180,61 @@ export const bookingApi = {
     body:
       | { courtConfigId: string; date: string; hours: number[] }
       | { mode: "medium"; sport: Sport; date: string; hours: number[] }
+      | {
+          mode: "bowling-machine";
+          courtConfigId: string;
+          date: string;
+          slots: Array<{ hour: number; minute: 0 | 30 }>;
+        }
   ) => api.post<LockResult>("/api/mobile/booking/lock", body),
+
+  /** Bowling-machine availability — 30-minute slot grid for the given
+   *  config + date. Mirrors `availability` shape but with `minute`. */
+  bowlingAvailability: (configId: string, date: string) =>
+    api.get<{ slots: BowlingSlotAvailability[] }>(
+      `/api/mobile/availability/bowling-machine?configId=${encodeURIComponent(
+        configId
+      )}&date=${encodeURIComponent(date)}`
+    ),
+
+  /** Customer-facing equipment options for a sport/category. */
+  listEquipment: (params: { sport: Sport; category?: string | null }) => {
+    const q = new URLSearchParams();
+    q.set("sport", params.sport);
+    if (params.category) q.set("category", params.category);
+    return api.get<{ equipment: EquipmentOption[] }>(
+      `/api/mobile/equipment?${q.toString()}`,
+      { auth: false }
+    );
+  },
+
+  /** Snapshot a set of equipment rentals onto a SlotHold. Empty
+   *  picks[] clears the selection. */
+  applyEquipment: (body: {
+    holdId: string;
+    picks: Array<{ equipmentId: string; quantity: number }>;
+  }) =>
+    api.post<ApplyEquipmentResult>("/api/mobile/booking/apply-equipment", body),
 
   /** Checkout: load the SlotHold + courtConfig. */
   hold: (holdId: string) =>
     api.get<Hold>(`/api/mobile/booking/hold/${holdId}`),
 
-  /** New-user automatic discount, if any. */
-  newUserDiscount: (sport: Sport, amount: number) =>
-    api.get<{ discount: NewUserDiscount | null }>(
-      `/api/mobile/coupons/new-user?sport=${sport}&amount=${amount}`
-    ),
+  /** New-user automatic discount, if any. Pass `category` for cricket
+   *  sub-flows so categoryExclude (e.g. bowling-machine) is honoured. */
+  newUserDiscount: (
+    sport: Sport,
+    amount: number,
+    category?: string | null,
+  ) => {
+    const q = new URLSearchParams();
+    q.set("sport", sport);
+    q.set("amount", String(amount));
+    if (category) q.set("category", category);
+    return api.get<{ discount: NewUserDiscount | null }>(
+      `/api/mobile/coupons/new-user?${q.toString()}`,
+    );
+  },
 
   /** Public list of currently-valid, isPublic coupons for a given scope.
    *  Populates the "View available coupons" drawer on the checkout screen.
