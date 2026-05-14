@@ -37,6 +37,30 @@ export async function createRecurringBooking(data: {
     return { success: false, error: "Invalid time range" };
   }
 
+  // Bowling-machine recurring is intentionally blocked at the action
+  // layer for this release. The slot-generation loop below iterates
+  // hour-by-hour and creates BookingSlot rows at :00 with
+  // durationMinutes=60 — which would silently round 30-min bowling
+  // slots up to a full hour and double-charge the customer. Schema
+  // already supports it (RecurringBooking.startMinute / endMinute
+  // exist), but the loop + checkSlotsAvailable + availability
+  // checks all need a 30-min branch before the UX is safe.
+  //
+  // Customer can still book one-off 30-min bowling sessions through
+  // the normal flow. Admin can hand-create future bowling sessions
+  // via the post-booking flow in /admin/bookings. Promoting the
+  // bowling picker to support a recurring toggle is a follow-up.
+  const courtForCheck = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+    select: { category: true },
+  });
+  if (courtForCheck?.category === "BOWLING_MACHINE") {
+    return {
+      success: false,
+      error: "Recurring bookings aren't available for Bowling Machine practice yet — please book each session individually.",
+    };
+  }
+
   if (dayOfWeek < 0 || dayOfWeek > 6) {
     return { success: false, error: "Invalid day of week" };
   }
