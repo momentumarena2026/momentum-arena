@@ -182,7 +182,14 @@ export function ReportsClient({ initialReports }: Props) {
           <label className="mb-2 block text-xs font-medium uppercase text-zinc-500">
             Report type
           </label>
-          <div className="grid gap-3 md:grid-cols-3">
+          {/*
+            8 report types — pick a column count that divides 8 evenly
+            so no row trails with an empty slot. md:grid-cols-3 left
+            a hole in the bottom-right corner; switching to a 1/2/4
+            ladder gives 8×1 on phones, 4×2 on tablets, 2×4 on
+            desktops — every row fully populated.
+          */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {TYPES.map((t) => (
               <button
                 key={t.value}
@@ -210,7 +217,14 @@ export function ReportsClient({ initialReports }: Props) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
+        {/*
+          Right-align the form's action bar (Year/Month + Queue
+          report). The previous `ml-auto` only on the button left a
+          jarring blank stripe between the form fields on the left and
+          the CTA on the right at wide viewports; grouping all three
+          controls on the right reads as a single coherent action bar.
+        */}
+        <div className="flex flex-wrap items-end justify-end gap-3">
           {/* Year/Month pickers — hidden for the all-time expenses
               report since the worker exports every row regardless
               of month. Inline note replaces them so the admin
@@ -261,7 +275,7 @@ export function ReportsClient({ initialReports }: Props) {
           <button
             type="submit"
             disabled={pending}
-            className="ml-auto inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
             {pending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
