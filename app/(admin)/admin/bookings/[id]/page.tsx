@@ -471,7 +471,12 @@ export default async function AdminBookingDetailPage({
         )}
       </div>
 
-      {/* Admin Actions */}
+      {/* Admin Actions — hosts the "Edit" / "Cancel" / status-change
+          controls. Tagged with #admin-actions so external "Edit"
+          affordances (e.g. the booking-calendar tile's Edit CTA)
+          can deep-link straight to it instead of falling through to
+          a non-existent /edit route. */}
+      <div id="admin-actions" className="scroll-mt-20" />
       <AdminBookingActions
         bookingId={booking.id}
         bookingStatus={booking.status}

@@ -612,8 +612,15 @@ function BookingDetailModal({
             <ExternalLink className="h-3.5 w-3.5" />
             View Full Details
           </Link>
+          {/*
+            Drops the user on the booking detail page scrolled to the
+            AdminBookingActions block (which hosts Edit / Cancel /
+            status-change controls). The old `/admin/bookings/{id}/edit`
+            target was a 404 — there is no separate edit route, edits
+            happen inline on the detail page.
+          */}
           <Link
-            href={`/admin/bookings/${booking.id}/edit`}
+            href={`/admin/bookings/${booking.id}#admin-actions`}
             className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700"
           >
             <Pencil className="h-3.5 w-3.5" />
