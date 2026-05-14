@@ -306,6 +306,10 @@ interface HourEntry {
     sport: AdminCalendarSport;
     status: "CONFIRMED" | "PENDING";
     courtLabel: string;
+    // Customer name surfaced on the chip after the sport label so an
+    // admin scanning a packed grid can pick out who's booked without
+    // tapping in.
+    userName: string | null;
   }>;
   blocks: Array<{ courtLabel: string; reason?: string }>;
 }
@@ -334,6 +338,7 @@ function buildHourMap(data: CalendarData | null): Map<number, HourEntry> {
             sport: cell.booking.courtSport,
             status: cell.booking.status,
             courtLabel: cell.booking.courtLabel,
+            userName: cell.booking.userName ?? null,
           });
         }
       }
@@ -430,6 +435,9 @@ function HourGrid({
                         numberOfLines={1}
                       >
                         {SPORT_STYLE[b.sport].emoji} {sportLabel(b.sport)}
+                        {firstNameOf(b.userName)
+                          ? `  ·  ${firstNameOf(b.userName)}`
+                          : ""}
                       </Text>
                       <Text
                         variant="tiny"
@@ -462,6 +470,20 @@ function CalendarSkeleton() {
       ))}
     </View>
   );
+}
+
+/**
+ * First whitespace-separated token of a user's full name. Trims +
+ * collapses spaces; returns null on empty / null so the chip renders
+ * "🏏 Cricket" rather than "🏏 Cricket  · " when the name is blank.
+ * Mirrors the helper in the web calendar-view.tsx.
+ */
+function firstNameOf(fullName: string | null | undefined): string | null {
+  if (!fullName) return null;
+  const trimmed = fullName.trim();
+  if (!trimmed) return null;
+  const first = trimmed.split(/\s+/)[0];
+  return first.length > 0 ? first : null;
 }
 
 function prettyDate(dateStr: string): string {

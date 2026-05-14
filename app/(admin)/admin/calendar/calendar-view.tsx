@@ -378,6 +378,7 @@ function HourCell({
           {entry!.bookings.map(({ booking, sport, courtLabel }) => {
             const palette = SPORT_STYLE[sport];
             const dashed = booking.status === "PENDING";
+            const firstName = firstNameOf(booking.userName);
             return (
               <button
                 key={booking.id}
@@ -388,9 +389,12 @@ function HourCell({
                 } ${dashed ? "border-dashed" : ""}`}
               >
                 <span
-                  className={`text-[11px] font-semibold ${palette.text}`}
+                  className={`text-[11px] font-semibold ${palette.text} truncate w-full`}
                 >
                   {palette.emoji} {sportName(sport)}
+                  {firstName ? (
+                    <span className="opacity-70"> · {firstName}</span>
+                  ) : null}
                 </span>
                 <span
                   className={`text-[10px] opacity-80 ${palette.text} truncate w-full`}
@@ -408,6 +412,19 @@ function HourCell({
 
 function sportName(sport: Sport): string {
   return sport.charAt(0) + sport.slice(1).toLowerCase();
+}
+
+/**
+ * Pull the first whitespace-separated token from a user's full name.
+ * Trims, collapses spaces, and falls back to null on empty / "Guest"
+ * style inputs so we don't render a stray "·" on the chip.
+ */
+function firstNameOf(fullName: string | null | undefined): string | null {
+  if (!fullName) return null;
+  const trimmed = fullName.trim();
+  if (!trimmed) return null;
+  const first = trimmed.split(/\s+/)[0];
+  return first.length > 0 ? first : null;
 }
 
 // --------------------------------------------------------------------------
