@@ -15,6 +15,7 @@ import {
   selectUpiPayment,
   applyCouponToHold,
   clearCouponFromHold,
+  applyEquipmentSelectionToHold,
 } from "@/actions/booking";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { createRecurringBooking } from "@/actions/recurring-booking";
@@ -65,6 +66,14 @@ interface CheckoutClientProps {
   onlineEnabled?: boolean;
   upiQrEnabled?: boolean;
   advanceEnabled?: boolean;
+  /** Rentable equipment surfaced as a checkbox list. Empty array =
+   *  no equipment section in the UI. Prices are in WHOLE RUPEES. */
+  equipmentOptions?: Array<{
+    id: string;
+    name: string;
+    priceRupees: number;
+    imageUrl: string | null;
+  }>;
 }
 
 export function CheckoutClient({
@@ -95,6 +104,7 @@ export function CheckoutClient({
   onlineEnabled = true,
   upiQrEnabled = true,
   advanceEnabled = true,
+  equipmentOptions = [],
 }: CheckoutClientProps) {
   const router = useRouter();
   // Default selection to the first method that's currently enabled so the
@@ -131,7 +141,39 @@ export function CheckoutClient({
   const [billNonce, setBillNonce] = useState(0);
 
   const pointsRedeemRupees = Math.floor(pointsRedeemPaiseSaved / 100);
-  const payableAmount = Math.max(0, effectiveAmount - pointsRedeemRupees);
+
+  // Equipment-rental selection state. Each entry is the equipment row
+  // id — quantities default to 1 each (the venue's gear is one-per-
+  // booking, no need for a quantity stepper). Server is the source of
+  // truth; we sync via applyEquipmentSelectionToHold on every toggle.
+  const [equipmentIds, setEquipmentIds] = useState<Set<string>>(new Set());
+  const equipmentTotalRupees = Array.from(equipmentIds).reduce((sum, id) => {
+    const opt = equipmentOptions.find((o) => o.id === id);
+    return sum + (opt?.priceRupees ?? 0);
+  }, 0);
+
+  // Final payable = slot total - all discounts + equipment rentals.
+  // Same convention used by createBookingFromHold so the gateway
+  // amount and the booking row line up exactly.
+  const payableAmount = Math.max(
+    0,
+    effectiveAmount - pointsRedeemRupees + equipmentTotalRupees,
+  );
+
+  async function toggleEquipment(id: string) {
+    setEquipmentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      // Fire-and-forget — the server validates + re-prices. UI
+      // already reflects the new state from the optimistic toggle.
+      void applyEquipmentSelectionToHold(
+        holdId,
+        Array.from(next).map((eid) => ({ equipmentId: eid, quantity: 1 })),
+      );
+      return next;
+    });
+  }
 
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
@@ -557,7 +599,7 @@ export function CheckoutClient({
       )}
 
       {/* Included Equipment Banner */}
-      {sport === "CRICKET" && (
+      {sport === "CRICKET" && equipmentOptions.length === 0 && (
         <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
           <span className="text-base">🏏</span>
           <p className="text-sm text-zinc-300">Equipment (stumps, bats, and balls) is covered in the pricing.</p>
@@ -567,6 +609,59 @@ export function CheckoutClient({
         <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
           <span className="text-base">⚽</span>
           <p className="text-sm text-zinc-300">Equipment (football and keeping gloves) is covered in the pricing.</p>
+        </div>
+      )}
+
+      {/* Rentable equipment — currently only the bowling-machine
+          checkout surfaces a non-empty list. Each toggle persists
+          via applyEquipmentSelectionToHold; the server re-prices so
+          the client can't smuggle a cheaper rental. */}
+      {equipmentOptions.length > 0 && (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white">Rent gear</h3>
+            <span className="text-xs text-zinc-500">Optional · pay-per-booking</span>
+          </div>
+          <div className="space-y-1.5">
+            {equipmentOptions.map((opt) => {
+              const checked = equipmentIds.has(opt.id);
+              return (
+                <label
+                  key={opt.id}
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors cursor-pointer ${
+                    checked
+                      ? "border-emerald-500/40 bg-emerald-500/5"
+                      : "border-zinc-800 bg-zinc-950 hover:border-zinc-700"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleEquipment(opt.id)}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  <span className="flex-1 text-sm text-white">{opt.name}</span>
+                  <span
+                    className={`text-sm font-semibold ${
+                      checked ? "text-emerald-300" : "text-zinc-400"
+                    }`}
+                  >
+                    +{formatPrice(opt.priceRupees)}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          {equipmentTotalRupees > 0 && (
+            <div className="flex items-center justify-between rounded-lg bg-emerald-500/5 px-3 py-2 text-sm">
+              <span className="text-zinc-300">
+                Gear rental · {equipmentIds.size} item{equipmentIds.size === 1 ? "" : "s"}
+              </span>
+              <span className="font-semibold text-emerald-300">
+                +{formatPrice(equipmentTotalRupees)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

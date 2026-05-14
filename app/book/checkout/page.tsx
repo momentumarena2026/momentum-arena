@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { listEquipmentForBooking } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -81,9 +82,18 @@ export default async function CheckoutPage({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  const [newUserDiscount, paymentConfig] = await Promise.all([
+  const [newUserDiscount, paymentConfig, equipmentOptions] = await Promise.all([
     getNewUserDiscount(session.user.id, hold.courtConfig.sport, hold.totalAmount).catch(() => null),
     getCheckoutPaymentConfig(),
+    // Equipment list filtered to this booking's sport + category.
+    // For bowling-machine bookings this returns the kit / bat /
+    // L-guard rentals; for plain box-cricket it returns whatever
+    // admin has marked customer-selectable without a sub-category
+    // filter. Empty list = no equipment row in the checkout UI.
+    listEquipmentForBooking({
+      sport: hold.courtConfig.sport,
+      category: hold.courtConfig.category,
+    }).catch(() => []),
   ]);
 
   return (
@@ -212,6 +222,16 @@ export default async function CheckoutPage({
         onlineEnabled={paymentConfig.onlineEnabled}
         upiQrEnabled={paymentConfig.upiQrEnabled}
         advanceEnabled={paymentConfig.advanceEnabled}
+        equipmentOptions={equipmentOptions.map((e) => ({
+          id: e.id,
+          name: e.name,
+          // Convert paise → rupees here so the client never has to
+          // know about the underlying paise convention. The server-
+          // side action receives just the id + quantity and re-prices
+          // from the canonical Equipment row.
+          priceRupees: Math.round(e.pricePaise / 100),
+          imageUrl: e.imageUrl,
+        }))}
       />
     </div>
   );

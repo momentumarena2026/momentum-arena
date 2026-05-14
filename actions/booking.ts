@@ -19,7 +19,7 @@ import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
 import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 const lockSlotsSchema = z.object({
   courtConfigId: z.string().min(1),
@@ -209,6 +209,100 @@ export async function clearCouponFromHold(
     },
   });
   return { success: true };
+}
+
+// ─── Equipment selection (carrier on the hold, like coupon/points) ──
+
+export interface ApplyEquipmentResult {
+  success: boolean;
+  /** Sum of priceEach × quantity across selected items, in PAISE */
+  totalPaise?: number;
+  error?: string;
+}
+
+/**
+ * Persist the customer's equipment-rental picks on the SlotHold.
+ * Stored as a Json snapshot so admin-side price edits between
+ * checkout and commit don't change what the customer agreed to.
+ *
+ * Pass an empty array to clear the selection. Server re-prices
+ * every item against the live Equipment row so the client can't
+ * fabricate cheaper rentals.
+ */
+export async function applyEquipmentSelectionToHold(
+  holdId: string,
+  picks: Array<{ equipmentId: string; quantity: number }>,
+): Promise<ApplyEquipmentResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const hold = await getValidHold(holdId, session.user.id);
+  if (!hold) {
+    return { success: false, error: "Hold not found or expired" };
+  }
+
+  if (picks.length === 0) {
+    await db.slotHold.update({
+      where: { id: holdId },
+      data: {
+        // Prisma typings require the explicit DbNull sentinel for a
+        // nullable Json column reset; plain `null` is rejected.
+        equipmentSelection: Prisma.DbNull,
+        equipmentTotalAmount: null,
+      },
+    });
+    return { success: true, totalPaise: 0 };
+  }
+
+  // Validate quantity bounds and dedupe by equipmentId.
+  const byId = new Map<string, number>();
+  for (const p of picks) {
+    if (!p.equipmentId || !Number.isInteger(p.quantity) || p.quantity <= 0) {
+      return { success: false, error: "Invalid equipment selection" };
+    }
+    byId.set(p.equipmentId, (byId.get(p.equipmentId) ?? 0) + p.quantity);
+  }
+
+  // Fetch each item to re-derive its current price + label.
+  const items = await db.equipment.findMany({
+    where: {
+      id: { in: Array.from(byId.keys()) },
+      isActive: true,
+      isCustomerSelectable: true,
+    },
+  });
+  if (items.length !== byId.size) {
+    return { success: false, error: "One of those items is no longer available" };
+  }
+
+  const snapshot = items.map((eq) => {
+    const quantity = byId.get(eq.id) ?? 0;
+    const totalPrice = eq.pricePerHour * quantity; // paise
+    return {
+      equipmentId: eq.id,
+      name: eq.name,
+      quantity,
+      priceEach: eq.pricePerHour,
+      totalPrice,
+    };
+  });
+  const totalPaise = snapshot.reduce((sum, e) => sum + e.totalPrice, 0);
+  // Persist as ₹ on the hold (existing fields like discountAmount use
+  // rupees end-to-end) — convert paise → rupees with round to avoid
+  // fractional ₹ leaking into the booking total.
+  const totalRupees = Math.round(totalPaise / 100);
+
+  await db.slotHold.update({
+    where: { id: holdId },
+    data: {
+      equipmentSelection: snapshot as unknown as Prisma.InputJsonValue,
+      equipmentTotalAmount: totalRupees,
+    },
+  });
+
+  return { success: true, totalPaise };
 }
 
 // ─── Momentum Points redemption (same carrier pattern as the coupon) ──
