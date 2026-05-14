@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 
 /**
  * Top-of-page thin progress bar that surfaces "navigation in
@@ -19,13 +19,32 @@ import { usePathname } from "next/navigation";
  * matches the dark/emerald theme exactly, and the component is
  * <100 lines so the maintenance burden is real-zero.
  */
+/**
+ * Outer wrapper so `useSearchParams()` lives inside a Suspense
+ * boundary — Next requires this in the App Router or the build
+ * complains loudly when the hook is used anywhere outside one.
+ */
 export function NavLoader() {
+  return (
+    <Suspense fallback={null}>
+      <NavLoaderInner />
+    </Suspense>
+  );
+}
+
+function NavLoaderInner() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Composite key — pathname alone misses same-path-different-query
+  // navigations (e.g. /admin/bookings?status=PENDING → ?status=CONFIRMED,
+  // or /reports?tab=alerts → ?tab=config). Without this, `finish()`
+  // never fires on those clicks and the bar gets stuck at 90%.
+  const navKey = `${pathname}?${searchParams?.toString() ?? ""}`;
   const [progress, setProgress] = useState(0);
   const [visible, setVisible] = useState(false);
   const trickleRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finishRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPathRef = useRef<string | null>(null);
+  const lastNavKeyRef = useRef<string | null>(null);
 
   // Capture-phase click listener so we catch the click BEFORE Next's
   // <Link> handler runs the actual navigation. Filter to internal
@@ -74,18 +93,19 @@ export function NavLoader() {
     };
   }, []);
 
-  // Finish the bar whenever the pathname actually changes. Skip the
-  // initial mount so a fresh page load doesn't flash the bar.
+  // Finish the bar whenever the pathname OR query string actually
+  // changes. Skip the initial mount so a fresh page load doesn't
+  // flash the bar.
   useEffect(() => {
-    if (lastPathRef.current === null) {
-      lastPathRef.current = pathname;
+    if (lastNavKeyRef.current === null) {
+      lastNavKeyRef.current = navKey;
       return;
     }
-    if (lastPathRef.current !== pathname) {
-      lastPathRef.current = pathname;
+    if (lastNavKeyRef.current !== navKey) {
+      lastNavKeyRef.current = navKey;
       finish();
     }
-  }, [pathname]);
+  }, [navKey]);
 
   function start() {
     if (finishRef.current) {

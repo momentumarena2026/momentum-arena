@@ -398,13 +398,21 @@ export default async function Home() {
         {upcomingBookings.length > 0 && (
           <section className="py-10 md:py-12">
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl md:text-2xl font-bold text-white">
+              {/* Header row — kept on a single line at every breakpoint.
+                  Michroma is a wide font, so on a 375px-wide phone with
+                  px-4 (32px) padding the available width is ~343px. The
+                  heading drops to text-sm there (~14px Michroma renders
+                  "Your upcoming bookings" at ~245px); both heading and
+                  the "See all" affordance get `whitespace-nowrap` so
+                  flex can't split them, and `shrink-0` on the link
+                  prevents the heading from squeezing it. */}
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-sm sm:text-xl md:text-2xl font-bold text-white whitespace-nowrap">
                   Your upcoming bookings
                 </h2>
                 <Link
                   href="/bookings"
-                  className="inline-flex items-center gap-1 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
                 >
                   See all
                   <ArrowRight className="h-3.5 w-3.5" />
