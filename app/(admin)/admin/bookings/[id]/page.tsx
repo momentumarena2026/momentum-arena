@@ -7,7 +7,12 @@ import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote, Ch
 import { MarkCollectedButton } from "./mark-collected-button";
 import { EditSplitButton } from "./edit-split-button";
 import { AdminBookingActions } from "./admin-actions";
+import { EquipmentEditor } from "./equipment-editor";
 import { BookingEditHistory } from "@/components/admin/booking-edit-history";
+import {
+  getBookingEquipmentSnapshot,
+  listEquipmentForAdmin,
+} from "@/actions/admin-equipment-rental";
 
 export default async function AdminBookingDetailPage({
   params,
@@ -71,6 +76,16 @@ export default async function AdminBookingDetailPage({
     select: { id: true, label: true, size: true, position: true, sport: true },
     orderBy: [{ sport: "asc" }, { position: "asc" }],
   });
+
+  // Equipment editor needs (a) the current rentals + recomputed totals
+  // and (b) the catalog of items the admin may add. Fetch both in
+  // parallel; the catalog stays empty for sport/category combos with
+  // nothing rentable, in which case the editor renders a "no items
+  // available" hint.
+  const [equipmentSnapshot, equipmentCatalog] = await Promise.all([
+    getBookingEquipmentSnapshot(booking.id),
+    listEquipmentForAdmin(booking.id),
+  ]);
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
@@ -470,6 +485,24 @@ export default async function AdminBookingDetailPage({
           <p className="text-sm text-zinc-500">No payment recorded</p>
         )}
       </div>
+
+      {/* Equipment editor — admins can add/remove rentals after the
+          booking was created. Always rendered: even when the catalog
+          is empty the editor surfaces existing rentals or an empty-
+          state message, which is cleaner than hiding the section. */}
+      <EquipmentEditor
+        bookingId={booking.id}
+        initialRentals={equipmentSnapshot.rentals}
+        catalog={equipmentCatalog.map((c) => ({
+          id: c.id,
+          name: c.name,
+          pricePerUnitPaise: c.pricePerUnitPaise,
+          category: c.category,
+        }))}
+        initialEquipmentTotalRupees={equipmentSnapshot.equipmentTotalRupees}
+        initialBookingTotalRupees={equipmentSnapshot.bookingTotalRupees}
+        paymentAmountRupees={booking.payment?.amount ?? null}
+      />
 
       {/* Admin Actions — hosts the Edit / Cancel / status-change
           controls. Tagged with #admin-actions so external "Edit"
