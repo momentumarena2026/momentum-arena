@@ -6,8 +6,13 @@ import {
   MdSportsSoccer,
   MdSportsTennis,
 } from "react-icons/md";
+import { ArrowRight, Calendar, ChevronRight, Clock } from "lucide-react";
 import { LoginButton } from "@/components/login-modal";
 import { HomepageSportTracker, HomepageCafeTracker, HomepageCallTracker, HomepageDirectionsTracker } from "@/components/homepage-tracker";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { SPORT_INFO, customerFacingCourtLabel, formatHoursAsRanges } from "@/lib/court-config";
+import { formatBookingDate, formatPrice } from "@/lib/pricing";
 
 const sports = [
   {
@@ -46,6 +51,40 @@ const sports = [
   },
 ];
 
+// Per-sport accent for the "Your upcoming bookings" cards. Mirrors
+// the dashboard SPORT_COLORS map so a signed-in user lands on the
+// home page with the same visual cues they get on /dashboard. Kept
+// locally instead of importing the dashboard's copy so the home
+// page is self-contained (it's an unauthenticated route).
+const UPCOMING_SPORT_COLORS: Record<
+  string,
+  { bg: string; border: string; text: string; glow: string }
+> = {
+  CRICKET: {
+    bg: "from-emerald-500/20 to-emerald-600/5",
+    border: "border-emerald-500/30 hover:border-emerald-400/50",
+    text: "text-emerald-400",
+    glow: "shadow-emerald-500/10",
+  },
+  FOOTBALL: {
+    bg: "from-blue-500/20 to-blue-600/5",
+    border: "border-blue-500/30 hover:border-blue-400/50",
+    text: "text-blue-400",
+    glow: "shadow-blue-500/10",
+  },
+  PICKLEBALL: {
+    bg: "from-yellow-500/20 to-yellow-600/5",
+    border: "border-yellow-500/30 hover:border-yellow-400/50",
+    text: "text-yellow-400",
+    glow: "shadow-yellow-500/10",
+  },
+};
+const UPCOMING_SPORT_ICONS: Record<string, React.ReactNode> = {
+  CRICKET: <MdSportsCricket className="h-5 w-5" />,
+  FOOTBALL: <MdSportsSoccer className="h-5 w-5" />,
+  PICKLEBALL: <MdSportsTennis className="h-5 w-5" />,
+};
+
 const facilities = [
   {
     icon: "🏟️",
@@ -79,7 +118,49 @@ const facilities = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  // Pull the signed-in user's next few CONFIRMED bookings so the
+  // home page mirrors the mobile RN HomeScreen's "Your upcoming
+  // bookings" strip — same shape, same per-sport accent, same
+  // "See all" affordance pointing at the bookings list.
+  //
+  // auth() is allowed to throw on misconfigured envs (e.g. preview
+  // deploys without NEXTAUTH_SECRET); we swallow rather than break
+  // the public landing page.
+  let upcomingBookings: Array<{
+    id: string;
+    date: Date;
+    totalAmount: number;
+    wasBookedAsHalfCourt: boolean;
+    courtConfig: { sport: string; label: string };
+    slots: { startHour: number }[];
+  }> = [];
+  try {
+    const session = await auth();
+    if (session?.user?.id) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      upcomingBookings = await db.booking.findMany({
+        where: {
+          userId: session.user.id,
+          status: "CONFIRMED",
+          date: { gte: today },
+        },
+        include: {
+          courtConfig: { select: { sport: true, label: true } },
+          slots: {
+            select: { startHour: true },
+            orderBy: { startHour: "asc" },
+          },
+        },
+        orderBy: { date: "asc" },
+        take: 3,
+      });
+    }
+  } catch {
+    // Anonymous / auth misconfigured — leave the section hidden.
+  }
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
@@ -309,6 +390,106 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* YOUR UPCOMING BOOKINGS — only renders for signed-in users
+            with at least one confirmed booking. Mirrors the mobile RN
+            HomeScreen section: header + "See all" link, first card
+            tinted with the sport's accent + "NEXT" pill. */}
+        {upcomingBookings.length > 0 && (
+          <section className="py-10 md:py-12">
+            <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl md:text-2xl font-bold text-white">
+                  Your upcoming bookings
+                </h2>
+                <Link
+                  href="/bookings"
+                  className="inline-flex items-center gap-1 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+                >
+                  See all
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+
+              <div className="space-y-2">
+                {upcomingBookings.map((booking, index) => {
+                  const sport = booking.courtConfig.sport;
+                  const sportInfo = SPORT_INFO[sport as keyof typeof SPORT_INFO];
+                  const accent =
+                    UPCOMING_SPORT_COLORS[sport] ?? UPCOMING_SPORT_COLORS.CRICKET;
+                  const sportIcon =
+                    UPCOMING_SPORT_ICONS[sport] ?? UPCOMING_SPORT_ICONS.CRICKET;
+                  const isNext = index === 0;
+
+                  return (
+                    <Link
+                      key={booking.id}
+                      href={`/book/confirmation?id=${booking.id}`}
+                      className={`group block rounded-xl border p-4 transition-all ${
+                        isNext
+                          ? `${accent.border} bg-gradient-to-r ${accent.bg} hover:shadow-lg ${accent.glow}`
+                          : "border-zinc-800/80 bg-zinc-900/60 hover:border-zinc-700"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`shrink-0 rounded-lg p-2 ${
+                            isNext
+                              ? "bg-white/5 ring-1 ring-white/10"
+                              : "bg-zinc-800"
+                          }`}
+                        >
+                          <span className={accent.text}>{sportIcon}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-white truncate">
+                              {sportInfo?.name ?? sport}
+                            </p>
+                            {isNext && (
+                              <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                                Next
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-zinc-500 truncate">
+                            {customerFacingCourtLabel(
+                              booking.courtConfig.label,
+                              booking.wasBookedAsHalfCourt,
+                            )}
+                          </p>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-1">
+                          <span className={`text-sm font-bold ${accent.text}`}>
+                            {formatPrice(booking.totalAmount)}
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-zinc-700 group-hover:text-zinc-400 group-hover:translate-x-0.5 transition-all" />
+                        </div>
+                      </div>
+
+                      <div className="mt-2 ml-[44px] flex items-center gap-4 text-xs text-zinc-400">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3 shrink-0" />
+                          {formatBookingDate(booking.date, {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          })}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3 shrink-0" />
+                          {formatHoursAsRanges(
+                            booking.slots.map((s) => s.startHour),
+                          )}
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* SPORTS SECTION */}
         <section id="sports" className="py-16 md:py-24 scroll-mt-16">
