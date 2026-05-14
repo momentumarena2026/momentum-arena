@@ -321,14 +321,24 @@ export function CheckoutClient({
     }
   };
 
-  // PhonePe: redirect-based flow
+  // PhonePe: redirect-based flow.
+  //
+  // CRITICAL: always send the FULL `payableAmount` as overrideAmount,
+  // even when isAdvance is true. The /api/phonepe/initiate (and
+  // /api/razorpay/create-order) routes already apply
+  // `Math.ceil(amount * 0.5)` when isAdvance is set. Previously this
+  // client pre-halved the amount via `advanceAmount`, so the server
+  // halved it AGAIN — customers paying the "50% Advance" tile ended
+  // up paying 25%, with the missing 25% silently added to the
+  // collect-at-venue total. Mobile already sends the full payable
+  // and was unaffected; keep the contract consistent across clients.
   const handlePhonePePayment = async (isAdvance = false) => {
     const initAmount = isAdvance ? advanceAmount : payableAmount;
     trackPaymentInitiated("PHONEPE", initAmount, holdId);
     const res = await fetch("/api/phonepe/initiate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ holdId, isAdvance, overrideAmount: initAmount }),
+      body: JSON.stringify({ holdId, isAdvance, overrideAmount: payableAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
@@ -338,14 +348,15 @@ export function CheckoutClient({
     window.location.href = data.redirectUrl;
   };
 
-  // Razorpay: modal-based flow
+  // Razorpay: modal-based flow. See the PhonePe comment above — same
+  // contract, the server halves the amount when isAdvance is set.
   const handleRazorpayPayment = async (isAdvance = false) => {
     const initAmount = isAdvance ? advanceAmount : payableAmount;
     trackPaymentInitiated("RAZORPAY", initAmount, holdId);
     const res = await fetch("/api/razorpay/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ holdId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance, overrideAmount: initAmount }),
+      body: JSON.stringify({ holdId, offerId: isAdvance ? undefined : razorpayOfferId, isAdvance, overrideAmount: payableAmount }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed"); return; }
