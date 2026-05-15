@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { formatHoursAsRanges } from "@/lib/court-config";
+import { formatSlotsAsRanges } from "@/lib/court-config";
 import {
   CheckCircle2,
   Clock,
@@ -20,6 +20,11 @@ import {
 
 interface BookingSlot {
   startHour: number;
+  // Optional: bowling-machine slots set startMinute=0/30 +
+  // durationMinutes=30. Hourly bookings omit both (treated as
+  // startMinute=0, durationMinutes=60).
+  startMinute?: number | null;
+  durationMinutes?: number | null;
   price: number;
 }
 
@@ -260,7 +265,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
             <span>{formatDate(booking.date)}</span>
             <span className="text-zinc-700">·</span>
             <span className="font-mono text-zinc-500">
-              {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
+              {formatSlotsAsRanges(booking.slots)}
             </span>
           </div>
         </div>
@@ -272,7 +277,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
           {formatDate(booking.date)}
         </p>
         <p className="text-xs text-zinc-500 font-mono mt-0.5">
-          {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
+          {formatSlotsAsRanges(booking.slots)}
         </p>
       </div>
 

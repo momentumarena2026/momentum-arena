@@ -334,7 +334,12 @@ export default async function AdminBookingsPage({
               label: b.courtConfig.label,
               size: b.courtConfig.size,
             },
-            slots: b.slots.map((s) => ({ startHour: s.startHour, price: s.price })),
+            slots: b.slots.map((s) => ({
+              startHour: s.startHour,
+              startMinute: s.startMinute,
+              durationMinutes: s.durationMinutes,
+              price: s.price,
+            })),
             payment: b.payment ? {
               status: b.payment.status,
               method: b.payment.method,
