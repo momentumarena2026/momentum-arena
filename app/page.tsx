@@ -301,6 +301,12 @@ export default async function Home() {
               >
                 ☕ Cafe
               </Link>
+              <Link
+                href="/shop"
+                className="text-base font-semibold text-zinc-300 hover:text-emerald-400 transition flex items-center gap-2"
+              >
+                🛍️ Shop
+              </Link>
             </div>
             <LoginButton />
           </div>
