@@ -281,13 +281,22 @@ export async function applyEquipmentSelectionToHold(
     return { success: false, error: "One of those items is no longer available" };
   }
 
+  // Rental is per-slot — multiply by the hold's slot count so a
+  // customer who picked 3 × 30-min bowling slots pays 3× the rental
+  // (₹100 rate → ₹300), and a 2-hour cricket booking pays 2× the
+  // rate. The slot count is `hold.hours.length` for both flows;
+  // bowling-machine holds carry the same array length even though
+  // each slot is 30 minutes (parallel `startMinutes` distinguishes
+  // the half).
+  const slotCount = Math.max(1, hold.hours.length);
   const snapshot = items.map((eq) => {
     const quantity = byId.get(eq.id) ?? 0;
-    const totalPrice = eq.pricePerHour * quantity; // paise
+    const totalPrice = eq.pricePerHour * quantity * slotCount; // paise
     return {
       equipmentId: eq.id,
       name: eq.name,
       quantity,
+      slotCount,
       priceEach: eq.pricePerHour,
       totalPrice,
     };

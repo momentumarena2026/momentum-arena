@@ -147,14 +147,25 @@ export function CheckoutScreen() {
     }
   }, [hold]);
 
+  // Rental is per-slot — scale by the hold's slot count so a
+  // 3-slot booking with a ₹100/slot rental shows ₹300 here.
+  // Matches the server-side multiplier in applyEquipmentSelectionToHold.
+  const rentalMultiplier = useMemo(
+    () => Math.max(1, hold?.hours?.length ?? 1),
+    [hold?.hours],
+  );
+
   // Compute rental total from the catalog the server gave us so the UI
   // line item matches whatever the server will recompute on commit.
   const equipmentTotalRupees = useMemo(() => {
     return Array.from(equipmentIds).reduce((sum, id) => {
       const opt = equipmentOptions.find((o) => o.id === id);
-      return sum + (opt ? Math.round(opt.pricePaise / 100) : 0);
+      return (
+        sum +
+        (opt ? Math.round(opt.pricePaise / 100) * rentalMultiplier : 0)
+      );
     }, 0);
-  }, [equipmentIds, equipmentOptions]);
+  }, [equipmentIds, equipmentOptions, rentalMultiplier]);
 
   const payableAmount = Math.max(
     0,
@@ -878,19 +889,22 @@ export function CheckoutScreen() {
                         <Check size={14} color={colors.primaryForeground} />
                       ) : null}
                     </View>
-                    <Text
-                      variant="small"
-                      color={colors.foreground}
-                      style={styles.equipmentName}
-                    >
-                      {opt.name}
-                    </Text>
+                    <View style={styles.equipmentName}>
+                      <Text variant="small" color={colors.foreground}>
+                        {opt.name}
+                      </Text>
+                      {rentalMultiplier > 1 ? (
+                        <Text variant="tiny" color={colors.zinc500}>
+                          {formatRupees(priceRupees)} × {rentalMultiplier} slots
+                        </Text>
+                      ) : null}
+                    </View>
                     <Text
                       variant="small"
                       weight="600"
                       color={checked ? colors.emerald400 : colors.zinc400}
                     >
-                      +{formatRupees(priceRupees)}
+                      +{formatRupees(priceRupees * rentalMultiplier)}
                     </Text>
                   </Pressable>
                 );

@@ -237,6 +237,11 @@ export default async function CheckoutPage({
           priceRupees: Math.round(e.pricePaise / 100),
           imageUrl: e.imageUrl,
         }))}
+        // Slot count = number of BookingSlot rows on the hold. The
+        // checkout client multiplies the rental rate by this so a
+        // 3-slot booking shows ₹300 for a ₹100/slot rental. Server
+        // applies the same multiplier on commit.
+        slotCount={Math.max(1, hold.hours.length)}
       />
     </div>
   );
