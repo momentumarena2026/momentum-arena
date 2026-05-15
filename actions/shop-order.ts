@@ -57,12 +57,16 @@ interface OrderForRazorpay {
  */
 export async function placeCustomerOrder(
   method: "RAZORPAY" | "UPI_QR" | "CASH",
+  userIdOverride?: string,
 ): Promise<OrderResult> {
-  const session = await auth();
-  if (!session?.user?.id) {
+  let userId: string | undefined = userIdOverride;
+  if (!userId) {
+    const session = await auth();
+    userId = session?.user?.id;
+  }
+  if (!userId) {
     return { success: false, error: "Please sign in to place an order." };
   }
-  const userId = session.user.id;
 
   const cart = await getCartForUser(userId);
   const availableLines = cart.lines.filter((l) => !l.unavailable && l.quantity > 0);
@@ -167,12 +171,17 @@ export async function placeCustomerOrder(
 /** Read-side helper — used by /api/shop/razorpay/create-order. */
 export async function getOrderForRazorpay(
   orderId: string,
+  userIdOverride?: string,
 ): Promise<OrderForRazorpay | null> {
-  const session = await auth();
-  if (!session?.user?.id) return null;
+  let userId: string | undefined = userIdOverride;
+  if (!userId) {
+    const session = await auth();
+    userId = session?.user?.id;
+  }
+  if (!userId) return null;
 
   const order = await db.productOrder.findFirst({
-    where: { id: orderId, userId: session.user.id, status: "PENDING" },
+    where: { id: orderId, userId, status: "PENDING" },
     select: { id: true, totalPaise: true },
   });
   if (!order) return null;
@@ -189,13 +198,18 @@ export async function confirmOrderAfterRazorpay(
   razorpayPaymentId: string,
   razorpayOrderId: string,
   razorpaySignature: string,
+  userIdOverride?: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const session = await auth();
-  if (!session?.user?.id) {
+  let userId: string | undefined = userIdOverride;
+  if (!userId) {
+    const session = await auth();
+    userId = session?.user?.id;
+  }
+  if (!userId) {
     return { success: false, error: "Unauthorized" };
   }
   const order = await db.productOrder.findFirst({
-    where: { id: orderId, userId: session.user.id },
+    where: { id: orderId, userId },
     include: { payment: true },
   });
   if (!order) return { success: false, error: "Order not found" };
@@ -235,15 +249,20 @@ export async function confirmOrderAfterRazorpay(
 export async function cancelOrder(
   orderId: string,
   reason: string,
+  userIdOverride?: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  let userId: string | undefined = userIdOverride;
+  if (!userId) {
+    const session = await auth();
+    userId = session?.user?.id;
+  }
+  if (!userId) return { success: false, error: "Unauthorized" };
 
   // Customer can only cancel their own PENDING orders. Admins use
   // the separate admin path which calls this same logic via
   // adminCancelOrder so the actor-id is captured in the audit.
   const order = await db.productOrder.findFirst({
-    where: { id: orderId, userId: session.user.id },
+    where: { id: orderId, userId },
     include: { items: true },
   });
   if (!order) return { success: false, error: "Order not found" };
@@ -512,11 +531,18 @@ export async function placeAdminOrder(args: {
 
 // ─── Read helpers ─────────────────────────────────────────────────────
 
-export async function getOrderForCustomer(orderId: string) {
-  const session = await auth();
-  if (!session?.user?.id) return null;
+export async function getOrderForCustomer(
+  orderId: string,
+  userIdOverride?: string,
+) {
+  let userId: string | undefined = userIdOverride;
+  if (!userId) {
+    const session = await auth();
+    userId = session?.user?.id;
+  }
+  if (!userId) return null;
   return db.productOrder.findFirst({
-    where: { id: orderId, userId: session.user.id },
+    where: { id: orderId, userId },
     include: {
       items: { include: { product: true } },
       payment: true,
@@ -524,11 +550,15 @@ export async function getOrderForCustomer(orderId: string) {
   });
 }
 
-export async function listMyOrders() {
-  const session = await auth();
-  if (!session?.user?.id) return [];
+export async function listMyOrders(userIdOverride?: string) {
+  let userId: string | undefined = userIdOverride;
+  if (!userId) {
+    const session = await auth();
+    userId = session?.user?.id;
+  }
+  if (!userId) return [];
   return db.productOrder.findMany({
-    where: { userId: session.user.id },
+    where: { userId },
     include: { items: true, payment: true },
     orderBy: { createdAt: "desc" },
     take: 50,
