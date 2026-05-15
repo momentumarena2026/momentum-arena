@@ -2037,6 +2037,16 @@ export async function adminEditBookingSlots(
       }
     });
 
+    // Slot count just changed — rental totals on every EquipmentRental
+    // attached to this booking are still computed against the OLD slot
+    // count. Re-price them so the booking total reflects the new
+    // multiplier (e.g. 2 slots → 3 slots bumps a ₹100/slot rental
+    // from ₹200 to ₹300).
+    const { repriceBookingEquipment } = await import(
+      "@/actions/admin-equipment-rental"
+    );
+    await repriceBookingEquipment(bookingId);
+
     await revalidateBookingPaths(bookingId);
 
     // Compute the slots that were FREED on the old date so we can

@@ -72,14 +72,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Rental scales by slot count — same rule as the web hold path.
+  // Mirrors actions/booking.ts so the customer sees the same total
+  // no matter which surface they checkout from.
+  const slotCount = Math.max(1, hold.hours.length);
   const snapshot = items.map((eq) => {
     const quantity = byId.get(eq.id) ?? 0;
     return {
       equipmentId: eq.id,
       name: eq.name,
       quantity,
+      slotCount,
       priceEach: eq.pricePerHour,
-      totalPrice: eq.pricePerHour * quantity,
+      totalPrice: eq.pricePerHour * quantity * slotCount,
     };
   });
   const totalPaise = snapshot.reduce((s, e) => s + e.totalPrice, 0);

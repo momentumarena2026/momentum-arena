@@ -124,6 +124,46 @@ export async function getBookingEquipmentSnapshot(
  * a row, increment its quantity (and re-price totalPrice from the
  * live catalog). Otherwise insert a fresh row.
  */
+/**
+ * Number of BookingSlot rows attached to a booking. Used as the
+ * scaling multiplier on rental rates — a 3-slot booking pays 3×
+ * the rental rate per item per quantity. Returns at least 1 so a
+ * pathological zero-slot row never zeroes out the bill.
+ */
+async function slotCountFor(bookingId: string): Promise<number> {
+  const count = await db.bookingSlot.count({ where: { bookingId } });
+  return Math.max(1, count);
+}
+
+/**
+ * Re-price every EquipmentRental row attached to a booking against
+ * the current slot count + live Equipment.pricePerHour. Call this
+ * after an admin slot edit so the rental total scales with the new
+ * slot count. Also refreshes Booking.equipmentTotalAmount + the
+ * booking grand total via `recomputeBookingTotals`.
+ *
+ * Idempotent — safe to call from any path that mutates BookingSlots.
+ */
+export async function repriceBookingEquipment(bookingId: string): Promise<void> {
+  const slots = await slotCountFor(bookingId);
+  const rentals = await db.equipmentRental.findMany({
+    where: { bookingId },
+    include: { equipment: { select: { pricePerHour: true } } },
+  });
+  if (rentals.length === 0) return;
+  await db.$transaction(
+    rentals.map((r) =>
+      db.equipmentRental.update({
+        where: { id: r.id },
+        data: {
+          totalPrice: r.equipment.pricePerHour * r.quantity * slots,
+        },
+      }),
+    ),
+  );
+  await recomputeBookingTotals(bookingId);
+}
+
 export async function addBookingEquipment(
   bookingId: string,
   equipmentId: string,
@@ -142,6 +182,7 @@ export async function addBookingEquipment(
     return { success: false, error: "Equipment not available" };
   }
 
+  const slots = await slotCountFor(bookingId);
   const existing = await db.equipmentRental.findFirst({
     where: { bookingId, equipmentId },
   });
@@ -152,7 +193,7 @@ export async function addBookingEquipment(
       where: { id: existing.id },
       data: {
         quantity: newQty,
-        totalPrice: equipment.pricePerHour * newQty,
+        totalPrice: equipment.pricePerHour * newQty * slots,
       },
     });
   } else {
@@ -161,7 +202,7 @@ export async function addBookingEquipment(
         bookingId,
         equipmentId,
         quantity,
-        totalPrice: equipment.pricePerHour * quantity,
+        totalPrice: equipment.pricePerHour * quantity * slots,
       },
     });
   }
@@ -222,11 +263,12 @@ export async function updateBookingEquipmentQuantity(
   if (quantity === 0) {
     await db.equipmentRental.delete({ where: { id: rentalId } });
   } else {
+    const slots = await slotCountFor(bookingId);
     await db.equipmentRental.update({
       where: { id: rentalId },
       data: {
         quantity,
-        totalPrice: rental.equipment.pricePerHour * quantity,
+        totalPrice: rental.equipment.pricePerHour * quantity * slots,
       },
     });
   }
