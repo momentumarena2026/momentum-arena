@@ -28,6 +28,8 @@ interface ProductRow {
   name: string;
   description: string | null;
   pricePaise: number;
+  /** Cost-of-goods per unit in paise. 0 means "margin unknown". */
+  costPaise: number;
   stockQuantity: number;
   lowStockThreshold: number;
   imageUrl: string | null;
@@ -54,6 +56,7 @@ interface ProductFormState {
   name: string;
   description: string;
   priceRupees: string;
+  costRupees: string;
   stockQuantity: string;
   lowStockThreshold: string;
   categoryId: string;
@@ -65,6 +68,7 @@ const EMPTY_FORM: ProductFormState = {
   name: "",
   description: "",
   priceRupees: "",
+  costRupees: "",
   stockQuantity: "",
   lowStockThreshold: "3",
   categoryId: "",
@@ -100,6 +104,7 @@ export function ProductsManager({ products, categories }: Props) {
       name: p.name,
       description: p.description ?? "",
       priceRupees: String(Math.round(p.pricePaise / 100)),
+      costRupees: p.costPaise > 0 ? String(Math.round(p.costPaise / 100)) : "",
       stockQuantity: String(p.stockQuantity),
       lowStockThreshold: String(p.lowStockThreshold),
       categoryId: p.categoryId ?? "",
@@ -111,12 +116,19 @@ export function ProductsManager({ products, categories }: Props) {
 
   function handleSave() {
     const pricePaise = Math.round(parseFloat(form.priceRupees || "0") * 100);
+    // Empty cost stays 0 (= "margin unknown"). Admins fill it in
+    // later when they want margin reporting on this product.
+    const costPaise = form.costRupees.trim() === ""
+      ? 0
+      : Math.round(parseFloat(form.costRupees) * 100);
     const stockQuantity = parseInt(form.stockQuantity || "0", 10);
     const lowStockThreshold = parseInt(form.lowStockThreshold || "0", 10);
 
     if (!form.name.trim()) return setError("Name is required");
     if (!Number.isFinite(pricePaise) || pricePaise <= 0)
       return setError("Price must be a positive number");
+    if (!Number.isFinite(costPaise) || costPaise < 0)
+      return setError("Cost must be a non-negative number");
     if (!Number.isFinite(stockQuantity) || stockQuantity < 0)
       return setError("Stock must be a non-negative integer");
 
@@ -127,6 +139,7 @@ export function ProductsManager({ products, categories }: Props) {
               name: form.name,
               description: form.description || null,
               pricePaise,
+              costPaise,
               lowStockThreshold,
               categoryId: form.categoryId || null,
               imageUrl: form.imageUrl,
@@ -135,6 +148,7 @@ export function ProductsManager({ products, categories }: Props) {
               name: form.name,
               description: form.description || null,
               pricePaise,
+              costPaise,
               stockQuantity,
               lowStockThreshold,
               categoryId: form.categoryId || null,
@@ -249,6 +263,8 @@ export function ProductsManager({ products, categories }: Props) {
               <th className="px-3 py-2">Product</th>
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2 text-right">Price</th>
+              <th className="px-3 py-2 text-right">Cost</th>
+              <th className="px-3 py-2 text-right">Margin</th>
               <th className="px-3 py-2 text-right">Stock</th>
               <th className="px-3 py-2 text-right">Orders</th>
               <th className="px-3 py-2"></th>
@@ -257,7 +273,7 @@ export function ProductsManager({ products, categories }: Props) {
           <tbody className="divide-y divide-zinc-800">
             {products.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={8} className="px-3 py-6 text-center text-zinc-500">
                   No products yet. Click "New product" to add one.
                 </td>
               </tr>
@@ -300,6 +316,34 @@ export function ProductsManager({ products, categories }: Props) {
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-emerald-300">
                     {formatPrice(Math.round(p.pricePaise / 100))}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                    {p.costPaise > 0
+                      ? formatPrice(Math.round(p.costPaise / 100))
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {p.costPaise > 0 && p.pricePaise > 0 ? (
+                      (() => {
+                        const marginPaise = p.pricePaise - p.costPaise;
+                        const pct = Math.round(
+                          (marginPaise / p.pricePaise) * 100,
+                        );
+                        const colour =
+                          marginPaise < 0
+                            ? "text-red-400"
+                            : pct < 10
+                              ? "text-amber-400"
+                              : "text-emerald-300";
+                        return (
+                          <span className={colour}>
+                            {formatPrice(Math.round(marginPaise / 100))} ({pct}%)
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      <span className="text-zinc-600">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <span
@@ -475,6 +519,13 @@ function ProductForm({
             type="number"
             value={form.priceRupees}
             onChange={(v) => onChange({ ...form, priceRupees: v })}
+          />
+          <Field
+            label="Cost (₹) — optional"
+            type="number"
+            value={form.costRupees}
+            onChange={(v) => onChange({ ...form, costRupees: v })}
+            placeholder="What you paid per unit"
           />
           <Field
             label={isEditing ? "Stock (use stock adjust button to change)" : "Initial stock"}
