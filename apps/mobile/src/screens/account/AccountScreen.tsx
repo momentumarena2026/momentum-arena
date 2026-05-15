@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  ShoppingBag,
   Sparkles,
   User as UserIcon,
 } from "lucide-react-native";
