@@ -261,20 +261,39 @@ function NumberField({
   desc,
   value,
   onChange,
+  allowNegative = false,
 }: {
   label: string;
   desc?: string;
   value: number;
   onChange: (v: number) => void;
+  /** Defaults to false — every config field on this panel is a
+   *  non-negative integer (points, bps, hours, paise thresholds). */
+  allowNegative?: boolean;
 }) {
+  const safeValue = Number.isFinite(value)
+    ? allowNegative
+      ? value
+      : Math.max(0, value)
+    : 0;
   return (
     <label className="block">
       <span className="text-xs font-medium text-zinc-300">{label}</span>
       {desc && <span className="block text-[11px] text-zinc-600">{desc}</span>}
       <input
         type="number"
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(parseInt(e.target.value || "0", 10))}
+        // HTML attr — stops the spinner / arrow keys from dipping
+        // below zero on non-negative fields.
+        min={allowNegative ? undefined : 0}
+        value={safeValue}
+        onChange={(e) => {
+          const parsed = parseInt(e.target.value || "0", 10);
+          if (!Number.isFinite(parsed)) {
+            onChange(0);
+            return;
+          }
+          onChange(allowNegative ? parsed : Math.max(0, parsed));
+        }}
         className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
       />
     </label>
