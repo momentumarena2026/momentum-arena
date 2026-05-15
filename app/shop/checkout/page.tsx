@@ -34,7 +34,7 @@ export default async function ShopCheckoutPage() {
       </Link>
       <h1 className="mt-3 text-2xl font-bold text-white">Checkout</h1>
       <p className="mt-1 text-sm text-zinc-400">
-        Pay now and pick up at the venue. We'll text you when it's ready.
+        Pay now and pick up at the venue.
       </p>
 
       <CheckoutClient
