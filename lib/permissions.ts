@@ -18,6 +18,11 @@ export const ALL_PERMISSIONS = [
   "MANAGE_COUPONS",
   "MANAGE_EXPENSES",
   "MANAGE_PUSH",
+  // Shop module: catalog (products + categories + stock) and the
+  // orders queue + walk-in POS sale form. Kept as two so a venue
+  // can split "stock & pricing" duty from "front-desk sale" duty.
+  "MANAGE_SHOP_CATALOG",
+  "MANAGE_SHOP_ORDERS",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -44,6 +49,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_COUPONS: "Manage Unified Coupons",
   MANAGE_EXPENSES: "Manage Expenses",
   MANAGE_PUSH: "Manage Push Notifications",
+  MANAGE_SHOP_CATALOG: "Manage Shop Catalog",
+  MANAGE_SHOP_ORDERS: "Manage Shop Orders",
 };
 
 export function hasPermission(

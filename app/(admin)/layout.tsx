@@ -23,6 +23,9 @@ const allNavItems = [
   { href: "/admin/cafe-menu", label: "Menu", group: "Cafe", permission: "MANAGE_CAFE_MENU" },
   { href: "/admin/cafe-orders", label: "Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/cafe-live", label: "Live Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
+  { href: "/admin/products", label: "Products", group: "Shop", permission: "MANAGE_SHOP_CATALOG" },
+  { href: "/admin/product-orders", label: "Orders", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
+  { href: "/admin/pos", label: "Walk-in Sale", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
   { href: "/admin/coupons", label: "Coupons", group: "Promotions", permission: "MANAGE_COUPONS" },
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
@@ -36,7 +39,7 @@ const allNavItems = [
   { href: "/admin/razorpay", label: "Razorpay", group: "Settings", permission: "VIEW_RAZORPAY" },
 ];
 
-const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Promotions", "Operations", "Settings"];
+const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Operations", "Settings"];
 
 export default async function AdminLayout({
   children,
