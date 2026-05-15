@@ -19,7 +19,7 @@ import { PhoneScreen } from "../screens/auth/PhoneScreen";
 import { OtpScreen } from "../screens/auth/OtpScreen";
 import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
 import { AdminNavigator } from "./AdminNavigator";
-import { ShopStack } from "./ShopStack";
+import { ChatScreen } from "../screens/chat/ChatScreen";
 import type { RootStackParamList } from "./types";
 
 const navTheme = {
@@ -219,17 +219,20 @@ export function RootNavigator() {
             animation: "slide_from_right",
           }}
         />
-        {/* Shop — separate fullscreen stack for the customer-facing
-            browsing → cart → checkout → order detail funnel. Lives
-            at the root so it can be opened from anywhere (home tile,
-            account screen) without nesting it under a single tab. */}
+        {/* Arena Assistant — was a tab, now a presented stack. Pops
+            from the Account screen tile and back-stacks to wherever
+            it was opened from. */}
         <Stack.Screen
-          name="Shop"
-          component={ShopStack}
+          name="Chat"
+          component={ChatScreen}
           options={{
-            headerShown: false,
-            presentation: "fullScreenModal",
+            title: "Arena Assistant",
+            presentation: "card",
             animation: "slide_from_right",
+            headerStyle: { backgroundColor: colors.background },
+            headerTitleStyle: { color: colors.foreground },
+            headerTintColor: colors.primary,
+            headerShadowVisible: false,
           }}
         />
       </Stack.Navigator>

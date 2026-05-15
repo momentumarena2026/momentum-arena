@@ -9,6 +9,7 @@ import {
   Clock,
   ArrowRight,
   History,
+  MessageCircle,
   Plus,
   RefreshCw,
   Zap,
@@ -269,6 +270,23 @@ export default async function DashboardPage() {
           <div className="flex-1">
             <p className="text-sm font-medium text-white">My Waitlist</p>
             <p className="text-xs text-zinc-600">Get notified when slots open</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
+        </Link>
+
+        {/* Chat moved here from the bottom-nav so it lives alongside
+            the other quick-actions instead of competing for a tab
+            slot with Shop. */}
+        <Link
+          href="/chat"
+          className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
+        >
+          <div className="rounded-lg bg-emerald-500/10 p-2">
+            <MessageCircle className="h-4 w-4 text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-white">Arena Assistant</p>
+            <p className="text-xs text-zinc-600">Ask anything about courts, hours, or your bookings</p>
           </div>
           <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
         </Link>

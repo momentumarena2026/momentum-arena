@@ -36,11 +36,11 @@ export type MainTabsParamList = {
   // they're picking a sport, not a date.
   Sports: NavigatorScreenParams<BookStackParamList>;
   Cafe: undefined;
+  // Shop sits at the 4th position — pickup-at-venue product catalog
+  // for items the customer can buy alongside or independently of a
+  // booking. Account stays on the right edge of the nav.
+  Shop: NavigatorScreenParams<ShopStackParamList>;
   Account: NavigatorScreenParams<AccountStackParamList>;
-  // Mirrors web's ChatNavButton — 5th tab opens the Arena Assistant
-  // chat (same chat-engine, full-screen on mobile instead of a
-  // floating widget).
-  Chat: undefined;
 };
 
 /**
@@ -60,11 +60,14 @@ export type ShopStackParamList = {
 
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabsParamList>;
-  Shop: NavigatorScreenParams<ShopStackParamList>;
   Phone: undefined;
   Otp: { phone: string };
   AdminLogin: undefined;
   AdminShell: NavigatorScreenParams<AdminTabsParamList>;
+  // Chat was a 5th tab pre-shop; moved here as a presented stack so
+  // it can still be opened from the Account screen tile without
+  // taking up a bottom-nav slot.
+  Chat: undefined;
 };
 
 /** Admin nav stacks live inside AdminShell — reachable only from the
