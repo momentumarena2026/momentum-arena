@@ -74,6 +74,9 @@ interface CheckoutClientProps {
     priceRupees: number;
     imageUrl: string | null;
   }>;
+  /** Number of BookingSlot rows on the hold. Rental rates are
+   *  per-slot — display total = priceRupees × slotCount. */
+  slotCount?: number;
 }
 
 export function CheckoutClient({
@@ -105,6 +108,7 @@ export function CheckoutClient({
   upiQrEnabled = true,
   advanceEnabled = true,
   equipmentOptions = [],
+  slotCount = 1,
 }: CheckoutClientProps) {
   const router = useRouter();
   // Default selection to the first method that's currently enabled so the
@@ -147,9 +151,14 @@ export function CheckoutClient({
   // booking, no need for a quantity stepper). Server is the source of
   // truth; we sync via applyEquipmentSelectionToHold on every toggle.
   const [equipmentIds, setEquipmentIds] = useState<Set<string>>(new Set());
+  // Rental rate is per-slot — scale by slotCount so a 3-slot
+  // booking with a ₹100/slot rental shows ₹300 here. Server-side
+  // applyEquipmentSelectionToHold uses the same multiplier when
+  // it writes the snapshot.
+  const rentalMultiplier = Math.max(1, slotCount);
   const equipmentTotalRupees = Array.from(equipmentIds).reduce((sum, id) => {
     const opt = equipmentOptions.find((o) => o.id === id);
-    return sum + (opt?.priceRupees ?? 0);
+    return sum + (opt?.priceRupees ?? 0) * rentalMultiplier;
   }, 0);
 
   // Final payable = slot total - all discounts + equipment rentals.
@@ -651,13 +660,20 @@ export function CheckoutClient({
                     onChange={() => toggleEquipment(opt.id)}
                     className="h-4 w-4 accent-emerald-500"
                   />
-                  <span className="flex-1 text-sm text-white">{opt.name}</span>
+                  <span className="flex-1 text-sm text-white">
+                    {opt.name}
+                    {rentalMultiplier > 1 ? (
+                      <span className="ml-1 text-[10px] text-zinc-500">
+                        ({formatPrice(opt.priceRupees)} × {rentalMultiplier} slots)
+                      </span>
+                    ) : null}
+                  </span>
                   <span
                     className={`text-sm font-semibold ${
                       checked ? "text-emerald-300" : "text-zinc-400"
                     }`}
                   >
-                    +{formatPrice(opt.priceRupees)}
+                    +{formatPrice(opt.priceRupees * rentalMultiplier)}
                   </span>
                 </label>
               );
