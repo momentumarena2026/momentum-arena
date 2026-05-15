@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Save, Trash2 } from "lucide-react";
 import {
+  setBowlingMachineEnabled,
   setBowlingMachineHalf,
   updateBowlingMachineWindows,
   type BowlingHalf,
@@ -45,6 +46,7 @@ export function BowlingMachineEditor({ settings }: { settings: Settings }) {
   const router = useRouter();
   const [halfPending, startHalfTransition] = useTransition();
   const [windowsPending, startWindowsTransition] = useTransition();
+  const [enabledPending, startEnabledTransition] = useTransition();
 
   // Local editable copy of the window list. Re-seeded from the
   // server payload on initial mount; user edits stay local until
@@ -52,6 +54,20 @@ export function BowlingMachineEditor({ settings }: { settings: Settings }) {
   const [draftWindows, setDraftWindows] = useState<Window[]>(settings.windows);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // ─── Active toggle ────────────────────────────────────────────
+  function toggleEnabled(next: boolean) {
+    if (next === settings.isActive) return;
+    setError(null);
+    startEnabledTransition(async () => {
+      const r = await setBowlingMachineEnabled(next);
+      if (!r.success) {
+        setError(r.error ?? "Couldn't save");
+      } else {
+        router.refresh();
+      }
+    });
+  }
 
   // ─── Half toggle ──────────────────────────────────────────────
   function flipHalf(next: BowlingHalf) {
@@ -116,6 +132,47 @@ export function BowlingMachineEditor({ settings }: { settings: Settings }) {
 
   return (
     <div className="space-y-6">
+      {/* ── Master enable/disable toggle ──────────────────────── */}
+      <section
+        className={`rounded-xl border p-5 space-y-3 transition-colors ${
+          settings.isActive
+            ? "border-emerald-500/30 bg-emerald-500/5"
+            : "border-zinc-800 bg-zinc-900"
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+              Bowling Machine practice
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              {settings.isActive
+                ? "Active — customers see the tile on /book/cricket and can place new bookings."
+                : "Disabled — the tile is hidden from customers. Existing bookings stay visible to admins."}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings.isActive}
+            disabled={enabledPending}
+            onClick={() => toggleEnabled(!settings.isActive)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
+              settings.isActive ? "bg-emerald-500" : "bg-zinc-700"
+            }`}
+          >
+            <span className="sr-only">
+              {settings.isActive ? "Disable" : "Enable"} bowling machine
+            </span>
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                settings.isActive ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      </section>
+
       {/* ── Half-court picker ─────────────────────────────────── */}
       <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-3">
         <div>

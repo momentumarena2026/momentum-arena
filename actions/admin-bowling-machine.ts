@@ -162,6 +162,39 @@ export async function getBowlingMachineSettings() {
 }
 
 /**
+ * Toggle the bowling-machine court on/off. Reuses CourtConfig.isActive
+ * — the same flag every other court uses — so the customer-facing
+ * /book/cricket page automatically hides the tile when off (the
+ * `listConfigsForSport` query already filters on isActive). Admin
+ * pages still show the row so staff can flip it back on.
+ */
+export async function setBowlingMachineEnabled(enabled: boolean) {
+  await requireAdmin();
+
+  const config = await db.courtConfig.findFirst({
+    where: { category: "BOWLING_MACHINE" },
+    select: { id: true },
+  });
+  if (!config) {
+    return { success: false, error: "Bowling-machine court not configured" };
+  }
+
+  await db.courtConfig.update({
+    where: { id: config.id },
+    data: { isActive: enabled },
+  });
+
+  // Every surface that consumes the customer-facing court list needs
+  // a fresh render so the tile appears / disappears immediately.
+  revalidatePath("/admin/sports/bowling-machine");
+  revalidatePath("/admin/sports");
+  revalidatePath("/admin/bookings/calendar");
+  revalidatePath("/admin/bookings");
+  revalidatePath("/book/cricket");
+  return { success: true };
+}
+
+/**
  * Swap the bowling-machine court's zones to occupy either the LEFT
  * or RIGHT physical half. Updates the CourtConfig.zones list in
  * place; the existing zone-overlap logic in the booking grid then
