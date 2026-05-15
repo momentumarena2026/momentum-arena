@@ -17,6 +17,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  ShoppingBag,
   Sparkles,
   User as UserIcon,
 } from "lucide-react-native";
@@ -62,6 +63,9 @@ type RootNav = NativeStackNavigationProp<RootStackParamList>;
 export function AccountScreen() {
   const { state, signOut } = useAuth();
   const navigation = useNavigation<Nav>();
+  // Walk up to the root navigator so we can pop into the fullscreen
+  // Shop stack (which is a sibling of the tab navigator).
+  const rootNavigation = navigation.getParent()?.getParent<RootNav>();
   const user = state.status === "signedIn" ? state.user : null;
 
   // Dashboard gives us the upcoming sessions list that web renders in the
@@ -181,6 +185,12 @@ export function AccountScreen() {
             <ChevronRight size={16} color={colors.emerald400} />
           </Pressable>
         )}
+        <ActionTile
+          icon={<ShoppingBag size={20} color={colors.emerald400} />}
+          title="Shop"
+          subtitle="Gear, balls, kit · pickup at venue"
+          onPress={() => rootNavigation?.navigate("Shop", { screen: "ShopHome" })}
+        />
         <ActionTile
           icon={<History size={20} color={colors.zinc400} />}
           title="Booking History"
