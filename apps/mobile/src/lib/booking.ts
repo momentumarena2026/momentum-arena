@@ -189,12 +189,17 @@ export const bookingApi = {
   ) => api.post<LockResult>("/api/mobile/booking/lock", body),
 
   /** Bowling-machine availability — 30-minute slot grid for the given
-   *  config + date. Mirrors `availability` shape but with `minute`. */
+   *  config + date. Mirrors `availability` shape but with `minute`.
+   *  Hits the public web endpoint (no auth header) so anonymous
+   *  browsing works the same way it does for the cricket / football
+   *  slot pickers — the customer signs in only at the "Continue"
+   *  step on the picker footer. */
   bowlingAvailability: (configId: string, date: string) =>
     api.get<{ slots: BowlingSlotAvailability[] }>(
-      `/api/mobile/availability/bowling-machine?configId=${encodeURIComponent(
-        configId
-      )}&date=${encodeURIComponent(date)}`
+      `/api/availability/bowling-machine?configId=${encodeURIComponent(
+        configId,
+      )}&date=${encodeURIComponent(date)}`,
+      { auth: false },
     ),
 
   /** Customer-facing equipment options for a sport/category. */
