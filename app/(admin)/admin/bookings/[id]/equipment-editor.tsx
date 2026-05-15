@@ -195,12 +195,16 @@ export function EquipmentEditor({
       )}
 
       {catalog.length > 0 ? (
-        <div className="flex items-center gap-2 pt-1">
+        // `min-w-0` + `w-full` on the row so `flex-1` on the select
+        // actually shrinks below its option-text intrinsic width on
+        // narrow viewports. Without these the long item names spill
+        // past the card's right edge on mobile.
+        <div className="flex w-full min-w-0 items-center gap-2 pt-1">
           <select
             value={selectedAdd}
             onChange={(e) => setSelectedAdd(e.target.value)}
             disabled={isPending}
-            className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+            className="min-w-0 flex-1 truncate rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
           >
             <option value="">Add an item…</option>
             {catalog.map((c) => (
