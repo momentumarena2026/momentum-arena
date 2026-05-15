@@ -99,6 +99,9 @@ export async function createProduct(data: {
   name: string;
   description?: string | null;
   pricePaise: number;
+  /** Optional cost-of-goods per unit in paise. Defaults to 0 if
+   *  omitted — analytics treats 0-cost rows as "margin unknown". */
+  costPaise?: number;
   stockQuantity: number;
   lowStockThreshold?: number;
   imageUrl?: string | null;
@@ -112,6 +115,14 @@ export async function createProduct(data: {
   if (!Number.isInteger(data.pricePaise) || data.pricePaise <= 0) {
     return { success: false, error: "Price must be a positive integer (paise)" };
   }
+  if (data.costPaise !== undefined) {
+    if (!Number.isInteger(data.costPaise) || data.costPaise < 0) {
+      return {
+        success: false,
+        error: "Cost must be a non-negative integer (paise)",
+      };
+    }
+  }
   if (!Number.isInteger(data.stockQuantity) || data.stockQuantity < 0) {
     return { success: false, error: "Stock must be a non-negative integer" };
   }
@@ -122,6 +133,7 @@ export async function createProduct(data: {
         name: data.name.trim(),
         description: data.description?.trim() || null,
         pricePaise: data.pricePaise,
+        costPaise: data.costPaise ?? 0,
         stockQuantity: data.stockQuantity,
         lowStockThreshold: data.lowStockThreshold ?? 3,
         imageUrl: data.imageUrl || null,
@@ -153,6 +165,7 @@ export async function updateProduct(
     name: string;
     description: string | null;
     pricePaise: number;
+    costPaise: number;
     lowStockThreshold: number;
     imageUrl: string | null;
     categoryId: string | null;
@@ -169,6 +182,14 @@ export async function updateProduct(
       return { success: false, error: "Price must be a positive integer (paise)" };
     }
   }
+  if (data.costPaise !== undefined) {
+    if (!Number.isInteger(data.costPaise) || data.costPaise < 0) {
+      return {
+        success: false,
+        error: "Cost must be a non-negative integer (paise)",
+      };
+    }
+  }
   if (data.name !== undefined && !data.name.trim()) {
     return { success: false, error: "Product name is required" };
   }
@@ -177,6 +198,7 @@ export async function updateProduct(
   if (data.name !== undefined) updateData.name = data.name.trim();
   if (data.description !== undefined) updateData.description = data.description?.trim() || null;
   if (data.pricePaise !== undefined) updateData.pricePaise = data.pricePaise;
+  if (data.costPaise !== undefined) updateData.costPaise = data.costPaise;
   if (data.lowStockThreshold !== undefined) updateData.lowStockThreshold = data.lowStockThreshold;
   if (data.categoryId !== undefined) updateData.categoryId = data.categoryId || null;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;

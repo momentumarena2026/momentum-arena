@@ -23,6 +23,7 @@ export default async function AdminProductsPage() {
           name: p.name,
           description: p.description,
           pricePaise: p.pricePaise,
+          costPaise: p.costPaise,
           stockQuantity: p.stockQuantity,
           lowStockThreshold: p.lowStockThreshold,
           imageUrl: p.imageUrl,
