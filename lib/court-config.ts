@@ -163,6 +163,56 @@ export function formatHoursAsRanges(hours: number[]): string {
     .join(", ");
 }
 
+// "5:30pm" / "5pm" — omits :00 minutes so hourly slots stay terse.
+function formatHourMinuteCompact(totalMinutes: number): string {
+  const h24 = Math.floor(totalMinutes / 60) % 24;
+  const m = totalMinutes % 60;
+  const ampm = h24 < 12 ? "am" : "pm";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, "0")}${ampm}`;
+}
+
+// Slot-aware range formatter that respects half-hour startMinutes
+// + per-slot durationMinutes (bowling-machine = 30, everything
+// else = 60). Consecutive slots whose end aligns with the next
+// start are merged into a single range, so a customer who picked
+// 4:30pm + 5:00pm 30-min slots sees "4:30pm - 5:30pm" instead of
+// the two ranges rendered separately.
+//
+// Falls back to startMinute=0 / duration=60 for legacy callers
+// that only pass `startHour`, which keeps the old behaviour intact
+// for hourly cricket/football bookings booked before Phase 1 of
+// the bowling-machine work.
+export function formatSlotsAsRanges(
+  slots: Array<{
+    startHour: number;
+    startMinute?: number | null;
+    durationMinutes?: number | null;
+  }>,
+): string {
+  if (slots.length === 0) return "";
+  const ranges: [number, number][] = slots
+    .map((s) => {
+      const startTotal = s.startHour * 60 + (s.startMinute ?? 0);
+      const duration = s.durationMinutes ?? 60;
+      return [startTotal, startTotal + duration] as [number, number];
+    })
+    .sort((a, b) => a[0] - b[0]);
+
+  const merged: [number, number][] = [];
+  for (const [start, end] of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && last[1] === start) {
+      last[1] = end;
+    } else {
+      merged.push([start, end]);
+    }
+  }
+  return merged
+    .map(([s, e]) => `${formatHourMinuteCompact(s)} - ${formatHourMinuteCompact(e)}`)
+    .join(", ");
+}
+
 /**
  * Customer-facing court label.
  *
