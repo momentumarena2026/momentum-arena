@@ -55,6 +55,10 @@ export type ShopStackParamList = {
   ShopHome: undefined;
   ShopCart: undefined;
   ShopCheckout: undefined;
+  // Customer's order history — every shop order they've placed.
+  // Reachable from the Account screen tile and from the order
+  // detail screen via the back-stack.
+  ShopOrders: undefined;
   ShopOrderDetail: { orderId: string };
 };
 
