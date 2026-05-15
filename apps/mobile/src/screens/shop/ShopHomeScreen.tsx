@@ -10,7 +10,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, ShoppingCart, X } from "lucide-react-native";
+import { Minus, Plus, ShoppingCart } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -89,13 +89,6 @@ export function ShopHomeScreen() {
               Pick up at the venue. No shipping.
             </Text>
           </View>
-          <Pressable
-            onPress={() => navigation.getParent()?.goBack()}
-            hitSlop={12}
-            style={styles.closeBtn}
-          >
-            <X size={18} color={colors.zinc400} />
-          </Pressable>
         </View>
 
         {productsQuery.isLoading ? (
@@ -311,12 +304,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["3"],
     marginBottom: spacing["2"],
-  },
-  closeBtn: {
-    padding: spacing["2"],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.zinc800,
   },
   loading: {
     marginTop: spacing["8"],
