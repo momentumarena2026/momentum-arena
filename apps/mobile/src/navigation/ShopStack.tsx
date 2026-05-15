@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ShopHomeScreen } from "../screens/shop/ShopHomeScreen";
 import { ShopCartScreen } from "../screens/shop/ShopCartScreen";
 import { ShopCheckoutScreen } from "../screens/shop/ShopCheckoutScreen";
+import { ShopOrdersListScreen } from "../screens/shop/ShopOrdersListScreen";
 import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
 import { colors } from "../theme";
 import type { ShopStackParamList } from "./types";
@@ -34,6 +35,11 @@ export function ShopStack() {
         name="ShopCheckout"
         component={ShopCheckoutScreen}
         options={{ title: "Checkout" }}
+      />
+      <Stack.Screen
+        name="ShopOrders"
+        component={ShopOrdersListScreen}
+        options={{ title: "My orders" }}
       />
       <Stack.Screen
         name="ShopOrderDetail"

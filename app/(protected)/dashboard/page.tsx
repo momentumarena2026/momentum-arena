@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Plus,
   RefreshCw,
+  ShoppingBag,
   Zap,
   ChevronRight,
   Phone,
@@ -242,6 +243,20 @@ export default async function DashboardPage() {
           <div className="flex-1">
             <p className="text-sm font-medium text-white">Booking History</p>
             <p className="text-xs text-zinc-600">View past sessions</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
+        </Link>
+
+        <Link
+          href="/shop/orders"
+          className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
+        >
+          <div className="rounded-lg bg-emerald-500/10 p-2">
+            <ShoppingBag className="h-4 w-4 text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-white">Shop orders</p>
+            <p className="text-xs text-zinc-600">Items you've bought at the venue</p>
           </div>
           <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
         </Link>
