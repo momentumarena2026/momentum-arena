@@ -51,8 +51,16 @@ export type MainTabsParamList = {
  * on the Account screen. Same modal-stack pattern as Phone/Otp so it
  * sits visually above the tab navigator.
  */
+export type ShopStackParamList = {
+  ShopHome: undefined;
+  ShopCart: undefined;
+  ShopCheckout: undefined;
+  ShopOrderDetail: { orderId: string };
+};
+
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabsParamList>;
+  Shop: NavigatorScreenParams<ShopStackParamList>;
   Phone: undefined;
   Otp: { phone: string };
   AdminLogin: undefined;
