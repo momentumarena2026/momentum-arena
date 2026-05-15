@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
-import { SPORT_INFO, SIZE_INFO, formatHoursAsRanges } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO, formatSlotsAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote, CheckCircle2 } from "lucide-react";
@@ -173,7 +173,7 @@ export default async function AdminBookingDetailPage({
               <Clock className="h-3.5 w-3.5" /> Slots
             </span>
             <span className="text-white">
-              {formatHoursAsRanges(booking.slots.map((s) => s.startHour))}
+              {formatSlotsAsRanges(booking.slots)}
             </span>
           </div>
           <div className="flex justify-between">
@@ -531,6 +531,15 @@ export default async function AdminBookingDetailPage({
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}
           currentSlots={booking.slots.map((s) => s.startHour)}
+          slotDurationMinutes={booking.courtConfig.slotDurationMinutes ?? 60}
+          currentBowlingSlots={
+            (booking.courtConfig.slotDurationMinutes ?? 60) === 30
+              ? booking.slots.map((s) => ({
+                  hour: s.startHour,
+                  minute: (s.startMinute === 30 ? 30 : 0) as 0 | 30,
+                }))
+              : undefined
+          }
           sport={booking.courtConfig.sport}
           courtConfigs={courtConfigs}
         />

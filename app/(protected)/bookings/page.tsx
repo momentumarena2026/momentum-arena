@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
-import { SPORT_INFO, formatHourCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
+import { SPORT_INFO, formatHourCompact, formatSlotsAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatPriceCompact, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
@@ -455,7 +455,13 @@ type BookingWithIncludes = Awaited<
   ReturnType<typeof db.booking.findMany>
 >[number] & {
   courtConfig: { sport: Sport; label: string };
-  slots: { startHour: number }[];
+  slots: {
+    startHour: number;
+    // Optional — bowling-machine slots carry these; hourly bookings
+    // leave them null and the formatter defaults to 0 / 60.
+    startMinute?: number | null;
+    durationMinutes?: number | null;
+  }[];
   recurringBooking: { id: string } | null;
 };
 
@@ -472,7 +478,7 @@ function BookingCard({
   const StatusIcon = status.icon;
   const muted = past && booking.status === "CANCELLED";
 
-  const timeRange = formatHoursAsRanges(booking.slots.map((s) => s.startHour));
+  const timeRange = formatSlotsAsRanges(booking.slots);
 
   const bookedOn = formatBookingDate(booking.createdAt, {
     day: "numeric",

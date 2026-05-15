@@ -39,6 +39,15 @@ interface AdminBookingActionsProps {
   courtConfigId: string;
   date: string;
   currentSlots: number[];
+  // Slot duration in minutes for this booking's court. 30 = bowling
+  // machine (the EditSlotsModal renders a half-hour grid + writes
+  // {hour, minute} pairs). 60 / undefined = hourly.
+  slotDurationMinutes?: number;
+  // Bowling-machine bookings carry per-slot hour+minute so the modal
+  // can pre-select the customer's current 30-min picks (parallel to
+  // `currentSlots` which still holds the hour-only summary used by
+  // hourly bookings).
+  currentBowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
   sport: string;
   courtConfigs: {
     id: string;
@@ -64,6 +73,8 @@ export function AdminBookingActions({
   courtConfigId,
   date,
   currentSlots,
+  slotDurationMinutes,
+  currentBowlingSlots,
   sport,
   courtConfigs,
 }: AdminBookingActionsProps) {
@@ -90,13 +101,19 @@ export function AdminBookingActions({
   const [showEditBooking, setShowEditBooking] = useState(false);
   const [showEditPayment, setShowEditPayment] = useState(false);
 
+  const isBowlingBooking = slotDurationMinutes === 30;
   const canEditSlots = bookingStatus === "CONFIRMED";
   // Customer-paid bookings are now editable too (e.g. customer
   // requests full → half court). The action layer preserves the
   // gateway-captured Payment.amount so the audit trail stays intact;
   // the booking detail surfaces a refund-due / collect-extra pill
   // when the new total differs from the captured amount.
-  const canEditBooking = bookingStatus === "CONFIRMED";
+  // Edit Booking (court change / advance recompute / full slot
+  // re-pick) is hour-granular today. Hide it for bowling-machine
+  // bookings — the simpler EditSlotsModal covers slot + date changes
+  // at 30-min granularity, and there's only one bowling court so a
+  // court-change CTA wouldn't apply anyway.
+  const canEditBooking = bookingStatus === "CONFIRMED" && !isBowlingBooking;
   void isAdminCreated; // kept for future per-permission gating
 
   const canConfirmPayment =
@@ -488,6 +505,8 @@ export function AdminBookingActions({
         courtConfigId={courtConfigId}
         date={date}
         currentSlots={currentSlots}
+        currentBowlingSlots={currentBowlingSlots}
+        slotDurationMinutes={slotDurationMinutes}
         isOpen={showEditSlots}
         onClose={() => setShowEditSlots(false)}
         onSuccess={() => {

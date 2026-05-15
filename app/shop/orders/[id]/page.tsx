@@ -161,7 +161,7 @@ export default async function OrderDetailPage({
           {order.payment?.razorpayPaymentId ? (
             <>
               <dt className="text-zinc-500">Razorpay ID</dt>
-              <dd className="text-right font-mono text-xs text-zinc-400">
+              <dd className="break-all text-right font-mono text-xs text-zinc-400">
                 {order.payment.razorpayPaymentId}
               </dd>
             </>
@@ -169,7 +169,7 @@ export default async function OrderDetailPage({
           {order.payment?.utrNumber ? (
             <>
               <dt className="text-zinc-500">UTR</dt>
-              <dd className="text-right font-mono text-xs text-zinc-400">
+              <dd className="break-all text-right font-mono text-xs text-zinc-400">
                 {order.payment.utrNumber}
               </dd>
             </>

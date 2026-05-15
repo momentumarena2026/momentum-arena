@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  ShoppingBag,
   Sparkles,
   User as UserIcon,
 } from "lucide-react-native";
@@ -63,9 +64,10 @@ type RootNav = NativeStackNavigationProp<RootStackParamList>;
 export function AccountScreen() {
   const { state, signOut } = useAuth();
   const navigation = useNavigation<Nav>();
-  // Walk up to the root navigator so we can pop into the fullscreen
-  // Shop stack (which is a sibling of the tab navigator).
-  const rootNavigation = navigation.getParent()?.getParent<RootNav>();
+  // Walk up to the parent tab navigator for cross-tab jumps
+  // (Shop), and to the root navigator for the Chat modal-stack.
+  const tabNavigation = navigation.getParent<TabNav>();
+  const rootNavigation = tabNavigation?.getParent<RootNav>();
   const user = state.status === "signedIn" ? state.user : null;
 
   // Dashboard gives us the upcoming sessions list that web renders in the
@@ -190,6 +192,14 @@ export function AccountScreen() {
           title="Booking History"
           subtitle="View past sessions"
           onPress={() => navigation.navigate("BookingsList")}
+        />
+        <ActionTile
+          icon={<ShoppingBag size={20} color={colors.emerald400} />}
+          title="Shop orders"
+          subtitle="Items you've bought at the venue"
+          onPress={() =>
+            tabNavigation?.navigate("Shop", { screen: "ShopOrders" })
+          }
         />
         <ActionTile
           icon={<RefreshCw size={20} color={colors.zinc400} />}
