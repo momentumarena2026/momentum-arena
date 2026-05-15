@@ -2032,6 +2032,13 @@ model Product {
   // model starts clean).
   pricePaise Int
 
+  // Optional cost-of-goods in PAISE — what the venue paid for one
+  // unit. Used by the analytics tab to compute gross profit
+  // (revenue − cost × qty). Defaults to 0 so existing products
+  // and tests don't have to be backfilled; admins fill it in via
+  // the product edit form when they want margin reporting.
+  costPaise Int @default(0)
+
   // Current inventory count. Decremented atomically on order
   // placement, restored on cancel. Items with stockQuantity <= 0
   // auto-hide from the customer shop unless `allowBackorder` is on
@@ -2146,6 +2153,11 @@ model ProductOrderItem {
   // change historical orders.
   nameSnapshot   String
   priceEachPaise Int
+  // Cost-of-goods per unit at the time of sale. Frozen here so the
+  // analytics view shows historical margin even after the admin
+  // updates Product.costPaise. Defaults to 0 for items sold before
+  // the cost field existed.
+  costEachPaise  Int    @default(0)
   quantity       Int
 
   @@index([orderId])

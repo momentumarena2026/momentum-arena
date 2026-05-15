@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { listOrdersForAdmin } from "@/actions/shop-order";
+import {
+  getShopAnalyticsSummary,
+  listOrdersForAdmin,
+} from "@/actions/shop-order";
 import { formatPrice } from "@/lib/pricing";
 import { ProductOrderStatus } from "@prisma/client";
 
@@ -30,11 +33,19 @@ export default async function AdminProductOrdersPage({
   const search = sp.q || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
 
-  const { orders, total, totalPages } = await listOrdersForAdmin({
-    status: statusFilter && statusFilter !== "ALL" ? statusFilter : undefined,
-    search,
-    page,
-  });
+  const [{ orders, total, totalPages }, summary] = await Promise.all([
+    listOrdersForAdmin({
+      status: statusFilter && statusFilter !== "ALL" ? statusFilter : undefined,
+      search,
+      page,
+    }),
+    getShopAnalyticsSummary(),
+  ]);
+
+  const revenueR = Math.round(summary.revenuePaise / 100);
+  const costR = Math.round(summary.costPaise / 100);
+  const profitR = Math.round(summary.profitPaise / 100);
+  const last30 = summary.last30d;
 
   return (
     <div className="space-y-5">
@@ -45,6 +56,33 @@ export default async function AdminProductOrdersPage({
           fulfilled when the customer collects.
         </p>
       </div>
+
+      {/* Revenue / cost / profit roll-up across CONFIRMED + FULFILLED
+          orders. Numbers use snapshotted line costs so admin price /
+          cost edits don't retroactively change history. Margin = (rev
+          − cost) / rev — when products have costPaise = 0 (the
+          default), they contribute revenue but zero cost, inflating
+          margin until admins fill the field in. */}
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryCard label="Orders" value={summary.orderCount.toString()} sub={`${last30.orderCount} in last 30d`} />
+        <SummaryCard
+          label="Revenue"
+          value={formatPrice(revenueR)}
+          sub={`${formatPrice(Math.round(last30.revenuePaise / 100))} in last 30d`}
+        />
+        <SummaryCard
+          label="Cost of goods"
+          value={formatPrice(costR)}
+          sub={`${formatPrice(Math.round(last30.costPaise / 100))} in last 30d`}
+          tone="muted"
+        />
+        <SummaryCard
+          label="Gross profit"
+          value={formatPrice(profitR)}
+          sub={`${summary.marginPct}% margin · ${formatPrice(Math.round(last30.profitPaise / 100))} last 30d`}
+          tone={profitR >= 0 ? "good" : "bad"}
+        />
+      </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
@@ -197,4 +235,32 @@ function paymentMethodLabel(method: string | undefined | null): string {
   if (!method) return "—";
   if (method === "UPI_QR") return "UPI QR";
   return method.charAt(0) + method.slice(1).toLowerCase();
+}
+
+function SummaryCard({
+  label,
+  value,
+  sub,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "default" | "good" | "bad" | "muted";
+}) {
+  const valueColour =
+    tone === "good"
+      ? "text-emerald-300"
+      : tone === "bad"
+        ? "text-red-300"
+        : tone === "muted"
+          ? "text-zinc-300"
+          : "text-white";
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+      <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className={`mt-0.5 text-lg font-bold ${valueColour}`}>{value}</p>
+      {sub ? <p className="mt-0.5 text-[10px] text-zinc-600">{sub}</p> : null}
+    </div>
+  );
 }

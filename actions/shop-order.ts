@@ -81,10 +81,20 @@ export async function placeCustomerOrder(
     const result = await db.$transaction(async (tx) => {
       // Atomic stock decrement per line — if any one fails we throw
       // and the whole transaction rolls back (no partial reserves).
+      // Pre-fetch every product's cost in one round-trip so each line
+      // can snapshot the cost-of-goods at sale time (used by the
+      // analytics tab to compute gross profit).
+      const productRows = await tx.product.findMany({
+        where: { id: { in: availableLines.map((l) => l.productId) } },
+        select: { id: true, costPaise: true },
+      });
+      const costById = new Map(productRows.map((p) => [p.id, p.costPaise]));
+
       const productSnapshots: Array<{
         productId: string;
         name: string;
         pricePaise: number;
+        costPaise: number;
         quantity: number;
       }> = [];
       for (const line of availableLines) {
@@ -96,6 +106,7 @@ export async function placeCustomerOrder(
           productId: line.productId,
           name: line.name,
           pricePaise: line.pricePaise,
+          costPaise: costById.get(line.productId) ?? 0,
           quantity: line.quantity,
         });
       }
@@ -118,6 +129,7 @@ export async function placeCustomerOrder(
               productId: s.productId,
               nameSnapshot: s.name,
               priceEachPaise: s.pricePaise,
+              costEachPaise: s.costPaise,
               quantity: s.quantity,
             })),
           },
@@ -449,6 +461,7 @@ export async function placeAdminOrder(args: {
         productId: string;
         name: string;
         pricePaise: number;
+        costPaise: number;
         quantity: number;
       }> = [];
 
@@ -461,6 +474,7 @@ export async function placeAdminOrder(args: {
           productId: product.id,
           name: product.name,
           pricePaise: product.pricePaise,
+          costPaise: product.costPaise,
           quantity: item.quantity,
         });
       }
@@ -482,6 +496,7 @@ export async function placeAdminOrder(args: {
               productId: s.productId,
               nameSnapshot: s.name,
               priceEachPaise: s.pricePaise,
+              costEachPaise: s.costPaise,
               quantity: s.quantity,
             })),
           },
@@ -597,4 +612,93 @@ export async function listOrdersForAdmin(filters?: {
     db.productOrder.count({ where }),
   ]);
   return { orders: rows, total, page, totalPages: Math.ceil(total / limit) };
+}
+
+// ─── Shop analytics summary ──────────────────────────────────────────
+//
+// Revenue / cost / profit roll-up across CONFIRMED + FULFILLED orders.
+// Cancelled / refunded orders are excluded so the numbers match what
+// actually settled. Each line item's snapshotted `priceEachPaise` +
+// `costEachPaise` is the source of truth — admin edits to live
+// Product rows don't retroactively change reported profit.
+//
+// Returns paise; callers convert to ₹ for display.
+
+export interface ShopAnalyticsSummary {
+  /** Orders included in the roll-up (CONFIRMED or FULFILLED). */
+  orderCount: number;
+  /** Sum of every line's price × qty across counted orders. */
+  revenuePaise: number;
+  /** Sum of every line's cost × qty across counted orders. */
+  costPaise: number;
+  /** revenue − cost. Can be negative if cost > price (admin typo). */
+  profitPaise: number;
+  /** Margin as integer percent. 0 when revenue is 0. */
+  marginPct: number;
+  /** Same fields restricted to orders created in the last 30 days. */
+  last30d: {
+    orderCount: number;
+    revenuePaise: number;
+    costPaise: number;
+    profitPaise: number;
+  };
+}
+
+export async function getShopAnalyticsSummary(): Promise<ShopAnalyticsSummary> {
+  await requireOrdersAdmin();
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  const items = await db.productOrderItem.findMany({
+    where: {
+      order: {
+        status: { in: ["CONFIRMED", "FULFILLED"] },
+      },
+    },
+    select: {
+      priceEachPaise: true,
+      costEachPaise: true,
+      quantity: true,
+      orderId: true,
+      order: { select: { createdAt: true } },
+    },
+  });
+
+  let revenuePaise = 0;
+  let costPaise = 0;
+  let revenue30 = 0;
+  let cost30 = 0;
+  const orderIds = new Set<string>();
+  const orderIds30 = new Set<string>();
+  for (const it of items) {
+    const r = it.priceEachPaise * it.quantity;
+    const c = it.costEachPaise * it.quantity;
+    revenuePaise += r;
+    costPaise += c;
+    orderIds.add(it.orderId);
+    if (it.order.createdAt >= cutoff) {
+      revenue30 += r;
+      cost30 += c;
+      orderIds30.add(it.orderId);
+    }
+  }
+
+  const profitPaise = revenuePaise - costPaise;
+  const marginPct =
+    revenuePaise > 0 ? Math.round((profitPaise / revenuePaise) * 100) : 0;
+
+  return {
+    orderCount: orderIds.size,
+    revenuePaise,
+    costPaise,
+    profitPaise,
+    marginPct,
+    last30d: {
+      orderCount: orderIds30.size,
+      revenuePaise: revenue30,
+      costPaise: cost30,
+      profitPaise: revenue30 - cost30,
+    },
+  };
 }
