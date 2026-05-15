@@ -38,6 +38,12 @@ export default async function BookLayout({
               >
                 ☕ Cafe
               </Link>
+              <Link
+                href="/shop"
+                className="hidden md:flex text-sm font-medium text-zinc-300 hover:text-emerald-400 transition"
+              >
+                🛍️ Shop
+              </Link>
             </div>
 
             <div className="flex items-center gap-3">
