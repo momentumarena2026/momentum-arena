@@ -1289,6 +1289,51 @@ export async function createCustomerForBooking(
 }
 
 // ---------------------------------------------------------------------------
+// getAvailableBowlingSlots
+// ---------------------------------------------------------------------------
+// Wraps the half-hour `getBowlingMachineAvailability` helper for the
+// admin edit-slots flow. Same auth + same excludeBookingId hook as
+// `getAvailableSlots`; returns 30-min slot entries with `available`
+// + `blocked` flags so the modal can render a 30-min grid for
+// bowling-machine bookings.
+export async function getAvailableBowlingSlots(
+  courtConfigId: string,
+  dateStr: string,
+  excludeBookingId?: string,
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireAdmin();
+
+  try {
+    const dateOnly = new Date(dateStr + "T00:00:00Z");
+    const { getBowlingMachineAvailability } = await import(
+      "@/lib/bowling-availability"
+    );
+    const raw = await getBowlingMachineAvailability(
+      courtConfigId,
+      dateOnly,
+      excludeBookingId,
+    );
+    const slots = raw.map((s) => ({
+      hour: s.hour,
+      minute: s.minute as 0 | 30,
+      price: s.price,
+      available: s.status === "available",
+      blocked: s.status === "blocked" || s.status === "closed",
+    }));
+    return { success: true as const, slots };
+  } catch (error) {
+    return {
+      success: false as const,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to get bowling-machine slots",
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // getAvailableSlots
 // ---------------------------------------------------------------------------
 export async function getAvailableSlots(
@@ -1678,22 +1723,42 @@ export async function adminCreateBooking(data: {
 // ---------------------------------------------------------------------------
 export async function adminEditBookingSlots(
   bookingId: string,
+  // Hourly picks (cricket / football / pickleball). For bowling-
+  // machine bookings, pass `bowlingSlots` instead and leave this
+  // empty — the action picks the right path off the courtConfig's
+  // slotDurationMinutes.
   newHours: number[],
   // Optional new date for the booking. When provided, the slot grid is
   // re-validated against the target date (availability, blocks, pricing).
   // Passing undefined keeps the booking's current date.
   newDate?: string,
-  adminOverride?: { id: string; username: string }
+  adminOverride?: { id: string; username: string },
+  // Bowling-machine 30-min picks. Each {hour, minute(0|30)} maps to a
+  // BookingSlot with startMinute=minute + durationMinutes=30. Mutually
+  // exclusive with `newHours`.
+  bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>,
 ) {
   const admin = adminOverride ?? (await requireAdminWithDetails());
 
   try {
-    if (newHours.length === 0) {
-      return { success: false as const, error: "At least one hour is required" };
+    const usingBowling = Array.isArray(bowlingSlots) && bowlingSlots.length > 0;
+    if (!usingBowling && newHours.length === 0) {
+      return { success: false as const, error: "At least one slot is required" };
     }
-    for (const h of newHours) {
-      if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
-        return { success: false as const, error: `Invalid hour: ${h}` };
+    if (!usingBowling) {
+      for (const h of newHours) {
+        if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
+          return { success: false as const, error: `Invalid hour: ${h}` };
+        }
+      }
+    } else {
+      for (const s of bowlingSlots!) {
+        if (s.hour < 0 || s.hour > 23 || (s.minute !== 0 && s.minute !== 30)) {
+          return {
+            success: false as const,
+            error: `Invalid bowling slot: ${s.hour}:${s.minute}`,
+          };
+        }
       }
     }
 
@@ -1712,64 +1777,124 @@ export async function adminEditBookingSlots(
       : booking.date;
     const dateChanged = dateOnly.getTime() !== booking.date.getTime();
     const config = booking.courtConfig;
-
-    // Check availability excluding current booking
-    const activeBookings = await db.booking.findMany({
-      where: {
-        date: dateOnly,
-        id: { not: bookingId },
-        status: { in: ["CONFIRMED", "PENDING"] },
-      },
-      include: { courtConfig: true, slots: true },
-    });
-
-    const conflicting = activeBookings.filter((b) =>
-      zonesOverlap(
-        b.courtConfig.zones as CourtZone[],
-        config.zones as CourtZone[]
-      )
-    );
-
-    const occupiedHours = new Set<number>();
-    for (const b of conflicting) {
-      for (const slot of b.slots) {
-        occupiedHours.add(slot.startHour);
-      }
+    const isBowlingConfig =
+      (config.slotDurationMinutes ?? 60) === 30 ||
+      config.category === "BOWLING_MACHINE";
+    if (usingBowling !== isBowlingConfig) {
+      return {
+        success: false as const,
+        error:
+          "Slot duration mismatch — pass hours[] for hourly courts, bowlingSlots[] for the bowling machine.",
+      };
     }
 
-    const hourConflicts = newHours.filter((h) => occupiedHours.has(h));
-    if (hourConflicts.length > 0) {
-      return { success: false as const, error: `Slots already booked: ${hourConflicts.join(", ")}` };
-    }
+    let newPreDiscountTotal: number;
+    let bowlingPriceMap: Map<string, number> | null = null;
+    let priceMap: Map<number, number> = new Map();
 
-    // Check slot blocks
-    const blocks = await db.slotBlock.findMany({
-      where: {
-        date: dateOnly,
-        OR: [
-          { courtConfigId: config.id },
-          { sport: config.sport },
-          { courtConfigId: null, sport: null },
-        ],
-      },
-    });
+    if (usingBowling) {
+      // 30-min path — re-validate via the bowling availability surface
+      // (zone overlap + active holds + slot blocks + operating windows)
+      // with this booking dropped from the occupied set.
+      const { getBowlingMachineAvailability } = await import(
+        "@/lib/bowling-availability"
+      );
+      const avail = await getBowlingMachineAvailability(
+        config.id,
+        dateOnly,
+        bookingId,
+      );
+      const keyOf = (h: number, m: number) => `${h}:${m}`;
+      const lookup = new Map(
+        avail.map((s) => [keyOf(s.hour, s.minute), s] as const),
+      );
+      bowlingPriceMap = new Map(
+        avail.map((s) => [keyOf(s.hour, s.minute), s.price] as const),
+      );
 
-    for (const block of blocks) {
-      if (block.startHour === null) {
-        return { success: false as const, error: "This court is blocked for the entire day" };
+      const conflicts: string[] = [];
+      for (const s of bowlingSlots!) {
+        const entry = lookup.get(keyOf(s.hour, s.minute));
+        if (!entry) {
+          conflicts.push(`${s.hour}:${s.minute} (closed)`);
+          continue;
+        }
+        if (entry.status !== "available") {
+          conflicts.push(`${s.hour}:${s.minute} (${entry.status})`);
+        }
       }
-      if (newHours.includes(block.startHour)) {
-        return { success: false as const, error: `Slot at hour ${block.startHour} is blocked` };
+      if (conflicts.length > 0) {
+        return {
+          success: false as const,
+          error: `Slots not available: ${conflicts.join(", ")}`,
+        };
       }
+      newPreDiscountTotal = bowlingSlots!.reduce(
+        (sum, s) => sum + (bowlingPriceMap!.get(keyOf(s.hour, s.minute)) ?? 0),
+        0,
+      );
+    } else {
+      // Hourly path — original cricket/football/pickleball flow.
+      const activeBookings = await db.booking.findMany({
+        where: {
+          date: dateOnly,
+          id: { not: bookingId },
+          status: { in: ["CONFIRMED", "PENDING"] },
+        },
+        include: { courtConfig: true, slots: true },
+      });
+      const conflicting = activeBookings.filter((b) =>
+        zonesOverlap(
+          b.courtConfig.zones as CourtZone[],
+          config.zones as CourtZone[],
+        ),
+      );
+      const occupiedHours = new Set<number>();
+      for (const b of conflicting) {
+        for (const slot of b.slots) {
+          occupiedHours.add(slot.startHour);
+        }
+      }
+      const hourConflicts = newHours.filter((h) => occupiedHours.has(h));
+      if (hourConflicts.length > 0) {
+        return {
+          success: false as const,
+          error: `Slots already booked: ${hourConflicts.join(", ")}`,
+        };
+      }
+      const blocks = await db.slotBlock.findMany({
+        where: {
+          date: dateOnly,
+          OR: [
+            { courtConfigId: config.id },
+            { sport: config.sport },
+            { courtConfigId: null, sport: null },
+          ],
+        },
+      });
+      for (const block of blocks) {
+        if (block.startHour === null) {
+          return {
+            success: false as const,
+            error: "This court is blocked for the entire day",
+          };
+        }
+        if (newHours.includes(block.startHour)) {
+          return {
+            success: false as const,
+            error: `Slot at hour ${block.startHour} is blocked`,
+          };
+        }
+      }
+      const slotPrices = await getSlotPricesForDate(config.id, dateOnly);
+      priceMap = new Map<number, number>(
+        slotPrices.map((s) => [s.hour, s.price]),
+      );
+      newPreDiscountTotal = newHours.reduce(
+        (sum, h) => sum + (priceMap.get(h) ?? 0),
+        0,
+      );
     }
-
-    // Get new prices
-    const slotPrices = await getSlotPricesForDate(config.id, dateOnly);
-    const priceMap = new Map<number, number>(slotPrices.map((s) => [s.hour, s.price]));
-    const newPreDiscountTotal = newHours.reduce(
-      (sum, h) => sum + (priceMap.get(h) ?? 0),
-      0,
-    );
 
     // Carry the booking-level discount through, same as
     // adminEditBookingFull. Without this a slot-only edit silently
@@ -1807,19 +1932,40 @@ export async function adminEditBookingSlots(
 
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
+    const effectiveNewHours = usingBowling
+      ? bowlingSlots!.map((s) => s.hour).sort((a, b) => a - b)
+      : newHours;
 
     await db.$transaction(async (tx) => {
       // Delete old slots
       await tx.bookingSlot.deleteMany({ where: { bookingId } });
 
-      // Create new slots
-      await tx.bookingSlot.createMany({
-        data: newHours.map((h) => ({
-          bookingId,
-          startHour: h,
-          price: priceMap.get(h) ?? 0,
-        })),
-      });
+      // Create new slots — 30-min entries for bowling-machine bookings,
+      // hour entries for everything else. Each row carries startMinute
+      // + durationMinutes so the new BookingSlot.startMinute index
+      // (introduced for bowling) stays consistent across paths.
+      if (usingBowling) {
+        const keyOf = (h: number, m: number) => `${h}:${m}`;
+        await tx.bookingSlot.createMany({
+          data: bowlingSlots!.map((s) => ({
+            bookingId,
+            startHour: s.hour,
+            startMinute: s.minute,
+            durationMinutes: 30,
+            price: bowlingPriceMap!.get(keyOf(s.hour, s.minute)) ?? 0,
+          })),
+        });
+      } else {
+        await tx.bookingSlot.createMany({
+          data: newHours.map((h) => ({
+            bookingId,
+            startHour: h,
+            startMinute: 0,
+            durationMinutes: 60,
+            price: priceMap.get(h) ?? 0,
+          })),
+        });
+      }
 
       // Update booking total + discount fields and (if the admin moved
       // it) the date. originalAmount/discountAmount are rewritten so a
@@ -1864,18 +2010,17 @@ export async function adminEditBookingSlots(
             previousDate: booking.date,
             newDate: dateOnly,
             previousSlots: previousHours,
-            newSlots: newHours,
+            newSlots: effectiveNewHours,
             previousAmount,
             newAmount: newTotalAmount,
           },
         });
       }
 
+      const sortedNewHours = [...effectiveNewHours].sort((a, b) => a - b);
       const slotsChanged =
-        previousHours.length !== newHours.length ||
-        previousHours.some(
-          (h, i) => h !== [...newHours].sort((a, b) => a - b)[i]
-        );
+        previousHours.length !== sortedNewHours.length ||
+        previousHours.some((h, i) => h !== sortedNewHours[i]);
       if (slotsChanged) {
         await tx.bookingEditHistory.create({
           data: {
@@ -1884,7 +2029,7 @@ export async function adminEditBookingSlots(
             adminUsername: admin.username,
             editType: "SLOTS_CHANGED",
             previousSlots: previousHours,
-            newSlots: newHours,
+            newSlots: effectiveNewHours,
             previousAmount,
             newAmount: newTotalAmount,
           },
@@ -1898,7 +2043,7 @@ export async function adminEditBookingSlots(
     // notify waitlisters. If the date changed, every previously held
     // hour on booking.date is freed (none of them survive on that
     // date). Otherwise only hours not in the new selection are freed.
-    const newHourSet = new Set(newHours);
+    const newHourSet = new Set(effectiveNewHours);
     const freedHours = dateChanged
       ? previousHours
       : previousHours.filter((h) => !newHourSet.has(h));

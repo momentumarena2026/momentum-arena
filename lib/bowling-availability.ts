@@ -73,6 +73,11 @@ async function buildSlotKeysForDate(
 export async function getBowlingMachineAvailability(
   courtConfigId: string,
   date: Date,
+  // Optional admin-edit hook — drop this booking from the "occupied"
+  // calculation so its existing slots show as available again. Used
+  // by the admin edit-slots flow so the current slots stay selectable
+  // when the admin reopens the modal.
+  excludeBookingId?: string,
 ): Promise<BowlingSlot[]> {
   const config = await db.courtConfig.findUnique({
     where: { id: courtConfigId },
@@ -93,6 +98,7 @@ export async function getBowlingMachineAvailability(
       courtConfig: {
         zones: { hasSome: config.zones as CourtZone[] },
       },
+      ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
     },
     include: { slots: true },
   });

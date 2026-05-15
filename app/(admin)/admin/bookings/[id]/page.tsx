@@ -531,6 +531,15 @@ export default async function AdminBookingDetailPage({
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}
           currentSlots={booking.slots.map((s) => s.startHour)}
+          slotDurationMinutes={booking.courtConfig.slotDurationMinutes ?? 60}
+          currentBowlingSlots={
+            (booking.courtConfig.slotDurationMinutes ?? 60) === 30
+              ? booking.slots.map((s) => ({
+                  hour: s.startHour,
+                  minute: (s.startMinute === 30 ? 30 : 0) as 0 | 30,
+                }))
+              : undefined
+          }
           sport={booking.courtConfig.sport}
           courtConfigs={courtConfigs}
         />
