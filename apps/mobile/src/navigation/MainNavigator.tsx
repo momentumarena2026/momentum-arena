@@ -3,15 +3,15 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import {
   Coffee,
   Home,
-  MessageCircle,
+  ShoppingBag,
   Trophy,
   User,
 } from "lucide-react-native";
 import { HomeScreen } from "../screens/home/HomeScreen";
 import { CafeMenuScreen } from "../screens/cafe/CafeMenuScreen";
-import { ChatScreen } from "../screens/chat/ChatScreen";
 import { AccountStack } from "./AccountStack";
 import { BookStack } from "./BookStack";
+import { ShopStack } from "./ShopStack";
 import { colors } from "../theme";
 import type { MainTabsParamList } from "./types";
 
@@ -46,14 +46,13 @@ export function MainNavigator() {
               return <Trophy {...props} />;
             case "Cafe":
               return <Coffee {...props} />;
+            case "Shop":
+              // Pickup-at-venue product catalog — same surface as
+              // /shop on web. Sits in the 4th slot; Account holds
+              // the rightmost slot.
+              return <ShoppingBag {...props} />;
             case "Account":
               return <User {...props} />;
-            case "Chat":
-              // Matches the web ChatNavButton (💬). lucide's
-              // MessageCircle is also what the web chat-widget uses
-              // for its floating bubble — keeping the visual cue
-              // consistent across surfaces.
-              return <MessageCircle {...props} />;
             default:
               return null;
           }
@@ -67,8 +66,8 @@ export function MainNavigator() {
         options={{ tabBarLabel: "Sports" }}
       />
       <Tab.Screen name="Cafe" component={CafeMenuScreen} />
+      <Tab.Screen name="Shop" component={ShopStack} />
       <Tab.Screen name="Account" component={AccountStack} />
-      <Tab.Screen name="Chat" component={ChatScreen} />
     </Tab.Navigator>
   );
 }

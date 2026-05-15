@@ -13,11 +13,11 @@ import {
   History,
   LogIn,
   LogOut,
+  MessageCircle,
   Phone,
   Plus,
   RefreshCw,
   Shield,
-  ShoppingBag,
   Sparkles,
   User as UserIcon,
 } from "lucide-react-native";
@@ -186,12 +186,6 @@ export function AccountScreen() {
           </Pressable>
         )}
         <ActionTile
-          icon={<ShoppingBag size={20} color={colors.emerald400} />}
-          title="Shop"
-          subtitle="Gear, balls, kit · pickup at venue"
-          onPress={() => rootNavigation?.navigate("Shop", { screen: "ShopHome" })}
-        />
-        <ActionTile
           icon={<History size={20} color={colors.zinc400} />}
           title="Booking History"
           subtitle="View past sessions"
@@ -208,6 +202,15 @@ export function AccountScreen() {
           title="My Waitlist"
           subtitle="Get notified when slots open"
           onPress={() => navigation.navigate("Waitlist")}
+        />
+        {/* Arena Assistant — Chat moved out of the bottom-nav tab
+            row into the Account screen, sitting alongside the
+            other quick-action tiles. Lives under "My Waitlist". */}
+        <ActionTile
+          icon={<MessageCircle size={20} color={colors.emerald400} />}
+          title="Arena Assistant"
+          subtitle="Ask about courts, hours, or your bookings"
+          onPress={() => rootNavigation?.navigate("Chat")}
         />
       </View>
 
@@ -501,6 +504,28 @@ function SignedOutAccount() {
           body="Flat ₹100 off is applied automatically at checkout."
         />
       </Card>
+
+      {/* Chat tile — sits between the perks card and the version
+          footer so signed-out users can still reach the Arena
+          Assistant without making an account first. */}
+      <Pressable
+        onPress={() => rootNav?.navigate("Chat")}
+        style={({ pressed }) => [
+          styles.signedOutChatTile,
+          pressed && { opacity: 0.85 },
+        ]}
+      >
+        <View style={styles.signedOutChatIcon}>
+          <MessageCircle size={20} color={colors.emerald400} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text variant="bodyStrong">Arena Assistant</Text>
+          <Text variant="small" color={colors.mutedForeground}>
+            Quick questions about courts, hours, or your past bookings.
+          </Text>
+        </View>
+        <ChevronRight size={16} color={colors.subtleForeground} />
+      </Pressable>
 
       <VersionFooter />
     </Screen>
@@ -1042,6 +1067,25 @@ const styles = StyleSheet.create({
   },
   perksCard: {
     gap: spacing["2"],
+  },
+  signedOutChatTile: {
+    marginTop: spacing["4"],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    padding: spacing["4"],
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+  },
+  signedOutChatIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.emerald500_10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   perkRow: {
     flexDirection: "row",

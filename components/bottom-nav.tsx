@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChatNavButton } from "@/components/chatbot/chat-nav-button";
 import { trackBottomNavClick } from "@/lib/analytics";
 
 const HIDDEN_PATHS = [
   "/book/checkout",
+  "/shop/checkout",
 ];
 
 function isSlotSelectionPage(pathname: string): boolean {
@@ -28,11 +28,17 @@ export function BottomNav() {
     return null;
   }
 
+  // Tab order: Home, Sports, Cafe, Shop, Account. Chat moved out of
+  // the bottom nav and into the Account screen instead (logged-in:
+  // under My Waitlist; logged-out: above the version footer).
+  // Account points at /account so anonymous users see a sign-in
+  // hero rather than getting redirected to /login.
   const tabs = [
     { href: "/", label: "Home", emoji: "\u{1F3E0}", match: (p: string) => p === "/" },
     { href: "/book", label: "Sports", emoji: "\u{1F3DF}\uFE0F", match: (p: string) => p.startsWith("/book") },
     { href: "/cafe", label: "Cafe", emoji: "\u2615", match: (p: string) => p.startsWith("/cafe") },
-    { href: "/dashboard", label: "Account", emoji: "\u{1F464}", match: (p: string) => p === "/dashboard" || p.startsWith("/bookings") || p.startsWith("/profile") || p.startsWith("/referral") || p.startsWith("/waitlist") || p.startsWith("/rewards") },
+    { href: "/shop", label: "Shop", emoji: "\u{1F6CD}\uFE0F", match: (p: string) => p.startsWith("/shop") },
+    { href: "/account", label: "Account", emoji: "\u{1F464}", match: (p: string) => p === "/account" || p === "/dashboard" || p.startsWith("/bookings") || p.startsWith("/profile") || p.startsWith("/referral") || p.startsWith("/waitlist") || p.startsWith("/rewards") },
   ];
 
   return (
@@ -77,7 +83,6 @@ export function BottomNav() {
               </Link>
             );
           })}
-          <ChatNavButton />
         </div>
       </div>
     </>
