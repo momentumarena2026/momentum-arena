@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
+import { env } from "../../config/env";
 import {
   useNavigation,
   useRoute,
@@ -134,6 +136,21 @@ export function BookCourtScreen() {
           Sizes and courts available for this sport.
         </Text>
       </View>
+
+      {/* Pickleball launch-promo banner. Same PNG asset web ships on
+          /book/pickleball (public/pickleball-promo-banner.png) so both
+          surfaces stay byte-identical. Only renders on pickleball;
+          other sports get the original (banner-less) flow. */}
+      {params.sport === "PICKLEBALL" ? (
+        <View style={styles.promoBanner}>
+          <Image
+            source={{ uri: `${env.apiUrl}/pickleball-promo-banner.png` }}
+            style={styles.promoBannerImage}
+            resizeMode="cover"
+            accessibilityLabel="Pickleball launch offer — 25% off, auto-applied at checkout"
+          />
+        </View>
+      ) : null}
 
       {(() => {
         // When auto-skip is going to fire (single tile, non-cricket), we
@@ -385,6 +402,17 @@ const styles = StyleSheet.create({
   header: {
     marginTop: spacing["2"],
     gap: spacing["1.5"],
+  },
+  promoBanner: {
+    marginTop: spacing["4"],
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(234, 179, 8, 0.30)", // yellow-500/30
+  },
+  promoBannerImage: {
+    width: "100%",
+    aspectRatio: 3, // matches the source 2400x800
   },
   kicker: {
     letterSpacing: 1.5,

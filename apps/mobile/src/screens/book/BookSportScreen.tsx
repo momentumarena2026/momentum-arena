@@ -16,9 +16,10 @@ type Nav = NativeStackNavigationProp<BookStackParamList, "BookSport">;
 /**
  * Per-sport palette — mirrors web's `components/booking/sport-card.tsx`:
  *
- *   CRICKET   → from-emerald-500/20  to-emerald-600/5  border-emerald-500/30  text-emerald-400
- *   FOOTBALL  → from-blue-500/20     to-blue-600/5     border-blue-500/30     text-blue-400
- *   PICKLEBALL (coming soon) → border-zinc-800, bg zinc-900/50, icon zinc-500
+ *   CRICKET    → from-emerald-500/20  to-emerald-600/5  border-emerald-500/30  text-emerald-400
+ *   FOOTBALL   → from-blue-500/20     to-blue-600/5     border-blue-500/30     text-blue-400
+ *   PICKLEBALL → from-yellow-500/20   to-yellow-600/5   border-yellow-500/30   text-yellow-400
+ *                (live; carries a "25% OFF" launch-promo pill — see below)
  *
  * We recreate Tailwind's `bg-gradient-to-br` (top-left → bottom-right,
  * two-stop linear gradient) with an SVG <LinearGradient> in
@@ -49,12 +50,18 @@ const SPORT_THEME: Record<Sport, SportTheme> = {
     icon: "#60a5fa", // blue-400
   },
   PICKLEBALL: {
-    // Disabled / coming-soon — handled separately below, theme unused.
-    from: "rgba(234, 179, 8, 0.20)",
-    to: "rgba(202, 138, 4, 0.05)",
-    border: "rgba(234, 179, 8, 0.30)",
-    icon: "#facc15",
+    from: "rgba(234, 179, 8, 0.20)", // yellow-500/20
+    to: "rgba(202, 138, 4, 0.05)", // yellow-600/5
+    border: "rgba(234, 179, 8, 0.30)", // yellow-500/30
+    icon: "#facc15", // yellow-400
   },
+};
+
+// Sport → launch-promo pill in the top-right of the tile. Empty when
+// no promo is live. Today only pickleball carries one (matches the web
+// SportCard's `promoLabel` flag in components/booking/sport-card.tsx).
+const SPORT_PROMO_LABEL: Partial<Record<Sport, string>> = {
+  PICKLEBALL: "25% OFF",
 };
 
 const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
@@ -78,39 +85,8 @@ export function BookSportScreen() {
 
       <View style={styles.list}>
         {SPORTS.map((sport) => {
-          const isComingSoon = sport === "PICKLEBALL";
-
-          if (isComingSoon) {
-            // Web:
-            //   border-zinc-800 bg-zinc-900/50 p-6 opacity-60 h-[100px]
-            //   inner tile: rounded-xl bg-zinc-800 p-3
-            //   icon text-zinc-500
-            //   badge (top-right): bg-amber-500/15 border-amber-500/30 text-amber-400
-            return (
-              <View key={sport} style={[styles.card, styles.cardDisabled]}>
-                <View style={styles.row}>
-                  <View style={[styles.iconTile, styles.iconTileDisabled]}>
-                    <SportIcon sport={sport} size={32} color="#71717a" />
-                  </View>
-                  <View style={styles.textWrap}>
-                    {/* Web uses text-zinc-400 for the name on the disabled card */}
-                    <Text
-                      variant="heading"
-                      weight="600"
-                      color={colors.zinc400}
-                    >
-                      {sportLabel(sport)}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.comingSoonBadge}>
-                  <Text style={styles.comingSoonBadgeText}>Coming Soon</Text>
-                </View>
-              </View>
-            );
-          }
-
           const theme = SPORT_THEME[sport];
+          const promoLabel = SPORT_PROMO_LABEL[sport];
           return (
             <Pressable
               key={sport}
@@ -141,6 +117,15 @@ export function BookSportScreen() {
                 {/* Web: chevron right, text-zinc-600 → text-zinc-400 on hover */}
                 <ChevronRight size={20} color={colors.zinc600} />
               </View>
+              {/* Top-right launch-promo pill — mirrors web's sport-card
+                  `promoLabel`. Positioned absolutely so the row layout
+                  stays unchanged; sits left of the chevron so it doesn't
+                  overlap the affordance. */}
+              {promoLabel ? (
+                <View style={styles.promoPill}>
+                  <Text style={styles.promoPillText}>{promoLabel}</Text>
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -174,12 +159,6 @@ const styles = StyleSheet.create({
     height: 100,
     justifyContent: "center",
   },
-  // Web: border-zinc-800 bg-zinc-900/50 opacity-60 for PICKLEBALL
-  cardDisabled: {
-    borderColor: colors.zinc800,
-    backgroundColor: "rgba(24, 24, 27, 0.50)", // zinc-900/50
-    opacity: 0.6,
-  },
   pressed: {
     opacity: 0.85,
   },
@@ -200,32 +179,29 @@ const styles = StyleSheet.create({
   iconTileActive: {
     backgroundColor: "rgba(0, 0, 0, 0.30)",
   },
-  // Web: bg-zinc-800 for disabled card
-  iconTileDisabled: {
-    backgroundColor: colors.zinc800,
-  },
   textWrap: {
     flex: 1,
     minWidth: 0,
   },
-  // Web: absolute right-3 top-3 rounded-full bg-amber-500/15 border-amber-500/30
-  //      px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-400
-  comingSoonBadge: {
+  // Top-right launch-promo pill — mirrors web's amber chip on the
+  // pickleball sport tile (right-12 top-3 in sport-card.tsx, sized so
+  // it doesn't crowd the chevron on the right edge).
+  promoPill: {
     position: "absolute",
-    right: spacing["3"],
+    right: spacing["10"], // leave room for the chevron
     top: spacing["3"],
-    paddingHorizontal: spacing["2"],
-    paddingVertical: spacing["0.5"],
-    borderRadius: 999, // rounded-full
-    backgroundColor: "rgba(245, 158, 11, 0.15)", // amber-500/15
+    paddingHorizontal: spacing["2.5"],
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(250, 204, 21, 0.95)", // yellow-400/95
     borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.30)", // amber-500/30
+    borderColor: "rgba(253, 224, 71, 0.6)", // yellow-300/60
   },
-  comingSoonBadgeText: {
-    color: "#fbbf24", // amber-400
+  promoPillText: {
+    color: "#18181b", // zinc-900
     fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.5, // tracking-wide
+    fontWeight: "700",
+    letterSpacing: 0.8,
     textTransform: "uppercase",
   },
 });
