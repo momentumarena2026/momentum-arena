@@ -13,6 +13,7 @@ import type { SlotAvailability } from "@/lib/availability";
 import { Loader2, RefreshCw, Calendar } from "lucide-react";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
 import type { RecurringTier, DailyTier } from "@/actions/admin-recurring";
+import type { ActiveSportPromo } from "@/lib/auto-apply-promo";
 import { getCurrentHourIST, getTodayIST } from "@/lib/ist-date";
 import {
   trackSlotToggled,
@@ -41,6 +42,15 @@ interface SlotSelectionClientProps {
   // the lock endpoint is called with mode=medium (server auto-assigns half).
   // Recurring-booking UI is hidden in this mode.
   mediumMode?: boolean;
+  /**
+   * Active auto-apply promo for this sport, fetched server-side from the
+   * Coupon table. When `promo.percentOff` is non-null, slot tiles are
+   * decorated with strike-through originals + amber discounted prices
+   * and a launch-offer banner renders above the grid. Both UI elements
+   * are gated on this prop existing — when admin disables the coupon in
+   * /admin/coupons the next request returns null and everything hides.
+   */
+  promo?: ActiveSportPromo | null;
 }
 
 export function SlotSelectionClient({
@@ -49,6 +59,7 @@ export function SlotSelectionClient({
   courtLabel,
   userId,
   mediumMode = false,
+  promo = null,
 }: SlotSelectionClientProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -387,8 +398,22 @@ export function SlotSelectionClient({
         </div>
       ) : (
         <>
+          {/* Launch-offer banner — data-driven from the active auto-apply
+              promo. Shows only when there's an uncapped PERCENTAGE coupon
+              live for this sport (today: PICKLEBALL25). Copy reads the
+              percentage from the coupon row so admin edits flow through
+              without code changes. */}
+          {promo?.percentOff !== null && promo?.percentOff !== undefined && (
+            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2.5 text-center">
+              <p className="text-sm font-medium text-yellow-300">
+                Launch offer: {promo.percentOff}% off shown — applied
+                automatically at checkout
+              </p>
+            </div>
+          )}
           <SlotGrid
             slots={slots}
+            promo={promo}
             selectedHours={selectedHours}
             onSelectionChange={(hours) => {
               const added = hours.filter((h) => !selectedHours.includes(h));

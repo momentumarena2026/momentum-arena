@@ -59,9 +59,14 @@ type Nav = NativeStackNavigationProp<BookStackParamList, "Checkout">;
 type Rt = RouteProp<BookStackParamList, "Checkout">;
 
 // Default fallback when no other discount applies. Pickleball gets a
-// sport-specific launch promo (PICKLEBALL25, flat 25%) — see
-// `fallbackCodeFor` below. Other sports fall through to FLAT100 the
-// same way they always have.
+// sport-specific launch promo (PICKLEBALL25, flat 25%); other sports
+// fall through to FLAT100.
+//
+// Kept in sync MANUALLY with web/lib/auto-apply-promo.ts:getAutoApplyCodeForSport.
+// React Native runs its own bundle with no path alias to the web app's
+// /lib, and cross-package sharing for one mapping is heavier than this
+// deserves. If the mapping ever grows beyond a single conditional,
+// promote it to a shared package.
 const FALLBACK_CODE = "FLAT100";
 
 function fallbackCodeFor(sport: string | null | undefined): string {
