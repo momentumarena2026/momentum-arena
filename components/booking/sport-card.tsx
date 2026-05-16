@@ -38,9 +38,12 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
   const colorClass = sportColors[sport] || sportColors.CRICKET;
   const iconColor = sportIconColors[sport] || "text-emerald-400";
 
-  const isComingSoon = sport === "PICKLEBALL";
+  // Pickleball is now live. Promo overlay below surfaces the launch
+  // discount; admins gate the actual availability via CourtConfig
+  // (`isActive`) — same as every other sport.
+  const promoLabel = sport === "PICKLEBALL" ? "25% OFF" : null;
 
-  if (!isActive || isComingSoon) {
+  if (!isActive) {
     return (
       <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 opacity-60 h-[100px] flex items-center">
         <div className="flex items-center gap-4">
@@ -51,11 +54,6 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
             <h3 className="text-lg font-semibold text-zinc-400">{name}</h3>
           </div>
         </div>
-        {isComingSoon && (
-          <span className="absolute right-3 top-3 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-400 border border-amber-500/30">
-            Coming Soon
-          </span>
-        )}
       </div>
     );
   }
@@ -73,6 +71,11 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
             <h3 className="text-lg font-semibold text-white">{name}</h3>
           </div>
         </div>
+        {promoLabel ? (
+          <span className="absolute right-12 top-3 rounded-full border border-yellow-300/60 bg-yellow-400/95 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-900 shadow shadow-yellow-500/30">
+            {promoLabel}
+          </span>
+        ) : null}
         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 transition-transform duration-300 group-hover:translate-x-1 group-hover:text-zinc-400">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

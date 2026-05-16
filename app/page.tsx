@@ -47,7 +47,10 @@ const sports = [
     gradient: "from-yellow-500/80 to-yellow-900/90",
     border: "hover:border-yellow-400 hover:shadow-yellow-500/20",
     glow: "group-hover:shadow-[0_0_30px_rgba(234,179,8,0.3)]",
-    comingSoon: true,
+    // Launch promo — overlaid on the tile so customers see the
+    // discount before they tap in. Pricing details live on the
+    // /book/pickleball page banner.
+    promoLabel: "25% OFF",
   },
 ];
 
@@ -521,40 +524,6 @@ export default async function Home() {
               {sports.map((sport) => {
                 const Icon = sport.icon;
 
-                if (sport.comingSoon) {
-                  return (
-                    <div
-                      key={sport.slug}
-                      aria-disabled="true"
-                      className="relative overflow-hidden rounded-2xl h-64 sm:h-72 md:h-80 border border-zinc-800 cursor-not-allowed"
-                    >
-                      <img
-                        src={sport.image}
-                        alt={`${sport.name} at Momentum Arena`}
-                        className="absolute inset-0 w-full h-full object-cover grayscale"
-                      />
-                      <div
-                        className={`absolute inset-0 bg-gradient-to-t ${sport.gradient} opacity-80`}
-                      />
-                      <div className="absolute inset-0 bg-black/40" />
-
-                      <span className="absolute right-3 top-3 rounded-full bg-amber-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300 border border-amber-500/30 backdrop-blur-sm">
-                        Coming Soon
-                      </span>
-
-                      <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-                        <Icon className="text-4xl md:text-5xl text-white/60 mb-3" />
-                        <h3 className="text-2xl md:text-3xl font-black text-white/80 mb-1">
-                          {sport.name}
-                        </h3>
-                        <p className="text-sm md:text-base text-white/60">
-                          {sport.tagline}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                }
-
                 return (
                   <HomepageSportTracker key={sport.slug} sport={sport.name}>
                   <Link
@@ -572,6 +541,15 @@ export default async function Home() {
                     <div
                       className={`absolute inset-0 bg-gradient-to-t ${sport.gradient} opacity-80 group-hover:opacity-90 transition-opacity duration-500`}
                     />
+
+                    {/* Launch-promo pill (top-right). Currently only
+                        pickleball carries one — the /book/pickleball
+                        page shows the original vs effective prices. */}
+                    {sport.promoLabel ? (
+                      <span className="absolute right-3 top-3 z-10 rounded-full border border-yellow-300/60 bg-yellow-400/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-900 shadow-lg shadow-yellow-500/30">
+                        {sport.promoLabel}
+                      </span>
+                    ) : null}
 
                     {/* Content */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">

@@ -68,7 +68,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Momentum Arena | Sports Facility in Mathura",
     description:
-      "Book Cricket, Football & Pickleball courts in Mathura. Premium facility with cafeteria & parking. Coming Soon!",
+      "Book Cricket, Football & Pickleball courts in Mathura. Premium facility with cafeteria & parking.",
     images: ["/icon.png"],
     creator: "@momentumarena_",
   },
