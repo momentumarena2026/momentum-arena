@@ -78,6 +78,11 @@ function resolveQuickAction(href: string, nav: Nav): () => void {
       nav.navigate("Sports", {
         screen: "BookCourt",
         params: { sport: sportSlug },
+        // Keep BookSport at the bottom of the stack so back-button
+        // works. Same reason as HomeScreen.openSport — without this,
+        // BookCourt auto-skipping to BookSlots leaves the user
+        // trapped on a screen with no back history.
+        initial: false,
       });
   }
 
