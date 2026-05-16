@@ -47,8 +47,13 @@ export const colors = {
   zinc900: "#18181b",
 
   // Weekend day-name tint on the date picker (web: text-yellow-400).
+  yellow300: "#fde047", // discounted-price accent on slot tiles + summary
   yellow400: "#facc15",
   yellow500: "#eab308",
+  // Launch-offer banner background + border on the pickleball slot
+  // screen — mirrors web's `bg-yellow-500/10 border-yellow-500/30`.
+  yellow500_10: "rgba(234, 179, 8, 0.10)",
+  yellow500_30: "rgba(234, 179, 8, 0.30)",
 
   // Semantic
   destructive: "#ef4444",

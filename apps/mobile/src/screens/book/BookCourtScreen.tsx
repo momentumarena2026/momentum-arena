@@ -18,7 +18,7 @@ import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { CourtDiagram } from "../../components/CourtDiagram";
+import { CourtDiagram, SharedCourtDiagram } from "../../components/CourtDiagram";
 import { BowlingMachineDiagram } from "../../components/BowlingMachineDiagram";
 import { colors, radius, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
@@ -225,7 +225,11 @@ export function BookCourtScreen() {
                     />
                   </View>
                   <View style={styles.diagramWrap}>
-                    <CourtDiagram highlightedZones={rep.zones} size="sm" />
+                    {params.sport === "PICKLEBALL" ? (
+                      <SharedCourtDiagram sport="PICKLEBALL" />
+                    ) : (
+                      <CourtDiagram highlightedZones={rep.zones} size="sm" />
+                    )}
                   </View>
                   <Text variant="tiny" color={colors.subtleForeground}>
                     Venue assigns a side at game time.
@@ -258,7 +262,11 @@ export function BookCourtScreen() {
                   <ChevronRight size={20} color={colors.subtleForeground} />
                 </View>
                 <View style={styles.diagramWrap}>
-                  <CourtDiagram highlightedZones={c.zones} size="sm" />
+                  {params.sport === "PICKLEBALL" ? (
+                    <SharedCourtDiagram sport="PICKLEBALL" />
+                  ) : (
+                    <CourtDiagram highlightedZones={c.zones} size="sm" />
+                  )}
                 </View>
                 {c.zones.length > 0 ? (
                   <View style={styles.zonesRow}>
