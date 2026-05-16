@@ -24,6 +24,7 @@ import { CourtDiagram, SharedCourtDiagram } from "../../components/CourtDiagram"
 import { BowlingMachineDiagram } from "../../components/BowlingMachineDiagram";
 import { colors, radius, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
+import { bookingApi } from "../../lib/booking";
 import { ApiError } from "../../lib/api";
 import { sportLabel } from "../../lib/format";
 import type { CourtConfig } from "../../lib/types";
@@ -90,6 +91,19 @@ export function BookCourtScreen() {
     retry: false,
   });
 
+  // Live promo for the launch banner below. Only fetched for the
+  // sport actually being viewed (returns null for non-promo sports
+  // anyway, but skipping the call when we know it'd return null
+  // saves a network roundtrip). When admin disables PICKLEBALL25,
+  // this returns null and the banner disappears on next render.
+  const { data: promoData } = useQuery({
+    queryKey: ["sport-promo", params.sport],
+    queryFn: () => bookingApi.sportPromo(params.sport),
+    enabled: params.sport === "PICKLEBALL",
+    staleTime: 5 * 60 * 1000,
+  });
+  const showPromoBanner = promoData?.promo?.percentOff != null;
+
   // Auto-skip the size picker when there's only one tile AND there's no
   // bowling-machine option (which must always remain visible on the
   // cricket screen). Matches the web behaviour in `app/book/[sport]/page.tsx`.
@@ -137,17 +151,18 @@ export function BookCourtScreen() {
         </Text>
       </View>
 
-      {/* Pickleball launch-promo banner. Same PNG asset web ships on
+      {/* Pickleball launch-promo banner. Same JPEG asset web ships on
           /book/pickleball (public/pickleball-promo-banner.jpg) so both
-          surfaces stay byte-identical. Only renders on pickleball;
-          other sports get the original (banner-less) flow. */}
-      {params.sport === "PICKLEBALL" ? (
+          surfaces stay byte-identical. Gated on the live PICKLEBALL25
+          coupon — when admin disables it server-side this disappears
+          on the next render. */}
+      {showPromoBanner ? (
         <View style={styles.promoBanner}>
           <Image
             source={{ uri: `${env.apiUrl}/pickleball-promo-banner.jpg` }}
             style={styles.promoBannerImage}
             resizeMode="cover"
-            accessibilityLabel="Pickleball launch offer — 25% off, auto-applied at checkout"
+            accessibilityLabel={`Pickleball launch offer — ${promoData?.promo?.percentOff}% off, auto-applied at checkout`}
           />
         </View>
       ) : null}

@@ -13,6 +13,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { SPORT_INFO, customerFacingCourtLabel, formatHoursAsRanges } from "@/lib/court-config";
 import { formatBookingDate, formatPrice } from "@/lib/pricing";
+import { getActiveSportPromo } from "@/actions/sport-promo";
 
 const sports = [
   {
@@ -47,10 +48,10 @@ const sports = [
     gradient: "from-yellow-500/80 to-yellow-900/90",
     border: "hover:border-yellow-400 hover:shadow-yellow-500/20",
     glow: "group-hover:shadow-[0_0_30px_rgba(234,179,8,0.3)]",
-    // Launch promo — overlaid on the tile so customers see the
-    // discount before they tap in. Pricing details live on the
-    // /book/pickleball page banner.
-    promoLabel: "25% OFF",
+    // promoLabel is computed at render time from the live PICKLEBALL25
+    // coupon (see `getActiveSportPromo` call inside Home), so flipping
+    // isActive=false in /admin/coupons hides the pill + banner here on
+    // the next request — no separate hardcoded toggle to remember.
   },
 ];
 
@@ -163,6 +164,20 @@ export default async function Home() {
   } catch {
     // Anonymous / auth misconfigured — leave the section hidden.
   }
+
+  // Live PICKLEBALL25 promo lookup — drives the 25% OFF pill on the
+  // pickleball tile AND the launch-offer banner above the sports
+  // grid. When admin disables / expires the coupon in /admin/coupons
+  // this returns null and both pieces vanish on the next request.
+  // No try/catch: the DB call already returns null on any disqualifier,
+  // and a missing coupon row throws upstream which we'd want to see.
+  const pickleballPromo = await getActiveSportPromo("PICKLEBALL").catch(
+    () => null,
+  );
+  const pickleballPromoLabel =
+    pickleballPromo?.percentOff != null
+      ? `${pickleballPromo.percentOff}% OFF`
+      : null;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -521,25 +536,27 @@ export default async function Home() {
             </div>
 
             {/* Pickleball launch promo — tappable banner that deep-links
-                straight into /book/pickleball. 3:1 source asset; wrapper
-                clamps width so it never exceeds the sports grid below it
-                and adds a soft amber halo on hover to match the existing
-                pickleball tile palette. */}
-            <Link
-              href="/book/pickleball"
-              aria-label="Pickleball Launch Offer — 25% off, auto-applied at checkout"
-              className="group mb-8 md:mb-10 block overflow-hidden rounded-2xl border border-yellow-500/30 shadow-lg shadow-yellow-500/10 transition-all duration-300 hover:border-yellow-400/60 hover:shadow-yellow-500/25"
-            >
-              <Image
-                src="/pickleball-promo-banner.jpg"
-                alt="Pickleball Launch Offer: flat 25% off every slot — Morning ₹450/hr, Night ₹600/hr — auto-applied at checkout"
-                width={2400}
-                height={800}
-                priority
-                className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.01]"
-                sizes="(min-width: 1280px) 1216px, (min-width: 768px) calc(100vw - 96px), calc(100vw - 32px)"
-              />
-            </Link>
+                straight into /book/pickleball. Gated on the live
+                PICKLEBALL25 coupon (see `pickleballPromo` above); when
+                admin disables/expires the coupon this disappears on
+                the next request. */}
+            {pickleballPromoLabel ? (
+              <Link
+                href="/book/pickleball"
+                aria-label={`Pickleball Launch Offer — ${pickleballPromoLabel}, auto-applied at checkout`}
+                className="group mb-8 md:mb-10 block overflow-hidden rounded-2xl border border-yellow-500/30 shadow-lg shadow-yellow-500/10 transition-all duration-300 hover:border-yellow-400/60 hover:shadow-yellow-500/25"
+              >
+                <Image
+                  src="/pickleball-promo-banner.jpg"
+                  alt={`Pickleball Launch Offer: flat ${pickleballPromoLabel} every slot — auto-applied at checkout`}
+                  width={1200}
+                  height={400}
+                  priority
+                  className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.01]"
+                  sizes="(min-width: 1280px) 1216px, (min-width: 768px) calc(100vw - 96px), calc(100vw - 32px)"
+                />
+              </Link>
+            ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               {sports.map((sport) => {
@@ -563,12 +580,14 @@ export default async function Home() {
                       className={`absolute inset-0 bg-gradient-to-t ${sport.gradient} opacity-80 group-hover:opacity-90 transition-opacity duration-500`}
                     />
 
-                    {/* Launch-promo pill (top-right). Currently only
-                        pickleball carries one — the /book/pickleball
-                        page shows the original vs effective prices. */}
-                    {sport.promoLabel ? (
+                    {/* Launch-promo pill (top-right). Driven by the
+                        live PICKLEBALL25 coupon — disabling it in
+                        /admin/coupons hides this pill on the next
+                        request. Today only pickleball ships a promo;
+                        other sports get null. */}
+                    {sport.slug === "pickleball" && pickleballPromoLabel ? (
                       <span className="absolute right-3 top-3 z-10 rounded-full border border-yellow-300/60 bg-yellow-400/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-900 shadow-lg shadow-yellow-500/30">
-                        {sport.promoLabel}
+                        {pickleballPromoLabel}
                       </span>
                     ) : null}
 
