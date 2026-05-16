@@ -58,7 +58,21 @@ import type {
 type Nav = NativeStackNavigationProp<BookStackParamList, "Checkout">;
 type Rt = RouteProp<BookStackParamList, "Checkout">;
 
+// Default fallback when no other discount applies. Pickleball gets a
+// sport-specific launch promo (PICKLEBALL25, flat 25%) — see
+// `fallbackCodeFor` below. Other sports fall through to FLAT100 the
+// same way they always have.
 const FALLBACK_CODE = "FLAT100";
+
+function fallbackCodeFor(sport: string | null | undefined): string {
+  return sport === "PICKLEBALL" ? "PICKLEBALL25" : FALLBACK_CODE;
+}
+
+function fallbackLabelFor(sport: string | null | undefined): string {
+  return sport === "PICKLEBALL"
+    ? "Pickleball Launch: 25% OFF applied"
+    : "Flat ₹100 OFF applied";
+}
 
 // Mirrors the server's fresh-DB fallback in
 // `app/api/mobile/settings/payment-config/route.ts`. Used when the
@@ -258,9 +272,10 @@ export function CheckoutScreen() {
         }
       }
       try {
-        const res = await applyCouponMutation.mutateAsync(FALLBACK_CODE);
+        const code = fallbackCodeFor(sport);
+        const res = await applyCouponMutation.mutateAsync(code);
         if (res.success) {
-          setDiscountLabel("Flat ₹100 OFF applied");
+          setDiscountLabel(fallbackLabelFor(sport));
         }
       } catch {
         // fine — no coupon configured, continue at full price.
