@@ -117,47 +117,156 @@ export function CourtDiagram({ highlightedZones, size = "md" }: CourtDiagramProp
   );
 }
 
-// Shared court diagram for Pickleball
+// Shared court diagram for Pickleball.
+//
+// Geometry: the venue surface is 26 x 50 ft. The regulation playable
+// markings live INSIDE that as a 20 x 44 ft rectangle, centered with
+// a 3 ft buffer on every side. We paint the buffer in neutral gray
+// (the surrounding concrete) and the playable area in blue so the
+// difference reads at a glance — old version only drew the 20 x 44
+// rectangle, which misrepresented what the customer actually books.
+//
+// Court markings inside the playable area follow USAPA spec:
+//   - Net across the 20 ft width at the centerline (22 ft from each baseline)
+//   - Non-volley zone (kitchen): 7 ft on each side of the net, full 20 ft wide
+//   - Centerline: divides each service half (10 ft from each sideline),
+//     drawn only between kitchen line and baseline (never through the kitchen)
 export function SharedCourtDiagram({ sport: _sport }: { sport: "PICKLEBALL" }) {
-  const color = "#eab308";
-  // Pickleball: 20 x 44 ft
-  const w = 20;
-  const h = 44;
-  const pad = 4;
+  // Tailwind blue-500 — matches the "Pickleball" amber palette poorly,
+  // but the user asked for blue specifically (and it reads as a court).
+  const playableFill = "#3b82f6";
+  const playableLine = "#60a5fa"; // blue-400 — slightly lighter for the rim
+  const marking = "#e5e7eb"; // zinc-200 — court paint lines + net
+  const surfaceFill = "#3f3f46"; // zinc-700 — the concrete around the court
+  const surfaceLine = "#52525b"; // zinc-600
+
+  // ── Dimensions (in feet — SVG units map 1:1) ─────────────────────
+  const surfW = 26;
+  const surfH = 50;
+  const playW = 20;
+  const playH = 44;
+  const offX = (surfW - playW) / 2; // 3 ft buffer
+  const offY = (surfH - playH) / 2; // 3 ft buffer
+  const netY = offY + playH / 2; // 25 ft from top of surface
+  const kitchenOffset = 7; // ft from net
+  const pad = 3;
+  const labelGap = 8;
 
   return (
     <svg
-      viewBox={`0 0 ${w + pad * 2} ${h + pad * 2 + 8}`}
+      viewBox={`0 0 ${surfW + pad * 2} ${surfH + pad * 2 + labelGap}`}
       className="w-full"
-      style={{ maxWidth: 140 }}
+      style={{ maxWidth: 160 }}
     >
+      {/* Card background */}
       <rect
         x="0"
         y="0"
-        width={w + pad * 2}
-        height={h + pad * 2}
+        width={surfW + pad * 2}
+        height={surfH + pad * 2}
         rx="2"
         fill="#1a1a1a"
         stroke="#333"
         strokeWidth="0.5"
       />
+
+      {/* Surface (26 x 50) — the concrete the court is painted on */}
       <rect
         x={pad}
         y={pad}
-        width={w}
-        height={h}
-        rx="1"
-        fill={color}
-        opacity="0.2"
-        stroke={color}
-        strokeWidth="0.5"
+        width={surfW}
+        height={surfH}
+        rx="1.5"
+        fill={surfaceFill}
+        stroke={surfaceLine}
+        strokeWidth="0.4"
       />
-      {/* Center line */}
-      <line x1={pad} y1={h / 2 + pad} x2={w + pad} y2={h / 2 + pad} stroke={color} strokeWidth="0.5" opacity="0.5" />
-      {/* Net */}
-      <line x1={pad} y1={h / 2 + pad} x2={w + pad} y2={h / 2 + pad} stroke="#fff" strokeWidth="1" opacity="0.4" />
-      <text x={w / 2 + pad} y={h + pad * 2 + 5} textAnchor="middle" fill="#666" fontSize="4">
-        20 x 44 ft
+
+      {/* Playable area (20 x 44) — blue, centered inside the surface */}
+      <rect
+        x={pad + offX}
+        y={pad + offY}
+        width={playW}
+        height={playH}
+        fill={playableFill}
+        fillOpacity="0.55"
+        stroke={playableLine}
+        strokeWidth="0.6"
+      />
+
+      {/* Kitchen / non-volley zone — slightly darker overlay on the
+          7-ft strips on either side of the net. */}
+      <rect
+        x={pad + offX}
+        y={pad + netY - kitchenOffset}
+        width={playW}
+        height={kitchenOffset * 2}
+        fill="#1d4ed8" /* blue-700 */
+        fillOpacity="0.45"
+      />
+
+      {/* Centerline — top half (baseline to kitchen line) */}
+      <line
+        x1={pad + offX + playW / 2}
+        y1={pad + offY}
+        x2={pad + offX + playW / 2}
+        y2={pad + netY - kitchenOffset}
+        stroke={marking}
+        strokeWidth="0.4"
+        opacity="0.85"
+      />
+      {/* Centerline — bottom half (kitchen line to baseline) */}
+      <line
+        x1={pad + offX + playW / 2}
+        y1={pad + netY + kitchenOffset}
+        x2={pad + offX + playW / 2}
+        y2={pad + offY + playH}
+        stroke={marking}
+        strokeWidth="0.4"
+        opacity="0.85"
+      />
+
+      {/* Kitchen lines (7 ft from net, both sides) */}
+      <line
+        x1={pad + offX}
+        y1={pad + netY - kitchenOffset}
+        x2={pad + offX + playW}
+        y2={pad + netY - kitchenOffset}
+        stroke={marking}
+        strokeWidth="0.4"
+        opacity="0.85"
+      />
+      <line
+        x1={pad + offX}
+        y1={pad + netY + kitchenOffset}
+        x2={pad + offX + playW}
+        y2={pad + netY + kitchenOffset}
+        stroke={marking}
+        strokeWidth="0.4"
+        opacity="0.85"
+      />
+
+      {/* Net — drawn last so it sits above all court paint. Extends
+          slightly past the sidelines like the real net posts do. */}
+      <line
+        x1={pad + offX - 1}
+        y1={pad + netY}
+        x2={pad + offX + playW + 1}
+        y2={pad + netY}
+        stroke="#ffffff"
+        strokeWidth="0.9"
+        opacity="0.95"
+      />
+
+      {/* Dimension label */}
+      <text
+        x={(surfW + pad * 2) / 2}
+        y={surfH + pad * 2 + 5.5}
+        textAnchor="middle"
+        fill="#a1a1aa"
+        fontSize="3.6"
+      >
+        26 × 50 ft  ·  playable 20 × 44 ft
       </text>
     </svg>
   );
