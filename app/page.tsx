@@ -520,6 +520,27 @@ export default async function Home() {
               </p>
             </div>
 
+            {/* Pickleball launch promo — tappable banner that deep-links
+                straight into /book/pickleball. 3:1 source asset; wrapper
+                clamps width so it never exceeds the sports grid below it
+                and adds a soft amber halo on hover to match the existing
+                pickleball tile palette. */}
+            <Link
+              href="/book/pickleball"
+              aria-label="Pickleball Launch Offer — 25% off, auto-applied at checkout"
+              className="group mb-8 md:mb-10 block overflow-hidden rounded-2xl border border-yellow-500/30 shadow-lg shadow-yellow-500/10 transition-all duration-300 hover:border-yellow-400/60 hover:shadow-yellow-500/25"
+            >
+              <Image
+                src="/pickleball-promo-banner.png"
+                alt="Pickleball Launch Offer: flat 25% off every slot — Morning ₹450/hr, Night ₹600/hr — auto-applied at checkout"
+                width={2400}
+                height={800}
+                priority
+                className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.01]"
+                sizes="(min-width: 1280px) 1216px, (min-width: 768px) calc(100vw - 96px), calc(100vw - 32px)"
+              />
+            </Link>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               {sports.map((sport) => {
                 const Icon = sport.icon;
