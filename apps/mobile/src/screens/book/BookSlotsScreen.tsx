@@ -25,6 +25,10 @@ import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { bookingApi, type SlotAvailability } from "../../lib/booking";
+import {
+  type ActiveSportPromo,
+  computeAutoApplyDiscount,
+} from "../../lib/auto-apply-promo";
 import { ApiError } from "../../lib/api";
 import { waitlistApi } from "../../lib/waitlist";
 import {
@@ -97,13 +101,48 @@ export function BookSlotsScreen() {
 
   const slots: SlotAvailability[] = data?.slots ?? [];
 
-  const total = useMemo(
+  // Active auto-apply promo for this sport — drives the launch-offer
+  // banner above the slot grid and the per-slot strike-through price
+  // decoration. Same data the web slot page reads via getActiveSportPromo.
+  // No bookingCategory passed here because the regular BookSlotsScreen
+  // never handles bowling-machine flows (those go through
+  // BookBowlingSlotsScreen) — so the category filter on the coupon side
+  // (categoryExclude: [BOWLING_MACHINE]) is moot.
+  const { data: promoData } = useQuery({
+    queryKey: ["sport-promo", params.sport],
+    queryFn: () => bookingApi.sportPromo(params.sport),
+    // Stale-while-revalidate: a coupon's value rarely changes within a
+    // session, but we still want the next visit to pick up admin edits.
+    staleTime: 5 * 60 * 1000,
+  });
+  const promo: ActiveSportPromo | null = promoData?.promo ?? null;
+  // Per-slot decoration only when the promo is an uncapped PERCENTAGE
+  // (`percentOff` non-null). FLAT promos like FLAT100 apply once to the
+  // whole order and would show misleading numbers per slot.
+  const showDiscount = promo?.percentOff != null;
+
+  const totalOriginal = useMemo(
     () =>
       slots
         .filter((s) => selected.includes(s.hour))
         .reduce((sum, s) => sum + s.price, 0),
     [slots, selected]
   );
+  const totalDiscounted = useMemo(
+    () =>
+      showDiscount && promo
+        ? slots
+            .filter((s) => selected.includes(s.hour))
+            .reduce(
+              (sum, s) => sum + (s.price - computeAutoApplyDiscount(s.price, promo)),
+              0,
+            )
+        : totalOriginal,
+    [showDiscount, promo, slots, selected, totalOriginal]
+  );
+  // Footer + lock summaries always show the price the user pays. Keep
+  // the old `total` name so the rest of the screen reads the same.
+  const total = totalDiscounted;
 
   // Toggle a slot in/out of the selection. Mirrors the web's
   // `components/booking/slot-grid.tsx` exactly — any combination of
@@ -200,6 +239,20 @@ export function BookSlotsScreen() {
           <DateStrip selectedDate={selectedDate} onDateChange={pickDate} />
         </View>
 
+        {/* Launch-offer banner — data-driven from the active auto-apply
+            promo. Shows only when there's an uncapped PERCENTAGE coupon
+            live for this sport (today: PICKLEBALL25). Copy reads the
+            percentage from the coupon row so admin edits flow through
+            without a code change. */}
+        {showDiscount && promo ? (
+          <View style={styles.promoBanner}>
+            <Text variant="small" weight="600" color={colors.yellow300}>
+              Launch offer: {promo.percentOff}% off shown — applied
+              automatically at checkout
+            </Text>
+          </View>
+        ) : null}
+
         {/* Slots — 2-column grid with "5pm - 6pm"-style labels. */}
         <View style={styles.section}>
           <View style={styles.dateHeader}>
@@ -240,6 +293,7 @@ export function BookSlotsScreen() {
               slots={slots}
               selected={selected}
               onToggle={toggleHour}
+              promo={promo}
               onUnavailableTap={
                 isMedium ? undefined : (h) => setWaitlistHour(h)
               }
@@ -255,7 +309,9 @@ export function BookSlotsScreen() {
           )}
         </View>
 
-        {/* Selection summary — mirrors web's summary card. */}
+        {/* Selection summary — mirrors web's summary card. When the
+            promo is active and the discounted total is smaller, render
+            the strike-through original above the discounted amount. */}
         {selected.length > 0 ? (
           <View style={styles.summaryCard}>
             <View>
@@ -267,13 +323,32 @@ export function BookSlotsScreen() {
               </Text>
             </View>
             <View style={styles.summaryTotal}>
-              <Text
-                variant="heading"
-                color={colors.emerald400}
-                style={styles.summaryAmount}
-              >
-                {formatRupees(total)}
-              </Text>
+              {showDiscount && totalDiscounted < totalOriginal ? (
+                <View style={styles.summaryPriceRow}>
+                  <Text
+                    variant="small"
+                    color={colors.zinc500}
+                    style={styles.summaryStrike}
+                  >
+                    {formatRupees(totalOriginal)}
+                  </Text>
+                  <Text
+                    variant="heading"
+                    color={colors.yellow300}
+                    style={styles.summaryAmount}
+                  >
+                    {formatRupees(totalDiscounted)}
+                  </Text>
+                </View>
+              ) : (
+                <Text
+                  variant="heading"
+                  color={colors.emerald400}
+                  style={styles.summaryAmount}
+                >
+                  {formatRupees(totalOriginal)}
+                </Text>
+              )}
               <Text variant="tiny" color={colors.zinc500}>
                 Total
               </Text>
@@ -418,6 +493,7 @@ function SlotGrid({
   onToggle,
   onUnavailableTap,
   pastHourCutoff,
+  promo,
 }: {
   slots: SlotAvailability[];
   selected: number[];
@@ -430,7 +506,14 @@ function SlotGrid({
    * no Bell, no waitlist option. `undefined` means no slots are past.
    */
   pastHourCutoff?: number;
+  /**
+   * Active sport promo. When `promo.percentOff` is non-null, each
+   * available tile renders strike-through original + amber discounted
+   * price. Math via computeAutoApplyDiscount keeps display ≡ charge.
+   */
+  promo?: ActiveSportPromo | null;
 }) {
+  const showDiscount = promo?.percentOff != null;
   return (
     <View style={styles.slotsGrid}>
       {slots.map((slot) => {
@@ -476,25 +559,45 @@ function SlotGrid({
                 <Bell size={14} color={colors.destructive} />
               ) : null}
             </View>
-            <Text
-              variant="tiny"
-              color={
-                isAvailable
-                  ? colors.zinc400
+            {isAvailable && showDiscount && promo ? (
+              <View style={styles.slotPriceRow}>
+                <Text
+                  variant="tiny"
+                  color={colors.zinc500}
+                  style={styles.slotPriceStrike}
+                >
+                  {formatRupees(slot.price)}
+                </Text>
+                <Text
+                  variant="tiny"
+                  weight="600"
+                  color={colors.yellow300}
+                  style={styles.slotPriceNew}
+                >
+                  {formatRupees(slot.price - computeAutoApplyDiscount(slot.price, promo))}
+                </Text>
+              </View>
+            ) : (
+              <Text
+                variant="tiny"
+                color={
+                  isAvailable
+                    ? colors.zinc400
+                    : bookedFutureInteractive
+                    ? colors.destructive_300
+                    : colors.zinc500
+                }
+                style={styles.slotFooter}
+              >
+                {isAvailable
+                  ? formatRupees(slot.price)
                   : bookedFutureInteractive
-                  ? colors.destructive_300
-                  : colors.zinc500
-              }
-              style={styles.slotFooter}
-            >
-              {isAvailable
-                ? formatRupees(slot.price)
-                : bookedFutureInteractive
-                ? "Booked · Notify me"
-                : isPast
-                ? "Past"
-                : "Unavailable"}
-            </Text>
+                  ? "Booked · Notify me"
+                  : isPast
+                  ? "Past"
+                  : "Unavailable"}
+              </Text>
+            )}
           </Pressable>
         );
       })}
@@ -615,6 +718,18 @@ const styles = StyleSheet.create({
   slotFooter: {
     marginTop: 2,
   },
+  slotPriceRow: {
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+  },
+  slotPriceStrike: {
+    textDecorationLine: "line-through",
+  },
+  slotPriceNew: {
+    // weight-600 + yellow-300 already set inline; layout-only here.
+  },
   summaryCard: {
     marginTop: spacing["5"],
     borderRadius: radius.lg,
@@ -636,6 +751,24 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 24,
     fontWeight: "700",
+  },
+  summaryPriceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+  },
+  summaryStrike: {
+    textDecorationLine: "line-through",
+  },
+  promoBanner: {
+    marginTop: spacing["4"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.yellow500_30,
+    backgroundColor: colors.yellow500_10,
+    paddingVertical: spacing["2.5"],
+    paddingHorizontal: spacing["4"],
+    alignItems: "center",
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
