@@ -141,6 +141,16 @@ export function SharedCourtDiagram({ sport: _sport }: { sport: "PICKLEBALL" }) {
   const surfaceLine = "#52525b"; // zinc-600
 
   // ── Dimensions (in feet — SVG units map 1:1) ─────────────────────
+  // The dimension label used to live inside the SVG, but at the
+  // narrow card widths we render at (90-ish px) the long
+  // "26 × 50 ft · playable 20 × 44 ft" string overflowed the viewBox
+  // and got clipped by the surrounding card. We drop the SVG-internal
+  // label entirely now — the parent card already shows the dimensions
+  // next to the diagram from CourtConfig (config.widthFt x lengthFt),
+  // so the label was redundant. Also caps maxWidth at 90 so the card
+  // doesn't tower at ~320px tall when the diagram is rendered next to
+  // a short text block (real court aspect is ~1:2, so width caps the
+  // height directly).
   const surfW = 26;
   const surfH = 50;
   const playW = 20;
@@ -150,13 +160,12 @@ export function SharedCourtDiagram({ sport: _sport }: { sport: "PICKLEBALL" }) {
   const netY = offY + playH / 2; // 25 ft from top of surface
   const kitchenOffset = 7; // ft from net
   const pad = 3;
-  const labelGap = 8;
 
   return (
     <svg
-      viewBox={`0 0 ${surfW + pad * 2} ${surfH + pad * 2 + labelGap}`}
+      viewBox={`0 0 ${surfW + pad * 2} ${surfH + pad * 2}`}
       className="w-full"
-      style={{ maxWidth: 160 }}
+      style={{ maxWidth: 90 }}
     >
       {/* Card background */}
       <rect
@@ -258,16 +267,6 @@ export function SharedCourtDiagram({ sport: _sport }: { sport: "PICKLEBALL" }) {
         opacity="0.95"
       />
 
-      {/* Dimension label */}
-      <text
-        x={(surfW + pad * 2) / 2}
-        y={surfH + pad * 2 + 5.5}
-        textAnchor="middle"
-        fill="#a1a1aa"
-        fontSize="3.6"
-      >
-        26 × 50 ft  ·  playable 20 × 44 ft
-      </text>
     </svg>
   );
 }
