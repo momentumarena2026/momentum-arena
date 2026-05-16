@@ -41,6 +41,7 @@ import { RewardsChip } from "../../components/RewardsChip";
 import { colors, radius, spacing } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
 import { bookingsApi } from "../../lib/bookings";
+import { bookingApi } from "../../lib/booking";
 import { env } from "../../config/env";
 import type {
   MainTabsParamList,
@@ -76,10 +77,10 @@ const SPORTS = [
     tagline: "Fast-growing sport, professional court",
     tint: "rgba(234, 179, 8, 0.55)",
     border: "#eab308",
-    // Launch promo — replaces the old `comingSoon` flag. Renders the
-    // "25% OFF" amber pill in the top-right of the tile so customers
-    // see the discount before they tap in (matches web's sport-card).
-    promoLabel: "25% OFF",
+    // promoLabel is computed at render time from the live PICKLEBALL25
+    // coupon (see `pickleballPromoLabel` inside HomeScreen). Flipping
+    // isActive=false in /admin/coupons hides the pill on the next
+    // render — no hardcoded toggle to remember.
   },
 ];
 
@@ -104,6 +105,22 @@ export function HomeScreen() {
     queryFn: bookingsApi.dashboard,
     enabled: signedIn,
   });
+
+  // Live PICKLEBALL25 promo — drives the 25% OFF pill on the
+  // pickleball sport tile AND the launch-offer banner above the
+  // sports list. Stale-while-revalidate 5 min: coupons don't change
+  // mid-session but admin edits should land on next app focus.
+  // Returns null when the coupon is disabled / expired / sport-mismatched,
+  // which causes the banner + pill to vanish on the next render.
+  const { data: pickleballPromoData } = useQuery({
+    queryKey: ["sport-promo", "PICKLEBALL"],
+    queryFn: () => bookingApi.sportPromo("PICKLEBALL"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const pickleballPromoLabel =
+    pickleballPromoData?.promo?.percentOff != null
+      ? `${pickleballPromoData.promo.percentOff}% OFF`
+      : null;
 
   const onRefresh = useCallback(() => {
     if (signedIn) void refetch();
@@ -262,12 +279,13 @@ export function HomeScreen() {
             accentColor={colors.primary}
           />
           {/* Pickleball launch promo banner — tappable, deep-links to
-              /book/pickleball. Same PNG asset web ships above its
+              /book/pickleball. Same JPEG asset web ships above its
               sports grid (public/pickleball-promo-banner.jpg) so the
-              two surfaces stay byte-identical. Hidden if no PICKLEBALL
-              tile carries a promoLabel (defensive — drops itself if
-              the launch promo ever rolls off). */}
-          {SPORTS.some((s) => s.slug === "PICKLEBALL" && s.promoLabel) ? (
+              two surfaces stay byte-identical. Gated on the live
+              PICKLEBALL25 coupon — when admin disables it server-side
+              this disappears on the next render (5-min stale window
+              on the useQuery cache). */}
+          {pickleballPromoLabel ? (
             <Pressable
               onPress={() => openSport("PICKLEBALL")}
               style={({ pressed }) => [
@@ -279,7 +297,7 @@ export function HomeScreen() {
                 source={{ uri: `${ASSETS}/pickleball-promo-banner.jpg` }}
                 style={styles.promoBannerImage}
                 resizeMode="cover"
-                accessibilityLabel="Pickleball launch offer — 25% off, auto-applied at checkout"
+                accessibilityLabel={`Pickleball launch offer — ${pickleballPromoLabel}, auto-applied at checkout`}
               />
             </Pressable>
           ) : null}
@@ -292,7 +310,11 @@ export function HomeScreen() {
                 image={s.image}
                 tint={s.tint}
                 border={s.border}
-                promoLabel={s.promoLabel}
+                // Today only pickleball ships a promo; pillLabel is
+                // driven by the live coupon lookup above.
+                promoLabel={
+                  s.slug === "PICKLEBALL" ? pickleballPromoLabel : null
+                }
                 onPress={() => openSport(s.slug)}
               />
             ))}
@@ -654,11 +676,11 @@ function SportCard({
   image: string;
   tint: string;
   border: string;
-  /** Top-right launch-promo pill (e.g. "25% OFF"). Replaces the old
-      `comingSoon` flag — pickleball is live now; the pill marketing
-      the launch discount lives here so the home tile mirrors web's
-      sport-card. */
-  promoLabel?: string;
+  /** Top-right launch-promo pill (e.g. "25% OFF"). Caller passes
+      `null` when the live coupon is disabled/expired, so accept
+      `string | null | undefined` to avoid forcing every caller to
+      coalesce. The pill renders only when this is truthy. */
+  promoLabel?: string | null;
   onPress?: () => void;
 }) {
   return (
