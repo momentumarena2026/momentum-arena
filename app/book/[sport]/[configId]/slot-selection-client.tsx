@@ -13,7 +13,10 @@ import type { SlotAvailability } from "@/lib/availability";
 import { Loader2, RefreshCw, Calendar } from "lucide-react";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
 import type { RecurringTier, DailyTier } from "@/actions/admin-recurring";
-import type { ActiveSportPromo } from "@/lib/auto-apply-promo";
+import {
+  type ActiveSportPromo,
+  computeAutoApplyDiscount,
+} from "@/lib/auto-apply-promo";
 import { getCurrentHourIST, getTodayIST } from "@/lib/ist-date";
 import {
   trackSlotToggled,
@@ -183,6 +186,18 @@ export function SlotSelectionClient({
     selectedHours.includes(s.hour)
   );
   const total = selectedSlotPrices.reduce((sum, s) => sum + s.price, 0);
+  // Per-slot decoration only kicks in for an uncapped PERCENTAGE
+  // promo (promo.percentOff non-null); same gating SlotGrid uses
+  // for its tiles. The sticky footer + handleProceed analytics
+  // event read `promoTotal` so the "Pay Now" pill shows what the
+  // checkout will actually charge.
+  const showPromo = promo?.percentOff != null;
+  const promoTotal = showPromo && promo
+    ? selectedSlotPrices.reduce(
+        (sum, s) => sum + (s.price - computeAutoApplyDiscount(s.price, promo)),
+        0,
+      )
+    : total;
 
   // User is authenticated if server passed userId OR client session is active
   const isAuthenticated = !!userId || (status === "authenticated" && !!session?.user);
@@ -651,7 +666,20 @@ export function SlotSelectionClient({
               </span>
             </div>
             <span className={`font-bold flex-shrink-0 ${isRecurring && recurringMode === "daily" ? "text-blue-400" : "text-emerald-400"}`}>
-              {isRecurring ? formatPrice(discountedTotal) : formatPrice(total)}
+              {isRecurring ? (
+                formatPrice(discountedTotal)
+              ) : showPromo && promoTotal < total ? (
+                <>
+                  <span className="mr-1.5 text-sm text-zinc-500 line-through">
+                    {formatPrice(total)}
+                  </span>
+                  <span className="text-yellow-300">
+                    {formatPrice(promoTotal)}
+                  </span>
+                </>
+              ) : (
+                formatPrice(total)
+              )}
             </span>
           </div>
           <button

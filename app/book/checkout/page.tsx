@@ -6,6 +6,8 @@ import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, cus
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
 import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
+import { getActiveSportPromo } from "@/actions/sport-promo";
+import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
 import { CheckoutClient } from "./checkout-client";
 
 export default async function CheckoutPage({
@@ -82,7 +84,7 @@ export default async function CheckoutPage({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  const [newUserDiscount, paymentConfig, equipmentOptions] = await Promise.all([
+  const [newUserDiscount, paymentConfig, equipmentOptions, sportPromo] = await Promise.all([
     getNewUserDiscount(
       session.user.id,
       hold.courtConfig.sport,
@@ -99,7 +101,24 @@ export default async function CheckoutPage({
       sport: hold.courtConfig.sport,
       category: hold.courtConfig.category,
     }).catch(() => []),
+    getActiveSportPromo(hold.courtConfig.sport, hold.courtConfig.category).catch(
+      () => null,
+    ),
   ]);
+
+  // Predict which auto-applied discount will actually fire so the
+  // Booking Summary's Total reflects what the user pays — was showing
+  // the pre-discount hold.totalAmount even though the launch promo
+  // applied client-side and the "Pay" button below already used the
+  // discounted amount. Mirrors checkout-client.tsx's priority:
+  // new-user beats sport promo. Only shown for non-recurring +
+  // uncapped PERCENTAGE promos (recurring has its own dedicated
+  // discount math; flat promos don't slice cleanly here).
+  const showSportPromo =
+    !recurringEnabled && !newUserDiscount && sportPromo?.percentOff != null;
+  const sportPromoDiscount = showSportPromo && sportPromo
+    ? computeAutoApplyDiscount(hold.totalAmount, sportPromo)
+    : 0;
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
@@ -179,10 +198,29 @@ export default async function CheckoutPage({
               )}
             </>
           )}
+          {/* Auto-applied launch-promo line item — only when sport
+              promo will fire (no recurring, no new-user discount, and
+              the coupon is an uncapped PERCENTAGE). Keeps the
+              displayed Total in sync with the "Pay" button below,
+              which already used the discounted amount. */}
+          {showSportPromo && sportPromo && sportPromoDiscount > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-yellow-300">
+                Launch offer ({sportPromo.percentOff}% off)
+              </span>
+              <span className="text-yellow-300">
+                -{formatPrice(sportPromoDiscount)}
+              </span>
+            </div>
+          )}
           <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2">
             <span className="font-semibold text-white">Total</span>
             <span className="text-lg font-bold text-emerald-400">
-              {formatPrice(recurringEnabled && recurringCount ? recurringNetTotal : hold.totalAmount)}
+              {formatPrice(
+                (recurringEnabled && recurringCount
+                  ? recurringNetTotal
+                  : hold.totalAmount) - sportPromoDiscount,
+              )}
             </span>
           </div>
         </div>

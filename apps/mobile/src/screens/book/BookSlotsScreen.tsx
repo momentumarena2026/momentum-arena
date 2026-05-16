@@ -365,9 +365,24 @@ export function BookSlotsScreen() {
               ? "Pick one or more slots"
               : `${selected.length} × 1 hour · ${sportLabel(params.sport)}`}
           </Text>
-          <Text variant="heading" color={colors.primary}>
-            {total > 0 ? formatRupees(total) : "—"}
-          </Text>
+          {showDiscount && totalDiscounted < totalOriginal ? (
+            <View style={styles.footerPriceRow}>
+              <Text
+                variant="small"
+                color={colors.zinc500}
+                style={styles.footerPriceStrike}
+              >
+                {formatRupees(totalOriginal)}
+              </Text>
+              <Text variant="heading" color={colors.yellow300}>
+                {formatRupees(totalDiscounted)}
+              </Text>
+            </View>
+          ) : (
+            <Text variant="heading" color={colors.primary}>
+              {total > 0 ? formatRupees(total) : "—"}
+            </Text>
+          )}
         </View>
         <Button
           label={signedIn ? "Continue" : "Sign in to continue"}
@@ -758,6 +773,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   summaryStrike: {
+    textDecorationLine: "line-through",
+  },
+  footerPriceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+  },
+  footerPriceStrike: {
     textDecorationLine: "line-through",
   },
   promoBanner: {
