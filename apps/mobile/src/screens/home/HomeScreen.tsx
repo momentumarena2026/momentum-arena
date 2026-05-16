@@ -263,7 +263,7 @@ export function HomeScreen() {
           />
           {/* Pickleball launch promo banner — tappable, deep-links to
               /book/pickleball. Same PNG asset web ships above its
-              sports grid (public/pickleball-promo-banner.png) so the
+              sports grid (public/pickleball-promo-banner.jpg) so the
               two surfaces stay byte-identical. Hidden if no PICKLEBALL
               tile carries a promoLabel (defensive — drops itself if
               the launch promo ever rolls off). */}
@@ -276,7 +276,7 @@ export function HomeScreen() {
               ]}
             >
               <Image
-                source={{ uri: `${ASSETS}/pickleball-promo-banner.png` }}
+                source={{ uri: `${ASSETS}/pickleball-promo-banner.jpg` }}
                 style={styles.promoBannerImage}
                 resizeMode="cover"
                 accessibilityLabel="Pickleball launch offer — 25% off, auto-applied at checkout"

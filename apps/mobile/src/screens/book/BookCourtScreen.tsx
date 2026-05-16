@@ -138,13 +138,13 @@ export function BookCourtScreen() {
       </View>
 
       {/* Pickleball launch-promo banner. Same PNG asset web ships on
-          /book/pickleball (public/pickleball-promo-banner.png) so both
+          /book/pickleball (public/pickleball-promo-banner.jpg) so both
           surfaces stay byte-identical. Only renders on pickleball;
           other sports get the original (banner-less) flow. */}
       {params.sport === "PICKLEBALL" ? (
         <View style={styles.promoBanner}>
           <Image
-            source={{ uri: `${env.apiUrl}/pickleball-promo-banner.png` }}
+            source={{ uri: `${env.apiUrl}/pickleball-promo-banner.jpg` }}
             style={styles.promoBannerImage}
             resizeMode="cover"
             accessibilityLabel="Pickleball launch offer — 25% off, auto-applied at checkout"

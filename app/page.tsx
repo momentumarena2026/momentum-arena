@@ -531,7 +531,7 @@ export default async function Home() {
               className="group mb-8 md:mb-10 block overflow-hidden rounded-2xl border border-yellow-500/30 shadow-lg shadow-yellow-500/10 transition-all duration-300 hover:border-yellow-400/60 hover:shadow-yellow-500/25"
             >
               <Image
-                src="/pickleball-promo-banner.png"
+                src="/pickleball-promo-banner.jpg"
                 alt="Pickleball Launch Offer: flat 25% off every slot — Morning ₹450/hr, Night ₹600/hr — auto-applied at checkout"
                 width={2400}
                 height={800}
