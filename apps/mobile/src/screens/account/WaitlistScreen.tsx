@@ -101,6 +101,9 @@ export function WaitlistScreen() {
           courtLabel: entry.courtConfig.label,
           sport: entry.courtConfig.sport as Sport,
         },
+        // Keep BookSport at the bottom of the stack so the back
+        // arrow works on BookSlots (same fix as HomeScreen.openSport).
+        initial: false,
       });
     },
     [navigation],

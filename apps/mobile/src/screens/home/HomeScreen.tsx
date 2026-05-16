@@ -110,9 +110,20 @@ export function HomeScreen() {
   }, [refetch, signedIn]);
 
   function openSport(slug: (typeof SPORTS)[number]["slug"]) {
+    // `initial: false` keeps BookSport at the bottom of the Sports
+    // stack so the user can swipe / tap back to the sport-picker
+    // instead of landing at BookSlots with no back history.
+    //
+    // Without this, navigating directly to a nested screen via
+    // `screen: "BookCourt"` REPLACES the initial route (BookSport)
+    // rather than pushing on top of it. Then if BookCourt auto-skips
+    // to BookSlots (single-tile sports like pickleball), the stack
+    // becomes [BookSlots] alone — no back history, no back arrow,
+    // user is trapped.
     navigation.navigate("Sports", {
       screen: "BookCourt",
       params: { sport: slug },
+      initial: false,
     });
   }
 
