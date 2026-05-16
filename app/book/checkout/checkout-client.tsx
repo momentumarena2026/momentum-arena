@@ -10,6 +10,7 @@ import { RedeemSlider } from "@/components/rewards/redeem-slider";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { formatPrice } from "@/lib/pricing";
 import { validateCoupon } from "@/actions/coupon-validation";
+import { getAutoApplyCodeForSport } from "@/lib/auto-apply-promo";
 import {
   selectCashPayment,
   selectUpiPayment,
@@ -246,16 +247,13 @@ export function CheckoutClient({
   }, [newUserDiscount, discountApplied, amount, sport, holdId]);
 
   // Auto-apply launch / fallback coupon if no other discount applied.
-  // Pickleball gets PICKLEBALL25 (flat 25% off — launch promo, sport-
-  // filtered server-side); every other sport falls back to FLAT100.
-  // We pick by sport instead of trying both in order because PICKLEBALL25
-  // is sport-filtered → validateCoupon rejects it for non-pickleball
-  // anyway, and FLAT100 is not sport-filtered → it would shadow the
-  // pickleball promo if tried first. Single-shot keeps the network
-  // chatter down and the UI label deterministic.
+  // The sport→code mapping lives in lib/auto-apply-promo.ts so the slot
+  // page (which decorates tiles with strike-through prices) reads the
+  // same code we apply here — keeps display + apply in sync if we ever
+  // add another sport-specific launch promo.
   useEffect(() => {
     if (discountApplied || newUserApplied) return;
-    const fallbackCode = sport === "PICKLEBALL" ? "PICKLEBALL25" : "FLAT100";
+    const fallbackCode = getAutoApplyCodeForSport(sport);
     const fallbackLabel =
       sport === "PICKLEBALL"
         ? "Pickleball Launch: 25% OFF applied"

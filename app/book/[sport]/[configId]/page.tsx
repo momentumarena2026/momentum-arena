@@ -9,6 +9,7 @@ import { SlotSelectionClient } from "./slot-selection-client";
 import { BowlingSlotPickerClient } from "./bowling-slot-picker-client";
 import { auth } from "@/lib/auth";
 import { BackButton } from "@/components/back-button";
+import { getActiveSportPromo } from "@/actions/sport-promo";
 
 export default async function SlotSelectionPage({
   params,
@@ -34,6 +35,17 @@ export default async function SlotSelectionPage({
   // 4-zone layout which is wrong for pickleball. Mirrors the same
   // dispatch we do on the sport-selection page.
   const isSharedCourt = (config.sport as string) === "PICKLEBALL";
+
+  // Look up the currently-live auto-apply promo for this sport (if any).
+  // Returns the same { code, percentOff } shape regardless of which sport
+  // we're on — the client gates the per-slot decoration on `percentOff`
+  // being non-null, which only happens for an uncapped PERCENTAGE coupon
+  // (today that's PICKLEBALL25 → percentOff=25; FLAT100 → null). When the
+  // admin disables/expires the coupon, this returns null and the banner
+  // + strike-through prices disappear on the next request.
+  const promo = isBowling
+    ? null
+    : await getActiveSportPromo(config.sport, config.category);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -97,6 +109,7 @@ export default async function SlotSelectionPage({
           courtSize={sizeInfo.name}
           userId={session?.user?.id}
           userPhone={(session?.user as { phone?: string })?.phone}
+          promo={promo}
         />
       )}
     </div>
