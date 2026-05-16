@@ -3,7 +3,7 @@ import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { Maximize2 } from "lucide-react";
-import { CourtDiagram } from "@/components/booking/court-diagram";
+import { CourtDiagram, SharedCourtDiagram } from "@/components/booking/court-diagram";
 import { BowlingMachineDiagram } from "@/components/booking/bowling-machine-diagram";
 import { SlotSelectionClient } from "./slot-selection-client";
 import { BowlingSlotPickerClient } from "./bowling-slot-picker-client";
@@ -29,6 +29,11 @@ export default async function SlotSelectionPage({
   const sportInfo = SPORT_INFO[config.sport];
   const sizeInfo = SIZE_INFO[config.size];
   const isBowling = config.category === "BOWLING_MACHINE";
+  // Pickleball has its own court geometry (26x50 surface, 20x44
+  // playable area) — the generic CourtDiagram draws the 80x90 cricket
+  // 4-zone layout which is wrong for pickleball. Mirrors the same
+  // dispatch we do on the sport-selection page.
+  const isSharedCourt = (config.sport as string) === "PICKLEBALL";
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -53,6 +58,8 @@ export default async function SlotSelectionPage({
           <div className="flex items-center gap-3">
             {isBowling ? (
               <BowlingMachineDiagram size="sm" />
+            ) : isSharedCourt ? (
+              <SharedCourtDiagram sport={config.sport as "PICKLEBALL"} />
             ) : (
               <CourtDiagram
                 highlightedZones={config.zones as CourtZone[]}
