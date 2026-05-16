@@ -8,6 +8,8 @@ import { SlotGrid } from "@/components/booking/slot-grid";
 import { WaitlistDialog } from "@/components/booking/waitlist-dialog";
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
+import { applyPickleballLaunchDiscount } from "@/lib/pickleball-promo";
+import { isPickleball } from "@/lib/sport";
 import { formatHoursAsRanges } from "@/lib/court-config";
 import type { SlotAvailability } from "@/lib/availability";
 import { Loader2, RefreshCw, Calendar } from "lucide-react";
@@ -172,6 +174,15 @@ export function SlotSelectionClient({
     selectedHours.includes(s.hour)
   );
   const total = selectedSlotPrices.reduce((sum, s) => sum + s.price, 0);
+  const pickleballLaunchActive =
+    !mediumMode && isPickleball(sport);
+  const checkoutDisplayTotal =
+    pickleballLaunchActive && !isRecurring
+      ? selectedSlotPrices.reduce(
+          (sum, s) => sum + applyPickleballLaunchDiscount(s.price),
+          0
+        )
+      : total;
 
   // User is authenticated if server passed userId OR client session is active
   const isAuthenticated = !!userId || (status === "authenticated" && !!session?.user);
@@ -181,7 +192,7 @@ export function SlotSelectionClient({
 
     trackProceedToCheckout(
       selectedHours.length,
-      isRecurring ? discountedTotal : total,
+      isRecurring ? discountedTotal : checkoutDisplayTotal,
       isRecurring,
     );
 
@@ -390,6 +401,7 @@ export function SlotSelectionClient({
           <SlotGrid
             slots={slots}
             selectedHours={selectedHours}
+            sport={sport}
             onSelectionChange={(hours) => {
               const added = hours.filter((h) => !selectedHours.includes(h));
               const removed = selectedHours.filter((h) => !hours.includes(h));
@@ -626,7 +638,7 @@ export function SlotSelectionClient({
               </span>
             </div>
             <span className={`font-bold flex-shrink-0 ${isRecurring && recurringMode === "daily" ? "text-blue-400" : "text-emerald-400"}`}>
-              {isRecurring ? formatPrice(discountedTotal) : formatPrice(total)}
+              {isRecurring ? formatPrice(discountedTotal) : formatPrice(checkoutDisplayTotal)}
             </span>
           </div>
           <button

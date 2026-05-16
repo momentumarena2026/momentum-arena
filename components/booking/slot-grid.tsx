@@ -3,12 +3,16 @@
 import { useCallback } from "react";
 import { formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
+import { applyPickleballLaunchDiscount } from "@/lib/pickleball-promo";
+import { isPickleball, type Sport } from "@/lib/sport";
 import type { SlotAvailability } from "@/lib/availability";
 import { Bell, Clock, Check } from "lucide-react";
 
 interface SlotGridProps {
   slots: SlotAvailability[];
   selectedHours: number[];
+  /** When pickleball, shows launch 25% prices (matches checkout PICKLEBALL25). */
+  sport?: Sport | string;
   onSelectionChange: (hours: number[]) => void;
   /**
    * Called when a user taps an unavailable (but still future) slot.
@@ -32,10 +36,12 @@ interface SlotGridProps {
 export function SlotGrid({
   slots,
   selectedHours,
+  sport,
   onSelectionChange,
   onUnavailableClick,
   pastHourCutoff,
 }: SlotGridProps) {
+  const showLaunchPricing = sport ? isPickleball(sport) : false;
   const toggleSlot = useCallback(
     (hour: number) => {
       if (selectedHours.includes(hour)) {
@@ -49,10 +55,20 @@ export function SlotGrid({
 
   const total = slots
     .filter((s) => selectedHours.includes(s.hour))
-    .reduce((sum, s) => sum + s.price, 0);
+    .reduce((sum, s) => {
+      const price = showLaunchPricing
+        ? applyPickleballLaunchDiscount(s.price)
+        : s.price;
+      return sum + price;
+    }, 0);
 
   return (
     <div className="space-y-4">
+      {showLaunchPricing && (
+        <p className="text-xs text-amber-400/90 text-center">
+          Launch offer: 25% off shown — applied automatically at checkout
+        </p>
+      )}
       {/* Slot Grid */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
         {slots.map((slot) => {
@@ -112,9 +128,20 @@ export function SlotGrid({
                       : "text-zinc-500"
                 }`}
               >
-                {isAvailable
-                  ? formatPrice(slot.price)
-                  : bookedFutureInteractive
+                {isAvailable ? (
+                  showLaunchPricing ? (
+                    <span className="flex flex-wrap items-baseline gap-1">
+                      <span className="text-zinc-500 line-through">
+                        {formatPrice(slot.price)}
+                      </span>
+                      <span className="font-medium text-amber-400">
+                        {formatPrice(applyPickleballLaunchDiscount(slot.price))}
+                      </span>
+                    </span>
+                  ) : (
+                    formatPrice(slot.price)
+                  )
+                ) : bookedFutureInteractive
                     ? "Booked · Notify me"
                     : isPast
                       ? "Past"
