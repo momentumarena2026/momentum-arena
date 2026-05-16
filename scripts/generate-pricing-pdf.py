@@ -27,9 +27,20 @@ BLUE_400 = HexColor("#60a5fa")
 PURPLE_400 = HexColor("#c084fc")
 
 # ── Paths ───────────────────────────────────────────────────
+# We write the same PDF to TWO filenames in /public so historical
+# links keep working:
+#   - pricing.pdf is what the customer-facing /pricing.pdf URL serves
+#     (see commit 25a5678; that's the canonical public address).
+#   - momentum-arena-pricing.pdf is the longer name that was the
+#     script's only output for a while. Some external links / past
+#     screenshots reference it. Keeping both in sync avoids surprise
+#     staleness — losing this duplication was the root cause of the
+#     pickleball promo not appearing at /pricing.pdf after the
+#     launch regenerate.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGO_PATH = os.path.join(BASE_DIR, "public", "blackLogo.png")
 OUTPUT_PATH = os.path.join(BASE_DIR, "public", "momentum-arena-pricing.pdf")
+PUBLIC_URL_PATH = os.path.join(BASE_DIR, "public", "pricing.pdf")
 
 W, H = A4  # 595.27 x 841.89 points
 
@@ -487,7 +498,13 @@ def generate_pdf():
     # SAVE
     # ════════════════════════════════════════════════════════
     c.save()
+    # Mirror to the public-URL filename so /pricing.pdf and
+    # /momentum-arena-pricing.pdf stay byte-identical. shutil.copyfile
+    # rather than a second canvas pass — same content, half the work.
+    import shutil
+    shutil.copyfile(OUTPUT_PATH, PUBLIC_URL_PATH)
     print(f"PDF generated: {OUTPUT_PATH}")
+    print(f"PDF mirrored:  {PUBLIC_URL_PATH}")
 
 
 if __name__ == "__main__":
