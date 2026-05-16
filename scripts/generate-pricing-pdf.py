@@ -217,7 +217,41 @@ def generate_pdf():
         ["Full Field", "80ft x 90ft", "Rs. 1,600/hr", "Rs. 2,000/hr"],
     ]
     y = draw_pricing_table(c, y, "Football", "", BLUE_400, football_rows, col_widths, margin)
-    y -= 25
+    y -= 20
+
+    # ════════════════════════════════════════════════════════
+    # PICKLEBALL PRICING TABLE — list prices, with the launch
+    # promo (flat 25% off) called out in a yellow strip below.
+    # Effective prices come from MRP * 0.75: 600 → 450, 800 → 600.
+    # ════════════════════════════════════════════════════════
+    pickleball_rows = [
+        ["Single Court", "20ft x 44ft", "Rs. 600/hr", "Rs. 800/hr"],
+    ]
+    y = draw_pricing_table(
+        c, y, "Pickleball", "", AMBER_400, pickleball_rows, col_widths, margin
+    )
+    y -= 6
+
+    # Promo strip — yellow callout with effective per-slot prices.
+    promo_h = 36
+    draw_rounded_rect(
+        c, margin, y - promo_h, content_w, promo_h, 8,
+        HexColor("#3a2e0a"), AMBER_500, 0.8,
+    )
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(AMBER_400)
+    c.drawString(margin + 14, y - 14, "LAUNCH OFFER")
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(TEXT_WHITE)
+    c.drawString(margin + 105, y - 14, "Flat 25% OFF on every pickleball slot")
+    c.setFont("Helvetica", 9)
+    c.setFillColor(TEXT_ZINC_300)
+    c.drawString(
+        margin + 14, y - 28,
+        "Effective price:  Morning Rs. 450/hr   |   Night Rs. 600/hr   "
+        "(applied automatically at checkout)",
+    )
+    y -= promo_h + 18
 
     # ════════════════════════════════════════════════════════
     # PER PERSON PRICING SECTION (illustrative — not a per-person charge)

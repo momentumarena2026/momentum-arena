@@ -20,23 +20,6 @@ export default async function SportConfigPage({
     notFound();
   }
 
-  if (sportKey === "PICKLEBALL") {
-    return (
-      <div className="mx-auto max-w-2xl space-y-6">
-        <BackButton label="Back" />
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-12 text-center">
-          <h2 className="text-2xl font-bold text-white">
-            {SPORT_INFO[sportKey].name}
-          </h2>
-          <p className="mt-2 text-amber-400 font-semibold">Coming Soon</p>
-          <p className="mt-3 text-sm text-zinc-400">
-            We&apos;re getting the courts ready. Stay tuned!
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const rawConfigs = await db.courtConfig.findMany({
     where: { sport: sportKey, isActive: true },
     orderBy: [{ size: "asc" }, { position: "asc" }],
@@ -120,6 +103,37 @@ export default async function SportConfigPage({
               : "Choose your preferred field size"}
         </p>
       </div>
+
+      {/* Pickleball launch promo — flat 25% off until further notice.
+          Mentions the post-discount price next to the strike-through
+          original so customers see exactly what they'll pay. */}
+      {sportKey === "PICKLEBALL" && (
+        <div className="rounded-2xl border border-yellow-500/40 bg-gradient-to-r from-yellow-500/15 to-amber-500/10 p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-yellow-200">
+                🎉 Launch Offer · 25% OFF
+              </p>
+              <p className="mt-2 text-sm sm:text-base text-zinc-100">
+                Flat 25% off every pickleball slot — applied automatically
+                at checkout.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-xs sm:text-sm">
+                <span className="text-zinc-300">
+                  Morning&nbsp;
+                  <span className="text-zinc-500 line-through">₹600</span>
+                  <span className="ml-1.5 font-bold text-yellow-300">₹450 / hr</span>
+                </span>
+                <span className="text-zinc-300">
+                  Night&nbsp;
+                  <span className="text-zinc-500 line-through">₹800</span>
+                  <span className="ml-1.5 font-bold text-yellow-300">₹600 / hr</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Box Cricket / regular field tiles. Title only shows on the
           cricket page where there's a second section below; for
