@@ -76,7 +76,10 @@ const SPORTS = [
     tagline: "Fast-growing sport, professional court",
     tint: "rgba(234, 179, 8, 0.55)",
     border: "#eab308",
-    comingSoon: true,
+    // Launch promo — replaces the old `comingSoon` flag. Renders the
+    // "25% OFF" amber pill in the top-right of the tile so customers
+    // see the discount before they tap in (matches web's sport-card).
+    promoLabel: "25% OFF",
   },
 ];
 
@@ -247,6 +250,28 @@ export function HomeScreen() {
             sub="Select a sport to book your court instantly"
             accentColor={colors.primary}
           />
+          {/* Pickleball launch promo banner — tappable, deep-links to
+              /book/pickleball. Same PNG asset web ships above its
+              sports grid (public/pickleball-promo-banner.png) so the
+              two surfaces stay byte-identical. Hidden if no PICKLEBALL
+              tile carries a promoLabel (defensive — drops itself if
+              the launch promo ever rolls off). */}
+          {SPORTS.some((s) => s.slug === "PICKLEBALL" && s.promoLabel) ? (
+            <Pressable
+              onPress={() => openSport("PICKLEBALL")}
+              style={({ pressed }) => [
+                styles.promoBanner,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Image
+                source={{ uri: `${ASSETS}/pickleball-promo-banner.png` }}
+                style={styles.promoBannerImage}
+                resizeMode="cover"
+                accessibilityLabel="Pickleball launch offer — 25% off, auto-applied at checkout"
+              />
+            </Pressable>
+          ) : null}
           <View style={styles.sportsList}>
             {SPORTS.map((s) => (
               <SportCard
@@ -256,8 +281,8 @@ export function HomeScreen() {
                 image={s.image}
                 tint={s.tint}
                 border={s.border}
-                comingSoon={s.comingSoon}
-                onPress={s.comingSoon ? undefined : () => openSport(s.slug)}
+                promoLabel={s.promoLabel}
+                onPress={() => openSport(s.slug)}
               />
             ))}
           </View>
@@ -610,7 +635,7 @@ function SportCard({
   image,
   tint,
   border,
-  comingSoon,
+  promoLabel,
   onPress,
 }: {
   name: string;
@@ -618,7 +643,11 @@ function SportCard({
   image: string;
   tint: string;
   border: string;
-  comingSoon?: boolean;
+  /** Top-right launch-promo pill (e.g. "25% OFF"). Replaces the old
+      `comingSoon` flag — pickleball is live now; the pill marketing
+      the launch discount lives here so the home tile mirrors web's
+      sport-card. */
+  promoLabel?: string;
   onPress?: () => void;
 }) {
   return (
@@ -628,18 +657,20 @@ function SportCard({
       style={({ pressed }) => [
         styles.sportCard,
         { borderColor: border },
-        pressed && !comingSoon && styles.pressed,
+        pressed && styles.pressed,
       ]}
     >
       <ImageBackground
         source={{ uri: image }}
         style={styles.sportImage}
-        imageStyle={[styles.sportImageInner, comingSoon && { opacity: 0.5 }]}
+        imageStyle={styles.sportImageInner}
       >
         <View style={[styles.sportOverlay, { backgroundColor: tint }]} />
         <View style={styles.sportContent}>
-          {comingSoon ? (
-            <Badge label="Coming soon" tone="warning" style={styles.sportBadge} />
+          {promoLabel ? (
+            <View style={styles.sportPromoPill}>
+              <Text style={styles.sportPromoPillText}>{promoLabel}</Text>
+            </View>
           ) : null}
           <Text variant="title" color="#fff">
             {name}
@@ -647,13 +678,11 @@ function SportCard({
           <Text variant="small" color="rgba(255,255,255,0.8)" align="center" style={styles.sportTagline}>
             {tagline}
           </Text>
-          {!comingSoon ? (
-            <View style={styles.sportCta}>
-              <Text variant="small" color="#fff" weight="700">
-                Book now →
-              </Text>
-            </View>
-          ) : null}
+          <View style={styles.sportCta}>
+            <Text variant="small" color="#fff" weight="700">
+              Book now →
+            </Text>
+          </View>
         </View>
       </ImageBackground>
     </Pressable>
@@ -875,6 +904,37 @@ const styles = StyleSheet.create({
   },
   sportsList: {
     gap: spacing["3"],
+  },
+  promoBanner: {
+    marginBottom: spacing["3"],
+    borderRadius: radius.xl,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(234, 179, 8, 0.30)", // yellow-500/30
+  },
+  promoBannerImage: {
+    width: "100%",
+    // 3:1 aspect matches the source (2400x800). aspectRatio on the
+    // Image keeps the height proportional whatever the screen width.
+    aspectRatio: 3,
+  },
+  sportPromoPill: {
+    position: "absolute",
+    top: spacing["3"],
+    right: spacing["3"],
+    paddingHorizontal: spacing["2.5"],
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(250, 204, 21, 0.95)", // yellow-400/95
+    borderWidth: 1,
+    borderColor: "rgba(253, 224, 71, 0.6)", // yellow-300/60
+  },
+  sportPromoPillText: {
+    color: "#18181b", // zinc-900
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
   sportCard: {
     height: 220,
