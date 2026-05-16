@@ -155,6 +155,22 @@ export interface PublicCoupon {
  * these endpoints directly under a mobile JWT.
  */
 export const bookingApi = {
+  /**
+   * Active auto-apply promo for this sport, or null if no live coupon
+   * qualifies. Lets the slot screen decorate tiles with strike-through
+   * prices + a launch-offer banner that mirrors what the checkout will
+   * actually charge — same source of truth (Coupon table) the web slot
+   * page reads via getActiveSportPromo.
+   */
+  sportPromo: (sport: Sport, bookingCategory?: string | null) => {
+    const q = new URLSearchParams();
+    q.set("sport", sport);
+    if (bookingCategory) q.set("bookingCategory", bookingCategory);
+    return api.get<{
+      promo: import("./auto-apply-promo").ActiveSportPromo | null;
+    }>(`/api/mobile/sport-promo?${q.toString()}`, { auth: false });
+  },
+
   /** Slot availability for a specific court config on a given date. */
   availability: (
     params:
