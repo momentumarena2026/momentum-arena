@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
@@ -413,17 +414,23 @@ export function SlotSelectionClient({
         </div>
       ) : (
         <>
-          {/* Launch-offer banner — data-driven from the active auto-apply
-              promo. Shows only when there's an uncapped PERCENTAGE coupon
-              live for this sport (today: PICKLEBALL25). Copy reads the
-              percentage from the coupon row so admin edits flow through
-              without code changes. */}
+          {/* Launch-offer banner image. The designer banner already
+              carries the "25% OFF · auto-applied at checkout" copy +
+              the morning/night price chips, so a parallel text card
+              would be redundant.
+              Still gated on the live PICKLEBALL25 coupon — when admin
+              disables/expires it server-side, this disappears on the
+              next request, same as the per-slot strike-through prices. */}
           {promo?.percentOff !== null && promo?.percentOff !== undefined && (
-            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2.5 text-center">
-              <p className="text-sm font-medium text-yellow-300">
-                Launch offer: {promo.percentOff}% off shown — applied
-                automatically at checkout
-              </p>
+            <div className="overflow-hidden rounded-2xl border border-yellow-500/30 shadow-lg shadow-yellow-500/10">
+              <Image
+                src="/pickleball-promo-banner.jpg"
+                alt={`Pickleball Launch Offer: ${promo.percentOff}% off every slot — auto-applied at checkout`}
+                width={1200}
+                height={400}
+                className="h-auto w-full"
+                sizes="(min-width: 768px) 768px, calc(100vw - 32px)"
+              />
             </div>
           )}
           <SlotGrid
