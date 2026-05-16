@@ -245,26 +245,38 @@ export function CheckoutClient({
     }
   }, [newUserDiscount, discountApplied, amount, sport, holdId]);
 
-  // Auto-apply FLAT100 coupon if no other discount applied
+  // Auto-apply launch / fallback coupon if no other discount applied.
+  // Pickleball gets PICKLEBALL25 (flat 25% off — launch promo, sport-
+  // filtered server-side); every other sport falls back to FLAT100.
+  // We pick by sport instead of trying both in order because PICKLEBALL25
+  // is sport-filtered → validateCoupon rejects it for non-pickleball
+  // anyway, and FLAT100 is not sport-filtered → it would shadow the
+  // pickleball promo if tried first. Single-shot keeps the network
+  // chatter down and the UI label deterministic.
   useEffect(() => {
     if (discountApplied || newUserApplied) return;
+    const fallbackCode = sport === "PICKLEBALL" ? "PICKLEBALL25" : "FLAT100";
+    const fallbackLabel =
+      sport === "PICKLEBALL"
+        ? "Pickleball Launch: 25% OFF applied"
+        : "Flat ₹100 OFF applied";
     // Small delay to let new user discount apply first
     const timer = setTimeout(async () => {
       if (discountApplied) return;
       try {
-        const result = await validateCoupon("FLAT100", {
+        const result = await validateCoupon(fallbackCode, {
           scope: "SPORTS",
           amount,
           sport,
         });
         if (result.valid && result.couponId && result.discountAmount) {
-          const persisted = await applyCouponToHold(holdId, "FLAT100");
+          const persisted = await applyCouponToHold(holdId, fallbackCode);
           if (!persisted.success) return;
           setEffectiveAmount(amount - result.discountAmount);
           setDiscountApplied(true);
-          setDiscountLabel(`Flat ₹100 OFF applied`);
+          setDiscountLabel(fallbackLabel);
           setBillNonce((n) => n + 1);
-          trackCouponApplied("FLAT100", result.discountAmount);
+          trackCouponApplied(fallbackCode, result.discountAmount);
         }
       } catch {
         // Coupon may not exist yet — silently skip
