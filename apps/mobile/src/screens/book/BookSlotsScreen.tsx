@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -9,6 +10,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { env } from "../../config/env";
 import {
   useNavigation,
   useRoute,
@@ -239,17 +241,21 @@ export function BookSlotsScreen() {
           <DateStrip selectedDate={selectedDate} onDateChange={pickDate} />
         </View>
 
-        {/* Launch-offer banner — data-driven from the active auto-apply
-            promo. Shows only when there's an uncapped PERCENTAGE coupon
-            live for this sport (today: PICKLEBALL25). Copy reads the
-            percentage from the coupon row so admin edits flow through
-            without a code change. */}
+        {/* Launch-offer banner image. The designer banner already
+            carries the "25% OFF · auto-applied at checkout" copy and
+            the morning/night price chips, so a parallel text card
+            would be redundant. Still gated on the live PICKLEBALL25
+            coupon — when admin disables/expires it server-side, this
+            disappears on the next render, same as the per-slot
+            strike-through prices. Mirror of the web slot page. */}
         {showDiscount && promo ? (
           <View style={styles.promoBanner}>
-            <Text variant="small" weight="600" color={colors.yellow300}>
-              Launch offer: {promo.percentOff}% off shown — applied
-              automatically at checkout
-            </Text>
+            <Image
+              source={{ uri: `${env.apiUrl}/pickleball-promo-banner.jpg` }}
+              style={styles.promoBannerImage}
+              resizeMode="cover"
+              accessibilityLabel={`Pickleball launch offer — ${promo.percentOff}% off, auto-applied at checkout`}
+            />
           </View>
         ) : null}
 
@@ -785,13 +791,14 @@ const styles = StyleSheet.create({
   },
   promoBanner: {
     marginTop: spacing["4"],
-    borderRadius: radius.md,
+    borderRadius: 16,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.yellow500_30,
-    backgroundColor: colors.yellow500_10,
-    paddingVertical: spacing["2.5"],
-    paddingHorizontal: spacing["4"],
-    alignItems: "center",
+  },
+  promoBannerImage: {
+    width: "100%",
+    aspectRatio: 3, // source is 1200x400 (designer banner)
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
