@@ -9,6 +9,18 @@ export type AccountStackParamList = {
   BookingDetail: { bookingId: string };
   Waitlist: undefined;
   Rewards: undefined;
+  // Shop order history lives here (not in ShopStack) because the only
+  // entry point is the Account screen's "Shop orders" tile. Registering
+  // it here means:
+  //   - the Shop tab can never get "stuck" on ShopOrders (Shop tab tap
+  //     in the bottom nav always lands on ShopHome)
+  //   - back from ShopOrders pops to AccountHome naturally — no
+  //     special headerLeft override needed
+  // ShopOrderDetail is registered in BOTH AccountStack (reached from
+  // the orders list) and ShopStack (reached from ShopCheckout after a
+  // successful purchase). Same screen component, two registrations.
+  ShopOrders: undefined;
+  ShopOrderDetail: { orderId: string };
 };
 
 export type BookStackParamList = {
@@ -55,17 +67,10 @@ export type ShopStackParamList = {
   ShopHome: undefined;
   ShopCart: undefined;
   ShopCheckout: undefined;
-  // Customer's order history — every shop order they've placed.
-  // Reachable from the Account screen tile and from the order
-  // detail screen via the back-stack.
-  //
-  // `from` is set by callers that jump in from outside the Shop
-  // tab (today only "Account"). The ShopOrders headerLeft uses
-  // this hint to route back to the originating tab when the
-  // in-stack back-history is empty — without it the bottom-tab
-  // navigator's default backBehavior ("firstRoute") sends the
-  // user to Home, which is jarring.
-  ShopOrders: { from?: "Account" } | undefined;
+  // ShopOrderDetail stays here because ShopCheckoutScreen pushes to
+  // it after a successful purchase. The orders LIST (ShopOrders) is
+  // not part of this stack — it lives in AccountStack so the Shop
+  // tab can never get polluted by a cross-tab jump from Account.
   ShopOrderDetail: { orderId: string };
 };
 
