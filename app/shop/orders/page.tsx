@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, ChevronRight, ImageOff } from "lucide-react";
+import { ChevronRight, ImageOff } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { listMyOrders } from "@/actions/shop-order";
 import { formatPrice } from "@/lib/pricing";
 import { ProductOrderStatus } from "@prisma/client";
+import { BackButton } from "@/components/back-button";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +26,12 @@ export default async function MyShopOrdersPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
-      <Link
-        href="/shop"
-        className="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-white"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Back to shop
-      </Link>
+      {/* Generic Back — returns the user to wherever they came from
+          (Account, dashboard, or shop). Was hardcoded "Back to shop"
+          → always dumped them on /shop even if they reached this
+          page from /account. Matches the same fix shipped for the
+          order detail page. */}
+      <BackButton className="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-white" />
       <h1 className="mt-3 text-2xl font-bold text-white">My orders</h1>
       <p className="mt-1 text-sm text-zinc-400">
         Everything you've bought from the shop. Tap an order for items + payment.
