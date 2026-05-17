@@ -58,7 +58,14 @@ export type ShopStackParamList = {
   // Customer's order history — every shop order they've placed.
   // Reachable from the Account screen tile and from the order
   // detail screen via the back-stack.
-  ShopOrders: undefined;
+  //
+  // `from` is set by callers that jump in from outside the Shop
+  // tab (today only "Account"). The ShopOrders headerLeft uses
+  // this hint to route back to the originating tab when the
+  // in-stack back-history is empty — without it the bottom-tab
+  // navigator's default backBehavior ("firstRoute") sends the
+  // user to Home, which is jarring.
+  ShopOrders: { from?: "Account" } | undefined;
   ShopOrderDetail: { orderId: string };
 };
 

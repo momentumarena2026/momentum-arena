@@ -198,7 +198,14 @@ export function AccountScreen() {
           title="Shop orders"
           subtitle="Items you've bought at the venue"
           onPress={() =>
-            tabNavigation?.navigate("Shop", { screen: "ShopOrders" })
+            tabNavigation?.navigate("Shop", {
+              screen: "ShopOrders",
+              // Tell ShopOrders we came from the Account tab so its
+              // header back chevron returns to Account instead of
+              // dropping the user on Home (the bottom-tab default
+              // when in-stack history is empty).
+              params: { from: "Account" },
+            })
           }
         />
         <ActionTile
