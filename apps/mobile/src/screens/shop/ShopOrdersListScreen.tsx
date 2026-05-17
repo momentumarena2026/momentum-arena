@@ -7,6 +7,7 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ShoppingBag } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -16,9 +17,15 @@ import { Button } from "../../components/ui/Button";
 import { colors, radius, spacing } from "../../theme";
 import { shopApi, type ProductOrderStatus } from "../../lib/shop";
 import { formatRupees } from "../../lib/format";
-import type { ShopStackParamList } from "../../navigation/types";
+import type {
+  AccountStackParamList,
+  MainTabsParamList,
+} from "../../navigation/types";
 
-type Nav = NativeStackNavigationProp<ShopStackParamList, "ShopOrders">;
+// This screen is registered in AccountStack (the orders LIST lives in
+// the Account flow — see AccountStack.tsx for the architectural note).
+// It pushes to "ShopOrderDetail" within the same stack on row tap.
+type Nav = NativeStackNavigationProp<AccountStackParamList, "ShopOrders">;
 
 const STATUS_TONE: Record<ProductOrderStatus, { bg: string; text: string }> = {
   PENDING: { bg: "rgba(234, 179, 8, 0.10)", text: "#facc15" },
@@ -73,7 +80,13 @@ export function ShopOrdersListScreen() {
           </Text>
           <Button
             label="Browse shop"
-            onPress={() => navigation.navigate("ShopHome")}
+            // Empty-state CTA — cross-tab jump to the Shop tab's
+            // ShopHome since this screen lives in AccountStack now.
+            onPress={() =>
+              navigation
+                .getParent<BottomTabNavigationProp<MainTabsParamList>>()
+                ?.jumpTo("Shop", { screen: "ShopHome" })
+            }
             style={{ marginTop: spacing["4"] }}
             fullWidth
           />

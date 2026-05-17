@@ -197,16 +197,13 @@ export function AccountScreen() {
           icon={<ShoppingBag size={20} color={colors.emerald400} />}
           title="Shop orders"
           subtitle="Items you've bought at the venue"
-          onPress={() =>
-            tabNavigation?.navigate("Shop", {
-              screen: "ShopOrders",
-              // Tell ShopOrders we came from the Account tab so its
-              // header back chevron returns to Account instead of
-              // dropping the user on Home (the bottom-tab default
-              // when in-stack history is empty).
-              params: { from: "Account" },
-            })
-          }
+          // Local push inside AccountStack — back pops to AccountHome
+          // naturally. ShopOrders is registered here (see AccountStack.tsx)
+          // precisely so we don't have to cross-tab jump into the Shop
+          // tab, which would (a) leave the Shop tab "stuck" on the
+          // orders list, and (b) require a custom headerLeft to get
+          // back navigation right.
+          onPress={() => navigation.navigate("ShopOrders")}
         />
         <ActionTile
           icon={<RefreshCw size={20} color={colors.zinc400} />}

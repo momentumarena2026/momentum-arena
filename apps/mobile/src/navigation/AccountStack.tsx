@@ -6,6 +6,8 @@ import { RewardsScreen } from "../screens/account/RewardsScreen";
 import { BookingsListScreen } from "../screens/bookings/BookingsListScreen";
 import { RecurringBookingsScreen } from "../screens/bookings/RecurringBookingsScreen";
 import { BookingDetailScreen } from "../screens/bookings/BookingDetailScreen";
+import { ShopOrdersListScreen } from "../screens/shop/ShopOrdersListScreen";
+import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
 import { colors } from "../theme";
 import type { AccountStackParamList } from "./types";
 
@@ -60,6 +62,22 @@ export function AccountStack() {
         name="Rewards"
         component={RewardsScreen}
         options={{ title: "Momentum Points" }}
+      />
+      {/* Shop-order screens belong to the Account flow even though
+          their screen files live under screens/shop/ for proximity to
+          the rest of the shop UI. Registering them here means back
+          from ShopOrders pops to AccountHome naturally, and the Shop
+          tab in the bottom nav always reflects "browse products"
+          (ShopHome) state — never gets stuck on the orders list. */}
+      <Stack.Screen
+        name="ShopOrders"
+        component={ShopOrdersListScreen}
+        options={{ title: "My orders" }}
+      />
+      <Stack.Screen
+        name="ShopOrderDetail"
+        component={ShopOrderDetailScreen}
+        options={{ title: "Order" }}
       />
     </Stack.Navigator>
   );
