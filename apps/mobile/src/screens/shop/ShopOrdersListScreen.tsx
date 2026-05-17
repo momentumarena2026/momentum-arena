@@ -1,11 +1,13 @@
+import { useCallback } from "react";
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
@@ -46,7 +48,25 @@ export function ShopOrdersListScreen() {
   const ordersQuery = useQuery({
     queryKey: ["shop-orders"],
     queryFn: () => shopApi.myOrders(),
+    // Treat the data as immediately stale so every focus triggers
+    // a network refetch. Order statuses (PENDING → CONFIRMED →
+    // FULFILLED, or CANCELLED/REFUNDED) move on the venue side
+    // independent of the customer, so the user expects to see fresh
+    // values every time they open the screen.
+    staleTime: 0,
   });
+
+  // Refetch every time the screen regains focus — covers BOTH the
+  // first navigation in AND the case where the user backs out to
+  // Account and comes back. Without this, react-navigation keeps the
+  // screen mounted so `useQuery` never reruns its queryFn.
+  useFocusEffect(
+    useCallback(() => {
+      void ordersQuery.refetch();
+      // refetch is stable-by-identity per react-query's docs.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
 
   if (ordersQuery.isLoading) {
     return (
@@ -97,7 +117,16 @@ export function ShopOrdersListScreen() {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={ordersQuery.isRefetching}
+            onRefresh={() => void ordersQuery.refetch()}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {orders.map((order) => {
           const itemCount = order.items.reduce(
             (s, i) => s + i.quantity,

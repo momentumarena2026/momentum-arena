@@ -1,12 +1,15 @@
+import { useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
 import {
+  useFocusEffect,
   useNavigation,
   useRoute,
   type RouteProp,
@@ -52,7 +55,20 @@ export function ShopOrderDetailScreen() {
   const orderQuery = useQuery({
     queryKey: ["shop-order", route.params.orderId],
     queryFn: () => shopApi.orderDetail(route.params.orderId),
+    // Order status moves on the venue side — treat data as immediately
+    // stale so every screen focus triggers a fresh fetch.
+    staleTime: 0,
   });
+
+  // Refetch on every screen focus (matches the orders list behavior).
+  // Status pills (PENDING → CONFIRMED → FULFILLED) and any post-cancel
+  // refunds should show up the instant the user opens this screen.
+  useFocusEffect(
+    useCallback(() => {
+      void orderQuery.refetch();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route.params.orderId]),
+  );
 
   const cancelMutation = useMutation({
     mutationFn: (reason: string) =>
@@ -163,7 +179,16 @@ export function ShopOrderDetailScreen() {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={orderQuery.isRefetching}
+            onRefresh={() => void orderQuery.refetch()}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
             <Text variant="title">
