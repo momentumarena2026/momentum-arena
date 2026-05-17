@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MessageCircle, User as UserIcon } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { LoginButton } from "@/components/login-modal";
+import { OpenChatButton } from "@/components/chatbot/open-chat-button";
 
 /**
  * Top-level Account route that handles BOTH signed-in and signed-out
@@ -60,12 +61,10 @@ export default async function AccountPage() {
         />
       </section>
 
-      {/* Chat tile — sits above the version footer, same placement
-          as the mobile app's signed-out Account screen. */}
-      <Link
-        href="/chat"
-        className="mt-5 flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 transition-colors hover:border-emerald-500/40"
-      >
+      {/* Chat tile — opens the global ChatWidget floating panel.
+          The old `<Link href="/chat">` 404'd; the assistant is a
+          widget mounted in app/layout.tsx, not a dedicated page. */}
+      <OpenChatButton className="mt-5 flex w-full items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 text-left transition-colors hover:border-emerald-500/40">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15">
           <MessageCircle className="h-5 w-5 text-emerald-400" />
         </div>
@@ -75,7 +74,7 @@ export default async function AccountPage() {
             Quick questions about courts, hours, or your past bookings.
           </p>
         </div>
-      </Link>
+      </OpenChatButton>
 
       <p className="mt-6 text-center text-xs text-zinc-600">v1.0</p>
     </main>

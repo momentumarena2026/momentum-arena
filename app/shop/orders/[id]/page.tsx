@@ -1,10 +1,10 @@
-import Link from "next/link";
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Clock, QrCode, Wallet } from "lucide-react";
+import { CheckCircle2, Clock, QrCode, Wallet } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { getOrderForCustomer } from "@/actions/shop-order";
 import { formatPrice } from "@/lib/pricing";
+import { BackButton } from "@/components/back-button";
 import { CancelOrderButton } from "./cancel-button";
 
 export const dynamic = "force-dynamic";
@@ -29,13 +29,12 @@ export default async function OrderDetailPage({
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-8">
-      <Link
-        href="/shop"
-        className="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-white"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Back to shop
-      </Link>
+      {/* Generic Back button — uses window.history.back() so the user
+          returns to wherever they came from (orders list, dashboard,
+          checkout confirmation, etc.) instead of always being dumped
+          on /shop. Matches the BackButton pattern used on the rest of
+          the site. */}
+      <BackButton className="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-white" />
 
       <div className="mt-4 flex items-start justify-between gap-3">
         <div>
