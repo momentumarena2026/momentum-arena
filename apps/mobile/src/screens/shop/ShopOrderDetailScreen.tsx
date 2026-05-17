@@ -21,10 +21,14 @@ import { Button } from "../../components/ui/Button";
 import { colors, radius, spacing } from "../../theme";
 import { shopApi } from "../../lib/shop";
 import { formatRupees } from "../../lib/format";
-import type { ShopStackParamList } from "../../navigation/types";
-
-type Nav = NativeStackNavigationProp<ShopStackParamList, "ShopOrderDetail">;
-type Rt = RouteProp<ShopStackParamList, "ShopOrderDetail">;
+// ShopOrderDetail is registered in BOTH stacks — ShopStack reaches it
+// from the post-checkout success path, AccountStack reaches it from the
+// orders list. The screen only calls `goBack()` on its navigator, so we
+// declare a minimal param list rather than picking sides between the
+// two parents (a union would force every caller to coerce).
+type StackParams = { ShopOrderDetail: { orderId: string } };
+type Nav = NativeStackNavigationProp<StackParams, "ShopOrderDetail">;
+type Rt = RouteProp<StackParams, "ShopOrderDetail">;
 
 const STATUS_TONE: Record<string, { bg: string; text: string }> = {
   PENDING: { bg: "rgba(234, 179, 8, 0.10)", text: "#facc15" },
