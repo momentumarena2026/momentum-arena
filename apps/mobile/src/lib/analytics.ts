@@ -236,6 +236,26 @@ export function trackRewardsTileTap(pointsAvailable: number) {
   );
 }
 
+/** Fired the first time the customer toggles the redemption checkbox
+ *  on during a checkout session. Pairs with `rewards_redeem_completed`
+ *  for the redemption funnel. Mirrors lib/analytics.ts (web). */
+export function trackRewardsRedeemStarted(billPaise: number, maxPoints: number) {
+  trackEvent(
+    "rewards_redeem_started",
+    { bill_paise: billPaise, max_points: maxPoints },
+    "REWARDS",
+  );
+}
+
+/** Fired after a successful redemption commits server-side. */
+export function trackRewardsRedeemCompleted(points: number, paiseSaved: number) {
+  trackEvent(
+    "rewards_redeem_completed",
+    { points, paise_saved: paiseSaved },
+    "REWARDS",
+  );
+}
+
 // ─── Navigation / system ─────────────────────────────────────────
 
 export function trackPageView(path: string) {
