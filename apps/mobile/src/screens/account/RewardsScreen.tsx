@@ -7,10 +7,14 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  BookOpen,
+  ChevronRight,
   Clock,
   Gift,
   RotateCcw,
@@ -23,6 +27,9 @@ import { Text } from "../../components/ui/Text";
 import { colors, radius, spacing } from "../../theme";
 import { rewardsApi, type RewardTxnRow } from "../../lib/rewards";
 import { trackRewardsView } from "../../lib/analytics";
+import type { AccountStackParamList } from "../../navigation/types";
+
+type Nav = NativeStackNavigationProp<AccountStackParamList, "Rewards">;
 
 function paiseAsRupees(paise: number): string {
   const rupees = Math.round(paise / 100);
@@ -89,6 +96,7 @@ function formatDate(iso: string): string {
 }
 
 export function RewardsScreen() {
+  const navigation = useNavigation<Nav>();
   const overviewQ = useQuery({
     queryKey: ["rewards", "overview"],
     queryFn: () => rewardsApi.overview(),
@@ -228,33 +236,27 @@ export function RewardsScreen() {
           />
         </View>
 
-        {/* How it works */}
-        {overview && (
-          <View style={styles.howCard}>
-            <View style={styles.howHeader}>
-              <TrendingUp size={14} color={colors.emerald400} />
-              <Text style={styles.howTitle}>How it works</Text>
-            </View>
-            <Text style={styles.howLine}>
-              • Earn {(overview.config.earnRateBookingBps / 100).toFixed(0)}% back on every confirmed booking
-              {overview.config.cafeEarnEnabled
-                ? ` and ${(overview.config.earnRateCafeBps / 100).toFixed(0)}% on cafe orders`
-                : ""}
-            </Text>
-            <Text style={styles.howLine}>
-              • 1 point = {paiseAsRupees(overview.config.pointValuePaise)} off your bill
-            </Text>
-            <Text style={styles.howLine}>
-              • Minimum {overview.config.minPointsToRedeem.toLocaleString("en-IN")} points to redeem
-            </Text>
-            <Text style={styles.howLine}>
-              • Use up to {overview.config.maxRedemptionPctOfBill}% of any bill
-            </Text>
-            <Text style={styles.howLine}>
-              • Points expire 12 months after they're earned
+        {/* "How it works" link — was an inline bullet card; now drills
+            into the dedicated RewardsHowItWorks screen which renders
+            the same config knobs as a graphical breakdown. */}
+        <Pressable
+          onPress={() => navigation.navigate("RewardsHowItWorks")}
+          style={({ pressed }) => [
+            styles.howLink,
+            pressed && { opacity: 0.85 },
+          ]}
+        >
+          <View style={styles.howLinkIcon}>
+            <BookOpen size={16} color={colors.zinc300} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.howLinkTitle}>How rewards work</Text>
+            <Text style={styles.howLinkSub}>
+              Earn rates, caps, expiry — the full breakdown
             </Text>
           </View>
-        )}
+          <ChevronRight size={16} color={colors.zinc500} />
+        </Pressable>
 
         {/* Activity */}
         <Text style={styles.activityHeader}>Activity</Text>
@@ -444,29 +446,35 @@ const styles = StyleSheet.create({
     color: colors.zinc600,
   },
 
-  howCard: {
+  // "How rewards work" link tile — drills into RewardsHowItWorks for
+  // the graphical breakdown of every config knob.
+  howLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.zinc800,
     backgroundColor: "rgba(24, 24, 27, 0.40)",
     padding: spacing["4"],
-    gap: 6,
   },
-  howHeader: {
-    flexDirection: "row",
+  howLinkIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    backgroundColor: colors.zinc800,
     alignItems: "center",
-    gap: 8,
-    marginBottom: spacing["1"],
+    justifyContent: "center",
   },
-  howTitle: {
+  howLinkTitle: {
     fontSize: 14,
     fontWeight: "600",
     color: colors.foreground,
   },
-  howLine: {
+  howLinkSub: {
+    marginTop: 2,
     fontSize: 12,
-    color: colors.zinc400,
-    lineHeight: 18,
+    color: colors.zinc500,
   },
 
   activityHeader: {

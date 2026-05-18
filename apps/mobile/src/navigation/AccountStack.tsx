@@ -8,6 +8,7 @@ import { RecurringBookingsScreen } from "../screens/bookings/RecurringBookingsSc
 import { BookingDetailScreen } from "../screens/bookings/BookingDetailScreen";
 import { ShopOrdersListScreen } from "../screens/shop/ShopOrdersListScreen";
 import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
+import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
 import { colors } from "../theme";
 import type { AccountStackParamList } from "./types";
 
@@ -62,6 +63,11 @@ export function AccountStack() {
         name="Rewards"
         component={RewardsScreen}
         options={{ title: "Momentum Points" }}
+      />
+      <Stack.Screen
+        name="RewardsHowItWorks"
+        component={RewardsHowItWorksScreen}
+        options={{ title: "How it works" }}
       />
       {/* Shop-order screens belong to the Account flow even though
           their screen files live under screens/shop/ for proximity to
