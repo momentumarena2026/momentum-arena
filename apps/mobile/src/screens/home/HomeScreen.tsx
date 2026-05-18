@@ -391,6 +391,131 @@ export function HomeScreen() {
           </View>
         </View>
 
+        {/* Arena layout — top-down "what's where" view. Sits between
+            Facilities and Location/Contact so it bridges WHAT we have
+            and HOW IT'S ARRANGED before HOW TO GET HERE. */}
+        <View style={styles.section}>
+          <View style={styles.layoutEyebrow}>
+            <Text style={styles.layoutEyebrowText}>The arena, at a glance</Text>
+          </View>
+          <Text variant="title" align="center" style={styles.plainHeading}>
+            Everything under one roof 🏟️
+          </Text>
+          <Text
+            variant="small"
+            color={colors.mutedForeground}
+            align="center"
+            style={styles.plainSub}
+          >
+            Multi-sport turf, dedicated pickleball court, cafe + washrooms,
+            and a chill-out lawn — all on 10,000 sq ft of floodlit ground.
+          </Text>
+
+          {/* Headline stats */}
+          <View style={styles.layoutStats}>
+            <View style={[styles.layoutStat, styles.layoutStatEmerald]}>
+              <Text style={[styles.layoutStatNum, { color: colors.emerald400 }]}>
+                10,000
+              </Text>
+              <Text
+                style={[
+                  styles.layoutStatLabel,
+                  { color: "rgba(110, 231, 183, 0.85)" },
+                ]}
+              >
+                SQ FT TOTAL
+              </Text>
+            </View>
+            <View style={[styles.layoutStat, styles.layoutStatBlue]}>
+              <Text style={[styles.layoutStatNum, { color: "#60a5fa" }]}>
+                3
+              </Text>
+              <Text
+                style={[
+                  styles.layoutStatLabel,
+                  { color: "rgba(147, 197, 253, 0.85)" },
+                ]}
+              >
+                SPORTS ON SITE
+              </Text>
+            </View>
+            <View style={[styles.layoutStat, styles.layoutStatAmber]}>
+              <Text style={[styles.layoutStatNum, { color: "#fbbf24" }]}>
+                24×7
+              </Text>
+              <Text
+                style={[
+                  styles.layoutStatLabel,
+                  { color: "rgba(253, 230, 138, 0.85)" },
+                ]}
+              >
+                FLOODLIT
+              </Text>
+            </View>
+          </View>
+
+          {/* Layout image — same asset web ships. Loaded over HTTP from
+              the deployed web so both surfaces stay byte-identical. */}
+          <View style={styles.layoutImageWrap}>
+            <Image
+              source={{ uri: `${ASSETS}/arena-layout.jpg` }}
+              style={styles.layoutImage}
+              resizeMode="contain"
+              accessibilityLabel="Top-down layout of Momentum Arena — cricket/football shared turf, pickleball court, cafe & washrooms, green area, entrance. Total 80x125 ft."
+            />
+          </View>
+
+          {/* What's where — list mirrors the colored regions in the
+              image so the eye maps title → swatch → region. */}
+          <View style={styles.layoutList}>
+            <LayoutRow
+              swatch={colors.emerald500}
+              title="Cricket / Football shared turf"
+              dims="80 ft × 90 ft"
+              desc="Full-size 6v6 football pitch doubling as box-cricket. Pro-grade artificial turf."
+            />
+            <LayoutRow
+              swatch="#3b82f6"
+              title="Pickleball court"
+              dims="50 ft × 25 ft"
+              desc="Dedicated court with regulation 20×44 ft playable area, net + line markings."
+            />
+            <LayoutRow
+              swatch="#71717a"
+              title="Cafe & washrooms"
+              dims="20 ft × 35 ft"
+              desc="Snacks, beverages, hot meals + clean separate washrooms."
+            />
+            <LayoutRow
+              swatch="rgba(5, 150, 105, 0.70)"
+              title="Green chill-out area"
+              dims="50 ft × 10 ft"
+              desc="Manicured lawn — bring the kids, hang out between games."
+            />
+            <LayoutRow
+              swatch="#52525b"
+              title="Main entrance"
+              dims="10 ft wide"
+              desc="Lit walkway with shoe rack + check-in shed. Drop-off + parking just outside."
+            />
+          </View>
+
+          {/* Perks strip */}
+          <View style={styles.layoutPerks}>
+            {[
+              "💡 Floodlights",
+              "🪑 Seating",
+              "🅿️ Free parking",
+              "🚻 Washrooms",
+              "📶 Wi-Fi at cafe",
+            ].map((t) => (
+              <View key={t} style={styles.layoutPerk}>
+                <Text style={styles.layoutPerkText}>{t}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
         {/* Location & contact */}
         <View style={styles.section}>
           <Text variant="title" align="center" style={styles.plainHeading}>
@@ -719,6 +844,38 @@ function SportCard({
         </View>
       </ImageBackground>
     </Pressable>
+  );
+}
+
+/**
+ * Single row in the "what's where" list inside the Arena Layout
+ * section. Colored swatch on the left mirrors the corresponding
+ * region on the layout image so the eye can map them at a glance.
+ */
+function LayoutRow({
+  swatch,
+  title,
+  dims,
+  desc,
+}: {
+  swatch: string;
+  title: string;
+  dims: string;
+  desc: string;
+}) {
+  return (
+    <View style={styles.layoutRow}>
+      <View style={[styles.layoutSwatch, { backgroundColor: swatch }]} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={styles.layoutRowHead}>
+          <Text style={styles.layoutRowTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text style={styles.layoutRowDims}>{dims}</Text>
+        </View>
+        <Text style={styles.layoutRowDesc}>{desc}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -1074,6 +1231,135 @@ const styles = StyleSheet.create({
   },
   facilityTitle: {
     fontSize: 16,
+  },
+
+  // ── Arena Layout section ──────────────────────────────────────────
+  layoutEyebrow: {
+    alignSelf: "center",
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: 4,
+    marginBottom: spacing["3"],
+  },
+  layoutEyebrowText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: colors.emerald400,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+  },
+  layoutStats: {
+    flexDirection: "row",
+    gap: spacing["2"],
+    marginTop: spacing["4"],
+  },
+  layoutStat: {
+    flex: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingVertical: spacing["3"],
+    alignItems: "center",
+  },
+  layoutStatEmerald: {
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_05,
+  },
+  layoutStatBlue: {
+    borderColor: "rgba(59, 130, 246, 0.30)",
+    backgroundColor: "rgba(59, 130, 246, 0.05)",
+  },
+  layoutStatAmber: {
+    borderColor: "rgba(245, 158, 11, 0.30)",
+    backgroundColor: "rgba(245, 158, 11, 0.05)",
+  },
+  layoutStatNum: {
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  layoutStatLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    marginTop: 2,
+  },
+  layoutImageWrap: {
+    marginTop: spacing["4"],
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: "#0a0a0b",
+    overflow: "hidden",
+  },
+  layoutImage: {
+    width: "100%",
+    // Source is 900x1350 = 2:3 portrait. aspectRatio keeps the box
+    // proportional whatever the screen width.
+    aspectRatio: 2 / 3,
+  },
+  layoutList: {
+    marginTop: spacing["4"],
+    gap: spacing["2"],
+  },
+  layoutRow: {
+    flexDirection: "row",
+    gap: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: "rgba(24, 24, 27, 0.40)",
+    padding: spacing["3"],
+  },
+  layoutSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    marginTop: 4,
+  },
+  layoutRowHead: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: spacing["2"],
+  },
+  layoutRowTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.foreground,
+  },
+  layoutRowDims: {
+    fontSize: 11,
+    color: "#6ee7b7",
+    fontWeight: "600",
+    // Monospace for dimensions reads as "data" not "marketing"
+    fontVariant: ["tabular-nums"],
+  },
+  layoutRowDesc: {
+    marginTop: 2,
+    fontSize: 11,
+    color: colors.zinc400,
+    lineHeight: 15,
+  },
+  layoutPerks: {
+    marginTop: spacing["3"],
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  layoutPerk: {
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: "rgba(24, 24, 27, 0.60)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: 4,
+  },
+  layoutPerkText: {
+    fontSize: 11,
+    color: colors.zinc300,
   },
   contactCard: {
     gap: spacing["3"],
