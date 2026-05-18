@@ -17,7 +17,6 @@ import {
   Trophy,
   Wallet,
 } from "lucide-react";
-import { auth } from "@/lib/auth";
 import { getMyRewardOverview } from "@/actions/rewards";
 import { BackButton } from "@/components/back-button";
 
@@ -41,11 +40,10 @@ export const dynamic = "force-dynamic";
  *   7. FAQ in plain language
  *   8. CTAs (Book a court / View statement)
  */
+// Lives under (protected) so the shared header + auth gate apply.
+// Route group is invisible in the URL — this still renders at
+// /rewards/how-it-works.
 export default async function RewardsHowItWorksPage() {
-  const session = await auth();
-  if (!session?.user) {
-    redirect("/login?returnTo=/rewards/how-it-works");
-  }
   const overview = await getMyRewardOverview();
   if (!overview) redirect("/login");
 
@@ -71,7 +69,7 @@ export default async function RewardsHowItWorksPage() {
   );
 
   return (
-    <div className="mx-auto max-w-3xl space-y-10 px-4 py-6 sm:py-8">
+    <div className="mx-auto max-w-3xl space-y-10">
       <BackButton className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" />
 
       {/* ─── HERO ──────────────────────────────────────────────────── */}
