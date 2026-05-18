@@ -738,6 +738,10 @@ const styles = StyleSheet.create({
   },
   heroBalanceValue: {
     fontSize: 32,
+    // Explicit lineHeight — the custom <Text> defaults to the `body`
+    // variant (lineHeight 22), which clips the top of 32pt glyphs on
+    // iOS. Same fix applied to every other big-font style below.
+    lineHeight: 38,
     fontWeight: "800",
     color: colors.foreground,
   },
@@ -801,6 +805,7 @@ const styles = StyleSheet.create({
     right: 16,
     top: 12,
     fontSize: 56,
+    lineHeight: 64,
     fontWeight: "800",
     color: "rgba(39, 39, 42, 0.60)",
   },
@@ -854,6 +859,7 @@ const styles = StyleSheet.create({
   },
   examplePillValue: {
     fontSize: 20,
+    lineHeight: 26,
     fontWeight: "800",
   },
   exampleFoot: {
@@ -886,6 +892,7 @@ const styles = StyleSheet.create({
   earnHeadline: {
     marginTop: spacing["3"],
     fontSize: 28,
+    lineHeight: 34,
     fontWeight: "800",
   },
   earnTitle: {

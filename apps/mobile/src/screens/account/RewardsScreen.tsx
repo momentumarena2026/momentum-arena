@@ -782,6 +782,10 @@ const styles = StyleSheet.create({
   statValue: {
     marginTop: 6,
     fontSize: 20,
+    // Explicit lineHeight — the custom <Text> defaults to the `body`
+    // variant's 22, which clips bold 20pt glyphs on iOS at this
+    // weight. Same fix on monthValueEarned/Redeemed below.
+    lineHeight: 26,
     fontWeight: "700",
     color: colors.foreground,
   },
@@ -840,6 +844,7 @@ const styles = StyleSheet.create({
   monthValueEarned: {
     marginTop: 4,
     fontSize: 20,
+    lineHeight: 26,
     fontWeight: "700",
     color: colors.emerald400,
   },
@@ -864,6 +869,7 @@ const styles = StyleSheet.create({
   monthValueRedeemed: {
     marginTop: 4,
     fontSize: 20,
+    lineHeight: 26,
     fontWeight: "700",
     color: colors.yellow300,
   },
