@@ -5,6 +5,7 @@ import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
   Bell,
+  BookOpen,
   Calendar,
   Clock,
   ArrowRight,
@@ -217,21 +218,40 @@ export default async function DashboardPage() {
       {/* Quick Links */}
       <div className="space-y-3">
         {rewardCfg.enabled && (
-          <Link
-            href="/rewards"
-            className="group flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 transition-all hover:border-emerald-500/50 hover:bg-emerald-500/10"
-          >
-            <div className="rounded-lg bg-emerald-500/15 p-2">
-              <Sparkles className="h-4 w-4 text-emerald-400" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-white">Momentum Points</p>
-              <p className="text-xs text-emerald-300/70">
-                {rewardBalance.pointsAvailable.toLocaleString("en-IN")} pts available
-              </p>
-            </div>
-            <ArrowRight className="h-4 w-4 text-emerald-500/60 transition-all group-hover:text-emerald-400 group-hover:translate-x-0.5" />
-          </Link>
+          <>
+            <Link
+              href="/rewards"
+              className="group flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 transition-all hover:border-emerald-500/50 hover:bg-emerald-500/10"
+            >
+              <div className="rounded-lg bg-emerald-500/15 p-2">
+                <Sparkles className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-white">Momentum Points</p>
+                <p className="text-xs text-emerald-300/70">
+                  {rewardBalance.pointsAvailable.toLocaleString("en-IN")} pts available
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-emerald-500/60 transition-all group-hover:text-emerald-400 group-hover:translate-x-0.5" />
+            </Link>
+            <Link
+              href="/rewards/how-it-works"
+              className="group flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 transition-all hover:border-zinc-700"
+            >
+              <div className="rounded-lg bg-zinc-800 p-2">
+                <BookOpen className="h-4 w-4 text-zinc-300" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-white">
+                  How rewards work
+                </p>
+                <p className="text-xs text-zinc-500">
+                  Earn rates, caps, expiry rules
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
+            </Link>
+          </>
         )}
 
         <Link

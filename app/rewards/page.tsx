@@ -9,12 +9,12 @@ import { RewardsTransactionList } from "@/components/rewards/transaction-list";
 import { TrackRewardsView } from "@/components/rewards/track-rewards-view";
 import {
   Gift,
-  TrendingUp,
   Clock,
   ArrowDownToLine,
   ArrowUpFromLine,
   Sparkles,
   Info,
+  BookOpen,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -34,8 +34,6 @@ export default async function RewardsPage() {
   ]);
 
   if (!overview || !firstPage) redirect("/login");
-
-  const earnRatePct = (overview.config.earnRateBookingBps / 100).toFixed(0);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -74,24 +72,54 @@ export default async function RewardsPage() {
           </div>
         </div>
 
-        {/* CTA */}
-        <Link
-          href="/book"
-          className="group flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 transition-all hover:bg-emerald-500/15"
-        >
-          <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-emerald-500/20 p-2">
-              <Gift className="h-5 w-5 text-emerald-400" />
+        {/* CTAs — Redeem (primary) + How it works (secondary). The
+            How-it-works page renders all the config rules as a
+            graphical breakdown; the inline bullet list that used to
+            sit here was hard to scan. */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Link
+            href="/book"
+            className="group flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 transition-all hover:bg-emerald-500/15"
+          >
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-emerald-500/20 p-2">
+                <Gift className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  Redeem on your next booking
+                </p>
+                <p className="text-xs text-zinc-400">
+                  Use up to {overview.config.maxRedemptionPctOfBill}% of the bill
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-white">Redeem on your next booking</p>
-              <p className="text-xs text-zinc-400">
-                Use up to {overview.config.maxRedemptionPctOfBill}% of the bill
-              </p>
+            <span className="text-emerald-300 transition-transform group-hover:translate-x-1">
+              →
+            </span>
+          </Link>
+          <Link
+            href="/rewards/how-it-works"
+            className="group flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 px-5 py-4 transition-all hover:border-zinc-700"
+          >
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-zinc-800 p-2">
+                <BookOpen className="h-5 w-5 text-zinc-300" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  How it works
+                </p>
+                <p className="text-xs text-zinc-500">
+                  Earn rates, caps, expiry — the full breakdown
+                </p>
+              </div>
             </div>
-          </div>
-          <span className="text-emerald-300 transition-transform group-hover:translate-x-1">→</span>
-        </Link>
+            <span className="text-zinc-400 transition-transform group-hover:translate-x-1">
+              →
+            </span>
+          </Link>
+        </div>
 
         {/* Lifetime stats */}
         <div className="grid gap-3 grid-cols-3">
@@ -133,41 +161,6 @@ export default async function RewardsPage() {
             </p>
             <p className="text-[10px] text-zinc-600">lifetime</p>
           </div>
-        </div>
-
-        {/* How it works */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-emerald-400" />
-            <h2 className="text-sm font-semibold text-white">How it works</h2>
-          </div>
-          <ul className="space-y-2 text-xs text-zinc-400">
-            <li className="flex gap-2">
-              <span className="text-emerald-400">•</span>
-              Earn <span className="text-white font-medium">{earnRatePct}%</span> back as points on every confirmed booking
-              {overview.config.cafeEarnEnabled && (
-                <>
-                  {" "}and {(overview.config.earnRateCafeBps / 100).toFixed(0)}% on cafe orders
-                </>
-              )}
-            </li>
-            <li className="flex gap-2">
-              <span className="text-emerald-400">•</span>
-              1 point = {formatPaiseAsRupees(overview.config.pointValuePaise)} off your next bill
-            </li>
-            <li className="flex gap-2">
-              <span className="text-emerald-400">•</span>
-              Minimum {overview.config.minPointsToRedeem.toLocaleString("en-IN")} points to redeem
-            </li>
-            <li className="flex gap-2">
-              <span className="text-emerald-400">•</span>
-              Points expire 12 months after they're earned
-            </li>
-            <li className="flex gap-2">
-              <span className="text-emerald-400">•</span>
-              Points earned in the last {overview.config.earnToRedeemMinHours}h aren't redeemable yet
-            </li>
-          </ul>
         </div>
 
         {/* Transaction history */}
