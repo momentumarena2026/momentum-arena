@@ -1277,6 +1277,9 @@ const styles = StyleSheet.create({
   },
   layoutStatNum: {
     fontSize: 22,
+    // Explicit lineHeight — the custom <Text> defaults to the `body`
+    // variant's 22, which clips the top of bold 22pt glyphs on iOS.
+    lineHeight: 28,
     fontWeight: "800",
   },
   layoutStatLabel: {
