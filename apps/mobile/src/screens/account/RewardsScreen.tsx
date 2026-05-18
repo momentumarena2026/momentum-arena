@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type ColorValue,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -16,8 +17,13 @@ import {
   BookOpen,
   ChevronRight,
   Clock,
+  Coffee,
+  ExternalLink,
   Gift,
+  Hash,
+  Receipt,
   RotateCcw,
+  ShoppingBag,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -31,69 +37,177 @@ import type { AccountStackParamList } from "../../navigation/types";
 
 type Nav = NativeStackNavigationProp<AccountStackParamList, "Rewards">;
 
+// ─── Transaction metadata ────────────────────────────────────────────────
+// Single source of truth for every RewardTransaction.type the API can
+// emit — keeps label, description, icon, and tone in lock-step so a
+// new enum value can't drift into rendering with the wrong color.
+
+type Tone = "credit" | "debit" | "neutral";
+
+interface TxnMeta {
+  label: string;
+  /** One-line plain-English description shown under the label. */
+  desc: string;
+  /** credit = earn (emerald); debit = redeem (yellow); neutral = expired/reversed/adjust (zinc). */
+  tone: Tone;
+  Icon: React.ComponentType<{ size?: number; color?: ColorValue }>;
+}
+
+const TXN_META: Record<string, TxnMeta> = {
+  EARNED_BOOKING: {
+    label: "Booking reward",
+    desc: "Points earned from a confirmed booking",
+    tone: "credit",
+    Icon: ArrowDownToLine,
+  },
+  EARNED_CAFE: {
+    label: "Cafe reward",
+    desc: "Points earned on a cafe order",
+    tone: "credit",
+    Icon: Coffee,
+  },
+  EARNED_SIGNUP: {
+    label: "Welcome bonus",
+    desc: "Onboarding gift — thanks for signing up",
+    tone: "credit",
+    Icon: Sparkles,
+  },
+  EARNED_REFERRAL: {
+    label: "Referral bonus",
+    desc: "A friend you referred booked their first slot",
+    tone: "credit",
+    Icon: Gift,
+  },
+  EARNED_BIRTHDAY: {
+    label: "Birthday bonus",
+    desc: "Happy birthday from Momentum Arena",
+    tone: "credit",
+    Icon: Gift,
+  },
+  EARNED_ADJUSTMENT: {
+    label: "Bonus points",
+    desc: "Manual credit by the venue admin",
+    tone: "credit",
+    Icon: Gift,
+  },
+  ADJUSTMENT_REFUND: {
+    label: "Refund credit",
+    desc: "Points returned after a refund",
+    tone: "credit",
+    Icon: TrendingUp,
+  },
+  REDEEMED_BOOKING: {
+    label: "Booking discount",
+    desc: "Points spent on a booking checkout",
+    tone: "debit",
+    Icon: ArrowUpFromLine,
+  },
+  REDEEMED_CAFE: {
+    label: "Cafe discount",
+    desc: "Points spent on a cafe order",
+    tone: "debit",
+    Icon: ArrowUpFromLine,
+  },
+  REVOKED: {
+    label: "Reversed",
+    desc: "An earlier credit was reversed (e.g. booking cancellation)",
+    tone: "neutral",
+    Icon: RotateCcw,
+  },
+  EXPIRED: {
+    label: "Expired",
+    desc: "Points expired — past the 12-month window",
+    tone: "neutral",
+    Icon: Clock,
+  },
+  ADJUSTMENT_DEBIT: {
+    label: "Adjustment",
+    desc: "Manual debit by the venue admin",
+    tone: "neutral",
+    Icon: RotateCcw,
+  },
+};
+
+const FALLBACK_META = TXN_META.EARNED_ADJUSTMENT;
+
+type ToneStyle = {
+  iconBg: ColorValue;
+  iconBorder: ColorValue;
+  iconColor: ColorValue;
+  pointsColor: ColorValue;
+  rupeesColor: ColorValue;
+};
+
+const TONE_STYLES: Record<Tone, ToneStyle> = {
+  credit: {
+    iconBg: colors.emerald500_20,
+    iconBorder: colors.emerald500_30,
+    iconColor: colors.emerald400,
+    pointsColor: colors.emerald400,
+    rupeesColor: "#6ee7b7",
+  },
+  debit: {
+    iconBg: colors.yellow500_10,
+    iconBorder: colors.yellow500_30,
+    iconColor: colors.yellow300,
+    pointsColor: colors.yellow300,
+    rupeesColor: "#fde68a",
+  },
+  neutral: {
+    iconBg: colors.zinc800,
+    iconBorder: colors.zinc700,
+    iconColor: colors.zinc400,
+    pointsColor: colors.zinc300,
+    rupeesColor: colors.zinc500,
+  },
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
 function paiseAsRupees(paise: number): string {
   const rupees = Math.round(paise / 100);
   return `₹${rupees.toLocaleString("en-IN")}`;
 }
 
-function txnLabel(type: string): string {
-  switch (type) {
-    case "EARNED_BOOKING":
-      return "Booking reward";
-    case "EARNED_CAFE":
-      return "Cafe reward";
-    case "EARNED_SIGNUP":
-      return "Welcome bonus";
-    case "EARNED_REFERRAL":
-      return "Referral bonus";
-    case "EARNED_BIRTHDAY":
-      return "Birthday bonus";
-    case "EARNED_ADJUSTMENT":
-      return "Bonus points";
-    case "ADJUSTMENT_REFUND":
-      return "Refund credit";
-    case "REDEEMED_BOOKING":
-      return "Booking discount";
-    case "REDEEMED_CAFE":
-      return "Cafe discount";
-    case "REVOKED":
-      return "Reversed";
-    case "EXPIRED":
-      return "Expired";
-    case "ADJUSTMENT_DEBIT":
-      return "Adjustment";
-    default:
-      return type;
-  }
+function paiseAsRupeesPrecise(paise: number): string {
+  if (!paise) return "₹0";
+  const rupees = Math.abs(paise) / 100;
+  const isWhole = rupees === Math.floor(rupees);
+  return `₹${rupees.toLocaleString("en-IN", {
+    minimumFractionDigits: isWhole ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
-function isCredit(type: string): boolean {
-  return type.startsWith("EARNED_") || type === "ADJUSTMENT_REFUND";
-}
-
-function TxnIcon({ type, color }: { type: string; color: string }) {
-  if (type === "REDEEMED_BOOKING" || type === "REDEEMED_CAFE")
-    return <ArrowUpFromLine size={16} color={color} />;
-  if (type === "EXPIRED") return <Clock size={16} color={color} />;
-  if (type === "REVOKED" || type === "ADJUSTMENT_DEBIT")
-    return <RotateCcw size={16} color={color} />;
-  if (type === "ADJUSTMENT_REFUND") return <TrendingUp size={16} color={color} />;
-  if (
-    type === "EARNED_ADJUSTMENT" ||
-    type === "EARNED_SIGNUP" ||
-    type === "EARNED_BIRTHDAY"
-  )
-    return <Gift size={16} color={color} />;
-  return <ArrowDownToLine size={16} color={color} />;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-IN", {
+function formatTxnDate(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", {
     day: "numeric",
     month: "short",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
   });
 }
+
+function relativeFromNow(iso: string): string {
+  const target = new Date(iso).getTime();
+  const diffDays = Math.round((target - Date.now()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return "expired";
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "tomorrow";
+  if (diffDays < 30) return `in ${diffDays} days`;
+  const months = Math.round(diffDays / 30);
+  return months === 1 ? "in 1 month" : `in ${months} months`;
+}
+
+function shortId(id: string): string {
+  return id.slice(-6).toUpperCase();
+}
+
+type Filter = "ALL" | "EARNED" | "REDEEMED";
+
+// ─── Screen ──────────────────────────────────────────────────────────────
 
 export function RewardsScreen() {
   const navigation = useNavigation<Nav>();
@@ -110,12 +224,11 @@ export function RewardsScreen() {
   // page in `firstPageQ` and accumulate subsequent pages locally so a
   // pull-to-refresh fully resets activity.
   const [extraRows, setExtraRows] = useState<RewardTxnRow[]>([]);
-  // `null` means "use whatever cursor the first page returned". After the
-  // first load-more it holds that page's nextCursor (or null when exhausted).
   const [loadedCursor, setLoadedCursor] = useState<string | null>(null);
   const [hasLoadedMore, setHasLoadedMore] = useState(false);
   const [exhausted, setExhausted] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [filter, setFilter] = useState<Filter>("ALL");
 
   const handleRefresh = useCallback(async () => {
     setExtraRows([]);
@@ -127,8 +240,6 @@ export function RewardsScreen() {
 
   const handleLoadMore = useCallback(async () => {
     if (loadingMore || exhausted) return;
-    // Use the most recent paginated cursor if we've already loaded more
-    // pages, otherwise fall back to the first page's nextCursor.
     const before = hasLoadedMore
       ? loadedCursor
       : firstPageQ.data?.nextCursor ?? null;
@@ -155,10 +266,11 @@ export function RewardsScreen() {
   ]);
 
   const overview = overviewQ.data?.overview ?? null;
+  const firstRows = firstPageQ.data?.rows ?? [];
+  const rows = useMemo(() => [...firstRows, ...extraRows], [firstRows, extraRows]);
+  const isLoading = overviewQ.isLoading || firstPageQ.isLoading;
 
-  // Fire-once discovery event for the Rewards funnel. Waits for the
-  // first overview load so we can include the user's balance — useful
-  // for cohorting "did high-balance users come back vs low-balance".
+  // Fire-once discovery event for the Rewards funnel.
   const trackedRef = useRef(false);
   useEffect(() => {
     if (!trackedRef.current && overview) {
@@ -166,9 +278,28 @@ export function RewardsScreen() {
       trackRewardsView(overview.pointsAvailable);
     }
   }, [overview]);
-  const firstRows = firstPageQ.data?.rows ?? [];
-  const rows = [...firstRows, ...extraRows];
-  const isLoading = overviewQ.isLoading || firstPageQ.isLoading;
+
+  // This-month aggregates for the summary strip.
+  const monthTotals = useMemo(() => {
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
+    let earned = 0;
+    let redeemed = 0;
+    for (const r of rows) {
+      const d = new Date(r.createdAt);
+      if (`${d.getFullYear()}-${d.getMonth()}` !== monthKey) continue;
+      if (r.points > 0) earned += r.points;
+      else if (r.points < 0) redeemed += Math.abs(r.points);
+    }
+    return { earned, redeemed };
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (filter === "ALL") return rows;
+    if (filter === "EARNED") return rows.filter((r) => r.points > 0);
+    if (filter === "REDEEMED") return rows.filter((r) => r.points < 0);
+    return rows;
+  }, [rows, filter]);
 
   return (
     <Screen padded={false}>
@@ -225,8 +356,8 @@ export function RewardsScreen() {
           <StatCell
             label="Redeemed"
             value={overview?.pointsLifetimeRedeemed ?? 0}
-            color="#7dd3fc"
-            icon={<ArrowUpFromLine size={12} color="#7dd3fc" />}
+            color={colors.yellow300}
+            icon={<ArrowUpFromLine size={12} color={colors.yellow300} />}
           />
           <StatCell
             label="Expired"
@@ -236,9 +367,7 @@ export function RewardsScreen() {
           />
         </View>
 
-        {/* "How it works" link — was an inline bullet card; now drills
-            into the dedicated RewardsHowItWorks screen which renders
-            the same config knobs as a graphical breakdown. */}
+        {/* How rewards work link — drills to the graphical breakdown */}
         <Pressable
           onPress={() => navigation.navigate("RewardsHowItWorks")}
           style={({ pressed }) => [
@@ -258,8 +387,42 @@ export function RewardsScreen() {
           <ChevronRight size={16} color={colors.zinc500} />
         </Pressable>
 
-        {/* Activity */}
-        <Text style={styles.activityHeader}>Activity</Text>
+        {/* This-month summary — emerald for earned, yellow for redeemed */}
+        {!isLoading && rows.length > 0 && (
+          <View style={styles.monthRow}>
+            <View style={styles.monthCardEarned}>
+              <Text style={styles.monthLabelEarned}>EARNED THIS MONTH</Text>
+              <Text style={styles.monthValueEarned}>
+                +{monthTotals.earned.toLocaleString("en-IN")}
+                <Text style={styles.monthUnitEarned}> pts</Text>
+              </Text>
+            </View>
+            <View style={styles.monthCardRedeemed}>
+              <Text style={styles.monthLabelRedeemed}>REDEEMED THIS MONTH</Text>
+              <Text style={styles.monthValueRedeemed}>
+                −{monthTotals.redeemed.toLocaleString("en-IN")}
+                <Text style={styles.monthUnitRedeemed}> pts</Text>
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Activity header + filter pills */}
+        <View style={styles.activityHead}>
+          <Text style={styles.activityHeader}>Activity</Text>
+          <View style={styles.filterRow}>
+            {(["ALL", "EARNED", "REDEEMED"] as const).map((f) => (
+              <FilterPill
+                key={f}
+                active={filter === f}
+                tone={f === "EARNED" ? "credit" : f === "REDEEMED" ? "debit" : "neutral"}
+                label={f === "ALL" ? "All" : f === "EARNED" ? "Earned" : "Redeemed"}
+                onPress={() => setFilter(f)}
+              />
+            ))}
+          </View>
+        </View>
+
         {isLoading ? (
           <View style={styles.loadingBlock}>
             <ActivityIndicator color={colors.primary} />
@@ -274,39 +437,26 @@ export function RewardsScreen() {
               Your points history will show up here
             </Text>
           </View>
+        ) : filteredRows.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>
+              No {filter === "EARNED" ? "earned" : "redeemed"} entries
+            </Text>
+            <Text style={styles.emptySub}>
+              In the rows loaded so far. Tap "Load more" to scan further back.
+            </Text>
+          </View>
         ) : (
           <View style={styles.txnList}>
-            {rows.map((r) => {
-              const credit = isCredit(r.type);
-              const color = credit ? colors.emerald400 : colors.zinc300;
-              const iconBg = credit ? colors.emerald500_20 : colors.zinc800;
-              return (
-                <View key={r.id} style={styles.txnRow}>
-                  <View style={[styles.txnIcon, { backgroundColor: iconBg }]}>
-                    <TxnIcon
-                      type={r.type}
-                      color={credit ? colors.emerald400 : colors.zinc400}
-                    />
-                  </View>
-                  <View style={styles.txnBody}>
-                    <Text style={styles.txnLabel} numberOfLines={1}>
-                      {txnLabel(r.type)}
-                    </Text>
-                    <Text style={styles.txnDate}>
-                      {formatDate(r.createdAt)}
-                      {r.reason ? ` • ${r.reason}` : ""}
-                    </Text>
-                  </View>
-                  <View style={styles.txnRight}>
-                    <Text style={[styles.txnPoints, { color }]}>
-                      {credit ? "+" : ""}
-                      {r.points.toLocaleString("en-IN")}
-                    </Text>
-                    <Text style={styles.txnUnit}>pts</Text>
-                  </View>
-                </View>
-              );
-            })}
+            {filteredRows.map((r) => (
+              <TxnRow
+                key={r.id}
+                row={r}
+                onOpenBooking={(bookingId) =>
+                  navigation.navigate("BookingDetail", { bookingId })
+                }
+              />
+            ))}
 
             {!exhausted && (firstPageQ.data?.hasMore || hasLoadedMore) && (
               <Pressable
@@ -331,6 +481,8 @@ export function RewardsScreen() {
   );
 }
 
+// ─── Pieces ──────────────────────────────────────────────────────────────
+
 function StatCell({
   label,
   value,
@@ -350,6 +502,198 @@ function StatCell({
       </View>
       <Text style={styles.statValue}>{value.toLocaleString("en-IN")}</Text>
       <Text style={styles.statSub}>lifetime</Text>
+    </View>
+  );
+}
+
+function FilterPill({
+  active,
+  label,
+  tone,
+  onPress,
+}: {
+  active: boolean;
+  label: string;
+  tone: Tone;
+  onPress: () => void;
+}) {
+  // Active pill takes the tone's color. Inactive is neutral zinc.
+  const activeBg =
+    tone === "credit"
+      ? colors.emerald500_20
+      : tone === "debit"
+        ? colors.yellow500_10
+        : colors.zinc800;
+  const activeBorder =
+    tone === "credit"
+      ? colors.emerald500_30
+      : tone === "debit"
+        ? colors.yellow500_30
+        : colors.zinc600;
+  const activeText =
+    tone === "credit"
+      ? colors.emerald400
+      : tone === "debit"
+        ? colors.yellow300
+        : colors.foreground;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.pill,
+        active
+          ? { backgroundColor: activeBg, borderColor: activeBorder }
+          : styles.pillInactive,
+        pressed && { opacity: 0.85 },
+      ]}
+    >
+      <Text
+        style={[
+          styles.pillText,
+          active ? { color: activeText } : styles.pillTextInactive,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function TxnRow({
+  row,
+  onOpenBooking,
+}: {
+  row: RewardTxnRow;
+  onOpenBooking: (bookingId: string) => void;
+}) {
+  const meta = TXN_META[row.type] ?? FALLBACK_META;
+  const tone = TONE_STYLES[meta.tone];
+  const Icon = meta.Icon;
+  const sign = row.points > 0 ? "+" : row.points < 0 ? "−" : "";
+  const rupeesValue = row.pointsValuePaise
+    ? paiseAsRupeesPrecise(row.pointsValuePaise)
+    : null;
+  const isCredit = meta.tone === "credit";
+
+  // Expiry urgency — yellow when under 30 days, grey otherwise.
+  let expiryNode: React.ReactNode = null;
+  if (isCredit && row.expiresAt) {
+    const target = new Date(row.expiresAt).getTime();
+    const diffDays = Math.round((target - Date.now()) / (1000 * 60 * 60 * 24));
+    const isUrgent = diffDays >= 0 && diffDays < 30;
+    expiryNode = (
+      <View style={styles.metaChunk}>
+        <Clock size={11} color={isUrgent ? colors.yellow300 : colors.zinc500} />
+        <Text
+          style={[
+            styles.metaText,
+            { color: isUrgent ? colors.yellow300 : colors.zinc500 },
+          ]}
+        >
+          expires {relativeFromNow(row.expiresAt)}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.txnRow}>
+      <View style={styles.txnHeader}>
+        <View
+          style={[
+            styles.txnIcon,
+            {
+              backgroundColor: tone.iconBg,
+              borderColor: tone.iconBorder,
+            },
+          ]}
+        >
+          <Icon size={16} color={tone.iconColor} />
+        </View>
+        <View style={styles.txnBody}>
+          <Text style={styles.txnLabel} numberOfLines={1}>
+            {meta.label}
+          </Text>
+          <Text style={styles.txnDesc} numberOfLines={2}>
+            {meta.desc}
+          </Text>
+        </View>
+        <View style={styles.txnRight}>
+          <Text style={[styles.txnPoints, { color: tone.pointsColor }]}>
+            {sign}
+            {Math.abs(row.points).toLocaleString("en-IN")}
+            <Text style={styles.txnUnit}> pts</Text>
+          </Text>
+          {rupeesValue ? (
+            <Text style={[styles.txnRupees, { color: tone.rupeesColor }]}>
+              {row.points > 0 ? "worth " : row.points < 0 ? "saved " : ""}
+              {rupeesValue}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      {/* Metadata strip — date · TXN id · booking link · expiry */}
+      <View style={styles.metaRow}>
+        <View style={styles.metaChunk}>
+          <Clock size={11} color={colors.zinc500} />
+          <Text style={styles.metaText}>{formatTxnDate(row.createdAt)}</Text>
+        </View>
+        <Text style={styles.metaSep}>·</Text>
+        <View style={styles.metaChunk}>
+          <Hash size={11} color={colors.zinc500} />
+          <Text style={styles.metaText}>TXN {shortId(row.id)}</Text>
+        </View>
+
+        {row.bookingId ? (
+          <>
+            <Text style={styles.metaSep}>·</Text>
+            <Pressable
+              onPress={() => onOpenBooking(row.bookingId!)}
+              style={({ pressed }) => [
+                styles.metaChunk,
+                pressed && { opacity: 0.7 },
+              ]}
+              hitSlop={6}
+            >
+              <Receipt size={11} color={colors.zinc300} />
+              <Text style={[styles.metaText, styles.metaTextLink]}>
+                Booking {shortId(row.bookingId)}
+              </Text>
+              <ExternalLink size={10} color={colors.zinc500} />
+            </Pressable>
+          </>
+        ) : null}
+
+        {row.cafeOrderId ? (
+          <>
+            <Text style={styles.metaSep}>·</Text>
+            <View style={styles.metaChunk}>
+              <ShoppingBag size={11} color={colors.zinc400} />
+              <Text style={styles.metaText}>
+                Cafe {shortId(row.cafeOrderId)}
+              </Text>
+            </View>
+          </>
+        ) : null}
+
+        {row.reason ? (
+          <>
+            <Text style={styles.metaSep}>·</Text>
+            <Text style={[styles.metaText, styles.metaTextItalic]}>
+              {row.reason}
+            </Text>
+          </>
+        ) : null}
+
+        {expiryNode ? (
+          <>
+            <Text style={styles.metaSep}>·</Text>
+            {expiryNode}
+          </>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -446,8 +790,6 @@ const styles = StyleSheet.create({
     color: colors.zinc600,
   },
 
-  // "How rewards work" link tile — drills into RewardsHowItWorks for
-  // the graphical breakdown of every config knob.
   howLink: {
     flexDirection: "row",
     alignItems: "center",
@@ -477,14 +819,91 @@ const styles = StyleSheet.create({
     color: colors.zinc500,
   },
 
+  monthRow: {
+    flexDirection: "row",
+    gap: spacing["3"],
+  },
+  monthCardEarned: {
+    flex: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_05,
+    padding: spacing["3"],
+  },
+  monthLabelEarned: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    color: "#6ee7b7",
+  },
+  monthValueEarned: {
+    marginTop: 4,
+    fontSize: 20,
+    fontWeight: "700",
+    color: colors.emerald400,
+  },
+  monthUnitEarned: {
+    fontSize: 11,
+    color: "#6ee7b7",
+  },
+  monthCardRedeemed: {
+    flex: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.yellow500_30,
+    backgroundColor: colors.yellow500_10,
+    padding: spacing["3"],
+  },
+  monthLabelRedeemed: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    color: "#fde68a",
+  },
+  monthValueRedeemed: {
+    marginTop: 4,
+    fontSize: 20,
+    fontWeight: "700",
+    color: colors.yellow300,
+  },
+  monthUnitRedeemed: {
+    fontSize: 11,
+    color: "#fde68a",
+  },
+
+  activityHead: {
+    gap: spacing["2"],
+  },
   activityHeader: {
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 1,
     color: colors.zinc500,
     textTransform: "uppercase",
-    marginTop: spacing["2"],
   },
+  filterRow: {
+    flexDirection: "row",
+    gap: spacing["2"],
+  },
+  pill: {
+    borderRadius: radius.full,
+    borderWidth: 1,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: 6,
+  },
+  pillInactive: {
+    borderColor: colors.zinc800,
+    backgroundColor: "rgba(24, 24, 27, 0.40)",
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  pillTextInactive: {
+    color: colors.zinc400,
+  },
+
   loadingBlock: {
     paddingVertical: spacing["8"],
     alignItems: "center",
@@ -494,19 +913,23 @@ const styles = StyleSheet.create({
     gap: spacing["2"],
   },
   txnRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["3"],
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: "rgba(39, 39, 42, 0.80)",
     backgroundColor: "rgba(24, 24, 27, 0.50)",
     padding: spacing["3.5"],
+    gap: spacing["2"],
+  },
+  txnHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing["3"],
   },
   txnIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -516,24 +939,59 @@ const styles = StyleSheet.create({
   },
   txnLabel: {
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "600",
     color: colors.foreground,
   },
-  txnDate: {
+  txnDesc: {
     marginTop: 2,
     fontSize: 11,
     color: colors.zinc500,
+    lineHeight: 15,
   },
   txnRight: {
     alignItems: "flex-end",
+    flexShrink: 0,
   },
   txnPoints: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "800",
   },
   txnUnit: {
     fontSize: 10,
-    color: colors.zinc600,
+    color: colors.zinc500,
+    fontWeight: "500",
+  },
+  txnRupees: {
+    marginTop: 2,
+    fontSize: 11,
+  },
+
+  metaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: 36 + spacing["3"],
+  },
+  metaChunk: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  metaText: {
+    fontSize: 11,
+    color: colors.zinc500,
+  },
+  metaTextLink: {
+    color: colors.zinc300,
+  },
+  metaTextItalic: {
+    fontStyle: "italic",
+  },
+  metaSep: {
+    fontSize: 11,
+    color: colors.zinc700,
+    marginHorizontal: 2,
   },
 
   loadMoreBtn: {
