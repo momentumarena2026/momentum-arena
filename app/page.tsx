@@ -757,26 +757,29 @@ export default async function Home() {
                   the image shows, but spelled out as a scannable list
                   + quick-fact pills. */}
               <div className="space-y-6">
-                {/* Headline stats */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
-                    <p className="text-2xl md:text-3xl font-black text-emerald-400">
+                {/* Headline stats — tightened mobile font + padding so
+                    "10,000" (the widest entry) fits inside its column on
+                    narrow viewports. Was overflowing at text-2xl with
+                    p-4 + the gap-3 grid on ~390px viewports. */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                  <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3 sm:p-4 text-center">
+                    <p className="text-lg sm:text-2xl md:text-3xl font-black text-emerald-400 leading-tight tracking-tight">
                       10,000
                     </p>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300/80 mt-1">
                       sq ft total
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 text-center">
-                    <p className="text-2xl md:text-3xl font-black text-blue-400">
+                  <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-3 sm:p-4 text-center">
+                    <p className="text-lg sm:text-2xl md:text-3xl font-black text-blue-400 leading-tight">
                       3
                     </p>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-300/80 mt-1">
                       sports on site
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 text-center">
-                    <p className="text-2xl md:text-3xl font-black text-amber-400">
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 sm:p-4 text-center">
+                    <p className="text-lg sm:text-2xl md:text-3xl font-black text-amber-400 leading-tight">
                       24×7
                     </p>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300/80 mt-1">
