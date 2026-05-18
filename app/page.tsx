@@ -817,7 +817,7 @@ export default async function Home() {
                     swatch="bg-zinc-600"
                     title="Main entrance"
                     dims="10 ft wide"
-                    desc="Lit walkway with shoe rack + check-in shed. Drop-off + parking just outside."
+                    desc="Lit gateway between the courts and the cafe. Drop-off and parking right outside."
                   />
                 </ul>
 
