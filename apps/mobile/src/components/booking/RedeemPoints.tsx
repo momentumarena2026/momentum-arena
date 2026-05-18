@@ -6,7 +6,7 @@ import {
   View,
 } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, X } from "lucide-react-native";
+import { Check, Sparkles } from "lucide-react-native";
 import { Text } from "../ui/Text";
 import { colors, radius, spacing } from "../../theme";
 import { bookingApi } from "../../lib/booking";
@@ -28,13 +28,12 @@ interface Props {
   onChange: (state: { points: number; paiseSaved: number }) => void;
 }
 
-const PRESET_PCTS = [25, 50, 75, 100] as const;
-
 /**
- * Mobile redemption picker. Uses preset chips (25/50/75/Max) instead
- * of a slider — more thumb-friendly than dragging a range input on
- * a phone, and dodges the need to pull in
- * @react-native-community/slider as a new dependency.
+ * Mobile redemption checkbox. All-or-nothing — checked redeems the
+ * full `preview.maxPoints` (the cap from server: balance × bill-cap%),
+ * unchecked clears the redemption. Replaces an earlier preset-chip UI
+ * (25/50/75/Max) because UX testing showed users almost never picked
+ * a sub-max amount.
  *
  * Same contract as the web RedeemSlider: persists the pick on the
  * SlotHold and the booking-creation transaction writes the
@@ -64,12 +63,12 @@ export function RedeemPoints({ holdId, billRupees, nonce, onChange }: Props) {
     },
   });
 
-  const [points, setPoints] = useState(0);
+  const [redeeming, setRedeeming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Reset on bill change.
   useEffect(() => {
-    setPoints(0);
+    setRedeeming(false);
     setError(null);
     onChange({ points: 0, paiseSaved: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,10 +76,6 @@ export function RedeemPoints({ holdId, billRupees, nonce, onChange }: Props) {
 
   const preview = previewQ.data?.preview ?? null;
 
-  // Listen for an external "redeem completed" hint so we fire the
-  // funnel event at the same moment as web. Mobile dispatches via a
-  // CustomEvent isn't a thing — instead the parent calls
-  // RedeemPoints.fireCompleted(...) below.
   if (preview === null || !preview?.enabled) return null;
   if (preview.pointsAvailable < preview.minPoints) return null;
   if (preview.maxPoints < preview.minPoints) {
@@ -94,102 +89,73 @@ export function RedeemPoints({ holdId, billRupees, nonce, onChange }: Props) {
     );
   }
 
-  function pickPercent(pct: number) {
+  const busy = applyM.isPending || clearM.isPending;
+  const paiseSaved = preview.maxPoints * preview.pointValuePaise;
+  const rupeesSaved = Math.floor(paiseSaved / 100);
+
+  function handleToggle() {
     if (!preview) return;
-    let next = Math.floor((preview.maxPoints * pct) / 100);
-    // Snap up to the minimum if the percent rounds down below it.
-    if (next < preview.minPoints) next = preview.minPoints;
-    if (next > preview.maxPoints) next = preview.maxPoints;
+    if (busy) return;
+    const nextOn = !redeeming;
+    setRedeeming(nextOn);
     setError(null);
-    setPoints(next);
-    const paiseSaved = next * preview.pointValuePaise;
-    onChange({ points: next, paiseSaved });
-    if (!startedFiredRef.current) {
+    const nextPoints = nextOn ? preview.maxPoints : 0;
+    const nextPaise = nextPoints * preview.pointValuePaise;
+    onChange({ points: nextPoints, paiseSaved: nextPaise });
+    if (nextOn && !startedFiredRef.current) {
       startedFiredRef.current = true;
       trackRewardsRedeemStarted(billRupees * 100, preview.maxPoints);
     }
-    applyM.mutate(next, {
-      onError: (err: unknown) => {
-        setError(err instanceof Error ? err.message : "Couldn't apply points");
-        setPoints(0);
-        onChange({ points: 0, paiseSaved: 0 });
-      },
-    });
+    if (nextOn) {
+      applyM.mutate(preview.maxPoints, {
+        onError: (err: unknown) => {
+          setError(err instanceof Error ? err.message : "Couldn't apply points");
+          setRedeeming(false);
+          onChange({ points: 0, paiseSaved: 0 });
+        },
+      });
+    } else {
+      clearM.mutate(undefined, {
+        onError: (err: unknown) => {
+          setError(err instanceof Error ? err.message : "Couldn't clear points");
+        },
+      });
+    }
   }
-
-  function handleClear() {
-    setPoints(0);
-    setError(null);
-    onChange({ points: 0, paiseSaved: 0 });
-    clearM.mutate();
-  }
-
-  const paiseSaved = points * preview.pointValuePaise;
-  const rupeesSaved = Math.floor(paiseSaved / 100);
-  const busy = applyM.isPending || clearM.isPending;
 
   return (
     <View style={styles.card}>
       <Header balance={preview.pointsAvailable} />
 
-      <View style={styles.chipsRow}>
-        {PRESET_PCTS.map((pct) => {
-          const ptsForPct = Math.floor((preview.maxPoints * pct) / 100);
-          const active = points === ptsForPct && points > 0;
-          // Hide chips that round below the min.
-          if (ptsForPct < preview.minPoints) return null;
-          return (
-            <Pressable
-              key={pct}
-              onPress={() => pickPercent(pct)}
-              disabled={busy}
-              style={({ pressed }) => [
-                styles.chip,
-                active && styles.chipActive,
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                {pct === 100 ? "Max" : `${pct}%`}
-              </Text>
-              <Text style={styles.chipSubText}>
-                {ptsForPct.toLocaleString("en-IN")} pts
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {points > 0 && (
-        <View style={styles.savedRow}>
-          {busy ? (
-            <ActivityIndicator color={colors.emerald400} size="small" />
-          ) : null}
-          <Text style={styles.savedText}>
-            Using <Text style={styles.savedStrong}>{points.toLocaleString("en-IN")}</Text> pts —
-            saving <Text style={styles.savedStrong}>₹{rupeesSaved.toLocaleString("en-IN")}</Text>
-          </Text>
-          <Pressable
-            onPress={handleClear}
-            disabled={busy}
-            style={({ pressed }) => [
-              styles.clearBtn,
-              pressed && { opacity: 0.7 },
-            ]}
-            hitSlop={8}
-          >
-            <X size={14} color={colors.zinc400} />
-            <Text style={styles.clearText}>Clear</Text>
-          </Pressable>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: redeeming, disabled: busy }}
+        onPress={handleToggle}
+        disabled={busy}
+        style={({ pressed }) => [
+          styles.toggleRow,
+          redeeming && styles.toggleRowOn,
+          pressed && { opacity: 0.85 },
+          busy && { opacity: 0.6 },
+        ]}
+      >
+        <View style={[styles.box, redeeming && styles.boxOn]}>
+          {redeeming ? <Check size={14} color="#ffffff" strokeWidth={3} /> : null}
         </View>
-      )}
-
-      {points === 0 && (
-        <Text style={styles.subdued}>
-          Tap a preset to apply up to{" "}
-          {preview.maxPoints.toLocaleString("en-IN")} pts off this bill.
+        <Text style={styles.toggleText}>
+          Redeem{" "}
+          <Text style={styles.toggleStrong}>
+            {preview.maxPoints.toLocaleString("en-IN")}
+          </Text>{" "}
+          pts
+          <Text style={styles.toggleSave}>
+            {"  "}— save ₹{rupeesSaved.toLocaleString("en-IN")}
+          </Text>
         </Text>
-      )}
+        {busy ? (
+          <ActivityIndicator size="small" color={colors.emerald400} />
+        ) : null}
+      </Pressable>
 
       {error && <Text style={styles.errorText}>{error}</Text>}
     </View>
@@ -247,65 +213,47 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#6ee7b7",
   },
-  chipsRow: {
+  toggleRow: {
     flexDirection: "row",
-    gap: spacing["2"],
-  },
-  chip: {
-    flex: 1,
+    alignItems: "center",
+    gap: spacing["3"],
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.zinc700,
     backgroundColor: colors.zinc900,
-    paddingVertical: spacing["2.5"],
-    paddingHorizontal: spacing["2"],
-    alignItems: "center",
-    gap: 2,
-  },
-  chipActive: {
-    borderColor: colors.emerald400,
-    backgroundColor: colors.emerald500_20,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.zinc300,
-  },
-  chipTextActive: {
-    color: colors.foreground,
-  },
-  chipSubText: {
-    fontSize: 10,
-    color: colors.zinc500,
-  },
-  savedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["2"],
-    borderRadius: radius.md,
-    backgroundColor: colors.emerald500_10,
-    borderWidth: 1,
-    borderColor: colors.emerald500_30,
     paddingHorizontal: spacing["3"],
-    paddingVertical: spacing["2"],
+    paddingVertical: spacing["2.5"],
   },
-  savedText: {
+  toggleRowOn: {
+    borderColor: colors.emerald400,
+    backgroundColor: colors.emerald500_10,
+  },
+  box: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.zinc600,
+    backgroundColor: "#0a0a0b",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  boxOn: {
+    borderColor: colors.emerald400,
+    backgroundColor: colors.emerald500,
+  },
+  toggleText: {
     flex: 1,
     fontSize: 13,
-    color: "#6ee7b7",
+    color: colors.zinc300,
   },
-  savedStrong: {
+  toggleStrong: {
     color: colors.foreground,
     fontWeight: "700",
   },
-  clearBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  clearText: {
-    fontSize: 11,
-    color: colors.zinc400,
+  toggleSave: {
+    color: "#6ee7b7",
+    fontWeight: "600",
   },
   subdued: {
     fontSize: 12,
