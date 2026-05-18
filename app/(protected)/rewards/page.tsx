@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { auth } from "@/lib/auth";
 import {
   getMyRewardOverview,
   getMyRewardTransactions,
@@ -24,10 +23,13 @@ function formatPaiseAsRupees(paise: number): string {
   return `₹${rupees.toLocaleString("en-IN")}`;
 }
 
+// Lives under (protected) so the shared header + auth gate apply.
+// The route group is invisible in the URL — this still renders at
+// /rewards. The page used to wrap itself in <main> + min-h-screen +
+// max-w + padding; the protected layout already supplies all of
+// that, so we now render flush content (max-w-3xl mx-auto) inside
+// the layout's max-w-7xl main.
 export default async function RewardsPage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login?returnTo=/rewards");
-
   const [overview, firstPage] = await Promise.all([
     getMyRewardOverview(),
     getMyRewardTransactions({ limit: 20 }),
@@ -36,9 +38,9 @@ export default async function RewardsPage() {
   if (!overview || !firstPage) redirect("/login");
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <>
       <TrackRewardsView pointsAvailable={overview.pointsAvailable} />
-      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6">
         {/* Hero balance card */}
         <div className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/60 via-zinc-950 to-zinc-950 p-6 sm:p-8">
           <div className="absolute top-0 right-0 h-72 w-72 -translate-y-1/3 translate-x-1/3 rounded-full bg-emerald-500/10 blur-3xl" />
@@ -175,6 +177,6 @@ export default async function RewardsPage() {
           />
         </div>
       </div>
-    </div>
+    </>
   );
 }
