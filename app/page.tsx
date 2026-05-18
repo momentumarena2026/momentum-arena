@@ -702,6 +702,147 @@ export default async function Home() {
           </div>
         </section>
 
+        {/* ARENA LAYOUT — top-down "what's where" view of the venue.
+            Sits between the facilities grid and the location/contact
+            block so it acts as a bridge: facilities tell you WHAT we
+            have, layout tells you HOW IT'S ARRANGED, location tells
+            you HOW TO GET HERE. */}
+        <section
+          id="layout"
+          className="py-16 md:py-24 bg-gradient-to-b from-black via-emerald-950/10 to-black scroll-mt-16"
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <p className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-300 mb-3">
+                The arena, at a glance
+              </p>
+              <h2 className="text-3xl md:text-5xl font-black mb-3">
+                <span className="bg-gradient-to-r from-emerald-400 to-green-500 bg-clip-text text-transparent">
+                  EVERYTHING UNDER
+                </span>{" "}
+                <span className="text-white">ONE ROOF</span> 🏟️
+              </h2>
+              <p className="text-zinc-500 text-base md:text-lg max-w-2xl mx-auto">
+                Multi-sport turf, a dedicated pickleball court, cafe + washrooms,
+                and a chill-out lawn — all on a 10,000 sq ft floodlit ground.
+              </p>
+            </div>
+
+            <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] items-start">
+              {/* Layout image — top-down view of the venue with
+                  dimension labels baked in. Click → opens full-size
+                  in a new tab for power users. */}
+              <a
+                href="/arena-layout.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group block relative overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-emerald-500/10 transition-all duration-500 hover:border-emerald-500/40"
+                aria-label="Open the full arena layout in a new tab"
+              >
+                <Image
+                  src="/arena-layout.jpg"
+                  alt="Top-down layout of Momentum Arena — cricket/football shared turf (80×90 ft), pickleball court (50×25 ft), cafe & washrooms (20×35 ft), green area (50×10 ft), 10ft entrance. Total 80×125 ft."
+                  width={900}
+                  height={1350}
+                  className="h-auto w-full"
+                  sizes="(min-width: 1024px) 540px, 100vw"
+                />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-black/90 to-transparent px-4 py-3 opacity-0 transition-opacity group-hover:opacity-100">
+                  <span className="text-xs text-zinc-300">Tap to view full size</span>
+                  <span className="text-xs font-semibold text-emerald-300">↗</span>
+                </div>
+              </a>
+
+              {/* What's where — feature breakdown with the same numbers
+                  the image shows, but spelled out as a scannable list
+                  + quick-fact pills. */}
+              <div className="space-y-6">
+                {/* Headline stats */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
+                    <p className="text-2xl md:text-3xl font-black text-emerald-400">
+                      10,000
+                    </p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300/80 mt-1">
+                      sq ft total
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 text-center">
+                    <p className="text-2xl md:text-3xl font-black text-blue-400">
+                      3
+                    </p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-300/80 mt-1">
+                      sports on site
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 text-center">
+                    <p className="text-2xl md:text-3xl font-black text-amber-400">
+                      24×7
+                    </p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300/80 mt-1">
+                      floodlit
+                    </p>
+                  </div>
+                </div>
+
+                {/* What's where rows — each row mirrors a colored
+                    region on the layout image so the eye can map
+                    them quickly. */}
+                <ul className="space-y-3">
+                  <LayoutRow
+                    swatch="bg-emerald-500"
+                    title="Cricket / Football shared turf"
+                    dims="80 ft × 90 ft"
+                    desc="Full-size 6v6 football pitch doubling as box-cricket with the pitch line down the middle. Pro-grade artificial turf."
+                  />
+                  <LayoutRow
+                    swatch="bg-blue-500"
+                    title="Pickleball court"
+                    dims="50 ft × 25 ft"
+                    desc="Dedicated court with regulation 20×44 ft playable area, professional net + line markings."
+                  />
+                  <LayoutRow
+                    swatch="bg-zinc-500"
+                    title="Cafe & washrooms"
+                    dims="20 ft × 35 ft"
+                    desc="Snacks, beverages, hot meals + clean separate washrooms. Sit, eat, freshen up."
+                  />
+                  <LayoutRow
+                    swatch="bg-emerald-600/70"
+                    title="Green chill-out area"
+                    dims="50 ft × 10 ft"
+                    desc="Manicured lawn between the courts and cafe — bring the kids, hang out between games."
+                  />
+                  <LayoutRow
+                    swatch="bg-zinc-600"
+                    title="Main entrance"
+                    dims="10 ft wide"
+                    desc="Lit walkway with shoe rack + check-in shed. Drop-off + parking just outside."
+                  />
+                </ul>
+
+                {/* Mini perks strip */}
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    "💡 Floodlights",
+                    "🪑 Spectator seating",
+                    "🅿️ Free parking",
+                    "🚻 Clean washrooms",
+                    "📶 Wi-Fi at the cafe",
+                  ].map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-xs text-zinc-300"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* LOCATION & CONTACT */}
         <section id="location" className="py-16 md:py-24 scroll-mt-16">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -881,5 +1022,40 @@ export default async function Home() {
       </main>
 
     </>
+  );
+}
+
+/**
+ * Single row in the "what's where" list inside the Arena Layout
+ * section. Colored swatch on the left mirrors the corresponding
+ * region on the layout image so the eye can map them at a glance.
+ */
+function LayoutRow({
+  swatch,
+  title,
+  dims,
+  desc,
+}: {
+  swatch: string;
+  title: string;
+  dims: string;
+  desc: string;
+}) {
+  return (
+    <li className="flex items-start gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 transition-colors hover:border-zinc-700">
+      <span
+        className={`mt-1.5 inline-block h-3.5 w-3.5 shrink-0 rounded-sm ${swatch}`}
+        aria-hidden
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm md:text-base font-semibold text-white">{title}</p>
+          <p className="text-xs font-mono text-emerald-300/80">{dims}</p>
+        </div>
+        <p className="mt-1 text-xs md:text-sm text-zinc-400 leading-relaxed">
+          {desc}
+        </p>
+      </div>
+    </li>
   );
 }
