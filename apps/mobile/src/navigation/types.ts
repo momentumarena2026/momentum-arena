@@ -9,6 +9,10 @@ export type AccountStackParamList = {
   BookingDetail: { bookingId: string };
   Waitlist: undefined;
   Rewards: undefined;
+  // Graphical "how Momentum Points work" page — every value driven by
+  // the live RewardConfig so admin edits flow through with no manual
+  // copy update. Mirrors web's /rewards/how-it-works.
+  RewardsHowItWorks: undefined;
   // Shop order history lives here (not in ShopStack) because the only
   // entry point is the Account screen's "Shop orders" tile. Registering
   // it here means:

@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   Bell,
+  BookOpen,
   Calendar,
   ChevronRight,
   Clock,
@@ -186,6 +187,17 @@ export function AccountScreen() {
             </View>
             <ChevronRight size={16} color={colors.emerald400} />
           </Pressable>
+        )}
+        {/* How rewards work — drills into the graphical config page.
+            Only surfaced when rewards are enabled (same gating as the
+            Momentum Points tile above). */}
+        {rewards?.overview?.config.enabled && (
+          <ActionTile
+            icon={<BookOpen size={20} color={colors.zinc300} />}
+            title="How rewards work"
+            subtitle="Earn rates, caps, expiry rules"
+            onPress={() => navigation.navigate("RewardsHowItWorks")}
+          />
         )}
         <ActionTile
           icon={<History size={20} color={colors.zinc400} />}
