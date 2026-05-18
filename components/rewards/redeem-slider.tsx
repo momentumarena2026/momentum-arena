@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import {
   applyPointsRedemptionToHold,
   clearPointsRedemptionFromHold,
@@ -26,9 +26,22 @@ interface Props {
 }
 
 /**
- * Customer-side redemption slider for the booking checkout. Computes
- * the maximum redeemable amount via getRedemptionPreview() and lets
- * the user pick anywhere from 0 → maxPoints in step-of-1 increments.
+ * Customer-side redemption checkbox for the booking checkout.
+ *
+ * Filename is historical — the component used to render a draggable
+ * slider that let users pick any value between 0 and maxPoints. The
+ * data model still supports a partial redemption (SlotHold persists
+ * `pointsToRedeem` as a number), but UX research showed users either
+ * "use all my points" or "don't use them" — almost never picked a
+ * sub-max amount. Replaced with a simple all-or-nothing toggle.
+ *
+ * Behaviour:
+ *   - Hidden when rewards are disabled, when the user has fewer points
+ *     than minPointsToRedeem, or when the bill caps maxPoints below
+ *     minPointsToRedeem.
+ *   - Checked → applies the FULL preview.maxPoints (the most the user
+ *     could redeem given balance + cap%).
+ *   - Unchecked → clears the redemption.
  *
  * The actual REDEEMED_BOOKING ledger row is NOT written here — that
  * happens atomically inside createBookingFromHold when the booking
@@ -44,22 +57,19 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
     minPoints: number;
     blockedReason?: string;
   } | null>(null);
-  const [points, setPoints] = useState(0);
+  const [redeeming, setRedeeming] = useState(false);
   const [pendingApply, setPendingApply] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Used to debounce server-side hold updates so dragging the slider
-  // doesn't fire 50 server actions per drag.
-  const applyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Fires `rewards_redeem_started` once per checkout session — the
-  // funnel cares about "user opened the redeem flow", not "user
-  // dragged the slider 20 times".
+  // funnel cares about "user opted into the redeem flow", not "user
+  // toggled the checkbox on and off".
   const startedFiredRef = useRef(false);
 
   // Load preview whenever the bill changes (coupon apply/clear).
   useEffect(() => {
     let cancelled = false;
-    setPoints(0);
+    setRedeeming(false);
     setError(null);
     onChange({ points: 0, paiseSaved: 0 });
     getRedemptionPreview({ billPaise: billRupees * 100 })
@@ -87,53 +97,46 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billRupees, billNonce]);
 
-  function commitToHold(nextPoints: number) {
-    if (applyTimerRef.current) clearTimeout(applyTimerRef.current);
-    applyTimerRef.current = setTimeout(async () => {
-      setPendingApply(true);
-      try {
-        if (nextPoints <= 0) {
-          await clearPointsRedemptionFromHold(holdId);
-        } else {
-          const result = await applyPointsRedemptionToHold(holdId, nextPoints);
-          if (!result.success) {
-            setError(result.error ?? "Couldn't apply points");
-            // Roll the UI back to 0 — the hold doesn't have the
-            // redemption, the parent's payable amount should match.
-            setPoints(0);
-            onChange({ points: 0, paiseSaved: 0 });
-            return;
-          }
-          setError(null);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Network error");
-      } finally {
-        setPendingApply(false);
+  async function commitToHold(nextOn: boolean, maxPoints: number) {
+    setPendingApply(true);
+    try {
+      if (!nextOn) {
+        await clearPointsRedemptionFromHold(holdId);
+        setError(null);
+        return;
       }
-    }, 350);
+      const result = await applyPointsRedemptionToHold(holdId, maxPoints);
+      if (!result.success) {
+        setError(result.error ?? "Couldn't apply points");
+        // Roll the UI back to off — the hold doesn't have the
+        // redemption, so the parent's payable amount should match.
+        setRedeeming(false);
+        onChange({ points: 0, paiseSaved: 0 });
+        return;
+      }
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error");
+      setRedeeming(false);
+      onChange({ points: 0, paiseSaved: 0 });
+    } finally {
+      setPendingApply(false);
+    }
   }
 
-  function handleSlider(value: number) {
+  function handleToggle() {
     if (!preview) return;
-    // Snap below the min to 0 — slider can land on 1–49 mid-drag, and
-    // committing those would just bounce off the min check.
-    const v = value < preview.minPoints ? 0 : value;
-    if (!startedFiredRef.current && v > 0) {
+    if (pendingApply) return;
+    const nextOn = !redeeming;
+    setRedeeming(nextOn);
+    const nextPoints = nextOn ? preview.maxPoints : 0;
+    const paiseSaved = nextPoints * preview.pointValuePaise;
+    onChange({ points: nextPoints, paiseSaved });
+    if (nextOn && !startedFiredRef.current) {
       startedFiredRef.current = true;
       trackRewardsRedeemStarted(billRupees * 100, preview.maxPoints);
     }
-    setPoints(v);
-    const paiseSaved = v * preview.pointValuePaise;
-    onChange({ points: v, paiseSaved });
-    commitToHold(v);
-  }
-
-  function handleClear() {
-    if (!preview) return;
-    setPoints(0);
-    onChange({ points: 0, paiseSaved: 0 });
-    commitToHold(0);
+    void commitToHold(nextOn, preview.maxPoints);
   }
 
   // Listen for the parent telling us "payment landed" via a custom
@@ -156,7 +159,7 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
   if (!preview.enabled) return null;
   if (preview.pointsAvailable < preview.minPoints) return null;
 
-  const paiseSaved = points * preview.pointValuePaise;
+  const paiseSaved = preview.maxPoints * preview.pointValuePaise;
   const rupeesSaved = Math.floor(paiseSaved / 100);
 
   return (
@@ -181,49 +184,45 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
         </p>
       ) : (
         <>
-          <input
-            type="range"
-            min={0}
-            max={preview.maxPoints}
-            step={1}
-            value={points}
-            onChange={(e) => handleSlider(parseInt(e.target.value, 10))}
-            className="w-full accent-emerald-500"
-            aria-label="Redeem points"
-          />
-          <div className="flex items-center justify-between text-xs text-zinc-500">
-            <span>0 pts</span>
-            <span>
-              max {preview.maxPoints.toLocaleString("en-IN")} pts
+          {/* All-or-nothing checkbox row. Tap the whole row to toggle
+              so the hit target is generous on mobile. */}
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={redeeming}
+            disabled={pendingApply}
+            onClick={handleToggle}
+            className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+              redeeming
+                ? "border-emerald-400 bg-emerald-500/10"
+                : "border-zinc-700 bg-zinc-900 hover:border-zinc-600"
+            } ${pendingApply ? "opacity-60 cursor-wait" : "cursor-pointer"}`}
+          >
+            <span
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                redeeming
+                  ? "border-emerald-400 bg-emerald-500"
+                  : "border-zinc-600 bg-zinc-950"
+              }`}
+              aria-hidden
+            >
+              {redeeming ? (
+                <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+              ) : null}
             </span>
-          </div>
-
-          {points > 0 ? (
-            <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-2">
-              <span className="text-sm text-emerald-200">
-                Using <strong className="text-white">{points.toLocaleString("en-IN")}</strong> pts —
-                saving <strong className="text-white">₹{rupeesSaved.toLocaleString("en-IN")}</strong>
+            <span className="flex-1 text-sm text-zinc-100">
+              Redeem{" "}
+              <strong className="text-white">
+                {preview.maxPoints.toLocaleString("en-IN")}
+              </strong>{" "}
+              pts
+              <span className="ml-2 text-emerald-300">
+                — save ₹{rupeesSaved.toLocaleString("en-IN")}
               </span>
-              <button
-                type="button"
-                onClick={handleClear}
-                disabled={pendingApply}
-                className="inline-flex items-center gap-1 rounded text-xs text-zinc-400 hover:text-zinc-200"
-                aria-label="Clear points redemption"
-              >
-                <X className="h-3.5 w-3.5" />
-                Clear
-              </button>
-            </div>
-          ) : (
-            <p className="text-xs text-zinc-500">
-              Drag the slider to apply up to {preview.maxPoints.toLocaleString("en-IN")} pts off this bill.
-            </p>
-          )}
+            </span>
+          </button>
 
-          {error && (
-            <p className="text-xs text-red-400">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-400">{error}</p>}
         </>
       )}
     </div>
