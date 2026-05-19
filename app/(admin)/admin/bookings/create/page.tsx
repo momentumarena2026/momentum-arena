@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { CreateBookingForm } from "@/components/admin/create-booking-form";
+import { getActiveSportPromo } from "@/actions/sport-promo";
 
 export default async function CreateBookingPage({
   searchParams,
@@ -7,10 +8,17 @@ export default async function CreateBookingPage({
   searchParams: Promise<{ courtConfigId?: string; date?: string; hour?: string }>;
 }) {
   const params = await searchParams;
-  const courtConfigs = await db.courtConfig.findMany({
-    where: { isActive: true },
-    orderBy: [{ sport: "asc" }, { size: "asc" }],
-  });
+  const [courtConfigs, pickleballPromo] = await Promise.all([
+    db.courtConfig.findMany({
+      where: { isActive: true },
+      orderBy: [{ sport: "asc" }, { size: "asc" }],
+    }),
+    // Drives the optional "Apply 25% PICKLEBALL25" checkbox in the
+    // form. When admin disables / expires the coupon in
+    // /admin/coupons, this returns null on the next request and the
+    // checkbox disappears with no extra wiring.
+    getActiveSportPromo("PICKLEBALL").catch(() => null),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -21,6 +29,7 @@ export default async function CreateBookingPage({
         prefillCourtConfigId={params.courtConfigId}
         prefillDate={params.date}
         prefillHour={params.hour ? parseInt(params.hour, 10) : undefined}
+        pickleballPromo={pickleballPromo}
       />
     </div>
   );

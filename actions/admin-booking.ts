@@ -13,6 +13,8 @@ import { formatHoursAsRanges } from "@/lib/court-config";
 import { notifyWaitlistersForFreedSlots } from "@/actions/waitlist";
 import { awardBookingPoints } from "@/lib/rewards/earn";
 import { revokeBookingRewards } from "@/lib/rewards/revoke";
+import { getActiveSportPromo } from "@/actions/sport-promo";
+import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -1454,6 +1456,14 @@ export async function adminCreateBooking(data: {
   // Booking.originalAmount for audit; totalAmount + Payment.amount reflect
   // the negotiated figure. Must be 0 for FREE bookings.
   customTotalAmount?: number;
+  // When set, the action re-fetches the coupon row via
+  // getActiveSportPromo + applies its discount to the slot-sum.
+  // Mutually exclusive with customTotalAmount — admins picking a
+  // coupon shouldn't also be free-typing a negotiated price; the
+  // action rejects the pair with a clear error. Only PICKLEBALL25
+  // is exposed today (anchored to PICKLEBALL via sport-promo helper);
+  // future codes will plug in by way of the same lookup.
+  applyCouponCode?: string;
   note?: string;
 }, adminOverride?: { id: string; username: string }) {
   const admin = adminOverride ?? (await requireAdminWithDetails());
@@ -1569,10 +1579,53 @@ export async function adminCreateBooking(data: {
       }
     }
 
+    // ── Coupon application (admin-side) ──────────────────────────────
+    // Apply the sport's auto-apply coupon (today only PICKLEBALL25)
+    // when admin ticks the checkbox in the form. We re-fetch the
+    // active promo via getActiveSportPromo so disabling the coupon in
+    // /admin/coupons makes this branch instantly return null, matching
+    // the customer-facing rules exactly.
+    let couponDiscount = 0;
+    let couponRow: Awaited<ReturnType<typeof db.coupon.findUnique>> = null;
+    if (data.applyCouponCode) {
+      if (data.customTotalAmount !== undefined) {
+        return {
+          success: false as const,
+          error: "Pick either a coupon OR a custom amount, not both",
+        };
+      }
+      if (data.paymentMethod === "FREE") {
+        return {
+          success: false as const,
+          error: "FREE bookings can't carry a coupon",
+        };
+      }
+      const promo = await getActiveSportPromo(config.sport, config.category);
+      if (!promo || promo.code !== data.applyCouponCode) {
+        return {
+          success: false as const,
+          error: "Coupon isn't active for this sport anymore",
+        };
+      }
+      couponDiscount = computeAutoApplyDiscount(computedTotal, promo);
+      // Look up the coupon row in advance so we can record CouponUsage
+      // + increment usedCount inside the booking transaction without a
+      // second fetch.
+      couponRow = await db.coupon.findUnique({
+        where: { code: data.applyCouponCode },
+      });
+      if (!couponRow) {
+        return {
+          success: false as const,
+          error: "Coupon row not found",
+        };
+      }
+    }
+
     const totalAmount =
       data.customTotalAmount !== undefined
         ? data.customTotalAmount
-        : computedTotal;
+        : computedTotal - couponDiscount;
     const isCustomAmount =
       data.customTotalAmount !== undefined &&
       data.customTotalAmount !== computedTotal;
@@ -1601,7 +1654,17 @@ export async function adminCreateBooking(data: {
           date: dateOnly,
           status: "CONFIRMED",
           totalAmount,
-          originalAmount: isCustomAmount ? computedTotal : null,
+          // When admin applied a coupon, the slot-sum was the
+          // pre-discount total — stash on originalAmount + record
+          // the discount so the audit log / receipts can render
+          // "₹800 → ₹600 (25% off via PICKLEBALL25)". The
+          // customTotalAmount path keeps its existing semantics.
+          originalAmount: isCustomAmount
+            ? computedTotal
+            : couponDiscount > 0
+              ? computedTotal
+              : null,
+          discountAmount: couponDiscount,
           createdByAdminId: admin.id,
           slots: {
             create: data.hours.map((h) => ({
@@ -1611,6 +1674,25 @@ export async function adminCreateBooking(data: {
           },
         },
       });
+
+      // Record CouponUsage + bump the global counter so validators
+      // honour max-uses on the next booking. Same write the customer
+      // checkout flow does in createBookingFromHold, mirrored here so
+      // admin-applied coupons count toward usage limits identically.
+      if (couponRow && couponDiscount > 0) {
+        await tx.couponUsage.create({
+          data: {
+            couponId: couponRow.id,
+            userId: data.userId,
+            bookingId: booking.id,
+            discountAmount: couponDiscount,
+          },
+        });
+        await tx.coupon.update({
+          where: { id: couponRow.id },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
 
       // Create payment based on method / partial flag
       if (data.paymentMethod === "FREE") {
@@ -1675,6 +1757,11 @@ export async function adminCreateBooking(data: {
       if (isCustomAmount) {
         creationNotes.push(
           `Negotiated price: ₹${totalAmount} (computed: ₹${computedTotal})`
+        );
+      }
+      if (couponRow && couponDiscount > 0) {
+        creationNotes.push(
+          `Applied ${couponRow.code}: -₹${couponDiscount} (₹${computedTotal} → ₹${totalAmount})`,
         );
       }
 
