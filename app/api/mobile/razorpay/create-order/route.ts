@@ -3,6 +3,7 @@ import { getMobileUser } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
 import { createRazorpayOrder, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getValidHold } from "@/lib/slot-hold";
+import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
 
 const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
 
@@ -37,6 +38,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 }
+    );
+  }
+
+  // Same bowling-machine slot revalidation as the web endpoint —
+  // protects against admin overrides on the shared zones between lock
+  // and payment.
+  const stillOk = await verifyBowlingHoldStillBookable(holdId);
+  if (!stillOk.ok) {
+    return NextResponse.json(
+      { error: stillOk.reason, conflicts: stillOk.conflicts },
+      { status: 409 },
     );
   }
 

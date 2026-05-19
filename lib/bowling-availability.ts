@@ -1,4 +1,4 @@
-import { CourtZone, DayType } from "@prisma/client";
+import { BookingCategory, CourtZone, DayType } from "@prisma/client";
 import { db } from "./db";
 
 /**
@@ -207,6 +207,49 @@ export async function getBowlingMachineAvailability(
   const nowHour = today.getHours();
   const nowMin = today.getMinutes();
 
+  // ── Night-hour rollover ────────────────────────────────────────────
+  // Night hours (typically 6 PM → midnight at this venue) are excluded
+  // from the bowling-machine OperatingWindow because they're reserved
+  // for cricket / football turf bookings on the shared zones. But the
+  // moment the wall clock crosses an hour boundary, if nobody booked
+  // the turf for that hour, the second half of the hour is dead weight
+  // — nobody's playing on it. Open it up as a 30-min bowling slot.
+  //
+  // Conditions for emitting the synthetic (H, 30) slot:
+  //   1. Today's view (rollover is purely a real-time release).
+  //   2. The clock is in the first half of hour H (nowMin < 30) so the
+  //      slot's start time (H:30) is still in the future.
+  //   3. (H, 30) isn't already a regular operating-window slot
+  //      (otherwise the normal flow has already emitted it).
+  //   4. Hour H is not occupied by any conflicting booking, hold, or
+  //      admin SlotBlock on the overlapping zones — uses the same
+  //      `occupied` / `blockedKeys` maps the regular flow built above,
+  //      so half-court bookings on the non-overlapping half don't
+  //      block (zone-overlap check) — exactly the case the user
+  //      called out ("if half is booked and other half is empty,
+  //      still open the bowling slot").
+  //
+  // If the turf gets booked between rollover and slot-start, the next
+  // request sees the new booking in `occupied` and stops emitting the
+  // rollover. Customers already mid-checkout are protected by the
+  // verifyBowlingHoldStillBookable guard at payment-init time.
+  if (isToday && nowMin < 30) {
+    const H = nowHour;
+    const rolloverKey = keyOf(H, 30);
+    const alreadyEmitted = allSlots.some(
+      (s) => s.hour === H && s.minute === 30,
+    );
+    if (!alreadyEmitted) {
+      const hourIsOccupied =
+        occupied.has(keyOf(H, 0)) || occupied.has(rolloverKey);
+      const hourIsBlocked =
+        blockedKeys.has(keyOf(H, 0)) || blockedKeys.has(rolloverKey);
+      if (!hourIsOccupied && !hourIsBlocked) {
+        allSlots.push({ hour: H, minute: 30 });
+      }
+    }
+  }
+
   return allSlots.map(({ hour, minute }) => {
     const key = keyOf(hour, minute);
     let status: SlotStatus = "available";
@@ -224,3 +267,92 @@ export async function getBowlingMachineAvailability(
     return { hour, minute, status, price: slotPrice };
   });
 }
+
+/**
+ * Re-check that an in-flight bowling-machine hold can still be booked.
+ *
+ * `createBowlingMachineHold` already conflict-checks against existing
+ * bookings + holds at lock time, but admin overrides (or any future
+ * code path that bypasses the hold-conflict check during booking
+ * creation) could theoretically land a turf booking on the shared
+ * zones AFTER the customer locked their bowling slot. Without this
+ * check, the customer would proceed to payment and we'd end up either
+ * (a) double-booking the physical pitch, or (b) charging them for a
+ * slot we silently dropped at createBookingFromHold time.
+ *
+ * Called from every payment-init path (Razorpay create-order, PhonePe
+ * initiate, mobile counterparts, cash flow) BEFORE money moves. A
+ * matching defense-in-depth check also lives inside
+ * createBookingFromHold for the rare race where a conflict appears
+ * between payment-init and payment-completion.
+ *
+ * For non-bowling holds this is a no-op (`{ ok: true }`) so callers
+ * can call it unconditionally without branching on category.
+ */
+export async function verifyBowlingHoldStillBookable(
+  holdId: string,
+): Promise<{ ok: true } | { ok: false; reason: string; conflicts: string[] }> {
+  const hold = await db.slotHold.findUnique({
+    where: { id: holdId },
+    include: { courtConfig: true },
+  });
+  if (!hold) {
+    return { ok: false, reason: "Hold not found", conflicts: [] };
+  }
+  if (hold.courtConfig.category !== ("BOWLING_MACHINE" as BookingCategory)) {
+    // Hour-granular sports use a different lock + booking path; the
+    // standard zone-overlap check at createBookingFromHold time is
+    // enough for them.
+    return { ok: true };
+  }
+
+  const dateOnly = new Date(hold.date.toISOString().split("T")[0]);
+  const config = hold.courtConfig;
+
+  // Bookings on overlapping zones — same shape the lock + availability
+  // paths use so the rule is consistent end-to-end.
+  const conflictingBookings = await db.booking.findMany({
+    where: {
+      date: dateOnly,
+      status: { in: ["CONFIRMED", "PENDING"] },
+      courtConfig: {
+        zones: { hasSome: config.zones as CourtZone[] },
+      },
+    },
+    include: { slots: true },
+  });
+
+  // The held bowling slots as "hour:minute" keys.
+  const requested = new Set(
+    hold.hours.map(
+      (h, i) => `${h}:${hold.startMinutes[i] ?? 0}`,
+    ),
+  );
+
+  const conflicts: string[] = [];
+  for (const b of conflictingBookings) {
+    for (const s of b.slots) {
+      if (s.durationMinutes === 30) {
+        const key = `${s.startHour}:${s.startMinute}`;
+        if (requested.has(key)) conflicts.push(key);
+      } else {
+        // 60-min turf booking blocks BOTH halves of that hour
+        const k0 = `${s.startHour}:0`;
+        const k1 = `${s.startHour}:30`;
+        if (requested.has(k0)) conflicts.push(k0);
+        if (requested.has(k1)) conflicts.push(k1);
+      }
+    }
+  }
+
+  if (conflicts.length > 0) {
+    return {
+      ok: false,
+      reason:
+        "Some of the bowling-machine slots in your hold have been booked on the shared pitch. Pick fresh slots and try again.",
+      conflicts,
+    };
+  }
+  return { ok: true };
+}
+
