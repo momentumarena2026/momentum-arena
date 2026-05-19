@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { createRazorpayOrder, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getValidHold } from "@/lib/slot-hold";
 import { LOCK_TTL_MINUTES } from "@/lib/court-config";
+import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
 
 const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
 
@@ -24,6 +25,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 }
+    );
+  }
+
+  // Re-check that the held slots are still bookable. For bowling
+  // machine holds this catches any admin override / late turf booking
+  // on the shared zones that landed between lock and payment. No-op
+  // for hour-granular sports — they have their own conflict path.
+  const stillOk = await verifyBowlingHoldStillBookable(holdId);
+  if (!stillOk.ok) {
+    return NextResponse.json(
+      { error: stillOk.reason, conflicts: stillOk.conflicts },
+      { status: 409 },
     );
   }
 

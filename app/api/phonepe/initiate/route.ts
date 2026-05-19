@@ -3,6 +3,7 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { initiatePhonePePayment } from "@/lib/phonepe";
 import { getValidHold } from "@/lib/slot-hold";
+import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
 
 const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
 
@@ -23,6 +24,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 }
+    );
+  }
+
+  // Bowling-machine re-check — see razorpay/create-order for the
+  // rationale. Catches admin-override turf bookings on the shared
+  // zones between lock and payment-init.
+  const stillOk = await verifyBowlingHoldStillBookable(holdId);
+  if (!stillOk.ok) {
+    return NextResponse.json(
+      { error: stillOk.reason, conflicts: stillOk.conflicts },
+      { status: 409 },
     );
   }
 
