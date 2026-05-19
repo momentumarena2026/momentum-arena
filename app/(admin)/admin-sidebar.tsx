@@ -85,12 +85,30 @@ export function AdminSidebar({ groups, userName, roleBadge }: AdminSidebarProps)
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const isActive = (href: string) => {
-    if (href === "/admin") return pathname === "/admin";
-    // Exact match for sub-routes to avoid parent matching children
-    if (href === "/admin/bookings") return pathname === "/admin/bookings";
-    return pathname.startsWith(href);
-  };
+  // Longest-prefix match wins. With the simpler `pathname.startsWith(href)`
+  // both `/admin/users` AND `/admin/users/groups` lit up when the active
+  // route was `/admin/users/groups` — `startsWith` doesn't know which
+  // entry is more specific. We compute the one href that's the closest
+  // match to the current pathname and only that one gets `active=true`.
+  //
+  // Handles every parent/child collision cleanly:
+  //   /admin/users vs /admin/users/groups
+  //   /admin/bookings vs /admin/bookings/calendar / /admin/bookings/unconfirmed
+  //   /admin/expenses vs /admin/expenses/analytics
+  // Earlier the only collision (/admin/bookings) was hand-special-cased;
+  // this generalises the same idea.
+  const allHrefs = groups.flatMap((g) => g.items.map((i) => i.href));
+  const activeHref = (() => {
+    let best: string | null = null;
+    for (const h of allHrefs) {
+      if (pathname === h || pathname.startsWith(h + "/")) {
+        if (!best || h.length > best.length) best = h;
+      }
+    }
+    return best;
+  })();
+
+  const isActive = (href: string) => href === activeHref;
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
