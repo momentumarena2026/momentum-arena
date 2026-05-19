@@ -32,6 +32,13 @@ const allNavItems = [
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/push", label: "Push Notifications", group: "Operations", permission: "MANAGE_PUSH" },
   { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
+  // User Groups is the single source of truth for cohort targeting —
+  // coupons, push notifications, and any future segment-specific
+  // feature reads from this same list. Used to live as a tab on the
+  // /admin/coupons page; moved here so the relationship reads as
+  // "users have groups → features target groups", not "coupons own
+  // groups (and other features also use them somehow)".
+  { href: "/admin/users/groups", label: "User Groups", group: "Settings", permission: "MANAGE_COUPONS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
   { href: "/admin/generator", label: "Generator", group: "Settings", permission: "MANAGE_PRICING" },
   { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },

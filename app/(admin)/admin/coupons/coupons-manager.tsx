@@ -35,7 +35,10 @@ import {
   UserCheck,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
-import { UserPicker } from "./user-groups-manager";
+// UserPicker lives next to the UserGroupsManager (single source of
+// truth for cohort UI) — coupons just import the picker from there
+// to wire eligible users onto a coupon form.
+import { UserPicker } from "../users/groups/user-groups-manager";
 
 interface ConditionRow {
   conditionType: CouponConditionType;
