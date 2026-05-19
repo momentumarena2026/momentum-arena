@@ -19,7 +19,8 @@ import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
 import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
-import { Prisma } from "@prisma/client";
+import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
+import { Prisma, BookingCategory, CourtZone } from "@prisma/client";
 
 const lockSlotsSchema = z.object({
   courtConfigId: z.string().min(1),
@@ -552,6 +553,12 @@ export async function selectUpiPayment(
     return { success: false, error: "Hold not found or expired" };
   }
 
+  // Bowling-machine re-check (same as cash + razorpay flows).
+  const stillOk = await verifyBowlingHoldStillBookable(holdId);
+  if (!stillOk.ok) {
+    return { success: false, error: stillOk.reason };
+  }
+
   const amount =
     overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
 
@@ -598,6 +605,14 @@ export async function selectCashPayment(
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
     return { success: false, error: "Hold not found or expired" };
+  }
+
+  // Bowling-machine re-check before we touch payment state. See the
+  // verifyBowlingHoldStillBookable docblock — catches admin-override
+  // turf bookings on the shared zones between lock and checkout.
+  const stillOk = await verifyBowlingHoldStillBookable(holdId);
+  if (!stillOk.ok) {
+    return { success: false, error: stillOk.reason };
   }
 
   const amount =
@@ -769,6 +784,53 @@ export async function createBookingFromHold(
       where: { id: holdId },
     });
     if (deleted.count === 0) return null;
+
+    // Defense-in-depth re-check for bowling-machine holds: the payment-
+    // init endpoints already called verifyBowlingHoldStillBookable, but
+    // an admin override could in theory race in between that check and
+    // this transaction. Re-verify inside the transaction so a conflict
+    // forces a rollback (which restores the hold via Prisma's
+    // auto-rollback on throw) instead of double-booking the zones.
+    //
+    // For non-bowling categories this is skipped — the cricket/football
+    // path doesn't have a "rollover" surface and its standard
+    // zone-overlap rules already apply at lock time.
+    if (hold.courtConfig.category === ("BOWLING_MACHINE" as BookingCategory)) {
+      const config = await tx.courtConfig.findUnique({
+        where: { id: hold.courtConfigId },
+      });
+      if (!config) throw new Error("Court config not found");
+
+      const conflictingBookings = await tx.booking.findMany({
+        where: {
+          date: hold.date,
+          status: { in: ["CONFIRMED", "PENDING"] },
+          courtConfig: {
+            zones: { hasSome: config.zones as CourtZone[] },
+          },
+        },
+        include: { slots: true },
+      });
+      const requested = new Set(
+        hold.hours.map((h, i) => `${h}:${hold.startMinutes[i] ?? 0}`),
+      );
+      for (const b of conflictingBookings) {
+        for (const s of b.slots) {
+          if (s.durationMinutes === 30) {
+            if (requested.has(`${s.startHour}:${s.startMinute}`)) {
+              throw new Error("BOWLING_SLOT_CONFLICT");
+            }
+          } else {
+            if (
+              requested.has(`${s.startHour}:0`) ||
+              requested.has(`${s.startHour}:30`)
+            ) {
+              throw new Error("BOWLING_SLOT_CONFLICT");
+            }
+          }
+        }
+      }
+    }
 
     const booking = await tx.booking.create({
       data: {
