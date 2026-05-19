@@ -1,12 +1,22 @@
+import Link from "next/link";
+import { Users } from "lucide-react";
 import { getCoupons } from "@/actions/admin-coupons";
 import { listUserGroups } from "@/actions/admin-user-groups";
-import { CouponsTabs } from "./coupons-tabs";
+import { CouponsManager } from "./coupons-manager";
 
+/**
+ * /admin/coupons — coupons only.
+ *
+ * The User-Groups manager that used to live here as a tab has moved
+ * to Settings → User Groups (/admin/users/groups). Groups themselves
+ * still feed the coupon-targeting multi-select on the coupon form, so
+ * we still fetch them — we just don't render the management UI here
+ * anymore.
+ */
 export default async function AdminCouponsPage() {
-  // Fetch the coupon list and the active user groups in parallel —
-  // the tabbed UI mounts both regardless of which tab is open so
-  // switching tabs feels instant. Groups also feed the coupon-form
-  // multi-select, so we'd have to load them anyway.
+  // Fetch coupons + group options in parallel. We need the groups for
+  // the coupon-form multi-select even though the management UI lives
+  // elsewhere now.
   const [coupons, groups] = await Promise.all([
     getCoupons(),
     listUserGroups(),
@@ -25,13 +35,37 @@ export default async function AdminCouponsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Unified Coupons</h1>
+        <h1 className="text-2xl font-bold text-white">Coupons</h1>
         <p className="mt-1 text-zinc-400">
-          Create and manage coupons, plus the customer groups they target
+          Create and manage promo codes — including the customer groups
+          they target.
         </p>
       </div>
 
-      <CouponsTabs
+      {/* Cross-link to the new User Groups home so admins migrating
+          from the old tabbed layout know where it went. */}
+      <Link
+        href="/admin/users/groups"
+        className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 transition-colors hover:border-emerald-500/40"
+      >
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-emerald-500/15 p-2 text-emerald-400">
+            <Users className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-white">
+              Manage user groups
+            </p>
+            <p className="text-xs text-zinc-500">
+              Now under Settings → User Groups. Same cohorts feed coupon
+              targeting + push notifications.
+            </p>
+          </div>
+        </div>
+        <span className="text-zinc-400 text-sm">→</span>
+      </Link>
+
+      <CouponsManager
         coupons={coupons.map((c) => ({
           id: c.id,
           code: c.code,
@@ -77,7 +111,6 @@ export default async function AdminCouponsPage() {
               name: eg.group.name,
             })),
         }))}
-        groups={groups}
         groupOptions={groupOptions}
       />
     </div>
