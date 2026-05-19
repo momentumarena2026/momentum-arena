@@ -44,17 +44,43 @@ export async function POST(request: NextRequest) {
     if (!courtConfigId || !date || !Array.isArray(slots) || slots.length === 0) {
       return NextResponse.json({ error: "Invalid data" }, { status: 400 });
     }
+    // Re-derive both price AND status from getBowlingMachineAvailability
+    // so a stale picker (e.g. a phone left open past the slot's start
+    // time) can't lock a now-past, blocked, or zone-occupied slot.
+    // The availability function stamps `status` using IST-aware
+    // now-hour / now-minute, so the gate inherits the correct
+    // timezone end-to-end. Mirror of the web lock route.
     const avail = await getBowlingMachineAvailability(
       courtConfigId,
       new Date(date),
     );
     const lookup = new Map(
-      avail.map((s) => [`${s.hour}:${s.minute}`, s.price] as const),
+      avail.map((s) => [`${s.hour}:${s.minute}`, s] as const),
     );
+
+    const unavailable: string[] = [];
+    for (const s of slots) {
+      const entry = lookup.get(`${s.hour}:${s.minute}`);
+      if (!entry || entry.status !== "available") {
+        unavailable.push(`${s.hour}:${s.minute}`);
+      }
+    }
+    if (unavailable.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Some slots are no longer available. Refresh the picker and try again.",
+          conflicts: unavailable,
+        },
+        { status: 409 },
+      );
+    }
+
     const slotPrices: BowlingSlotPrice[] = slots.map((s) => ({
       hour: s.hour,
       minute: s.minute,
-      price: lookup.get(`${s.hour}:${s.minute}`) ?? 0,
+      price: lookup.get(`${s.hour}:${s.minute}`)!.price,
     }));
     const result = await createBowlingMachineHold(
       user.id,
