@@ -118,7 +118,18 @@ export default async function UnconfirmedBookingsPage({
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-xs text-zinc-400 font-mono">
-                          {new Date(booking.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          {/* IST explicitly — server runtime is UTC, and
+                              the `en-IN` locale only changes number
+                              formatting, not the timezone, so without
+                              `timeZone` the displayed hour was off by
+                              5h30m (e.g. submitted at 19:06 IST showed
+                              as "01:36 pm" because that's the UTC value
+                              13:36 rendered with 12-hour formatting). */}
+                          {new Date(booking.createdAt).toLocaleTimeString("en-IN", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            timeZone: "Asia/Kolkata",
+                          })}
                         </span>
                       </td>
                       <td className="px-4 py-3">
