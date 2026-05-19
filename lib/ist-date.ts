@@ -25,6 +25,19 @@ export function getCurrentHourIST(): number {
   );
 }
 
+/** Get the current minute (0-59) in IST. Needed by the bowling-machine
+ *  half-hour grid where the past-time guard fires on (H, 30) at H:30
+ *  exactly — `getCurrentHourIST` alone can't disambiguate that. */
+export function getCurrentMinuteIST(): number {
+  return parseInt(
+    new Date().toLocaleString("en-US", {
+      timeZone: IST_TZ,
+      minute: "numeric",
+    }),
+    10
+  );
+}
+
 /**
  * Generate an array of dates (as "YYYY-MM-DD" strings) starting from today in IST.
  * Useful for client-side date pickers.

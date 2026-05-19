@@ -1,5 +1,10 @@
 import { BookingCategory, CourtZone, DayType } from "@prisma/client";
 import { db } from "./db";
+import {
+  getCurrentHourIST,
+  getCurrentMinuteIST,
+  getTodayIST,
+} from "./ist-date";
 
 /**
  * Half-hour-granular availability + pricing for the bowling-machine
@@ -198,14 +203,19 @@ export async function getBowlingMachineAvailability(
   });
   const slotPrice = priceRule?.pricePerSlot ?? 250;
 
-  // Past-time guard for today only — same logic the hour grid uses.
-  const today = new Date();
-  const todayUtc = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
-  );
-  const isToday = dateOnly.getTime() === todayUtc.getTime();
-  const nowHour = today.getHours();
-  const nowMin = today.getMinutes();
+  // Past-time guard for today only — same logic the hour grid uses,
+  // but in IST. `today.getHours()` returns the SERVER local time which
+  // is UTC on Vercel, so at 7:13 PM IST the bowling picker was leaving
+  // 2 PM IST onwards "available" because UTC nowHour=13 only closed
+  // slots whose hour was < 13 in the (mistakenly UTC-based) check.
+  // Booking.date is stored as UTC midnight of the IST calendar day, so
+  // the `isToday` comparison also needs to match against IST's today,
+  // not UTC's today (off-by-one between 18:30 UTC and 00:00 UTC).
+  const istTodayStr = getTodayIST(); // "YYYY-MM-DD" in IST
+  const requestedStr = dateOnly.toISOString().split("T")[0];
+  const isToday = requestedStr === istTodayStr;
+  const nowHour = getCurrentHourIST();
+  const nowMin = getCurrentMinuteIST();
 
   // ── Night-hour rollover ────────────────────────────────────────────
   // Night hours (typically 6 PM → midnight at this venue) are excluded
