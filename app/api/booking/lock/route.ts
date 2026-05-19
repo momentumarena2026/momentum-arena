@@ -47,17 +47,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid data" }, { status: 400 });
     }
 
-    // Re-derive prices server-side from getBowlingMachineAvailability
-    // so the client can't smuggle a cheaper price into the hold —
-    // the same defence-in-depth pattern the existing flow uses.
+    // Re-derive prices + statuses server-side from
+    // getBowlingMachineAvailability so:
+    //   (a) the client can't smuggle a cheaper price into the hold
+    //   (b) a stale picker can't lock a slot that's now past in IST,
+    //       blocked by an admin SlotBlock, booked on the overlapping
+    //       turf zones, or otherwise non-bookable.
+    // getBowlingMachineAvailability stamps `status` using IST-aware
+    // now-hour / now-minute (see lib/bowling-availability.ts), so this
+    // double-check inherits the correct timezone.
     const avail = await getBowlingMachineAvailability(courtConfigId, new Date(date));
-    const priceLookup = new Map(
-      avail.map((s) => [`${s.hour}:${s.minute}`, s.price] as const),
+    const lookup = new Map(
+      avail.map((s) => [`${s.hour}:${s.minute}`, s] as const),
     );
+
+    const unavailable: string[] = [];
+    for (const p of picks) {
+      const entry = lookup.get(`${p.hour}:${p.minute}`);
+      if (!entry || entry.status !== "available") {
+        unavailable.push(`${p.hour}:${p.minute}`);
+      }
+    }
+    if (unavailable.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Some slots are no longer available. Refresh the picker and try again.",
+          conflicts: unavailable,
+        },
+        { status: 409 },
+      );
+    }
+
     const slotPrices: BowlingSlotPrice[] = picks.map((p) => ({
       hour: p.hour,
       minute: p.minute,
-      price: priceLookup.get(`${p.hour}:${p.minute}`) ?? 0,
+      price: lookup.get(`${p.hour}:${p.minute}`)!.price,
     }));
 
     const result = await createBowlingMachineHold(
