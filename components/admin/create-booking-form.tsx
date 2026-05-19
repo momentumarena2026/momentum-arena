@@ -12,6 +12,10 @@ import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges } fr
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
 import { PhoneInput } from "@/components/ui/phone-input";
+import {
+  computeAutoApplyDiscount,
+  type ActiveSportPromo,
+} from "@/lib/auto-apply-promo";
 import type { Sport, ConfigSize, CourtZone } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
@@ -69,11 +73,21 @@ export function CreateBookingForm({
   prefillCourtConfigId,
   prefillDate,
   prefillHour,
+  pickleballPromo,
 }: {
   courtConfigs: CourtConfigRow[];
   prefillCourtConfigId?: string;
   prefillDate?: string;
   prefillHour?: number;
+  /**
+   * Active pickleball coupon snapshot (from getActiveSportPromo). When
+   * non-null AND percentOff is set, the form surfaces an "Apply 25% off
+   * (PICKLEBALL25)" checkbox on the payment step. When admin disables
+   * the coupon in /admin/coupons, the parent server component
+   * re-fetches this as null on the next request → checkbox vanishes
+   * with no extra client wiring.
+   */
+  pickleballPromo: ActiveSportPromo | null;
 }) {
   const router = useRouter();
 
@@ -136,6 +150,12 @@ export function CreateBookingForm({
   // first hunting for a "use custom amount" toggle.
   // Stored as a string so the input can be empty while typing.
   const [customAmountStr, setCustomAmountStr] = useState("");
+  // Pickleball launch coupon (PICKLEBALL25). Checkbox is shown only
+  // when selectedSport === PICKLEBALL + the promo is live + we're not
+  // doing a FREE booking. Mutually exclusive with customAmountStr —
+  // when applied, the action computes the discount server-side from
+  // the live coupon row, so we don't trust the client to do the math.
+  const [applyPickleballCoupon, setApplyPickleballCoupon] = useState(false);
 
   // Step 5 state
   const [submitting, setSubmitting] = useState(false);
@@ -178,12 +198,28 @@ export function CreateBookingForm({
     parsedCustom >= 0 &&
     (paymentMethod !== "FREE" ? parsedCustom > 0 : parsedCustom === 0);
   const customAmountOverride = customAmountValid && parsedCustom !== totalPrice;
+
+  // Pickleball coupon discount preview — only when the box is ticked.
+  // Math uses the same formula the server applies (Math.floor via
+  // computeAutoApplyDiscount in lib/auto-apply-promo.ts), so the
+  // summary number matches what the customer's receipt will show.
+  const showCouponBox =
+    selectedSport === "PICKLEBALL" &&
+    pickleballPromo?.percentOff != null &&
+    paymentMethod !== "FREE";
+  const couponDiscount =
+    showCouponBox && applyPickleballCoupon && pickleballPromo
+      ? computeAutoApplyDiscount(totalPrice, pickleballPromo)
+      : 0;
+
   const effectiveTotal =
     paymentMethod === "FREE"
       ? 0
-      : customAmountValid
-        ? parsedCustom
-        : totalPrice;
+      : couponDiscount > 0
+        ? totalPrice - couponDiscount
+        : customAmountValid
+          ? parsedCustom
+          : totalPrice;
 
   const today = getTodayIST();
   const maxDate = new Date(Date.now() + 30 * 86400000)
@@ -226,6 +262,18 @@ export function CreateBookingForm({
   useEffect(() => {
     fetchSlots();
   }, [fetchSlots]);
+
+  // Drop a stale coupon tick the moment the picker stops being valid —
+  // e.g. admin selects PICKLEBALL, ticks the box, then jumps back to a
+  // cricket court, or flips paymentMethod to FREE. The derived
+  // `showCouponBox` already hides the UI, but without this the boolean
+  // state lingers and the submit payload would still send
+  // applyCouponCode (action would 400, but cheaper to never send it).
+  useEffect(() => {
+    if (!showCouponBox && applyPickleballCoupon) {
+      setApplyPickleballCoupon(false);
+    }
+  }, [showCouponBox, applyPickleballCoupon]);
 
   // ---------------------------------------------------------------------------
   // Customer search with debounce
@@ -312,11 +360,22 @@ export function CreateBookingForm({
       const effectivePaymentMethod: PaymentMethod =
         isPartial && advanceAmount !== undefined ? advanceMethod : paymentMethod;
 
+      // Coupon and custom-amount override are mutually exclusive (the
+      // action rejects both together because the discount is computed
+      // server-side from the live coupon row, while custom amount
+      // bypasses pricing entirely). When the box is ticked we drop the
+      // override even if the field has a stale value in it.
+      const applyCouponCode =
+        showCouponBox && applyPickleballCoupon && pickleballPromo
+          ? pickleballPromo.code
+          : undefined;
+
       // Only pass customTotalAmount when admin entered a value that
-      // differs from the slot-sum — otherwise let the server compute
-      // from slot prices as usual (keeps Booking.originalAmount null
-      // when no override was applied).
-      const customTotalAmount = customAmountOverride ? parsedCustom : undefined;
+      // differs from the slot-sum AND no coupon is in play — otherwise
+      // let the server compute from slot prices as usual (keeps
+      // Booking.originalAmount null when no override was applied).
+      const customTotalAmount =
+        !applyCouponCode && customAmountOverride ? parsedCustom : undefined;
 
       const result = await adminCreateBooking({
         courtConfigId: selectedConfigId,
@@ -328,6 +387,7 @@ export function CreateBookingForm({
           effectivePaymentMethod === "RAZORPAY" ? razorpayPaymentId : undefined,
         advanceAmount,
         customTotalAmount,
+        applyCouponCode,
         note: note.trim() || undefined,
       });
       if (result.success) {
@@ -846,6 +906,49 @@ export function CreateBookingForm({
             </div>
           )}
 
+          {/* Pickleball launch coupon — visible only when the active
+              promo helper returns non-null AND we're booking
+              pickleball AND payment isn't FREE. Disabling the coupon
+              in /admin/coupons makes pickleballPromo null on the next
+              page render, which removes this block with zero extra
+              wiring. Box ticked locks the custom-amount input below
+              because action rejects coupon + customTotal together. */}
+          {showCouponBox && pickleballPromo && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={applyPickleballCoupon}
+                  onChange={(e) => setApplyPickleballCoupon(e.target.checked)}
+                  className="accent-emerald-500 h-4 w-4 mt-0.5"
+                />
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-white">
+                    Apply {pickleballPromo.percentOff}% off
+                    <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                      {pickleballPromo.code}
+                    </span>
+                  </span>
+                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                    Pickleball launch promo. Mutually exclusive with a
+                    custom amount.
+                  </p>
+                  {applyPickleballCoupon && couponDiscount > 0 && (
+                    <p className="mt-1 text-xs text-emerald-300">
+                      Saves {formatPrice(couponDiscount)} —{" "}
+                      <span className="line-through text-zinc-500">
+                        {formatPrice(totalPrice)}
+                      </span>{" "}
+                      <span className="font-semibold">
+                        {formatPrice(effectiveTotal)}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </label>
+            </div>
+          )}
+
           {/* Total amount — always visible, always editable for any
               non-FREE payment method. Defaults to the slot-sum so the
               admin can hit Continue without typing if no negotiation
@@ -863,6 +966,10 @@ export function CreateBookingForm({
                 <span className="text-[11px] text-zinc-500">
                   Locked at ₹0 for FREE bookings
                 </span>
+              ) : applyPickleballCoupon ? (
+                <span className="text-[11px] text-emerald-400">
+                  Locked while coupon is applied
+                </span>
               ) : (
                 <span className="text-[11px] text-zinc-500">
                   Slot-sum: {formatPrice(totalPrice)}
@@ -876,12 +983,18 @@ export function CreateBookingForm({
                 min={paymentMethod === "FREE" ? 0 : 1}
                 step={1}
                 placeholder={String(paymentMethod === "FREE" ? 0 : totalPrice)}
-                value={paymentMethod === "FREE" ? "0" : customAmountStr}
+                value={
+                  paymentMethod === "FREE"
+                    ? "0"
+                    : applyPickleballCoupon
+                      ? String(effectiveTotal)
+                      : customAmountStr
+                }
                 onChange={(e) => setCustomAmountStr(e.target.value)}
-                disabled={paymentMethod === "FREE"}
+                disabled={paymentMethod === "FREE" || applyPickleballCoupon}
                 className="w-40 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-emerald-400 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
               />
-              {paymentMethod !== "FREE" && customAmountOverride && (
+              {paymentMethod !== "FREE" && !applyPickleballCoupon && customAmountOverride && (
                 <span
                   className={`text-xs ${
                     parsedCustom < totalPrice
@@ -896,17 +1009,23 @@ export function CreateBookingForm({
               )}
             </div>
             {paymentMethod !== "FREE" &&
+              !applyPickleballCoupon &&
               customAmountStr.trim().length > 0 &&
               !customAmountValid && (
                 <p className="text-xs text-red-400">
                   Enter a positive whole number.
                 </p>
               )}
-            {paymentMethod !== "FREE" && (
+            {paymentMethod !== "FREE" && !applyPickleballCoupon && (
               <p className="text-[11px] text-zinc-500">
                 Leave blank to use the slot-sum, or type any amount the
                 customer actually paid through this channel (incl.
                 Razorpay refs that landed off-system).
+              </p>
+            )}
+            {paymentMethod !== "FREE" && applyPickleballCoupon && (
+              <p className="text-[11px] text-zinc-500">
+                Untick the coupon above to set a custom amount.
               </p>
             )}
           </div>
@@ -919,11 +1038,12 @@ export function CreateBookingForm({
                   ? "\u20B90"
                   : formatPrice(effectiveTotal)}
               </div>
-              {customAmountOverride && paymentMethod !== "FREE" && (
-                <div className="text-[11px] text-zinc-500 line-through">
-                  {formatPrice(totalPrice)}
-                </div>
-              )}
+              {paymentMethod !== "FREE" &&
+                (couponDiscount > 0 || customAmountOverride) && (
+                  <div className="text-[11px] text-zinc-500 line-through">
+                    {formatPrice(totalPrice)}
+                  </div>
+                )}
             </div>
           </div>
 
@@ -1022,7 +1142,11 @@ export function CreateBookingForm({
                     <>
                       {label}
                       {partialValid && " \u00B7 Partial"}
-                      {customAmountOverride &&
+                      {couponDiscount > 0 &&
+                        paymentMethod !== "FREE" &&
+                        ` \u00B7 ${pickleballPromo?.code ?? "Coupon"}`}
+                      {!couponDiscount &&
+                        customAmountOverride &&
                         paymentMethod !== "FREE" &&
                         " \u00B7 Negotiated"}
                     </>
@@ -1039,11 +1163,28 @@ export function CreateBookingForm({
                   ? "\u20B90"
                   : formatPrice(effectiveTotal)}
               </p>
-              {customAmountOverride && paymentMethod !== "FREE" && (
-                <p className="text-[11px] text-zinc-500">
-                  Slot-sum: <span className="line-through">{formatPrice(totalPrice)}</span>
+              {paymentMethod !== "FREE" && couponDiscount > 0 && (
+                <p className="text-[11px] text-emerald-300">
+                  Coupon{" "}
+                  <span className="font-semibold">
+                    {pickleballPromo?.code}
+                  </span>{" "}
+                  applied: \u2212{formatPrice(couponDiscount)}{" "}
+                  <span className="text-zinc-500">
+                    (slot-sum {formatPrice(totalPrice)})
+                  </span>
                 </p>
               )}
+              {!couponDiscount &&
+                customAmountOverride &&
+                paymentMethod !== "FREE" && (
+                  <p className="text-[11px] text-zinc-500">
+                    Slot-sum:{" "}
+                    <span className="line-through">
+                      {formatPrice(totalPrice)}
+                    </span>
+                  </p>
+                )}
               {isPartial && advanceAmountStr && (() => {
                 const parsed = parseInt(advanceAmountStr, 10);
                 if (!Number.isFinite(parsed) || parsed < 0 || parsed >= effectiveTotal) return null;

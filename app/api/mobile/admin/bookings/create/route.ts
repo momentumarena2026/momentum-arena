@@ -20,6 +20,10 @@ const Body = z.object({
   razorpayPaymentId: z.string().max(200).optional(),
   advanceAmount: z.number().int().min(0).optional(),
   customTotalAmount: z.number().int().min(0).optional(),
+  // Optional coupon to apply (today only PICKLEBALL25). The action
+  // re-fetches the live coupon row server-side so the client can't
+  // smuggle in a non-existent code.
+  applyCouponCode: z.string().max(30).optional(),
   note: z.string().max(500).optional(),
 });
 
