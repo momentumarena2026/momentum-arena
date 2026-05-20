@@ -7,6 +7,7 @@ import {
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
+import { awardBookingPoints } from "@/lib/rewards/earn";
 
 // POST /api/mobile/razorpay/verify — native equivalent of the web verify
 // route. Validates the Razorpay signature, enforces idempotency, and turns
@@ -115,6 +116,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // awardBookingPoints rides this `after()` block — the rewards ledger
+  // insert was orphaned for every Razorpay-paid booking because none
+  // of the Razorpay verify paths called it (only the cash/UPI/manual
+  // admin confirm actions did). Idempotent + self-gates on
+  // booking.status === "CONFIRMED", safe to call unconditionally.
   after(async () => {
     await Promise.allSettled([
       sendBookingConfirmation(bookingId).catch((err) =>
@@ -122,6 +128,9 @@ export async function POST(request: NextRequest) {
       ),
       notifyAdminBookingConfirmed(bookingId).catch((err) =>
         console.error("Notification dispatch failed:", err)
+      ),
+      awardBookingPoints(bookingId).catch((err) =>
+        console.error("[rewards] award failed for", bookingId, err)
       ),
     ]);
   });
