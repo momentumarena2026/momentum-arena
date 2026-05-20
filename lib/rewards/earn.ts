@@ -27,12 +27,23 @@ export interface EarnResult {
 // ---------- Booking earn ----------
 
 /**
- * Award points for a CONFIRMED booking. Called from
- * confirmCashPayment / confirmUpiPayment / confirmBookingManually.
+ * Award points for a CONFIRMED booking. Called from every
+ * booking-confirmation surface: confirmCashPayment / confirmUpiPayment /
+ * confirmBookingManually (admin actions on customer-started bookings),
+ * the Razorpay + PhonePe verify routes, and the static-QR auto-verify
+ * webhook.
  *
  * Points are based on the AMOUNT ACTUALLY PAID (not totalAmount,
  * since the customer may have redeemed points to reduce the
  * payable, and we don't earn on the redeemed leg).
+ *
+ * Bookings that originated on the admin's end (created via
+ * adminCreateBooking → Booking.createdByAdminId is non-null) do NOT
+ * earn the customer points. That's the product rule: only the
+ * customer's own bookings count toward their rewards balance.
+ * Gating here (instead of at every caller) is the single source of
+ * truth — drop-in safe for the eight + call-sites without having to
+ * remember which paths can originate from admin.
  */
 export async function awardBookingPoints(
   bookingId: string,
@@ -54,6 +65,13 @@ export async function awardBookingPoints(
     return { awarded: false, reason: "not confirmed" };
   }
   if (!booking.payment) return { awarded: false, reason: "no payment" };
+  // Admin-created bookings don't earn the customer points. The
+  // customer didn't make this booking themselves, so they shouldn't
+  // accrue rewards for it — admin-only flow (e.g. comp bookings, on-
+  // behalf-of bookings, regulars the front desk books in for).
+  if (booking.createdByAdminId) {
+    return { awarded: false, reason: "admin-created booking" };
+  }
   // Restrict to enabled sports if the admin set the list.
   if (
     cfg.enabledSports.length > 0 &&
