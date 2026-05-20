@@ -368,9 +368,17 @@ export async function refundRedemption(args: {
         bookingId: args.bookingId ?? null,
         cafeOrderId: args.cafeOrderId ?? null,
         reason: args.reason,
-        expiresAt: new Date(
-          Date.now() + cfg.pointExpiryMonths * 30 * 24 * 60 * 60 * 1000,
-        ),
+        // Honor the "no expiry" sentinel (pointExpiryMonths=0) by
+        // leaving expiresAt null. Earn paths use the
+        // expiresAtForMonths helper; the refund branch is the only
+        // other writer of EARNED-style rows so it gets the same
+        // treatment inline.
+        expiresAt:
+          cfg.pointExpiryMonths > 0
+            ? new Date(
+                Date.now() + cfg.pointExpiryMonths * 30 * 24 * 60 * 60 * 1000,
+              )
+            : null,
       },
     });
     await applyBalanceDelta(tx, {

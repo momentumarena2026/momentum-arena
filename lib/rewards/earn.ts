@@ -95,7 +95,7 @@ export async function awardBookingPoints(
     pointsValuePaise: pointsToPaise(points, cfg),
     bookingId,
     cafeOrderId: null,
-    expiresAt: monthsFromNow(cfg.pointExpiryMonths),
+    expiresAt: expiresAtForMonths(cfg.pointExpiryMonths),
   });
 }
 
@@ -131,7 +131,7 @@ export async function awardCafePoints(
     pointsValuePaise: pointsToPaise(points, cfg),
     bookingId: null,
     cafeOrderId,
-    expiresAt: monthsFromNow(cfg.pointExpiryMonths),
+    expiresAt: expiresAtForMonths(cfg.pointExpiryMonths),
   });
 }
 
@@ -220,7 +220,7 @@ export async function adminGrantPoints(args: {
         userId: args.userId,
         actorAdminId: args.actorAdminId,
         reason: args.reason,
-        expiresAt: monthsFromNow(cfg.pointExpiryMonths),
+        expiresAt: expiresAtForMonths(cfg.pointExpiryMonths),
       },
     });
     await applyBalanceDelta(tx, {
@@ -270,7 +270,13 @@ function computeEarnPoints(billPaise: number, bps: number): number {
   return Math.floor((rupees * bps) / 10000);
 }
 
-function monthsFromNow(months: number): Date {
+// Computes the expiresAt timestamp for newly-earned points.
+// `pointExpiryMonths = 0` is the admin's sentinel for "no expiry";
+// we collapse that into null so the RewardTransaction.expiresAt
+// column (nullable in the schema) reflects "never expires" instead
+// of "expires right now".
+function expiresAtForMonths(months: number): Date | null {
+  if (!Number.isFinite(months) || months <= 0) return null;
   const d = new Date();
   d.setUTCMonth(d.getUTCMonth() + months);
   return d;
@@ -283,7 +289,10 @@ async function insertEarn(args: {
   pointsValuePaise: number;
   bookingId: string | null;
   cafeOrderId: string | null;
-  expiresAt: Date;
+  // Nullable so pointExpiryMonths=0 can express "no expiry".
+  // expiresAtForMonths(0) returns null. RewardTransaction.expiresAt
+  // is `DateTime?` in the schema.
+  expiresAt: Date | null;
 }): Promise<EarnResult> {
   const now = new Date();
   try {
@@ -343,7 +352,7 @@ async function insertBonusEarn(args: {
         pointsValuePaise: args.points * args.cfg.pointValuePaise,
         userId: args.userId,
         reason: args.reason,
-        expiresAt: monthsFromNow(args.cfg.pointExpiryMonths),
+        expiresAt: expiresAtForMonths(args.cfg.pointExpiryMonths),
       },
     });
     await applyBalanceDelta(tx, {

@@ -173,7 +173,7 @@ export function RewardsConfigPanel({ config }: Props) {
         />
         <NumberField
           label="Expiry (months)"
-          desc="EARNED rows expire this many months after creation"
+          desc="EARNED rows expire this many months after creation. Set 0 to disable expiry."
           value={form.pointExpiryMonths}
           onChange={(v) => update("pointExpiryMonths", v)}
         />
