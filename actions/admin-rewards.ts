@@ -160,7 +160,10 @@ const configSchema = z.object({
   // is float-safe (final paise number is floored).
   maxRedemptionPctOfBill: z.number().min(0).max(100),
   maxRedemptionPaisePerTxn: z.number().int().min(0).max(10_000_000),
-  pointExpiryMonths: z.number().int().min(1).max(120),
+  // 0 means "no expiry" — points never decay. RewardTransaction.
+  // expiresAt is nullable in the schema, and earn.ts collapses
+  // months=0 into expiresAt=null at insert time. Default stays at 12.
+  pointExpiryMonths: z.number().int().min(0).max(120),
   earnToRedeemMinHours: z.number().int().min(0).max(24 * 365),
   signupBonusPoints: z.number().int().min(0).max(1_000_000),
   referralEarnerPoints: z.number().int().min(0).max(1_000_000),
