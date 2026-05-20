@@ -1792,15 +1792,10 @@ export async function adminCreateBooking(data: {
     if (paymentIsCompleted) {
       sendBookingConfirmation(bookingId).catch(console.error);
       notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
-      // Admin-created bookings with paymentMethod = RAZORPAY / FREE,
-      // or any partial-pay flow, land CONFIRMED right here. The
-      // confirmCashPayment / confirmUpiPayment paths award points
-      // for cash + UPI; this is the parallel call for everything
-      // that confirms inline. Idempotent + self-gated on
-      // booking.status === "CONFIRMED" inside awardBookingPoints.
-      void awardBookingPoints(bookingId).catch((err) =>
-        console.error("[rewards] award failed for", bookingId, err),
-      );
+      // Intentionally no awardBookingPoints call here: admin-created
+      // bookings carry Booking.createdByAdminId, and the gate inside
+      // awardBookingPoints skips them. The customer didn't make the
+      // booking themselves, so they don't earn rewards for it.
     }
 
     await revalidateBookingPaths(bookingId);
