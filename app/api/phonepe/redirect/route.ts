@@ -6,6 +6,7 @@ import {
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
+import { awardBookingPoints } from "@/lib/rewards/earn";
 
 // PhonePe redirects the user back here after the payment flow.
 // Check the status, and if success, create Booking atomically from the Hold.
@@ -102,6 +103,11 @@ export async function GET(request: NextRequest) {
       // Defer SMS dispatch via `after()` so the Vercel serverless function
       // stays alive until MSG91 responds. Fire-and-forget `.catch()` would be
       // killed the moment NextResponse.redirect returns.
+      //
+      // awardBookingPoints rides the same window. The redirect path is
+      // a fallback when the S2S callback hasn't won the race; if S2S
+      // already awarded points the idempotency constraint
+      // (@@unique([type, bookingId])) makes this a no-op.
       after(async () => {
         await Promise.allSettled([
           sendBookingConfirmation(bookingId).catch((err) =>
@@ -109,6 +115,9 @@ export async function GET(request: NextRequest) {
           ),
           notifyAdminBookingConfirmed(bookingId).catch((err) =>
             console.error("Notification dispatch failed:", err)
+          ),
+          awardBookingPoints(bookingId).catch((err) =>
+            console.error("[rewards] award failed for", bookingId, err)
           ),
         ]);
       });
