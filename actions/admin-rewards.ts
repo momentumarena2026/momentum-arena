@@ -155,7 +155,10 @@ const configSchema = z.object({
   earnRateCafeBps: z.number().int().min(0).max(10000),
   pointValuePaise: z.number().int().min(1).max(100000),
   minPointsToRedeem: z.number().int().min(0).max(1_000_000),
-  maxRedemptionPctOfBill: z.number().int().min(0).max(100),
+  // Float so admins can dial in fractional caps (2.5%, 12.5%, etc.)
+  // without bumping the schema to bps everywhere. The redemption math
+  // is float-safe (final paise number is floored).
+  maxRedemptionPctOfBill: z.number().min(0).max(100),
   maxRedemptionPaisePerTxn: z.number().int().min(0).max(10_000_000),
   pointExpiryMonths: z.number().int().min(1).max(120),
   earnToRedeemMinHours: z.number().int().min(0).max(24 * 365),

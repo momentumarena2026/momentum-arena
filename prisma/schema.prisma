@@ -1151,7 +1151,11 @@ model RewardConfig {
 
   // Redemption guard rails
   minPointsToRedeem        Int @default(50)
-  maxRedemptionPctOfBill   Int @default(20) // % cap
+  // Float so admins can express finer caps (e.g. 2.5%) without
+  // bumping the column to basis points everywhere. Math at the
+  // redemption site is `Math.floor(billPaise * pct / 100)` — works
+  // for both ints and floats.
+  maxRedemptionPctOfBill   Float @default(20) // % cap
   maxRedemptionPaisePerTxn Int @default(50000) // ₹500 absolute cap
 
   // Expiry — points are EARNED with expiresAt = now() + this window.
