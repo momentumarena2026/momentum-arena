@@ -154,9 +154,10 @@ export function RewardsConfigPanel({ config }: Props) {
         />
         <NumberField
           label="Max % of bill"
-          desc="Cap redemption to N% of any single bill"
+          desc="Cap redemption to N% of any single bill. Decimals OK (e.g. 2.5)."
           value={form.maxRedemptionPctOfBill}
           onChange={(v) => update("maxRedemptionPctOfBill", v)}
+          allowDecimals
         />
         <RupeeField
           label="Max redemption per txn (₹)"
@@ -262,6 +263,7 @@ function NumberField({
   value,
   onChange,
   allowNegative = false,
+  allowDecimals = false,
 }: {
   label: string;
   desc?: string;
@@ -270,12 +272,22 @@ function NumberField({
   /** Defaults to false — every config field on this panel is a
    *  non-negative integer (points, bps, hours, paise thresholds). */
   allowNegative?: boolean;
+  /** Opt-in for fractional values. Used by the "Max % of bill"
+   *  field so admins can dial in 2.5% etc. without the parseInt
+   *  flooring the input mid-keystroke. */
+  allowDecimals?: boolean;
 }) {
   const safeValue = Number.isFinite(value)
     ? allowNegative
       ? value
       : Math.max(0, value)
     : 0;
+  // Local draft lets the admin type "2." or "2.5" without the parent
+  // state snapping the dot away mid-keystroke. parseFloat("2.") is
+  // 2, which would otherwise round-trip back to "2" and eat the
+  // trailing dot before they finish typing "2.5".
+  const [draft, setDraft] = useState<string | null>(null);
+  const displayValue = draft ?? String(safeValue);
   return (
     <label className="block">
       <span className="text-xs font-medium text-zinc-300">{label}</span>
@@ -283,17 +295,32 @@ function NumberField({
       <input
         type="number"
         // HTML attr — stops the spinner / arrow keys from dipping
-        // below zero on non-negative fields.
+        // below zero on non-negative fields. `step="any"` flips the
+        // browser into decimal-friendly mode (otherwise Chrome
+        // flags 2.5 as "not a valid value").
         min={allowNegative ? undefined : 0}
-        value={safeValue}
+        step={allowDecimals ? "any" : 1}
+        value={displayValue}
         onChange={(e) => {
-          const parsed = parseInt(e.target.value || "0", 10);
+          const raw = e.target.value;
+          if (allowDecimals) {
+            setDraft(raw);
+            const parsed = parseFloat(raw);
+            if (!Number.isFinite(parsed)) {
+              onChange(0);
+              return;
+            }
+            onChange(allowNegative ? parsed : Math.max(0, parsed));
+            return;
+          }
+          const parsed = parseInt(raw || "0", 10);
           if (!Number.isFinite(parsed)) {
             onChange(0);
             return;
           }
           onChange(allowNegative ? parsed : Math.max(0, parsed));
         }}
+        onBlur={() => setDraft(null)}
         className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
       />
     </label>
