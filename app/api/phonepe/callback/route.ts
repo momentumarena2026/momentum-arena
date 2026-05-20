@@ -10,6 +10,7 @@ import {
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
+import { awardBookingPoints } from "@/lib/rewards/earn";
 
 /**
  * PhonePe v2 server-to-server webhook for booking payments.
@@ -116,6 +117,11 @@ export async function POST(request: NextRequest) {
       // function stays alive until MSG91 responds. Fire-and-forget
       // `.catch()` would be killed the moment NextResponse.json
       // returns.
+      //
+      // awardBookingPoints rides the same window — the rewards
+      // ledger was orphaning every PhonePe-paid booking the same
+      // way the Razorpay verify routes did before #99. Idempotent
+      // + self-gated on booking.status === "CONFIRMED".
       after(async () => {
         await Promise.allSettled([
           sendBookingConfirmation(bookingId).catch((err) =>
@@ -123,6 +129,9 @@ export async function POST(request: NextRequest) {
           ),
           notifyAdminBookingConfirmed(bookingId).catch((err) =>
             console.error("Notification dispatch failed:", err),
+          ),
+          awardBookingPoints(bookingId).catch((err) =>
+            console.error("[rewards] award failed for", bookingId, err),
           ),
         ]);
       });

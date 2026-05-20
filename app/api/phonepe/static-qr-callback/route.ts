@@ -8,6 +8,7 @@ import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
+import { awardBookingPoints } from "@/lib/rewards/earn";
 
 /**
  * PhonePe Static QR S2S Callback
@@ -126,6 +127,11 @@ export async function POST(request: NextRequest) {
       // Defer SMS dispatch via `after()` so the Vercel serverless function
       // stays alive until MSG91 responds. Fire-and-forget `.catch()` would be
       // killed the moment NextResponse.json returns.
+      //
+      // awardBookingPoints rides the same window — without it,
+      // every static-QR auto-verified booking missed the rewards
+      // ledger. Idempotent + self-gated on
+      // booking.status === "CONFIRMED".
       const confirmedBookingId = bookingPayment.bookingId;
       after(async () => {
         await Promise.allSettled([
@@ -134,6 +140,9 @@ export async function POST(request: NextRequest) {
           ),
           notifyAdminBookingConfirmed(confirmedBookingId).catch((err) =>
             console.error("Notification dispatch failed:", err)
+          ),
+          awardBookingPoints(confirmedBookingId).catch((err) =>
+            console.error("[rewards] award failed for", confirmedBookingId, err)
           ),
         ]);
       });
@@ -177,6 +186,12 @@ export async function POST(request: NextRequest) {
           data: { status: "PREPARING" },
         }),
       ]);
+
+      // Cafe points are awarded later, at the order-completion step
+      // in admin-cafe-orders.ts (when staff marks the food delivered),
+      // not at payment verification — intentional, so the customer
+      // doesn't earn points for an order that never actually
+      // reaches them.
 
       console.log(
         `Static QR callback: auto-verified cafe payment ${cafePayment.id} (UTR: ${utr})`
