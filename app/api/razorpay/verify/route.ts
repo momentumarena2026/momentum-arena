@@ -7,6 +7,7 @@ import {
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
+import { awardBookingPoints } from "@/lib/rewards/earn";
 
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
@@ -115,6 +116,14 @@ export async function POST(request: NextRequest) {
   // alive until MSG91 responds. Fire-and-forget `.catch()` would be killed
   // the moment NextResponse.json returns, which is why the admin notification
   // never reached MSG91 for Razorpay-confirmed bookings.
+  //
+  // awardBookingPoints rides the same `after()` window for the same
+  // reason — the rewards ledger insert was being orphaned for every
+  // Razorpay-paid booking because no one called it on this path
+  // (only the cash / UPI / manual-confirm admin actions did). The
+  // function is idempotent (@@unique([type, bookingId])) and gates
+  // internally on booking.status === "CONFIRMED", so it's safe to
+  // call here unconditionally.
   after(async () => {
     await Promise.allSettled([
       sendBookingConfirmation(bookingId).catch((err) =>
@@ -122,6 +131,9 @@ export async function POST(request: NextRequest) {
       ),
       notifyAdminBookingConfirmed(bookingId).catch((err) =>
         console.error("Notification dispatch failed:", err)
+      ),
+      awardBookingPoints(bookingId).catch((err) =>
+        console.error("[rewards] award failed for", bookingId, err)
       ),
     ]);
   });
