@@ -287,6 +287,12 @@ export default async function RewardsHowItWorksPage() {
       </section>
 
       {/* ─── EXPIRY VISUAL ──────────────────────────────────────────── */}
+      {/* All copy + the timeline are driven by cfg.pointExpiryMonths so
+          changes in /admin/rewards flow through without a code edit.
+          When admin sets the value to 0 (the "no expiry" sentinel
+          shipped alongside the float Max % of bill change), we flip to
+          a simpler card that just tells the user they have unlimited
+          time, and skip the timeline SVG entirely. */}
       <section className="rounded-3xl border border-zinc-800 bg-zinc-900/40 p-6 sm:p-8">
         <SectionLabel>Time to use them</SectionLabel>
         <div className="mt-4 grid items-center gap-6 sm:grid-cols-[auto_1fr]">
@@ -294,71 +300,115 @@ export default async function RewardsHowItWorksPage() {
             <CalendarClock className="h-7 w-7 text-zinc-300" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">
-              Each batch lasts 12 months
-            </h3>
-            <p className="mt-1 text-sm text-zinc-400">
-              Points expire 12 months after they're earned. Your{" "}
-              <Link
-                href="/rewards"
-                className="text-emerald-300 underline-offset-2 hover:underline"
-              >
-                statement
-              </Link>{" "}
-              flags any batch that's about to drop off so you never lose them
-              by accident.
-            </p>
+            {cfg.pointExpiryMonths > 0 ? (
+              <>
+                <h3 className="text-lg font-bold text-white">
+                  Each batch lasts {cfg.pointExpiryMonths} month
+                  {cfg.pointExpiryMonths === 1 ? "" : "s"}
+                </h3>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Points expire {cfg.pointExpiryMonths} month
+                  {cfg.pointExpiryMonths === 1 ? "" : "s"} after they're
+                  earned. Your{" "}
+                  <Link
+                    href="/rewards"
+                    className="text-emerald-300 underline-offset-2 hover:underline"
+                  >
+                    statement
+                  </Link>{" "}
+                  flags any batch that's about to drop off so you never lose
+                  them by accident.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold text-white">
+                  Your points never expire
+                </h3>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Earn now, spend whenever. Check your{" "}
+                  <Link
+                    href="/rewards"
+                    className="text-emerald-300 underline-offset-2 hover:underline"
+                  >
+                    statement
+                  </Link>{" "}
+                  any time to see your balance.
+                </p>
+              </>
+            )}
           </div>
         </div>
 
         {/* Inline SVG timeline — month markers + a moving glow. Purely
-            decorative; gives the 12-month message a visual anchor. */}
-        <svg
-          viewBox="0 0 600 60"
-          className="mt-6 w-full"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <linearGradient id="timelineGrad" x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0%" stopColor="#10b981" />
-              <stop offset="70%" stopColor="#fde047" />
-              <stop offset="100%" stopColor="#71717a" />
-            </linearGradient>
-          </defs>
-          <rect
-            x="0"
-            y="22"
-            width="600"
-            height="6"
-            rx="3"
-            fill="url(#timelineGrad)"
-            opacity="0.7"
-          />
-          {Array.from({ length: 13 }).map((_, i) => (
-            <g key={i}>
-              <circle
-                cx={i * 50}
-                cy={25}
-                r={i === 0 || i === 12 ? 6 : 3}
-                fill={i === 0 ? "#34d399" : i === 12 ? "#71717a" : "#fde047"}
-                opacity={i === 0 || i === 12 ? 1 : 0.6}
+            decorative; gives the expiry message a visual anchor. Marker
+            spacing scales with cfg.pointExpiryMonths so a 6-month or
+            24-month config still fits the 600px viewBox cleanly. We
+            cap rendered "month" dots at 24 to avoid pixel-soup; only
+            bookends + a few intermediates are visible past that. */}
+        {cfg.pointExpiryMonths > 0 && (() => {
+          const months = cfg.pointExpiryMonths;
+          // Number of dots = months + 1 (Day 1 endpoint + each month
+          // marker through expiry). For long configurations cap the
+          // intermediate dots so the SVG stays legible.
+          const totalMarkers = months + 1;
+          const renderedMarkers = Math.min(totalMarkers, 25);
+          const step = 600 / (renderedMarkers - 1);
+          return (
+            <svg
+              viewBox="0 0 600 60"
+              className="mt-6 w-full"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <defs>
+                <linearGradient id="timelineGrad" x1="0" x2="1" y1="0" y2="0">
+                  <stop offset="0%" stopColor="#10b981" />
+                  <stop offset="70%" stopColor="#fde047" />
+                  <stop offset="100%" stopColor="#71717a" />
+                </linearGradient>
+              </defs>
+              <rect
+                x="0"
+                y="22"
+                width="600"
+                height="6"
+                rx="3"
+                fill="url(#timelineGrad)"
+                opacity="0.7"
               />
-            </g>
-          ))}
-          <text x="0" y="55" fill="#34d399" fontSize="11" fontWeight="700">
-            Day 1 · earned
-          </text>
-          <text
-            x="600"
-            y="55"
-            fill="#a1a1aa"
-            fontSize="11"
-            fontWeight="700"
-            textAnchor="end"
-          >
-            Month 12 · expires
-          </text>
-        </svg>
+              {Array.from({ length: renderedMarkers }).map((_, i) => {
+                const isStart = i === 0;
+                const isEnd = i === renderedMarkers - 1;
+                return (
+                  <g key={i}>
+                    <circle
+                      cx={i * step}
+                      cy={25}
+                      r={isStart || isEnd ? 6 : 3}
+                      fill={
+                        isStart ? "#34d399" : isEnd ? "#71717a" : "#fde047"
+                      }
+                      opacity={isStart || isEnd ? 1 : 0.6}
+                    />
+                  </g>
+                );
+              })}
+              <text x="0" y="55" fill="#34d399" fontSize="11" fontWeight="700">
+                Day 1 · earned
+              </text>
+              <text
+                x="600"
+                y="55"
+                fill="#a1a1aa"
+                fontSize="11"
+                fontWeight="700"
+                textAnchor="end"
+              >
+                Month {months} · expires
+              </text>
+            </svg>
+          );
+        })()}
       </section>
 
       {/* ─── FAQ ──────────────────────────────────────────────────── */}
