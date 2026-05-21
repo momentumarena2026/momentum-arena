@@ -440,9 +440,17 @@ export function SlotSelectionClient({
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
-          <span className="ml-2 text-zinc-400">Loading slots...</span>
+        // Skeleton grid that matches the live SlotGrid columns
+        // (grid-cols-2 sm:grid-cols-3 md:grid-cols-4). Avoids the
+        // page jump customers used to see when a spinner gave way to
+        // a tall grid on slow connections.
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-16 animate-pulse rounded-xl border border-zinc-800 bg-zinc-900/60"
+            />
+          ))}
         </div>
       ) : error ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-center text-red-400">

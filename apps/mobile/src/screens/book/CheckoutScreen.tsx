@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -24,6 +23,7 @@ import { AlarmClock, Sparkles } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { DiscountInput } from "../../components/booking/DiscountInput";
 import {
   RedeemPoints,
@@ -499,13 +499,46 @@ export function CheckoutScreen() {
 
   // ── Loading / error states ─────────────────────────────────────────────────
   if (isLoading) {
+    // Skeleton mirrors the live checkout layout (Booking Summary card
+    // → discount input → payment tiles → Pay button) so the page
+    // doesn't jump when data lands. Replaces the previous centered
+    // spinner that gave the user nothing to anchor on.
     return (
       <Screen>
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} />
-          <Text variant="small" color={colors.mutedForeground} style={styles.loadingLabel}>
-            Loading your hold…
-          </Text>
+        <View style={styles.loadingScroll}>
+          <Skeleton width="40%" height={22} rounded="md" />
+          <Skeleton width="70%" height={12} rounded="md" style={styles.loadingSub} />
+
+          {/* Booking Summary card */}
+          <View style={styles.loadingCard}>
+            <View style={styles.loadingCardHead}>
+              <Skeleton width={140} height={18} rounded="md" />
+              <Skeleton width={70} height={20} rounded="full" />
+            </View>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <View key={`kv-${i}`} style={styles.loadingKv}>
+                <Skeleton width="30%" height={12} rounded="sm" />
+                <Skeleton width="40%" height={12} rounded="sm" />
+              </View>
+            ))}
+            <View style={styles.loadingTotal}>
+              <Skeleton width={50} height={16} rounded="md" />
+              <Skeleton width={80} height={20} rounded="md" />
+            </View>
+          </View>
+
+          {/* Discount input */}
+          <Skeleton width="100%" height={44} rounded="lg" />
+
+          {/* Payment method tiles */}
+          <View style={styles.loadingPayTiles}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={`pm-${i}`} width="100%" height={72} rounded="lg" />
+            ))}
+          </View>
+
+          {/* Pay button */}
+          <Skeleton width="100%" height={48} rounded="xl" />
         </View>
       </Screen>
     );
@@ -1117,6 +1150,47 @@ const styles = StyleSheet.create({
   },
   loadingLabel: {
     marginTop: spacing["2"],
+  },
+  // Skeleton container — mirrors the screen padding the real
+  // ScrollView uses so the placeholders line up exactly with where
+  // their real counterparts will render.
+  loadingScroll: {
+    paddingHorizontal: spacing["6"],
+    paddingTop: spacing["4"],
+    paddingBottom: spacing["8"],
+    gap: spacing["4"],
+  },
+  loadingSub: {
+    marginTop: spacing["1"],
+  },
+  loadingCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["4"],
+    gap: spacing["3"],
+  },
+  loadingCardHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  loadingKv: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  loadingTotal: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.zinc800,
+    paddingTop: spacing["3"],
+  },
+  loadingPayTiles: {
+    gap: spacing["2"],
   },
   errorBody: {
     maxWidth: 280,

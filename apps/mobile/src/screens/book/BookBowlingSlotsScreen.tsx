@@ -260,12 +260,16 @@ export function BookBowlingSlotsScreen() {
           </View>
 
           {isLoading ? (
+            // Width + height intentionally match the live tile grid
+            // below (`slot` style — 2 columns at 48.5% width, ~56px
+            // tall after padding). Used to be 3-col 31% which lied
+            // about the layout and made the page jump on data arrival.
             <View style={styles.skeletonGrid}>
-              {Array.from({ length: 12 }).map((_, i) => (
+              {Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton
                   key={i}
-                  width="31%"
-                  height={48}
+                  width="48.5%"
+                  height={56}
                   rounded="lg"
                   style={styles.skeletonTile}
                 />
