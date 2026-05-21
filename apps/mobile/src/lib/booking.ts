@@ -1,7 +1,15 @@
 import { api } from "./api";
 import type { CourtConfig, Sport } from "./types";
 
-export type SlotStatus = "available" | "booked" | "locked" | "blocked";
+// Mirrors the server's SlotStatus exactly. "closed" lands on
+// past slots for today's date — the customer picker dims those
+// tiles + labels them "Past" so it's clear they can't be tapped.
+export type SlotStatus =
+  | "available"
+  | "booked"
+  | "locked"
+  | "blocked"
+  | "closed";
 
 export interface SlotAvailability {
   hour: number;
