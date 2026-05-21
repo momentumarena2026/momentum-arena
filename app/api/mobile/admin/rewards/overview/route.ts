@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
         type: {
           in: [
             "EARNED_BOOKING",
+            "EARNED_BOOKING_REMAINDER",
             "EARNED_CAFE",
             "EARNED_SIGNUP",
             "EARNED_REFERRAL",

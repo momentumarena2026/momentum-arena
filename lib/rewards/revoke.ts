@@ -30,9 +30,16 @@ export async function revokeBookingRewards(
 ): Promise<{ revokedPoints: number; refundedPoints: number }> {
   const cfg = await getRewardConfig();
 
-  // Look up both txns for this booking.
-  const earn = await db.rewardTransaction.findFirst({
-    where: { bookingId, type: "EARNED_BOOKING" },
+  // Look up every earn row for this booking. Partial-pay bookings
+  // can carry BOTH an EARNED_BOOKING (credited at advance time) AND
+  // an EARNED_BOOKING_REMAINDER (credited when admin marks the
+  // remainder collected) — the clawback needs to sum both so we
+  // don't leave half the credit floating after a cancel.
+  const earns = await db.rewardTransaction.findMany({
+    where: {
+      bookingId,
+      type: { in: ["EARNED_BOOKING", "EARNED_BOOKING_REMAINDER"] },
+    },
   });
   const existingRevoke = await db.rewardTransaction.findFirst({
     where: { bookingId, type: "REVOKED" },
@@ -44,36 +51,54 @@ export async function revokeBookingRewards(
   let revokedPoints = 0;
   let refundedPoints = 0;
 
-  // 1. Clawback the earn (only once).
-  if (earn && !existingRevoke) {
+  // 1. Clawback the earn (only once). Single REVOKED row per
+  //    booking covers the sum of both earn rows — the
+  //    @@unique([type=REVOKED, bookingId]) constraint allows only
+  //    one entry. sourceTxnId points to the initial earn row so the
+  //    audit trail still has a useful anchor; the breakdown lives
+  //    in the `reason` text and the existing earn rows are
+  //    discoverable via the bookingId.
+  if (earns.length > 0 && !existingRevoke) {
+    const userId = earns[0].userId;
+    const totalEarned = earns.reduce((sum, e) => sum + e.points, 0);
     const balance = await db.rewardBalance.findUnique({
-      where: { userId: earn.userId },
+      where: { userId },
     });
     const available = balance?.pointsAvailable ?? 0;
-    const wantedClawback = earn.points; // positive (earn was credit)
+    const wantedClawback = totalEarned;
     const actualClawback = Math.min(available, wantedClawback);
     const shortfall = wantedClawback - actualClawback;
+    // Prefer the initial EARNED_BOOKING row as sourceTxnId so the
+    // legacy audit relationships still line up; fall back to the
+    // remainder row when the booking somehow has only the top-up
+    // (shouldn't happen but defensive).
+    const sourceTxn =
+      earns.find((e) => e.type === "EARNED_BOOKING") ?? earns[0];
+    const hasRemainder = earns.some(
+      (e) => e.type === "EARNED_BOOKING_REMAINDER",
+    );
 
     if (actualClawback > 0) {
       const now = new Date();
       try {
         await db.$transaction(async (tx) => {
-          await ensureBalance(tx, earn.userId);
+          await ensureBalance(tx, userId);
           await tx.rewardTransaction.create({
             data: {
               type: "REVOKED",
               points: -actualClawback,
               pointsValuePaise: -pointsToPaise(actualClawback, cfg),
-              userId: earn.userId,
+              userId,
               bookingId,
-              sourceTxnId: earn.id,
-              reason: shortfall > 0
-                ? `Booking cancelled — partial clawback (${actualClawback} of ${wantedClawback} points)`
-                : "Booking cancelled — earn revoked",
+              sourceTxnId: sourceTxn.id,
+              reason:
+                shortfall > 0
+                  ? `Booking cancelled — partial clawback (${actualClawback} of ${wantedClawback} points${hasRemainder ? ", incl. remainder" : ""})`
+                  : `Booking cancelled — earn revoked${hasRemainder ? " (advance + remainder)" : ""}`,
             },
           });
           await applyBalanceDelta(tx, {
-            userId: earn.userId,
+            userId,
             points: -actualClawback,
             type: "REVOKED",
             now,
@@ -90,7 +115,7 @@ export async function revokeBookingRewards(
     if (shortfall > 0) {
       await db.rewardAlert.create({
         data: {
-          userId: earn.userId,
+          userId,
           kind: "PARTIAL_REVOKE_SHORTFALL",
           severity: "MEDIUM",
           status: "OPEN",
@@ -99,7 +124,8 @@ export async function revokeBookingRewards(
             wantedClawback,
             actualClawback,
             shortfall,
-            earnTxnId: earn.id,
+            earnTxnId: sourceTxn.id,
+            includesRemainder: hasRemainder,
           },
         },
       });

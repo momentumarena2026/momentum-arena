@@ -60,6 +60,12 @@ const TXN_META: Record<string, TxnMeta> = {
     tone: "credit",
     Icon: ArrowDownToLine,
   },
+  EARNED_BOOKING_REMAINDER: {
+    label: "Booking reward (remainder)",
+    desc: "Points credited when the venue cash was collected",
+    tone: "credit",
+    Icon: ArrowDownToLine,
+  },
   EARNED_CAFE: {
     label: "Cafe reward",
     desc: "Points earned on a cafe order",
