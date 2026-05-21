@@ -68,6 +68,7 @@ export async function getAdminRewardsOverview(): Promise<AdminRewardsOverview> {
         type: {
           in: [
             "EARNED_BOOKING",
+            "EARNED_BOOKING_REMAINDER",
             "EARNED_CAFE",
             "EARNED_SIGNUP",
             "EARNED_REFERRAL",
@@ -452,6 +453,7 @@ export async function getAdminRewardsAnalytics(): Promise<AdminRewardsAnalytics>
         type: {
           in: [
             "EARNED_BOOKING",
+            "EARNED_BOOKING_REMAINDER",
             "EARNED_CAFE",
             "EARNED_SIGNUP",
             "EARNED_REFERRAL",
@@ -476,6 +478,7 @@ export async function getAdminRewardsAnalytics(): Promise<AdminRewardsAnalytics>
         type: {
           in: [
             "EARNED_BOOKING",
+            "EARNED_BOOKING_REMAINDER",
             "EARNED_CAFE",
             "EARNED_SIGNUP",
             "EARNED_REFERRAL",

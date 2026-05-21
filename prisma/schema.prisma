@@ -162,6 +162,13 @@ enum UserGroupType {
 enum RewardTxnType {
   // Credits
   EARNED_BOOKING
+  // Top-up credit for partial-pay bookings — fires when admin marks
+  // the remainder collected at the venue. Sits alongside the initial
+  // EARNED_BOOKING (awarded on the advance) so the customer ends up
+  // with points proportional to the FULL amount they actually paid.
+  // Separate type so @@unique([type, bookingId]) doesn't collide
+  // with the initial award row.
+  EARNED_BOOKING_REMAINDER
   EARNED_CAFE
   EARNED_SIGNUP
   EARNED_REFERRAL

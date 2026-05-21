@@ -11,7 +11,10 @@ import { normalizeIndianPhone } from "@/lib/phone";
 import { sendToUser } from "@/lib/push";
 import { formatHoursAsRanges } from "@/lib/court-config";
 import { notifyWaitlistersForFreedSlots } from "@/actions/waitlist";
-import { awardBookingPoints } from "@/lib/rewards/earn";
+import {
+  awardBookingPoints,
+  awardBookingRemainderPoints,
+} from "@/lib/rewards/earn";
 import { revokeBookingRewards } from "@/lib/rewards/revoke";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
@@ -348,6 +351,17 @@ export async function markRemainderCollected(
       });
     }
   });
+
+  // Top up the customer's rewards for the remainder they just paid
+  // at the venue. The initial EARNED_BOOKING was credited on the
+  // advance at booking-confirm time; this delta brings the total
+  // earn up to what the full bill would have earned. Helper is
+  // idempotent (@@unique([type=EARNED_BOOKING_REMAINDER, bookingId]))
+  // + self-gates on Payment.status === "COMPLETED" and the
+  // admin-created flag, so calling unconditionally is safe.
+  void awardBookingRemainderPoints(bookingId).catch((err) =>
+    console.error("[rewards] remainder award failed for", bookingId, err),
+  );
 
   await revalidateBookingPaths(bookingId);
 

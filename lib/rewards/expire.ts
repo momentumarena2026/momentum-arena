@@ -44,6 +44,9 @@ export async function runExpirySweep(): Promise<{ expired: number; rows: number 
         type: {
           in: [
             "EARNED_BOOKING",
+            // Partial-pay remainder top-up follows the same
+            // expiry rules as the initial booking earn.
+            "EARNED_BOOKING_REMAINDER",
             "EARNED_CAFE",
             "EARNED_SIGNUP",
             "EARNED_REFERRAL",

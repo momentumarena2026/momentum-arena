@@ -71,6 +71,9 @@ export async function previewRedemption(args: {
       type: {
         in: [
           "EARNED_BOOKING",
+          // Partial-pay remainder top-up — same eligibility window
+          // as the initial booking earn.
+          "EARNED_BOOKING_REMAINDER",
           "EARNED_CAFE",
           "EARNED_SIGNUP",
           "EARNED_REFERRAL",
