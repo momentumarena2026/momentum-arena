@@ -26,6 +26,12 @@ export async function GET(request: NextRequest) {
       position: true,
       widthFt: true,
       lengthFt: true,
+      // Surfaced for the mobile create-booking form so it can flip
+      // into the 30-min bowling-machine slot picker. Legacy hourly
+      // courts have category=null + slotDurationMinutes=60; the
+      // client OR's both signals to detect bowling.
+      category: true,
+      slotDurationMinutes: true,
     },
     orderBy: [{ sport: "asc" }, { widthFt: "desc" }, { label: "asc" }],
   });

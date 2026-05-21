@@ -13,7 +13,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
   Check,
+  Clock,
   Lock,
+  Minus,
+  Plus,
   Save,
   Search,
   UserPlus,
@@ -27,9 +30,12 @@ import {
   adminBookingsApi,
   AdminApiError,
   type AdminCourt,
+  type AdminEquipmentCatalogItem,
+  type AvailableBowlingSlot,
   type AvailableSlot,
 } from "../../lib/admin-bookings";
 import {
+  formatHourMinuteCompact,
   formatHourRangeCompact,
   formatRupees,
   sportLabel,
@@ -129,6 +135,20 @@ export function AdminCreateBookingScreen() {
   const [hours, setHours] = useState<number[]>(
     prefill.prefillHour !== undefined ? [prefill.prefillHour] : [],
   );
+  // Parallel state for the Bowling Machine court's 30-min picks.
+  // Only one of `hours` / `bowlingSlots` is populated at a time —
+  // the active branch is driven by the picked court's category.
+  // Both get cleared on court swap so a stale hourly pick can't
+  // sneak into a bowling submit and vice versa.
+  const [bowlingSlots, setBowlingSlots] = useState<
+    Array<{ hour: number; minute: 0 | 30 }>
+  >([]);
+  // Equipment rentals attached at create time. Map<id, qty> so the
+  // qty controls below can −/+ a single key. Per-item cost = qty ×
+  // pricePerHour (paise) × slotCount; rolls into effectiveTotal.
+  const [selectedEquipment, setSelectedEquipment] = useState<
+    Record<string, number>
+  >({});
 
   // ---- Payment state ----
   const [method, setMethod] = useState<Method>("CASH");
@@ -140,27 +160,103 @@ export function AdminCreateBookingScreen() {
   const [note, setNote] = useState("");
 
   // ---- Data queries ----
+  // courtsQuery feeds both the picker chips AND the bowling/sport/
+  // category derivations below; everything else depends on it
+  // resolving first.
   const courtsQuery = useQuery({
     queryKey: ["admin-courts"],
     queryFn: () => adminBookingsApi.courts(),
   });
 
+  // Resolve the picked court FIRST so the slot/equipment queries
+  // below can branch off its category. Deriving these inline (vs.
+  // a useMemo) is fine because the find() is O(n) over a small
+  // list of courts and runs once per render.
+  const courtConfig: AdminCourt | null =
+    (courtsQuery.data?.courts ?? []).find((c) => c.id === courtConfigId) ??
+    null;
+  // Bowling detection — both signals checked so legacy rows with
+  // slotDurationMinutes=60 + category=BOWLING_MACHINE still flip
+  // into the 30-min picker. Mirror of the web detection (PR #129).
+  const isBowlingConfig =
+    courtConfig?.category === "BOWLING_MACHINE" ||
+    courtConfig?.slotDurationMinutes === 30;
+
+  // Hourly slots — only fetched for non-bowling courts. The bowling
+  // branch below covers the 30-min picker.
   const slotsQuery = useQuery({
     queryKey: ["admin-create-slots", courtConfigId, date],
     queryFn: () =>
       adminBookingsApi.availableSlotsForCreate(courtConfigId!, date),
-    enabled: !!courtConfigId && !!date,
+    enabled: !!courtConfigId && !!date && !isBowlingConfig,
+  });
+
+  // Bowling 30-min slots — only fetched when the picked court is the
+  // Bowling Machine. Server runs adminOverride=true so all 48 slots
+  // come back regardless of operating window / past-time guards.
+  const bowlingSlotsQuery = useQuery({
+    queryKey: ["admin-create-bowling-slots", courtConfigId, date],
+    queryFn: () =>
+      adminBookingsApi.availableBowlingSlots(courtConfigId!, date),
+    enabled: !!courtConfigId && !!date && isBowlingConfig,
+  });
+
+  // Equipment catalog filtered to the court's sport + category.
+  // Refetched whenever the court swaps; the cleanup effect below
+  // also wipes any stale selections.
+  const equipmentCatalogQuery = useQuery({
+    queryKey: [
+      "admin-create-equipment",
+      courtConfig?.sport ?? null,
+      courtConfig?.category ?? null,
+    ],
+    queryFn: () =>
+      adminBookingsApi.equipmentForBookingCreate(
+        courtConfig!.sport,
+        courtConfig!.category ?? null,
+      ),
+    enabled: !!courtConfig,
   });
 
   const slotPrices = slotsQuery.data?.slots ?? [];
-  const slotSum = useMemo(
-    () =>
-      hours.reduce((sum, h) => {
-        const slot = slotPrices.find((s) => s.hour === h);
+  const bowlingPrices = bowlingSlotsQuery.data?.slots ?? [];
+  const equipmentCatalog: AdminEquipmentCatalogItem[] =
+    equipmentCatalogQuery.data?.items ?? [];
+
+  // slotSum branches: bowling sums per-{hour,minute} pair, hourly
+  // sums per-hour. selectedSlotCount drives equipment pricing
+  // (every rental is billed quantity × pricePerHour × slotCount,
+  // matching the post-create EquipmentEditor's formula).
+  const slotSum = useMemo(() => {
+    if (isBowlingConfig) {
+      return bowlingSlots.reduce((sum, s) => {
+        const slot = bowlingPrices.find(
+          (x) => x.hour === s.hour && x.minute === s.minute,
+        );
         return sum + (slot?.price ?? 0);
-      }, 0),
-    [hours, slotPrices],
-  );
+      }, 0);
+    }
+    return hours.reduce((sum, h) => {
+      const slot = slotPrices.find((s) => s.hour === h);
+      return sum + (slot?.price ?? 0);
+    }, 0);
+  }, [isBowlingConfig, hours, slotPrices, bowlingSlots, bowlingPrices]);
+  const selectedSlotCount = isBowlingConfig ? bowlingSlots.length : hours.length;
+
+  // Equipment subtotal in rupees. Mirror of the web form's formula:
+  // qty * pricePerUnitPaise * slotCount, summed in paise, rounded
+  // to rupees. Zero when no items picked.
+  const equipmentTotalRupees = useMemo(() => {
+    return Math.round(
+      Object.entries(selectedEquipment).reduce((sum, [id, qty]) => {
+        const item = equipmentCatalog.find((r) => r.id === id);
+        if (!item || qty <= 0) return sum;
+        return (
+          sum + item.pricePerUnitPaise * qty * Math.max(1, selectedSlotCount)
+        );
+      }, 0) / 100,
+    );
+  }, [selectedEquipment, equipmentCatalog, selectedSlotCount]);
 
   // Effective total: typed value wins when valid, else slot-sum.
   // Locked at 0 for FREE.
@@ -171,8 +267,16 @@ export function AdminCreateBookingScreen() {
     parsedCustom >= 0 &&
     (method !== "FREE" ? parsedCustom > 0 : parsedCustom === 0);
   const customAmountOverride = customAmountValid && parsedCustom !== slotSum;
+  // Effective total includes the equipment rentals unless admin
+  // typed a custom amount (which is treated as inclusive of
+  // equipment, same convention the server enforces). FREE locks
+  // at zero.
   const effectiveTotal =
-    method === "FREE" ? 0 : customAmountValid ? parsedCustom : slotSum;
+    method === "FREE"
+      ? 0
+      : customAmountValid
+        ? parsedCustom
+        : slotSum + equipmentTotalRupees;
 
   const parsedAdvance = parseInt(advanceStr, 10);
   const advanceValid =
@@ -189,12 +293,9 @@ export function AdminCreateBookingScreen() {
     [courtsQuery.data, sport],
   );
 
-  const courtConfig = useMemo(
-    () =>
-      (courtsQuery.data?.courts ?? []).find((c) => c.id === courtConfigId) ??
-      null,
-    [courtsQuery.data, courtConfigId],
-  );
+  // courtConfig + isBowlingConfig are derived above the queries so
+  // the slot/equipment query branches can read them. Nothing to do
+  // here.
 
   // ---- Mutations ----
   const createCustomer = useMutation({
@@ -224,10 +325,20 @@ export function AdminCreateBookingScreen() {
       if (!customer || !courtConfigId) {
         throw new Error("Missing required field");
       }
+      // Reduce equipment Map → array; only send entries with qty > 0.
+      // Server re-validates each id + isActive.
+      const equipmentPayload = Object.entries(selectedEquipment)
+        .filter(([, qty]) => qty > 0)
+        .map(([equipmentId, quantity]) => ({ equipmentId, quantity }));
+
       return adminBookingsApi.create({
         courtConfigId,
         date,
-        hours,
+        // Bowling courts ship bowlingSlots[]; hourly courts ship
+        // hours[]. Server picks the path by court.category /
+        // slotDurationMinutes and rejects mismatched payloads.
+        hours: isBowlingConfig ? [] : hours,
+        bowlingSlots: isBowlingConfig ? bowlingSlots : undefined,
         userId: customer.id,
         paymentMethod: method,
         razorpayPaymentId:
@@ -238,6 +349,8 @@ export function AdminCreateBookingScreen() {
         // here lets the server default to the slot-sum.
         customTotalAmount: customAmountOverride ? parsedCustom : undefined,
         advanceAmount: isPartial ? parsedAdvance : undefined,
+        equipment:
+          equipmentPayload.length > 0 ? equipmentPayload : undefined,
         note: note.trim() || undefined,
       });
     },
@@ -259,11 +372,28 @@ export function AdminCreateBookingScreen() {
   const canSubmit =
     !!customer &&
     !!courtConfigId &&
-    hours.length > 0 &&
+    selectedSlotCount > 0 &&
     (method === "FREE" || effectiveTotal > 0) &&
     advanceValid &&
     (method !== "RAZORPAY" || razorpayId.trim().length > 0) &&
     !createBooking.isPending;
+
+  // ---- Reset selections when court swaps ----
+  // Clears stale slot + equipment picks the moment the admin
+  // changes the court (e.g. cricket → bowling, or any size swap
+  // inside a sport). Without this, a hourly pick could survive into
+  // the bowling submit payload (the server would reject, but the
+  // UI would let the user reach Submit). Also clears the typed
+  // custom amount because pricing is no longer comparable.
+  useEffect(() => {
+    setHours([]);
+    setBowlingSlots([]);
+    setSelectedEquipment({});
+    setCustomAmountStr("");
+    // courtConfigId is the trigger — date / isBowlingConfig
+    // derive from it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courtConfigId]);
 
   // ---- Handlers ----
   function toggleHour(slot: AvailableSlot) {
@@ -275,6 +405,26 @@ export function AdminCreateBookingScreen() {
     );
     // Clear the typed-amount override when slot selection changes so
     // the slot-sum snaps back to the new total. Admin can re-type.
+    setCustomAmountStr("");
+  }
+
+  // Bowling 30-min toggle — parallel of toggleHour, but tracks
+  // {hour, minute} pairs in the selectedBowlingSlots state.
+  function toggleBowlingSlot(slot: AvailableBowlingSlot) {
+    if (slot.isBooked || slot.isBlocked) return;
+    setBowlingSlots((curr) => {
+      const has = curr.some(
+        (s) => s.hour === slot.hour && s.minute === slot.minute,
+      );
+      const next = has
+        ? curr.filter(
+            (s) => !(s.hour === slot.hour && s.minute === slot.minute),
+          )
+        : [...curr, { hour: slot.hour, minute: slot.minute }];
+      return next.sort(
+        (a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute),
+      );
+    });
     setCustomAmountStr("");
   }
 
@@ -530,9 +680,45 @@ export function AdminCreateBookingScreen() {
         ) : null}
 
         {/* ---------- 5. Slots ---------- */}
+        {/* Hourly courts render the existing SlotTile grid; bowling
+            courts render a 30-min BowlingSlotTile grid (parallel
+            shape, distinct {hour, minute} keying). Branching here
+            keeps the two flows independent and the loading state
+            specific to whichever query is active. */}
         {courtConfigId && date ? (
-          <Section title={`SLOTS · ${hours.length} selected`}>
-            {slotsQuery.isLoading ? (
+          <Section
+            title={
+              isBowlingConfig
+                ? `30-MIN SLOTS · ${bowlingSlots.length} selected`
+                : `SLOTS · ${hours.length} selected`
+            }
+          >
+            {isBowlingConfig ? (
+              bowlingSlotsQuery.isLoading ? (
+                <View style={styles.slotGrid}>
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} width="48%" height={48} rounded="md" />
+                  ))}
+                </View>
+              ) : bowlingSlotsQuery.isError ? (
+                <Text variant="small" color={colors.destructive}>
+                  Couldn't load bowling slots for this date.
+                </Text>
+              ) : (
+                <View style={styles.slotGrid}>
+                  {bowlingSlotsQuery.data!.slots.map((s) => (
+                    <BowlingSlotTile
+                      key={`${s.hour}:${s.minute}`}
+                      slot={s}
+                      selected={bowlingSlots.some(
+                        (b) => b.hour === s.hour && b.minute === s.minute,
+                      )}
+                      onToggle={() => toggleBowlingSlot(s)}
+                    />
+                  ))}
+                </View>
+              )
+            ) : slotsQuery.isLoading ? (
               <View style={styles.slotGrid}>
                 {Array.from({ length: 8 }).map((_, i) => (
                   <Skeleton key={i} width="48%" height={48} rounded="md" />
@@ -557,8 +743,114 @@ export function AdminCreateBookingScreen() {
           </Section>
         ) : null}
 
+        {/* ---------- 5b. Equipment rentals ---------- */}
+        {/* Filtered to the court's sport + category. Per-row cost
+            scales by the selected slot count, mirroring the post-
+            create EquipmentEditor's pricing exactly. Section hidden
+            when no items match (e.g. a sport with no rentals
+            configured) or while the catalog is still fetching. */}
+        {courtConfig && equipmentCatalog.length > 0 ? (
+          <Section
+            title={`RENTAL EQUIPMENT${
+              selectedSlotCount > 0 ? ` · ${selectedSlotCount} × slot rate` : ""
+            }`}
+          >
+            <Text variant="tiny" color={colors.zinc500}>
+              {selectedSlotCount > 0
+                ? "Cost folds into the total below."
+                : "Pick slots first to see the per-item total."}
+            </Text>
+            {equipmentCatalog.map((item) => {
+              const qty = selectedEquipment[item.id] ?? 0;
+              const pricePerSlotRupees = Math.round(
+                item.pricePerUnitPaise / 100,
+              );
+              const rowTotalRupees =
+                qty > 0
+                  ? Math.round(
+                      (item.pricePerUnitPaise *
+                        qty *
+                        Math.max(1, selectedSlotCount)) /
+                        100,
+                    )
+                  : 0;
+              return (
+                <View key={item.id} style={styles.equipmentRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="small" color={colors.foreground}>
+                      {item.name}
+                    </Text>
+                    <Text variant="tiny" color={colors.zinc500}>
+                      {formatRupees(pricePerSlotRupees)} / slot
+                    </Text>
+                  </View>
+                  <View style={styles.equipmentQtyRow}>
+                    <Pressable
+                      onPress={() =>
+                        setSelectedEquipment((prev) => {
+                          const next = { ...prev };
+                          const nextQty = (next[item.id] ?? 0) - 1;
+                          if (nextQty <= 0) delete next[item.id];
+                          else next[item.id] = nextQty;
+                          return next;
+                        })
+                      }
+                      disabled={qty <= 0}
+                      style={({ pressed }) => [
+                        styles.equipmentQtyBtn,
+                        qty <= 0 && { opacity: 0.3 },
+                        pressed && qty > 0 && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Minus size={14} color={colors.foreground} />
+                    </Pressable>
+                    <Text
+                      variant="small"
+                      color={colors.foreground}
+                      style={styles.equipmentQtyValue}
+                    >
+                      {qty}
+                    </Text>
+                    <Pressable
+                      onPress={() =>
+                        setSelectedEquipment((prev) => ({
+                          ...prev,
+                          [item.id]: (prev[item.id] ?? 0) + 1,
+                        }))
+                      }
+                      style={({ pressed }) => [
+                        styles.equipmentQtyBtn,
+                        pressed && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Plus size={14} color={colors.foreground} />
+                    </Pressable>
+                  </View>
+                  <Text
+                    variant="tiny"
+                    color={colors.zinc400}
+                    style={styles.equipmentRowTotal}
+                  >
+                    {qty > 0 ? formatRupees(rowTotalRupees) : ""}
+                  </Text>
+                </View>
+              );
+            })}
+            {equipmentTotalRupees > 0 ? (
+              <View style={styles.equipmentSubtotalRow}>
+                <Text variant="small" color={colors.zinc400}>
+                  Equipment subtotal
+                </Text>
+                <Text variant="small" weight="600" color={colors.emerald400}>
+                  {formatRupees(equipmentTotalRupees)}
+                </Text>
+              </View>
+            ) : null}
+          </Section>
+        ) : null}
+
         {/* ---------- 6. Total + Payment ---------- */}
-        {hours.length > 0 ? (
+        {selectedSlotCount > 0 ? (
           <>
             <Section title="TOTAL AMOUNT (₹)">
               <Text variant="tiny" color={colors.zinc500}>
@@ -913,6 +1205,66 @@ function SlotTile({
   );
 }
 
+function BowlingSlotTile({
+  slot,
+  selected,
+  onToggle,
+}: {
+  slot: AvailableBowlingSlot;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const disabled = slot.isBooked || slot.isBlocked;
+  const start = slot.hour * 60 + slot.minute;
+  return (
+    <Pressable
+      onPress={onToggle}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.slotTile,
+        selected && styles.slotTileSelected,
+        disabled && styles.slotTileDisabled,
+        pressed && !disabled && { opacity: 0.7 },
+      ]}
+    >
+      <View style={styles.slotTop}>
+        {disabled ? (
+          <Lock size={12} color={colors.zinc600} />
+        ) : selected ? (
+          <Check size={12} color={colors.emerald400} />
+        ) : (
+          <Clock size={12} color={colors.zinc500} />
+        )}
+        <Text
+          variant="small"
+          color={
+            disabled
+              ? colors.zinc600
+              : selected
+                ? colors.emerald400
+                : colors.foreground
+          }
+          weight="600"
+        >
+          {formatHourMinuteCompact(start)} - {formatHourMinuteCompact(start + 30)}
+        </Text>
+      </View>
+      <Text
+        variant="tiny"
+        color={
+          disabled
+            ? colors.zinc700
+            : selected
+              ? colors.emerald400
+              : colors.zinc500
+        }
+      >
+        {disabled ? (slot.isBooked ? "Booked" : "Blocked") : formatRupees(slot.price)}
+      </Text>
+    </Pressable>
+  );
+}
+
 function ReviewLine({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.reviewLine}>
@@ -1120,6 +1472,47 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     gap: spacing["2"],
+  },
+  // Equipment rental section — one row per catalog item with the
+  // name+price on the left, qty −/+ controls in the middle, and
+  // the per-row total pinned to the right. Subtotal pill at the
+  // bottom mirrors the web layout.
+  equipmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    paddingVertical: spacing["2"],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  equipmentQtyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+  },
+  equipmentQtyBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    backgroundColor: colors.zinc900,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  equipmentQtyValue: {
+    minWidth: 18,
+    textAlign: "center",
+  },
+  equipmentRowTotal: {
+    minWidth: 60,
+    textAlign: "right",
+  },
+  equipmentSubtotalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: spacing["2"],
   },
   totalRowReview: {
     flexDirection: "row",
