@@ -126,10 +126,21 @@ export function AdminEditPaymentScreen() {
 
       // Diff against current values so the audit log doesn't get
       // noisy "method CASH → CASH" entries.
+      //
+      // totalAmount is the exception: always send it when the input
+      // is valid. The previous diff-gate (`parsedTotal !==
+      // b.totalAmount`) proved fragile on web — if the snapshot
+      // lagged the DB by a render, the modal would think "no change"
+      // and silently drop the field from the patch, so the save
+      // succeeded but the booking total stayed stale. Mobile shipped
+      // with the same gate, so port the same fix. The server's audit
+      // log condition still checks the real diff against the fresh
+      // booking row, so resaving the same number doesn't pollute
+      // history.
       const patch: Parameters<typeof adminBookingsApi.editPayment>[1] = {};
       if (method && method !== p.method) patch.method = method;
       if (status && status !== p.status) patch.status = status;
-      if (parsedTotal !== b.totalAmount) patch.totalAmount = parsedTotal;
+      patch.totalAmount = parsedTotal;
       if (isPartial !== p.isPartialPayment) patch.isPartialPayment = isPartial;
       if (isPartial && parsedAdvance !== (p.advanceAmount ?? 0)) {
         patch.advanceAmount = parsedAdvance;

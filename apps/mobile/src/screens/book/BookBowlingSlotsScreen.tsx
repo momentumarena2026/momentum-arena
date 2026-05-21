@@ -190,6 +190,11 @@ export function BookBowlingSlotsScreen() {
     <Screen padded={false}>
       <ScrollView
         contentContainerStyle={styles.scroll}
+        // Pin the date-picker section (index 1) so the customer
+        // keeps the day strip in reach while scrolling 30-min
+        // slots. Same treatment as the hourly BookSlotsScreen so
+        // both pickers feel identical on scroll.
+        stickyHeaderIndices={[1]}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -208,7 +213,7 @@ export function BookBowlingSlotsScreen() {
           </Text>
         </View>
 
-        <View style={styles.section}>
+        <View style={styles.stickyDateSection}>
           <View style={styles.dateHeader}>
             <CalendarDays size={16} color={colors.zinc400} />
             <Text variant="small" color={colors.zinc400}>
@@ -262,6 +267,9 @@ export function BookBowlingSlotsScreen() {
                 const k = keyOf(slot.hour, slot.minute);
                 const isSelected = selectedKeys.has(k);
                 const isAvail = slot.status === "available";
+                const isBooked =
+                  slot.status === "booked" || slot.status === "locked";
+                const isPast = slot.status === "closed";
                 return (
                   <Pressable
                     key={k}
@@ -273,36 +281,49 @@ export function BookBowlingSlotsScreen() {
                         ? styles.slotSelected
                         : isAvail
                           ? styles.slotAvailable
-                          : styles.slotUnavailable,
+                          : isBooked
+                            ? styles.slotBookedFuture
+                            : styles.slotUnavailable,
                       pressed && isAvail && { opacity: 0.85 },
                     ]}
                   >
+                    {/* Tile structure mirrors the hourly BookSlotsScreen
+                        exactly so the two pickers read as the same
+                        component. Clock icon + time-range, with a
+                        Check on selected. Footer below shows price
+                        when available, status label otherwise. */}
                     <View style={styles.slotHeader}>
-                      <Text
-                        variant="small"
-                        weight="600"
-                        color={
-                          isAvail || isSelected
-                            ? colors.foreground
-                            : colors.zinc500
-                        }
-                      >
-                        {fmtTime(slot.hour, slot.minute)}
-                      </Text>
+                      <View style={styles.slotTimeRow}>
+                        <Clock size={14} color={colors.zinc500} />
+                        <Text
+                          variant="small"
+                          weight="500"
+                          color={colors.foreground}
+                        >
+                          {fmtTime(slot.hour, slot.minute)}
+                        </Text>
+                      </View>
                       {isSelected ? (
-                        <Check size={14} color={colors.emerald400} />
+                        <Check size={16} color={colors.emerald400} />
                       ) : null}
                     </View>
                     <Text
                       variant="tiny"
-                      color={isAvail ? colors.zinc400 : colors.zinc600}
+                      color={
+                        isAvail
+                          ? colors.zinc400
+                          : isBooked
+                            ? colors.destructive_300
+                            : colors.zinc500
+                      }
+                      style={styles.slotFooter}
                     >
                       {isAvail
                         ? formatRupees(slot.price)
-                        : slot.status === "booked"
+                        : isBooked
                           ? "Booked"
-                          : slot.status === "locked"
-                            ? "Holding"
+                          : isPast
+                            ? "Past"
                             : "Unavailable"}
                     </Text>
                   </Pressable>
@@ -449,6 +470,17 @@ const styles = StyleSheet.create({
     marginTop: spacing["4"],
     gap: spacing["3"],
   },
+  // Sticky variant of `section` — same vertical rhythm plus an
+  // opaque background and a hairline divider so slot tiles
+  // don't bleed through when the date row is pinned to the top.
+  stickyDateSection: {
+    marginTop: spacing["4"],
+    gap: spacing["3"],
+    backgroundColor: colors.background,
+    paddingBottom: spacing["3"],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
   dateHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -490,17 +522,23 @@ const styles = StyleSheet.create({
   skeletonTile: {
     marginBottom: 0,
   },
+  // Grid + tile dimensions intentionally match the hourly
+  // BookSlotsScreen so cricket / football / pickleball / bowling
+  // all render the same tile shape. Going from 3-col 31% width
+  // (old bowling) to 2-col 48.5% gives the time + Clock icon room
+  // to breathe and matches the muscle memory from the other
+  // sports.
   slotsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing["2"],
   },
   slot: {
-    width: "31%",
+    width: "48.5%",
     borderRadius: radius.lg,
     borderWidth: 1,
-    padding: spacing["2.5"],
-    gap: 2,
+    padding: spacing["3"],
+    gap: spacing["1"],
   },
   slotAvailable: {
     backgroundColor: colors.emerald500_10,
@@ -511,6 +549,15 @@ const styles = StyleSheet.create({
     borderColor: colors.zinc700,
     opacity: 0.5,
   },
+  // Booked tile — same red palette the hourly grid uses for
+  // "booked but still in the future". Bowling has no waitlist yet
+  // so the Bell + "Notify me" affordance is intentionally absent,
+  // but the color treatment matches so the two pickers feel like
+  // one component.
+  slotBookedFuture: {
+    backgroundColor: colors.destructive_10,
+    borderColor: colors.destructive_30,
+  },
   slotSelected: {
     backgroundColor: colors.emerald500_20,
     borderColor: colors.emerald400,
@@ -520,6 +567,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  slotTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  slotFooter: {
+    marginTop: 2,
   },
   empty: {
     marginTop: spacing["1"],
