@@ -66,11 +66,22 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
   // toggled the checkbox on and off".
   const startedFiredRef = useRef(false);
 
+  // Default is "redemption ON" — we auto-apply the full eligible
+  // amount as soon as the preview loads, so the customer doesn't
+  // have to hunt for the checkbox to use the points they've already
+  // earned. If they explicitly opt OUT (uncheck), this ref flips
+  // and subsequent preview loads (when they apply or clear a
+  // coupon) respect that choice. Re-checking flips it back.
+  const userOptedOutRef = useRef(false);
+
   // Load preview whenever the bill changes (coupon apply/clear).
   useEffect(() => {
     let cancelled = false;
-    setRedeeming(false);
     setError(null);
+    // Reset the parent's saved amount until the new preview comes
+    // back — the previous bill's maxPoints would be stale. If
+    // auto-apply kicks in below it'll repopulate within the same tick.
+    setRedeeming(false);
     onChange({ points: 0, paiseSaved: 0 });
     getRedemptionPreview({ billPaise: billRupees * 100 })
       .then((p) => {
@@ -79,14 +90,34 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
           setPreview(null);
           return;
         }
-        setPreview({
+        const next = {
           enabled: p.enabled,
           maxPoints: p.maxPoints,
           pointsAvailable: p.pointsAvailable,
           pointValuePaise: p.pointValuePaise,
           minPoints: p.minPoints,
           blockedReason: p.blockedReason,
-        });
+        };
+        setPreview(next);
+
+        // Auto-apply when eligible and the user hasn't explicitly
+        // opted out. Same gate the render uses below to decide
+        // whether to even show the checkbox.
+        const eligible =
+          next.enabled &&
+          next.pointsAvailable >= next.minPoints &&
+          next.maxPoints >= next.minPoints &&
+          !next.blockedReason;
+        if (eligible && !userOptedOutRef.current) {
+          setRedeeming(true);
+          const paiseSaved = next.maxPoints * next.pointValuePaise;
+          onChange({ points: next.maxPoints, paiseSaved });
+          if (!startedFiredRef.current) {
+            startedFiredRef.current = true;
+            trackRewardsRedeemStarted(billRupees * 100, next.maxPoints);
+          }
+          void commitToHold(true, next.maxPoints);
+        }
       })
       .catch(() => {
         if (!cancelled) setPreview(null);
@@ -129,6 +160,12 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
     if (pendingApply) return;
     const nextOn = !redeeming;
     setRedeeming(nextOn);
+    // Remember the user's explicit choice so coupon apply/clear
+    // (which re-runs the preview effect) doesn't fight them — if
+    // they turned it OFF, keep it off even after the bill changes;
+    // if they turn it back ON, resume the default auto-apply
+    // behavior on future preview loads.
+    userOptedOutRef.current = !nextOn;
     const nextPoints = nextOn ? preview.maxPoints : 0;
     const paiseSaved = nextPoints * preview.pointValuePaise;
     onChange({ points: nextPoints, paiseSaved });
