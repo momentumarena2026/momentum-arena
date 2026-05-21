@@ -116,10 +116,22 @@ export function EditPaymentModal({
     // Only include fields whose final value differs from `current` so
     // the audit log entry stays accurate (and so admins don't get
     // "method CASH → CASH" noise in the history).
+    //
+    // totalAmount is the exception: send it whenever the value is
+    // valid, regardless of how it compares to the `totalAmount` prop.
+    // The previous diff-gate (`parsedTotal !== totalAmount`) proved
+    // fragile — if the prop ever lagged the DB by a render (e.g.
+    // because router.refresh hadn't settled yet, or another edit
+    // touched the booking in between) the modal silently dropped the
+    // field from the patch, the save returned success, and the user
+    // saw the booking still showing the old total. The server-side
+    // audit-log condition still gates the "total X → Y" entry on a
+    // real diff vs booking.totalAmount, so saving the same value
+    // doesn't pollute the history.
     const patch: Parameters<typeof adminEditPayment>[1] = {};
     if (method !== current.method) patch.method = method;
     if (status !== current.status) patch.status = status;
-    if (parsedTotal !== totalAmount) patch.totalAmount = parsedTotal;
+    patch.totalAmount = parsedTotal;
     if (isPartial !== current.isPartialPayment) patch.isPartialPayment = isPartial;
     if (isPartial && parsedAdvance !== (current.advanceAmount ?? 0)) {
       patch.advanceAmount = parsedAdvance;
