@@ -35,6 +35,10 @@ export interface RewardOverview {
     earnRateBookingBps: number;
     earnRateCafeBps: number;
     cafeEarnEnabled: boolean;
+    /** Months until earned points expire. 0 = no expiry (admin
+     *  can disable expiry from /admin/rewards). The how-it-works
+     *  page reads this for the "Time to use them" section. */
+    pointExpiryMonths: number;
   };
 }
 
@@ -84,6 +88,7 @@ export async function getMyRewardOverview(
       earnRateBookingBps: cfg.earnRateBookingBps,
       earnRateCafeBps: cfg.earnRateCafeBps,
       cafeEarnEnabled: cfg.cafeEarnEnabled,
+      pointExpiryMonths: cfg.pointExpiryMonths,
     },
   };
 }

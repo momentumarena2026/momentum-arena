@@ -10,6 +10,10 @@ export interface RewardConfigSnapshot {
   earnRateBookingBps: number;
   earnRateCafeBps: number;
   cafeEarnEnabled: boolean;
+  // Months until earned points expire. 0 = no expiry — the
+  // RewardsHowItWorksScreen flips to a "points never expire"
+  // variant when this is 0.
+  pointExpiryMonths: number;
 }
 
 export interface RewardOverview {
