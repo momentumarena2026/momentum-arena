@@ -163,4 +163,5 @@ export type AdminTabsParamList = {
 export type AdminRewardsStackParamList = {
   AdminRewardsHome: undefined;
   AdminRewardsDistribute: undefined;
+  AdminRewardsTransactions: undefined;
 };

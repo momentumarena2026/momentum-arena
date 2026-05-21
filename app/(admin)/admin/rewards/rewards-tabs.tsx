@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bell,
   LayoutDashboard,
+  ListOrdered,
   Settings,
   Users,
 } from "lucide-react";
@@ -20,8 +21,9 @@ import { RewardsConfigPanel } from "./panels/config-panel";
 import { RewardsUsersPanel } from "./panels/users-panel";
 import { RewardsAlertsPanel, type AlertRow } from "./panels/alerts-panel";
 import { RewardsAnalyticsPanel } from "./panels/analytics-panel";
+import { RewardsTransactionsPanel } from "./panels/transactions-panel";
 
-type TabKey = "overview" | "config" | "users" | "alerts" | "analytics";
+type TabKey = "overview" | "config" | "users" | "transactions" | "alerts" | "analytics";
 
 interface Props {
   overview: AdminRewardsOverview;
@@ -35,6 +37,7 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <LayoutDashboard className="h-4 w-4" /> },
   { key: "config", label: "Config", icon: <Settings className="h-4 w-4" /> },
   { key: "users", label: "Users", icon: <Users className="h-4 w-4" /> },
+  { key: "transactions", label: "Transactions", icon: <ListOrdered className="h-4 w-4" /> },
   { key: "alerts", label: "Alerts", icon: <Bell className="h-4 w-4" /> },
   { key: "analytics", label: "Analytics", icon: <BarChart3 className="h-4 w-4" /> },
 ];
@@ -53,6 +56,7 @@ export function RewardsAdminTabs({
   const active: TabKey =
     rawTab === "config" ||
     rawTab === "users" ||
+    rawTab === "transactions" ||
     rawTab === "alerts" ||
     rawTab === "analytics"
       ? rawTab
@@ -62,6 +66,11 @@ export function RewardsAdminTabs({
     const params = new URLSearchParams(searchParams.toString());
     if (t === "overview") params.delete("tab");
     else params.set("tab", t);
+    // Clear filter params when switching tabs so an old tab's filter
+    // state doesn't leak into the next tab's URL.
+    for (const k of ["q", "from", "to", "types", "dir", "src", "actor", "page"]) {
+      if (t !== "transactions") params.delete(k);
+    }
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   };
@@ -98,6 +107,7 @@ export function RewardsAdminTabs({
       {active === "overview" && <RewardsOverviewPanel overview={overview} />}
       {active === "config" && <RewardsConfigPanel config={config} />}
       {active === "users" && <RewardsUsersPanel initial={initialUsers} />}
+      {active === "transactions" && <RewardsTransactionsPanel />}
       {active === "alerts" && <RewardsAlertsPanel alerts={alerts} />}
       {active === "analytics" && (
         <RewardsAnalyticsPanel analytics={analytics} />

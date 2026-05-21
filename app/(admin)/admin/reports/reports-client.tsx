@@ -70,6 +70,16 @@ const TYPES = [
     label: "Rewards alerts (monthly)",
     desc: "Every RewardAlert raised in the month with full details JSON expanded into columns. Includes a 'By kind' summary sheet.",
   },
+  {
+    value: "REWARD_TXN_LEDGER_MONTHLY",
+    label: "Rewards transactions (monthly)",
+    desc: "Per-transaction ledger for the month — every earn, redeem, revoke, expire, and admin adjustment as one row. Summary sheet rolls up by type and by IST month for reconciliation.",
+  },
+  {
+    value: "REWARD_TXN_LEDGER_LIFETIME",
+    label: "Rewards transactions (all-time)",
+    desc: "Same per-transaction shape as the monthly version but covers every RewardTransaction ever recorded. Month picker is ignored. Use this for annual / lifetime reconciliation.",
+  },
 ] as const;
 
 const MONTHS = [
@@ -147,7 +157,9 @@ export function ReportsClient({ initialReports }: Props) {
         // success toast reflects that so admins don't think the
         // month picker was applied.
         const isLifetime =
-          type === "EXPENSES_LIFETIME" || type === "REWARD_LIABILITY_LIFETIME";
+          type === "EXPENSES_LIFETIME" ||
+          type === "REWARD_LIABILITY_LIFETIME" ||
+          type === "REWARD_TXN_LEDGER_LIFETIME";
         toast.success(
           isLifetime
             ? `${TYPES.find((t) => t.value === type)?.label} queued (all-time)`
@@ -244,11 +256,14 @@ export function ReportsClient({ initialReports }: Props) {
               of month. Inline note replaces them so the admin
               knows what's happening. */}
           {type === "EXPENSES_LIFETIME" ||
-          type === "REWARD_LIABILITY_LIFETIME" ? (
+          type === "REWARD_LIABILITY_LIFETIME" ||
+          type === "REWARD_TXN_LEDGER_LIFETIME" ? (
             <div className="flex-1 rounded-md border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-xs text-zinc-400">
               {type === "EXPENSES_LIFETIME"
                 ? "Covers every expense entry ever recorded — no month filter applied."
-                : "Activity columns cover every reward transaction ever recorded — no month filter applied."}
+                : type === "REWARD_TXN_LEDGER_LIFETIME"
+                  ? "Covers every reward transaction ever recorded — every row, all-time. No month filter applied."
+                  : "Activity columns cover every reward transaction ever recorded — no month filter applied."}
             </div>
           ) : (
             <>
@@ -349,7 +364,9 @@ function ReportTableRow({ row }: { row: ReportRow }) {
   // Lifetime reports don't have a meaningful month — the year/month
   // on the Report row were just the request-time placeholders.
   const period =
-    row.type === "EXPENSES_LIFETIME" || row.type === "REWARD_LIABILITY_LIFETIME"
+    row.type === "EXPENSES_LIFETIME" ||
+    row.type === "REWARD_LIABILITY_LIFETIME" ||
+    row.type === "REWARD_TXN_LEDGER_LIFETIME"
       ? "All-time"
       : `${MONTHS[row.month - 1]} ${row.year}`;
   const queuedAt = new Date(row.createdAt).toLocaleString("en-IN", {
