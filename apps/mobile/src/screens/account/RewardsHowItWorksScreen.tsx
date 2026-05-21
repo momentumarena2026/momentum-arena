@@ -363,70 +363,124 @@ export function RewardsHowItWorksScreen() {
           </View>
         ) : null}
 
-        {/* EXPIRY TIMELINE */}
-        <View style={styles.expiryCard}>
-          <SectionLabel>Time to use them</SectionLabel>
-          <View style={styles.expiryHead}>
-            <View style={styles.expiryIcon}>
-              <CalendarClock size={26} color={colors.zinc300} />
+        {/* EXPIRY TIMELINE — copy + dot count are driven by
+            cfg.pointExpiryMonths. When admin disables expiry (sets
+            the field to 0 from /admin/rewards) we swap in the
+            "never expires" variant and skip the timeline SVG. */}
+        {cfg ? (
+          <View style={styles.expiryCard}>
+            <SectionLabel>Time to use them</SectionLabel>
+            <View style={styles.expiryHead}>
+              <View style={styles.expiryIcon}>
+                <CalendarClock size={26} color={colors.zinc300} />
+              </View>
+              <View style={{ flex: 1 }}>
+                {cfg.pointExpiryMonths > 0 ? (
+                  <>
+                    <Text style={styles.expiryTitle}>
+                      Each batch lasts {cfg.pointExpiryMonths} month
+                      {cfg.pointExpiryMonths === 1 ? "" : "s"}
+                    </Text>
+                    <Text style={styles.expiryBody}>
+                      Points expire {cfg.pointExpiryMonths} month
+                      {cfg.pointExpiryMonths === 1 ? "" : "s"} after they're
+                      earned. Your statement flags any batch that's about to
+                      drop off so you never lose them by accident.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.expiryTitle}>
+                      Your points never expire
+                    </Text>
+                    <Text style={styles.expiryBody}>
+                      Earn now, spend whenever. Check your statement any
+                      time to see your balance.
+                    </Text>
+                  </>
+                )}
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.expiryTitle}>Each batch lasts 12 months</Text>
-              <Text style={styles.expiryBody}>
-                Points expire 12 months after they're earned. Your statement
-                flags any batch that's about to drop off so you never lose
-                them by accident.
-              </Text>
-            </View>
-          </View>
 
-          {/* SVG timeline — gradient from emerald (just earned) to grey
-              (expiring soon). 13 dots = 12 months between the bookends. */}
-          <Svg viewBox="0 0 600 60" style={styles.svg}>
-            <Defs>
-              <SvgLinearGradient id="tg" x1="0" x2="1" y1="0" y2="0">
-                <Stop offset="0%" stopColor="#10b981" />
-                <Stop offset="70%" stopColor="#fde047" />
-                <Stop offset="100%" stopColor="#71717a" />
-              </SvgLinearGradient>
-            </Defs>
-            <Rect
-              x="0"
-              y="22"
-              width="600"
-              height="6"
-              rx="3"
-              fill="url(#tg)"
-              opacity={0.7}
-            />
-            {Array.from({ length: 13 }).map((_, i) => {
-              const isEdge = i === 0 || i === 12;
-              return (
-                <Circle
-                  key={i}
-                  cx={i * 50}
-                  cy={25}
-                  r={isEdge ? 6 : 3}
-                  fill={i === 0 ? "#34d399" : i === 12 ? "#71717a" : "#fde047"}
-                  opacity={isEdge ? 1 : 0.6}
-                />
-              );
-            })}
-            <SvgText x="0" y="55" fill="#34d399" fontSize="11" fontWeight="700">
-              Day 1 · earned
-            </SvgText>
-            <SvgText
-              x="600"
-              y="55"
-              fill="#a1a1aa"
-              fontSize="11"
-              fontWeight="700"
-              textAnchor="end"
-            >
-              Month 12 · expires
-            </SvgText>
-          </Svg>
-        </View>
+            {/* SVG timeline — gradient from emerald (just earned) to
+                grey (expiring soon). Total dots = months + 1, capped
+                at 25 so a 60-month config doesn't pixel-soup the
+                track. Only rendered when there IS an expiry. */}
+            {cfg.pointExpiryMonths > 0
+              ? (() => {
+                  const months = cfg.pointExpiryMonths;
+                  const totalMarkers = months + 1;
+                  const renderedMarkers = Math.min(totalMarkers, 25);
+                  const step = 600 / (renderedMarkers - 1);
+                  return (
+                    <Svg viewBox="0 0 600 60" style={styles.svg}>
+                      <Defs>
+                        <SvgLinearGradient
+                          id="tg"
+                          x1="0"
+                          x2="1"
+                          y1="0"
+                          y2="0"
+                        >
+                          <Stop offset="0%" stopColor="#10b981" />
+                          <Stop offset="70%" stopColor="#fde047" />
+                          <Stop offset="100%" stopColor="#71717a" />
+                        </SvgLinearGradient>
+                      </Defs>
+                      <Rect
+                        x="0"
+                        y="22"
+                        width="600"
+                        height="6"
+                        rx="3"
+                        fill="url(#tg)"
+                        opacity={0.7}
+                      />
+                      {Array.from({ length: renderedMarkers }).map((_, i) => {
+                        const isStart = i === 0;
+                        const isEnd = i === renderedMarkers - 1;
+                        return (
+                          <Circle
+                            key={i}
+                            cx={i * step}
+                            cy={25}
+                            r={isStart || isEnd ? 6 : 3}
+                            fill={
+                              isStart
+                                ? "#34d399"
+                                : isEnd
+                                  ? "#71717a"
+                                  : "#fde047"
+                            }
+                            opacity={isStart || isEnd ? 1 : 0.6}
+                          />
+                        );
+                      })}
+                      <SvgText
+                        x="0"
+                        y="55"
+                        fill="#34d399"
+                        fontSize="11"
+                        fontWeight="700"
+                      >
+                        Day 1 · earned
+                      </SvgText>
+                      <SvgText
+                        x="600"
+                        y="55"
+                        fill="#a1a1aa"
+                        fontSize="11"
+                        fontWeight="700"
+                        textAnchor="end"
+                      >
+                        Month {months} · expires
+                      </SvgText>
+                    </Svg>
+                  );
+                })()
+              : null}
+          </View>
+        ) : null}
 
         {/* FAQ */}
         <View>
