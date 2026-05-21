@@ -3,12 +3,12 @@ import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
 import { adminAuth } from "@/lib/admin-auth-session";
 import { hasPermission } from "@/lib/permissions";
+import { resolveActorAdminIds } from "@/actions/admin-rewards";
 import {
   buildRewardTxnWhere,
   REWARD_TXN_TYPES_ALL,
-  resolveActorAdminIds,
   type RewardTxnTypeFilter,
-} from "@/actions/admin-rewards";
+} from "@/lib/rewards/admin-ledger";
 import { buildLedgerWorkbook } from "@/lib/reports/workers/rewards";
 
 /**

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getMobileAdmin } from "@/lib/mobile-auth";
 import { hasPermission } from "@/lib/permissions";
+import { resolveActorAdminIds } from "@/actions/admin-rewards";
 import {
   buildRewardTxnWhere,
   REWARD_TXN_TYPES_ALL,
-  resolveActorAdminIds,
   type RewardTxnTypeFilter,
-} from "@/actions/admin-rewards";
+} from "@/lib/rewards/admin-ledger";
 
 /**
  * Mobile admin endpoint for the reward transactions ledger.

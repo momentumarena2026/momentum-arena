@@ -32,13 +32,13 @@ import {
   Loader2,
   Search,
 } from "lucide-react";
+import { listRewardTransactions } from "@/actions/admin-rewards";
 import {
-  listRewardTransactions,
   REWARD_TXN_TYPES_ALL,
   type AdminRewardTxnLedger,
   type AdminRewardTxnRow,
   type RewardTxnTypeFilter,
-} from "@/actions/admin-rewards";
+} from "@/lib/rewards/admin-ledger";
 
 const TYPE_LABELS: Record<RewardTxnTypeFilter, string> = {
   EARNED_BOOKING: "Earn — booking",
