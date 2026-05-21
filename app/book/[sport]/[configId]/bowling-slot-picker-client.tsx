@@ -186,7 +186,11 @@ export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
       )}
 
       <div className="space-y-5">
-        <div>
+        {/* Sticky on scroll so the date strip stays in reach while
+            the customer is browsing 30-min slot tiles below. Same
+            treatment as the regular slot-selection screen so the
+            two flows feel identical. z-20 sits above the tiles. */}
+        <div className="sticky top-0 z-20 -mt-2 bg-black/95 pb-3 pt-2 backdrop-blur supports-[backdrop-filter]:bg-black/70">
           <h2 className="mb-3 text-sm font-medium text-zinc-400">
             <Calendar className="mr-1 inline h-3.5 w-3.5" />
             Pick a date

@@ -227,45 +227,50 @@ export default async function SportConfigPage({
       </div>
 
       {/* Bowling-Machine practice — only on the Cricket page.
-          Renders as a dedicated section below Box Cricket so the
-          customer sees the split at-a-glance instead of mixing it
-          into the same grid. Auto-hidden if the bowling-machine
-          config is disabled or missing. */}
+          Lives in its own labelled section below Box Cricket so the
+          customer sees the split at-a-glance. The card uses the
+          SAME vertical layout as the Box Cricket tiles (diagram
+          centered at top, title row with a corner chip, then copy)
+          and is wrapped in sm:grid-cols-2 so its width matches a
+          regular tile on desktop. The "30-min slots" chip is
+          flex-shrunk and the title has min-w-0 + truncate so the
+          chip can never overflow the card edge on a narrow screen.
+          Auto-hidden if the bowling config is disabled or missing. */}
       {isCricket && bowlingConfig && (
         <div className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Bowling Machine practice
           </h2>
-          <Link
-            href={`/book/${sport}/${bowlingConfig.id}`}
-            className="group flex items-stretch gap-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 transition-all duration-300 hover:border-emerald-400/60 hover:bg-emerald-500/10"
-          >
-            <div className="shrink-0 flex items-center">
-              <BowlingMachineDiagram size="md" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-emerald-400" />
-                <h3 className="text-lg font-semibold text-white">
-                  Bowling Machine
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Link
+              href={`/book/${sport}/${bowlingConfig.id}`}
+              className="group rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 transition-all duration-300 hover:border-emerald-400/60 hover:bg-emerald-500/10"
+            >
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h3 className="flex min-w-0 items-center gap-2 text-lg font-semibold text-white">
+                  <Target className="h-4 w-4 shrink-0 text-emerald-400" />
+                  <span className="truncate">Bowling Machine</span>
                 </h3>
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
                   30-min slots
                 </span>
               </div>
-              <p className="mt-1 text-sm text-zinc-300">
+              <div className="mb-3 flex justify-center">
+                <BowlingMachineDiagram size="sm" />
+              </div>
+              <p className="text-sm text-zinc-400">
                 {bowlingConfig.widthFt}×{bowlingConfig.lengthFt} ft strip on the
-                corner. Practice batting against the machine for as long as you
-                like, in 30-minute blocks.
+                corner
               </p>
-              <p className="mt-2 text-xs text-zinc-500">
-                Rent kit, bat, or L-guard at checkout.
+              <p className="mt-1 text-xs text-zinc-500">
+                Practice batting in 30-minute blocks. Rent kit, bat, or L-guard
+                at checkout.
               </p>
               <div className="mt-3 flex items-center justify-end text-emerald-400 text-sm font-medium opacity-0 transition-opacity group-hover:opacity-100">
                 Pick a time →
               </div>
-            </div>
-          </Link>
+            </Link>
+          </div>
         </div>
       )}
     </div>
