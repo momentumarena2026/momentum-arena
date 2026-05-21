@@ -203,7 +203,7 @@ export function SlotSelectionClient({
   // Per-slot decoration only kicks in for an uncapped PERCENTAGE
   // promo (promo.percentOff non-null); same gating SlotGrid uses
   // for its tiles. The sticky footer + handleProceed analytics
-  // event read `promoTotal` so the "Pay Now" pill shows what the
+  // event read `promoTotal` so the "Continue" pill shows what the
   // checkout will actually charge.
   const showPromo = promo?.percentOff != null;
   const promoTotal = showPromo && promo
@@ -763,11 +763,11 @@ export function SlotSelectionClient({
               <span className="flex items-center justify-center gap-2">
                 {recurringMode === "weekly" ? <RefreshCw className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
                 {currentDiscount > 0
-                ? `Proceed — ${formatPrice(discountedTotal)} (${currentDiscount}% off)`
-                : `Proceed — ${formatPrice(total)}/${recurringUnit} \u00D7 ${recurringCount} ${recurringUnitPlural}`}
+                ? `Continue — ${formatPrice(discountedTotal)} (${currentDiscount}% off)`
+                : `Continue — ${formatPrice(total)}/${recurringUnit} \u00D7 ${recurringCount} ${recurringUnitPlural}`}
               </span>
             ) : (
-              "Pay Now"
+              "Continue"
             )}
           </button>
         </div>

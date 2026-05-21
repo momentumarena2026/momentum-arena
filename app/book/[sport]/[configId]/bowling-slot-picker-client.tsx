@@ -359,7 +359,7 @@ export function BowlingSlotPickerClient({
               disabled={booking}
               className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
             >
-              {booking ? "Reserving…" : "Proceed to checkout"}
+              {booking ? "Reserving…" : "Continue"}
             </button>
           </div>
         )}
