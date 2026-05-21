@@ -23,6 +23,15 @@ interface Props {
   /** Re-run the preview whenever this value changes — typically when a
    *  coupon is applied/removed (which changes the cap base). */
   billNonce?: number;
+  /**
+   * "card" (default) — legacy emerald-bordered tile with the
+   * "Use Momentum Points" header + balance pill. Kept for any
+   * surface that still wants the standalone block.
+   * "row" — single inline row meant to sit inside the Booking
+   * Summary tile, just above the Total line. No card chrome, no
+   * balance header; just a checkbox + label + amount.
+   */
+  variant?: "card" | "row";
 }
 
 /**
@@ -48,7 +57,13 @@ interface Props {
  * lands. This component just persists the pick on the SlotHold so
  * the booking-creation transaction picks it up.
  */
-export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props) {
+export function RedeemSlider({
+  holdId,
+  billRupees,
+  onChange,
+  billNonce,
+  variant = "card",
+}: Props) {
   const [preview, setPreview] = useState<{
     enabled: boolean;
     maxPoints: number;
@@ -198,6 +213,67 @@ export function RedeemSlider({ holdId, billRupees, onChange, billNonce }: Props)
 
   const paiseSaved = preview.maxPoints * preview.pointValuePaise;
   const rupeesSaved = Math.floor(paiseSaved / 100);
+
+  // Row variant — embedded inside the Booking Summary tile, sitting
+  // just above the Total line. Single line: checkbox + label +
+  // amount on the right. When ticked the amount reads "-₹50" in
+  // emerald; when unticked it falls back to "₹0" so the row stays
+  // present (user explicitly wanted the row visible whenever
+  // points are redeemable, regardless of checkbox state).
+  //
+  // The blocked-reason / cap-below-floor branches that the card
+  // variant surfaces aren't useful in this compact form — when the
+  // cap goes below the floor the row simply hides (preview already
+  // returned a maxPoints < minPoints), matching the user's spec
+  // that this line is only present when redemption is possible.
+  if (variant === "row") {
+    if (preview.maxPoints < preview.minPoints) return null;
+    if (preview.blockedReason) return null;
+    return (
+      <div>
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={redeeming}
+          disabled={pendingApply}
+          onClick={handleToggle}
+          className={`flex w-full items-center gap-3 py-2 text-left transition-opacity ${
+            pendingApply ? "opacity-60 cursor-wait" : "cursor-pointer"
+          }`}
+        >
+          <span
+            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors ${
+              redeeming
+                ? "border-emerald-400 bg-emerald-500"
+                : "border-zinc-600 bg-zinc-950"
+            }`}
+            aria-hidden
+          >
+            {redeeming ? (
+              <Check className="h-3 w-3 text-white" strokeWidth={3} />
+            ) : null}
+          </span>
+          <span className="flex-1 text-sm text-zinc-300">
+            Redeem{" "}
+            <strong className="text-white">
+              {preview.maxPoints.toLocaleString("en-IN")}
+            </strong>{" "}
+            Momentum Points
+          </span>
+          <span
+            className={`text-sm transition-colors ${
+              redeeming ? "font-semibold text-emerald-400" : "text-zinc-500"
+            }`}
+          >
+            {redeeming
+              ? `-₹${rupeesSaved.toLocaleString("en-IN")}`
+              : "₹0"}
+          </span>
+        </button>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">

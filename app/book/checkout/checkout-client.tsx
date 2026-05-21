@@ -6,7 +6,6 @@ import { CountdownTimer } from "@/components/booking/countdown-timer";
 import { PaymentSelector, type PaymentMethodType } from "@/components/payment/payment-selector";
 import { AdvancePaymentSelector, type AdvancePaymentMethod } from "@/components/payment/advance-payment-selector";
 import { DiscountInput } from "@/components/booking/discount-input";
-import { RedeemSlider } from "@/components/rewards/redeem-slider";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { formatPrice } from "@/lib/pricing";
 import { validateCoupon } from "@/actions/coupon-validation";
@@ -133,12 +132,36 @@ export function CheckoutClient({
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
   const [newUserApplied, setNewUserApplied] = useState(false);
 
-  // Reward redemption state — driven by the RedeemSlider child. The
-  // server keeps the canonical pointsToRedeem on the SlotHold; this
-  // local copy is just so we can compute the payable and pass it to
-  // the gateway initiation calls.
+  // Reward redemption state — fed by the SummaryFooter client
+  // island in page.tsx, which now owns the checkbox UI inside the
+  // Booking Summary tile. SummaryFooter dispatches a
+  // `checkout:redemption-changed` window event whenever the pick
+  // toggles; we listen below and mirror its values into local
+  // state so the gateway initiation calls + the redemption-applied
+  // pill stay in sync. The server still owns the canonical
+  // pointsToRedeem on the SlotHold (applyPointsRedemptionToHold /
+  // clearPointsRedemptionFromHold are called inside RedeemSlider).
   const [pointsRedeemed, setPointsRedeemed] = useState(0);
   const [pointsRedeemPaiseSaved, setPointsRedeemPaiseSaved] = useState(0);
+
+  useEffect(() => {
+    function onRedemptionChanged(e: Event) {
+      const detail = (
+        e as CustomEvent<{ points: number; paiseSaved: number }>
+      ).detail;
+      setPointsRedeemed(detail.points);
+      setPointsRedeemPaiseSaved(detail.paiseSaved);
+    }
+    window.addEventListener(
+      "checkout:redemption-changed",
+      onRedemptionChanged,
+    );
+    return () =>
+      window.removeEventListener(
+        "checkout:redemption-changed",
+        onRedemptionChanged,
+      );
+  }, []);
   // Bumped whenever the coupon mutates so the slider re-fetches the
   // preview (and resets to 0). applyCouponToHold / clearCouponFromHold
   // already null out the redemption columns server-side; bumping the
@@ -602,31 +625,15 @@ export function CheckoutClient({
         </div>
       )}
 
-      {/* Momentum Points redemption — auto-hidden if disabled / no balance */}
-      <RedeemSlider
-        holdId={holdId}
-        billRupees={effectiveAmount}
-        billNonce={billNonce}
-        onChange={({ points, paiseSaved }) => {
-          setPointsRedeemed(points);
-          setPointsRedeemPaiseSaved(paiseSaved);
-        }}
-      />
-
-      {/* Redemption summary line — only shows when the user has actually
-          dragged the slider above 0. Kept compact so it doesn't fight
-          the existing "discount applied" pill. */}
-      {pointsRedeemed > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm">
-          <span className="text-emerald-300">
-            {pointsRedeemed.toLocaleString("en-IN")} pts applied
-          </span>
-          <span className="text-emerald-300">
-            -{formatPrice(pointsRedeemRupees)} · New total{" "}
-            <strong className="text-white">{formatPrice(payableAmount)}</strong>
-          </span>
-        </div>
-      )}
+      {/* Momentum Points redemption + redemption summary pill have
+          moved INTO the Booking Summary tile (just above the Total
+          row) per the customer's request. The SummaryFooter client
+          island in app/book/checkout/page.tsx renders the checkbox
+          + reactive Total and dispatches a `checkout:redemption-
+          changed` window event whenever the pick changes — we
+          listen for it in the useEffect below to keep
+          `pointsRedeemed` / `pointsRedeemPaiseSaved` in sync with
+          the payment-gateway buttons that follow. */}
 
       {/* Included Equipment Banner */}
       {sport === "CRICKET" && equipmentOptions.length === 0 && (
