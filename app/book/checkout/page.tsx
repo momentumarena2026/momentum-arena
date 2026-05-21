@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { listEquipmentForBooking } from "@/lib/equipment";
+import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -85,7 +85,7 @@ export default async function CheckoutPage({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  const [newUserDiscount, paymentConfig, equipmentOptions, sportPromo] = await Promise.all([
+  const [newUserDiscount, paymentConfig, sportPromo] = await Promise.all([
     getNewUserDiscount(
       session.user.id,
       hold.courtConfig.sport,
@@ -93,19 +93,20 @@ export default async function CheckoutPage({
       hold.courtConfig.category,
     ).catch(() => null),
     getCheckoutPaymentConfig(),
-    // Equipment list filtered to this booking's sport + category.
-    // For bowling-machine bookings this returns the kit / bat /
-    // L-guard rentals; for plain box-cricket it returns whatever
-    // admin has marked customer-selectable without a sub-category
-    // filter. Empty list = no equipment row in the checkout UI.
-    listEquipmentForBooking({
-      sport: hold.courtConfig.sport,
-      category: hold.courtConfig.category,
-    }).catch(() => []),
     getActiveSportPromo(hold.courtConfig.sport, hold.courtConfig.category).catch(
       () => null,
     ),
   ]);
+
+  // Rental gear selected on the slot-selection page and snapshotted
+  // onto the hold at lock time (see /api/booking/lock). Read-only here
+  // — checkout displays it in the Booking Summary alongside the slot
+  // total, but the customer can't toggle items on this screen any
+  // more. If they need to change their picks, the back button on
+  // the checkout page sends them back to the slot picker.
+  const equipmentSnapshot =
+    (hold.equipmentSelection as unknown as EquipmentSnapshotItem[] | null) ?? [];
+  const equipmentTotalRupees = hold.equipmentTotalAmount ?? 0;
 
   // Predict which auto-applied discount will actually fire so the
   // Booking Summary's Total reflects what the user pays — was showing
@@ -214,6 +215,24 @@ export default async function CheckoutPage({
               </span>
             </div>
           )}
+          {/* Rental gear — read-only summary of what was picked on
+              the slot-selection page. The old interactive "Rent gear"
+              card has moved upstream so this row simply restates the
+              snapshot. Hidden when nothing was rented. */}
+          {equipmentSnapshot.length > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-zinc-400">
+                Gear ({equipmentSnapshot.length} item
+                {equipmentSnapshot.length === 1 ? "" : "s"})
+                <span className="ml-1 text-zinc-600">
+                  · {equipmentSnapshot.map((e) => e.name).join(", ")}
+                </span>
+              </span>
+              <span className="text-zinc-300">
+                +{formatPrice(equipmentTotalRupees)}
+              </span>
+            </div>
+          )}
           {/* Redeem checkbox row + reactive Total — lives inside
               this summary tile per the customer's request. The
               row only renders when the customer has redeemable
@@ -226,6 +245,7 @@ export default async function CheckoutPage({
                 ? recurringNetTotal
                 : hold.totalAmount) - sportPromoDiscount
             }
+            equipmentTotalRupees={equipmentTotalRupees}
           />
         </div>
       </div>
@@ -269,16 +289,11 @@ export default async function CheckoutPage({
         onlineEnabled={paymentConfig.onlineEnabled}
         upiQrEnabled={paymentConfig.upiQrEnabled}
         advanceEnabled={paymentConfig.advanceEnabled}
-        equipmentOptions={equipmentOptions.map((e) => ({
-          id: e.id,
-          name: e.name,
-          // Convert paise → rupees here so the client never has to
-          // know about the underlying paise convention. The server-
-          // side action receives just the id + quantity and re-prices
-          // from the canonical Equipment row.
-          priceRupees: Math.round(e.pricePaise / 100),
-          imageUrl: e.imageUrl,
-        }))}
+        // Rental selection is locked from the slot-selection page;
+        // checkout only needs the rupees total to add into the payable.
+        // The Booking Summary tile renders the per-item line server-
+        // side from hold.equipmentSelection.
+        lockedEquipmentTotalRupees={equipmentTotalRupees}
         // Slot count = number of BookingSlot rows on the hold. The
         // checkout client multiplies the rental rate by this so a
         // 3-slot booking shows ₹300 for a ₹100/slot rental. Server

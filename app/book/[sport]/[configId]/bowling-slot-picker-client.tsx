@@ -9,6 +9,8 @@ import { Loader2, Calendar, AlertCircle, Clock, Check } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
 import { formatHourMinuteCompact } from "@/lib/court-config";
+import { GearPicker } from "@/components/booking/gear-picker";
+import type { EquipmentOption } from "@/lib/equipment";
 
 interface BowlingSlot {
   hour: number;
@@ -21,6 +23,9 @@ interface Props {
   configId: string;
   sport: string;
   userId?: string;
+  /** Rental equipment options for this sport/category. Empty array
+   *  hides the gear picker entirely. */
+  equipmentOptions: EquipmentOption[];
 }
 
 /**
@@ -36,13 +41,21 @@ interface Props {
  *     the existing cricket UX where you can't book 9am + 11am as
  *     one booking)
  */
-export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
+export function BowlingSlotPickerClient({
+  configId,
+  sport,
+  userId,
+  equipmentOptions,
+}: Props) {
   const router = useRouter();
   const { status: sessionStatus } = useSession();
   const [selectedDate, setSelectedDate] = useState(getTodayIST());
   const [slots, setSlots] = useState<BowlingSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -135,6 +148,20 @@ export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
       fd.append("courtConfigId", configId);
       fd.append("date", selectedDate);
       fd.append("slots", JSON.stringify(sortedSelected));
+      // Equipment picks captured upstream replace the old checkout-
+      // side "Rent gear" card. Soft-fails server-side if a row is
+      // stale (see app/api/booking/lock — `equipmentApplied`).
+      if (selectedEquipmentIds.size > 0) {
+        fd.append(
+          "equipmentSelection",
+          JSON.stringify(
+            Array.from(selectedEquipmentIds).map((id) => ({
+              equipmentId: id,
+              quantity: 1,
+            })),
+          ),
+        );
+      }
       const res = await fetch("/api/booking/lock", {
         method: "POST",
         body: fd,
@@ -292,6 +319,21 @@ export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
 
         {sortedSelected.length > 0 && (
           <div className="sticky bottom-0 -mx-1 rounded-xl border border-emerald-500/30 bg-zinc-900/95 backdrop-blur p-4 shadow-lg">
+            {/* Gear picker — sits inside the sticky CTA tile so the
+                rental total stacks with the slot total directly above
+                the Proceed button. Per the chosen UX, it appears (and
+                auto-expands once) the moment a slot is picked. */}
+            {equipmentOptions.length > 0 && (
+              <div className="mb-3">
+                <GearPicker
+                  options={equipmentOptions}
+                  selectedIds={selectedEquipmentIds}
+                  onChange={setSelectedEquipmentIds}
+                  slotCount={sortedSelected.length}
+                  shouldExpand={sortedSelected.length > 0}
+                />
+              </div>
+            )}
             <div className="mb-2 flex items-center justify-between text-sm">
               <span className="text-zinc-400">
                 {sortedSelected.length} × 30 min

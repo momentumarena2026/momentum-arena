@@ -20,6 +20,7 @@ import { validateCoupon } from "@/actions/coupon-validation";
 import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
+import { snapshotEquipmentForHold } from "@/lib/equipment";
 import { Prisma, BookingCategory, CourtZone } from "@prisma/client";
 
 const lockSlotsSchema = z.object({
@@ -261,62 +262,27 @@ export async function applyEquipmentSelectionToHold(
     return { success: true, totalPaise: 0 };
   }
 
-  // Validate quantity bounds and dedupe by equipmentId.
-  const byId = new Map<string, number>();
-  for (const p of picks) {
-    if (!p.equipmentId || !Number.isInteger(p.quantity) || p.quantity <= 0) {
-      return { success: false, error: "Invalid equipment selection" };
-    }
-    byId.set(p.equipmentId, (byId.get(p.equipmentId) ?? 0) + p.quantity);
+  // Shared with the at-lock-time path on /api/booking/lock — see
+  // lib/equipment.ts for the validation + pricing math (price ×
+  // quantity × slotCount, with priceEach + name snapshotted at
+  // checkout so admin edits don't change the agreed total).
+  const snap = await snapshotEquipmentForHold(
+    picks,
+    Math.max(1, hold.hours.length),
+  );
+  if (!snap.ok) {
+    return { success: false, error: snap.error };
   }
-
-  // Fetch each item to re-derive its current price + label.
-  const items = await db.equipment.findMany({
-    where: {
-      id: { in: Array.from(byId.keys()) },
-      isActive: true,
-      isCustomerSelectable: true,
-    },
-  });
-  if (items.length !== byId.size) {
-    return { success: false, error: "One of those items is no longer available" };
-  }
-
-  // Rental is per-slot — multiply by the hold's slot count so a
-  // customer who picked 3 × 30-min bowling slots pays 3× the rental
-  // (₹100 rate → ₹300), and a 2-hour cricket booking pays 2× the
-  // rate. The slot count is `hold.hours.length` for both flows;
-  // bowling-machine holds carry the same array length even though
-  // each slot is 30 minutes (parallel `startMinutes` distinguishes
-  // the half).
-  const slotCount = Math.max(1, hold.hours.length);
-  const snapshot = items.map((eq) => {
-    const quantity = byId.get(eq.id) ?? 0;
-    const totalPrice = eq.pricePerHour * quantity * slotCount; // paise
-    return {
-      equipmentId: eq.id,
-      name: eq.name,
-      quantity,
-      slotCount,
-      priceEach: eq.pricePerHour,
-      totalPrice,
-    };
-  });
-  const totalPaise = snapshot.reduce((sum, e) => sum + e.totalPrice, 0);
-  // Persist as ₹ on the hold (existing fields like discountAmount use
-  // rupees end-to-end) — convert paise → rupees with round to avoid
-  // fractional ₹ leaking into the booking total.
-  const totalRupees = Math.round(totalPaise / 100);
 
   await db.slotHold.update({
     where: { id: holdId },
     data: {
-      equipmentSelection: snapshot as unknown as Prisma.InputJsonValue,
-      equipmentTotalAmount: totalRupees,
+      equipmentSelection: snap.result.snapshot as unknown as Prisma.InputJsonValue,
+      equipmentTotalAmount: snap.result.totalRupees,
     },
   });
 
-  return { success: true, totalPaise };
+  return { success: true, totalPaise: snap.result.totalPaise };
 }
 
 // ─── Momentum Points redemption (same carrier pattern as the coupon) ──

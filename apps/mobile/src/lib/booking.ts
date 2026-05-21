@@ -199,16 +199,34 @@ export const bookingApi = {
     );
   },
 
-  /** Creates a SlotHold (5-min TTL). Returns holdId or conflicts. */
+  /** Creates a SlotHold (5-min TTL). Returns holdId or conflicts.
+   *
+   *  Optional `equipmentSelection` snapshots the customer's rental
+   *  picks onto the fresh hold so the checkout screen can render a
+   *  read-only line item — replaces the old in-checkout selector.
+   *  Soft-fails on stale items (see web/mobile lock route comments).
+   */
   lock: (
     body:
-      | { courtConfigId: string; date: string; hours: number[] }
-      | { mode: "medium"; sport: Sport; date: string; hours: number[] }
+      | {
+          courtConfigId: string;
+          date: string;
+          hours: number[];
+          equipmentSelection?: Array<{ equipmentId: string; quantity?: number }>;
+        }
+      | {
+          mode: "medium";
+          sport: Sport;
+          date: string;
+          hours: number[];
+          equipmentSelection?: Array<{ equipmentId: string; quantity?: number }>;
+        }
       | {
           mode: "bowling-machine";
           courtConfigId: string;
           date: string;
           slots: Array<{ hour: number; minute: 0 | 30 }>;
+          equipmentSelection?: Array<{ equipmentId: string; quantity?: number }>;
         }
   ) => api.post<LockResult>("/api/mobile/booking/lock", body),
 
