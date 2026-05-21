@@ -164,7 +164,10 @@ export function formatHoursAsRanges(hours: number[]): string {
 }
 
 // "5:30pm" / "5pm" — omits :00 minutes so hourly slots stay terse.
-function formatHourMinuteCompact(totalMinutes: number): string {
+// Exported so half-hour-aware UIs (bowling-machine slot picker,
+// notification senders, calendar cell labels) can format any
+// minute-of-day without re-implementing the AM/PM math.
+export function formatHourMinuteCompact(totalMinutes: number): string {
   const h24 = Math.floor(totalMinutes / 60) % 24;
   const m = totalMinutes % 60;
   const ampm = h24 < 12 ? "am" : "pm";
