@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { Check, ChevronDown, ShoppingBag } from "lucide-react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Check, ChevronUp, ShoppingBag } from "lucide-react-native";
 import { Text } from "../ui/Text";
 import { colors, radius, spacing } from "../../theme";
 import type { EquipmentOption } from "../../lib/booking";
@@ -100,14 +100,16 @@ export function GearPicker({
           </>
         ) : (
           <>
-            <Text style={styles.headerTitle}>Add gear</Text>
+            <Text style={styles.headerTitle}>Rent gear</Text>
             <Text style={styles.headerSub} numberOfLines={1}>
               {options.map((o) => o.name).join(", ")}
               {cheapestRupees > 0 ? ` · from ₹${cheapestRupees}` : ""}
             </Text>
           </>
         )}
-        <ChevronDown
+        {/* Closed → arrow points up; open → flipped to point down.
+            Mirror of the web gear-picker affordance. */}
+        <ChevronUp
           size={14}
           color={colors.zinc500}
           style={[styles.chev, expanded && styles.chevOpen]}
@@ -116,29 +118,41 @@ export function GearPicker({
 
       {expanded && (
         <View style={styles.list}>
-          {options.map((opt) => {
-            const on = selectedIds.has(opt.id);
-            const perSlot = Math.round(opt.pricePaise / 100);
-            return (
-              <Pressable
-                key={opt.id}
-                onPress={() => toggle(opt.id)}
-                style={({ pressed }) => [
-                  styles.row,
-                  on && styles.rowOn,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <View style={[styles.box, on && styles.boxOn]}>
-                  {on ? (
-                    <Check size={12} color="#ffffff" strokeWidth={3} />
-                  ) : null}
-                </View>
-                <Text style={styles.rowName}>{opt.name}</Text>
-                <Text style={styles.rowPrice}>+₹{perSlot}/slot</Text>
-              </Pressable>
-            );
-          })}
+          {/* Cap visible rows at 4 — past that the list scrolls inside
+              the same envelope so the sticky CTA below stays put.
+              nestedScrollEnabled lets the inner scroll capture drags
+              even when the picker sits inside a parent ScrollView
+              (Android). */}
+          <ScrollView
+            style={options.length > 4 ? styles.scrollCap : undefined}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={options.length > 4}
+            contentContainerStyle={styles.scrollContent}
+          >
+            {options.map((opt) => {
+              const on = selectedIds.has(opt.id);
+              const perSlot = Math.round(opt.pricePaise / 100);
+              return (
+                <Pressable
+                  key={opt.id}
+                  onPress={() => toggle(opt.id)}
+                  style={({ pressed }) => [
+                    styles.row,
+                    on && styles.rowOn,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <View style={[styles.box, on && styles.boxOn]}>
+                    {on ? (
+                      <Check size={12} color="#ffffff" strokeWidth={3} />
+                    ) : null}
+                  </View>
+                  <Text style={styles.rowName}>{opt.name}</Text>
+                  <Text style={styles.rowPrice}>+₹{perSlot}/slot</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
           {safeSlotCount > 1 && hasSelection && (
             <Text style={styles.subtle}>
               {selected.length} item{selected.length > 1 ? "s" : ""} ×{" "}
@@ -194,6 +208,13 @@ const styles = StyleSheet.create({
   list: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.zinc800,
+  },
+  scrollCap: {
+    // ~4 rows of paddingVertical:8 + text~17 + gap:4 → ≈ 165px.
+    // 5th row peeks at the bottom so the scroll cue is obvious.
+    maxHeight: 175,
+  },
+  scrollContent: {
     paddingHorizontal: spacing["2"],
     paddingVertical: spacing["2"],
     gap: 4,
@@ -236,7 +257,8 @@ const styles = StyleSheet.create({
   subtle: {
     fontSize: 11,
     color: colors.zinc500,
-    paddingHorizontal: spacing["2"],
+    paddingHorizontal: spacing["3"],
     paddingTop: 4,
+    paddingBottom: spacing["2"],
   },
 });
