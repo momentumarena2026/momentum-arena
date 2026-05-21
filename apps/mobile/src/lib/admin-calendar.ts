@@ -36,7 +36,20 @@ export interface CellBooking {
   userName: string;
   userEmail: string | null;
   userPhone: string | null;
+  // Hour-only projection kept for legacy "which cells does this
+  // booking show in" lookups.
   slots: number[];
+  // Rich slot info (startHour + startMinute + durationMinutes) so
+  // the mobile calendar can tell a 4:00-5:00 booking from a
+  // 4:30-5:00 bowling-machine slot inside the same hour cell.
+  // Server populates this from BookingSlot rows. Optional only for
+  // back-compat with stale client builds — every fresh response
+  // carries it.
+  slotDetails?: Array<{
+    startHour: number;
+    startMinute: number;
+    durationMinutes: number;
+  }>;
   totalAmount: number;
   paymentStatus: string | null;
   paymentMethod: string | null;

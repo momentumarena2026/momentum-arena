@@ -11,7 +11,21 @@ export interface CellBooking {
   userName: string;
   userEmail: string | null;
   userPhone: string | null;
+  // `slots` is the legacy hour-only projection — kept for back-
+  // compat with consumers that just need "which hour cells does this
+  // booking appear in". Half-hour bookings (bowling machine) still
+  // expose their hour here so the cell match-up below works as-is.
   slots: number[];
+  // Rich slot info so the calendar can tell a 4:00-5:00 booking from
+  // a 4:30-5:00 one inside the same hour cell. The visual indicator
+  // strip + sub-hour time line on the booking pill both read from
+  // here. For ordinary cricket/football slots this is just the
+  // hourly default ({startMinute:0, durationMinutes:60}).
+  slotDetails: Array<{
+    startHour: number;
+    startMinute: number;
+    durationMinutes: number;
+  }>;
   totalAmount: number;
   paymentStatus: string | null;
   paymentMethod: string | null;
@@ -178,6 +192,11 @@ export async function getCalendarData(
           userEmail: matchingBooking.user.email,
           userPhone: matchingBooking.user.phone,
           slots: matchingBooking.slots.map((s) => s.startHour),
+          slotDetails: matchingBooking.slots.map((s) => ({
+            startHour: s.startHour,
+            startMinute: s.startMinute,
+            durationMinutes: s.durationMinutes,
+          })),
           totalAmount: matchingBooking.totalAmount,
           paymentStatus: matchingBooking.payment?.status || null,
           paymentMethod: matchingBooking.payment?.method || null,

@@ -23,7 +23,7 @@ import {
 import {
   formatHourCompact,
   formatHourRangeCompact,
-  formatHoursAsRanges,
+  formatSlotsAsRanges,
 } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import type { Sport } from "@prisma/client";
@@ -436,6 +436,34 @@ function HourCell({
 }) {
   const isEmpty = !entry || (entry.bookings.length === 0 && entry.blocks.length === 0);
 
+  // Compute which half-hour portions of this cell are occupied,
+  // across every booking that intersects this hour. Bowling-machine
+  // slots are 30-min wide and can start at minute 0 or 30; ordinary
+  // cricket / football bookings are minute 0 / duration 60 and
+  // therefore fill both halves. The half-strip below the bookings
+  // visualises this so a 4:30-5pm booking inside the "4pm-5pm" cell
+  // doesn't look identical to a full-hour 4-5pm one.
+  const coverage = { first: false, second: false };
+  if (entry) {
+    for (const { booking } of entry.bookings) {
+      for (const slot of booking.slotDetails) {
+        if (slot.startHour !== hour) continue;
+        const start = slot.startMinute;
+        const end = slot.startMinute + slot.durationMinutes;
+        if (start < 30) coverage.first = true;
+        if (end > 30) coverage.second = true;
+      }
+    }
+    // Blocks always treat the whole hour as occupied — the SlotBlock
+    // model is hour-granular today.
+    if (entry.blocks.length > 0) {
+      coverage.first = true;
+      coverage.second = true;
+    }
+  }
+  const showCoverageBar =
+    !isEmpty && !(coverage.first && coverage.second);
+
   return (
     <div
       className={`flex min-h-[110px] flex-col gap-1.5 rounded-lg border p-3 transition-colors ${
@@ -486,6 +514,21 @@ function HourCell({
             const palette = SPORT_STYLE[sport];
             const dashed = booking.status === "PENDING";
             const firstName = firstNameOf(booking.userName);
+
+            // Show the actual time range inside the pill only when
+            // the booking doesn't fill this whole hour. Pulls just
+            // the slots that intersect THIS hour so a multi-hour
+            // booking doesn't repeat its full range in every cell.
+            const slotsInThisHour = booking.slotDetails.filter(
+              (s) => s.startHour === hour,
+            );
+            const isSubHour = slotsInThisHour.some(
+              (s) => s.startMinute > 0 || s.durationMinutes < 60,
+            );
+            const subHourLabel = isSubHour
+              ? formatSlotsAsRanges(slotsInThisHour)
+              : null;
+
             return (
               <button
                 key={booking.id}
@@ -503,6 +546,13 @@ function HourCell({
                     <span className="opacity-70"> · {firstName}</span>
                   ) : null}
                 </span>
+                {subHourLabel && (
+                  <span
+                    className={`w-full truncate text-[10px] font-medium ${palette.text}`}
+                  >
+                    {subHourLabel}
+                  </span>
+                )}
                 <span
                   className={`w-full truncate text-[10px] opacity-80 ${palette.text}`}
                 >
@@ -511,6 +561,30 @@ function HourCell({
               </button>
             );
           })}
+
+          {/* Half-hour coverage strip — only renders when at least
+              one half of the hour is free. Lit half = booked, dim
+              half = available. Lets an admin tell a 4:30-5pm slot
+              from a 4-5pm one without changing the grid to half-hour
+              cells. */}
+          {showCoverageBar && (
+            <div
+              className="mt-1 flex h-1 w-full overflow-hidden rounded-full"
+              aria-hidden
+            >
+              <div
+                className={`h-full flex-1 ${
+                  coverage.first ? "bg-emerald-400/70" : "bg-zinc-700/40"
+                }`}
+              />
+              <div className="w-px bg-zinc-900" />
+              <div
+                className={`h-full flex-1 ${
+                  coverage.second ? "bg-emerald-400/70" : "bg-zinc-700/40"
+                }`}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -622,7 +696,7 @@ function BookingDetailModal({
             <InfoBlock label="Court">{courtLabel}</InfoBlock>
             <InfoBlock label="Date">{formatHero(date)}</InfoBlock>
             <InfoBlock label="Time">
-              {formatHoursAsRanges(booking.slots)}
+              {formatSlotsAsRanges(booking.slotDetails)}
             </InfoBlock>
             <InfoBlock label="Amount">
               <span className="font-semibold text-emerald-400">
