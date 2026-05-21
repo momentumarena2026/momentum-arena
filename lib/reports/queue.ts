@@ -10,6 +10,8 @@ import {
   generateRewardAlertsMonthlyReport,
   generateRewardLiabilityLifetimeReport,
   generateRewardLiabilityMonthlyReport,
+  generateRewardTxnLedgerLifetimeReport,
+  generateRewardTxnLedgerMonthlyReport,
 } from "./workers/rewards";
 
 /**
@@ -36,7 +38,9 @@ interface EnqueueInput {
     | "EXPENSES_LIFETIME"
     | "REWARD_LIABILITY_MONTHLY"
     | "REWARD_LIABILITY_LIFETIME"
-    | "REWARD_ALERTS_MONTHLY";
+    | "REWARD_ALERTS_MONTHLY"
+    | "REWARD_TXN_LEDGER_MONTHLY"
+    | "REWARD_TXN_LEDGER_LIFETIME";
   year: number;
   month: number; // 1-12
   requestedById: string;
@@ -63,6 +67,8 @@ const VALID_TYPES = [
   "REWARD_LIABILITY_MONTHLY",
   "REWARD_LIABILITY_LIFETIME",
   "REWARD_ALERTS_MONTHLY",
+  "REWARD_TXN_LEDGER_MONTHLY",
+  "REWARD_TXN_LEDGER_LIFETIME",
 ] as const;
 
 export async function enqueueReport(input: EnqueueInput): Promise<EnqueueResult> {
@@ -259,6 +265,10 @@ async function runWorker(
       return generateRewardLiabilityLifetimeReport({ year, month });
     case "REWARD_ALERTS_MONTHLY":
       return generateRewardAlertsMonthlyReport({ year, month });
+    case "REWARD_TXN_LEDGER_MONTHLY":
+      return generateRewardTxnLedgerMonthlyReport({ year, month });
+    case "REWARD_TXN_LEDGER_LIFETIME":
+      return generateRewardTxnLedgerLifetimeReport({ year, month });
     default:
       throw new Error(`Unknown report type: ${type}`);
   }

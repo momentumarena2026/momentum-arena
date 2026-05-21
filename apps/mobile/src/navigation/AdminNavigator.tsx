@@ -35,6 +35,7 @@ import { AdminExpenseFormScreen } from "../screens/admin/AdminExpenseFormScreen"
 import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyticsScreen";
 import { AdminRewardsScreen } from "../screens/admin/AdminRewardsScreen";
 import { AdminRewardsDistributeScreen } from "../screens/admin/AdminRewardsDistributeScreen";
+import { AdminRewardsTransactionsScreen } from "../screens/admin/AdminRewardsTransactionsScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
@@ -74,6 +75,11 @@ function AdminRewardsStackNav() {
         name="AdminRewardsDistribute"
         component={AdminRewardsDistributeScreen}
         options={{ title: "Distribute points" }}
+      />
+      <RewardsStack.Screen
+        name="AdminRewardsTransactions"
+        component={AdminRewardsTransactionsScreen}
+        options={{ title: "Transactions ledger" }}
       />
     </RewardsStack.Navigator>
   );

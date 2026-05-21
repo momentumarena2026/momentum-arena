@@ -1948,6 +1948,15 @@ enum ReportType {
   // Open + resolved RewardAlert rows for the month with full details
   // JSON expanded into columns. Two sheets: "Alerts" + "By kind".
   REWARD_ALERTS_MONTHLY
+  // Per-transaction ledger for the calendar month — every earn,
+  // redeem, revoke, expire, and admin adjustment as one row.
+  // Summary sheet rolls up by type + by IST-month so CAs can
+  // reconcile against the sales / Razorpay reports.
+  REWARD_TXN_LEDGER_MONTHLY
+  // Same per-transaction shape as REWARD_TXN_LEDGER_MONTHLY but
+  // covers every RewardTransaction ever recorded. Year/month on
+  // the Report row are request-timestamp metadata only.
+  REWARD_TXN_LEDGER_LIFETIME
 }
 
 enum ReportStatus {
