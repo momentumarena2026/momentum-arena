@@ -517,9 +517,13 @@ const styles = StyleSheet.create({
   // Sticky variant of `section` — same vertical rhythm plus an
   // opaque background and a hairline divider so slot tiles
   // don't bleed through when the date row is pinned to the top.
+  // `gap` is bumped from 12 → 20 so the "Select Date" label has
+  // breathing room above the date strip (mirror of the hourly
+  // BookSlotsScreen tweak — kept in lockstep so the two screens
+  // feel identical).
   stickyDateSection: {
     marginTop: spacing["4"],
-    gap: spacing["3"],
+    gap: spacing["5"],
     backgroundColor: colors.background,
     paddingBottom: spacing["3"],
     borderBottomWidth: StyleSheet.hairlineWidth,
