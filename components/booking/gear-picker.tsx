@@ -10,13 +10,13 @@ import type { EquipmentOption } from "@/lib/equipment";
  * to live on the checkout page.
  *
  * Behaviour:
- *   - Collapsed by default. A single-line teaser shows the available
- *     gear cue ("Rent gear · Bat, Batting kit from ₹X").
- *   - Smart-expand: the first time the user picks a slot, the panel
- *     auto-expands so they can't miss it. After that they can collapse
- *     manually and we don't force-expand again on subsequent re-picks.
- *   - When collapsed AND something is selected, the teaser shows the
- *     picked items + price delta ("2 rentals · Bat, Batting kit · +₹2").
+ *   - Always starts collapsed. Customer taps the header to expand.
+ *   - The instant the parent reports a slot has been picked
+ *     (`shouldExpand` flips false→true), the picker plays a short
+ *     horizontal shake to draw attention to it — but does NOT open.
+ *     The customer is then in charge of expanding when they want.
+ *   - When collapsed AND something is selected, the header chip shows
+ *     count + names + price delta ("2 rentals · Bat, Batting kit · +₹2").
  *
  * Pricing math is per-slot: `priceEach × quantity × slotCount`. The
  * label here mirrors the slot-page rate, but the eventual hold/booking
@@ -29,8 +29,8 @@ import type { EquipmentOption } from "@/lib/equipment";
  * @param onChange      — fires every toggle with the new Set
  * @param slotCount     — used purely for the rendered "+₹X" preview
  * @param shouldExpand  — flips to true once the user picks their first
- *                        slot; we open the panel exactly once on that
- *                        transition (no-op on subsequent flips).
+ *                        slot; we play a one-shot shake on that
+ *                        transition. We do NOT auto-open.
  */
 interface Props {
   options: EquipmentOption[];
@@ -47,23 +47,27 @@ export function GearPicker({
   slotCount,
   shouldExpand,
 }: Props) {
-  // Auto-expand the first time the parent flips shouldExpand to
-  // true, then let the user override. React docs call this the
-  // "store previous-render info in state" pattern — we keep a
-  // `prevShouldExpand` mirror so we can detect the false→true edge
-  // and bump `expanded` exactly once. After that the user owns
-  // the open/closed state via the header toggle.
-  const [expanded, setExpanded] = useState(shouldExpand);
-  const [prevShouldExpand, setPrevShouldExpand] = useState(shouldExpand);
-  const [userInteracted, setUserInteracted] = useState(false);
+  // Always start collapsed. The customer expands when they want — we
+  // just nudge their attention with a one-shot shake when the parent
+  // signals "they've picked a slot".
+  const [expanded, setExpanded] = useState(false);
+
+  // shakeKey bumps each time shouldExpand transitions to true. It's
+  // used as React's `key` on the outer wrapper so the animation
+  // class is freshly applied (re-mounting the element restarts the
+  // keyframe). React docs call this the "previous-render info in
+  // state" pattern — prevShouldExpand starts at false so the first
+  // mount with shouldExpand=true triggers a shake too (the slot
+  // screens gate the picker on `slots > 0`, so the component remounts
+  // on every empty→1+ transition).
+  const [prevShouldExpand, setPrevShouldExpand] = useState(false);
+  const [shakeKey, setShakeKey] = useState(0);
   if (prevShouldExpand !== shouldExpand) {
     setPrevShouldExpand(shouldExpand);
-    if (!userInteracted && shouldExpand && !expanded) {
-      setExpanded(true);
-    }
+    if (shouldExpand) setShakeKey((k) => k + 1);
   }
+
   function toggleExpanded() {
-    setUserInteracted(true);
     setExpanded((v) => !v);
   }
 
@@ -96,7 +100,12 @@ export function GearPicker({
   const hasSelection = selected.length > 0;
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60">
+    <div
+      key={shakeKey}
+      className={`rounded-xl border border-zinc-800 bg-zinc-900/60 ${
+        shakeKey > 0 ? "animate-gear-shake" : ""
+      }`}
+    >
       <button
         type="button"
         onClick={toggleExpanded}
