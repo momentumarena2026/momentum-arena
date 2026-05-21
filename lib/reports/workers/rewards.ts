@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
-import { REWARD_TXN_TYPES_ALL, type RewardTxnTypeFilter } from "@/actions/admin-rewards";
+import { REWARD_TXN_TYPES_ALL, type RewardTxnTypeFilter } from "@/lib/rewards/admin-ledger";
 
 /**
  * Three rewards reports — all share the same workbook scaffolding
