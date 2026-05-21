@@ -9,7 +9,49 @@ import {
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { getMediumConfigs } from "@/lib/availability";
 import { getBowlingMachineAvailability } from "@/lib/bowling-availability";
-import { Sport } from "@prisma/client";
+import { snapshotEquipmentForHold } from "@/lib/equipment";
+import { db } from "@/lib/db";
+import { Prisma, Sport } from "@prisma/client";
+
+/**
+ * Snapshot the customer's equipment picks onto the just-created hold.
+ * Mirror of the web lock route's helper — soft-fail keeps the slot
+ * hold alive even if the equipment payload is stale. See web route
+ * for the rationale.
+ */
+async function applyEquipmentToFreshHold(
+  holdId: string,
+  picks: Array<{ equipmentId: string; quantity?: number }> | undefined,
+  slotCount: number,
+): Promise<{ applied: boolean; error?: string }> {
+  if (!picks || picks.length === 0) return { applied: true };
+  const normalized = picks
+    .filter((p) => p && typeof p.equipmentId === "string")
+    .map((p) => ({
+      equipmentId: p.equipmentId,
+      quantity: typeof p.quantity === "number" && p.quantity > 0 ? p.quantity : 1,
+    }));
+  if (normalized.length === 0) return { applied: true };
+
+  const snap = await snapshotEquipmentForHold(normalized, slotCount);
+  if (!snap.ok) {
+    console.warn("[mobile-lock] equipment snapshot failed for hold", holdId, snap.error);
+    return { applied: false, error: snap.error };
+  }
+  try {
+    await db.slotHold.update({
+      where: { id: holdId },
+      data: {
+        equipmentSelection: snap.result.snapshot as unknown as Prisma.InputJsonValue,
+        equipmentTotalAmount: snap.result.totalRupees,
+      },
+    });
+    return { applied: true };
+  } catch (err) {
+    console.warn("[mobile-lock] equipment update failed for hold", holdId, err);
+    return { applied: false, error: "Couldn't save equipment selection" };
+  }
+}
 
 // POST /api/mobile/booking/lock — JSON-body wrapper around the web lock
 // endpoint. Accepts the mobile JWT and mirrors the response shape so native
@@ -30,6 +72,11 @@ export async function POST(request: NextRequest) {
     // granularity. Same shape as the web /api/booking/lock?mode=
     // bowling-machine path.
     slots?: Array<{ hour: number; minute: 0 | 30 }>;
+    // Optional equipment picks captured on the slot-selection screen
+    // before checkout. Snapshotted onto the fresh hold so the
+    // checkout page can render a read-only summary instead of
+    // a separate selector. Soft-fails if items are stale (see helper).
+    equipmentSelection?: Array<{ equipmentId: string; quantity?: number }>;
   };
   try {
     body = await request.json();
@@ -37,7 +84,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { mode, sport, courtConfigId, date, hours, slots } = body;
+  const { mode, sport, courtConfigId, date, hours, slots, equipmentSelection } = body;
 
   // Bowling-machine path uses `slots[]` instead of `hours[]`.
   if (mode === "bowling-machine") {
@@ -88,6 +135,14 @@ export async function POST(request: NextRequest) {
       new Date(date),
       slotPrices,
     );
+    if (result.success && result.holdId) {
+      const eq = await applyEquipmentToFreshHold(
+        result.holdId,
+        equipmentSelection,
+        slots.length,
+      );
+      return NextResponse.json({ ...result, equipmentApplied: eq.applied });
+    }
     return NextResponse.json(result);
   }
 
@@ -117,6 +172,14 @@ export async function POST(request: NextRequest) {
       hours,
       slotPrices
     );
+    if (result.success && result.holdId) {
+      const eq = await applyEquipmentToFreshHold(
+        result.holdId,
+        equipmentSelection,
+        hours.length,
+      );
+      return NextResponse.json({ ...result, equipmentApplied: eq.applied });
+    }
     return NextResponse.json(result);
   }
 
@@ -137,6 +200,15 @@ export async function POST(request: NextRequest) {
     hours,
     slotPrices
   );
+
+  if (result.success && result.holdId) {
+    const eq = await applyEquipmentToFreshHold(
+      result.holdId,
+      equipmentSelection,
+      hours.length,
+    );
+    return NextResponse.json({ ...result, equipmentApplied: eq.applied });
+  }
 
   return NextResponse.json(result);
 }

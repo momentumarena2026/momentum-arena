@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -21,7 +20,7 @@ import type {
   PaymentSuccessData,
   RazorpayOptions,
 } from "react-native-razorpay/src/types";
-import { AlarmClock, Check, Sparkles } from "lucide-react-native";
+import { AlarmClock, Sparkles } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
@@ -136,80 +135,17 @@ export function CheckoutScreen() {
   const pointsRedeemRupees = Math.floor(pointsRedeemPaiseSaved / 100);
 
   // ── Rentable equipment ─────────────────────────────────────────────────────
-  // Only fetched when we know the sport. The endpoint returns an empty
-  // list for non-rental flows (cricket box / football / pickleball) so
-  // the UI just doesn't render anything. Bowling-machine has 3 rows.
-  const equipmentQuery = useQuery({
-    queryKey: ["equipment", sport, bookingCategory],
-    queryFn: () =>
-      bookingApi.listEquipment({
-        sport: sport!,
-        category: bookingCategory ?? undefined,
-      }),
-    enabled: !!sport,
-    staleTime: 60_000,
-  });
-  const equipmentOptions = equipmentQuery.data?.equipment ?? [];
-
-  // Seed selected ids from the hold's existing snapshot exactly once
-  // (so back-navigation preserves the picks).
-  const [equipmentIds, setEquipmentIds] = useState<Set<string>>(new Set());
-  const seededEquipmentRef = useRef(false);
-  useEffect(() => {
-    if (seededEquipmentRef.current) return;
-    if (!hold) return;
-    seededEquipmentRef.current = true;
-    if (hold.equipmentSelection && hold.equipmentSelection.length > 0) {
-      setEquipmentIds(
-        new Set(hold.equipmentSelection.map((e) => e.equipmentId)),
-      );
-    }
-  }, [hold]);
-
-  // Rental is per-slot — scale by the hold's slot count so a
-  // 3-slot booking with a ₹100/slot rental shows ₹300 here.
-  // Matches the server-side multiplier in applyEquipmentSelectionToHold.
-  const rentalMultiplier = useMemo(
-    () => Math.max(1, hold?.hours?.length ?? 1),
-    [hold?.hours],
-  );
-
-  // Compute rental total from the catalog the server gave us so the UI
-  // line item matches whatever the server will recompute on commit.
-  const equipmentTotalRupees = useMemo(() => {
-    return Array.from(equipmentIds).reduce((sum, id) => {
-      const opt = equipmentOptions.find((o) => o.id === id);
-      return (
-        sum +
-        (opt ? Math.round(opt.pricePaise / 100) * rentalMultiplier : 0)
-      );
-    }, 0);
-  }, [equipmentIds, equipmentOptions, rentalMultiplier]);
+  // Rental gear is now picked on the slot-selection screen and
+  // snapshotted onto the hold at lock time (see /api/mobile/booking/
+  // lock + components/booking/GearPicker.tsx). Checkout displays it
+  // read-only — there's no interactive picker on this screen any more.
+  const equipmentSnapshot = hold?.equipmentSelection ?? [];
+  const equipmentTotalRupees = hold?.equipmentTotalAmount ?? 0;
 
   const payableAmount = Math.max(
     0,
     effectiveAmount - pointsRedeemRupees + equipmentTotalRupees,
   );
-
-  const applyEquipmentMutation = useMutation({
-    mutationFn: (picks: Array<{ equipmentId: string; quantity: number }>) =>
-      bookingApi.applyEquipment({ holdId: params.holdId, picks }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["hold", params.holdId] });
-    },
-  });
-
-  function toggleEquipment(id: string) {
-    setEquipmentIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      applyEquipmentMutation.mutate(
-        Array.from(next).map((eid) => ({ equipmentId: eid, quantity: 1 })),
-      );
-      return next;
-    });
-  }
 
   // Advance is always 50% of the FINAL payable (post-coupon +
   // post-points), ceil-rounded — so the half customers pay now and
@@ -776,8 +712,20 @@ export function CheckoutScreen() {
 
           {equipmentTotalRupees > 0 ? (
             <View style={styles.breakdownRow}>
-              <Text variant="small" color={colors.zinc300}>
-                Gear rental
+              <Text
+                variant="small"
+                color={colors.zinc300}
+                style={{ flex: 1, marginRight: 8 }}
+                numberOfLines={1}
+              >
+                Gear ({equipmentSnapshot.length} item
+                {equipmentSnapshot.length === 1 ? "" : "s"})
+                {equipmentSnapshot.length > 0 ? (
+                  <Text variant="small" color={colors.zinc500}>
+                    {" · "}
+                    {equipmentSnapshot.map((e) => e.name).join(", ")}
+                  </Text>
+                ) : null}
               </Text>
               <Text variant="small" color={colors.zinc300}>
                 +{formatRupees(equipmentTotalRupees)}
@@ -850,11 +798,11 @@ export function CheckoutScreen() {
           }}
         />
 
-        {/* Equipment banner — only shown when there's no rentable
-            equipment for this sport (i.e. cricket box / football
-            without configured rentals). Bowling-machine surfaces the
-            checkbox list below instead. */}
-        {sportKey === "CRICKET" && equipmentOptions.length === 0 ? (
+        {/* Included Equipment banner — shown only when no rental gear
+            was added to this booking. Reassures cricket / football
+            customers that the basics are covered. The slot-selection
+            page is where rentals get added now (see GearPicker). */}
+        {sportKey === "CRICKET" && equipmentTotalRupees === 0 ? (
           <View style={styles.equipmentBanner}>
             <Text variant="body">🏏</Text>
             <Text variant="small" color={colors.zinc300} style={styles.equipmentText}>
@@ -871,78 +819,10 @@ export function CheckoutScreen() {
           </View>
         ) : null}
 
-        {/* Rentable equipment — currently only the bowling-machine
-            checkout populates a non-empty list. Each toggle persists
-            via applyEquipmentSelectionToHold; the server re-prices so
-            the client can't smuggle a cheaper rental. */}
-        {equipmentOptions.length > 0 ? (
-          <View style={styles.equipmentBlock}>
-            <View style={styles.equipmentHead}>
-              <Text variant="bodyStrong">Rent gear</Text>
-              <Text variant="tiny" color={colors.zinc500}>
-                Optional · pay-per-booking
-              </Text>
-            </View>
-            <View style={styles.equipmentList}>
-              {equipmentOptions.map((opt) => {
-                const checked = equipmentIds.has(opt.id);
-                const priceRupees = Math.round(opt.pricePaise / 100);
-                return (
-                  <Pressable
-                    key={opt.id}
-                    onPress={() => toggleEquipment(opt.id)}
-                    style={({ pressed }) => [
-                      styles.equipmentRow,
-                      checked
-                        ? styles.equipmentRowChecked
-                        : styles.equipmentRowUnchecked,
-                      pressed && { opacity: 0.85 },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.checkbox,
-                        checked && styles.checkboxChecked,
-                      ]}
-                    >
-                      {checked ? (
-                        <Check size={14} color={colors.primaryForeground} />
-                      ) : null}
-                    </View>
-                    <View style={styles.equipmentName}>
-                      <Text variant="small" color={colors.foreground}>
-                        {opt.name}
-                      </Text>
-                      {rentalMultiplier > 1 ? (
-                        <Text variant="tiny" color={colors.zinc500}>
-                          {formatRupees(priceRupees)} × {rentalMultiplier} slots
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Text
-                      variant="small"
-                      weight="600"
-                      color={checked ? colors.emerald400 : colors.zinc400}
-                    >
-                      +{formatRupees(priceRupees * rentalMultiplier)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {equipmentTotalRupees > 0 ? (
-              <View style={styles.equipmentTotal}>
-                <Text variant="small" color={colors.zinc300}>
-                  Gear rental · {equipmentIds.size} item
-                  {equipmentIds.size === 1 ? "" : "s"}
-                </Text>
-                <Text variant="small" weight="600" color={colors.emerald400}>
-                  +{formatRupees(equipmentTotalRupees)}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
+        {/* Old interactive "Rent gear" card has moved upstream to the
+            slot-selection screen. The Booking Summary breakdown above
+            shows the locked picks read-only; if the customer wants to
+            change rentals they tap Back to the slot picker. */}
 
         {/* Payment method */}
         <View style={styles.sectionBlock}>
