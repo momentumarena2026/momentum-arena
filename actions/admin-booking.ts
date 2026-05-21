@@ -1439,7 +1439,13 @@ export async function getAvailableSlots(
 export async function adminCreateBooking(data: {
   courtConfigId: string;
   date: string;
+  // Hourly courts (cricket / football / pickleball / etc.) send
+  // `hours`. The Bowling Machine 30-min court sends `bowlingSlots`
+  // instead and leaves `hours` empty. The two are mutually exclusive;
+  // the action picks the path off `config.category === "BOWLING_MACHINE"`
+  // (or `slotDurationMinutes === 30`) and rejects mismatched payloads.
   hours: number[];
+  bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
   userId: string;
   paymentMethod: "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
   razorpayPaymentId?: string;
@@ -1482,85 +1488,171 @@ export async function adminCreateBooking(data: {
         return { success: false as const, error: "Advance amount cannot be negative" };
       }
     }
-    for (const h of data.hours) {
-      if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
-        return { success: false as const, error: `Invalid hour: ${h}` };
-      }
-    }
-    if (data.hours.length === 0) {
-      return { success: false as const, error: "At least one hour is required" };
-    }
 
     const dateOnly = new Date(data.date + "T00:00:00Z");
     const now = new Date();
 
-    // Get config
+    // Get config first — needed before we can validate which slot
+    // shape (hours vs bowlingSlots) the payload should carry.
     const config = await db.courtConfig.findUnique({
       where: { id: data.courtConfigId },
     });
     if (!config) return { success: false as const, error: "Court config not found" };
     if (!config.isActive) return { success: false as const, error: "Court is not active" };
 
-    // Get slot prices
-    const slotPrices = await getSlotPricesForDate(data.courtConfigId, dateOnly);
-    const priceMap = new Map<number, number>(slotPrices.map((s) => [s.hour, s.price]));
+    const isBowlingConfig =
+      (config.slotDurationMinutes ?? 60) === 30 ||
+      config.category === "BOWLING_MACHINE";
+    const usingBowling =
+      Array.isArray(data.bowlingSlots) && data.bowlingSlots.length > 0;
 
-    // Check availability
-    const activeBookings = await db.booking.findMany({
-      where: {
-        date: dateOnly,
-        status: { in: ["CONFIRMED", "PENDING"] },
-      },
-      include: { courtConfig: true, slots: true },
-    });
+    if (usingBowling !== isBowlingConfig) {
+      return {
+        success: false as const,
+        error: isBowlingConfig
+          ? "This is a Bowling Machine court — pass bowlingSlots[], not hours[]."
+          : "This court is hourly — pass hours[], not bowlingSlots[].",
+      };
+    }
 
-    const conflicting = activeBookings.filter((b) =>
-      zonesOverlap(
-        b.courtConfig.zones as CourtZone[],
-        config.zones as CourtZone[]
-      )
-    );
-
-    const occupiedHours = new Set<number>();
-    for (const booking of conflicting) {
-      for (const slot of booking.slots) {
-        occupiedHours.add(slot.startHour);
+    // Per-slot validation. Hourly path checks against OPERATING_HOURS
+    // and requires at least one hour; bowling path enforces {0,30}
+    // minute and trusts the availability surface for the start/end
+    // window (Bowling Machine has its own operating hours configured
+    // via /admin/sports/bowling-machine).
+    if (!usingBowling) {
+      for (const h of data.hours) {
+        if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
+          return { success: false as const, error: `Invalid hour: ${h}` };
+        }
+      }
+      if (data.hours.length === 0) {
+        return { success: false as const, error: "At least one hour is required" };
+      }
+    } else {
+      for (const s of data.bowlingSlots!) {
+        if (s.hour < 0 || s.hour > 23) {
+          return { success: false as const, error: `Invalid hour: ${s.hour}` };
+        }
+        if (s.minute !== 0 && s.minute !== 30) {
+          return {
+            success: false as const,
+            error: `Invalid minute: ${s.minute} (must be 0 or 30)`,
+          };
+        }
       }
     }
 
-    const hourConflicts = data.hours.filter((h) => occupiedHours.has(h));
-    if (hourConflicts.length > 0) {
-      return { success: false as const, error: `Slots already booked: ${hourConflicts.join(", ")}` };
-    }
+    // Conflict + price gathering. Hourly courts hit the existing
+    // zone-overlap path against BookingSlot.startHour; bowling courts
+    // re-validate via the half-hour availability helper which already
+    // accounts for zone overlap, active holds, blocks, and operating
+    // windows. Either branch ends up with a `computedTotal` rupees
+    // figure to feed into the existing custom-amount / coupon math.
+    let computedTotal: number;
+    // priceMap is used by the hourly path to write per-slot prices;
+    // bowlingPriceMap is the parallel for the 30-min path. Only one
+    // is populated.
+    const priceMap = new Map<number, number>();
+    const bowlingPriceMap = new Map<string, number>();
 
-    // Check slot blocks
-    const blocks = await db.slotBlock.findMany({
-      where: {
-        date: dateOnly,
-        OR: [
-          { courtConfigId: data.courtConfigId },
-          { sport: config.sport },
-          { courtConfigId: null, sport: null },
-        ],
-      },
-    });
+    if (!usingBowling) {
+      const slotPrices = await getSlotPricesForDate(data.courtConfigId, dateOnly);
+      for (const sp of slotPrices) priceMap.set(sp.hour, sp.price);
 
-    for (const block of blocks) {
-      if (block.startHour === null) {
-        return { success: false as const, error: "This court is blocked for the entire day" };
+      // Zone-overlap conflict check (same as before)
+      const activeBookings = await db.booking.findMany({
+        where: {
+          date: dateOnly,
+          status: { in: ["CONFIRMED", "PENDING"] },
+        },
+        include: { courtConfig: true, slots: true },
+      });
+      const conflicting = activeBookings.filter((b) =>
+        zonesOverlap(
+          b.courtConfig.zones as CourtZone[],
+          config.zones as CourtZone[]
+        )
+      );
+      const occupiedHours = new Set<number>();
+      for (const booking of conflicting) {
+        for (const slot of booking.slots) {
+          occupiedHours.add(slot.startHour);
+        }
       }
-      if (data.hours.includes(block.startHour)) {
-        return { success: false as const, error: `Slot at hour ${block.startHour} is blocked` };
+      const hourConflicts = data.hours.filter((h) => occupiedHours.has(h));
+      if (hourConflicts.length > 0) {
+        return { success: false as const, error: `Slots already booked: ${hourConflicts.join(", ")}` };
       }
-    }
 
-    // Calculate total from slot prices. `totalAmount` is the figure we
-    // actually charge; `computedTotal` stays around so we can preserve it
-    // on Booking.originalAmount when admin negotiates a different price.
-    const computedTotal = data.hours.reduce(
-      (sum, h) => sum + (priceMap.get(h) ?? 0),
-      0
-    );
+      // Hour-granular slot blocks
+      const blocks = await db.slotBlock.findMany({
+        where: {
+          date: dateOnly,
+          OR: [
+            { courtConfigId: data.courtConfigId },
+            { sport: config.sport },
+            { courtConfigId: null, sport: null },
+          ],
+        },
+      });
+      for (const block of blocks) {
+        if (block.startHour === null) {
+          return { success: false as const, error: "This court is blocked for the entire day" };
+        }
+        if (data.hours.includes(block.startHour)) {
+          return { success: false as const, error: `Slot at hour ${block.startHour} is blocked` };
+        }
+      }
+
+      computedTotal = data.hours.reduce(
+        (sum, h) => sum + (priceMap.get(h) ?? 0),
+        0,
+      );
+    } else {
+      // 30-min path. The availability helper already understands zone
+      // overlap, active holds, blocks, and the bowling operating
+      // windows — re-using it keeps the admin path identical to the
+      // customer path (mirrors the editBookingSlotsAdmin bowling
+      // branch lower in this file).
+      const { getBowlingMachineAvailability } = await import(
+        "@/lib/bowling-availability"
+      );
+      const avail = await getBowlingMachineAvailability(
+        config.id,
+        dateOnly,
+      );
+      const keyOf = (h: number, m: number) => `${h}:${m}`;
+      const lookup = new Map(
+        avail.map((s) => [keyOf(s.hour, s.minute), s] as const),
+      );
+      for (const s of avail) {
+        bowlingPriceMap.set(keyOf(s.hour, s.minute), s.price);
+      }
+
+      const conflicts: string[] = [];
+      for (const s of data.bowlingSlots!) {
+        const entry = lookup.get(keyOf(s.hour, s.minute));
+        if (!entry) {
+          conflicts.push(`${s.hour}:${s.minute} (closed)`);
+          continue;
+        }
+        if (entry.status !== "available") {
+          conflicts.push(`${s.hour}:${s.minute} (${entry.status})`);
+        }
+      }
+      if (conflicts.length > 0) {
+        return {
+          success: false as const,
+          error: `Slots not available: ${conflicts.join(", ")}`,
+        };
+      }
+
+      computedTotal = data.bowlingSlots!.reduce(
+        (sum, s) => sum + (bowlingPriceMap.get(keyOf(s.hour, s.minute)) ?? 0),
+        0,
+      );
+    }
 
     // Honour the negotiated override when provided. Reject nonsense inputs
     // (non-integers, negatives) and the FREE-but-nonzero combo.
@@ -1667,10 +1759,23 @@ export async function adminCreateBooking(data: {
           discountAmount: couponDiscount,
           createdByAdminId: admin.id,
           slots: {
-            create: data.hours.map((h) => ({
-              startHour: h,
-              price: priceMap.get(h) ?? 0,
-            })),
+            // Branch on the same `usingBowling` flag set above. Bowling
+            // slots carry startMinute (0 or 30) + durationMinutes=30;
+            // hourly slots stay on the legacy startMinute=0 +
+            // durationMinutes=60 defaults so the BookingSlot index
+            // (@@unique([bookingId, startHour, startMinute])) accepts
+            // the row exactly as it did before.
+            create: usingBowling
+              ? data.bowlingSlots!.map((s) => ({
+                  startHour: s.hour,
+                  startMinute: s.minute,
+                  durationMinutes: 30,
+                  price: bowlingPriceMap.get(`${s.hour}:${s.minute}`) ?? 0,
+                }))
+              : data.hours.map((h) => ({
+                  startHour: h,
+                  price: priceMap.get(h) ?? 0,
+                })),
           },
         },
       });
@@ -1765,6 +1870,24 @@ export async function adminCreateBooking(data: {
         );
       }
 
+      // `newSlots` on BookingEditHistory is an Int[] of start-hours
+      // by legacy convention. For bowling we surface the hour list as
+      // well so the audit log shows "8, 9" for an 8:00 + 8:30 + 9:00
+      // pick — finer-grained detail (the minute) goes into the
+      // creation note to keep this column unchanged.
+      const auditHours = usingBowling
+        ? Array.from(new Set(data.bowlingSlots!.map((s) => s.hour))).sort(
+            (a, b) => a - b,
+          )
+        : data.hours;
+      if (usingBowling) {
+        creationNotes.push(
+          `Bowling slots: ${data.bowlingSlots!
+            .map((s) => `${s.hour}:${String(s.minute).padStart(2, "0")}`)
+            .join(", ")}`,
+        );
+      }
+
       await tx.bookingEditHistory.create({
         data: {
           bookingId: booking.id,
@@ -1772,7 +1895,7 @@ export async function adminCreateBooking(data: {
           adminUsername: admin.username,
           editType: "CREATED",
           newDate: dateOnly,
-          newSlots: data.hours,
+          newSlots: auditHours,
           newCourtConfigId: data.courtConfigId,
           newAmount: data.paymentMethod === "FREE" ? 0 : totalAmount,
           note: creationNotes.length > 0 ? creationNotes.join(" · ") : null,
