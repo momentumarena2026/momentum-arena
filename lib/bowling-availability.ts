@@ -74,6 +74,16 @@ async function buildSlotKeysForDate(
  * `date`, with availability + price. Slots outside any operating
  * window are simply not emitted (the UI doesn't need to render them
  * as greyed-out blocks; the time picker only shows real slots).
+ *
+ * `adminOverride: true` opens up the time-window guards so admin can
+ * book a session at any hour of the day:
+ *   - Emits all 48 half-hour slots (00:00 → 23:30) instead of only
+ *     the OperatingWindow rows.
+ *   - Skips the past-time "closed" marker — admin can record a
+ *     session that already happened.
+ * It does NOT bypass the conflict / hold / slot-block checks; those
+ * protect against actually double-booking the physical pitch and the
+ * shared zones, which still matters from the admin side.
  */
 export async function getBowlingMachineAvailability(
   courtConfigId: string,
@@ -83,7 +93,9 @@ export async function getBowlingMachineAvailability(
   // by the admin edit-slots flow so the current slots stay selectable
   // when the admin reopens the modal.
   excludeBookingId?: string,
+  options?: { adminOverride?: boolean },
 ): Promise<BowlingSlot[]> {
+  const adminOverride = options?.adminOverride === true;
   const config = await db.courtConfig.findUnique({
     where: { id: courtConfigId },
   });
@@ -92,7 +104,16 @@ export async function getBowlingMachineAvailability(
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const now = new Date();
 
-  const allSlots = await buildSlotKeysForDate(courtConfigId, dateOnly);
+  // When admin overrides, ignore the OperatingWindow rows entirely
+  // and emit a flat 48-slot list from midnight to midnight. The
+  // customer-facing call still respects the operating windows so
+  // the customer picker only shows slots staff have configured.
+  const allSlots: Array<{ hour: number; minute: number }> = adminOverride
+    ? Array.from({ length: 48 }, (_, i) => ({
+        hour: Math.floor(i / 2),
+        minute: i % 2 === 0 ? 0 : 30,
+      }))
+    : await buildSlotKeysForDate(courtConfigId, dateOnly);
   if (allSlots.length === 0) return [];
 
   // ── Bookings that occupy any slot via zone overlap ─────────────
@@ -268,8 +289,10 @@ export async function getBowlingMachineAvailability(
       const occ = occupied.get(key);
       if (occ) status = occ;
     }
-    // Hide past slots on today
-    if (isToday) {
+    // Hide past slots on today. Admin override skips this guard
+    // entirely so staff can log a session that already started or
+    // happened earlier in the day.
+    if (isToday && !adminOverride) {
       if (hour < nowHour || (hour === nowHour && minute <= nowMin)) {
         status = "closed";
       }
