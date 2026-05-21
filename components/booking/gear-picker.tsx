@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Check, ShoppingBag } from "lucide-react";
+import { ChevronUp, Check, ShoppingBag } from "lucide-react";
 import type { EquipmentOption } from "@/lib/equipment";
 
 /**
@@ -11,7 +11,7 @@ import type { EquipmentOption } from "@/lib/equipment";
  *
  * Behaviour:
  *   - Collapsed by default. A single-line teaser shows the available
- *     gear cue ("Add gear · Bat, Batting kit from ₹X").
+ *     gear cue ("Rent gear · Bat, Batting kit from ₹X").
  *   - Smart-expand: the first time the user picks a slot, the panel
  *     auto-expands so they can't miss it. After that they can collapse
  *     manually and we don't force-expand again on subsequent re-picks.
@@ -123,7 +123,7 @@ export function GearPicker({
             </div>
           ) : (
             <div className="flex items-center gap-2 min-w-0 flex-1 text-sm">
-              <span className="text-white font-medium shrink-0">Add gear</span>
+              <span className="text-white font-medium shrink-0">Rent gear</span>
               <span className="text-zinc-500 truncate">
                 {options.map((o) => o.name).join(", ")}
                 {cheapestRupees > 0 ? ` · from ₹${cheapestRupees}` : ""}
@@ -131,7 +131,10 @@ export function GearPicker({
             </div>
           )}
         </div>
-        <ChevronDown
+        {/* Chevron — closed=up, open=down (rotates 180° on expand).
+            Matches the customer's expected affordance: the arrow
+            visually pulls the panel downward when expanded. */}
+        <ChevronUp
           className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
             expanded ? "rotate-180" : ""
           }`}
@@ -139,40 +142,54 @@ export function GearPicker({
       </button>
 
       {expanded && (
-        <div className="border-t border-zinc-800 px-3 py-2 space-y-1.5">
-          {options.map((opt) => {
-            const on = selectedIds.has(opt.id);
-            const perSlotRupees = Math.round(opt.pricePaise / 100);
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => toggle(opt.id)}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-                  on
-                    ? "bg-emerald-500/10 ring-1 ring-emerald-500/30"
-                    : "hover:bg-zinc-800/60"
-                }`}
-              >
-                <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
+        <div className="border-t border-zinc-800">
+          {/* Cap at 4 rows visible — anything past that becomes a
+              scrolling viewport. The max-height is sized to ~4 rows
+              of py-2 button + space-y-1.5 gap; the 5th row peeks at
+              the bottom so the scroll cue is obvious. overscroll-
+              contain keeps trackpad momentum from leaking through to
+              the page once the user scrolls past either edge. */}
+          <div
+            className={`px-3 py-2 space-y-1.5 ${
+              options.length > 4
+                ? "max-h-[11.5rem] overflow-y-auto overscroll-contain pr-1"
+                : ""
+            }`}
+          >
+            {options.map((opt) => {
+              const on = selectedIds.has(opt.id);
+              const perSlotRupees = Math.round(opt.pricePaise / 100);
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => toggle(opt.id)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
                     on
-                      ? "border-emerald-500 bg-emerald-500"
-                      : "border-zinc-600 bg-zinc-950"
+                      ? "bg-emerald-500/10 ring-1 ring-emerald-500/30"
+                      : "hover:bg-zinc-800/60"
                   }`}
                 >
-                  {on && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
-                </span>
-                <span className="flex-1 text-sm text-white">{opt.name}</span>
-                <span className="text-xs font-medium text-zinc-400">
-                  +₹{perSlotRupees}
-                  <span className="ml-0.5 text-zinc-600">/slot</span>
-                </span>
-              </button>
-            );
-          })}
+                  <span
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
+                      on
+                        ? "border-emerald-500 bg-emerald-500"
+                        : "border-zinc-600 bg-zinc-950"
+                    }`}
+                  >
+                    {on && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
+                  </span>
+                  <span className="flex-1 text-sm text-white">{opt.name}</span>
+                  <span className="text-xs font-medium text-zinc-400">
+                    +₹{perSlotRupees}
+                    <span className="ml-0.5 text-zinc-600">/slot</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           {safeSlotCount > 1 && hasSelection && (
-            <p className="px-3 pt-1 text-[11px] text-zinc-500">
+            <p className="px-6 py-2 text-[11px] text-zinc-500 border-t border-zinc-800/60">
               {selected.length} item{selected.length > 1 ? "s" : ""} × {safeSlotCount}{" "}
               slot{safeSlotCount > 1 ? "s" : ""} = ₹{totalRupees}
             </p>
