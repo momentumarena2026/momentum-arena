@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
 import { CheckoutAuth } from "@/components/checkout-auth";
-import { Loader2, Calendar, AlertCircle, Clock, Check } from "lucide-react";
+import { AlertCircle, Clock, Check } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
 import { formatHourMinuteCompact } from "@/lib/court-config";
@@ -205,12 +205,12 @@ export function BowlingSlotPickerClient({
         {/* Sticky on scroll so the date strip stays in reach while
             the customer is browsing 30-min slot tiles below. Same
             treatment as the regular slot-selection screen so the
-            two flows feel identical. z-20 sits above the tiles. */}
+            two flows feel identical. z-20 sits above the tiles.
+            DatePicker renders its own "Select Date" label (calendar
+            icon + heading), so we don't wrap it in an extra <h2> —
+            doing so produced the duplicate "Pick a date" / "Select
+            Date" headers that customers were seeing on bowling. */}
         <div className="sticky top-0 z-20 -mt-2 bg-black/95 pb-3 pt-2 backdrop-blur supports-[backdrop-filter]:bg-black/70">
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">
-            <Calendar className="mr-1 inline h-3.5 w-3.5" />
-            Pick a date
-          </h2>
           <DatePicker
             selectedDate={selectedDate}
             onDateChange={(d: string) => setSelectedDate(d)}
