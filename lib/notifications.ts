@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { formatHoursAsRanges } from "./court-config";
+import { formatSlotsAsRanges } from "./court-config";
 import { normalizeIndianPhone } from "./phone";
 import { sendToAdmins, sendToUser } from "./push";
 
@@ -91,10 +91,12 @@ async function sendPushConfirmation(bookingId: string): Promise<void> {
     month: "short",
     timeZone: "Asia/Kolkata",
   });
+  // formatSlotsAsRanges respects startMinute + durationMinutes —
+  // critical for bowling-machine half-hour slots (e.g. 8:30-9:00am).
+  // Falls back to startMinute=0 / duration=60 for legacy hourly
+  // cricket/football bookings, so this is a safe drop-in.
   const timeLabel =
-    booking.slots.length > 0
-      ? formatHoursAsRanges(booking.slots.map((s) => s.startHour))
-      : "";
+    booking.slots.length > 0 ? formatSlotsAsRanges(booking.slots) : "";
   const when = [dateLabel, timeLabel].filter(Boolean).join(" ");
 
   try {
@@ -333,10 +335,12 @@ export async function notifyAdminBookingConfirmed(
     month: "short",
     timeZone: "Asia/Kolkata",
   });
+  // Use formatSlotsAsRanges so bowling-machine half-hour slots
+  // render correctly (e.g. "8:30am - 9am" instead of "8am - 9am").
+  // Hourly bookings keep the same output via the helper's default
+  // startMinute=0 / duration=60 fallback.
   const timeLabel =
-    booking.slots.length > 0
-      ? formatHoursAsRanges(booking.slots.map((s) => s.startHour))
-      : "";
+    booking.slots.length > 0 ? formatSlotsAsRanges(booking.slots) : "";
   const date = [dateLabel, timeLabel].filter(Boolean).join(" ").trim();
 
   const amount = `Rs.${booking.totalAmount.toLocaleString("en-IN")}`;
