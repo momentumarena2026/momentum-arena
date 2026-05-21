@@ -332,3 +332,59 @@ export async function listEquipmentForAdmin(
     category: r.category,
   }));
 }
+
+/**
+ * Variant of `listEquipmentForAdmin` that doesn't require a booking
+ * to exist yet — used by the admin Create Booking form to show the
+ * equipment catalog after sport + court have been picked but before
+ * the booking row is written.
+ *
+ * Same filter shape as the post-create list: active rows whose sport
+ * matches (or is null) AND whose category matches the booking's
+ * category (or is null). isCustomerSelectable is intentionally NOT
+ * filtered — admin should see every active item, including
+ * staff-only rentals.
+ */
+export async function listEquipmentForBookingCreate(
+  sport: string,
+  category: string | null,
+  adminIdOverride?: string,
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    pricePerUnitPaise: number;
+    sport: string | null;
+    category: string | null;
+  }>
+> {
+  await requireBookingsAdmin(adminIdOverride);
+
+  const rows = await db.equipment.findMany({
+    where: {
+      isActive: true,
+      OR: [{ sport: sport as never }, { sport: null }],
+      ...(category
+        ? {
+            AND: [
+              {
+                OR: [
+                  { category: category as never },
+                  { category: null },
+                ],
+              },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    pricePerUnitPaise: r.pricePerHour,
+    sport: r.sport,
+    category: r.category,
+  }));
+}
