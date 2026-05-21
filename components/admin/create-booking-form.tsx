@@ -5,10 +5,17 @@ import { useRouter } from "next/navigation";
 import {
   searchCustomers,
   getAvailableSlots,
+  getAvailableBowlingSlots,
   createCustomerForBooking,
   adminCreateBooking,
 } from "@/actions/admin-booking";
-import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
+import {
+  SPORT_INFO,
+  SIZE_INFO,
+  formatHourRangeCompact,
+  formatHoursAsRanges,
+  formatHourMinuteCompact,
+} from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -16,7 +23,12 @@ import {
   computeAutoApplyDiscount,
   type ActiveSportPromo,
 } from "@/lib/auto-apply-promo";
-import type { Sport, ConfigSize, CourtZone } from "@prisma/client";
+import type {
+  BookingCategory,
+  ConfigSize,
+  CourtZone,
+  Sport,
+} from "@prisma/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,10 +44,17 @@ interface CourtConfigRow {
   lengthFt: number;
   zones: CourtZone[];
   isActive: boolean;
+  // BOWLING_MACHINE flips the slot picker into 30-min mode end-to-end;
+  // every other category (or null) stays on the legacy hourly path.
+  category: BookingCategory | null;
 }
 
 interface SlotInfo {
   hour: number;
+  // Set only for bowling-machine slots (0 or 30). Undefined on the
+  // hourly path so legacy callers can keep treating the slot as
+  // a whole hour.
+  minute?: 0 | 30;
   price: number;
   available: boolean;
   blocked: boolean;
@@ -110,7 +129,16 @@ export function CreateBookingForm({
   // Step 2 state
   const [date, setDate] = useState(prefillDate ?? "");
   const [slots, setSlots] = useState<SlotInfo[]>([]);
+  // Hourly picks (cricket / football / pickleball etc.). Always a
+  // sorted ascending list of start-hours.
   const [selectedHours, setSelectedHours] = useState<number[]>([]);
+  // Bowling Machine 30-min picks. Parallel to selectedHours; only one
+  // of the two is ever non-empty (driven by the selected config's
+  // category). Cleared whenever the court / date changes so a stale
+  // hourly pick can't slip into a bowling submit and vice-versa.
+  const [selectedBowlingSlots, setSelectedBowlingSlots] = useState<
+    Array<{ hour: number; minute: 0 | 30 }>
+  >([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
 
@@ -181,11 +209,27 @@ export function CreateBookingForm({
     : [];
 
   const selectedConfig = courtConfigs.find((c) => c.id === selectedConfigId);
+  // Flips the slot picker into 30-min mode and the submit payload from
+  // hours[] to bowlingSlots[]. Driven entirely by the court config —
+  // admin can't pick a different mode for the same court.
+  const isBowlingConfig = selectedConfig?.category === "BOWLING_MACHINE";
 
-  const totalPrice = selectedHours.reduce((sum, h) => {
-    const slot = slots.find((s) => s.hour === h);
-    return sum + (slot?.price ?? 0);
-  }, 0);
+  // Hourly path sums prices from selectedHours; bowling path sums
+  // from selectedBowlingSlots. Only one branch contributes at a time.
+  const totalPrice = isBowlingConfig
+    ? selectedBowlingSlots.reduce((sum, s) => {
+        const slot = slots.find(
+          (x) => x.hour === s.hour && x.minute === s.minute,
+        );
+        return sum + (slot?.price ?? 0);
+      }, 0)
+    : selectedHours.reduce((sum, h) => {
+        const slot = slots.find((s) => s.hour === h && s.minute === undefined);
+        return sum + (slot?.price ?? 0);
+      }, 0);
+  const selectedSlotCount = isBowlingConfig
+    ? selectedBowlingSlots.length
+    : selectedHours.length;
 
   // Effective total — admin's typed value wins when present + valid,
   // falls back to the slot sum. Used everywhere downstream (partial-
@@ -234,15 +278,43 @@ export function CreateBookingForm({
     setSlotsLoading(true);
     setSlotsError("");
     setSelectedHours([]);
+    setSelectedBowlingSlots([]);
     try {
-      const result = await getAvailableSlots(selectedConfigId, date);
+      // Bowling Machine has its own 30-min availability fetcher
+      // (server checks bowling operating hours, zone overlap, blocks,
+      // active holds). Everything else stays on the hourly fetcher.
+      const result = isBowlingConfig
+        ? await getAvailableBowlingSlots(selectedConfigId, date)
+        : await getAvailableSlots(selectedConfigId, date);
       if (result.success) {
-        setSlots(result.slots);
-        // Auto-select prefilled hour if available (only on first load)
+        // Bowling slots ship with a minute field (0 or 30); hourly
+        // slots don't. Normalise to the SlotInfo shape either way.
+        const normalised: SlotInfo[] = result.slots.map((s) =>
+          "minute" in s && s.minute !== undefined
+            ? {
+                hour: s.hour,
+                minute: s.minute as 0 | 30,
+                price: s.price,
+                available: s.available,
+                blocked: s.blocked,
+              }
+            : {
+                hour: s.hour,
+                price: s.price,
+                available: s.available,
+                blocked: s.blocked,
+              },
+        );
+        setSlots(normalised);
+        // Auto-select prefilled hour if available (only on first
+        // load, hourly path only — bowling has no calendar prefill).
         if (
+          !isBowlingConfig &&
           !prefillApplied.current &&
           prefillHour !== undefined &&
-          result.slots.some((s) => s.hour === prefillHour && s.available)
+          normalised.some(
+            (s) => s.hour === prefillHour && s.minute === undefined && s.available,
+          )
         ) {
           prefillApplied.current = true;
           setSelectedHours([prefillHour]);
@@ -257,7 +329,10 @@ export function CreateBookingForm({
     } finally {
       setSlotsLoading(false);
     }
-  }, [selectedConfigId, date]);
+    // isBowlingConfig is derived from selectedConfigId — listed
+    // explicitly so a court swap between hourly and bowling courts
+    // re-fetches with the right helper.
+  }, [selectedConfigId, date, isBowlingConfig]);
 
   useEffect(() => {
     fetchSlots();
@@ -377,10 +452,21 @@ export function CreateBookingForm({
       const customTotalAmount =
         !applyCouponCode && customAmountOverride ? parsedCustom : undefined;
 
+      // Bowling courts ship `bowlingSlots` instead of `hours`; the
+      // action branches on the court's category and rejects mismatched
+      // payloads. Keep `hours: []` on the bowling path so the union
+      // type still satisfies the contract.
       const result = await adminCreateBooking({
         courtConfigId: selectedConfigId,
         date,
-        hours: selectedHours.sort((a, b) => a - b),
+        hours: isBowlingConfig
+          ? []
+          : selectedHours.slice().sort((a, b) => a - b),
+        bowlingSlots: isBowlingConfig
+          ? selectedBowlingSlots
+              .slice()
+              .sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute))
+          : undefined,
         userId: selectedCustomer.id,
         paymentMethod: effectivePaymentMethod,
         razorpayPaymentId:
@@ -410,6 +496,19 @@ export function CreateBookingForm({
     setSelectedHours((prev) =>
       prev.includes(hour) ? prev.filter((h) => h !== hour) : [...prev, hour]
     );
+  }
+
+  // Bowling 30-min picks use {hour, minute} pairs. The two-state
+  // dance (selectedHours vs selectedBowlingSlots) keeps the hourly
+  // and bowling click handlers as separate, simple functions instead
+  // of one generic toggle that has to branch on tile shape.
+  function toggleBowlingSlot(hour: number, minute: 0 | 30) {
+    setSelectedBowlingSlots((prev) => {
+      const has = prev.some((s) => s.hour === hour && s.minute === minute);
+      return has
+        ? prev.filter((s) => !(s.hour === hour && s.minute === minute))
+        : [...prev, { hour, minute }];
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -582,9 +681,18 @@ export function CreateBookingForm({
                 Tap to select time slots. Green = available, Red = booked, Gray
                 = blocked.
               </p>
+              {/* Bowling courts render 30-min slots with the actual
+                  time-of-day range (e.g. "5pm - 5:30pm") and the
+                  same column count as the hourly grid above so the
+                  two pickers look consistent. Hourly courts keep
+                  the existing 1-hour tile UI. */}
               <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-10 gap-2">
                 {slots.map((slot) => {
-                  const isSelected = selectedHours.includes(slot.hour);
+                  const isSelected = isBowlingConfig
+                    ? selectedBowlingSlots.some(
+                        (s) => s.hour === slot.hour && s.minute === slot.minute,
+                      )
+                    : selectedHours.includes(slot.hour);
                   let classes =
                     "rounded-lg border px-2 py-2 text-xs font-medium text-center transition-all ";
 
@@ -602,14 +710,26 @@ export function CreateBookingForm({
                       "border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:border-emerald-500/50 cursor-pointer";
                   }
 
+                  const key =
+                    slot.minute !== undefined
+                      ? `${slot.hour}:${slot.minute}`
+                      : `${slot.hour}`;
+                  const label =
+                    slot.minute !== undefined
+                      ? `${formatHourMinuteCompact(slot.hour * 60 + slot.minute)} - ${formatHourMinuteCompact(slot.hour * 60 + slot.minute + 30)}`
+                      : formatHourRangeCompact(slot.hour);
                   return (
                     <button
-                      key={slot.hour}
+                      key={key}
                       disabled={!slot.available}
-                      onClick={() => toggleHour(slot.hour)}
+                      onClick={() =>
+                        isBowlingConfig && slot.minute !== undefined
+                          ? toggleBowlingSlot(slot.hour, slot.minute)
+                          : toggleHour(slot.hour)
+                      }
                       className={classes}
                     >
-                      <div>{formatHourRangeCompact(slot.hour)}</div>
+                      <div>{label}</div>
                       <div className="text-[10px] mt-0.5 opacity-70">
                         {formatPrice(slot.price)}
                       </div>
@@ -618,11 +738,13 @@ export function CreateBookingForm({
                 })}
               </div>
 
-              {selectedHours.length > 0 && (
+              {selectedSlotCount > 0 && (
                 <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-3 flex items-center justify-between">
                   <span className="text-sm text-zinc-400">
-                    {selectedHours.length} slot
-                    {selectedHours.length !== 1 ? "s" : ""} selected
+                    {selectedSlotCount}{" "}
+                    {isBowlingConfig ? "× 30-min" : "slot"}
+                    {selectedSlotCount !== 1 && !isBowlingConfig ? "s" : ""}{" "}
+                    selected
                   </span>
                   <span className="text-lg font-bold text-emerald-400">
                     {formatPrice(totalPrice)}
@@ -640,7 +762,7 @@ export function CreateBookingForm({
               Back
             </button>
             <button
-              disabled={selectedHours.length === 0}
+              disabled={selectedSlotCount === 0}
               onClick={() => setStep(3)}
               className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -1105,7 +1227,21 @@ export function CreateBookingForm({
               </p>
               <p className="text-sm font-medium text-white mt-1">{date}</p>
               <p className="text-xs text-zinc-400 mt-0.5">
-                {formatHoursAsRanges([...selectedHours].sort((a, b) => a - b))}
+                {isBowlingConfig
+                  ? selectedBowlingSlots
+                      .slice()
+                      .sort(
+                        (a, b) =>
+                          a.hour * 60 + a.minute - (b.hour * 60 + b.minute),
+                      )
+                      .map(
+                        (s) =>
+                          `${formatHourMinuteCompact(s.hour * 60 + s.minute)} - ${formatHourMinuteCompact(s.hour * 60 + s.minute + 30)}`,
+                      )
+                      .join(", ")
+                  : formatHoursAsRanges(
+                      [...selectedHours].sort((a, b) => a - b),
+                    )}
               </p>
             </div>
 
