@@ -370,6 +370,339 @@ export async function getUserRewardDetail(userId: string) {
   };
 }
 
+// ─── Transactions ledger ─────────────────────────────────────────
+
+/**
+ * Cross-user reward transactions ledger — the "transaction book" admins
+ * use to reconcile earned + redeemed points. Supports:
+ *   - Free-text search across user name / email / phone
+ *   - Date range (createdAt) — inclusive start, exclusive end
+ *   - Type multi-select (any subset of RewardTxnType)
+ *   - Direction: credit (points > 0), debit (points < 0), or both
+ *   - Source ID match (bookingId or cafeOrderId, exact-equal)
+ *   - Admin actor (search by username on actorAdminId)
+ *   - Pagination (cursor-style via skip/take, 50 rows default)
+ *
+ * Returns the matching rows + aggregate totals for the filtered set so
+ * the UI footer can show "X credits, Y debits, net Z" without a second
+ * round trip. The aggregates are computed over the WHOLE filter result
+ * (not just the current page) — that's the whole point of reconciling.
+ *
+ * Hard-capped at 10_000 rows in the aggregate query to bound runtime.
+ * Beyond that, the report-builder (REWARD_TXN_LEDGER_*) is the right
+ * tool because it streams to disk via ExcelJS.
+ */
+
+export const REWARD_TXN_TYPES_ALL = [
+  "EARNED_BOOKING",
+  "EARNED_BOOKING_REMAINDER",
+  "EARNED_CAFE",
+  "EARNED_SIGNUP",
+  "EARNED_REFERRAL",
+  "EARNED_BIRTHDAY",
+  "EARNED_ADJUSTMENT",
+  "ADJUSTMENT_REFUND",
+  "REDEEMED_BOOKING",
+  "REDEEMED_CAFE",
+  "REVOKED",
+  "EXPIRED",
+  "ADJUSTMENT_DEBIT",
+] as const;
+
+export type RewardTxnTypeFilter = (typeof REWARD_TXN_TYPES_ALL)[number];
+
+const listLedgerSchema = z.object({
+  query: z.string().trim().max(200).optional(),
+  fromDate: z.string().optional(), // ISO yyyy-mm-dd (IST midnight assumed)
+  toDate: z.string().optional(),
+  types: z.array(z.enum(REWARD_TXN_TYPES_ALL)).optional(),
+  direction: z.enum(["credit", "debit", "all"]).optional(),
+  sourceId: z.string().trim().max(64).optional(),
+  actorQuery: z.string().trim().max(120).optional(),
+  /** Pre-resolved admin user IDs to filter rewardTransaction.actorAdminId
+   *  against. Either listRewardTransactions resolves this from actorQuery
+   *  before calling buildRewardTxnWhere, or the export route passes IDs
+   *  directly. Not exposed in the public input shape. */
+  actorAdminIds: z.array(z.string()).optional(),
+  page: z.number().int().min(0).max(10_000).optional(),
+  pageSize: z.number().int().min(1).max(200).optional(),
+});
+
+export type ListRewardTransactionsInput = z.infer<typeof listLedgerSchema>;
+
+export interface AdminRewardTxnRow {
+  id: string;
+  type: RewardTxnTypeFilter;
+  points: number;
+  pointsValuePaise: number;
+  bookingId: string | null;
+  cafeOrderId: string | null;
+  sourceTxnId: string | null;
+  reason: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  user: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+  actor: {
+    id: string;
+    username: string;
+    email: string;
+  } | null;
+}
+
+export interface AdminRewardTxnLedger {
+  rows: AdminRewardTxnRow[];
+  total: number; // total rows matching filter (not just this page)
+  page: number;
+  pageSize: number;
+  aggregates: {
+    creditPoints: number; // sum of positive `points`
+    debitPoints: number; // absolute sum of negative `points`
+    netPoints: number; // credits − debits
+    creditCount: number;
+    debitCount: number;
+    creditValuePaise: number;
+    debitValuePaise: number;
+  };
+  /** True when aggregate totals were computed over a capped result.
+   *  UI shows a "narrow your filters" hint when this is true. */
+  aggregateTruncated: boolean;
+}
+
+/** Build the Prisma `where` clause from the parsed input. Shared with
+ *  the CSV export route so both paths use identical filter semantics. */
+export function buildRewardTxnWhere(input: ListRewardTransactionsInput) {
+  const where: Record<string, unknown> = {};
+
+  // Date range. fromDate is treated as IST 00:00 of that day, toDate
+  // as the START of the NEXT day so the range is inclusive of toDate.
+  // We convert to UTC by subtracting 5h30m (IST = UTC+5:30).
+  if (input.fromDate || input.toDate) {
+    const createdAt: { gte?: Date; lt?: Date } = {};
+    if (input.fromDate) {
+      const d = parseIstDate(input.fromDate);
+      if (d) createdAt.gte = d;
+    }
+    if (input.toDate) {
+      const d = parseIstDate(input.toDate);
+      if (d) {
+        const next = new Date(d);
+        next.setUTCDate(next.getUTCDate() + 1);
+        createdAt.lt = next;
+      }
+    }
+    if (createdAt.gte || createdAt.lt) where.createdAt = createdAt;
+  }
+
+  if (input.types && input.types.length > 0) {
+    where.type = { in: input.types };
+  }
+
+  if (input.direction === "credit") {
+    where.points = { gt: 0 };
+  } else if (input.direction === "debit") {
+    where.points = { lt: 0 };
+  }
+
+  if (input.sourceId) {
+    where.OR = [
+      { bookingId: input.sourceId },
+      { cafeOrderId: input.sourceId },
+    ];
+  }
+
+  if (input.query) {
+    const q = input.query;
+    where.user = {
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { email: { contains: q, mode: "insensitive" } },
+        { phone: { contains: q } },
+      ],
+    };
+  }
+
+  // actorAdminId is a raw string field (no Prisma relation), so the
+  // caller resolves matching admin IDs into the where clause first
+  // via resolveActorAdminIds() before calling this builder.
+  if (input.actorAdminIds) {
+    where.actorAdminId = { in: input.actorAdminIds };
+  }
+
+  return where;
+}
+
+/** Resolve an admin search query → AdminUser IDs. Used by the
+ *  ledger query to prefilter rewardTransaction rows by `actorAdminId`.
+ *  Returns null when no query was supplied (caller should leave actor
+ *  filter unset), and an empty array when the query matched nothing
+ *  (caller should short-circuit to an empty result). */
+export async function resolveActorAdminIds(
+  query: string | undefined,
+): Promise<string[] | null> {
+  if (!query) return null;
+  const matches = await db.adminUser.findMany({
+    where: {
+      OR: [
+        { username: { contains: query, mode: "insensitive" } },
+        { email: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    select: { id: true },
+    take: 100,
+  });
+  return matches.map((m) => m.id);
+}
+
+/** Convert a yyyy-mm-dd string to a Date representing IST midnight of
+ *  that day, returned as a UTC Date (offset by -5h30m). Returns null
+ *  for malformed input. */
+function parseIstDate(s: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  // IST = UTC + 5:30, so IST midnight is UTC (previous day 18:30).
+  const utc = Date.UTC(y, mo - 1, d, 0, 0, 0, 0);
+  return new Date(utc - (5 * 60 + 30) * 60 * 1000);
+}
+
+const AGG_CAP = 10_000;
+
+export async function listRewardTransactions(
+  input: ListRewardTransactionsInput,
+): Promise<AdminRewardTxnLedger> {
+  await requireAdmin();
+  const parsed = listLedgerSchema.parse(input);
+  const page = parsed.page ?? 0;
+  const pageSize = parsed.pageSize ?? 50;
+
+  // Resolve actor query → admin user IDs upfront so the main query
+  // can do a single indexed `actorAdminId IN (...)` lookup.
+  if (parsed.actorQuery) {
+    const ids = await resolveActorAdminIds(parsed.actorQuery);
+    if (ids && ids.length === 0) {
+      return emptyLedger(page, pageSize);
+    }
+    parsed.actorAdminIds = ids ?? undefined;
+  }
+
+  const where = buildRewardTxnWhere(parsed);
+
+  const [rows, total, aggregateRows] = await Promise.all([
+    db.rewardTransaction.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: page * pageSize,
+      take: pageSize,
+      include: {
+        user: {
+          select: { id: true, name: true, email: true, phone: true },
+        },
+      },
+    }),
+    db.rewardTransaction.count({ where }),
+    // Pull up to AGG_CAP rows just for aggregate math. At our scale
+    // (<10k rewards txns total even after years) this is fine. If the
+    // ledger ever grows past that, swap to two `aggregate` calls
+    // (one for credits, one for debits) — for now the single-pass
+    // makes credit/debit counts trivial without extra round-trips.
+    db.rewardTransaction.findMany({
+      where,
+      take: AGG_CAP,
+      select: { points: true, pointsValuePaise: true },
+    }),
+  ]);
+
+  // Resolve actorAdminId → AdminUser row for the current page only.
+  // actorAdminId is a raw string FK (no Prisma relation) so we do
+  // a follow-up findMany. Cheap at pageSize ≤ 200.
+  const actorIds = Array.from(
+    new Set(rows.map((r) => r.actorAdminId).filter((x): x is string => !!x)),
+  );
+  const actorMap = new Map<string, { id: string; username: string; email: string }>();
+  if (actorIds.length > 0) {
+    const actors = await db.adminUser.findMany({
+      where: { id: { in: actorIds } },
+      select: { id: true, username: true, email: true },
+    });
+    for (const a of actors) actorMap.set(a.id, a);
+  }
+
+  let creditPoints = 0;
+  let debitPoints = 0;
+  let creditCount = 0;
+  let debitCount = 0;
+  let creditValuePaise = 0;
+  let debitValuePaise = 0;
+  for (const r of aggregateRows) {
+    if (r.points > 0) {
+      creditPoints += r.points;
+      creditValuePaise += r.pointsValuePaise;
+      creditCount++;
+    } else if (r.points < 0) {
+      debitPoints += Math.abs(r.points);
+      debitValuePaise += r.pointsValuePaise;
+      debitCount++;
+    }
+  }
+
+  return {
+    rows: rows.map((r) => ({
+      id: r.id,
+      type: r.type as RewardTxnTypeFilter,
+      points: r.points,
+      pointsValuePaise: r.pointsValuePaise,
+      bookingId: r.bookingId,
+      cafeOrderId: r.cafeOrderId,
+      sourceTxnId: r.sourceTxnId,
+      reason: r.reason,
+      expiresAt: r.expiresAt?.toISOString() ?? null,
+      createdAt: r.createdAt.toISOString(),
+      user: r.user,
+      actor: r.actorAdminId ? (actorMap.get(r.actorAdminId) ?? { id: r.actorAdminId, username: "unknown", email: "" }) : null,
+    })),
+    total,
+    page,
+    pageSize,
+    aggregates: {
+      creditPoints,
+      debitPoints,
+      netPoints: creditPoints - debitPoints,
+      creditCount,
+      debitCount,
+      creditValuePaise,
+      debitValuePaise,
+    },
+    aggregateTruncated: total > AGG_CAP,
+  };
+}
+
+function emptyLedger(page: number, pageSize: number): AdminRewardTxnLedger {
+  return {
+    rows: [],
+    total: 0,
+    page,
+    pageSize,
+    aggregates: {
+      creditPoints: 0,
+      debitPoints: 0,
+      netPoints: 0,
+      creditCount: 0,
+      debitCount: 0,
+      creditValuePaise: 0,
+      debitValuePaise: 0,
+    },
+    aggregateTruncated: false,
+  };
+}
+
 // ─── Alerts list / actions ───────────────────────────────────────
 
 export async function listRewardAlerts(args?: {
