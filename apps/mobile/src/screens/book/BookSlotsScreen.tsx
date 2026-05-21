@@ -705,10 +705,13 @@ const styles = StyleSheet.create({
   // Sticky variant of `section`: same vertical spacing, plus an
   // opaque background and a small border-bottom so the day strip
   // reads as a pinned bar (not a floating section) when it sticks
-  // to the top.
+  // to the top. `gap` is bumped from 12 → 20 so the "Select Date"
+  // label has visible breathing room above the date strip — the
+  // tighter spacing was making the icon + label cling to the
+  // strip's top edge.
   stickyDateSection: {
     marginTop: spacing["4"],
-    gap: spacing["3"],
+    gap: spacing["5"],
     backgroundColor: colors.background,
     paddingBottom: spacing["3"],
     borderBottomWidth: StyleSheet.hairlineWidth,
