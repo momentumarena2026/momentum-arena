@@ -13,6 +13,8 @@ import {
   CalendarCheck,
   IndianRupee,
   Banknote,
+  CalendarDays,
+  List,
 } from "lucide-react";
 import { BookingsTable } from "./bookings-table";
 import { FiltersCollapsible } from "./filters-collapsible";
@@ -136,13 +138,43 @@ export default async function AdminBookingsPage({
             {total} {params.status || params.sport || params.date ? "filtered" : "total"} bookings
           </p>
         </div>
-        <Link
-          href="/admin/bookings/create"
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-900/20"
-        >
-          <Plus className="h-4 w-4" />
-          New Booking
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin/bookings/create"
+            // Label hidden on small screens — narrow viewports get the
+            // icon-only pill so the toggler to the right still fits.
+            className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 sm:px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-900/20"
+            aria-label="New Booking"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">New Booking</span>
+          </Link>
+
+          {/* View toggle (Table / Calendar) — twin of the toggle on
+              /admin/bookings/calendar so admins can flip between
+              the two views from either landing point. Table is the
+              active state here; Calendar links over. On mobile the
+              labels collapse to icons so the header stays compact. */}
+          <div className="flex items-center rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-md bg-emerald-500/20 px-2 sm:px-3 py-1.5 text-xs font-medium text-emerald-400"
+              aria-label="Table view"
+              aria-current="page"
+            >
+              <List className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Table</span>
+            </button>
+            <Link
+              href="/admin/bookings/calendar"
+              className="flex items-center gap-1.5 rounded-md px-2 sm:px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-300"
+              aria-label="Calendar view"
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Calendar</span>
+            </Link>
+          </div>
+        </div>
       </div>
 
       {/* Stats Cards */}
