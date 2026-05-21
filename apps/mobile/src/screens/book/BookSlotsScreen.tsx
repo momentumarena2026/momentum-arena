@@ -212,6 +212,11 @@ export function BookSlotsScreen() {
     <Screen padded={false}>
       <ScrollView
         contentContainerStyle={styles.scroll}
+        // Pin the date-picker section (index 1, right under the
+        // course header) so the customer keeps the day strip in
+        // reach while scrolling slots — matches the web sticky
+        // date picker behavior on /book/[sport]/[configId].
+        stickyHeaderIndices={[1]}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -230,8 +235,12 @@ export function BookSlotsScreen() {
           </Text>
         </View>
 
-        {/* Date picker — horizontally scrollable 30-day strip, matching web. */}
-        <View style={styles.section}>
+        {/* Date picker — horizontally scrollable 30-day strip,
+            matching web. Sticky on scroll via the ScrollView's
+            stickyHeaderIndices above. Background is opaque so
+            slot tiles don't bleed through when the section is
+            pinned. */}
+        <View style={styles.stickyDateSection}>
           <View style={styles.dateHeader}>
             <CalendarDays size={16} color={colors.zinc400} />
             <Text variant="small" color={colors.zinc400}>
@@ -653,6 +662,18 @@ const styles = StyleSheet.create({
   section: {
     marginTop: spacing["4"],
     gap: spacing["3"],
+  },
+  // Sticky variant of `section`: same vertical spacing, plus an
+  // opaque background and a small border-bottom so the day strip
+  // reads as a pinned bar (not a floating section) when it sticks
+  // to the top.
+  stickyDateSection: {
+    marginTop: spacing["4"],
+    gap: spacing["3"],
+    backgroundColor: colors.background,
+    paddingBottom: spacing["3"],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   dateHeader: {
     flexDirection: "row",
