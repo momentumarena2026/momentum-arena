@@ -9,6 +9,7 @@ import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
 import { CheckoutClient } from "./checkout-client";
+import { SummaryFooter } from "./summary-footer";
 
 export default async function CheckoutPage({
   searchParams,
@@ -213,16 +214,19 @@ export default async function CheckoutPage({
               </span>
             </div>
           )}
-          <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2">
-            <span className="font-semibold text-white">Total</span>
-            <span className="text-lg font-bold text-emerald-400">
-              {formatPrice(
-                (recurringEnabled && recurringCount
-                  ? recurringNetTotal
-                  : hold.totalAmount) - sportPromoDiscount,
-              )}
-            </span>
-          </div>
+          {/* Redeem checkbox row + reactive Total — lives inside
+              this summary tile per the customer's request. The
+              row only renders when the customer has redeemable
+              points (RedeemSlider returns null otherwise) so a
+              user with zero points sees just the Total. */}
+          <SummaryFooter
+            holdId={hold.id}
+            preDiscountTotal={
+              (recurringEnabled && recurringCount
+                ? recurringNetTotal
+                : hold.totalAmount) - sportPromoDiscount
+            }
+          />
         </div>
       </div>
 
