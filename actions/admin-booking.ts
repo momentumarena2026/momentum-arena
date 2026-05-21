@@ -1311,10 +1311,16 @@ export async function getAvailableBowlingSlots(
     const { getBowlingMachineAvailability } = await import(
       "@/lib/bowling-availability"
     );
+    // adminOverride opens up the time-window guards (operating
+    // windows + past-time cutoff) so admin sees every 30-min slot
+    // of the day, not just the customer-facing window. Conflicts /
+    // holds / admin slot blocks stay enforced — they protect real
+    // physical resources and matter from the admin side too.
     const raw = await getBowlingMachineAvailability(
       courtConfigId,
       dateOnly,
       excludeBookingId,
+      { adminOverride: true },
     );
     const slots = raw.map((s) => ({
       hour: s.hour,
@@ -1610,17 +1616,19 @@ export async function adminCreateBooking(data: {
         0,
       );
     } else {
-      // 30-min path. The availability helper already understands zone
-      // overlap, active holds, blocks, and the bowling operating
-      // windows — re-using it keeps the admin path identical to the
-      // customer path (mirrors the editBookingSlotsAdmin bowling
-      // branch lower in this file).
+      // 30-min path. The availability helper enforces conflicts via
+      // zone overlap, active holds, and slot blocks — admin
+      // overrides the time-window guards (operating windows +
+      // past-time) so any 30-min slot of the day is bookable, but
+      // can't double-book the physical pitch.
       const { getBowlingMachineAvailability } = await import(
         "@/lib/bowling-availability"
       );
       const avail = await getBowlingMachineAvailability(
         config.id,
         dateOnly,
+        undefined,
+        { adminOverride: true },
       );
       const keyOf = (h: number, m: number) => `${h}:${m}`;
       const lookup = new Map(
@@ -2008,8 +2016,10 @@ export async function adminEditBookingSlots(
 
     if (usingBowling) {
       // 30-min path — re-validate via the bowling availability surface
-      // (zone overlap + active holds + slot blocks + operating windows)
-      // with this booking dropped from the occupied set.
+      // for zone overlap + active holds + slot blocks, with this
+      // booking dropped from the occupied set. adminOverride bypasses
+      // operating-window + past-time guards so admin can move a
+      // booking into any 30-min slot of the day.
       const { getBowlingMachineAvailability } = await import(
         "@/lib/bowling-availability"
       );
@@ -2017,6 +2027,7 @@ export async function adminEditBookingSlots(
         config.id,
         dateOnly,
         bookingId,
+        { adminOverride: true },
       );
       const keyOf = (h: number, m: number) => `${h}:${m}`;
       const lookup = new Map(
