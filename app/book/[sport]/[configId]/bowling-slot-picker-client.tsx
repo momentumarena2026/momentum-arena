@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
 import { CheckoutAuth } from "@/components/checkout-auth";
-import { Loader2, Calendar, AlertCircle } from "lucide-react";
+import { Loader2, Calendar, AlertCircle, Clock, Check } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
+import { formatHourMinuteCompact } from "@/lib/court-config";
 
 interface BowlingSlot {
   hour: number;
@@ -153,25 +154,13 @@ export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
     }
   }
 
-  // Render the slot as a 30-min range (e.g. "6:00 - 6:30 AM") to mirror
-  // the cricket/football tiles which show "5pm - 6pm". When the slot
-  // straddles noon/midnight the two halves carry different meridiems
-  // so we surface both ("11:30 AM - 12:00 PM").
+  // Renders the 30-min range using the same compact AM/PM helper the
+  // hour-based tiles use ("5pm - 5:30pm"). That keeps the bowling and
+  // cricket / football grids visually identical — only the granularity
+  // is different.
   function fmtTime(h: number, m: number) {
-    const endTotalMin = h * 60 + m + 30;
-    const endH = Math.floor(endTotalMin / 60);
-    const endM = endTotalMin % 60;
-    const clock = (hr: number, min: number) => {
-      const hh = hr % 24;
-      const display = hh % 12 === 0 ? 12 : hh % 12;
-      return `${display}:${min.toString().padStart(2, "0")}`;
-    };
-    const meridiem = (hr: number) => ((hr % 24) < 12 ? "AM" : "PM");
-    const startMer = meridiem(h);
-    const endMer = meridiem(endH);
-    return startMer === endMer
-      ? `${clock(h, m)} - ${clock(endH, endM)} ${endMer}`
-      : `${clock(h, m)} ${startMer} - ${clock(endH, endM)} ${endMer}`;
+    const start = h * 60 + m;
+    return `${formatHourMinuteCompact(start)} - ${formatHourMinuteCompact(start + 30)}`;
   }
 
   return (
@@ -216,25 +205,36 @@ export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
               windows from <span className="text-zinc-300">/admin/sports/bowling-machine</span>.
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+            // Grid columns + tile classNames below mirror SlotGrid
+            // exactly so the bowling-machine picker is visually
+            // identical to the cricket / football flow. Only the data
+            // layer differs: slots here carry a minute field and a
+            // status enum instead of an isAvailable boolean. Status
+            // mapping: available → emerald tile, closed → grey Past,
+            // blocked → grey Unavailable, booked/locked → red Booked.
+            // No waitlist on bowling, so no Bell or Notify-me label.
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
               {slots.map((slot) => {
                 const k = keyOf(slot.hour, slot.minute);
                 const isSelected = selectedKeys.has(k);
                 const isAvail = slot.status === "available";
+                const isPast = slot.status === "closed";
+                const isBooked =
+                  slot.status === "booked" || slot.status === "locked";
                 return (
                   <button
                     key={k}
                     type="button"
                     onClick={() => toggleSlot(slot)}
                     disabled={!isAvail}
-                    className={`rounded-lg border p-2 text-xs transition-colors ${
+                    className={`relative rounded-xl border p-3 text-left transition-all duration-200 ${
                       isSelected
-                        ? "border-emerald-500 bg-emerald-500/15 text-emerald-300"
+                        ? "border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50"
                         : isAvail
-                          ? "border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700"
-                          : slot.status === "blocked" || slot.status === "closed"
-                            ? "border-zinc-900 bg-zinc-950 text-zinc-700"
-                            : "border-red-500/30 bg-red-500/5 text-red-400/60"
+                          ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30"
+                          : isBooked
+                            ? "bg-red-500/10 border-red-500/40 cursor-not-allowed"
+                            : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
                     }`}
                     title={
                       slot.status === "booked"
@@ -248,14 +248,34 @@ export function BowlingSlotPickerClient({ configId, sport, userId }: Props) {
                               : undefined
                     }
                   >
-                    <div className="font-semibold">
-                      {fmtTime(slot.hour, slot.minute)}
-                    </div>
-                    {isAvail && (
-                      <div className="mt-0.5 text-[10px] text-zinc-500">
-                        {formatPrice(slot.price)}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-zinc-500" />
+                        <span className="text-sm font-medium text-white">
+                          {fmtTime(slot.hour, slot.minute)}
+                        </span>
                       </div>
-                    )}
+                      {isSelected && (
+                        <Check className="h-4 w-4 text-emerald-400" />
+                      )}
+                    </div>
+                    <div
+                      className={`mt-1 text-xs ${
+                        isAvail
+                          ? "text-zinc-400"
+                          : isBooked
+                            ? "text-red-300/90"
+                            : "text-zinc-500"
+                      }`}
+                    >
+                      {isAvail
+                        ? formatPrice(slot.price)
+                        : isBooked
+                          ? "Booked"
+                          : isPast
+                            ? "Past"
+                            : "Unavailable"}
+                    </div>
                   </button>
                 );
               })}
