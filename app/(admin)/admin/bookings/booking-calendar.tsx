@@ -310,21 +310,26 @@ export default function BookingCalendar({
 
           {/* View toggle (Calendar / Table) — preserved from the old
               layout so admins can still drop into the bookings table
-              when they want to slice the data. */}
+              when they want to slice the data. Mirrored on
+              /admin/bookings; labels collapse to icons on small
+              screens so both pages look identical at mobile widths. */}
           <div className="flex items-center rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
             <button
               type="button"
-              className="flex items-center gap-1.5 rounded-md bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-400"
+              className="flex items-center gap-1.5 rounded-md bg-emerald-500/20 px-2 sm:px-3 py-1.5 text-xs font-medium text-emerald-400"
+              aria-label="Calendar view"
+              aria-current="page"
             >
               <CalendarDays className="h-3.5 w-3.5" />
-              Calendar
+              <span className="hidden sm:inline">Calendar</span>
             </button>
             <Link
               href="/admin/bookings"
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-300"
+              className="flex items-center gap-1.5 rounded-md px-2 sm:px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-300"
+              aria-label="Table view"
             >
               <List className="h-3.5 w-3.5" />
-              Table
+              <span className="hidden sm:inline">Table</span>
             </Link>
           </div>
         </div>
