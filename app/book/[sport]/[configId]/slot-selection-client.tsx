@@ -396,12 +396,20 @@ export function SlotSelectionClient({
 
   return (
     <div className="space-y-6">
-      <DatePicker selectedDate={selectedDate} onDateChange={(date) => {
-        setSelectedDate(date);
-        setSelectedHours([]);
-        sessionStorage.removeItem(storageKey);
-        trackDateChanged(date);
-      }} />
+      {/* Sticky on scroll so the customer keeps the date strip in
+          reach while they're scanning the slot grid below — most
+          relevant on mobile, where the grid pushes the date row off
+          the top quickly. z-20 sits above the slot tiles but below
+          any portaled modal. Opaque bg so slots can't bleed through,
+          with a subtle blur as a fallback for older browsers. */}
+      <div className="sticky top-0 z-20 -mt-2 bg-black/95 pb-3 pt-2 backdrop-blur supports-[backdrop-filter]:bg-black/70">
+        <DatePicker selectedDate={selectedDate} onDateChange={(date) => {
+          setSelectedDate(date);
+          setSelectedHours([]);
+          sessionStorage.removeItem(storageKey);
+          trackDateChanged(date);
+        }} />
+      </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
