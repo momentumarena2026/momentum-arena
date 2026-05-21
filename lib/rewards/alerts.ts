@@ -63,7 +63,8 @@ export async function runAlertSweep(): Promise<{ alertsCreated: number }> {
     FROM "RewardTransaction" r
     JOIN "RewardTransaction" e
       ON e."userId" = r."userId"
-     AND e."type" IN ('EARNED_BOOKING', 'EARNED_CAFE', 'EARNED_SIGNUP',
+     AND e."type" IN ('EARNED_BOOKING', 'EARNED_BOOKING_REMAINDER',
+                      'EARNED_CAFE', 'EARNED_SIGNUP',
                       'EARNED_REFERRAL', 'EARNED_BIRTHDAY', 'EARNED_ADJUSTMENT',
                       'ADJUSTMENT_REFUND')
      AND e."createdAt" >= ${since24h}
@@ -131,7 +132,7 @@ export async function runAlertSweep(): Promise<{ alertsCreated: number }> {
     JOIN "Booking" b ON b.id = t."bookingId"
     LEFT JOIN "RewardTransaction" r
       ON r."bookingId" = t."bookingId" AND r.type = 'REVOKED'
-    WHERE t.type = 'EARNED_BOOKING'
+    WHERE t.type IN ('EARNED_BOOKING', 'EARNED_BOOKING_REMAINDER')
       AND b.status = 'CANCELLED'
       AND r.id IS NULL
   `;

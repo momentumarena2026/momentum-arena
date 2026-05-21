@@ -99,6 +99,101 @@ export async function awardBookingPoints(
   });
 }
 
+/**
+ * Award the REMAINDER points for a partial-payment booking. Called
+ * from `markRemainderCollected` after the admin records the venue
+ * cash collection. The initial EARNED_BOOKING row was awarded on
+ * just the advance (Payment.amount at confirm time); this top-up
+ * brings the customer's earn up to what the FULL paid amount would
+ * have earned — without retroactively re-writing the original row,
+ * so the audit log keeps a clean "earned X on advance, then Y on
+ * remainder" trail.
+ *
+ * Idempotent via @@unique([type=EARNED_BOOKING_REMAINDER, bookingId]).
+ * Safe to call multiple times — a second `markRemainderCollected`
+ * call would short-circuit at the Payment level anyway.
+ *
+ * Skipped (returns { awarded: false }) when:
+ *   - rewards disabled / earn rate zero
+ *   - booking not CONFIRMED
+ *   - payment isn't COMPLETED yet (no remainder recorded)
+ *   - booking was admin-created (same gate as the initial earn)
+ *   - sport restricted
+ *   - delta vs. the initial earn is <= 0 (e.g. full bill was
+ *     covered by the advance, or no points are owed for the
+ *     remainder portion after rounding)
+ */
+export async function awardBookingRemainderPoints(
+  bookingId: string,
+): Promise<EarnResult> {
+  const cfg = await getRewardConfig();
+  if (!cfg.enabled || cfg.earnRateBookingBps <= 0) {
+    return { awarded: false, reason: "disabled or zero rate" };
+  }
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      payment: true,
+      courtConfig: { select: { sport: true } },
+    },
+  });
+  if (!booking) return { awarded: false, reason: "no booking" };
+  if (booking.status !== "CONFIRMED") {
+    return { awarded: false, reason: "not confirmed" };
+  }
+  if (!booking.payment) return { awarded: false, reason: "no payment" };
+  // The remainder is only "earned" once the venue collection is
+  // recorded — Payment.status flips PARTIAL → COMPLETED inside
+  // markRemainderCollected, so this gate also stops accidental
+  // double-awards if the helper is invoked from any other surface
+  // that doesn't carry a fully-paid booking.
+  if (booking.payment.status !== "COMPLETED") {
+    return { awarded: false, reason: "payment not completed" };
+  }
+  if (booking.createdByAdminId) {
+    return { awarded: false, reason: "admin-created booking" };
+  }
+  if (
+    cfg.enabledSports.length > 0 &&
+    !cfg.enabledSports.includes(booking.courtConfig.sport)
+  ) {
+    return { awarded: false, reason: "sport disabled" };
+  }
+
+  // Total points the customer SHOULD have earned for the full bill
+  // (Payment.amount now equals advance + venue collection because
+  // markRemainderCollected already wrote it). Subtract whatever the
+  // initial EARNED_BOOKING row already credited and award the delta.
+  // Recomputing via the same formula avoids floor-rounding drift
+  // (computeEarnPoints uses Math.floor, so points_on(advance) +
+  // points_on(remainder) can be 1 less than points_on(total)).
+  const totalBillPaise = booking.payment.amount * 100;
+  const expectedTotal = computeEarnPoints(
+    totalBillPaise,
+    cfg.earnRateBookingBps,
+  );
+  const initialEarn = await db.rewardTransaction.findFirst({
+    where: { bookingId, type: "EARNED_BOOKING" },
+    select: { points: true },
+  });
+  const alreadyAwarded = initialEarn?.points ?? 0;
+  const remainderPoints = expectedTotal - alreadyAwarded;
+  if (remainderPoints <= 0) {
+    return { awarded: false, reason: "no delta to award" };
+  }
+
+  return insertEarn({
+    userId: booking.userId,
+    type: "EARNED_BOOKING_REMAINDER",
+    points: remainderPoints,
+    pointsValuePaise: pointsToPaise(remainderPoints, cfg),
+    bookingId,
+    cafeOrderId: null,
+    expiresAt: expiresAtForMonths(cfg.pointExpiryMonths),
+  });
+}
+
 // ---------- Cafe earn ----------
 
 export async function awardCafePoints(
@@ -387,6 +482,9 @@ async function sendEarnedPush(args: {
   switch (args.type) {
     case "EARNED_BOOKING":
       title = "Points for your booking";
+      break;
+    case "EARNED_BOOKING_REMAINDER":
+      title = "Bonus points — venue payment cleared";
       break;
     case "EARNED_CAFE":
       title = "Points for your cafe order";
