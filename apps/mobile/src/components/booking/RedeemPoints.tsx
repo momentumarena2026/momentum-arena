@@ -66,7 +66,16 @@ export function RedeemPoints({ holdId, billRupees, nonce, onChange }: Props) {
   const [redeeming, setRedeeming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset on bill change.
+  // Default is "redemption ON" — we auto-apply as soon as the preview
+  // lands so the customer doesn't have to hunt for the checkbox to
+  // use the points they've already earned. If they uncheck, this
+  // ref flips and the next preview load (after a coupon
+  // apply/clear) respects that. Re-checking flips it back.
+  const userOptedOutRef = useRef(false);
+
+  // Reset on bill change — the previous maxPoints is stale until
+  // the new preview lands. If auto-apply is still in effect it'll
+  // repopulate via the second effect below.
   useEffect(() => {
     setRedeeming(false);
     setError(null);
@@ -75,6 +84,34 @@ export function RedeemPoints({ holdId, billRupees, nonce, onChange }: Props) {
   }, [billRupees, nonce]);
 
   const preview = previewQ.data?.preview ?? null;
+
+  // Auto-apply when the preview lands and the user hasn't explicitly
+  // opted out. Mirror of the gates used in the render below — keep
+  // them in sync.
+  useEffect(() => {
+    if (!preview) return;
+    if (userOptedOutRef.current) return;
+    if (redeeming) return;
+    if (!preview.enabled) return;
+    if (preview.pointsAvailable < preview.minPoints) return;
+    if (preview.maxPoints < preview.minPoints) return;
+
+    setRedeeming(true);
+    const paiseSaved = preview.maxPoints * preview.pointValuePaise;
+    onChange({ points: preview.maxPoints, paiseSaved });
+    if (!startedFiredRef.current) {
+      startedFiredRef.current = true;
+      trackRewardsRedeemStarted(billRupees * 100, preview.maxPoints);
+    }
+    applyM.mutate(preview.maxPoints, {
+      onError: (err: unknown) => {
+        setError(err instanceof Error ? err.message : "Couldn't apply points");
+        setRedeeming(false);
+        onChange({ points: 0, paiseSaved: 0 });
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview]);
 
   if (preview === null || !preview?.enabled) return null;
   if (preview.pointsAvailable < preview.minPoints) return null;
@@ -99,6 +136,11 @@ export function RedeemPoints({ holdId, billRupees, nonce, onChange }: Props) {
     const nextOn = !redeeming;
     setRedeeming(nextOn);
     setError(null);
+    // Remember the user's explicit choice so coupon apply/clear
+    // (which re-runs the preview query) doesn't override them — if
+    // they turned it OFF, keep it off even after the bill changes;
+    // if they turn it back ON, resume default auto-apply behavior.
+    userOptedOutRef.current = !nextOn;
     const nextPoints = nextOn ? preview.maxPoints : 0;
     const nextPaise = nextPoints * preview.pointValuePaise;
     onChange({ points: nextPoints, paiseSaved: nextPaise });
