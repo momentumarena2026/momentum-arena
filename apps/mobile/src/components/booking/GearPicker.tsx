@@ -1,5 +1,11 @@
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { Check, ChevronUp, ShoppingBag } from "lucide-react-native";
 import { Text } from "../ui/Text";
 import { colors, radius, spacing } from "../../theme";
@@ -7,9 +13,11 @@ import type { EquipmentOption } from "../../lib/booking";
 
 /**
  * Mobile twin of components/booking/gear-picker.tsx — same behaviour:
- *  - Collapsed teaser by default
- *  - Auto-expands the first time the user picks a slot (smart UX)
- *  - Header shows selected items + price delta when collapsed
+ *  - Always starts collapsed. Customer taps the header to expand.
+ *  - On the false→true edge of `shouldExpand` (i.e. the moment a
+ *    slot is picked), the picker plays a one-shot horizontal shake
+ *    to draw attention to it — but does NOT auto-open.
+ *  - Header shows selected items + price delta when collapsed.
  *
  * Lives inside the sticky footer on BookSlotsScreen + BookBowling-
  * SlotsScreen, sitting right above the slot summary row.
@@ -21,8 +29,9 @@ interface Props {
   /** Number of selected slots — multiplies per-slot rental rates so
    *  a 3-slot booking with a ₹100/slot rental shows ₹300 here. */
   slotCount: number;
-  /** When the parent flips this to true, the picker opens once. After
-   *  that the user is in charge — toggling back doesn't re-open. */
+  /** When the parent flips this from false to true (= customer just
+   *  picked a slot), we fire a single shake animation. We do NOT
+   *  open the panel. */
   shouldExpand: boolean;
 }
 
@@ -33,21 +42,36 @@ export function GearPicker({
   slotCount,
   shouldExpand,
 }: Props) {
-  // Auto-expand the first time the parent flips shouldExpand to
-  // true, then let the user override. Mirror of the web GearPicker
-  // pattern — see components/booking/gear-picker.tsx for the
-  // detailed comment.
-  const [expanded, setExpanded] = useState(shouldExpand);
-  const [prevShouldExpand, setPrevShouldExpand] = useState(shouldExpand);
-  const [userInteracted, setUserInteracted] = useState(false);
-  if (prevShouldExpand !== shouldExpand) {
-    setPrevShouldExpand(shouldExpand);
-    if (!userInteracted && shouldExpand && !expanded) {
-      setExpanded(true);
-    }
-  }
+  // Picker starts (and stays) collapsed until the customer taps.
+  // The "smart" cue is now a shake on slot pick, not an auto-open.
+  const [expanded, setExpanded] = useState(false);
+
+  // Shake animation. Driven by a single Animated.Value oscillating
+  // between -6 → 6 → -4 → 4 → -2 → 2 → 0 over ~550ms — same envelope
+  // shape as the web @keyframes gear-shake.
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+
+  // Fire the shake on the false→true edge of shouldExpand. We also
+  // shake on FIRST render when shouldExpand is already true — this
+  // covers the screens that gate the picker render on `slots > 0`
+  // (e.g. BookSlotsScreen), where the component literally remounts
+  // every time the user re-picks slots from empty.
+  useEffect(() => {
+    if (!shouldExpand) return;
+    shakeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: -6, duration: 70, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 6, duration: 80, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -4, duration: 80, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 4, duration: 80, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -2, duration: 70, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 2, duration: 70, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+    ]).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldExpand]);
+
   function toggleExpanded() {
-    setUserInteracted(true);
     setExpanded((v) => !v);
   }
 
@@ -76,7 +100,9 @@ export function GearPicker({
   }
 
   return (
-    <View style={styles.card}>
+    <Animated.View
+      style={[styles.card, { transform: [{ translateX: shakeAnim }] }]}
+    >
       <Pressable
         onPress={toggleExpanded}
         style={({ pressed }) => [
@@ -85,8 +111,8 @@ export function GearPicker({
         ]}
       >
         <ShoppingBag
-          size={14}
-          color={hasSelection ? colors.emerald400 : colors.zinc500}
+          size={16}
+          color={hasSelection ? colors.emerald400 : colors.zinc400}
         />
         {hasSelection ? (
           <>
@@ -108,12 +134,16 @@ export function GearPicker({
           </>
         )}
         {/* Closed → arrow points up; open → flipped to point down.
-            Mirror of the web gear-picker affordance. */}
-        <ChevronUp
-          size={14}
-          color={colors.zinc500}
-          style={[styles.chev, expanded && styles.chevOpen]}
-        />
+            Wrapped in a fixed-size View so the flex row can't ever
+            squeeze it out of view when the headerSub text is long
+            (was rendering at zero width on some screens). */}
+        <View style={styles.chevWrap}>
+          <ChevronUp
+            size={18}
+            color={colors.zinc300}
+            style={expanded ? styles.chevOpen : undefined}
+          />
+        </View>
       </Pressable>
 
       {expanded && (
@@ -161,7 +191,7 @@ export function GearPicker({
           )}
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -199,8 +229,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.emerald400,
   },
-  chev: {
+  chevWrap: {
+    width: 20,
+    height: 20,
     marginLeft: spacing["1"],
+    alignItems: "center",
+    justifyContent: "center",
   },
   chevOpen: {
     transform: [{ rotate: "180deg" }],
