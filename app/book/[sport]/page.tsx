@@ -246,10 +246,15 @@ export default async function SportConfigPage({
               href={`/book/${sport}/${bowlingConfig.id}`}
               className="group rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 transition-all duration-300 hover:border-emerald-400/60 hover:bg-emerald-500/10"
             >
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="flex min-w-0 items-center gap-2 text-lg font-semibold text-white">
+              {/* Title + pill row. `flex-wrap` lets the pill drop to a
+                  new line on narrow widths instead of squeezing the
+                  title into an ellipsis — Michroma is wide enough that
+                  "Bowling Machine" + the chip overflows a mobile card.
+                  Title row is its own h3 so the wrap is predictable. */}
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+                <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
                   <Target className="h-4 w-4 shrink-0 text-emerald-400" />
-                  <span className="truncate">Bowling Machine</span>
+                  <span>Bowling Machine</span>
                 </h3>
                 <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
                   30-min slots
