@@ -1476,6 +1476,15 @@ export async function adminCreateBooking(data: {
   // is exposed today (anchored to PICKLEBALL via sport-promo helper);
   // future codes will plug in by way of the same lookup.
   applyCouponCode?: string;
+  // Optional equipment rentals attached at create time. Each entry
+  // is {equipmentId, quantity}; the action looks up the live
+  // Equipment.pricePerHour (per-slot price; the column name is
+  // legacy) and bills quantity * pricePerHour * slotCount, mirroring
+  // the post-create EquipmentEditor pricing. Equipment cost rolls
+  // into Booking.totalAmount unless customTotalAmount overrides it
+  // (admin's negotiated total is treated as inclusive of equipment,
+  // same convention the equipment editor uses for negotiated rows).
+  equipment?: Array<{ equipmentId: string; quantity: number }>;
   note?: string;
 }, adminOverride?: { id: string; username: string }) {
   const admin = adminOverride ?? (await requireAdminWithDetails());
@@ -1722,10 +1731,69 @@ export async function adminCreateBooking(data: {
       }
     }
 
+    // ── Equipment rental pricing ──────────────────────────────────
+    // Fetch live Equipment rows for every requested rental, gate on
+    // sport / category / isActive, and pre-compute the per-row
+    // totalPrice in paise (qty × pricePerHour × slotCount). Pricing
+    // mirrors what the post-create EquipmentEditor charges so admin
+    // can swap between "add at create" and "add later" without seeing
+    // a different number. The rupees figure folds into Booking.
+    // equipmentTotalAmount and Booking.totalAmount below.
+    type EquipmentResolved = {
+      equipmentId: string;
+      quantity: number;
+      pricePerHourPaise: number;
+      totalPricePaise: number;
+    };
+    const slotCountForEquipment = usingBowling
+      ? data.bowlingSlots!.length
+      : data.hours.length;
+    const resolvedEquipment: EquipmentResolved[] = [];
+    if (data.equipment && data.equipment.length > 0) {
+      for (const e of data.equipment) {
+        if (!Number.isInteger(e.quantity) || e.quantity <= 0) {
+          return {
+            success: false as const,
+            error: "Equipment quantity must be a positive integer",
+          };
+        }
+      }
+      const ids = data.equipment.map((e) => e.equipmentId);
+      const equipmentRows = await db.equipment.findMany({
+        where: { id: { in: ids }, isActive: true },
+      });
+      const byId = new Map(equipmentRows.map((r) => [r.id, r] as const));
+      for (const e of data.equipment) {
+        const row = byId.get(e.equipmentId);
+        if (!row) {
+          return {
+            success: false as const,
+            error: `Equipment not available: ${e.equipmentId}`,
+          };
+        }
+        resolvedEquipment.push({
+          equipmentId: e.equipmentId,
+          quantity: e.quantity,
+          pricePerHourPaise: row.pricePerHour,
+          totalPricePaise: row.pricePerHour * e.quantity * slotCountForEquipment,
+        });
+      }
+    }
+    const equipmentTotalPaise = resolvedEquipment.reduce(
+      (sum, r) => sum + r.totalPricePaise,
+      0,
+    );
+    const equipmentTotalRupees = Math.round(equipmentTotalPaise / 100);
+
+    // totalAmount = slot subtotal − coupon + equipment, unless
+    // customTotalAmount overrides it (admin's negotiated number is
+    // treated as the final figure the customer pays, INCLUSIVE of
+    // equipment — same convention the post-create equipment editor
+    // uses when recomputeBookingTotals derives the final total).
     const totalAmount =
       data.customTotalAmount !== undefined
         ? data.customTotalAmount
-        : computedTotal - couponDiscount;
+        : computedTotal - couponDiscount + equipmentTotalRupees;
     const isCustomAmount =
       data.customTotalAmount !== undefined &&
       data.customTotalAmount !== computedTotal;
@@ -1754,6 +1822,11 @@ export async function adminCreateBooking(data: {
           date: dateOnly,
           status: "CONFIRMED",
           totalAmount,
+          // Equipment portion in rupees. Stays at 0 when no rentals
+          // were picked; admin can still add equipment via the
+          // post-create EquipmentEditor and that path will
+          // recomputeBookingTotals to reconcile.
+          equipmentTotalAmount: equipmentTotalRupees,
           // When admin applied a coupon, the slot-sum was the
           // pre-discount total — stash on originalAmount + record
           // the discount so the audit log / receipts can render
@@ -1804,6 +1877,22 @@ export async function adminCreateBooking(data: {
         await tx.coupon.update({
           where: { id: couponRow.id },
           data: { usedCount: { increment: 1 } },
+        });
+      }
+
+      // Equipment rentals. Created with the already-priced
+      // totalPrice (paise) computed above. addBookingEquipment uses
+      // the same pricing formula post-create, so the customer pays
+      // the same number whether equipment is picked at create time
+      // or added later via the EquipmentEditor.
+      if (resolvedEquipment.length > 0) {
+        await tx.equipmentRental.createMany({
+          data: resolvedEquipment.map((r) => ({
+            bookingId: booking.id,
+            equipmentId: r.equipmentId,
+            quantity: r.quantity,
+            totalPrice: r.totalPricePaise,
+          })),
         });
       }
 
@@ -1875,6 +1964,13 @@ export async function adminCreateBooking(data: {
       if (couponRow && couponDiscount > 0) {
         creationNotes.push(
           `Applied ${couponRow.code}: -₹${couponDiscount} (₹${computedTotal} → ₹${totalAmount})`,
+        );
+      }
+      if (resolvedEquipment.length > 0) {
+        creationNotes.push(
+          `Equipment: ${resolvedEquipment.length} item${
+            resolvedEquipment.length === 1 ? "" : "s"
+          } (₹${equipmentTotalRupees})`,
         );
       }
 
