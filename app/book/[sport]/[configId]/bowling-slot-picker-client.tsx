@@ -223,8 +223,16 @@ export function BowlingSlotPickerClient({
           </h2>
 
           {loading ? (
-            <div className="flex items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
+            // Skeleton grid mirrors the live tile grid columns
+            // (grid-cols-2 sm:grid-cols-3 md:grid-cols-4) so the page
+            // layout doesn't shift when data lands.
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-16 animate-pulse rounded-xl border border-zinc-800 bg-zinc-900/60"
+                />
+              ))}
             </div>
           ) : slots.length === 0 ? (
             <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center text-sm text-zinc-500">

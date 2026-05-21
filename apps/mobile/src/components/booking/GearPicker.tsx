@@ -6,7 +6,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Check, ChevronUp, ShoppingBag } from "lucide-react-native";
+import { Check, ChevronDown, ChevronUp, ShoppingBag } from "lucide-react-native";
 import { Text } from "../ui/Text";
 import { colors, radius, spacing } from "../../theme";
 import type { EquipmentOption } from "../../lib/booking";
@@ -133,16 +133,18 @@ export function GearPicker({
             </Text>
           </>
         )}
-        {/* Closed → arrow points up; open → flipped to point down.
-            Wrapped in a fixed-size View so the flex row can't ever
-            squeeze it out of view when the headerSub text is long
-            (was rendering at zero width on some screens). */}
+        {/* Closed → up-arrow; open → down-arrow. Swapping the icon
+            outright (instead of rotating ChevronUp 180°) sidesteps a
+            lucide-react-native rendering quirk where the rotated
+            instance briefly became invisible on some Android builds.
+            Wrapped in a fixed 20×20 View so a long `headerSub` can
+            never squeeze it out of the flex row. */}
         <View style={styles.chevWrap}>
-          <ChevronUp
-            size={18}
-            color={colors.zinc300}
-            style={expanded ? styles.chevOpen : undefined}
-          />
+          {expanded ? (
+            <ChevronDown size={18} color={colors.zinc300} />
+          ) : (
+            <ChevronUp size={18} color={colors.zinc300} />
+          )}
         </View>
       </Pressable>
 
@@ -235,9 +237,6 @@ const styles = StyleSheet.create({
     marginLeft: spacing["1"],
     alignItems: "center",
     justifyContent: "center",
-  },
-  chevOpen: {
-    transform: [{ rotate: "180deg" }],
   },
   list: {
     borderTopWidth: StyleSheet.hairlineWidth,
