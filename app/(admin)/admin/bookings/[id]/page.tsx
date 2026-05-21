@@ -531,9 +531,22 @@ export default async function AdminBookingDetailPage({
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}
           currentSlots={booking.slots.map((s) => s.startHour)}
-          slotDurationMinutes={booking.courtConfig.slotDurationMinutes ?? 60}
+          // Treat the court as 30-min bowling whenever EITHER the
+          // explicit slotDurationMinutes is 30 OR the category is
+          // BOWLING_MACHINE. The two signals can drift apart in seed
+          // data — the slotDurationMinutes column was added later so
+          // older bowling rows still carry the default 60. Reading
+          // the category as a fallback keeps the edit modal honest
+          // for bookings whose court hasn't been re-seeded.
+          slotDurationMinutes={
+            (booking.courtConfig.slotDurationMinutes ?? 60) === 30 ||
+            booking.courtConfig.category === "BOWLING_MACHINE"
+              ? 30
+              : (booking.courtConfig.slotDurationMinutes ?? 60)
+          }
           currentBowlingSlots={
-            (booking.courtConfig.slotDurationMinutes ?? 60) === 30
+            (booking.courtConfig.slotDurationMinutes ?? 60) === 30 ||
+            booking.courtConfig.category === "BOWLING_MACHINE"
               ? booking.slots.map((s) => ({
                   hour: s.startHour,
                   minute: (s.startMinute === 30 ? 30 : 0) as 0 | 30,
