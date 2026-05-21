@@ -15,7 +15,6 @@ import {
   selectUpiPayment,
   applyCouponToHold,
   clearCouponFromHold,
-  applyEquipmentSelectionToHold,
 } from "@/actions/booking";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { createRecurringBooking } from "@/actions/recurring-booking";
@@ -66,16 +65,14 @@ interface CheckoutClientProps {
   onlineEnabled?: boolean;
   upiQrEnabled?: boolean;
   advanceEnabled?: boolean;
-  /** Rentable equipment surfaced as a checkbox list. Empty array =
-   *  no equipment section in the UI. Prices are in WHOLE RUPEES. */
-  equipmentOptions?: Array<{
-    id: string;
-    name: string;
-    priceRupees: number;
-    imageUrl: string | null;
-  }>;
-  /** Number of BookingSlot rows on the hold. Rental rates are
-   *  per-slot — display total = priceRupees × slotCount. */
+  /** Rental gear total in rupees, locked from the slot-selection
+   *  page. Added straight into the payable; checkout-client no
+   *  longer renders an interactive picker — see the Booking Summary
+   *  tile in page.tsx for the read-only per-item breakdown. */
+  lockedEquipmentTotalRupees?: number;
+  /** Number of BookingSlot rows on the hold. Kept on the props
+   *  surface for future rental-related callers; current checkout
+   *  no longer uses it directly. */
   slotCount?: number;
 }
 
@@ -107,8 +104,7 @@ export function CheckoutClient({
   onlineEnabled = true,
   upiQrEnabled = true,
   advanceEnabled = true,
-  equipmentOptions = [],
-  slotCount = 1,
+  lockedEquipmentTotalRupees = 0,
 }: CheckoutClientProps) {
   const router = useRouter();
   // Default selection to the first method that's currently enabled so the
@@ -170,20 +166,12 @@ export function CheckoutClient({
 
   const pointsRedeemRupees = Math.floor(pointsRedeemPaiseSaved / 100);
 
-  // Equipment-rental selection state. Each entry is the equipment row
-  // id — quantities default to 1 each (the venue's gear is one-per-
-  // booking, no need for a quantity stepper). Server is the source of
-  // truth; we sync via applyEquipmentSelectionToHold on every toggle.
-  const [equipmentIds, setEquipmentIds] = useState<Set<string>>(new Set());
-  // Rental rate is per-slot — scale by slotCount so a 3-slot
-  // booking with a ₹100/slot rental shows ₹300 here. Server-side
-  // applyEquipmentSelectionToHold uses the same multiplier when
-  // it writes the snapshot.
-  const rentalMultiplier = Math.max(1, slotCount);
-  const equipmentTotalRupees = Array.from(equipmentIds).reduce((sum, id) => {
-    const opt = equipmentOptions.find((o) => o.id === id);
-    return sum + (opt?.priceRupees ?? 0) * rentalMultiplier;
-  }, 0);
+  // Rental gear is now locked at slot-selection time and snapshotted
+  // onto the hold (see /api/booking/lock + components/booking/
+  // gear-picker.tsx). Checkout reads the resulting total directly
+  // and adds it to the payable — no interactive picker here any more.
+  // The Booking Summary tile in page.tsx renders the per-item lines.
+  const equipmentTotalRupees = lockedEquipmentTotalRupees;
 
   // Final payable = slot total - all discounts + equipment rentals.
   // Same convention used by createBookingFromHold so the gateway
@@ -192,21 +180,6 @@ export function CheckoutClient({
     0,
     effectiveAmount - pointsRedeemRupees + equipmentTotalRupees,
   );
-
-  async function toggleEquipment(id: string) {
-    setEquipmentIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      // Fire-and-forget — the server validates + re-prices. UI
-      // already reflects the new state from the optimistic toggle.
-      void applyEquipmentSelectionToHold(
-        holdId,
-        Array.from(next).map((eid) => ({ equipmentId: eid, quantity: 1 })),
-      );
-      return next;
-    });
-  }
 
   // Recurring confirmation state
   const [recurringResult, setRecurringResult] = useState<{ created: boolean; bookingsCreated?: number; id?: string } | null>(null);
@@ -635,8 +608,12 @@ export function CheckoutClient({
           `pointsRedeemed` / `pointsRedeemPaiseSaved` in sync with
           the payment-gateway buttons that follow. */}
 
-      {/* Included Equipment Banner */}
-      {sport === "CRICKET" && equipmentOptions.length === 0 && (
+      {/* Included Equipment Banner — surfaces the "kit included in the
+          slot price" hint only when this booking doesn't carry any
+          rental gear (the slot-selection page already lets the user
+          add rentals if they want; this is a positive reminder that
+          for cricket/football boxes the basics are free). */}
+      {sport === "CRICKET" && lockedEquipmentTotalRupees === 0 && (
         <div className="rounded-xl bg-zinc-800/60 px-4 py-3 flex items-center gap-2">
           <span className="text-base">🏏</span>
           <p className="text-sm text-zinc-300">Equipment (stumps, bats, and balls) is covered in the pricing.</p>
@@ -649,65 +626,11 @@ export function CheckoutClient({
         </div>
       )}
 
-      {/* Rentable equipment — currently only the bowling-machine
-          checkout surfaces a non-empty list. Each toggle persists
-          via applyEquipmentSelectionToHold; the server re-prices so
-          the client can't smuggle a cheaper rental. */}
-      {equipmentOptions.length > 0 && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">Rent gear</h3>
-            <span className="text-xs text-zinc-500">Optional · pay-per-booking</span>
-          </div>
-          <div className="space-y-1.5">
-            {equipmentOptions.map((opt) => {
-              const checked = equipmentIds.has(opt.id);
-              return (
-                <label
-                  key={opt.id}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors cursor-pointer ${
-                    checked
-                      ? "border-emerald-500/40 bg-emerald-500/5"
-                      : "border-zinc-800 bg-zinc-950 hover:border-zinc-700"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleEquipment(opt.id)}
-                    className="h-4 w-4 accent-emerald-500"
-                  />
-                  <span className="flex-1 text-sm text-white">
-                    {opt.name}
-                    {rentalMultiplier > 1 ? (
-                      <span className="ml-1 text-[10px] text-zinc-500">
-                        ({formatPrice(opt.priceRupees)} × {rentalMultiplier} slots)
-                      </span>
-                    ) : null}
-                  </span>
-                  <span
-                    className={`text-sm font-semibold ${
-                      checked ? "text-emerald-300" : "text-zinc-400"
-                    }`}
-                  >
-                    +{formatPrice(opt.priceRupees * rentalMultiplier)}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-          {equipmentTotalRupees > 0 && (
-            <div className="flex items-center justify-between rounded-lg bg-emerald-500/5 px-3 py-2 text-sm">
-              <span className="text-zinc-300">
-                Gear rental · {equipmentIds.size} item{equipmentIds.size === 1 ? "" : "s"}
-              </span>
-              <span className="font-semibold text-emerald-300">
-                +{formatPrice(equipmentTotalRupees)}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Rental "Rent gear" card moved upstream — it now lives above
+          the Continue button on the slot-selection page (see
+          components/booking/gear-picker.tsx). The per-item line is
+          rendered server-side in page.tsx from hold.equipmentSelection
+          alongside the slot total in the Booking Summary tile. */}
 
       {/* Payment Method */}
       <div>

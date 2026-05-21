@@ -8,12 +8,19 @@ interface Props {
   holdId: string;
   /** Pre-redemption total in rupees (post coupon + auto-promo + recurring
    *  discount). The redeem row subtracts off this; Total renders as
-   *  preDiscountTotal - paiseSaved/100. */
+   *  preDiscountTotal - paiseSaved/100 + equipmentTotalRupees. */
   preDiscountTotal: number;
   /** Bumped by the parent whenever an upstream discount changes
    *  (manual coupon apply/clear, new-user discount). Passed straight
    *  through to RedeemSlider so its cap recomputes. */
   billNonce?: number;
+  /** Rental gear total in rupees — locked from the slot-selection
+   *  page, displayed read-only above this row in the Booking Summary
+   *  tile. Added back into the rendered Total so the line items add
+   *  up. The points-redeem cap is computed against the pre-gear
+   *  bill (preDiscountTotal) because RedeemSlider's cap math already
+   *  uses the pre-discount slot bill upstream. */
+  equipmentTotalRupees?: number;
 }
 
 /**
@@ -33,14 +40,19 @@ interface Props {
  * `effectiveAmount` state. Same lightweight pattern the
  * `rewards:redeem-completed` analytics event uses.
  */
-export function SummaryFooter({ holdId, preDiscountTotal, billNonce }: Props) {
+export function SummaryFooter({
+  holdId,
+  preDiscountTotal,
+  billNonce,
+  equipmentTotalRupees = 0,
+}: Props) {
   const [redemption, setRedemption] = useState<{
     points: number;
     paiseSaved: number;
   }>({ points: 0, paiseSaved: 0 });
 
   const rupeesSaved = Math.floor(redemption.paiseSaved / 100);
-  const total = preDiscountTotal - rupeesSaved;
+  const total = preDiscountTotal - rupeesSaved + equipmentTotalRupees;
 
   // Whenever the redemption picks change, broadcast so the payment
   // gateway buttons in CheckoutClient pick up the same number.

@@ -26,6 +26,7 @@ import {
   bookingApi,
   type BowlingSlotAvailability,
 } from "../../lib/booking";
+import { GearPicker } from "../../components/booking/GearPicker";
 import { ApiError } from "../../lib/api";
 import { formatRupees, sportLabel } from "../../lib/format";
 import {
@@ -89,7 +90,26 @@ export function BookBowlingSlotsScreen() {
 
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayIST());
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  // Rental gear picks captured pre-lock — see BookSlotsScreen for the
+  // same pattern. Sent into bookingApi.lock so the hold snapshots
+  // equipment at lock time.
+  const [selectedEquipment, setSelectedEquipment] = useState<Set<string>>(
+    new Set(),
+  );
   const [locking, setLocking] = useState(false);
+
+  // Bowling-machine equipment options. Category is fixed —
+  // BOWLING_MACHINE — so the catalog returns kit / bat / L-guard.
+  const equipmentQuery = useQuery({
+    queryKey: ["equipment", params.sport, "BOWLING_MACHINE"],
+    queryFn: () =>
+      bookingApi.listEquipment({
+        sport: params.sport,
+        category: "BOWLING_MACHINE",
+      }),
+    staleTime: 60_000,
+  });
+  const equipmentOptions = equipmentQuery.data?.equipment ?? [];
 
   const pickDate = useCallback((dateStr: string) => {
     setSelectedDate(dateStr);
@@ -159,11 +179,19 @@ export function BookBowlingSlotsScreen() {
     if (sortedSelected.length === 0) return;
     setLocking(true);
     try {
+      const equipmentSelection =
+        selectedEquipment.size > 0
+          ? Array.from(selectedEquipment).map((id) => ({
+              equipmentId: id,
+              quantity: 1,
+            }))
+          : undefined;
       const res = await bookingApi.lock({
         mode: "bowling-machine",
         courtConfigId: params.courtConfigId,
         date: selectedDate,
         slots: sortedSelected,
+        equipmentSelection,
       });
       if (!res.success || !res.holdId) {
         Alert.alert(
@@ -355,6 +383,18 @@ export function BookBowlingSlotsScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
+        {/* Gear picker — auto-expands the first time the user picks a
+            30-min slot. Hidden until then so the slot grid above stays
+            in view on first load. */}
+        {sortedSelected.length > 0 && equipmentOptions.length > 0 && (
+          <GearPicker
+            options={equipmentOptions}
+            selectedIds={selectedEquipment}
+            onChange={setSelectedEquipment}
+            slotCount={sortedSelected.length}
+            shouldExpand={sortedSelected.length > 0}
+          />
+        )}
         <View style={styles.footerBody}>
           <Text variant="small" color={colors.mutedForeground}>
             {sortedSelected.length === 0

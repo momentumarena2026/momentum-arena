@@ -19,6 +19,8 @@ import {
   computeAutoApplyDiscount,
 } from "@/lib/auto-apply-promo";
 import { getCurrentHourIST, getTodayIST } from "@/lib/ist-date";
+import { GearPicker } from "@/components/booking/gear-picker";
+import type { EquipmentOption } from "@/lib/equipment";
 import {
   trackSlotToggled,
   trackDateChanged,
@@ -55,6 +57,10 @@ interface SlotSelectionClientProps {
    * /admin/coupons the next request returns null and everything hides.
    */
   promo?: ActiveSportPromo | null;
+  /** Rental equipment options for this sport/category. Empty array
+   *  hides the gear picker entirely. Fetched RSC-side in page.tsx so
+   *  the picker can render without a client-side round-trip. */
+  equipmentOptions?: EquipmentOption[];
 }
 
 export function SlotSelectionClient({
@@ -64,6 +70,7 @@ export function SlotSelectionClient({
   userId,
   mediumMode = false,
   promo = null,
+  equipmentOptions = [],
 }: SlotSelectionClientProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -78,6 +85,12 @@ export function SlotSelectionClient({
   // that specific slot. Only enabled in single-court mode (mediumMode
   // doesn't have a stable courtConfigId until lock time).
   const [waitlistHour, setWaitlistHour] = useState<number | null>(null);
+  // Rental gear picks captured pre-lock. Sent into /api/booking/lock
+  // so the hold lands in checkout with equipment already snapshotted —
+  // replaces the old standalone "Rent gear" card on the checkout page.
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<Set<string>>(
+    new Set(),
+  );
   const pendingAuthRef = useRef(false);
   const storageKey = `slot_selection_${configId}`;
 
@@ -242,6 +255,21 @@ export function SlotSelectionClient({
       }
       formData.set("date", selectedDate);
       formData.set("hours", JSON.stringify(selectedHours));
+      // Pre-lock gear picks ride along with the slot lock — the
+      // server snapshots them onto the fresh hold so checkout shows
+      // a read-only summary instead of a separate picker. Soft-fails
+      // server-side on stale items (see lock route comments).
+      if (selectedEquipmentIds.size > 0) {
+        formData.set(
+          "equipmentSelection",
+          JSON.stringify(
+            Array.from(selectedEquipmentIds).map((id) => ({
+              equipmentId: id,
+              quantity: 1,
+            })),
+          ),
+        );
+      }
 
       const res = await fetch("/api/booking/lock", {
         method: "POST",
@@ -672,6 +700,22 @@ export function SlotSelectionClient({
 
       {selectedHours.length > 0 && !showAuth && (
         <div className="fixed bottom-0 left-0 right-0 z-40 md:sticky md:bottom-4 md:left-auto md:right-auto md:z-auto bg-black/95 backdrop-blur-md border-t border-zinc-800 md:border md:border-zinc-800 md:rounded-xl p-4">
+          {/* Gear picker — sits inside the same sticky CTA tile so the
+              user sees their cart-like total (slots + gear) directly
+              above the Pay button. Per the chosen "smart expand" UX,
+              it appears (already expanded) the moment a slot is
+              picked. */}
+          {equipmentOptions.length > 0 && (
+            <div className="mb-3">
+              <GearPicker
+                options={equipmentOptions}
+                selectedIds={selectedEquipmentIds}
+                onChange={setSelectedEquipmentIds}
+                slotCount={selectedHours.length}
+                shouldExpand={selectedHours.length > 0}
+              />
+            </div>
+          )}
           {/* Slot summary */}
           <div className="flex items-center justify-between mb-2 md:mb-3 text-sm">
             <div className="flex items-center gap-2 text-zinc-400 overflow-hidden">

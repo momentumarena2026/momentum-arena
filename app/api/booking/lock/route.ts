@@ -9,7 +9,60 @@ import {
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { getMediumConfigs } from "@/lib/availability";
 import { getBowlingMachineAvailability } from "@/lib/bowling-availability";
-import { Sport } from "@prisma/client";
+import { snapshotEquipmentForHold } from "@/lib/equipment";
+import { db } from "@/lib/db";
+import { Prisma, Sport } from "@prisma/client";
+
+/**
+ * Snapshot the customer's equipment picks onto the just-created hold,
+ * if any were sent through the lock request.
+ *
+ * Soft-fail: a snapshot failure (item disabled mid-flow, malformed
+ * payload) is logged but does NOT release the hold. The slots are
+ * the valuable resource (5-min TTL); the customer can still re-pick
+ * gear from the checkout page if needed. Returning `equipmentApplied`
+ * in the response lets the client surface a one-time toast if it
+ * cares to.
+ */
+async function applyEquipmentToFreshHold(
+  holdId: string,
+  rawPicks: unknown,
+  slotCount: number,
+): Promise<{ applied: boolean; error?: string }> {
+  if (!rawPicks) return { applied: true };
+  let picks: Array<{ equipmentId: string; quantity: number }>;
+  try {
+    const parsed = typeof rawPicks === "string" ? JSON.parse(rawPicks) : rawPicks;
+    picks = (parsed as Array<{ equipmentId: string; quantity?: number }>)
+      .filter((p) => p && typeof p.equipmentId === "string")
+      .map((p) => ({
+        equipmentId: p.equipmentId,
+        quantity: typeof p.quantity === "number" && p.quantity > 0 ? p.quantity : 1,
+      }));
+  } catch {
+    return { applied: false, error: "Invalid equipment payload" };
+  }
+  if (picks.length === 0) return { applied: true };
+
+  const snap = await snapshotEquipmentForHold(picks, slotCount);
+  if (!snap.ok) {
+    console.warn("[lock] equipment snapshot failed for hold", holdId, snap.error);
+    return { applied: false, error: snap.error };
+  }
+  try {
+    await db.slotHold.update({
+      where: { id: holdId },
+      data: {
+        equipmentSelection: snap.result.snapshot as unknown as Prisma.InputJsonValue,
+        equipmentTotalAmount: snap.result.totalRupees,
+      },
+    });
+    return { applied: true };
+  } catch (err) {
+    console.warn("[lock] equipment update failed for hold", holdId, err);
+    return { applied: false, error: "Couldn't save equipment selection" };
+  }
+}
 
 // POST /api/booking/lock — creates a transient SlotHold (5 min TTL).
 // Returns { success, holdId?, error?, conflicts? }.
@@ -92,6 +145,14 @@ export async function POST(request: NextRequest) {
       new Date(date),
       slotPrices,
     );
+    if (result.success && result.holdId) {
+      const eq = await applyEquipmentToFreshHold(
+        result.holdId,
+        formData.get("equipmentSelection"),
+        picks.length,
+      );
+      return NextResponse.json({ ...result, equipmentApplied: eq.applied });
+    }
     return NextResponse.json(result);
   }
 
@@ -133,6 +194,14 @@ export async function POST(request: NextRequest) {
       hours,
       slotPrices
     );
+    if (result.success && result.holdId) {
+      const eq = await applyEquipmentToFreshHold(
+        result.holdId,
+        formData.get("equipmentSelection"),
+        hours.length,
+      );
+      return NextResponse.json({ ...result, equipmentApplied: eq.applied });
+    }
     return NextResponse.json(result);
   }
 
@@ -154,6 +223,15 @@ export async function POST(request: NextRequest) {
     hours,
     slotPrices
   );
+
+  if (result.success && result.holdId) {
+    const eq = await applyEquipmentToFreshHold(
+      result.holdId,
+      formData.get("equipmentSelection"),
+      hours.length,
+    );
+    return NextResponse.json({ ...result, equipmentApplied: eq.applied });
+  }
 
   return NextResponse.json(result);
 }

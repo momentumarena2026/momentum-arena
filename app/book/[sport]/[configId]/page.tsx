@@ -10,6 +10,7 @@ import { BowlingSlotPickerClient } from "./bowling-slot-picker-client";
 import { auth } from "@/lib/auth";
 import { BackButton } from "@/components/back-button";
 import { getActiveSportPromo } from "@/actions/sport-promo";
+import { listEquipmentForBooking } from "@/lib/equipment";
 
 export default async function SlotSelectionPage({
   params,
@@ -46,6 +47,16 @@ export default async function SlotSelectionPage({
   const promo = isBowling
     ? null
     : await getActiveSportPromo(config.sport, config.category);
+
+  // Fetch the customer-selectable equipment for this sport/category
+  // upfront — the rental picker has moved from the checkout page to
+  // sit above the slot-selection CTA, so it needs this data here.
+  // .catch returns [] so a transient DB hiccup just hides the picker
+  // (gear is optional).
+  const equipmentOptions = await listEquipmentForBooking({
+    sport: config.sport,
+    category: config.category,
+  }).catch(() => []);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -99,6 +110,7 @@ export default async function SlotSelectionPage({
           configId={configId}
           sport={sport}
           userId={session?.user?.id}
+          equipmentOptions={equipmentOptions}
         />
       ) : (
         <SlotSelectionClient
@@ -110,6 +122,7 @@ export default async function SlotSelectionPage({
           userId={session?.user?.id}
           userPhone={(session?.user as { phone?: string })?.phone}
           promo={promo}
+          equipmentOptions={equipmentOptions}
         />
       )}
     </div>

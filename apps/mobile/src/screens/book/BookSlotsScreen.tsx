@@ -27,6 +27,7 @@ import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { bookingApi, type SlotAvailability } from "../../lib/booking";
+import { GearPicker } from "../../components/booking/GearPicker";
 import {
   type ActiveSportPromo,
   computeAutoApplyDiscount,
@@ -70,7 +71,23 @@ export function BookSlotsScreen() {
   // same). Easier to compare against getTodayIST() and to pass to the API.
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayIST());
   const [selected, setSelected] = useState<number[]>([]);
+  // Rental gear picks captured pre-lock — passed into bookingApi.lock
+  // so the fresh hold lands in checkout with equipment already
+  // snapshotted (replaces the in-checkout rental selector).
+  const [selectedEquipment, setSelectedEquipment] = useState<Set<string>>(
+    new Set(),
+  );
   const [locking, setLocking] = useState(false);
+
+  // Customer-facing equipment options for this sport. Category here is
+  // null because hourly box bookings don't have a sub-category; the
+  // BowlingSlotsScreen passes BOWLING_MACHINE on its own.
+  const equipmentQuery = useQuery({
+    queryKey: ["equipment", params.sport, null],
+    queryFn: () => bookingApi.listEquipment({ sport: params.sport }),
+    staleTime: 60_000,
+  });
+  const equipmentOptions = equipmentQuery.data?.equipment ?? [];
   // Waitlist sheet state — `null` = closed, hour value = open for that
   // slot. Only enabled in single-court mode (mediumMode lacks a stable
   // courtConfigId until lock time, same as web).
@@ -171,6 +188,13 @@ export function BookSlotsScreen() {
     if (selected.length === 0) return;
     setLocking(true);
     try {
+      const equipmentSelection =
+        selectedEquipment.size > 0
+          ? Array.from(selectedEquipment).map((id) => ({
+              equipmentId: id,
+              quantity: 1,
+            }))
+          : undefined;
       const res = await bookingApi.lock(
         isMedium
           ? {
@@ -178,11 +202,13 @@ export function BookSlotsScreen() {
               sport: params.sport,
               date: selectedDate,
               hours: selected,
+              equipmentSelection,
             }
           : {
               courtConfigId: params.courtConfigId!,
               date: selectedDate,
               hours: selected,
+              equipmentSelection,
             }
       );
       if (!res.success || !res.holdId) {
@@ -374,6 +400,19 @@ export function BookSlotsScreen() {
 
       {/* Sticky footer */}
       <View style={styles.footer}>
+        {/* Gear picker — auto-expands once the user picks a slot.
+            Hidden entirely when no rental equipment is configured for
+            this sport, and stays out of the way while the user is
+            still picking slots (matches the desktop UX). */}
+        {selected.length > 0 && equipmentOptions.length > 0 && (
+          <GearPicker
+            options={equipmentOptions}
+            selectedIds={selectedEquipment}
+            onChange={setSelectedEquipment}
+            slotCount={selected.length}
+            shouldExpand={selected.length > 0}
+          />
+        )}
         <View style={styles.footerBody}>
           <Text variant="small" color={colors.mutedForeground}>
             {selected.length === 0
