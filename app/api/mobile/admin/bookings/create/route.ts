@@ -37,6 +37,19 @@ const Body = z
     // re-fetches the live coupon row server-side so the client can't
     // smuggle in a non-existent code.
     applyCouponCode: z.string().max(30).optional(),
+    // Optional equipment rentals to attach at create time. Each
+    // entry is {equipmentId, quantity}; the server re-fetches the
+    // live Equipment row + prices the rental against the current
+    // pricePerHour × slot count, same formula the post-create
+    // EquipmentEditor uses.
+    equipment: z
+      .array(
+        z.object({
+          equipmentId: z.string().min(1),
+          quantity: z.number().int().min(1).max(100),
+        }),
+      )
+      .optional(),
     note: z.string().max(500).optional(),
   })
   .refine(

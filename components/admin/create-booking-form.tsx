@@ -9,6 +9,7 @@ import {
   createCustomerForBooking,
   adminCreateBooking,
 } from "@/actions/admin-booking";
+import { listEquipmentForBookingCreate } from "@/actions/admin-equipment-rental";
 import {
   SPORT_INFO,
   SIZE_INFO,
@@ -185,6 +186,28 @@ export function CreateBookingForm({
   // the live coupon row, so we don't trust the client to do the math.
   const [applyPickleballCoupon, setApplyPickleballCoupon] = useState(false);
 
+  // Equipment rentals attached at create time. `catalog` is the live
+  // list of Equipment rows matching the picked court (sport +
+  // category), fetched once we know the court. `selectedEquipment`
+  // is a Map<equipmentId, quantity> — admin scales each pick by the
+  // qty input next to it. Per-row cost = pricePerHour × qty ×
+  // slotCount, billed the same way the post-create EquipmentEditor
+  // does so adding now vs adding later costs identical rupees.
+  interface EquipmentCatalogRow {
+    id: string;
+    name: string;
+    pricePerUnitPaise: number;
+    sport: string | null;
+    category: string | null;
+  }
+  const [equipmentCatalog, setEquipmentCatalog] = useState<EquipmentCatalogRow[]>(
+    [],
+  );
+  const [equipmentLoading, setEquipmentLoading] = useState(false);
+  const [selectedEquipment, setSelectedEquipment] = useState<
+    Record<string, number>
+  >({});
+
   // Step 5 state
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -231,6 +254,17 @@ export function CreateBookingForm({
     ? selectedBowlingSlots.length
     : selectedHours.length;
 
+  // Equipment subtotal in rupees. Mirrors the server pricing exactly
+  // (qty × pricePerHour × slotCount, in paise, rounded to rupees) so
+  // the displayed figure equals what the booking will be charged.
+  const equipmentTotalRupees = Math.round(
+    Object.entries(selectedEquipment).reduce((sum, [id, qty]) => {
+      const row = equipmentCatalog.find((r) => r.id === id);
+      if (!row || qty <= 0) return sum;
+      return sum + row.pricePerUnitPaise * qty * Math.max(1, selectedSlotCount);
+    }, 0) / 100,
+  );
+
   // Effective total — admin's typed value wins when present + valid,
   // falls back to the slot sum. Used everywhere downstream (partial-
   // advance validation, review summary, submit payload). FREE bookings
@@ -256,14 +290,18 @@ export function CreateBookingForm({
       ? computeAutoApplyDiscount(totalPrice, pickleballPromo)
       : 0;
 
+  // Effective total includes the equipment rentals unless the admin
+  // typed a custom amount (which is treated as inclusive of
+  // equipment, same convention the server uses). FREE bookings are
+  // always ₹0, the input is locked there.
   const effectiveTotal =
     paymentMethod === "FREE"
       ? 0
       : couponDiscount > 0
-        ? totalPrice - couponDiscount
+        ? totalPrice - couponDiscount + equipmentTotalRupees
         : customAmountValid
           ? parsedCustom
-          : totalPrice;
+          : totalPrice + equipmentTotalRupees;
 
   const today = getTodayIST();
   const maxDate = new Date(Date.now() + 30 * 86400000)
@@ -349,6 +387,42 @@ export function CreateBookingForm({
       setApplyPickleballCoupon(false);
     }
   }, [showCouponBox, applyPickleballCoupon]);
+
+  // ---------------------------------------------------------------------------
+  // Fetch equipment catalog when the selected court changes
+  // ---------------------------------------------------------------------------
+
+  // Re-fetch the equipment catalog whenever the picked court changes
+  // (sport or category may have changed). Resets selectedEquipment
+  // so a stale cricket-bat pick can't follow the admin into a
+  // football booking.
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedConfig) {
+      setEquipmentCatalog([]);
+      setSelectedEquipment({});
+      return;
+    }
+    setEquipmentLoading(true);
+    setSelectedEquipment({});
+    listEquipmentForBookingCreate(
+      selectedConfig.sport,
+      selectedConfig.category,
+    )
+      .then((rows) => {
+        if (cancelled) return;
+        setEquipmentCatalog(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setEquipmentCatalog([]);
+      })
+      .finally(() => {
+        if (!cancelled) setEquipmentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConfig]);
 
   // ---------------------------------------------------------------------------
   // Customer search with debounce
@@ -452,6 +526,13 @@ export function CreateBookingForm({
       const customTotalAmount =
         !applyCouponCode && customAmountOverride ? parsedCustom : undefined;
 
+      // Reduce selectedEquipment Map → array shape the action wants.
+      // Only ship entries with qty > 0; the server still re-validates
+      // each id against the live Equipment row + isActive flag.
+      const equipmentPayload = Object.entries(selectedEquipment)
+        .filter(([, qty]) => qty > 0)
+        .map(([equipmentId, quantity]) => ({ equipmentId, quantity }));
+
       // Bowling courts ship `bowlingSlots` instead of `hours`; the
       // action branches on the court's category and rejects mismatched
       // payloads. Keep `hours: []` on the bowling path so the union
@@ -474,6 +555,7 @@ export function CreateBookingForm({
         advanceAmount,
         customTotalAmount,
         applyCouponCode,
+        equipment: equipmentPayload.length > 0 ? equipmentPayload : undefined,
         note: note.trim() || undefined,
       });
       if (result.success) {
@@ -963,6 +1045,112 @@ export function CreateBookingForm({
             />
           )}
 
+          {/* Equipment rentals — picks scale by the booked slot count
+              (same formula the post-create EquipmentEditor uses). The
+              catalog is fetched from listEquipmentForBookingCreate and
+              filtered to the chosen sport + category, so a Cricket
+              booking sees cricket gear only. Hidden when no matching
+              items exist OR while we're still fetching the catalog. */}
+          {equipmentCatalog.length > 0 && (
+            <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-white">
+                  Rental equipment
+                </h3>
+                <span className="text-[11px] text-zinc-500">
+                  {selectedSlotCount > 0
+                    ? `${selectedSlotCount} × slot rate`
+                    : "Pick slots first"}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-500">
+                Quantity × per-slot price × number of slots. Cost
+                folds into the booking total below.
+              </p>
+              <div className="divide-y divide-zinc-800">
+                {equipmentCatalog.map((item) => {
+                  const qty = selectedEquipment[item.id] ?? 0;
+                  const pricePerSlotRupees = Math.round(
+                    item.pricePerUnitPaise / 100,
+                  );
+                  const rowTotalRupees =
+                    qty > 0
+                      ? Math.round(
+                          (item.pricePerUnitPaise *
+                            qty *
+                            Math.max(1, selectedSlotCount)) /
+                            100,
+                        )
+                      : 0;
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 py-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white truncate">
+                          {item.name}
+                        </p>
+                        <p className="text-[11px] text-zinc-500">
+                          {formatPrice(pricePerSlotRupees)} / slot
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedEquipment((prev) => {
+                              const next = { ...prev };
+                              const nextQty = (next[item.id] ?? 0) - 1;
+                              if (nextQty <= 0) delete next[item.id];
+                              else next[item.id] = nextQty;
+                              return next;
+                            })
+                          }
+                          disabled={qty <= 0}
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                          aria-label={`Decrease ${item.name}`}
+                        >
+                          −
+                        </button>
+                        <span className="w-6 text-center text-sm text-white">
+                          {qty}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedEquipment((prev) => ({
+                              ...prev,
+                              [item.id]: (prev[item.id] ?? 0) + 1,
+                            }))
+                          }
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-sm text-zinc-300 hover:border-zinc-600"
+                          aria-label={`Increase ${item.name}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="w-20 text-right text-xs text-zinc-400">
+                        {qty > 0 ? formatPrice(rowTotalRupees) : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {equipmentTotalRupees > 0 && (
+                <div className="flex items-center justify-between border-t border-zinc-800 pt-2 text-sm">
+                  <span className="text-zinc-400">Equipment subtotal</span>
+                  <span className="font-semibold text-emerald-300">
+                    {formatPrice(equipmentTotalRupees)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+          {equipmentLoading && equipmentCatalog.length === 0 && (
+            <p className="text-xs text-zinc-500">Loading equipment catalog…</p>
+          )}
+
           {/* Partial payment: admin records advance collected; remainder is
               owed at the venue. Not available on Free bookings. */}
           {paymentMethod !== "FREE" && (
@@ -1333,6 +1521,51 @@ export function CreateBookingForm({
                 );
               })()}
             </div>
+
+            {/* Equipment */}
+            {Object.values(selectedEquipment).some((q) => q > 0) && (
+              <div className="p-4">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide">
+                  Equipment
+                </p>
+                <ul className="mt-1 space-y-0.5 text-sm text-zinc-300">
+                  {Object.entries(selectedEquipment)
+                    .filter(([, q]) => q > 0)
+                    .map(([id, qty]) => {
+                      const item = equipmentCatalog.find((r) => r.id === id);
+                      if (!item) return null;
+                      const rowTotal = Math.round(
+                        (item.pricePerUnitPaise *
+                          qty *
+                          Math.max(1, selectedSlotCount)) /
+                          100,
+                      );
+                      return (
+                        <li
+                          key={id}
+                          className="flex items-center justify-between"
+                        >
+                          <span>
+                            {item.name}{" "}
+                            <span className="text-zinc-500">× {qty}</span>
+                          </span>
+                          <span className="text-zinc-400">
+                            {formatPrice(rowTotal)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                </ul>
+                {equipmentTotalRupees > 0 && (
+                  <p className="mt-1 text-xs text-emerald-300">
+                    Equipment total:{" "}
+                    <span className="font-semibold">
+                      {formatPrice(equipmentTotalRupees)}
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Note */}
             {note.trim() && (
