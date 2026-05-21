@@ -170,6 +170,12 @@ export interface AdminCourt {
   position: string;
   widthFt: number;
   lengthFt: number;
+  // Bowling-machine detection signals. Either one being set
+  // ("BOWLING_MACHINE" or slotDurationMinutes === 30) flips the
+  // create form into the 30-min picker — older bowling rows still
+  // carry slotDurationMinutes=60 so we OR the two on the client.
+  category: string | null;
+  slotDurationMinutes: number;
 }
 
 export interface AvailableSlot {
@@ -178,6 +184,14 @@ export interface AvailableSlot {
   isBooked: boolean;
   isBlocked: boolean;
   blockReason?: string | null;
+}
+
+export interface AvailableBowlingSlot {
+  hour: number;
+  minute: 0 | 30;
+  price: number;
+  isBooked: boolean;
+  isBlocked: boolean;
 }
 
 export const adminBookingsApi = {
@@ -287,22 +301,55 @@ export const adminBookingsApi = {
   },
 
   // Create a fresh booking from the mobile admin shell. Mirrors the
-  // web /admin/bookings/create form's payload shape.
+  // web /admin/bookings/create form's payload shape including the
+  // bowling-machine 30-min branch (bowlingSlots[] instead of hours[])
+  // and the optional equipment[] rentals attached at create time.
   create(body: {
     courtConfigId: string;
     date: string;
     hours: number[];
+    bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
     userId: string;
     paymentMethod: "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
     razorpayPaymentId?: string;
     advanceAmount?: number;
     customTotalAmount?: number;
+    equipment?: Array<{ equipmentId: string; quantity: number }>;
     note?: string;
   }): Promise<{ ok: true; bookingId: string }> {
     return request("/api/mobile/admin/bookings/create", {
       method: "POST",
       body,
     });
+  },
+
+  // Bowling-machine 30-min slot availability for the mobile create
+  // form. Server applies `adminOverride: true` so all 48 half-hour
+  // slots come back regardless of operating window / past-time.
+  availableBowlingSlots(
+    courtConfigId: string,
+    date: string,
+  ): Promise<{ slots: AvailableBowlingSlot[] }> {
+    const params = new URLSearchParams({ courtConfigId, date });
+    return request(
+      `/api/mobile/admin/available-bowling-slots?${params.toString()}`,
+      { method: "GET" },
+    );
+  },
+
+  // Equipment catalog filtered to a sport (+ optional category).
+  // Used by the mobile create-booking form's equipment section.
+  // Mirrors the web `listEquipmentForBookingCreate`.
+  equipmentForBookingCreate(
+    sport: string,
+    category: string | null,
+  ): Promise<{ items: AdminEquipmentCatalogItem[] }> {
+    const params = new URLSearchParams({ sport });
+    if (category) params.set("category", category);
+    return request(
+      `/api/mobile/admin/equipment-for-booking?${params.toString()}`,
+      { method: "GET" },
+    );
   },
 
   // Edit any payment field on an existing booking (method, status,

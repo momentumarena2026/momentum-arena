@@ -69,6 +69,19 @@ export function formatHourRangeCompact(startHour: number): string {
   return `${formatHourCompact(startHour)} - ${formatHourCompact(startHour + 1)}`;
 }
 
+/**
+ * "5:30pm" / "5pm" — omits :00 minutes so hourly slots stay terse.
+ * Mirror of the web `formatHourMinuteCompact` helper exported from
+ * lib/court-config.ts. Takes a total-minutes offset (hour*60 + min).
+ */
+export function formatHourMinuteCompact(totalMinutes: number): string {
+  const h24 = Math.floor(totalMinutes / 60) % 24;
+  const m = totalMinutes % 60;
+  const ampm = h24 < 12 ? "am" : "pm";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, "0")}${ampm}`;
+}
+
 /** Merge consecutive sorted hours into compact ranges. e.g. [17,18,19,22] → "5pm - 8pm, 10pm - 11pm" */
 export function formatHoursAsRanges(hours: number[]): string {
   if (hours.length === 0) return "";
