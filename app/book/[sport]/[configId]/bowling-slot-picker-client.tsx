@@ -129,10 +129,21 @@ export function BowlingSlotPickerClient({
     })
     .sort((a, b) => a.hour * 2 + a.minute / 30 - (b.hour * 2 + b.minute / 30));
 
-  const total = sortedSelected.reduce((sum, s) => {
+  const slotTotal = sortedSelected.reduce((sum, s) => {
     const found = slots.find((x) => x.hour === s.hour && x.minute === s.minute);
     return sum + (found?.price ?? 0);
   }, 0);
+
+  // Rental gear add-on — per-slot rate × slot count. Folded into
+  // the sticky-CTA total so what the customer sees on this screen
+  // matches the eventual checkout payable.
+  const rentalTotal = Array.from(selectedEquipmentIds).reduce((sum, id) => {
+    const opt = equipmentOptions.find((o) => o.id === id);
+    if (!opt) return sum;
+    return sum + Math.round(opt.pricePaise / 100) * sortedSelected.length;
+  }, 0);
+
+  const total = slotTotal + rentalTotal;
 
   async function handleProceed() {
     if (sessionStatus === "unauthenticated" || !userId) {
@@ -284,9 +295,12 @@ export function BowlingSlotPickerClient({
                     }
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 text-zinc-500" />
-                        <span className="text-sm font-medium text-white">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <Clock className="h-3 w-3 shrink-0 text-zinc-500" />
+                        {/* Same compact sizing as the hourly SlotGrid so
+                            "9:30am - 10am" stays on one line and the grid
+                            looks identical across sports. */}
+                        <span className="whitespace-nowrap text-xs font-medium text-white">
                           {fmtTime(slot.hour, slot.minute)}
                         </span>
                       </div>
@@ -338,7 +352,6 @@ export function BowlingSlotPickerClient({
                   selectedIds={selectedEquipmentIds}
                   onChange={setSelectedEquipmentIds}
                   slotCount={sortedSelected.length}
-                  shouldExpand={sortedSelected.length > 0}
                 />
               </div>
             )}

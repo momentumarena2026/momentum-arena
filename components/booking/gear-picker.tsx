@@ -36,8 +36,13 @@ interface Props {
   options: EquipmentOption[];
   selectedIds: Set<string>;
   onChange: (next: Set<string>) => void;
+  /** Number of slots the customer has picked. Drives two things:
+   *  (a) the price preview ("X items × N slots = ₹..."), and
+   *  (b) the shake animation — every time this value goes UP the
+   *      picker plays a one-shot wiggle. Going down (deselect /
+   *      clear) doesn't shake, so the cue is only ever attached to
+   *      a positive action. */
   slotCount: number;
-  shouldExpand: boolean;
 }
 
 export function GearPicker({
@@ -45,26 +50,28 @@ export function GearPicker({
   selectedIds,
   onChange,
   slotCount,
-  shouldExpand,
 }: Props) {
   // Always start collapsed. The customer expands when they want — we
-  // just nudge their attention with a one-shot shake when the parent
-  // signals "they've picked a slot".
+  // just nudge their attention with a shake every time slotCount
+  // ticks up (so additional slot picks within the same session also
+  // get the cue, not just the first one).
   const [expanded, setExpanded] = useState(false);
 
-  // shakeKey bumps each time shouldExpand transitions to true. It's
-  // used as React's `key` on the outer wrapper so the animation
-  // class is freshly applied (re-mounting the element restarts the
-  // keyframe). React docs call this the "previous-render info in
-  // state" pattern — prevShouldExpand starts at false so the first
-  // mount with shouldExpand=true triggers a shake too (the slot
-  // screens gate the picker on `slots > 0`, so the component remounts
-  // on every empty→1+ transition).
-  const [prevShouldExpand, setPrevShouldExpand] = useState(false);
+  // shakeKey bumps each time slotCount increases. Used as React's
+  // `key` on the outer wrapper so the animation class is re-applied
+  // (re-mounting the element restarts the keyframe). React docs call
+  // this the "store previous-render info in state" pattern.
+  //
+  // `prevSlotCount` starts at 0 so the very first mount with
+  // slotCount > 0 also fires a shake — important because the slot
+  // screens gate the picker behind `slotCount > 0`, meaning the
+  // component literally remounts each time the user goes from empty
+  // → at-least-one selection.
+  const [prevSlotCount, setPrevSlotCount] = useState(0);
   const [shakeKey, setShakeKey] = useState(0);
-  if (prevShouldExpand !== shouldExpand) {
-    setPrevShouldExpand(shouldExpand);
-    if (shouldExpand) setShakeKey((k) => k + 1);
+  if (prevSlotCount !== slotCount) {
+    setPrevSlotCount(slotCount);
+    if (slotCount > prevSlotCount) setShakeKey((k) => k + 1);
   }
 
   function toggleExpanded() {
