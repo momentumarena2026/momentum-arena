@@ -120,9 +120,15 @@ export function SlotGrid({
               }`}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5 text-zinc-500" />
-                  <span className="text-sm font-medium text-white">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <Clock className="h-3 w-3 shrink-0 text-zinc-500" />
+                  {/* `whitespace-nowrap` keeps the time on one line so the
+                      tile height stays uniform across all sports (bowling's
+                      "9:30am - 10am" was wrapping at text-sm). `text-xs`
+                      matches what the bowling format needs to fit the
+                      mobile 2-col grid; hourly cricket/football/pickleball
+                      shrink in lockstep so the grid looks consistent. */}
+                  <span className="whitespace-nowrap text-xs font-medium text-white">
                     {formatHourRangeCompact(slot.hour)}
                   </span>
                 </div>
