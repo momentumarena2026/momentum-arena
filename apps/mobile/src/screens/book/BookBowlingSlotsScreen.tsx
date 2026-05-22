@@ -133,7 +133,7 @@ export function BookBowlingSlotsScreen() {
       .sort((a, b) => slotIndex(a.hour, a.minute) - slotIndex(b.hour, b.minute));
   }, [selectedKeys]);
 
-  const total = useMemo(
+  const slotTotal = useMemo(
     () =>
       sortedSelected.reduce((sum, s) => {
         const found = slots.find(
@@ -143,6 +143,19 @@ export function BookBowlingSlotsScreen() {
       }, 0),
     [sortedSelected, slots],
   );
+
+  // Rental gear add-on — per-slot rate × slot count. Mirror of the
+  // web bowling-slot-picker-client math so the customer sees the same
+  // price on either platform.
+  const rentalTotal = useMemo(() => {
+    return Array.from(selectedEquipment).reduce((sum, id) => {
+      const opt = equipmentOptions.find((o) => o.id === id);
+      if (!opt) return sum;
+      return sum + Math.round(opt.pricePaise / 100) * sortedSelected.length;
+    }, 0);
+  }, [selectedEquipment, equipmentOptions, sortedSelected.length]);
+
+  const total = slotTotal + rentalTotal;
 
   function toggleSlot(slot: BowlingSlotAvailability) {
     if (slot.status !== "available") return;
@@ -326,11 +339,18 @@ export function BookBowlingSlotsScreen() {
                         when available, status label otherwise. */}
                     <View style={styles.slotHeader}>
                       <View style={styles.slotTimeRow}>
-                        <Clock size={14} color={colors.zinc500} />
+                        <Clock size={12} color={colors.zinc500} />
+                        {/* Single-line + auto-shrink so the longer
+                            "9:30am - 10am" string never wraps to two
+                            lines (the visible bug). Tile height stays
+                            uniform with the hourly BookSlotsScreen. */}
                         <Text
                           variant="small"
                           weight="500"
                           color={colors.foreground}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          style={styles.slotTimeText}
                         >
                           {fmtTime(slot.hour, slot.minute)}
                         </Text>
@@ -396,7 +416,6 @@ export function BookBowlingSlotsScreen() {
             selectedIds={selectedEquipment}
             onChange={setSelectedEquipment}
             slotCount={sortedSelected.length}
-            shouldExpand={sortedSelected.length > 0}
           />
         )}
         <View style={styles.footerBody}>
@@ -620,6 +639,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    flex: 1,
+    minWidth: 0,
+  },
+  // Mirror of BookSlotsScreen's slotTimeText — flexShrink lets the
+  // auto-fit text shrink within the row instead of pushing the
+  // Check/Bell icons off-screen.
+  slotTimeText: {
+    flexShrink: 1,
   },
   slotFooter: {
     marginTop: 2,

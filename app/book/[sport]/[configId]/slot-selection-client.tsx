@@ -199,19 +199,36 @@ export function SlotSelectionClient({
   const selectedSlotPrices = slots.filter((s) =>
     selectedHours.includes(s.hour)
   );
-  const total = selectedSlotPrices.reduce((sum, s) => sum + s.price, 0);
+  const slotTotal = selectedSlotPrices.reduce((sum, s) => sum + s.price, 0);
   // Per-slot decoration only kicks in for an uncapped PERCENTAGE
   // promo (promo.percentOff non-null); same gating SlotGrid uses
   // for its tiles. The sticky footer + handleProceed analytics
   // event read `promoTotal` so the "Continue" pill shows what the
   // checkout will actually charge.
   const showPromo = promo?.percentOff != null;
-  const promoTotal = showPromo && promo
+  const slotPromoTotal = showPromo && promo
     ? selectedSlotPrices.reduce(
         (sum, s) => sum + (s.price - computeAutoApplyDiscount(s.price, promo)),
         0,
       )
-    : total;
+    : slotTotal;
+
+  // Rental gear total — per-slot rate × slot count. Customer sees
+  // this rolled into the sticky-footer total and the Continue button
+  // so the price in front of them matches the eventual checkout.
+  // The mobile flow mirrors this math exactly (BookSlotsScreen).
+  const rentalTotal = Array.from(selectedEquipmentIds).reduce((sum, id) => {
+    const opt = equipmentOptions.find((o) => o.id === id);
+    if (!opt) return sum;
+    return sum + Math.round(opt.pricePaise / 100) * selectedHours.length;
+  }, 0);
+
+  // `total` and `promoTotal` keep their existing semantics for
+  // downstream callers (recurring math, analytics) but now include
+  // the gear add-on so the visible CTA, slot-pill, and recurring
+  // multiplier all reflect what the user is actually about to pay.
+  const total = slotTotal + rentalTotal;
+  const promoTotal = slotPromoTotal + rentalTotal;
 
   // User is authenticated if server passed userId OR client session is active
   const isAuthenticated = !!userId || (status === "authenticated" && !!session?.user);
@@ -720,7 +737,6 @@ export function SlotSelectionClient({
                 selectedIds={selectedEquipmentIds}
                 onChange={setSelectedEquipmentIds}
                 slotCount={selectedHours.length}
-                shouldExpand={selectedHours.length > 0}
               />
             </div>
           )}

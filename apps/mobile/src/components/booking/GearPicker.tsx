@@ -26,13 +26,12 @@ interface Props {
   options: EquipmentOption[];
   selectedIds: Set<string>;
   onChange: (next: Set<string>) => void;
-  /** Number of selected slots — multiplies per-slot rental rates so
-   *  a 3-slot booking with a ₹100/slot rental shows ₹300 here. */
+  /** Number of selected slots — drives both the rental price preview
+   *  (per-slot rate × slot count) AND the shake animation: every
+   *  time slotCount ticks UP, the picker plays a one-shot wiggle.
+   *  Going down (deselect / clear) doesn't shake, so the cue is
+   *  always tied to a positive selection action. */
   slotCount: number;
-  /** When the parent flips this from false to true (= customer just
-   *  picked a slot), we fire a single shake animation. We do NOT
-   *  open the panel. */
-  shouldExpand: boolean;
 }
 
 export function GearPicker({
@@ -40,10 +39,9 @@ export function GearPicker({
   selectedIds,
   onChange,
   slotCount,
-  shouldExpand,
 }: Props) {
   // Picker starts (and stays) collapsed until the customer taps.
-  // The "smart" cue is now a shake on slot pick, not an auto-open.
+  // The "smart" cue is a shake every time the slot count ticks up.
   const [expanded, setExpanded] = useState(false);
 
   // Shake animation. Driven by a single Animated.Value oscillating
@@ -51,13 +49,15 @@ export function GearPicker({
   // shape as the web @keyframes gear-shake.
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
-  // Fire the shake on the false→true edge of shouldExpand. We also
-  // shake on FIRST render when shouldExpand is already true — this
-  // covers the screens that gate the picker render on `slots > 0`
-  // (e.g. BookSlotsScreen), where the component literally remounts
-  // every time the user re-picks slots from empty.
+  // Fire the shake every time slotCount goes up. Tracking the
+  // previous value via ref (not state) means we get the comparison
+  // without an extra render, and the useEffect's dependency on the
+  // raw `slotCount` value is enough to retrigger on every change.
+  const prevSlotCountRef = useRef(0);
   useEffect(() => {
-    if (!shouldExpand) return;
+    const prev = prevSlotCountRef.current;
+    prevSlotCountRef.current = slotCount;
+    if (slotCount <= prev) return;
     shakeAnim.setValue(0);
     Animated.sequence([
       Animated.timing(shakeAnim, { toValue: -6, duration: 70, useNativeDriver: true }),
@@ -69,7 +69,7 @@ export function GearPicker({
       Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
     ]).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldExpand]);
+  }, [slotCount]);
 
   function toggleExpanded() {
     setExpanded((v) => !v);

@@ -140,14 +140,14 @@ export function BookSlotsScreen() {
   // whole order and would show misleading numbers per slot.
   const showDiscount = promo?.percentOff != null;
 
-  const totalOriginal = useMemo(
+  const slotsOriginal = useMemo(
     () =>
       slots
         .filter((s) => selected.includes(s.hour))
         .reduce((sum, s) => sum + s.price, 0),
     [slots, selected]
   );
-  const totalDiscounted = useMemo(
+  const slotsDiscounted = useMemo(
     () =>
       showDiscount && promo
         ? slots
@@ -156,9 +156,27 @@ export function BookSlotsScreen() {
               (sum, s) => sum + (s.price - computeAutoApplyDiscount(s.price, promo)),
               0,
             )
-        : totalOriginal,
-    [showDiscount, promo, slots, selected, totalOriginal]
+        : slotsOriginal,
+    [showDiscount, promo, slots, selected, slotsOriginal]
   );
+
+  // Rental gear add-on — per-slot rate × slot count, in whole rupees.
+  // Folded into both totalOriginal + totalDiscounted so the footer
+  // shows the customer exactly what the eventual checkout will charge
+  // (mirror of the web slot-selection-client + bowling picker math).
+  const rentalTotal = useMemo(() => {
+    return Array.from(selectedEquipment).reduce((sum, id) => {
+      const opt = equipmentOptions.find((o) => o.id === id);
+      if (!opt) return sum;
+      return sum + Math.round(opt.pricePaise / 100) * selected.length;
+    }, 0);
+  }, [selectedEquipment, equipmentOptions, selected.length]);
+
+  // Keep the original variable names so the existing footer markup
+  // (line-through promo display, discount comparison) reads the same
+  // — just with gear rolled in.
+  const totalOriginal = slotsOriginal + rentalTotal;
+  const totalDiscounted = slotsDiscounted + rentalTotal;
   // Footer + lock summaries always show the price the user pays. Keep
   // the old `total` name so the rest of the screen reads the same.
   const total = totalDiscounted;
@@ -410,7 +428,6 @@ export function BookSlotsScreen() {
             selectedIds={selectedEquipment}
             onChange={setSelectedEquipment}
             slotCount={selected.length}
-            shouldExpand={selected.length > 0}
           />
         )}
         <View style={styles.footerBody}>
@@ -617,8 +634,20 @@ function SlotGrid({
           >
             <View style={styles.slotHeader}>
               <View style={styles.slotTimeRow}>
-                <Clock size={14} color={colors.zinc500} />
-                <Text variant="small" weight="500" color={colors.foreground}>
+                <Clock size={12} color={colors.zinc500} />
+                {/* `numberOfLines={1}` + `adjustsFontSizeToFit` keep the
+                    time on a single line and let RN auto-shrink if a
+                    long format like "9:30am - 10am" would otherwise
+                    overflow. Mirrors the web slot-grid treatment so
+                    tile height stays uniform across sports. */}
+                <Text
+                  variant="small"
+                  weight="500"
+                  color={colors.foreground}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={styles.slotTimeText}
+                >
                   {formatHourRangeCompact(slot.hour)}
                 </Text>
               </View>
@@ -798,6 +827,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    flex: 1,
+    minWidth: 0,
+  },
+  // Time-range text — `flexShrink` lets adjustsFontSizeToFit work
+  // by giving the Text a flex container to compute against.
+  slotTimeText: {
+    flexShrink: 1,
   },
   slotFooter: {
     marginTop: 2,
