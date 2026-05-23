@@ -111,14 +111,16 @@ export function FiltersCollapsible({
       </div>
 
       {/* ─── Mobile sticky bar (<md) ─────────────────────────── */}
+      {/*
+         Note on layout: this component renders BOTH the desktop
+         collapsible AND the mobile bar/sheet from the same React
+         node. On mobile the desktop branch is `display:none` so it
+         contributes zero height — but the bar's clearance is handled
+         page-side (parent `<div>` gets `pb-20 md:pb-0`) instead of an
+         inline spacer here, because a spacer at this position
+         materialises as visible empty space between the stats cards
+         and the bookings list on every mobile load. */}
       <div className="md:hidden">
-        {/* Spacer so the last bookings row isn't covered by the bar.
-            Matches the bar height (3.5rem = 56px) plus safe-area inset.
-            Sits in document flow so the page can scroll past it. */}
-        <div
-          aria-hidden
-          style={{ height: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }}
-        />
         <div
           className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur"
           style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
