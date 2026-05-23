@@ -19,7 +19,10 @@ const Body = z
     // Bowling Machine sends `bowlingSlots` instead. The action picks
     // the path off the court's category; the API just relays. Either
     // array must carry at least one entry but not both.
-    hours: z.array(z.number().int().min(0).max(23)).default([]),
+    // 0..24 inclusive — admin gets the full 24h clock. Hour 24 is the
+    // legacy "12am-1am of next morning" slot some older bookings store;
+    // keeping it accepted matches the web adminCreateBooking guard.
+    hours: z.array(z.number().int().min(0).max(24)).default([]),
     bowlingSlots: z
       .array(
         z.object({
