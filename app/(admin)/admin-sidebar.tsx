@@ -182,10 +182,19 @@ export function AdminSidebar({ groups, userName, roleBadge }: AdminSidebarProps)
 
   return (
     <>
-      {/* Mobile hamburger button */}
+      {/* Mobile hamburger button. Bumped up when the /admin/bookings
+          list is showing its sticky filter bar at the bottom — the
+          bar lives at ~56px tall, so we offset the FAB to ~5rem
+          (80px) so it sits comfortably above the bar with breathing
+          room. The exact-page bookings list is `/admin/bookings`;
+          deeper routes (`/admin/bookings/[id]`, /calendar, /create,
+          /unconfirmed) don't ship the bar, so the default position
+          stays for them. */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 lg:hidden"
+        className={`fixed right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 lg:hidden ${
+          pathname === "/admin/bookings" ? "bottom-20" : "bottom-4"
+        }`}
         aria-label="Open menu"
       >
         <Menu className="h-5 w-5" />
