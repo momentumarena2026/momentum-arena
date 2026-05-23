@@ -130,7 +130,13 @@ export default async function AdminBookingsPage({
   const activeFilters = [params.status, params.sport, params.date, params.platform, params.payment].filter(Boolean).length;
 
   return (
-    <div className="space-y-6">
+    // `pb-20 md:pb-0` reserves space below the last bookings row on
+    // mobile so the sticky "Filters" bar (3.5rem tall) doesn't sit on
+    // top of it. Desktop has no bar, so no padding. The previous
+    // inline spacer inside FiltersCollapsible was materialising as
+    // an empty band between the stats cards and the bookings list —
+    // moving the clearance to the page wrapper fixes that.
+    <div className="space-y-6 pb-20 md:pb-0">
       {/* Cross-session filter persistence. Snapshots URL filter params
           to localStorage on mount, and on a fresh visit (no params)
           replaces the URL with the saved snapshot so staff don't have
