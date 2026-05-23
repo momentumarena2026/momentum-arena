@@ -1194,7 +1194,7 @@ export async function getAdminStats() {
 // ---------------------------------------------------------------------------
 
 import { getSlotPricesForDate } from "@/lib/pricing";
-import { zonesOverlap, OPERATING_HOURS } from "@/lib/court-config";
+import { zonesOverlap } from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
 
 async function requireAdminWithDetails() {
@@ -1411,9 +1411,17 @@ export async function getAvailableSlots(
     const slotPrices = await getSlotPricesForDate(courtConfigId, dateOnly);
     const priceMap = new Map<number, number>(slotPrices.map((s) => [s.hour, s.price]));
 
-    // Build result for each operating hour
+    // Admin gets every hour of the calendar day (0..23) — no
+    // operating-window cutoff. Front desk often needs to log
+    // late-night / early-morning sessions (event bookings,
+    // corporate buyouts) that fall outside the customer-facing
+    // 5am-1am window. Hours with no pricingRule fall back to 0
+    // and the admin can override via customTotalAmount on the
+    // create-booking form. Mirror of the bowling admin path
+    // which already emits the full 48 half-hour grid via
+    // `adminOverride: true`.
     const slots: { hour: number; price: number; available: boolean; blocked: boolean }[] = [];
-    for (let hour = OPERATING_HOURS.start; hour < OPERATING_HOURS.end; hour++) {
+    for (let hour = 0; hour < 24; hour++) {
       const blocked = fullDayBlocked || blockedHours.has(hour);
       const occupied = occupiedHours.has(hour);
       slots.push({
@@ -1524,14 +1532,18 @@ export async function adminCreateBooking(data: {
       };
     }
 
-    // Per-slot validation. Hourly path checks against OPERATING_HOURS
-    // and requires at least one hour; bowling path enforces {0,30}
-    // minute and trusts the availability surface for the start/end
-    // window (Bowling Machine has its own operating hours configured
-    // via /admin/sports/bowling-machine).
+    // Per-slot validation. Hourly path: admin gets the full 24h
+    // clock (0..23) plus the legacy hour-24 convention for the
+    // 12am-1am-next-morning slot some older bookings store.
+    // Customer-facing flow still enforces OPERATING_HOURS via the
+    // slot picker on /book; this gate just refuses obviously
+    // out-of-range integers. Bowling path enforces {0,30} minute
+    // and trusts the availability surface for the start/end
+    // window (Bowling Machine has its own operating hours
+    // configured via /admin/sports/bowling-machine).
     if (!usingBowling) {
       for (const h of data.hours) {
-        if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
+        if (h < 0 || h > 24) {
           return { success: false as const, error: `Invalid hour: ${h}` };
         }
       }
@@ -2058,8 +2070,10 @@ export async function adminEditBookingSlots(
       return { success: false as const, error: "At least one slot is required" };
     }
     if (!usingBowling) {
+      // Admin can edit slots to any hour of the 24h clock. See the
+      // create-booking validator above for the rationale.
       for (const h of newHours) {
-        if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
+        if (h < 0 || h > 24) {
           return { success: false as const, error: `Invalid hour: ${h}` };
         }
       }
@@ -2431,9 +2445,11 @@ export async function adminEditBookingFull(
     const finalCourtConfigId = data.newCourtConfigId ?? booking.courtConfigId;
     const finalHours = data.newHours ?? booking.slots.map((s) => s.startHour);
 
-    // Validate hours
+    // Validate hours — admin gets the full 24h clock; see the
+    // create-booking validator earlier in this file for the
+    // rationale on the 0..24 inclusive range.
     for (const h of finalHours) {
-      if (h < OPERATING_HOURS.start || h >= OPERATING_HOURS.end) {
+      if (h < 0 || h > 24) {
         return { success: false as const, error: `Invalid hour: ${h}` };
       }
     }
