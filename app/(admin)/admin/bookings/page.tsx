@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { BookingsTable } from "./bookings-table";
 import { FiltersCollapsible } from "./filters-collapsible";
+import { FiltersPersist } from "./filters-persist";
 
 export default async function AdminBookingsPage({
   searchParams,
@@ -130,6 +131,13 @@ export default async function AdminBookingsPage({
 
   return (
     <div className="space-y-6">
+      {/* Cross-session filter persistence. Snapshots URL filter params
+          to localStorage on mount, and on a fresh visit (no params)
+          replaces the URL with the saved snapshot so staff don't have
+          to re-pick "Confirmed + Today + Cricket" every time they
+          come back. See filters-persist.tsx for the full design. */}
+      <FiltersPersist />
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
