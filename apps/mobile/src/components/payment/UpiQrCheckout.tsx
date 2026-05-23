@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import {
+  AlertCircle,
   CheckCircle2,
   CircleCheck,
   MessageCircle,
@@ -271,6 +272,25 @@ export function UpiQrCheckout({
         </Text>
       </View>
 
+      {/* Heads-up about the merchant's UPI account restriction. Our
+          PhonePe Business account accepts only bank-linked UPI
+          (savings/current). Wallet balance, credit-card-on-UPI, and
+          overdraft accounts are rejected with a confusing "Payment
+          Failed" inside the UPI app. Surfacing this upfront saves the
+          customer from a failed attempt + frantic WhatsApp follow-up.
+          Mirror of the web upi-qr-checkout warning. */}
+      <View style={styles.notice}>
+        <AlertCircle size={14} color="#fbbf24" style={styles.noticeIcon} />
+        <Text variant="tiny" color="#fde68a" style={styles.noticeText}>
+          <Text variant="tiny" weight="600" color="#fcd34d">
+            Pay from your bank-linked UPI
+          </Text>
+          {" "}(savings/current). Wallet balance, credit-card-on-UPI, and
+          overdraft accounts aren&apos;t accepted by this merchant and
+          will fail with a &quot;Payment Failed&quot; screen.
+        </Text>
+      </View>
+
       {commitError ? (
         <View style={styles.errorBox}>
           <Text variant="small" align="center" color={colors.destructive}>
@@ -394,6 +414,26 @@ const styles = StyleSheet.create({
   },
   amountSub: {
     marginTop: spacing["1"],
+  },
+  // Amber notice card warning the user to pay from bank-linked UPI
+  // only (the merchant rejects wallet / credit-card-on-UPI / overdraft).
+  notice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing["2"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.30)",
+    backgroundColor: "rgba(245, 158, 11, 0.05)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["3"],
+  },
+  noticeIcon: {
+    marginTop: 1,
+  },
+  noticeText: {
+    flex: 1,
+    lineHeight: 16,
   },
   errorBox: {
     borderRadius: radius.md,
