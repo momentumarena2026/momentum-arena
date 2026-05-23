@@ -19,6 +19,7 @@ import {
 import { BookingsTable } from "./bookings-table";
 import { FiltersCollapsible } from "./filters-collapsible";
 import { FiltersPersist } from "./filters-persist";
+import { UserSearchInput } from "./user-search-input";
 
 export default async function AdminBookingsPage({
   searchParams,
@@ -30,6 +31,9 @@ export default async function AdminBookingsPage({
     date?: string;
     platform?: string;
     payment?: string;
+    /** Free-text user search (name / phone / email substring). Wired
+     *  through getAdminBookings to a Prisma OR clause on user. */
+    q?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -47,6 +51,7 @@ export default async function AdminBookingsPage({
       date: params.date,
       platform: params.platform,
       payment: params.payment,
+      q: params.q,
       limit: 20,
     }),
     getAdminStats(),
@@ -67,6 +72,7 @@ export default async function AdminBookingsPage({
       date: params.date || "",
       platform: params.platform || "",
       payment: params.payment || "",
+      q: params.q || "",
       page: "1",
     };
     const merged = { ...base, ...overrides };
@@ -127,16 +133,16 @@ export default async function AdminBookingsPage({
     },
   ];
 
-  const activeFilters = [params.status, params.sport, params.date, params.platform, params.payment].filter(Boolean).length;
+  const activeFilters = [params.status, params.sport, params.date, params.platform, params.payment, params.q].filter(Boolean).length;
 
   return (
-    // `pb-20 md:pb-0` reserves space below the last bookings row on
-    // mobile so the sticky "Filters" bar (3.5rem tall) doesn't sit on
-    // top of it. Desktop has no bar, so no padding. The previous
-    // inline spacer inside FiltersCollapsible was materialising as
-    // an empty band between the stats cards and the bookings list —
-    // moving the clearance to the page wrapper fixes that.
-    <div className="space-y-6 pb-20 md:pb-0">
+    // `pb-32 md:pb-0` reserves enough space below the last row on
+    // mobile so the sticky "Filters" bar can never overlap the
+    // pagination controls. The bar itself is ~56px tall but iOS
+    // safe-area can add 20-30px on top of that, plus we want a
+    // visible gap above the pagination so it's tappable — 8rem
+    // (128px) covers all three. Desktop has no bar so no padding.
+    <div className="space-y-6 pb-32 md:pb-0">
       {/* Cross-session filter persistence. Snapshots URL filter params
           to localStorage on mount, and on a fresh visit (no params)
           replaces the URL with the saved snapshot so staff don't have
@@ -220,6 +226,24 @@ export default async function AdminBookingsPage({
         totalLabel={`${total} ${total === 1 ? "booking" : "bookings"}`}
         defaultExpanded={activeFilters > 0}
       >
+        {/* User search — typed input, all other filters here are
+            link-driven chips. The component preserves the rest of
+            the URL params when the search submits so chips + search
+            compose freely. */}
+        <UserSearchInput
+          initialValue={params.q || ""}
+          preservedParams={[
+            ["status", activeStatus],
+            ["sport", params.sport ?? ""],
+            ["date", params.date ?? ""],
+            ["platform", params.platform ?? ""],
+            ["payment", params.payment ?? ""],
+          ]
+            .filter(([, v]) => v)
+            .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+            .join("&")}
+        />
+
         {/* Date row */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Date</span>
