@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
   CheckCircle2,
   CircleCheck,
   ShieldCheck,
@@ -262,6 +263,24 @@ export function UpiQrCheckout({
         </p>
         <p className="mt-1 text-xs text-zinc-600">
           Sportive Ventures &middot; {selectedQr.label}
+        </p>
+      </div>
+
+      {/* Heads-up about the merchant's UPI account restriction. Our
+          PhonePe Business account accepts only bank-linked UPI
+          (savings/current). It rejects PPI (wallet balances), credit
+          cards routed via UPI, and overdraft accounts — those payments
+          show a confusing "Payment Failed" inside the UPI app even
+          though the user's app sometimes pre-flashes a "Paid" toast.
+          Setting expectations here saves the customer from a failed
+          attempt and a frantic WhatsApp follow-up. */}
+      <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+        <AlertCircle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+        <p className="text-xs leading-relaxed text-amber-200/90">
+          <span className="font-semibold text-amber-300">Pay from your bank-linked UPI</span>{" "}
+          (savings/current account). Wallet balance, credit-card-on-UPI,
+          and overdraft accounts aren&apos;t accepted by this merchant and
+          will fail with a &quot;Payment Failed&quot; screen.
         </p>
       </div>
 
