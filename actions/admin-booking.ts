@@ -1411,14 +1411,24 @@ export async function getAvailableSlots(
     const slotPrices = await getSlotPricesForDate(courtConfigId, dateOnly);
     const priceMap = new Map<number, number>(slotPrices.map((s) => [s.hour, s.price]));
 
+    // Off-hours (admin-only slots like 2am-5am) aren't covered by the
+    // configured pricing rules, so getSlotPricesForDate doesn't return
+    // a price for them. Default those to the highest price the venue
+    // charges on this dayType — which by business rule is the PEAK
+    // rate. Late-night sessions should never undercut peak. Computed
+    // as max() across the priced hours rather than a second DB lookup;
+    // PricingRule guarantees PEAK ≥ OFF_PEAK so max == PEAK.
+    const peakPrice = slotPrices.reduce(
+      (max, s) => (s.price > max ? s.price : max),
+      0,
+    );
+
     // Admin gets every hour of the calendar day (0..23) — no
     // operating-window cutoff. Front desk often needs to log
     // late-night / early-morning sessions (event bookings,
     // corporate buyouts) that fall outside the customer-facing
-    // 5am-1am window. Hours with no pricingRule fall back to 0
-    // and the admin can override via customTotalAmount on the
-    // create-booking form. Mirror of the bowling admin path
-    // which already emits the full 48 half-hour grid via
+    // 5am-1am window. Mirror of the bowling admin path which
+    // already emits the full 48 half-hour grid via
     // `adminOverride: true`.
     const slots: { hour: number; price: number; available: boolean; blocked: boolean }[] = [];
     for (let hour = 0; hour < 24; hour++) {
@@ -1426,7 +1436,7 @@ export async function getAvailableSlots(
       const occupied = occupiedHours.has(hour);
       slots.push({
         hour,
-        price: priceMap.get(hour) ?? 0,
+        price: priceMap.get(hour) ?? peakPrice,
         available: !blocked && !occupied,
         blocked,
       });
@@ -1577,9 +1587,19 @@ export async function adminCreateBooking(data: {
     const priceMap = new Map<number, number>();
     const bowlingPriceMap = new Map<string, number>();
 
+    // Off-hours fallback — admin can pick slots outside the venue's
+    // configured pricing rules (e.g. 2am). Default those to the
+    // venue's PEAK rate (= max of all priced hours by business rule
+    // — PEAK ≥ OFF_PEAK). Front desk never undercharges for a
+    // late-night session by accident.
+    let peakPrice = 0;
     if (!usingBowling) {
       const slotPrices = await getSlotPricesForDate(data.courtConfigId, dateOnly);
       for (const sp of slotPrices) priceMap.set(sp.hour, sp.price);
+      peakPrice = slotPrices.reduce(
+        (max, s) => (s.price > max ? s.price : max),
+        0,
+      );
 
       // Zone-overlap conflict check (same as before)
       const activeBookings = await db.booking.findMany({
@@ -1627,7 +1647,7 @@ export async function adminCreateBooking(data: {
       }
 
       computedTotal = data.hours.reduce(
-        (sum, h) => sum + (priceMap.get(h) ?? 0),
+        (sum, h) => sum + (priceMap.get(h) ?? peakPrice),
         0,
       );
     } else {
@@ -1861,7 +1881,7 @@ export async function adminCreateBooking(data: {
                 }))
               : data.hours.map((h) => ({
                   startHour: h,
-                  price: priceMap.get(h) ?? 0,
+                  price: priceMap.get(h) ?? peakPrice,
                 })),
           },
         },
@@ -2117,6 +2137,10 @@ export async function adminEditBookingSlots(
     let newPreDiscountTotal: number;
     let bowlingPriceMap: Map<string, number> | null = null;
     let priceMap: Map<number, number> = new Map();
+    // Off-hours fallback for the hourly path — populated inside the
+    // !usingBowling branch alongside priceMap. Default to 0 here for
+    // the bowling branch which never touches it.
+    let peakPriceForEdit = 0;
 
     if (usingBowling) {
       // 30-min path — re-validate via the bowling availability surface
@@ -2219,8 +2243,14 @@ export async function adminEditBookingSlots(
       priceMap = new Map<number, number>(
         slotPrices.map((s) => [s.hour, s.price]),
       );
+      // Off-hours (admin-only) fall back to PEAK — see the
+      // create-booking path for the rationale.
+      peakPriceForEdit = slotPrices.reduce(
+        (max, s) => (s.price > max ? s.price : max),
+        0,
+      );
       newPreDiscountTotal = newHours.reduce(
-        (sum, h) => sum + (priceMap.get(h) ?? 0),
+        (sum, h) => sum + (priceMap.get(h) ?? peakPriceForEdit),
         0,
       );
     }
@@ -2291,7 +2321,7 @@ export async function adminEditBookingSlots(
             startHour: h,
             startMinute: 0,
             durationMinutes: 60,
-            price: priceMap.get(h) ?? 0,
+            price: priceMap.get(h) ?? peakPriceForEdit,
           })),
         });
       }
@@ -2518,8 +2548,14 @@ export async function adminEditBookingFull(
     // Get new prices
     const slotPrices = await getSlotPricesForDate(finalCourtConfigId, finalDate);
     const priceMap = new Map<number, number>(slotPrices.map((s) => [s.hour, s.price]));
+    // Off-hours (admin-only) fall back to PEAK — see create-booking
+    // path for the rationale.
+    const peakPriceForBookingEdit = slotPrices.reduce(
+      (max, s) => (s.price > max ? s.price : max),
+      0,
+    );
     const newPreDiscountTotal = finalHours.reduce(
-      (sum, h) => sum + (priceMap.get(h) ?? 0),
+      (sum, h) => sum + (priceMap.get(h) ?? peakPriceForBookingEdit),
       0,
     );
 
@@ -2636,7 +2672,7 @@ export async function adminEditBookingFull(
         data: finalHours.map((h) => ({
           bookingId,
           startHour: h,
-          price: priceMap.get(h) ?? 0,
+          price: priceMap.get(h) ?? peakPriceForBookingEdit,
         })),
       });
 
