@@ -252,7 +252,8 @@ export default async function AdminBookingsPage({
             over. Order is left-to-right top-to-bottom:
               Row 1: Date     | Status
               Row 2: Sport    | Platform
-              Row 3: Payment  | (empty) */}
+              Row 3: Payment  (md:col-span-2 — fills the trailing
+                                empty cell so the card looks balanced) */}
         <div className="space-y-3 md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-3 md:space-y-0">
         {/* Date row */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -364,8 +365,10 @@ export default async function AdminBookingsPage({
              Status filter. "Pending" is a custom predicate
              (CONFIRMED + payment != COMPLETED OR null) so the floor
              staff can quickly find every confirmed booking that
-             still has money owed at the venue. */}
-        <div className="flex items-center gap-2 flex-wrap">
+             still has money owed at the venue. Spans both grid
+             columns on desktop so the bottom row doesn't leave an
+             empty cell. */}
+        <div className="flex items-center gap-2 flex-wrap md:col-span-2">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Payment</span>
           {[
             { label: "All", value: "", dot: "" },
