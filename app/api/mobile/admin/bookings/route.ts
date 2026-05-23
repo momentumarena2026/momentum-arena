@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
   const date = searchParams.get("date") || undefined;
   const platform = searchParams.get("platform") || undefined;
   const payment = searchParams.get("payment") || undefined;
+  const q = (searchParams.get("q") || "").trim() || undefined;
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.min(
     100,
@@ -43,6 +44,20 @@ export async function GET(request: NextRequest) {
   if (sport) where.courtConfig = { sport };
   if (platform) where.platform = platform;
   if (date) where.date = new Date(date);
+
+  // Customer search — name (case-insensitive substring), phone
+  // (substring), email (case-insensitive). Same OR clause the web
+  // /admin/bookings page uses; composes with the chip filters above
+  // via Prisma's AND-of-keys default.
+  if (q) {
+    where.user = {
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { phone: { contains: q } },
+        { email: { contains: q, mode: "insensitive" } },
+      ],
+    };
+  }
 
   // Payment-completion filter — see web's getAdminBookings for the
   // rationale. "pending" overrides any non-CONFIRMED status pick to

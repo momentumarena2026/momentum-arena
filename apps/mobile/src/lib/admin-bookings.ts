@@ -108,6 +108,10 @@ export interface ListFilters {
   // booking.status to CONFIRMED and matches non-COMPLETED (or null)
   // payments — same semantics as the web payment filter.
   payment?: "completed" | "pending";
+  /** Free-text customer search — matches user.name (case-insensitive),
+   *  user.phone (substring), or user.email (case-insensitive). Same
+   *  filter the web admin /bookings page exposes. */
+  q?: string;
   page?: number;
   limit?: number;
 }
@@ -222,6 +226,7 @@ export const adminBookingsApi = {
     if (filters.date) params.set("date", filters.date);
     if (filters.platform) params.set("platform", filters.platform);
     if (filters.payment) params.set("payment", filters.payment);
+    if (filters.q) params.set("q", filters.q);
     if (filters.page) params.set("page", String(filters.page));
     if (filters.limit) params.set("limit", String(filters.limit));
     const qs = params.toString();

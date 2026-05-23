@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -113,6 +114,32 @@ export function AdminBookingsListScreen() {
   // crowding out the actual booking list. Auto-expand once when the
   // user has any non-default filter applied.
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+
+  // Customer search input. Kept as a local controlled value so each
+  // keystroke doesn't fire a query; we debounce 300ms before
+  // pushing into `filters.q`. Same UX as the web /admin/bookings
+  // search field — name / phone / email substring match.
+  const [searchInput, setSearchInput] = useState("");
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      const trimmed = searchInput.trim();
+      setFilters((f) => {
+        // Avoid no-op state churn (keeps the React Query cache key stable
+        // when the user types and re-types the same string).
+        if ((f.q ?? "") === trimmed) return f;
+        return { ...f, q: trimmed || undefined, page: 1 };
+      });
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, [searchInput]);
 
   const query = useQuery({
     queryKey: ["admin-bookings", filters],
@@ -268,6 +295,37 @@ export function AdminBookingsListScreen() {
 
           {filtersExpanded ? (
             <View style={styles.filtersBody}>
+              {/* Customer search — name / phone / email substring.
+                  Debounced 300ms so each keystroke doesn't trip a
+                  network round-trip. Mirror of the web search box. */}
+              <View style={styles.searchRow}>
+                <SearchIcon
+                  size={14}
+                  color={colors.zinc500}
+                  style={styles.searchIcon}
+                />
+                <TextInput
+                  value={searchInput}
+                  onChangeText={setSearchInput}
+                  placeholder="Search by name, phone, or email"
+                  placeholderTextColor={colors.zinc600}
+                  style={styles.searchInput}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  returnKeyType="search"
+                />
+                {searchInput.length > 0 && (
+                  <Pressable
+                    onPress={() => setSearchInput("")}
+                    style={styles.searchClear}
+                    hitSlop={8}
+                    accessibilityLabel="Clear search"
+                  >
+                    <XIcon size={14} color={colors.zinc400} />
+                  </Pressable>
+                )}
+              </View>
+
               {/* Date row */}
               <FilterRow label="Date">
                 {[
@@ -343,19 +401,22 @@ export function AdminBookingsListScreen() {
                 filters.sport ||
                 filters.date ||
                 filters.platform ||
-                filters.payment) && (
+                filters.payment ||
+                filters.q) && (
                 <Pressable
-                  onPress={() =>
+                  onPress={() => {
+                    setSearchInput("");
                     setFilters({
                       status: "CONFIRMED",
                       sport: undefined,
                       date: undefined,
                       platform: undefined,
                       payment: undefined,
+                      q: undefined,
                       page: 1,
                       limit: 25,
-                    })
-                  }
+                    });
+                  }}
                   style={({ pressed }) => [
                     styles.clearAllBtn,
                     pressed && { opacity: 0.7 },
@@ -684,6 +745,30 @@ const styles = StyleSheet.create({
     paddingTop: spacing["3"],
     borderTopWidth: 1,
     borderTopColor: colors.zinc800,
+  },
+  // Customer search input — single row at the top of the filters
+  // body. SearchIcon + TextInput + optional clear (X) button.
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: "rgba(24, 24, 27, 0.50)",
+    paddingHorizontal: spacing["2.5"],
+  },
+  searchIcon: {
+    marginRight: spacing["2"],
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: spacing["2"],
+    color: colors.foreground,
+    fontSize: 13,
+  },
+  searchClear: {
+    marginLeft: spacing["1"],
+    padding: 4,
   },
   // Small green pill that surfaces the active-filter count next to
   // the FILTERS header when the strip is collapsed. Visible when at
