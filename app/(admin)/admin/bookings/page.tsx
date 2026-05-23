@@ -244,6 +244,16 @@ export default async function AdminBookingsPage({
             .join("&")}
         />
 
+        {/* The 5 chip-based filter rows flow into a 2-column grid on
+            md+ viewports so the card uses the full card width instead
+            of leaving 50 % blank on the right. Mobile (<md) stays as
+            a vertical stack via `space-y-3`. `md:space-y-0` undoes the
+            mobile stack-gap on desktop where the grid's gap-y takes
+            over. Order is left-to-right top-to-bottom:
+              Row 1: Date     | Status
+              Row 2: Sport    | Platform
+              Row 3: Payment  | (empty) */}
+        <div className="space-y-3 md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-3 md:space-y-0">
         {/* Date row */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Date</span>
@@ -375,6 +385,7 @@ export default async function AdminBookingsPage({
               {opt.label}
             </Link>
           ))}
+        </div>
         </div>
       </FiltersCollapsible>
 
