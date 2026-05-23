@@ -1054,8 +1054,7 @@ export async function getAdminStats() {
     venueDueAgg,
     lifetimeEarnings,
     firstBooking,
-    todayConfirmedAgg,
-    todayCollectedHistory,
+    todayEarningAgg,
   ] = await Promise.all([
     db.booking.count({ where: { status: "CONFIRMED" } }),
     db.booking.count({
@@ -1121,55 +1120,25 @@ export async function getAdminStats() {
       orderBy: { date: "asc" },
       select: { date: true },
     }),
-    // ── "Today's Earning" — actual cash flow today ──────────────────
-    // Two parts that don't overlap by construction:
-    //   (a) Money received via payment confirmation today: any
-    //       Payment whose confirmedAt is in today's window. For full
-    //       payments this is Payment.amount = total. For partial
-    //       payments confirmed today, Payment.amount = advance only
-    //       (any remainder collected today is captured in (b) below
-    //       via the BookingEditHistory row, but only when the
-    //       advance was on a different day; same-day advance+remainder
-    //       lands fully in Payment.amount and stays in this leg).
-    //   (b) Remainder collections today on bookings whose advance was
-    //       paid earlier. We restrict (b) to payments confirmed
-    //       BEFORE today so the same-day combo case (advance and
-    //       remainder both today) doesn't get double-counted —
-    //       Payment.amount in (a) already reflects the full sum.
-    db.payment.aggregate({
+    // ── "Today's Earning" — slot-date sum ─────────────────────────
+    // Sum of Booking.totalAmount for every CONFIRMED booking whose
+    // slot date is today. This is the BOOKED revenue for today's
+    // sessions — not the cash flow recognised today. Front desk
+    // wants to see "what does today's calendar bring in" at a
+    // glance, independent of when the customer's payment was
+    // confirmed (an advance paid last week for a slot today still
+    // counts in today's earning).
+    //
+    // Filter on Booking.date (the slot date), status=CONFIRMED so
+    // cancelled bookings don't inflate the figure. Doesn't care
+    // about Payment.status — partial-payment bookings count their
+    // full agreed total because the slot is locked in for today.
+    db.booking.aggregate({
       where: {
-        confirmedAt: { gte: today, lt: tomorrow },
-        booking: { status: "CONFIRMED" },
-        status: { in: ["PARTIAL", "COMPLETED"] },
+        date: today,
+        status: "CONFIRMED",
       },
-      _sum: { amount: true },
-    }),
-    db.bookingEditHistory.findMany({
-      where: {
-        editType: "REMAINDER_COLLECTED",
-        createdAt: { gte: today, lt: tomorrow },
-        booking: {
-          status: "CONFIRMED",
-          payment: {
-            // Only count remainders collected today on payments whose
-            // advance was confirmed BEFORE today; same-day combos are
-            // already in the (a) bucket.
-            confirmedAt: { lt: today },
-          },
-        },
-      },
-      include: {
-        booking: {
-          select: {
-            payment: {
-              select: {
-                remainderCashAmount: true,
-                remainderUpiAmount: true,
-              },
-            },
-          },
-        },
-      },
+      _sum: { totalAmount: true },
     }),
   ]);
 
@@ -1201,19 +1170,11 @@ export async function getAdminStats() {
     averageDailyEarning = Math.round(grossEarnings / days);
   }
 
-  // Today's earning = today's confirmation cash + today's late-arriving
-  // remainder collections. The two queries are mutually exclusive by
-  // construction (confirmedAt today vs confirmedAt before today), so
-  // the simple sum is correct.
-  const todayConfirmedAmount = todayConfirmedAgg._sum.amount ?? 0;
-  const todayCollectedAmount = todayCollectedHistory.reduce(
-    (sum, h) =>
-      sum +
-      (h.booking?.payment?.remainderCashAmount ?? 0) +
-      (h.booking?.payment?.remainderUpiAmount ?? 0),
-    0,
-  );
-  const todayEarning = todayConfirmedAmount + todayCollectedAmount;
+  // Today's earning = sum(Booking.totalAmount) for confirmed bookings
+  // whose slot date is today — i.e. the booked revenue for today's
+  // sessions, independent of when the customer's payment was
+  // confirmed. See the aggregate query above for the rationale.
+  const todayEarning = todayEarningAgg._sum.totalAmount ?? 0;
 
   return {
     totalBookings,
