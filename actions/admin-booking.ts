@@ -922,6 +922,10 @@ export async function getAdminBookings(filters?: {
   //                  i.e. confirmed-but-money-still-owed: PARTIAL
   //                  remainders, UPI awaiting cash collection, etc.
   payment?: string;
+  /** Free-text user search — matches against name, phone, OR email.
+   *  Useful when a customer rings up and the front desk needs to
+   *  pull their booking by phone number / name without scrolling. */
+  q?: string;
   page?: number;
   limit?: number;
 }) {
@@ -944,6 +948,21 @@ export async function getAdminBookings(filters?: {
   }
   if (filters?.platform) {
     where.platform = filters.platform;
+  }
+
+  // User search — matches the customer's name (case-insensitive
+  // substring), phone (substring), or email (case-insensitive). The
+  // OR sits under `user` so it composes cleanly with the top-level
+  // payment-completion OR clause below.
+  const q = filters?.q?.trim();
+  if (q) {
+    where.user = {
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { phone: { contains: q } },
+        { email: { contains: q, mode: "insensitive" } },
+      ],
+    };
   }
 
   // Payment-completion filter — applies on top of any explicit
