@@ -18,6 +18,11 @@ import {
 import { revokeBookingRewards } from "@/lib/rewards/revoke";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
+import {
+  fetchRazorpayPayment,
+  type RazorpayPaymentRecord,
+} from "@/lib/razorpay";
+import { createBookingFromHold as _createBookingFromHold } from "@/actions/booking";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -2859,4 +2864,197 @@ export async function getBookingEditHistory(bookingId: string) {
       error: error instanceof Error ? error.message : "Failed to get edit history",
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// recoverRazorpayPayment — admin recovery tool
+// ---------------------------------------------------------------------------
+
+export interface RecoverRazorpayResult {
+  success: boolean;
+  /** "created" — new Booking made from the captured payment.
+   *  "already-linked" — a Booking already exists for this paymentId.
+   *  "no-hold" — payment captured but no matching SlotHold; admin
+   *  needs to use the manual "+ New Booking" path. */
+  state?: "created" | "already-linked" | "no-hold";
+  bookingId?: string;
+  payment?: {
+    id: string;
+    orderId: string;
+    amountRupees: number;
+    status: string;
+    captured: boolean;
+    contact: string | null;
+    email: string | null;
+    createdAt: number;
+  };
+  error?: string;
+}
+
+/**
+ * Look up a captured Razorpay payment and create the matching Booking
+ * if our DB is missing it. Use case: a customer paid via Razorpay,
+ * the client's verify call dropped (network blip / closed tab), and
+ * the slot stayed blocked while no Booking row was created. Admin
+ * pastes the Razorpay paymentId here and we reconstruct the booking
+ * from the SlotHold we stamped with the orderId at create-order time.
+ *
+ * Three terminal states:
+ *   1. `state: "created"` — Booking didn't exist; we made it via
+ *      createBookingFromHold (same path the webhook + client-verify
+ *      take) with the recovered payment details.
+ *   2. `state: "already-linked"` — Booking already exists. Idempotent
+ *      no-op; we return its id so the admin can jump to it.
+ *   3. `state: "no-hold"` — payment is captured in Razorpay but no
+ *      SlotHold was found by `razorpayOrderId`. Either the hold was
+ *      cleaned up (3am cron sweeps expired holds — by which time
+ *      we'd lose the slot/date metadata we need), or this payment
+ *      never went through our create-order route (e.g. test payment,
+ *      old payment from before this code). Admin falls back to the
+ *      manual "+ New Booking" flow.
+ */
+export async function recoverRazorpayPayment(
+  paymentId: string,
+): Promise<RecoverRazorpayResult> {
+  await requireAdminBase("MANAGE_BOOKINGS");
+
+  const trimmed = paymentId.trim();
+  if (!trimmed.startsWith("pay_")) {
+    return {
+      success: false,
+      error: "Payment ID must start with `pay_`",
+    };
+  }
+
+  // 1. Check our DB first — if we already linked this payment to a
+  //    Booking, return immediately. Saves a Razorpay round-trip when
+  //    the admin pastes the same ID twice.
+  const existing = await db.payment.findFirst({
+    where: { razorpayPaymentId: trimmed },
+    select: { bookingId: true },
+  });
+  if (existing) {
+    return {
+      success: true,
+      state: "already-linked",
+      bookingId: existing.bookingId,
+    };
+  }
+
+  // 2. Fetch from Razorpay so we know the order id + amount.
+  let rzpPayment: RazorpayPaymentRecord;
+  try {
+    rzpPayment = await fetchRazorpayPayment(trimmed);
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Couldn't fetch payment from Razorpay",
+    };
+  }
+
+  const paymentMeta = {
+    id: rzpPayment.id,
+    orderId: rzpPayment.order_id,
+    amountRupees: Math.round(rzpPayment.amount / 100),
+    status: rzpPayment.status,
+    captured: rzpPayment.captured,
+    contact: rzpPayment.contact,
+    email: rzpPayment.email,
+    createdAt: rzpPayment.created_at,
+  };
+
+  // Only `captured` payments correspond to money actually settled to
+  // our merchant account. Authorized-but-not-captured payments will
+  // auto-void in 5 days and create no booking.
+  if (!rzpPayment.captured) {
+    return {
+      success: false,
+      error: `Payment is in state "${rzpPayment.status}" — not captured yet. Wait for capture or refund it.`,
+      payment: paymentMeta,
+    };
+  }
+
+  // 3. Look up our SlotHold via the Razorpay order id we stamped at
+  //    create-order time. If it's gone, the admin needs the manual
+  //    path (slot info isn't reconstructible from Razorpay alone).
+  const hold = await db.slotHold.findFirst({
+    where: { razorpayOrderId: rzpPayment.order_id },
+  });
+  if (!hold) {
+    return {
+      success: true,
+      state: "no-hold",
+      payment: paymentMeta,
+    };
+  }
+
+  // 4. Recreate the booking. Mirror of the verify route's logic —
+  //    derive isAdvance from amount-vs-fullAmount.
+  const appliedDiscount =
+    hold.couponId && hold.discountAmount && hold.discountAmount > 0
+      ? hold.discountAmount
+      : 0;
+  const pointsRedeemRupees =
+    hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
+      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+      : 0;
+  const fullAmount =
+    hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+  const isAdvance = paymentMeta.amountRupees < fullAmount;
+  const advanceAmount = isAdvance ? paymentMeta.amountRupees : undefined;
+  const remainingAmount = isAdvance
+    ? fullAmount - paymentMeta.amountRupees
+    : undefined;
+
+  let bookingId: string | null = null;
+  try {
+    bookingId = await _createBookingFromHold(
+      hold.id,
+      {
+        method: "RAZORPAY",
+        status: isAdvance ? "PARTIAL" : "COMPLETED",
+        amount: paymentMeta.amountRupees,
+        razorpayOrderId: rzpPayment.order_id,
+        razorpayPaymentId: rzpPayment.id,
+        // Manual-recovery signature — never null, distinguishable
+        // from a client-verify signature for forensics. The Payment
+        // row's anti-tamper purpose was already served when admin
+        // confirmed this payment was real via the Razorpay API.
+        razorpaySignature: `admin-recovery:${rzpPayment.id}`,
+        confirmedAt: new Date(paymentMeta.createdAt * 1000),
+        isPartialPayment: isAdvance,
+        advanceAmount,
+        remainingAmount,
+      },
+      "CONFIRMED",
+    );
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Couldn't create booking from hold",
+      payment: paymentMeta,
+    };
+  }
+
+  if (!bookingId) {
+    return {
+      success: false,
+      error:
+        "Booking creation returned no id — hold may have been consumed mid-recovery",
+      payment: paymentMeta,
+    };
+  }
+
+  return {
+    success: true,
+    state: "created",
+    bookingId,
+    payment: paymentMeta,
+  };
 }
