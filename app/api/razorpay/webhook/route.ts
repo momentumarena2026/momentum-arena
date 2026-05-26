@@ -35,7 +35,20 @@ import { awardBookingPoints } from "@/lib/rewards/earn";
  * Reply policy: always return 2xx unless the signature failed. A 5xx
  * tells Razorpay to retry, which can mask real bugs — we'd rather
  * log + investigate than retry-loop forever.
+ *
+ * Health check: a GET request returns 200 with the route's status so
+ * we can quickly verify the route is reachable + the webhook secret
+ * is configured without firing a real Razorpay event. Production
+ * smoke-test: `curl https://momentumarena.com/api/razorpay/webhook`.
  */
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "razorpay-webhook",
+    secretConfigured: !!process.env.RAZORPAY_WEBHOOK_SECRET,
+  });
+}
+
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("x-razorpay-signature");
   if (!signature) {
