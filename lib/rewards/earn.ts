@@ -1,5 +1,11 @@
 import { db } from "@/lib/db";
-import type { Prisma, RewardTransaction, RewardTxnType } from "@prisma/client";
+import type {
+  Prisma,
+  RewardConfig,
+  RewardTransaction,
+  RewardTxnType,
+  Sport,
+} from "@prisma/client";
 import { applyBalanceDelta, ensureBalance } from "./balance";
 import { getRewardConfig, pointsToPaise } from "./config";
 import { sendToUser } from "@/lib/push";
@@ -352,6 +358,48 @@ export async function adminGrantPoints(args: {
     type: "EARNED_ADJUSTMENT",
   });
   return { awarded: true, points: args.points, txnId: result.id };
+}
+
+// ---------- Public previews ----------
+
+/**
+ * Mirror of `awardBookingPoints`'s gating logic, minus the DB write.
+ * Returns the integer points a customer would earn on a booking of
+ * `billPaise` (final payable, post-discount + post-redemption) on the
+ * given sport. Returns 0 when the reward engine is off, the rate is
+ * zero, the sport is excluded, the booking originated from admin, or
+ * the bps math floors out to zero.
+ *
+ * Used by the checkout pages (web + mobile) to show "earn X points"
+ * before the customer commits — reactive to coupon / points / advance
+ * changes via the same bill total the gateway initiators use.
+ *
+ * Stateless + pure given the config: the caller passes the live
+ * RewardConfig (so the page can fetch once and recompute on every
+ * bill change without round-tripping the DB).
+ */
+export interface PreviewBookingEarnInput {
+  billPaise: number;
+  sport: Sport;
+  createdByAdmin?: boolean;
+  config: Pick<
+    RewardConfig,
+    "enabled" | "earnRateBookingBps" | "enabledSports"
+  >;
+}
+
+export function previewBookingEarn(input: PreviewBookingEarnInput): number {
+  const { billPaise, sport, createdByAdmin, config } = input;
+  if (createdByAdmin) return 0;
+  if (!config.enabled || config.earnRateBookingBps <= 0) return 0;
+  if (
+    config.enabledSports.length > 0 &&
+    !(config.enabledSports as Sport[]).includes(sport)
+  ) {
+    return 0;
+  }
+  if (!Number.isFinite(billPaise) || billPaise <= 0) return 0;
+  return computeEarnPoints(billPaise, config.earnRateBookingBps);
 }
 
 // ---------- Internals ----------

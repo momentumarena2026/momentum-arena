@@ -40,6 +40,7 @@ import {
 import { UpiQrCheckout } from "../../components/payment/UpiQrCheckout";
 import { colors, radius, spacing } from "../../theme";
 import { bookingApi, type PaymentConfig } from "../../lib/booking";
+import { rewardsApi } from "../../lib/rewards";
 import { ApiError } from "../../lib/api";
 import {
   formatDateLong,
@@ -121,6 +122,20 @@ export function CheckoutScreen() {
   const sport = hold?.courtConfig.sport;
   const bookingCategory = hold?.courtConfig.category ?? null;
 
+  // Earn-rate for THIS booking's sport. Server pre-gates based on the
+  // reward engine state + per-sport enable list, so a `bps` of 0 here
+  // means "this booking won't earn anything" and we hide the line
+  // below. Cached once per sport — the projected points count is
+  // computed locally from the live `payableAmount` so it reacts to
+  // coupon / points-redeem / advance toggles without re-fetching.
+  const earnRateQuery = useQuery({
+    queryKey: ["booking-earn-rate", sport],
+    queryFn: () => rewardsApi.bookingEarnRate(sport!),
+    enabled: !!sport,
+    staleTime: 5 * 60_000,
+  });
+  const earnRateBookingBps = earnRateQuery.data?.bps ?? 0;
+
   const serverDiscount = hold?.discountAmount ?? 0;
   const serverCouponCode = hold?.couponCode ?? null;
   const appliedAmount = serverDiscount > 0 ? serverDiscount : 0;
@@ -145,6 +160,16 @@ export function CheckoutScreen() {
   const payableAmount = Math.max(
     0,
     effectiveAmount - pointsRedeemRupees + equipmentTotalRupees,
+  );
+
+  // Projected Momentum Points earn on this booking — same bps math
+  // the server runs at award time (see lib/rewards/earn.ts
+  // `computeEarnPoints`): floor(billRupees × bps / 100). Reactive to
+  // Total via payableAmount. Hidden when the engine is disabled for
+  // this sport (earnRateBookingBps === 0) or the math floors to zero.
+  const projectedEarnPoints = Math.max(
+    0,
+    Math.floor((payableAmount * earnRateBookingBps) / 10000),
   );
 
   // Advance is always 50% of the FINAL payable (post-coupon +
@@ -780,6 +805,25 @@ export function CheckoutScreen() {
               {formatRupees(payableAmount)}
             </Text>
           </View>
+
+          {/* Earn preview — same bps math the server runs at award time
+              (lib/rewards/earn.ts). Hides when the engine is off, the
+              sport doesn't earn (server-gated via the bookingEarnRate
+              endpoint), or floors to zero. Reactive to the live
+              payableAmount so the count ticks down if the user
+              redeems points / applies a coupon. */}
+          {projectedEarnPoints > 0 ? (
+            <View style={styles.earnPreviewRow}>
+              <Sparkles size={12} color={colors.emerald400} />
+              <Text variant="tiny" color={colors.emerald400}>
+                You&apos;ll earn{" "}
+                <Text variant="tiny" weight="700" color={colors.emerald400}>
+                  {projectedEarnPoints.toLocaleString("en-IN")}
+                </Text>{" "}
+                Momentum {projectedEarnPoints === 1 ? "Point" : "Points"}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         {/* New-user discount pill — mirrors web: shown only after the auto-
@@ -1017,6 +1061,15 @@ const styles = StyleSheet.create({
     paddingTop: spacing["2"],
     borderTopWidth: 1,
     borderTopColor: colors.zinc800,
+  },
+  // Emerald earn-preview row — sits right below Total inside the
+  // Booking Summary tile.
+  earnPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    marginTop: 4,
   },
 
   // ── New-user discount pill (emerald) ────────────────────────────────────
