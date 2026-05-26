@@ -8,6 +8,7 @@ import { getNewUserDiscount } from "@/lib/new-user-discount";
 import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
+import { getRewardConfig } from "@/lib/rewards/config";
 import { CheckoutClient } from "./checkout-client";
 import { SummaryFooter } from "./summary-footer";
 
@@ -85,18 +86,40 @@ export default async function CheckoutPage({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  const [newUserDiscount, paymentConfig, sportPromo] = await Promise.all([
-    getNewUserDiscount(
-      session.user.id,
-      hold.courtConfig.sport,
-      hold.totalAmount,
-      hold.courtConfig.category,
-    ).catch(() => null),
-    getCheckoutPaymentConfig(),
-    getActiveSportPromo(hold.courtConfig.sport, hold.courtConfig.category).catch(
-      () => null,
-    ),
-  ]);
+  const [newUserDiscount, paymentConfig, sportPromo, rewardConfig] =
+    await Promise.all([
+      getNewUserDiscount(
+        session.user.id,
+        hold.courtConfig.sport,
+        hold.totalAmount,
+        hold.courtConfig.category,
+      ).catch(() => null),
+      getCheckoutPaymentConfig(),
+      getActiveSportPromo(hold.courtConfig.sport, hold.courtConfig.category).catch(
+        () => null,
+      ),
+      // Reward engine config — drives the "you'll earn X Points"
+      // line in the Booking Summary footer. SSR'd once + handed to
+      // SummaryFooter; the actual earn projection is recomputed on
+      // the client whenever Total changes (coupon/redeem/advance
+      // toggles).
+      getRewardConfig(),
+    ]);
+
+  // Earn-rate that will actually fire when the booking is committed.
+  // Mirror of `awardBookingPoints` gating in lib/rewards/earn.ts:
+  // engine on, rate > 0, and (if enabledSports is non-empty) the
+  // sport is included. Customer-originated only — there's no
+  // createdByAdminId on the hold, but if the customer is on this
+  // page they're checking out themselves, so admin-created doesn't
+  // apply here. Returns 0 → SummaryFooter hides the line.
+  const earnRateBookingBps =
+    rewardConfig.enabled &&
+    rewardConfig.earnRateBookingBps > 0 &&
+    (rewardConfig.enabledSports.length === 0 ||
+      rewardConfig.enabledSports.includes(hold.courtConfig.sport))
+      ? rewardConfig.earnRateBookingBps
+      : 0;
 
   // Rental gear selected on the slot-selection page and snapshotted
   // onto the hold at lock time (see /api/booking/lock). Read-only here
@@ -246,6 +269,7 @@ export default async function CheckoutPage({
                 : hold.totalAmount) - sportPromoDiscount
             }
             equipmentTotalRupees={equipmentTotalRupees}
+            earnRateBookingBps={earnRateBookingBps}
           />
         </div>
       </div>
