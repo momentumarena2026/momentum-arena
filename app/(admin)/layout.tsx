@@ -14,6 +14,7 @@ const allNavItems = [
   { href: "/admin/bookings", label: "All Bookings", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/bookings/unconfirmed", label: "Unconfirmed", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/bookings/calendar", label: "Calendar", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/bookings/recovery", label: "Payment Recovery", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/checkin", label: "Check-in", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/recurring", label: "Recurring", group: "Bookings", permission: "MANAGE_PRICING" },
   { href: "/admin/sports", label: "Sports", group: "Courts & Pricing", permission: "MANAGE_SPORTS" },
