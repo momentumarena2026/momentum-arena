@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { RedeemSlider } from "@/components/rewards/redeem-slider";
 import { formatPrice } from "@/lib/pricing";
 
@@ -21,6 +22,14 @@ interface Props {
    *  bill (preDiscountTotal) because RedeemSlider's cap math already
    *  uses the pre-discount slot bill upstream. */
   equipmentTotalRupees?: number;
+  /** Earn-rate in basis points for THIS booking's sport (already
+   *  gated server-side: 0 when rewards are disabled, the sport is
+   *  excluded, or this is admin-created). The component recomputes
+   *  the projected earn locally whenever Total changes so the
+   *  customer sees the number react to coupon / points / advance
+   *  toggles — same recomputation server runs at award time after
+   *  payment confirmation. */
+  earnRateBookingBps?: number;
 }
 
 /**
@@ -45,6 +54,7 @@ export function SummaryFooter({
   preDiscountTotal,
   billNonce,
   equipmentTotalRupees = 0,
+  earnRateBookingBps = 0,
 }: Props) {
   const [redemption, setRedemption] = useState<{
     points: number;
@@ -53,6 +63,16 @@ export function SummaryFooter({
 
   const rupeesSaved = Math.floor(redemption.paiseSaved / 100);
   const total = preDiscountTotal - rupeesSaved + equipmentTotalRupees;
+
+  // Project the points the customer will earn on this booking. Same
+  // bps math the server runs at award time (see lib/rewards/earn.ts
+  // computeEarnPoints): floor(billRupees × bps / 100). Updates
+  // reactively as Total changes. Hidden when the engine is disabled
+  // for this sport (earnRateBookingBps === 0) or the math floors out.
+  const projectedEarn = Math.max(
+    0,
+    Math.floor((Math.max(0, total) * earnRateBookingBps) / 10000),
+  );
 
   // Whenever the redemption picks change, broadcast so the payment
   // gateway buttons in CheckoutClient pick up the same number.
@@ -86,6 +106,24 @@ export function SummaryFooter({
           {formatPrice(total)}
         </span>
       </div>
+
+      {/* Earn preview — auto-hides when the engine is off, the sport
+          is excluded server-side, or the bps × bill floors to zero
+          (e.g. tiny bookings). Reactive to coupon/points/advance so
+          the customer sees the number tick down if they redeem. */}
+      {projectedEarn > 0 && (
+        <div className="mt-1 flex items-center justify-end gap-1.5 text-xs text-emerald-400/90">
+          <Sparkles className="h-3 w-3" />
+          <span>
+            You&apos;ll earn{" "}
+            <span className="font-semibold">
+              {projectedEarn.toLocaleString("en-IN")}
+            </span>{" "}
+            Momentum {projectedEarn === 1 ? "Point" : "Points"} on this
+            booking
+          </span>
+        </div>
+      )}
     </>
   );
 }

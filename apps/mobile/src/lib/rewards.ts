@@ -75,4 +75,16 @@ export const rewardsApi = {
     api.get<{ preview: RedemptionPreview | null }>(
       `/api/mobile/rewards/redemption-preview?billPaise=${billPaise}`,
     ),
+
+  /**
+   * Live earn-rate for this customer + sport. Returns `{ bps: 0 }`
+   * when rewards are disabled or this sport is excluded, which the
+   * checkout uses to hide the "you'll earn X points" line.
+   * Fetched once per checkout mount; the projected earn itself is
+   * recomputed locally as the bill total changes.
+   */
+  bookingEarnRate: (sport: string) =>
+    api.get<{ bps: number }>(
+      `/api/mobile/rewards/booking-earn-rate?sport=${encodeURIComponent(sport)}`,
+    ),
 };
