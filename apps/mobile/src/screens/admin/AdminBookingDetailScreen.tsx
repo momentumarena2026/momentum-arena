@@ -247,6 +247,58 @@ export function AdminBookingDetailScreen() {
       ),
   });
 
+  // ─── Quick +30 min extension state ───────────────────────────────────
+  // One state object covering "which direction is open + what's in the
+  // price input." Null when the form is closed. We optimistically open
+  // it with an empty price string, then async-fetch the suggested price
+  // (half the adjacent slot's rate) and patch it in. The admin can edit
+  // before tapping Apply.
+  const [extendOpen, setExtendOpen] = useState<{
+    direction: "before" | "after";
+    price: string;
+  } | null>(null);
+
+  const extend = useMutation({
+    mutationFn: (vars: { direction: "before" | "after"; price: number }) =>
+      adminBookingsApi.extend(params.bookingId, vars),
+    onSuccess: (res) => {
+      invalidate();
+      setExtendOpen(null);
+      Alert.alert(
+        "Extended",
+        `Added 30-min slot at ${res.newSlot.label}.`,
+      );
+    },
+    onError: (err) =>
+      Alert.alert(
+        "Couldn't extend",
+        err instanceof AdminApiError ? err.message : "Try again.",
+      ),
+  });
+
+  async function openExtend(direction: "before" | "after") {
+    setExtendOpen({ direction, price: "" });
+    try {
+      const r = await adminBookingsApi.suggestedExtendPrice(
+        params.bookingId,
+        direction,
+      );
+      // Only patch in the suggestion if the user hasn't switched
+      // direction or started typing while the request was in flight.
+      setExtendOpen((prev) =>
+        prev && prev.direction === direction && prev.price === ""
+          ? { direction, price: String(r.suggestedPrice) }
+          : prev,
+      );
+    } catch {
+      setExtendOpen((prev) =>
+        prev && prev.direction === direction && prev.price === ""
+          ? { direction, price: "0" }
+          : prev,
+      );
+    }
+  }
+
   if (query.isLoading) {
     return <DetailSkeleton />;
   }
@@ -288,6 +340,9 @@ export function AdminBookingDetailScreen() {
   // stuck on PENDING). Avoids two adjacent confirm buttons.
   const canConfirmBooking = isPending && !canConfirmUpi && !canConfirmCash;
   const canCancel = isPending || isConfirmed;
+  // Same liveness gate as cancel — extending a cancelled/refunded
+  // booking would make no operational sense.
+  const canExtend = isPending || isConfirmed;
   const canEditSlots = isConfirmed;
   // Same gate as the web: editing is allowed on any confirmed booking
   // — gateway-paid customer bookings are now editable too. The action
@@ -659,6 +714,22 @@ export function AdminBookingDetailScreen() {
                 }
               />
             ) : null}
+            {canExtend ? (
+              <>
+                <ActionButton
+                  label="+30 min earlier"
+                  icon={<Clock size={16} color={colors.zinc300} />}
+                  tone="neutral"
+                  onPress={() => openExtend("before")}
+                />
+                <ActionButton
+                  label="+30 min later"
+                  icon={<Clock size={16} color={colors.zinc300} />}
+                  tone="neutral"
+                  onPress={() => openExtend("after")}
+                />
+              </>
+            ) : null}
             {canEditBooking ? (
               <ActionButton
                 label="Edit Booking"
@@ -712,6 +783,7 @@ export function AdminBookingDetailScreen() {
             !canMarkCollected &&
             !canEditSplit &&
             !canEditSlots &&
+            !canExtend &&
             !canEditBooking &&
             !canEditPayment &&
             !canCancel &&
@@ -817,6 +889,72 @@ export function AdminBookingDetailScreen() {
               >
                 <Text variant="small" color={colors.emerald400} weight="600">
                   {editSplit.isPending ? "Saving…" : "Save"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Quick +30 min extension inline form — pops open below the
+            action buttons when the admin taps "+30 min earlier" or
+            "+30 min later". Price input pre-fills with the server's
+            suggested half-rate; admin can override (0 for free /
+            courtesy, any positive int otherwise). */}
+        {extendOpen ? (
+          <View style={styles.refundForm}>
+            <Text variant="bodyStrong">
+              Extend +30 min{" "}
+              {extendOpen.direction === "before"
+                ? "before start"
+                : "after end"}
+            </Text>
+            <Text variant="small" color={colors.zinc500}>
+              Charge for the extra 30 min (₹). Pre-filled with half the
+              adjacent slot&apos;s rate. Set 0 for a free / courtesy
+              extension.
+            </Text>
+            <TextInput
+              style={styles.collectInput}
+              keyboardType="numeric"
+              value={extendOpen.price}
+              onChangeText={(t) =>
+                setExtendOpen((prev) =>
+                  prev ? { ...prev, price: t } : prev,
+                )
+              }
+              placeholder="0"
+              placeholderTextColor={colors.zinc600}
+            />
+            <View style={styles.collectActions}>
+              <Pressable
+                onPress={() => setExtendOpen(null)}
+                disabled={extend.isPending}
+                style={[styles.actionBtn, styles.actionBtnNeutral]}
+              >
+                <Text variant="small" color={colors.zinc300} weight="600">
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const parsed = Number.parseInt(extendOpen.price, 10);
+                  if (!Number.isFinite(parsed) || parsed < 0) {
+                    Alert.alert(
+                      "Invalid price",
+                      "Enter a non-negative whole number (or 0 for a free extension).",
+                    );
+                    return;
+                  }
+                  extend.mutate({
+                    direction: extendOpen.direction,
+                    price: parsed,
+                  });
+                }}
+                disabled={extend.isPending}
+                style={[styles.actionBtn, styles.actionBtnSuccess]}
+              >
+                <Text variant="small" color={colors.foreground} weight="600">
+                  {extend.isPending ? "Extending…" : "Apply"}
                 </Text>
               </Pressable>
             </View>

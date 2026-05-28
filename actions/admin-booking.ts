@@ -3058,3 +3058,290 @@ export async function recoverRazorpayPayment(
     payment: paymentMeta,
   };
 }
+
+// ---------------------------------------------------------------------------
+// extendBookingByThirtyMin — admin-only 30-minute extension
+//
+// Operational pattern: a customer asks to come in 30 min early, or
+// "can we stay till 9:30?" — the admin clicks one button instead of
+// going through the full slot-edit modal. Adds a single BookingSlot
+// row of `durationMinutes: 30` adjacent to the booking's earliest
+// (direction "before") or latest (direction "after") slot.
+//
+// Pricing: the admin passes the price they want to charge for the
+// extra 30 min. The UI pre-fills with `suggestExtendPrice` (half
+// the adjacent slot's price, or the same price when the adjacent
+// slot is already a 30-min bowling slot) but they can override —
+// 0 for a free/courtesy extension or any positive number.
+//
+// Conflict policy: hard-block. We refuse the extension if any other
+// active booking with overlapping zones has a slot whose time window
+// intersects the new 30-min window. The admin must resolve the
+// double-book before they can extend.
+//
+// Operating hours: NOT enforced — admin extensions deliberately
+// bypass closed-hour guards (mirrors the bowling admin-slot-picker
+// override that already exists; matches venue reality where staff
+// stay 30 min late to accommodate a regular).
+// ---------------------------------------------------------------------------
+
+type ExtendDirection = "before" | "after";
+
+function slotStartMinutes(s: { startHour: number; startMinute: number }) {
+  return s.startHour * 60 + s.startMinute;
+}
+function slotEndMinutes(s: {
+  startHour: number;
+  startMinute: number;
+  durationMinutes: number;
+}) {
+  return slotStartMinutes(s) + s.durationMinutes;
+}
+function fmtMin(m: number) {
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+/**
+ * Pre-fill default for the admin price input. Half the adjacent
+ * existing slot's price for hourly slots; same price for bowling's
+ * already-half-hour slots. Returns 0 when the booking has no slots
+ * (defensive — shouldn't happen).
+ */
+export async function suggestExtendPrice(
+  bookingId: string,
+  direction: ExtendDirection,
+): Promise<number> {
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      slots: {
+        select: {
+          startHour: true,
+          startMinute: true,
+          durationMinutes: true,
+          price: true,
+        },
+      },
+    },
+  });
+  if (!booking || booking.slots.length === 0) return 0;
+
+  const adjacent =
+    direction === "before"
+      ? booking.slots.reduce((a, b) =>
+          slotStartMinutes(a) < slotStartMinutes(b) ? a : b,
+        )
+      : booking.slots.reduce((a, b) =>
+          slotEndMinutes(a) > slotEndMinutes(b) ? a : b,
+        );
+
+  // Bowling slots already represent 30 minutes; suggest the same
+  // price. Hourly slots represent 60 min; suggest half.
+  if (adjacent.durationMinutes === 30) return adjacent.price;
+  return Math.round(adjacent.price / 2);
+}
+
+export async function extendBookingByThirtyMin(
+  bookingId: string,
+  direction: ExtendDirection,
+  priceOverride: number,
+  adminOverride?: { id: string; username: string },
+): Promise<
+  | {
+      success: true;
+      newSlot: {
+        startHour: number;
+        startMinute: number;
+        durationMinutes: 30;
+        price: number;
+        label: string;
+      };
+    }
+  | { success: false; error: string }
+> {
+  const admin = adminOverride ?? (await requireAdminWithDetails());
+
+  try {
+    if (!Number.isInteger(priceOverride) || priceOverride < 0) {
+      return {
+        success: false,
+        error: "Price must be a non-negative whole number",
+      };
+    }
+
+    const booking = await db.booking.findUnique({
+      where: { id: bookingId },
+      include: { slots: true, courtConfig: true, payment: true },
+    });
+    if (!booking) {
+      return { success: false, error: "Booking not found" };
+    }
+    if (!["CONFIRMED", "PENDING"].includes(booking.status)) {
+      return {
+        success: false,
+        error: `Cannot extend a ${booking.status.toLowerCase()} booking`,
+      };
+    }
+    if (booking.slots.length === 0) {
+      return {
+        success: false,
+        error: "Booking has no slots to extend from",
+      };
+    }
+
+    // Compute the new 30-min window in "minutes-since-midnight" terms.
+    let newStartMin: number;
+    if (direction === "before") {
+      const earliest = booking.slots.reduce((a, b) =>
+        slotStartMinutes(a) < slotStartMinutes(b) ? a : b,
+      );
+      newStartMin = slotStartMinutes(earliest) - 30;
+      if (newStartMin < 0) {
+        return {
+          success: false,
+          error: "Cannot extend before 00:00 (would roll past midnight)",
+        };
+      }
+    } else {
+      const latest = booking.slots.reduce((a, b) =>
+        slotEndMinutes(a) > slotEndMinutes(b) ? a : b,
+      );
+      newStartMin = slotEndMinutes(latest);
+      if (newStartMin + 30 > 24 * 60) {
+        return {
+          success: false,
+          error: "Cannot extend past 24:00 (would roll into next day)",
+        };
+      }
+    }
+    const newEndMin = newStartMin + 30;
+    const newStartHour = Math.floor(newStartMin / 60);
+    const newStartMinute = newStartMin % 60; // 0 or 30
+    const windowLabel = `${fmtMin(newStartMin)}–${fmtMin(newEndMin)}`;
+
+    // Conflict check — any active booking on the same date with
+    // overlapping zones that has a slot intersecting the new window.
+    const otherBookings = await db.booking.findMany({
+      where: {
+        date: booking.date,
+        id: { not: bookingId },
+        status: { in: ["CONFIRMED", "PENDING"] },
+      },
+      include: { courtConfig: true, slots: true },
+    });
+    for (const other of otherBookings) {
+      if (
+        !zonesOverlap(other.courtConfig.zones, booking.courtConfig.zones)
+      ) {
+        continue;
+      }
+      for (const slot of other.slots) {
+        const oStart = slotStartMinutes(slot);
+        const oEnd = oStart + slot.durationMinutes;
+        // Half-open intervals: overlap iff oStart < newEnd && newStart < oEnd
+        if (oStart < newEndMin && newStartMin < oEnd) {
+          return {
+            success: false,
+            error: `Conflicts with another booking on this court at ${fmtMin(
+              oStart,
+            )}–${fmtMin(oEnd)}`,
+          };
+        }
+      }
+    }
+
+    // Apply the extension transactionally so a half-applied state
+    // can't happen (slot added but total not updated, etc.).
+    const previousTotal = booking.totalAmount;
+    const newTotal = previousTotal + priceOverride;
+    const previousSlotsForLog = booking.slots
+      .slice()
+      .sort((a, b) => slotStartMinutes(a) - slotStartMinutes(b))
+      .map((s) => s.startHour);
+    const dirLabel = direction === "before" ? "before start" : "after end";
+
+    await db.$transaction(async (tx) => {
+      await tx.bookingSlot.create({
+        data: {
+          bookingId,
+          startHour: newStartHour,
+          startMinute: newStartMinute,
+          durationMinutes: 30,
+          price: priceOverride,
+        },
+      });
+
+      // Always bump totalAmount, even when priceOverride is 0 (no-op
+      // arithmetically but keeps the code path uniform).
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { totalAmount: newTotal },
+      });
+
+      // Payment delta — only relevant when we actually charged extra.
+      // If the booking was fully paid and we add a charge, mark it
+      // partial with a remainder the admin can collect at the venue.
+      // For already-partial bookings we just grow remainingAmount.
+      if (booking.payment && priceOverride > 0) {
+        const currentPaid = booking.payment.amount;
+        if (booking.payment.isPartialPayment) {
+          await tx.payment.update({
+            where: { id: booking.payment.id },
+            data: {
+              remainingAmount:
+                (booking.payment.remainingAmount ?? 0) + priceOverride,
+            },
+          });
+        } else if (currentPaid < newTotal) {
+          // Was fully paid, now there's an extra charge — flip to
+          // partial so the floor staff sees a remainder to collect.
+          await tx.payment.update({
+            where: { id: booking.payment.id },
+            data: {
+              isPartialPayment: true,
+              advanceAmount: currentPaid,
+              remainingAmount: newTotal - currentPaid,
+            },
+          });
+        }
+      }
+
+      await tx.bookingEditHistory.create({
+        data: {
+          bookingId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType: "SLOTS_CHANGED",
+          previousSlots: previousSlotsForLog,
+          newSlots: [...previousSlotsForLog, newStartHour],
+          previousAmount: previousTotal,
+          newAmount: newTotal,
+          note: `Extended +30 min ${dirLabel} (${windowLabel})${
+            priceOverride > 0 ? ` · charged ₹${priceOverride}` : " · free"
+          }`,
+        },
+      });
+    });
+
+    await revalidateBookingPaths(bookingId);
+
+    return {
+      success: true,
+      newSlot: {
+        startHour: newStartHour,
+        startMinute: newStartMinute,
+        durationMinutes: 30,
+        price: priceOverride,
+        label: windowLabel,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to extend booking",
+    };
+  }
+}
