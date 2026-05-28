@@ -453,6 +453,44 @@ export const adminBookingsApi = {
     });
   },
 
+  /**
+   * Quick +30 min admin extension — gives the court 30 min early
+   * (direction "before") or extends past the booked end (direction
+   * "after"). Hard-blocks on adjacent-booking conflicts server-side.
+   *
+   * `price` is what the admin chose to charge for the extra 30 min;
+   * 0 = free / courtesy. Use `suggestedExtendPrice` first to pre-fill
+   * the input with a sensible default (half the adjacent slot's rate).
+   */
+  extend(
+    id: string,
+    body: { direction: "before" | "after"; price: number },
+  ): Promise<{
+    ok: true;
+    newSlot: {
+      startHour: number;
+      startMinute: number;
+      durationMinutes: 30;
+      price: number;
+      label: string;
+    };
+  }> {
+    return request(`/api/mobile/admin/bookings/${id}/extend`, {
+      method: "POST",
+      body,
+    });
+  },
+
+  suggestedExtendPrice(
+    id: string,
+    direction: "before" | "after",
+  ): Promise<{ suggestedPrice: number }> {
+    return request(
+      `/api/mobile/admin/bookings/${id}/extend?direction=${direction}`,
+      { method: "GET" },
+    );
+  },
+
   availableSlots(
     bookingId: string,
     courtConfigId: string,

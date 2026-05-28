@@ -8,11 +8,13 @@ import { MarkCollectedButton } from "./mark-collected-button";
 import { EditSplitButton } from "./edit-split-button";
 import { AdminBookingActions } from "./admin-actions";
 import { EquipmentEditor } from "./equipment-editor";
+import { ExtendBookingControls } from "./extend-buttons";
 import { BookingEditHistory } from "@/components/admin/booking-edit-history";
 import {
   getBookingEquipmentSnapshot,
   listEquipmentForAdmin,
 } from "@/actions/admin-equipment-rental";
+import { suggestExtendPrice } from "@/actions/admin-booking";
 
 export default async function AdminBookingDetailPage({
   params,
@@ -82,9 +84,21 @@ export default async function AdminBookingDetailPage({
   // parallel; the catalog stays empty for sport/category combos with
   // nothing rentable, in which case the editor renders a "no items
   // available" hint.
-  const [equipmentSnapshot, equipmentCatalog] = await Promise.all([
+  const [
+    equipmentSnapshot,
+    equipmentCatalog,
+    suggestedBeforePrice,
+    suggestedAfterPrice,
+  ] = await Promise.all([
     getBookingEquipmentSnapshot(booking.id),
     listEquipmentForAdmin(booking.id),
+    // Pre-computed defaults for the +30 min extend dialog so the
+    // admin sees a sensible pre-filled price without an extra
+    // roundtrip when they click the button. Half the adjacent slot's
+    // hourly rate for hourly bookings; the same rate for bowling's
+    // already-30-min slots.
+    suggestExtendPrice(booking.id, "before"),
+    suggestExtendPrice(booking.id, "after"),
   ]);
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
@@ -502,6 +516,19 @@ export default async function AdminBookingDetailPage({
         initialEquipmentTotalRupees={equipmentSnapshot.equipmentTotalRupees}
         initialBookingTotalRupees={equipmentSnapshot.bookingTotalRupees}
         paymentAmountRupees={booking.payment?.amount ?? null}
+      />
+
+      {/* Quick +30 min extension controls. Lives just above the
+          full Manage-this-booking section so admins can extend a
+          live booking in one tap (the common "stayed late" /
+          "started early" case) without going through the full
+          slot-edit modal. Hidden for non-live statuses by the
+          component itself. */}
+      <ExtendBookingControls
+        bookingId={booking.id}
+        bookingStatus={booking.status}
+        suggestedBeforePrice={suggestedBeforePrice}
+        suggestedAfterPrice={suggestedAfterPrice}
       />
 
       {/* Admin Actions — hosts the Edit / Cancel / status-change
