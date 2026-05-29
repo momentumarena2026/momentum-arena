@@ -40,6 +40,7 @@ import {
   bookingApi,
   type SlotAvailability,
   type BlockingConfig,
+  alternativeActionLabel,
   alternativeShortLabel,
   summarizeAvailability,
   summarizeBlockers,
@@ -1370,12 +1371,15 @@ function AlternativesSheet({
                   ]}
                 >
                   <View style={{ flex: 1 }}>
+                    {/* Action-oriented + generic by SIZE — drops the
+                        DB-side "Medium (Right Half)" wording. Venue
+                        assigns the physical side at game time. */}
                     <Text
                       variant="body"
                       weight="600"
                       color={colors.emerald400}
                     >
-                      {alt.label}
+                      {alternativeActionLabel(alt)}
                     </Text>
                     <Text variant="tiny" color={colors.emerald400}>
                       {alternativeShortLabel(alt)}
@@ -1407,7 +1411,7 @@ function AlternativesSheet({
                 weight="600"
                 color={colors.destructive_300}
               >
-                Notify me for this exact court
+                Notify me when full court becomes available
               </Text>
             </Pressable>
           ) : null}

@@ -296,8 +296,11 @@ export function blockerShortLabel(b: {
 }
 
 /**
- * Same as `blockerShortLabel` but worded as a positive offer —
- * "Half Right free" — for the alternatives sheet.
+ * Subtitle on each row of the alternatives sheet — kept generic
+ * by SIZE only (no left/right). The venue assigns the actual
+ * physical side at game time, so surfacing "Right half" to the
+ * customer is both noise and a small commitment we don't need to
+ * make. Categories like Bowling Machine stay distinct.
  */
 export function alternativeShortLabel(a: {
   size: string;
@@ -307,17 +310,29 @@ export function alternativeShortLabel(a: {
   if (a.category === "BOWLING_MACHINE") return "Bowling machine free";
   if (a.size === "FULL") return "Full court free";
   if (a.size === "LARGE") return "Center area free";
-  if (a.size === "MEDIUM") {
-    if (a.position === "LEFT") return "Left half free";
-    if (a.position === "RIGHT") return "Right half free";
-    return "Half court free";
-  }
-  if (a.size === "XS") {
-    if (a.position === "LP1") return "Left leather corner free";
-    if (a.position === "LP2") return "Right leather corner free";
-    return "Leather corner free";
-  }
+  if (a.size === "MEDIUM") return "Half court free";
+  if (a.size === "XS") return "Leather corner free";
   return "Available";
+}
+
+/**
+ * Bold CTA copy on each alternatives-sheet row. Action-oriented +
+ * generic by SIZE so the row reads as a clear next step rather
+ * than a config name. Replaces the previous direct use of
+ * `CourtConfig.label`, which leaked the DB-side "Medium (Right
+ * Half)" wording into the customer flow.
+ */
+export function alternativeActionLabel(a: {
+  size: string;
+  position: string;
+  category: string | null;
+}): string {
+  if (a.category === "BOWLING_MACHINE") return "Book bowling machine";
+  if (a.size === "FULL") return "Book full court";
+  if (a.size === "LARGE") return "Book center area";
+  if (a.size === "MEDIUM") return "Book half court";
+  if (a.size === "XS") return "Book leather corner";
+  return "Book this option";
 }
 
 /**
