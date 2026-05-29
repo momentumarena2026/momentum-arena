@@ -96,6 +96,23 @@ export function summarizeBlockers(blockers: BlockingConfig[]): string {
   return "Multiple bookings";
 }
 
+/**
+ * Positive-framed tag for the AMBER tile — derived from what's
+ * STILL bookable, not from the blocker. Customer reads "Half
+ * Available" whether a half-court booking or the bowling machine
+ * triggered it. Mirror of lib/court-config.ts on the server side.
+ */
+export function summarizeAvailability(
+  alternatives: BlockingConfig[],
+): string {
+  if (alternatives.length === 0) return "Booked";
+  if (alternatives.some((a) => a.size === "FULL")) return "Full Court Available";
+  if (alternatives.some((a) => a.size === "MEDIUM")) return "Half Available";
+  if (alternatives.some((a) => a.size === "LARGE")) return "Center Available";
+  if (alternatives.some((a) => a.size === "XS")) return "Corner Available";
+  return "Alternative Available";
+}
+
 // Bowling-machine 30-minute slot — `minute` is 0 or 30, `price` is rupees.
 export interface BowlingSlotAvailability {
   hour: number;

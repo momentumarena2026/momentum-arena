@@ -41,6 +41,7 @@ import {
   type SlotAvailability,
   type BlockingConfig,
   alternativeShortLabel,
+  summarizeAvailability,
   summarizeBlockers,
 } from "../../lib/booking";
 import { GearPicker } from "../../components/booking/GearPicker";
@@ -697,6 +698,13 @@ function SlotGrid({
           !softBlockInteractive &&
           Boolean(onUnavailableTap);
 
+        // Amber tile uses positive availability framing ("Half
+        // Available"). Red tile keeps the specific blocker tag
+        // ("Full court booked · Notify me") so a customer joining
+        // the waitlist knows what they're queuing on.
+        const availabilityTag = slot.blockedReason
+          ? summarizeAvailability(slot.blockedReason.alternativesAtThisHour)
+          : null;
         const blockedReasonTag = slot.blockedReason
           ? summarizeBlockers(slot.blockedReason.blockedBy)
           : null;
@@ -793,7 +801,7 @@ function SlotGrid({
                 {isAvailable
                   ? formatRupees(slot.price)
                   : softBlockInteractive
-                  ? `${blockedReasonTag ?? "Booked"} · tap`
+                  ? `${availabilityTag ?? "Available"} · tap`
                   : bookedFutureInteractive
                   ? blockedReasonTag
                     ? `${blockedReasonTag} · Notify me`
@@ -1307,10 +1315,12 @@ function AlternativesSheet({
   onNotifyMe?: (hour: number) => void;
 }) {
   const visible = slot !== null;
-  const reasonTag = slot?.blockedReason
-    ? summarizeBlockers(slot.blockedReason.blockedBy)
-    : "Booked";
   const alternatives = slot?.blockedReason?.alternativesAtThisHour ?? [];
+  // Header matches the tile's positive framing ("Half Available")
+  // so the sheet reads as a continuation of the tap, not a new
+  // context. Per-row labels below still spell out the specific
+  // sibling courts.
+  const headline = summarizeAvailability(alternatives);
 
   return (
     <Modal
@@ -1337,7 +1347,7 @@ function AlternativesSheet({
                 {slot ? formatHourRangeCompact(slot.hour).toUpperCase() : ""}
               </Text>
               <Text variant="heading" weight="700">
-                {reasonTag}
+                {headline}
               </Text>
             </View>
             <Pressable onPress={onClose} style={sheetStyles.closeBtn}>

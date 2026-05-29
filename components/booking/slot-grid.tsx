@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import {
   formatHourRangeCompact,
   formatHoursAsRanges,
+  summarizeAvailability,
   summarizeBlockers,
 } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
@@ -136,9 +137,18 @@ export function SlotGrid({
             !softBlockInteractive &&
             Boolean(onUnavailableClick);
 
-          // Tile-level reason tag derived from the server's
-          // blockedReason. Falls back to the existing static labels
-          // when there's no blocker data (e.g. admin-blocked or past).
+          // Amber tile (soft block) tag — positive framing, derived
+          // from what's STILL bookable. Customer reads "Half
+          // Available" whether a half-court or the bowling machine
+          // triggered the block. Only meaningful when alternatives
+          // exist, i.e. when softBlockInteractive is true.
+          const availabilityTag = slot.blockedReason
+            ? summarizeAvailability(slot.blockedReason.alternativesAtThisHour)
+            : null;
+          // Red tile (hard block / notify-me) tag — keeps the
+          // specific blocker info ("Full court booked") so the
+          // user who joins the waitlist understands what they're
+          // queuing on.
           const blockedReasonTag = slot.blockedReason
             ? summarizeBlockers(slot.blockedReason.blockedBy)
             : null;
@@ -216,14 +226,14 @@ export function SlotGrid({
                     formatPrice(slot.price)
                   )
                 ) : softBlockInteractive ? (
-                  // Soft block — show the specific reason ("Right half
-                  // booked") so the user can decide before opening the
-                  // sheet. The arrow icon at the top right signals the
-                  // pivot affordance.
+                  // Soft block — positive framing on what's still
+                  // bookable ("Half Available") rather than what's
+                  // blocked. The arrow icon at the top right signals
+                  // the pivot affordance.
                   <span className="block">
-                    {blockedReasonTag ?? "Booked"}
+                    {availabilityTag ?? "Available"}
                     <span className="block text-[10px] text-amber-400/80">
-                      Tap for alternatives
+                      Tap to see options
                     </span>
                   </span>
                 ) : bookedFutureInteractive ? (

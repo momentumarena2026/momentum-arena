@@ -322,8 +322,9 @@ export function alternativeShortLabel(a: {
 
 /**
  * Compose a one-liner tag for the tile from an array of blockers.
- * Dedupes by label so two adjacent Half-Right holds render as
- * "Right half booked", not "Multiple bookings".
+ * Used on the RED (hard-blocked / notify-me) tile because the
+ * customer can't pivot away there — telling them exactly what's
+ * full ("Full court booked · Notify me") is the useful signal.
  */
 export function summarizeBlockers(
   blockers: Array<{ size: string; position: string; category: string | null }>,
@@ -332,6 +333,35 @@ export function summarizeBlockers(
   const uniq = new Set(blockers.map(blockerShortLabel));
   if (uniq.size === 1) return Array.from(uniq)[0];
   return "Multiple bookings";
+}
+
+/**
+ * Positive-framed tag for the AMBER (soft-blocked / "Tap for
+ * alternatives") tile. Derived from what's STILL bookable in the
+ * sibling alternatives, not from the blocker — so a customer
+ * sees "Half Available" whether the trigger was a half-court
+ * booking or the bowling machine taking the leather corner.
+ *
+ * Picked label tracks the biggest equivalent option still free,
+ * so the user reads what they're most likely to pivot to:
+ *   - Some FULL still free   → "Full Court Available"
+ *   - Some MEDIUM still free → "Half Available"      (the
+ *                              common cricket Full → Half pivot)
+ *   - LARGE only             → "Center Available"
+ *   - XS only                → "Corner Available"
+ *
+ * Caller must only invoke when alternatives.length > 0; the
+ * empty case ("Booked") is handled by the red-tile path.
+ */
+export function summarizeAvailability(
+  alternatives: Array<{ size: string; position: string; category: string | null }>,
+): string {
+  if (alternatives.length === 0) return "Booked";
+  if (alternatives.some((a) => a.size === "FULL")) return "Full Court Available";
+  if (alternatives.some((a) => a.size === "MEDIUM")) return "Half Available";
+  if (alternatives.some((a) => a.size === "LARGE")) return "Center Available";
+  if (alternatives.some((a) => a.size === "XS")) return "Corner Available";
+  return "Alternative Available";
 }
 
 // Size display info

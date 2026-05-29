@@ -5,7 +5,7 @@ import { X, ArrowRight, Bell, AlertCircle } from "lucide-react";
 import {
   alternativeShortLabel,
   formatHourRangeCompact,
-  summarizeBlockers,
+  summarizeAvailability,
 } from "@/lib/court-config";
 import type { SlotAvailability } from "@/lib/availability";
 
@@ -43,8 +43,11 @@ export function AlternativesSheet({
 
   if (!slot || !slot.blockedReason) return null;
 
-  const { blockedBy, alternativesAtThisHour } = slot.blockedReason;
-  const reasonTag = summarizeBlockers(blockedBy);
+  const { alternativesAtThisHour } = slot.blockedReason;
+  // Header headline matches the tile's amber tag exactly ("Half
+  // Available") so the sheet reads as a continuation, not a context
+  // switch. Per-row labels below still show which sibling is which.
+  const headline = summarizeAvailability(alternativesAtThisHour);
 
   function pivot(configId: string) {
     router.push(`/book/${sport}/${configId}?date=${selectedDate}`);
@@ -70,7 +73,7 @@ export function AlternativesSheet({
               {formatHourRangeCompact(slot.hour)}
             </p>
             <h3 className="mt-0.5 text-base font-semibold text-white">
-              {reasonTag}
+              {headline}
             </h3>
           </div>
           <button
