@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { X, ArrowRight, Bell, AlertCircle } from "lucide-react";
 import {
+  alternativeActionLabel,
   alternativeShortLabel,
   formatHourRangeCompact,
   summarizeAvailability,
@@ -100,8 +101,12 @@ export function AlternativesSheet({
                     className="group flex w-full items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-left transition-all hover:border-emerald-400/50 hover:bg-emerald-500/15"
                   >
                     <div>
+                      {/* Action-oriented + generic by SIZE — drops
+                          the DB-side "Medium (Right Half)" wording
+                          since the venue assigns the physical side at
+                          game time anyway. */}
                       <p className="text-sm font-semibold text-emerald-300">
-                        {alt.label}
+                        {alternativeActionLabel(alt)}
                       </p>
                       <p className="text-[11px] text-emerald-300/70">
                         {alternativeShortLabel(alt)}
@@ -130,7 +135,7 @@ export function AlternativesSheet({
             className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/10"
           >
             <Bell className="h-3.5 w-3.5" />
-            Notify me for this exact court
+            Notify me when full court becomes available
           </button>
         )}
       </div>
