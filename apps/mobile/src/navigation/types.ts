@@ -32,9 +32,14 @@ export type BookStackParamList = {
   BookCourt: { sport: Sport };
   // Either target a specific court config, or hand the server a "medium"
   // mode and let it pick whichever half-court is free at game time.
+  //
+  // `prefilledDate` ("YYYY-MM-DD") is set when the user pivots between
+  // courts via the AlternativesSheet — preserves the date they were
+  // looking at on the prior court so they don't have to re-pick.
+  // Optional; omitted from the BookCourt entry-flow navigations.
   BookSlots:
-    | { courtConfigId: string; courtLabel: string; sport: Sport; mode?: undefined }
-    | { mode: "medium"; courtLabel: string; sport: Sport; courtConfigId?: undefined };
+    | { courtConfigId: string; courtLabel: string; sport: Sport; mode?: undefined; prefilledDate?: string }
+    | { mode: "medium"; courtLabel: string; sport: Sport; courtConfigId?: undefined; prefilledDate?: string };
   // Bowling-machine 30-min slot picker — separate screen from BookSlots
   // because the picker UI (consecutive 30-min tiles) and the lock
   // payload (`slots[]` instead of `hours[]`) differ enough that

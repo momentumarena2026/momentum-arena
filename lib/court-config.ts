@@ -264,6 +264,76 @@ export const SPORT_INFO: Record<
   },
 };
 
+/**
+ * Render a friendly one-line label for a config that's BLOCKING a
+ * slot — used in the slot-grid amber state to tell the customer
+ * what's actually taken. Reads category first (so a Bowling
+ * Machine blocker says "Bowling busy" regardless of size/position)
+ * then falls back to size+position for the box-cricket configs.
+ *
+ * Pure function — shared between server (lib/availability.ts) and
+ * client (slot-grid components) so wording stays in sync.
+ */
+export function blockerShortLabel(b: {
+  size: string;
+  position: string;
+  category: string | null;
+}): string {
+  if (b.category === "BOWLING_MACHINE") return "Bowling busy";
+  if (b.size === "FULL") return "Full court booked";
+  if (b.size === "LARGE") return "Center area booked";
+  if (b.size === "MEDIUM") {
+    if (b.position === "LEFT") return "Left half booked";
+    if (b.position === "RIGHT") return "Right half booked";
+    return "Half court booked";
+  }
+  if (b.size === "XS") {
+    if (b.position === "LP1") return "Left leather corner booked";
+    if (b.position === "LP2") return "Right leather corner booked";
+    return "Leather corner booked";
+  }
+  return "Booked";
+}
+
+/**
+ * Same as `blockerShortLabel` but worded as a positive offer —
+ * "Half Right free" — for the alternatives sheet.
+ */
+export function alternativeShortLabel(a: {
+  size: string;
+  position: string;
+  category: string | null;
+}): string {
+  if (a.category === "BOWLING_MACHINE") return "Bowling machine free";
+  if (a.size === "FULL") return "Full court free";
+  if (a.size === "LARGE") return "Center area free";
+  if (a.size === "MEDIUM") {
+    if (a.position === "LEFT") return "Left half free";
+    if (a.position === "RIGHT") return "Right half free";
+    return "Half court free";
+  }
+  if (a.size === "XS") {
+    if (a.position === "LP1") return "Left leather corner free";
+    if (a.position === "LP2") return "Right leather corner free";
+    return "Leather corner free";
+  }
+  return "Available";
+}
+
+/**
+ * Compose a one-liner tag for the tile from an array of blockers.
+ * Dedupes by label so two adjacent Half-Right holds render as
+ * "Right half booked", not "Multiple bookings".
+ */
+export function summarizeBlockers(
+  blockers: Array<{ size: string; position: string; category: string | null }>,
+): string {
+  if (blockers.length === 0) return "Booked";
+  const uniq = new Set(blockers.map(blockerShortLabel));
+  if (uniq.size === 1) return Array.from(uniq)[0];
+  return "Multiple bookings";
+}
+
 // Size display info
 export const SIZE_INFO: Record<
   ConfigSize,
