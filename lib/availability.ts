@@ -1,14 +1,63 @@
-import { CourtZone, Sport } from "@prisma/client";
+import { CourtZone, Sport, BookingCategory } from "@prisma/client";
 import { db } from "./db";
 import { getAllSlotHours, isWeekend } from "./court-config";
 import { getTodayIST, getCurrentHourIST } from "./ist-date";
 
 export type SlotStatus = "available" | "booked" | "locked" | "blocked";
 
+/**
+ * Lightweight snapshot of a court config used in `blockedReason`.
+ * Carries just enough for the customer-facing tile + alternatives
+ * sheet to render labels ("Right half booked" / "Switch to Half
+ * Left") without an extra fetch. `category` lets the UI distinguish
+ * a regular box-cricket blocker ("Half court booked") from a
+ * bowling-machine blocker ("Bowling busy") without coupling to
+ * specific config names.
+ */
+export interface BlockingConfig {
+  configId: string;
+  label: string;
+  size: string;
+  position: string;
+  category: BookingCategory | null;
+}
+
+/**
+ * Why a particular hour isn't bookable on this court config, plus
+ * which sibling configs of the same sport+category are STILL free
+ * at that hour so the UI can offer a one-tap pivot.
+ *
+ * Populated only for hours whose `status` is "booked" or "locked"
+ * — for "blocked" (past time / admin block) the alternatives logic
+ * doesn't apply because admin blocks are typically sport-wide.
+ *
+ * Both arrays are sorted desc by size so the biggest available
+ * alternative — usually the most "equivalent" to what the user
+ * asked for — appears first.
+ */
+export interface BlockedReason {
+  blockedBy: BlockingConfig[];
+  alternativesAtThisHour: BlockingConfig[];
+}
+
 export interface SlotAvailability {
   hour: number;
   status: SlotStatus;
   price: number; // in rupees
+  blockedReason?: BlockedReason;
+}
+
+// Severity ordering for ConfigSize → used to sort blockedBy /
+// alternatives so the FULL court appears above MEDIUM appears
+// above XS. Keeps the alternatives sheet stable and predictable.
+const SIZE_ORDER: Record<string, number> = {
+  FULL: 0,
+  LARGE: 1,
+  MEDIUM: 2,
+  XS: 3,
+};
+function sizeRank(size: string): number {
+  return SIZE_ORDER[size] ?? 99;
 }
 
 // Get availability for all slots on a given date for a specific court config
@@ -51,6 +100,8 @@ export async function getSlotAvailability(
   }
 
   // 2. Transient SlotHolds — another user is currently in checkout for this slot
+  // Include the hold's courtConfig so we can surface "what's blocking
+  // this hour?" labels for in-flight holds, not just confirmed bookings.
   const activeHolds = await db.slotHold.findMany({
     where: {
       date: dateOnly,
@@ -59,6 +110,7 @@ export async function getSlotAvailability(
         zones: { hasSome: config.zones as CourtZone[] },
       },
     },
+    include: { courtConfig: true },
   });
   for (const hold of activeHolds) {
     for (const hour of hold.hours) {
@@ -120,6 +172,144 @@ export async function getSlotAvailability(
   const isPastDate = dateStr < todayIST;
   const currentHour = getCurrentHourIST();
 
+  // ------------------------------------------------------------------
+  // Build the per-hour "what's blocking?" + "what's still bookable?"
+  // index that drives the customer-facing "Right half booked → try
+  // Left half" UX. All the data already came back in the queries
+  // above; we're just re-indexing it by hour and deriving the
+  // alternatives set.
+  //
+  // We do this once per request, then `blockedReason` for each
+  // returned hour is a constant-time lookup.
+  // ------------------------------------------------------------------
+
+  // Hour → blockedBy configs (booking AND hold sources merged).
+  // Map-of-Map dedupes when the same sibling config blocks the
+  // hour twice (e.g. two simultaneous holds on the same court).
+  const blockersByHour = new Map<number, Map<string, BlockingConfig>>();
+  // Hour → union of all zones that are spoken-for by the blockers
+  // above. Used to decide which sibling configs are still bookable
+  // (a sibling is bookable iff none of its zones are in this set).
+  const blockedZonesByHour = new Map<number, Set<CourtZone>>();
+
+  function recordBlocker(
+    hour: number,
+    cfg: {
+      id: string;
+      label: string;
+      size: string;
+      position: string;
+      category: BookingCategory | null;
+      zones: CourtZone[];
+    },
+  ) {
+    if (!blockersByHour.has(hour)) blockersByHour.set(hour, new Map());
+    blockersByHour.get(hour)!.set(cfg.id, {
+      configId: cfg.id,
+      label: cfg.label,
+      size: cfg.size,
+      position: cfg.position,
+      category: cfg.category,
+    });
+    if (!blockedZonesByHour.has(hour))
+      blockedZonesByHour.set(hour, new Set());
+    for (const z of cfg.zones) blockedZonesByHour.get(hour)!.add(z);
+  }
+
+  for (const booking of conflictingBookings) {
+    for (const slot of booking.slots) {
+      recordBlocker(slot.startHour, booking.courtConfig);
+    }
+  }
+  for (const hold of activeHolds) {
+    for (const hour of hold.hours) {
+      recordBlocker(hour, hold.courtConfig);
+    }
+  }
+
+  // Fetch sibling configs of the same sport + category — these are
+  // the ones we offer as alternatives. We filter to the same
+  // `category` so a customer who picked Box-Cricket Full Field
+  // doesn't get suggested the Bowling Machine (different category,
+  // same sport) as a fall-back when their slot is booked. Includes
+  // self only to avoid an extra exclude clause; we'll skip it during
+  // the per-hour filter.
+  const siblingConfigs = await db.courtConfig.findMany({
+    where: {
+      sport: config.sport,
+      category: config.category,
+      isActive: true,
+      id: { not: courtConfigId },
+    },
+    select: {
+      id: true,
+      label: true,
+      size: true,
+      position: true,
+      category: true,
+      zones: true,
+    },
+  });
+
+  // Per-sibling admin blocks. We already have sport-wide blocks in
+  // `blockedHours`; this one indexes hours blocked at the
+  // courtConfig level so we don't surface a sibling whose admin
+  // explicitly blocked the hour, even if its zones look free.
+  const siblingAdminBlocks = await db.slotBlock.findMany({
+    where: {
+      date: dateOnly,
+      courtConfigId: { in: siblingConfigs.map((c) => c.id) },
+    },
+    select: { courtConfigId: true, startHour: true },
+  });
+  const blocksPerSibling = new Map<string, Set<number>>();
+  for (const block of siblingAdminBlocks) {
+    if (!block.courtConfigId) continue;
+    if (!blocksPerSibling.has(block.courtConfigId))
+      blocksPerSibling.set(block.courtConfigId, new Set());
+    if (block.startHour === null) {
+      getAllSlotHours().forEach((h) =>
+        blocksPerSibling.get(block.courtConfigId!)!.add(h),
+      );
+    } else {
+      blocksPerSibling.get(block.courtConfigId!)!.add(block.startHour);
+    }
+  }
+
+  function alternativesForHour(hour: number): BlockingConfig[] {
+    const blockedZones = blockedZonesByHour.get(hour);
+    if (!blockedZones) return [];
+    const out: BlockingConfig[] = [];
+    for (const sib of siblingConfigs) {
+      // If any of the sibling's zones is already blocked at this
+      // hour, the sibling itself can't be booked.
+      if (sib.zones.some((z) => blockedZones.has(z))) continue;
+      // Sport-wide admin block hits every sibling too.
+      if (blockedHours.has(hour)) continue;
+      // Sibling-specific admin block.
+      if (blocksPerSibling.get(sib.id)?.has(hour)) continue;
+      out.push({
+        configId: sib.id,
+        label: sib.label,
+        size: sib.size,
+        position: sib.position,
+        category: sib.category,
+      });
+    }
+    // Biggest size first so the user's most-equivalent option is at
+    // the top of the alternatives sheet.
+    out.sort((a, b) => sizeRank(a.size) - sizeRank(b.size));
+    return out;
+  }
+
+  function blockedByForHour(hour: number): BlockingConfig[] {
+    const m = blockersByHour.get(hour);
+    if (!m) return [];
+    return Array.from(m.values()).sort(
+      (a, b) => sizeRank(a.size) - sizeRank(b.size),
+    );
+  }
+
   // Build availability array
   const hours = getAllSlotHours();
   return hours.map((hour) => {
@@ -134,10 +324,23 @@ export async function getSlotAvailability(
       status = occupiedHours.get(hour)!;
     }
 
+    // Only attach a blockedReason when the slot is occupied by
+    // another customer's booking/hold — for admin/past blocks
+    // there's no "alternative" worth surfacing (the entire sport is
+    // typically closed).
+    const blockedReason: BlockedReason | undefined =
+      status === "booked" || status === "locked"
+        ? {
+            blockedBy: blockedByForHour(hour),
+            alternativesAtThisHour: alternativesForHour(hour),
+          }
+        : undefined;
+
     return {
       hour,
       status,
       price: prices.get(hour) ?? 0,
+      blockedReason,
     };
   });
 }

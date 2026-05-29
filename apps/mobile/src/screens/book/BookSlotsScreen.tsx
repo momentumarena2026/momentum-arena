@@ -19,14 +19,30 @@ import {
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { NativeStackNavigationProp as RootNavType } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, BellRing, CalendarDays, Check, Clock, Lock, X } from "lucide-react-native";
+import {
+  ArrowRight,
+  ArrowRightLeft,
+  Bell,
+  BellRing,
+  CalendarDays,
+  Check,
+  Clock,
+  Lock,
+  X,
+} from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
-import { bookingApi, type SlotAvailability } from "../../lib/booking";
+import {
+  bookingApi,
+  type SlotAvailability,
+  type BlockingConfig,
+  alternativeShortLabel,
+  summarizeBlockers,
+} from "../../lib/booking";
 import { GearPicker } from "../../components/booking/GearPicker";
 import {
   type ActiveSportPromo,
@@ -69,7 +85,19 @@ export function BookSlotsScreen() {
 
   // Track selectedDate as the IST "YYYY-MM-DD" string directly (web does the
   // same). Easier to compare against getTodayIST() and to pass to the API.
-  const [selectedDate, setSelectedDate] = useState<string>(() => getTodayIST());
+  //
+  // When the user pivoted in from another court via the AlternativesSheet,
+  // params.prefilledDate carries the date they were looking at on the prior
+  // court — keep them on it instead of snapping back to today.
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    params.prefilledDate && /^\d{4}-\d{2}-\d{2}$/.test(params.prefilledDate)
+      ? params.prefilledDate
+      : getTodayIST(),
+  );
+  // Tracks which soft-blocked slot's "alternatives" sheet is open;
+  // null = closed.
+  const [alternativesSlot, setAlternativesSlot] =
+    useState<SlotAvailability | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   // Rental gear picks captured pre-lock — passed into bookingApi.lock
   // so the fresh hold lands in checkout with equipment already
@@ -356,6 +384,13 @@ export function BookSlotsScreen() {
               onUnavailableTap={
                 isMedium ? undefined : (h) => setWaitlistHour(h)
               }
+              // Soft-block alternatives — same gating as the
+              // waitlist (medium mode skips because the merged
+              // half-court surface has no meaningful sibling for
+              // the user to pivot to).
+              onShowAlternatives={
+                isMedium ? undefined : (s) => setAlternativesSlot(s)
+              }
               // Past slots aren't waitlist-able. Pass the current IST
               // hour ONLY when today is selected so the grid can render
               // those tiles as plain disabled (no Bell, no notify).
@@ -482,6 +517,32 @@ export function BookSlotsScreen() {
           rootNav?.navigate("Phone");
         }}
       />
+
+      <AlternativesSheet
+        slot={alternativesSlot}
+        onClose={() => setAlternativesSlot(null)}
+        onPivot={(alt) => {
+          // navigation.replace keeps the back stack flat — pivoting
+          // between sibling courts shouldn't pile up screens on
+          // back-press. The new route fires its own
+          // availability query against the chosen courtConfigId.
+          setAlternativesSlot(null);
+          navigation.replace("BookSlots", {
+            courtConfigId: alt.configId,
+            courtLabel: alt.label,
+            sport: params.sport,
+            prefilledDate: selectedDate,
+          });
+        }}
+        onNotifyMe={
+          isMedium
+            ? undefined
+            : (h) => {
+                setAlternativesSlot(null);
+                setWaitlistHour(h);
+              }
+        }
+      />
     </Screen>
   );
 }
@@ -578,6 +639,7 @@ function SlotGrid({
   selected,
   onToggle,
   onUnavailableTap,
+  onShowAlternatives,
   pastHourCutoff,
   promo,
 }: {
@@ -586,6 +648,15 @@ function SlotGrid({
   onToggle: (hour: number) => void;
   /** When provided, future-booked tiles become interactive (open waitlist). */
   onUnavailableTap?: (hour: number) => void;
+  /**
+   * Tap handler for SOFT-blocked tiles — the slot is taken on this
+   * court but a sibling court is still free at the same hour. When
+   * provided, those tiles render AMBER instead of red and tap opens
+   * the alternatives sheet via this callback. Slots with no
+   * alternatives fall through to `onUnavailableTap` so the waitlist
+   * affordance still works.
+   */
+  onShowAlternatives?: (slot: SlotAvailability) => void;
   /**
    * Current IST hour, ONLY when the selected date is today. Slots
    * with `hour <= pastHourCutoff` are treated as past — plain disabled,
@@ -607,29 +678,57 @@ function SlotGrid({
         const isAvailable = slot.status === "available";
         const isPast =
           pastHourCutoff !== undefined && slot.hour <= pastHourCutoff;
+
+        // Soft block — unavailable on THIS court but the same hour
+        // is still bookable on a sibling court (e.g. Full Field is
+        // taken but Right Half is free). Renders AMBER and the tap
+        // opens the alternatives sheet via the parent. Takes
+        // priority over the red notify-me treatment.
+        const altCount = slot.blockedReason?.alternativesAtThisHour.length ?? 0;
+        const softBlockInteractive =
+          !isAvailable &&
+          !isPast &&
+          altCount > 0 &&
+          Boolean(onShowAlternatives);
+
         const bookedFutureInteractive =
-          !isAvailable && !isPast && Boolean(onUnavailableTap);
+          !isAvailable &&
+          !isPast &&
+          !softBlockInteractive &&
+          Boolean(onUnavailableTap);
+
+        const blockedReasonTag = slot.blockedReason
+          ? summarizeBlockers(slot.blockedReason.blockedBy)
+          : null;
 
         return (
           <Pressable
             key={slot.hour}
             onPress={() => {
               if (isAvailable) onToggle(slot.hour);
+              else if (softBlockInteractive && onShowAlternatives)
+                onShowAlternatives(slot);
               else if (bookedFutureInteractive && onUnavailableTap)
                 onUnavailableTap(slot.hour);
             }}
-            disabled={!isAvailable && !bookedFutureInteractive}
+            disabled={
+              !isAvailable && !softBlockInteractive && !bookedFutureInteractive
+            }
             style={({ pressed }) => [
               styles.slot,
               isSelected
                 ? styles.slotSelected
                 : isAvailable
                 ? styles.slotAvailable
+                : softBlockInteractive
+                ? styles.slotSoftBlocked
                 : bookedFutureInteractive
                 ? styles.slotBookedFuture
                 : styles.slotUnavailable,
               pressed &&
-                (isAvailable || bookedFutureInteractive) && { opacity: 0.85 },
+                (isAvailable || softBlockInteractive || bookedFutureInteractive) && {
+                  opacity: 0.85,
+                },
             ]}
           >
             <View style={styles.slotHeader}>
@@ -653,6 +752,8 @@ function SlotGrid({
               </View>
               {isSelected ? (
                 <Check size={16} color={colors.emerald400} />
+              ) : softBlockInteractive ? (
+                <ArrowRightLeft size={14} color={colors.yellow400} />
               ) : bookedFutureInteractive ? (
                 <Bell size={14} color={colors.destructive} />
               ) : null}
@@ -681,6 +782,8 @@ function SlotGrid({
                 color={
                   isAvailable
                     ? colors.zinc400
+                    : softBlockInteractive
+                    ? colors.yellow400
                     : bookedFutureInteractive
                     ? colors.destructive_300
                     : colors.zinc500
@@ -689,8 +792,12 @@ function SlotGrid({
               >
                 {isAvailable
                   ? formatRupees(slot.price)
+                  : softBlockInteractive
+                  ? `${blockedReasonTag ?? "Booked"} · tap`
                   : bookedFutureInteractive
-                  ? "Booked · Notify me"
+                  ? blockedReasonTag
+                    ? `${blockedReasonTag} · Notify me`
+                    : "Booked · Notify me"
                   : isPast
                   ? "Past"
                   : "Unavailable"}
@@ -812,6 +919,14 @@ const styles = StyleSheet.create({
   slotBookedFuture: {
     backgroundColor: colors.destructive_10,
     borderColor: colors.destructive_30,
+  },
+  // Soft block — slot's taken on this court but a sibling court is
+  // still free at the same hour. Amber palette signals "pivot
+  // available" without the urgency/regret tone of the red waitlist
+  // tile. Tap opens AlternativesSheet.
+  slotSoftBlocked: {
+    backgroundColor: "rgba(245, 158, 11, 0.10)",
+    borderColor: "rgba(245, 158, 11, 0.40)",
   },
   slotSelected: {
     backgroundColor: colors.emerald500_20,
@@ -1168,5 +1283,162 @@ const sheetStyles = StyleSheet.create({
   },
   actions: {
     marginTop: spacing["1"],
+  },
+});
+
+// ---------------------------------------------------------------------------
+// AlternativesSheet — RN port of components/booking/alternatives-sheet.tsx
+//
+// Opens when the user taps an amber soft-blocked tile. Shows what's
+// specifically taken on the current court and which sibling courts
+// are still free at that hour. Tap a sibling → navigation.replace
+// to its slot screen with the same date preserved. Falls back to a
+// "Notify me anyway" CTA for the original court.
+// ---------------------------------------------------------------------------
+function AlternativesSheet({
+  slot,
+  onClose,
+  onPivot,
+  onNotifyMe,
+}: {
+  slot: SlotAvailability | null;
+  onClose: () => void;
+  onPivot: (alt: BlockingConfig) => void;
+  onNotifyMe?: (hour: number) => void;
+}) {
+  const visible = slot !== null;
+  const reasonTag = slot?.blockedReason
+    ? summarizeBlockers(slot.blockedReason.blockedBy)
+    : "Booked";
+  const alternatives = slot?.blockedReason?.alternativesAtThisHour ?? [];
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <Pressable style={sheetStyles.backdrop} onPress={onClose}>
+        <Pressable
+          style={sheetStyles.sheet}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View style={sheetStyles.handleRow}>
+            <View style={sheetStyles.handle} />
+          </View>
+
+          <View style={sheetStyles.header}>
+            <View style={sheetStyles.headerIcon}>
+              <ArrowRightLeft size={18} color={colors.warning} />
+            </View>
+            <View style={sheetStyles.headerText}>
+              <Text variant="tiny" color={colors.zinc500} weight="600">
+                {slot ? formatHourRangeCompact(slot.hour).toUpperCase() : ""}
+              </Text>
+              <Text variant="heading" weight="700">
+                {reasonTag}
+              </Text>
+            </View>
+            <Pressable onPress={onClose} style={sheetStyles.closeBtn}>
+              <X size={18} color={colors.zinc500} />
+            </Pressable>
+          </View>
+
+          {alternatives.length > 0 ? (
+            <View style={altSheetStyles.list}>
+              <Text variant="small" color={colors.zinc400}>
+                Still bookable at this hour:
+              </Text>
+              {alternatives.map((alt) => (
+                <Pressable
+                  key={alt.configId}
+                  onPress={() => onPivot(alt)}
+                  style={({ pressed }) => [
+                    altSheetStyles.altRow,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      variant="body"
+                      weight="600"
+                      color={colors.emerald400}
+                    >
+                      {alt.label}
+                    </Text>
+                    <Text variant="tiny" color={colors.emerald400}>
+                      {alternativeShortLabel(alt)}
+                    </Text>
+                  </View>
+                  <ArrowRight size={16} color={colors.emerald400} />
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <View style={altSheetStyles.noneCard}>
+              <Text variant="small" color={colors.zinc400}>
+                No alternative courts are free at this hour.
+              </Text>
+            </View>
+          )}
+
+          {onNotifyMe && slot ? (
+            <Pressable
+              onPress={() => onNotifyMe(slot.hour)}
+              style={({ pressed }) => [
+                altSheetStyles.notifyBtn,
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <Bell size={14} color={colors.destructive_300} />
+              <Text
+                variant="small"
+                weight="600"
+                color={colors.destructive_300}
+              >
+                Notify me for this exact court
+              </Text>
+            </Pressable>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const altSheetStyles = StyleSheet.create({
+  list: {
+    gap: spacing["2"],
+  },
+  altRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+    borderRadius: radius.lg,
+    paddingVertical: spacing["3"],
+    paddingHorizontal: spacing["3"],
+    gap: spacing["2"],
+  },
+  noneCard: {
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    backgroundColor: colors.zinc900,
+    borderRadius: radius.lg,
+    padding: spacing["3"],
+  },
+  notifyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["1.5"],
+    borderWidth: 1,
+    borderColor: colors.destructive_30,
+    backgroundColor: colors.destructive_10,
+    borderRadius: radius.lg,
+    paddingVertical: spacing["2.5"],
   },
 });

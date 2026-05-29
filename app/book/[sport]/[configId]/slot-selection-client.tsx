@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
 import { SlotGrid } from "@/components/booking/slot-grid";
 import { WaitlistDialog } from "@/components/booking/waitlist-dialog";
+import { AlternativesSheet } from "@/components/booking/alternatives-sheet";
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
 import { formatHoursAsRanges } from "@/lib/court-config";
@@ -73,8 +74,23 @@ export function SlotSelectionClient({
   equipmentOptions = [],
 }: SlotSelectionClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session, status } = useSession();
-  const [selectedDate, setSelectedDate] = useState(getTodayIST());
+  // Pre-fill date from `?date=YYYY-MM-DD` when the user landed here
+  // via the AlternativesSheet on another court — so the pivot
+  // preserves the date they had picked. Falls back to today
+  // otherwise. Strict format check keeps malformed query strings
+  // from breaking the picker.
+  const initialDate = (() => {
+    const q = searchParams.get("date");
+    if (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) return q;
+    return getTodayIST();
+  })();
+  const [selectedDate, setSelectedDate] = useState(initialDate);
+  // Tracks which soft-blocked slot's "alternatives" sheet is open.
+  // `null` = closed.
+  const [alternativesSlot, setAlternativesSlot] =
+    useState<SlotAvailability | null>(null);
   const [slots, setSlots] = useState<SlotAvailability[]>([]);
   const [selectedHours, setSelectedHours] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
@@ -517,6 +533,14 @@ export function SlotSelectionClient({
             onUnavailableClick={
               mediumMode ? undefined : (h) => setWaitlistHour(h)
             }
+            // Soft-block alternatives sheet. Skipped in mediumMode
+            // because the user is already viewing the merged half-
+            // court view — the only sibling that exists for that
+            // surface is Full Field, which would be blocked by
+            // definition if both halves are taken.
+            onShowAlternatives={
+              mediumMode ? undefined : (s) => setAlternativesSlot(s)
+            }
             // Past slots aren't joinable — pass the current IST hour
             // ONLY when the user has selected today, so the grid can
             // render past tiles as plain disabled (no Bell, no notify).
@@ -797,6 +821,21 @@ export function SlotSelectionClient({
         sport={sport}
         date={selectedDate}
         hour={waitlistHour ?? 0}
+      />
+
+      {/* Soft-block alternatives sheet — opens when the user taps an
+          amber tile (slot blocked on this court but free on a sibling
+          court). Provides the pivot links + a "Notify me anyway"
+          fall-back. Hidden entirely in mediumMode (see the SlotGrid
+          prop comment above for why). */}
+      <AlternativesSheet
+        slot={alternativesSlot}
+        sport={sport}
+        selectedDate={selectedDate}
+        onClose={() => setAlternativesSlot(null)}
+        onNotifyMe={
+          mediumMode ? undefined : (h) => setWaitlistHour(h)
+        }
       />
     </div>
   );

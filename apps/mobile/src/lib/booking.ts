@@ -11,10 +11,89 @@ export type SlotStatus =
   | "blocked"
   | "closed";
 
+/**
+ * Lightweight snapshot of a court config used in `blockedReason`.
+ * Carries just enough for the slot tile + alternatives sheet to
+ * render labels ("Right half booked" / "Switch to Half Left")
+ * without an extra fetch. Mirrors lib/availability.ts on the
+ * server.
+ */
+export interface BlockingConfig {
+  configId: string;
+  label: string;
+  size: string;
+  position: string;
+  category: string | null;
+}
+
+export interface BlockedReason {
+  blockedBy: BlockingConfig[];
+  alternativesAtThisHour: BlockingConfig[];
+}
+
 export interface SlotAvailability {
   hour: number;
   status: SlotStatus;
   price: number;
+  blockedReason?: BlockedReason;
+}
+
+// ---------------------------------------------------------------------------
+// Slot-tile label helpers — mirror lib/court-config.ts on the
+// server. Kept inline (rather than imported across the workspace)
+// because the mobile app's TS config is isolated from the Next
+// app's path-aliased "@/lib/*". If you change the wording here,
+// change it in lib/court-config.ts too — the tile/sheet copy is
+// expected to match between web and mobile.
+// ---------------------------------------------------------------------------
+
+export function blockerShortLabel(b: {
+  size: string;
+  position: string;
+  category: string | null;
+}): string {
+  if (b.category === "BOWLING_MACHINE") return "Bowling busy";
+  if (b.size === "FULL") return "Full court booked";
+  if (b.size === "LARGE") return "Center area booked";
+  if (b.size === "MEDIUM") {
+    if (b.position === "LEFT") return "Left half booked";
+    if (b.position === "RIGHT") return "Right half booked";
+    return "Half court booked";
+  }
+  if (b.size === "XS") {
+    if (b.position === "LP1") return "Left leather corner booked";
+    if (b.position === "LP2") return "Right leather corner booked";
+    return "Leather corner booked";
+  }
+  return "Booked";
+}
+
+export function alternativeShortLabel(a: {
+  size: string;
+  position: string;
+  category: string | null;
+}): string {
+  if (a.category === "BOWLING_MACHINE") return "Bowling machine free";
+  if (a.size === "FULL") return "Full court free";
+  if (a.size === "LARGE") return "Center area free";
+  if (a.size === "MEDIUM") {
+    if (a.position === "LEFT") return "Left half free";
+    if (a.position === "RIGHT") return "Right half free";
+    return "Half court free";
+  }
+  if (a.size === "XS") {
+    if (a.position === "LP1") return "Left leather corner free";
+    if (a.position === "LP2") return "Right leather corner free";
+    return "Leather corner free";
+  }
+  return "Available";
+}
+
+export function summarizeBlockers(blockers: BlockingConfig[]): string {
+  if (blockers.length === 0) return "Booked";
+  const uniq = new Set(blockers.map(blockerShortLabel));
+  if (uniq.size === 1) return Array.from(uniq)[0];
+  return "Multiple bookings";
 }
 
 // Bowling-machine 30-minute slot — `minute` is 0 or 30, `price` is rupees.

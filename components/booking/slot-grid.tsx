@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback } from "react";
-import { formatHourRangeCompact, formatHoursAsRanges } from "@/lib/court-config";
+import {
+  formatHourRangeCompact,
+  formatHoursAsRanges,
+  summarizeBlockers,
+} from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import type { SlotAvailability } from "@/lib/availability";
 import {
   type ActiveSportPromo,
   computeAutoApplyDiscount,
 } from "@/lib/auto-apply-promo";
-import { Bell, Clock, Check } from "lucide-react";
+import { Bell, Clock, Check, ArrowRightLeft } from "lucide-react";
 
 interface SlotGridProps {
   slots: SlotAvailability[];
@@ -23,6 +27,20 @@ interface SlotGridProps {
    * can't waitlist for a slot that's already started.
    */
   onUnavailableClick?: (hour: number) => void;
+  /**
+   * Called when a user taps a SOFT-blocked tile — one that's
+   * unavailable on this exact court but where the same hour is
+   * still bookable on a sibling court (e.g. Full Field is booked
+   * but Right Half is free). Tile renders AMBER + reason tag
+   * ("Right half booked · See alternatives") instead of the red
+   * notify-me treatment, and tap fires this callback so the
+   * parent can pop an alternatives sheet listing the sibling
+   * configs that are still free at that hour.
+   *
+   * Falls through to `onUnavailableClick` when the slot has no
+   * alternatives (true hard-block, e.g. Full Field genuinely full).
+   */
+  onShowAlternatives?: (slot: SlotAvailability) => void;
   /**
    * The current IST hour, ONLY when the selected date is today.
    * `undefined` means the selected date is in the future (no slots
@@ -47,6 +65,7 @@ export function SlotGrid({
   selectedHours,
   onSelectionChange,
   onUnavailableClick,
+  onShowAlternatives,
   pastHourCutoff,
   promo,
 }: SlotGridProps) {
@@ -93,10 +112,36 @@ export function SlotGrid({
           // plain disabled treatment — no Bell, no waitlist option.
           const isPast =
             pastHourCutoff !== undefined && slot.hour <= pastHourCutoff;
-          // Booked AND in the future AND a waitlist handler is wired.
-          // Only these tiles get the RED + Bell + "Notify me" treatment.
+
+          // Soft block — unavailable on THIS court, but the same hour
+          // is still bookable on a sibling court (e.g. Full Field is
+          // taken but Right Half is free). Renders AMBER and the tap
+          // opens the alternatives sheet via the parent. Takes priority
+          // over the red notify-me treatment because pivoting to an
+          // available alternative is a better outcome than waitlisting.
+          const altCount = slot.blockedReason?.alternativesAtThisHour.length ?? 0;
+          const softBlockInteractive =
+            !isAvailable &&
+            !isPast &&
+            altCount > 0 &&
+            Boolean(onShowAlternatives);
+
+          // Booked AND in the future AND a waitlist handler is wired —
+          // ONLY when the slot has no available alternatives. Once we
+          // surface an amber-pivot path, the red notify-me would
+          // crowd the tile.
           const bookedFutureInteractive =
-            !isAvailable && !isPast && Boolean(onUnavailableClick);
+            !isAvailable &&
+            !isPast &&
+            !softBlockInteractive &&
+            Boolean(onUnavailableClick);
+
+          // Tile-level reason tag derived from the server's
+          // blockedReason. Falls back to the existing static labels
+          // when there's no blocker data (e.g. admin-blocked or past).
+          const blockedReasonTag = slot.blockedReason
+            ? summarizeBlockers(slot.blockedReason.blockedBy)
+            : null;
 
           return (
             <button
@@ -104,19 +149,25 @@ export function SlotGrid({
               onClick={() => {
                 if (isAvailable) {
                   toggleSlot(slot.hour);
+                } else if (softBlockInteractive && onShowAlternatives) {
+                  onShowAlternatives(slot);
                 } else if (bookedFutureInteractive && onUnavailableClick) {
                   onUnavailableClick(slot.hour);
                 }
               }}
-              disabled={!isAvailable && !bookedFutureInteractive}
+              disabled={
+                !isAvailable && !softBlockInteractive && !bookedFutureInteractive
+              }
               className={`relative rounded-xl border p-3 text-left transition-all duration-200 ${
                 isSelected
                   ? "border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50"
                   : isAvailable
                     ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30"
-                    : bookedFutureInteractive
-                      ? "bg-red-500/10 border-red-500/40 hover:bg-red-500/15 hover:border-red-500/60 cursor-pointer"
-                      : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
+                    : softBlockInteractive
+                      ? "bg-amber-500/10 border-amber-500/40 hover:bg-amber-500/15 hover:border-amber-500/60 cursor-pointer"
+                      : bookedFutureInteractive
+                        ? "bg-red-500/10 border-red-500/40 hover:bg-red-500/15 hover:border-red-500/60 cursor-pointer"
+                        : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
               }`}
             >
               <div className="flex items-center justify-between">
@@ -133,6 +184,9 @@ export function SlotGrid({
                   </span>
                 </div>
                 {isSelected && <Check className="h-4 w-4 text-emerald-400" />}
+                {softBlockInteractive && (
+                  <ArrowRightLeft className="h-3.5 w-3.5 text-amber-400" />
+                )}
                 {bookedFutureInteractive && (
                   <Bell className="h-3.5 w-3.5 text-red-400" />
                 )}
@@ -141,9 +195,11 @@ export function SlotGrid({
                 className={`mt-1 text-xs ${
                   isAvailable
                     ? "text-zinc-400"
-                    : bookedFutureInteractive
-                      ? "text-red-300/90"
-                      : "text-zinc-500"
+                    : softBlockInteractive
+                      ? "text-amber-300/90"
+                      : bookedFutureInteractive
+                        ? "text-red-300/90"
+                        : "text-zinc-500"
                 }`}
               >
                 {isAvailable ? (
@@ -159,8 +215,24 @@ export function SlotGrid({
                   ) : (
                     formatPrice(slot.price)
                   )
+                ) : softBlockInteractive ? (
+                  // Soft block — show the specific reason ("Right half
+                  // booked") so the user can decide before opening the
+                  // sheet. The arrow icon at the top right signals the
+                  // pivot affordance.
+                  <span className="block">
+                    {blockedReasonTag ?? "Booked"}
+                    <span className="block text-[10px] text-amber-400/80">
+                      Tap for alternatives
+                    </span>
+                  </span>
                 ) : bookedFutureInteractive ? (
-                  "Booked · Notify me"
+                  // Hard block — render the reason where we have one
+                  // so the user knows what's specifically full, then
+                  // the existing Notify-me affordance.
+                  blockedReasonTag
+                    ? `${blockedReasonTag} · Notify me`
+                    : "Booked · Notify me"
                 ) : isPast ? (
                   "Past"
                 ) : (
