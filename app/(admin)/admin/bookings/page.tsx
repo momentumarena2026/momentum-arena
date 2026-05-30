@@ -406,7 +406,12 @@ export default async function AdminBookingsPage({
           bookings={bookings.map((b) => ({
             id: b.id,
             date: b.date instanceof Date ? b.date.toISOString() : b.date,
-            status: b.status as "CONFIRMED" | "PENDING" | "CANCELLED",
+            status: b.status as
+              | "CONFIRMED"
+              | "PENDING"
+              | "CANCELLED"
+              | "COMPLETED"
+              | "ABSENT",
             totalAmount: b.totalAmount,
             createdAt: b.createdAt instanceof Date ? b.createdAt.toISOString() : b.createdAt,
             createdByAdminId: b.createdByAdminId,

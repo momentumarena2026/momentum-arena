@@ -18,6 +18,7 @@ import {
   ArrowUpRight,
   CalendarPlus,
   Trophy,
+  UserX,
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import type { Sport, BookingStatus } from "@prisma/client";
@@ -84,6 +85,23 @@ const STATUS_TOKEN: Record<
     pillBg: "bg-red-500/10",
     pillBorder: "border-red-500/30",
     pillText: "text-red-300",
+  },
+  // Terminal post-session statuses — admin closes the slot out
+  // either way; customer-facing copy stays positive on COMPLETED
+  // and matter-of-fact on ABSENT.
+  COMPLETED: {
+    icon: Trophy,
+    label: "Completed",
+    pillBg: "bg-emerald-500/10",
+    pillBorder: "border-emerald-500/30",
+    pillText: "text-emerald-300",
+  },
+  ABSENT: {
+    icon: UserX,
+    label: "Missed",
+    pillBg: "bg-amber-500/10",
+    pillBorder: "border-amber-500/30",
+    pillText: "text-amber-300",
   },
 };
 

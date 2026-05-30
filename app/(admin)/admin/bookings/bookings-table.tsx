@@ -15,7 +15,9 @@ import {
   Banknote,
   Smartphone,
   Repeat,
+  Trophy,
   User,
+  UserX,
 } from "lucide-react";
 
 interface BookingSlot {
@@ -40,7 +42,7 @@ interface BookingPayment {
 interface BookingData {
   id: string;
   date: string | Date;
-  status: "CONFIRMED" | "PENDING" | "CANCELLED";
+  status: "CONFIRMED" | "PENDING" | "CANCELLED" | "COMPLETED" | "ABSENT";
   totalAmount: number;
   createdAt: string | Date;
   createdByAdminId?: string | null;
@@ -103,6 +105,26 @@ const STATUS_CONFIG = {
     border: "border-red-500/20",
     label: "Cancelled",
     dot: "bg-red-400",
+  },
+  // Terminal post-session statuses set by admin. Emerald for
+  // attended, amber for no-show — distinct from the active
+  // CONFIRMED/PENDING palette so a row in the list reads at a
+  // glance.
+  COMPLETED: {
+    icon: Trophy,
+    color: "text-emerald-300",
+    bg: "bg-emerald-500/10",
+    border: "border-emerald-500/30",
+    label: "Completed",
+    dot: "bg-emerald-300",
+  },
+  ABSENT: {
+    icon: UserX,
+    color: "text-amber-300",
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/30",
+    label: "Absent",
+    dot: "bg-amber-300",
   },
 };
 

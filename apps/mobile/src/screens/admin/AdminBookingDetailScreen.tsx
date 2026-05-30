@@ -23,6 +23,8 @@ import {
   Receipt,
   RotateCcw,
   Smartphone,
+  Trophy,
+  UserX,
   XCircle,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -247,6 +249,61 @@ export function AdminBookingDetailScreen() {
       ),
   });
 
+  // ─── Mark Completed / Absent (terminal closeouts) ─────────────────────
+  const markCompleted = useMutation({
+    mutationFn: () => adminBookingsApi.markCompleted(params.bookingId),
+    onSuccess: () => {
+      invalidate();
+      Alert.alert("Marked completed", "Booking closed out. Advance retained as earnings.");
+    },
+    onError: (err) =>
+      Alert.alert(
+        "Couldn't mark completed",
+        err instanceof AdminApiError ? err.message : "Try again.",
+      ),
+  });
+
+  const markAbsent = useMutation({
+    mutationFn: () => adminBookingsApi.markAbsent(params.bookingId),
+    onSuccess: () => {
+      invalidate();
+      Alert.alert("Marked absent", "Customer recorded as no-show. Advance kept as earnings.");
+    },
+    onError: (err) =>
+      Alert.alert(
+        "Couldn't mark absent",
+        err instanceof AdminApiError ? err.message : "Try again.",
+      ),
+  });
+
+  // Light confirmation since both transitions are terminal. Wraps
+  // the mutation in a native Alert.alert with destructive styling on
+  // the action button.
+  function confirmAndMarkCompleted() {
+    Alert.alert(
+      "Mark this booking as COMPLETED?",
+      "The advance the customer paid stays in your earnings. Any uncollected remainder is forfeit.",
+      [
+        { text: "Back", style: "cancel" },
+        { text: "Mark Completed", onPress: () => markCompleted.mutate() },
+      ],
+    );
+  }
+  function confirmAndMarkAbsent() {
+    Alert.alert(
+      "Mark this booking as ABSENT?",
+      "Customer no-show. The advance stays in your earnings; any uncollected remainder is forfeit.",
+      [
+        { text: "Back", style: "cancel" },
+        {
+          text: "Mark Absent",
+          style: "destructive",
+          onPress: () => markAbsent.mutate(),
+        },
+      ],
+    );
+  }
+
   // ─── Quick +30 min extension state ───────────────────────────────────
   // One state object covering "which direction is open + what's in the
   // price input." Null when the form is closed. We optimistically open
@@ -343,6 +400,9 @@ export function AdminBookingDetailScreen() {
   // Same liveness gate as cancel — extending a cancelled/refunded
   // booking would make no operational sense.
   const canExtend = isPending || isConfirmed;
+  // Post-session closeouts — terminal. Advance becomes earnings;
+  // remainder forfeit.
+  const canCloseOut = isConfirmed;
   const canEditSlots = isConfirmed;
   // Same gate as the web: editing is allowed on any confirmed booking
   // — gateway-paid customer bookings are now editable too. The action
@@ -754,6 +814,25 @@ export function AdminBookingDetailScreen() {
                 }
               />
             ) : null}
+            {canCloseOut ? (
+              <>
+                <ActionButton
+                  label="Mark Completed"
+                  icon={<Trophy size={16} color={colors.emerald400} />}
+                  tone="success"
+                  loading={markCompleted.isPending}
+                  onPress={confirmAndMarkCompleted}
+                />
+                <ActionButton
+                  label="Mark Absent"
+                  icon={<UserX size={16} color={colors.yellow400} />}
+                  tone="warning"
+                  loading={markAbsent.isPending}
+                  onPress={confirmAndMarkAbsent}
+                />
+              </>
+            ) : null}
+
             {canCancel ? (
               <ActionButton
                 label="Cancel Booking"
@@ -784,6 +863,7 @@ export function AdminBookingDetailScreen() {
             !canEditSplit &&
             !canEditSlots &&
             !canExtend &&
+            !canCloseOut &&
             !canEditBooking &&
             !canEditPayment &&
             !canCancel &&

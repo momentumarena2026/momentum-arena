@@ -3345,3 +3345,132 @@ export async function extendBookingByThirtyMin(
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// markBookingCompleted / markBookingAbsent — terminal admin closeouts
+//
+// Both move a CONFIRMED booking to a terminal state and settle the
+// Payment row so it doesn't sit in PARTIAL forever. The advance the
+// customer already paid is kept as earnings (no refund); the venue-
+// side remainder, if any, is forfeit — not chased, not refunded.
+//
+// Difference:
+//   - COMPLETED — customer attended; admin closes the slot out.
+//   - ABSENT    — customer didn't show. Separate status so reports
+//                 can split attendance from no-show.
+//
+// Both call into the same shared helper below to keep the Payment
+// transitions identical.
+// ---------------------------------------------------------------------------
+
+type ClosingStatus = "COMPLETED" | "ABSENT";
+
+async function closeOutBooking(
+  bookingId: string,
+  closingStatus: ClosingStatus,
+  adminOverride?: { id: string; username: string },
+): Promise<{ success: true } | { success: false; error: string }> {
+  const admin = adminOverride ?? (await requireAdminWithDetails());
+
+  try {
+    const booking = await db.booking.findUnique({
+      where: { id: bookingId },
+      include: { payment: true },
+    });
+    if (!booking) {
+      return { success: false, error: "Booking not found" };
+    }
+    if (booking.status !== "CONFIRMED") {
+      return {
+        success: false,
+        error: `Can only close out CONFIRMED bookings (current: ${booking.status})`,
+      };
+    }
+
+    const previousStatus = booking.status;
+    const previousPaymentStatus = booking.payment?.status ?? null;
+    const previousAmount = booking.totalAmount;
+
+    await db.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: closingStatus },
+      });
+
+      // Settle the payment row so the closeout doesn't leave a
+      // PARTIAL/PENDING/etc. in the books. The advance the customer
+      // already paid stays as the Payment.amount — that's the earning
+      // the admin captured. The unpaid remainder is wiped (forfeit).
+      //
+      // We touch Payment only if it exists and isn't already on a
+      // terminal state. REFUNDED or FAILED payments wouldn't make
+      // sense to mark COMPLETED from a closeout; we leave those alone.
+      if (
+        booking.payment &&
+        booking.payment.status !== "COMPLETED" &&
+        booking.payment.status !== "REFUNDED" &&
+        booking.payment.status !== "FAILED"
+      ) {
+        await tx.payment.update({
+          where: { id: booking.payment.id },
+          data: {
+            status: "COMPLETED",
+            // Advance becomes the final paid amount. For non-partial
+            // bookings advanceAmount is null, so amount is already the
+            // full paid value — leave it alone.
+            ...(booking.payment.isPartialPayment
+              ? {
+                  remainingAmount: 0,
+                  isPartialPayment: false,
+                }
+              : {}),
+          },
+        });
+      }
+
+      await tx.bookingEditHistory.create({
+        data: {
+          bookingId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType:
+            closingStatus === "COMPLETED"
+              ? "MARKED_COMPLETED"
+              : "MARKED_ABSENT",
+          previousAmount,
+          newAmount: previousAmount,
+          note:
+            closingStatus === "COMPLETED"
+              ? `Booking closed out as COMPLETED (was ${previousStatus}, payment was ${previousPaymentStatus ?? "—"}). Advance retained as earnings.`
+              : `Booking closed out as ABSENT — customer no-show (was ${previousStatus}, payment was ${previousPaymentStatus ?? "—"}). Advance retained as earnings.`,
+        },
+      });
+    });
+
+    await revalidateBookingPaths(bookingId);
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : `Failed to close out booking as ${closingStatus}`,
+    };
+  }
+}
+
+export async function markBookingCompleted(
+  bookingId: string,
+  adminOverride?: { id: string; username: string },
+) {
+  return closeOutBooking(bookingId, "COMPLETED", adminOverride);
+}
+
+export async function markBookingAbsent(
+  bookingId: string,
+  adminOverride?: { id: string; username: string },
+) {
+  return closeOutBooking(bookingId, "ABSENT", adminOverride);
+}

@@ -8,6 +8,8 @@ import {
   confirmBookingManually,
   cancelBooking,
   refundBooking,
+  markBookingCompleted,
+  markBookingAbsent,
 } from "@/actions/admin-booking";
 import {
   CheckCircle2,
@@ -18,6 +20,8 @@ import {
   Pencil,
   Clock,
   XCircle,
+  Trophy,
+  UserX,
 } from "lucide-react";
 import { EditSlotsModal } from "@/components/admin/edit-slots-modal";
 import { EditBookingModal } from "@/components/admin/edit-booking-modal";
@@ -135,6 +139,11 @@ export function AdminBookingActions({
   const canCancel =
     bookingStatus === "CONFIRMED" || bookingStatus === "PENDING";
 
+  // Post-session closeouts — only meaningful on a CONFIRMED slot.
+  // Both keep the advance as earnings and settle Payment.status to
+  // COMPLETED so the booking stops sitting in a half-paid state.
+  const canCloseOut = bookingStatus === "CONFIRMED";
+
   // Edit-payment is available on every non-cancelled booking that has
   // a payment row — covers both stuck states (admin recorded the
   // wrong method, needs to fix) and routine corrections (logging the
@@ -171,6 +180,51 @@ export function AdminBookingActions({
       router.refresh();
     } else {
       setError(result.error || "Failed to confirm booking");
+    }
+    setProcessing(null);
+  };
+
+  const handleMarkCompleted = async () => {
+    // Light confirm since the action is terminal — advance becomes
+    // earnings, remainder (if any) is forfeit. Use native confirm()
+    // to stay consistent with the existing minimal-deps pattern in
+    // this file; the per-action UI here is intentionally not modal-
+    // heavy.
+    if (
+      !confirm(
+        "Mark this booking as COMPLETED?\n\nThe advance the customer paid stays in your earnings. Any uncollected remainder is forfeit.",
+      )
+    ) {
+      return;
+    }
+    setProcessing("complete");
+    setError(null);
+    const result = await markBookingCompleted(bookingId);
+    if (result.success) {
+      setSuccessMsg("Booking marked completed.");
+      router.refresh();
+    } else {
+      setError(result.error || "Failed to mark completed");
+    }
+    setProcessing(null);
+  };
+
+  const handleMarkAbsent = async () => {
+    if (
+      !confirm(
+        "Mark this booking as ABSENT (no-show)?\n\nThe advance stays in your earnings. Any uncollected remainder is forfeit. This action is irreversible from the UI.",
+      )
+    ) {
+      return;
+    }
+    setProcessing("absent");
+    setError(null);
+    const result = await markBookingAbsent(bookingId);
+    if (result.success) {
+      setSuccessMsg("Booking marked absent (no-show).");
+      router.refresh();
+    } else {
+      setError(result.error || "Failed to mark absent");
     }
     setProcessing(null);
   };
@@ -312,6 +366,38 @@ export function AdminBookingActions({
           >
             <CreditCard className="h-4 w-4" />
             Edit Payment
+          </button>
+        )}
+
+        {canCloseOut && (
+          <button
+            onClick={handleMarkCompleted}
+            disabled={processing === "complete"}
+            className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+            title="Customer attended — close booking out with the advance as earnings"
+          >
+            {processing === "complete" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trophy className="h-4 w-4" />
+            )}
+            Mark Completed
+          </button>
+        )}
+
+        {canCloseOut && (
+          <button
+            onClick={handleMarkAbsent}
+            disabled={processing === "absent"}
+            className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
+            title="Customer no-show — advance kept as earnings, remainder forfeit"
+          >
+            {processing === "absent" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <UserX className="h-4 w-4" />
+            )}
+            Mark Absent
           </button>
         )}
 

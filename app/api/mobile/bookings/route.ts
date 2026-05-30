@@ -27,7 +27,16 @@ export async function GET(request: NextRequest) {
 
   const where = {
     userId: user.id,
-    ...(status ? { status: status as "CONFIRMED" | "PENDING" | "CANCELLED" } : {}),
+    ...(status
+      ? {
+          status: status as
+            | "CONFIRMED"
+            | "PENDING"
+            | "CANCELLED"
+            | "COMPLETED"
+            | "ABSENT",
+        }
+      : {}),
   };
 
   // Fetch limit+1 to detect whether a next page exists without a

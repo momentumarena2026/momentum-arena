@@ -16,6 +16,8 @@ import {
   Receipt,
   ArrowRight,
   RefreshCw,
+  Trophy,
+  UserX,
 } from "lucide-react";
 
 // Primary confirmation route — uses ?id=<bookingId> so the URL is
@@ -116,6 +118,25 @@ export default async function ConfirmationPage({
       subtitle: booking.payment?.refundReason
         ? `Reason: ${booking.payment.refundReason}`
         : "This booking has been cancelled.",
+    },
+    // Terminal post-session closeouts set by the venue admin. The
+    // confirmation page is mostly visited pre-session, but a guest
+    // who lands here after the slot has been closed out still gets
+    // an accurate state instead of a stale "Confirmed!" message.
+    COMPLETED: {
+      icon: Trophy,
+      color: "text-emerald-300",
+      bg: "bg-emerald-500/10 border-emerald-500/30",
+      title: "Session Completed",
+      subtitle: "Thanks for playing with us! See you next time.",
+    },
+    ABSENT: {
+      icon: UserX,
+      color: "text-amber-300",
+      bg: "bg-amber-500/10 border-amber-500/30",
+      title: "Recorded as Missed",
+      subtitle:
+        "The venue recorded this booking as a no-show. Reach out if this looks wrong.",
     },
   };
 
