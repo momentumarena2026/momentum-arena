@@ -40,6 +40,13 @@ enum BookingStatus {
   PENDING // UPI/cash committed, awaiting admin verification
   CONFIRMED // paid & verified — slot is booked
   CANCELLED // admin-cancelled, refunded, or UPI rejected
+  // Terminal post-session statuses set by admin. Both retain the
+  // advance as earnings (no refund); the Payment row flips to
+  // COMPLETED with whatever the customer already paid and any
+  // remainder is forfeit. Distinct values so reports can split
+  // "completed" attendance from "no-show" attendance.
+  COMPLETED // customer attended; admin closed the booking out
+  ABSENT // customer did not show up
 }
 
 enum PaymentMethod {

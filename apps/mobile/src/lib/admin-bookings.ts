@@ -386,6 +386,27 @@ export const adminBookingsApi = {
     });
   },
 
+  /**
+   * Closes a CONFIRMED booking out as COMPLETED — customer
+   * attended, advance kept as earnings, remainder (if any)
+   * forfeit. Mirror of the web "Mark Completed" admin action.
+   */
+  markCompleted(id: string): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/mark-completed`, {
+      method: "POST",
+    });
+  },
+
+  /**
+   * Closes a CONFIRMED booking out as ABSENT — customer no-show,
+   * advance kept as earnings, remainder forfeit.
+   */
+  markAbsent(id: string): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/bookings/${id}/mark-absent`, {
+      method: "POST",
+    });
+  },
+
   // Three-leg venue collection: cash + UPI + optional goodwill
   // discount. discountAmount is treated as 0 when the screen passes
   // undefined, preserving the previous two-input behaviour.
