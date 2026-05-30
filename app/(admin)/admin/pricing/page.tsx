@@ -1,6 +1,7 @@
 import { getAllPricingData } from "@/actions/admin-pricing";
-import { SPORT_INFO, SIZE_INFO, formatHourCompact } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
 import { PricingEditor } from "./pricing-editor";
+import { TimeClassificationsEditor } from "./time-classifications-editor";
 
 export default async function AdminPricingPage() {
   const { configs, rules, classifications } = await getAllPricingData();
@@ -29,33 +30,13 @@ export default async function AdminPricingPage() {
         </p>
       </div>
 
-      {/* Time Classifications */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-        <h2 className="mb-3 text-sm font-medium text-zinc-500 uppercase tracking-wider">
-          Time Classifications
-        </h2>
-        <div className="space-y-2">
-          {classifications.map((c) => (
-            <div
-              key={c.id}
-              className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm"
-            >
-              <span className="text-zinc-400">
-                {c.dayType} • {formatHourCompact(c.startHour)} - {formatHourCompact(c.endHour)}
-              </span>
-              <span
-                className={`rounded-full border px-2 py-0.5 text-xs ${
-                  c.timeType === "PEAK"
-                    ? "border-red-500/30 bg-red-500/10 text-red-400"
-                    : "border-blue-500/30 bg-blue-500/10 text-blue-400"
-                }`}
-              >
-                {c.timeType.replace("_", " ")}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Peak / Off-Peak Hours editor — replaces the previous read-only
+          summary. Edits hit the existing updateTimeClassification +
+          deleteTimeClassification server actions. Pricing rule prices
+          (Weekday/Weekend × PEAK/OFF_PEAK) read from these bands at
+          slot-lookup time, so changes here propagate to every customer
+          and admin pricing surface on next request. */}
+      <TimeClassificationsEditor classifications={classifications} />
 
       {/* Pricing Grid by Sport */}
       {Object.entries(configsBySport).map(([sport, sportConfigs]) => {

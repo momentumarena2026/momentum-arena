@@ -93,6 +93,30 @@ export async function updateTimeClassification(data: {
     return { success: false, error: "End hour must be after start hour" };
   }
 
+  // Refuse to upsert a row whose hour range overlaps another classification
+  // on the same dayType — pricing lookup picks the first match by
+  // startHour ASC, so overlaps silently mask each other and an edit
+  // here would surprise the venue admin.
+  const overlapping = await db.timeClassification.findFirst({
+    where: {
+      dayType: parsed.data.dayType,
+      // Exclude the row we'd be overwriting on this exact startHour
+      // (that's an update, not a conflict).
+      NOT: { startHour: parsed.data.startHour },
+      AND: [
+        { startHour: { lt: parsed.data.endHour } },
+        { endHour: { gt: parsed.data.startHour } },
+      ],
+    },
+    select: { startHour: true, endHour: true, timeType: true },
+  });
+  if (overlapping) {
+    return {
+      success: false,
+      error: `Range ${parsed.data.startHour}–${parsed.data.endHour} overlaps an existing ${parsed.data.dayType} band (${overlapping.startHour}–${overlapping.endHour} ${overlapping.timeType}). Delete that row first or adjust the hours.`,
+    };
+  }
+
   await db.timeClassification.upsert({
     where: {
       startHour_dayType: {
@@ -107,6 +131,31 @@ export async function updateTimeClassification(data: {
     create: parsed.data,
   });
 
+  const { revalidatePath } = await import("next/cache");
+  revalidatePath("/admin/pricing");
+  return { success: true };
+}
+
+/**
+ * Drop a TimeClassification row. Hours falling outside any
+ * classification still book successfully but resolve to the
+ * OFF_PEAK price by default (see lib/pricing.ts) — so deletion
+ * is "wider off-peak band" rather than "those hours can't be
+ * priced anymore."
+ */
+export async function deleteTimeClassification(id: string) {
+  await requireAdmin();
+  if (!id) return { success: false, error: "Missing id" };
+  try {
+    await db.timeClassification.delete({ where: { id } });
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to delete",
+    };
+  }
+  const { revalidatePath } = await import("next/cache");
+  revalidatePath("/admin/pricing");
   return { success: true };
 }
 
