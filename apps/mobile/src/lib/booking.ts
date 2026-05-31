@@ -36,6 +36,17 @@ export interface SlotAvailability {
   status: SlotStatus;
   price: number;
   blockedReason?: BlockedReason;
+  /**
+   * Canonical storage coordinates this displayed slot maps to. Set
+   * only by the display-shifted server variant for the late-night
+   * 12am-1am tile shifted onto the next calendar date's grid — for
+   * that slot, `lockDate` is the prior date and `lockHour` is 24.
+   * Slot-grid clients MUST forward `lockDate` to the lock endpoint
+   * when present so the booking lands on the correct storage date.
+   * Mirror of lib/availability.ts on the server.
+   */
+  lockDate?: string; // "YYYY-MM-DD"
+  lockHour?: number;
 }
 
 // ---------------------------------------------------------------------------

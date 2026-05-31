@@ -279,6 +279,33 @@ export function SlotSelectionClient({
     setShowAuth(false);
 
     try {
+      // Resolve the storage coords for the selected slots. The
+      // 12am-1am tile lives on the *next* calendar date's grid but
+      // its underlying storage is the prior date / startHour 24 —
+      // that's surfaced as `lockDate` / `lockHour` on each slot by
+      // getDisplayShiftedAvailability. Mixed-date selections (the
+      // 12am tile plus any other hour) cross a Booking.date boundary
+      // so they can't go in one Booking row; refuse early instead of
+      // failing at the API.
+      const selectedSlotsResolved = slots.filter((s) =>
+        selectedHours.includes(s.hour),
+      );
+      const lockDateSet = new Set(
+        selectedSlotsResolved.map((s) => s.lockDate ?? selectedDate),
+      );
+      if (lockDateSet.size > 1) {
+        setError(
+          "You've selected slots that span midnight. Please book the late-night slot separately.",
+        );
+        setBooking(false);
+        return;
+      }
+      const resolvedLockDate =
+        Array.from(lockDateSet)[0] ?? selectedDate;
+      const resolvedLockHours = selectedSlotsResolved.map(
+        (s) => s.lockHour ?? s.hour,
+      );
+
       const formData = new FormData();
       if (mediumMode) {
         formData.set("mode", "medium");
@@ -286,8 +313,8 @@ export function SlotSelectionClient({
       } else {
         formData.set("courtConfigId", configId);
       }
-      formData.set("date", selectedDate);
-      formData.set("hours", JSON.stringify(selectedHours));
+      formData.set("date", resolvedLockDate);
+      formData.set("hours", JSON.stringify(resolvedLockHours));
       // Pre-lock gear picks ride along with the slot lock — the
       // server snapshots them onto the fresh hold so checkout shows
       // a read-only summary instead of a separate picker. Soft-fails

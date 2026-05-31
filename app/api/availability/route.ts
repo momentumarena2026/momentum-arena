@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSlotAvailability, getMergedMediumAvailability } from "@/lib/availability";
+import {
+  getDisplayShiftedAvailability,
+  getDisplayShiftedMediumAvailability,
+} from "@/lib/availability";
 import { db } from "@/lib/db";
 import { Sport } from "@prisma/client";
 
@@ -64,7 +67,7 @@ export async function GET(request: NextRequest) {
       );
     }
     try {
-      const slots = await getMergedMediumAvailability(
+      const slots = await getDisplayShiftedMediumAvailability(
         sport as Sport,
         new Date(date)
       );
@@ -93,7 +96,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const slots = await getSlotAvailability(configId, new Date(date));
+    const slots = await getDisplayShiftedAvailability(configId, new Date(date));
     return NextResponse.json({ slots }, {
       headers: {
         "Cache-Control": "public, max-age=30, s-maxage=30",
