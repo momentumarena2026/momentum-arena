@@ -43,19 +43,38 @@ export default async function AdminBookingsPage({
   const page = parseInt(params.page || "1");
   const today = getTodayIST();
 
-  // Default to CONFIRMED if no status filter is set
-  const activeStatus = params.status ?? "CONFIRMED";
+  // Multi-select filters arrive as CSV in the URL — parse to string[]
+  // here so the chip rendering can drive the "active" state by
+  // includes() and the toggle URL builder can compose/decompose the
+  // list cleanly. Empty (or absent) values mean "no filter / All";
+  // status alone has a non-empty default so the typical front-desk
+  // view (active + no-show bookings) renders without explicit chips.
+  function parseCsv(raw: string | undefined): string[] {
+    if (raw === undefined) return [];
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== "ALL");
+  }
+  const statusList: string[] =
+    params.status === undefined
+      ? ["CONFIRMED", "ABSENT"] // default mirrors the front-desk's working view
+      : parseCsv(params.status);
+  const sportList = parseCsv(params.sport);
+  const platformList = parseCsv(params.platform);
+  const paymentList = parseCsv(params.payment);
+
   const activeSort: "createdAt" | "date" =
     params.sort === "date" ? "date" : "createdAt";
 
   const [{ bookings, total, totalPages }, stats] = await Promise.all([
     getAdminBookings({
       page,
-      status: activeStatus === "ALL" ? undefined : activeStatus,
-      sport: params.sport,
+      status: statusList,
+      sport: sportList,
       date: params.date,
-      platform: params.platform,
-      payment: params.payment,
+      platform: platformList,
+      payment: paymentList,
       q: params.q,
       sort: activeSort,
       limit: 20,
@@ -73,11 +92,15 @@ export default async function AdminBookingsPage({
 
   function filterUrl(overrides: Record<string, string>) {
     const base: Record<string, string> = {
-      status: activeStatus || "",
-      sport: params.sport || "",
+      // Serialise the active multi-select lists back to CSV. Empty
+      // list = no param (= "All" semantics). "ALL" sentinel
+      // explicitly disables the default for status when the user
+      // clicks All.
+      status: statusList.length > 0 ? statusList.join(",") : "ALL",
+      sport: sportList.join(","),
       date: params.date || "",
-      platform: params.platform || "",
-      payment: params.payment || "",
+      platform: platformList.join(","),
+      payment: paymentList.join(","),
       q: params.q || "",
       // Preserve sort across filter clicks; default ("createdAt")
       // is dropped from the URL via the filter below so we don't
@@ -91,6 +114,24 @@ export default async function AdminBookingsPage({
       .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
       .join("&");
     return `/admin/bookings${qs ? `?${qs}` : ""}`;
+  }
+
+  // Toggle `value` in/out of a CSV filter, returning the URL the
+  // chip should link to. Special case: clicking "ALL" clears the
+  // entire list (also drops the default for status by setting the
+  // sentinel `ALL` in the URL).
+  function toggleMultiUrl(
+    key: "status" | "sport" | "platform" | "payment",
+    value: string,
+    currentList: string[],
+  ): string {
+    if (value === "ALL") {
+      return filterUrl({ [key]: "ALL" });
+    }
+    const next = currentList.includes(value)
+      ? currentList.filter((v) => v !== value)
+      : [...currentList, value];
+    return filterUrl({ [key]: next.length > 0 ? next.join(",") : "ALL" });
   }
 
   const statCards = [
@@ -143,7 +184,19 @@ export default async function AdminBookingsPage({
     },
   ];
 
-  const activeFilters = [params.status, params.sport, params.date, params.platform, params.payment, params.q].filter(Boolean).length;
+  // "Has the user touched any filter relative to defaults?" — drives
+  // the FiltersCollapsible auto-expand. Status is the only filter
+  // with a non-empty default ({CONFIRMED, ABSENT}); we treat the
+  // status filter as "touched" only when its URL representation is
+  // present (the absence of `?status` means defaults are active).
+  const activeFilters = [
+    params.status,
+    sportList.length > 0,
+    params.date,
+    platformList.length > 0,
+    paymentList.length > 0,
+    params.q,
+  ].filter(Boolean).length;
 
   return (
     // `pb-32 md:pb-0` reserves enough space below the last row on
@@ -243,11 +296,14 @@ export default async function AdminBookingsPage({
         <UserSearchInput
           initialValue={params.q || ""}
           preservedParams={[
-            ["status", activeStatus],
-            ["sport", params.sport ?? ""],
+            // Serialise the multi-select lists back to CSV so the
+            // search submit preserves them. Empty lists drop the
+            // param (= default semantics).
+            ["status", statusList.length > 0 ? statusList.join(",") : ""],
+            ["sport", sportList.join(",")],
             ["date", params.date ?? ""],
-            ["platform", params.platform ?? ""],
-            ["payment", params.payment ?? ""],
+            ["platform", platformList.join(",")],
+            ["payment", paymentList.join(",")],
           ]
             .filter(([, v]) => v)
             .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
@@ -285,33 +341,56 @@ export default async function AdminBookingsPage({
               {opt.label}
             </Link>
           ))}
-          <DateFilterInput currentDate={params.date || ""} status={activeStatus} sport={params.sport || ""} />
+          <DateFilterInput
+            currentDate={params.date || ""}
+            // DateFilterInput composes one URL preserve-string. We
+            // pass the canonical first selected value so its
+            // existing single-value props stay typed; the bulk
+            // preservation happens via the search query string
+            // above for the multi-select cases.
+            status={statusList[0] ?? ""}
+            sport={sportList[0] ?? ""}
+          />
         </div>
 
         {/* Status row */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Status</span>
+          {/* Multi-select chips — "All" is exclusive (clears the
+              specific picks); the rest toggle in/out of statusList.
+              Defaults to Confirmed + Absent (the front desk's daily
+              working view). COMPLETED is intentionally dropped — the
+              admin closeout status that doesn't drive a useful filter
+              on its own; the Absent + Confirmed pair already covers
+              the operational case. */}
           {[
             { label: "All", value: "ALL", dot: "" },
             { label: "Confirmed", value: "CONFIRMED", dot: "bg-emerald-400" },
             { label: "Pending", value: "PENDING", dot: "bg-yellow-400" },
             { label: "Cancelled", value: "CANCELLED", dot: "bg-red-400" },
-            { label: "Completed", value: "COMPLETED", dot: "bg-emerald-300" },
             { label: "Absent", value: "ABSENT", dot: "bg-amber-300" },
-          ].map((opt) => (
-            <Link
-              key={opt.label}
-              href={filterUrl({ status: opt.value })}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                activeStatus === opt.value
-                  ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
-                  : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-              }`}
-            >
-              {opt.dot && <span className={`h-1.5 w-1.5 rounded-full ${opt.dot}`} />}
-              {opt.label}
-            </Link>
-          ))}
+          ].map((opt) => {
+            const isActive =
+              opt.value === "ALL"
+                ? statusList.length === 0
+                : statusList.includes(opt.value);
+            return (
+              <Link
+                key={opt.label}
+                href={toggleMultiUrl("status", opt.value, statusList)}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+                    : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                }`}
+              >
+                {opt.dot && (
+                  <span className={`h-1.5 w-1.5 rounded-full ${opt.dot}`} />
+                )}
+                {opt.label}
+              </Link>
+            );
+          })}
         </div>
 
         {/* Sort row — choose between order-of-booking (createdAt
@@ -340,13 +419,13 @@ export default async function AdminBookingsPage({
           ))}
         </div>
 
-        {/* Sport row */}
+        {/* Sport row — multi-select chips, "All" clears the picks. */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Sport</span>
           <Link
-            href={filterUrl({ sport: "" })}
+            href={toggleMultiUrl("sport", "ALL", sportList)}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-              !params.sport
+              sportList.length === 0
                 ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
                 : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
             }`}
@@ -355,12 +434,13 @@ export default async function AdminBookingsPage({
           </Link>
           {sports.map((sport) => {
             const emoji = { CRICKET: "🏏", FOOTBALL: "⚽", PICKLEBALL: "🏓" }[sport] || "";
+            const isActive = sportList.includes(sport);
             return (
               <Link
                 key={sport}
-                href={filterUrl({ sport })}
+                href={toggleMultiUrl("sport", sport, sportList)}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                  params.sport === sport
+                  isActive
                     ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
                     : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
                 }`}
@@ -379,24 +459,30 @@ export default async function AdminBookingsPage({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Platform</span>
           {[
-            { label: "All", value: "", emoji: "" },
+            { label: "All", value: "ALL", emoji: "" },
             { label: "Web", value: "web", emoji: "💻" },
             { label: "Android", value: "android", emoji: "🤖" },
             { label: "iOS", value: "ios", emoji: "🍎" },
-          ].map((opt) => (
-            <Link
-              key={opt.label}
-              href={filterUrl({ platform: opt.value })}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                (params.platform || "") === opt.value
-                  ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
-                  : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-              }`}
-            >
-              {opt.emoji && <span>{opt.emoji}</span>}
-              {opt.label}
-            </Link>
-          ))}
+          ].map((opt) => {
+            const isActive =
+              opt.value === "ALL"
+                ? platformList.length === 0
+                : platformList.includes(opt.value);
+            return (
+              <Link
+                key={opt.label}
+                href={toggleMultiUrl("platform", opt.value, platformList)}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+                    : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                }`}
+              >
+                {opt.emoji && <span>{opt.emoji}</span>}
+                {opt.label}
+              </Link>
+            );
+          })}
         </div>
 
         {/* Payment row — completion-state filter on top of the
@@ -409,23 +495,31 @@ export default async function AdminBookingsPage({
         <div className="flex items-center gap-2 flex-wrap md:col-span-2">
           <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Payment</span>
           {[
-            { label: "All", value: "", dot: "" },
+            { label: "All", value: "ALL", dot: "" },
             { label: "Completed", value: "completed", dot: "bg-emerald-400" },
             { label: "Pending", value: "pending", dot: "bg-amber-400" },
-          ].map((opt) => (
-            <Link
-              key={opt.label}
-              href={filterUrl({ payment: opt.value })}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                (params.payment || "") === opt.value
-                  ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
-                  : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-              }`}
-            >
-              {opt.dot && <span className={`h-1.5 w-1.5 rounded-full ${opt.dot}`} />}
-              {opt.label}
-            </Link>
-          ))}
+          ].map((opt) => {
+            const isActive =
+              opt.value === "ALL"
+                ? paymentList.length === 0
+                : paymentList.includes(opt.value);
+            return (
+              <Link
+                key={opt.label}
+                href={toggleMultiUrl("payment", opt.value, paymentList)}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+                    : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                }`}
+              >
+                {opt.dot && (
+                  <span className={`h-1.5 w-1.5 rounded-full ${opt.dot}`} />
+                )}
+                {opt.label}
+              </Link>
+            );
+          })}
         </div>
         </div>
       </FiltersCollapsible>

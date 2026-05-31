@@ -27,7 +27,14 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status") ?? "CONFIRMED";
+  // Multi-select filters arrive as CSV ("CONFIRMED,ABSENT"). Pass
+  // through unchanged — getAdminBookings normalises both CSV strings
+  // and arrays via its toFilterList helper.
+  //
+  // Default for status: "CONFIRMED,ABSENT" so the mobile list mirrors
+  // the web default when the client omits the param. Explicit
+  // ?status=ALL disables the filter (toFilterList strips ALL).
+  const status = searchParams.get("status") ?? "CONFIRMED,ABSENT";
   const sport = searchParams.get("sport") || undefined;
   const date = searchParams.get("date") || undefined;
   const platform = searchParams.get("platform") || undefined;
@@ -43,10 +50,40 @@ export async function GET(request: NextRequest) {
     Math.max(1, parseInt(searchParams.get("limit") || "20", 10)),
   );
 
+  // Normalise multi-select filter strings (CSV from URL) into clean
+  // string[] for Prisma's { in: [...] } shape. ALL / empty values
+  // disable the filter. Mirror of toFilterList in
+  // actions/admin-booking.ts.
+  const toFilterList = (raw: string | undefined): string[] => {
+    if (!raw) return [];
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== "ALL");
+  };
+
   const where: Record<string, unknown> = {};
-  if (status && status !== "ALL") where.status = status;
-  if (sport) where.courtConfig = { sport };
-  if (platform) where.platform = platform;
+
+  const statusList = toFilterList(status);
+  if (statusList.length > 0) {
+    where.status =
+      statusList.length === 1 ? statusList[0] : { in: statusList };
+  }
+
+  const sportList = toFilterList(sport);
+  if (sportList.length > 0) {
+    where.courtConfig =
+      sportList.length === 1
+        ? { sport: sportList[0] }
+        : { sport: { in: sportList } };
+  }
+
+  const platformList = toFilterList(platform);
+  if (platformList.length > 0) {
+    where.platform =
+      platformList.length === 1 ? platformList[0] : { in: platformList };
+  }
+
   if (date) where.date = new Date(date);
 
   // Customer search — name (case-insensitive substring), phone
@@ -63,15 +100,16 @@ export async function GET(request: NextRequest) {
     };
   }
 
-  // Payment-completion filter — see web's getAdminBookings for the
-  // rationale. "pending" overrides any non-CONFIRMED status pick to
-  // empty results so the result accurately reflects what the floor
-  // staffer asked for (instead of silently dropping the filter).
-  if (payment === "completed") {
+  // Payment-completion filter — semantically single-value. Both
+  // values picked together = no constraint (union of all bookings).
+  const paymentList = toFilterList(payment);
+  const paymentVal = paymentList.length === 1 ? paymentList[0] : null;
+  if (paymentVal === "completed") {
     where.payment = { is: { status: "COMPLETED" } };
-  } else if (payment === "pending") {
-    const existingStatus = where.status as string | undefined;
-    if (existingStatus && existingStatus !== "CONFIRMED") {
+  } else if (paymentVal === "pending") {
+    // "pending payment" requires CONFIRMED. If the user's status
+    // filter doesn't include CONFIRMED, return empty.
+    if (statusList.length > 0 && !statusList.includes("CONFIRMED")) {
       where.id = "__no_match__";
     } else {
       where.status = "CONFIRMED";
