@@ -100,7 +100,7 @@ export interface ListResponse {
 }
 
 export interface ListFilters {
-  status?: "ALL" | "CONFIRMED" | "PENDING" | "CANCELLED";
+  status?: "ALL" | "CONFIRMED" | "PENDING" | "CANCELLED" | "COMPLETED" | "ABSENT";
   sport?: "CRICKET" | "FOOTBALL" | "PICKLEBALL";
   date?: string;
   platform?: "web" | "android" | "ios";
@@ -112,6 +112,11 @@ export interface ListFilters {
    *  user.phone (substring), or user.email (case-insensitive). Same
    *  filter the web admin /bookings page exposes. */
   q?: string;
+  /** Result ordering. Defaults to "createdAt" — when the booking was
+   *  placed (current behaviour). "date" sorts by the actual session
+   *  date so today/tomorrow's slots line up regardless of when the
+   *  bookings were created. */
+  sort?: "createdAt" | "date";
   page?: number;
   limit?: number;
 }
@@ -227,6 +232,10 @@ export const adminBookingsApi = {
     if (filters.platform) params.set("platform", filters.platform);
     if (filters.payment) params.set("payment", filters.payment);
     if (filters.q) params.set("q", filters.q);
+    // Only forward sort when it's the non-default "date" value;
+    // omit otherwise so the server falls through to its createdAt
+    // default and the URL stays clean.
+    if (filters.sort === "date") params.set("sort", "date");
     if (filters.page) params.set("page", String(filters.page));
     if (filters.limit) params.set("limit", String(filters.limit));
     const qs = params.toString();

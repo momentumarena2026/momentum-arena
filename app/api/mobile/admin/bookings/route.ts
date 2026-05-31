@@ -33,6 +33,10 @@ export async function GET(request: NextRequest) {
   const platform = searchParams.get("platform") || undefined;
   const payment = searchParams.get("payment") || undefined;
   const q = (searchParams.get("q") || "").trim() || undefined;
+  // "date" sorts results by the actual session date (desc, createdAt as
+  // tiebreaker). Anything else (including missing param) keeps the
+  // historical createdAt-desc behaviour.
+  const sort = searchParams.get("sort") === "date" ? "date" : "createdAt";
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.min(
     100,
@@ -97,7 +101,10 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy:
+        sort === "date"
+          ? [{ date: "desc" }, { createdAt: "desc" }]
+          : [{ createdAt: "desc" }],
       skip: (page - 1) * limit,
       take: limit,
     }),
