@@ -933,6 +933,15 @@ export async function getAdminBookings(filters?: {
   q?: string;
   page?: number;
   limit?: number;
+  /**
+   * Result ordering. Defaults to "createdAt" — the front desk sees
+   * the most recently booked rows first, which matches the
+   * order-of-receipt-printed mental model. "date" sorts by the
+   * actual session date instead so the upcoming/recent SLOTS line
+   * up regardless of when the booking was placed (e.g. recurring
+   * series created weeks ago).
+   */
+  sort?: "createdAt" | "date";
 }) {
   await requireAdmin();
 
@@ -1017,7 +1026,15 @@ export async function getAdminBookings(filters?: {
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      // "createdAt" (default) — most recent receipt first. Mirrors
+      // the front-desk order-of-creation mental model.
+      // "date" — actual session date first, with createdAt as the
+      // tiebreaker so multiple bookings for the same date stay
+      // chronological among themselves.
+      orderBy:
+        filters?.sort === "date"
+          ? [{ date: "desc" }, { createdAt: "desc" }]
+          : [{ createdAt: "desc" }],
       skip,
       take: limit,
     }),

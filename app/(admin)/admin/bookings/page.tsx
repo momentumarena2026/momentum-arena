@@ -34,6 +34,9 @@ export default async function AdminBookingsPage({
     /** Free-text user search (name / phone / email substring). Wired
      *  through getAdminBookings to a Prisma OR clause on user. */
     q?: string;
+    /** Result ordering: "createdAt" (default — when the booking was
+     *  placed) or "date" (the actual session date). */
+    sort?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -42,6 +45,8 @@ export default async function AdminBookingsPage({
 
   // Default to CONFIRMED if no status filter is set
   const activeStatus = params.status ?? "CONFIRMED";
+  const activeSort: "createdAt" | "date" =
+    params.sort === "date" ? "date" : "createdAt";
 
   const [{ bookings, total, totalPages }, stats] = await Promise.all([
     getAdminBookings({
@@ -52,6 +57,7 @@ export default async function AdminBookingsPage({
       platform: params.platform,
       payment: params.payment,
       q: params.q,
+      sort: activeSort,
       limit: 20,
     }),
     getAdminStats(),
@@ -73,6 +79,10 @@ export default async function AdminBookingsPage({
       platform: params.platform || "",
       payment: params.payment || "",
       q: params.q || "",
+      // Preserve sort across filter clicks; default ("createdAt")
+      // is dropped from the URL via the filter below so we don't
+      // pollute with `?sort=createdAt`.
+      sort: activeSort === "date" ? "date" : "",
       page: "1",
     };
     const merged = { ...base, ...overrides };
@@ -286,6 +296,8 @@ export default async function AdminBookingsPage({
             { label: "Confirmed", value: "CONFIRMED", dot: "bg-emerald-400" },
             { label: "Pending", value: "PENDING", dot: "bg-yellow-400" },
             { label: "Cancelled", value: "CANCELLED", dot: "bg-red-400" },
+            { label: "Completed", value: "COMPLETED", dot: "bg-emerald-300" },
+            { label: "Absent", value: "ABSENT", dot: "bg-amber-300" },
           ].map((opt) => (
             <Link
               key={opt.label}
@@ -297,6 +309,32 @@ export default async function AdminBookingsPage({
               }`}
             >
               {opt.dot && <span className={`h-1.5 w-1.5 rounded-full ${opt.dot}`} />}
+              {opt.label}
+            </Link>
+          ))}
+        </div>
+
+        {/* Sort row — choose between order-of-booking (createdAt
+            desc, the default front-desk view) and order-of-actual-
+            session (booking date desc, useful when the operator is
+            chasing today/tomorrow's confirmations). The two chips
+            mirror the Status row's chip style for visual
+            consistency. */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="shrink-0 w-20 text-[10px] text-zinc-600 uppercase tracking-wider font-semibold">Sort by</span>
+          {[
+            { label: "Booked at", value: "createdAt" },
+            { label: "Booking date", value: "date" },
+          ].map((opt) => (
+            <Link
+              key={opt.value}
+              href={filterUrl({ sort: opt.value === "createdAt" ? "" : "date" })}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                activeSort === opt.value
+                  ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+                  : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              }`}
+            >
               {opt.label}
             </Link>
           ))}

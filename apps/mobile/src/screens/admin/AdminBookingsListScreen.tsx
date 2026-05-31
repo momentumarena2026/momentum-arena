@@ -53,6 +53,19 @@ const STATUS_OPTIONS: Array<{
   { label: "Confirmed", value: "CONFIRMED", dot: colors.emerald400 },
   { label: "Pending", value: "PENDING", dot: colors.yellow400 },
   { label: "Cancelled", value: "CANCELLED", dot: colors.destructive },
+  { label: "Completed", value: "COMPLETED", dot: colors.emerald400 },
+  { label: "Absent", value: "ABSENT", dot: colors.warning },
+];
+
+// Sort options — mirrors the web admin's Sort row. "createdAt"
+// (default) sorts by when the booking was placed; "date" sorts by
+// the actual session date.
+const SORT_OPTIONS: Array<{
+  label: string;
+  value: NonNullable<ListFilters["sort"]>;
+}> = [
+  { label: "Booked at", value: "createdAt" },
+  { label: "Booking date", value: "date" },
 ];
 
 const SPORT_OPTIONS: Array<{
@@ -95,6 +108,8 @@ const STATUS_TEXT: Record<string, string> = {
   CONFIRMED: colors.emerald400,
   PENDING: colors.yellow400,
   CANCELLED: colors.destructive,
+  COMPLETED: colors.emerald400,
+  ABSENT: colors.warning,
 };
 
 const SPORT_EMOJI: Record<string, string> = {
@@ -394,6 +409,23 @@ export function AdminBookingsListScreen() {
                 ))}
               </FilterRow>
 
+              {/* Sort row — Booked-at (default) vs Booking-date. */}
+              <FilterRow label="Sort by">
+                {SORT_OPTIONS.map((opt) => (
+                  <Chip
+                    key={opt.value}
+                    label={opt.label}
+                    active={(filters.sort ?? "createdAt") === opt.value}
+                    onPress={() =>
+                      setFilter(
+                        "sort",
+                        opt.value === "createdAt" ? undefined : "date",
+                      )
+                    }
+                  />
+                ))}
+              </FilterRow>
+
               {/* Clear-all only renders when at least one filter is
                   off-default — otherwise it'd be a no-op and just
                   add visual noise. */}
@@ -402,6 +434,7 @@ export function AdminBookingsListScreen() {
                 filters.date ||
                 filters.platform ||
                 filters.payment ||
+                filters.sort ||
                 filters.q) && (
                 <Pressable
                   onPress={() => {
@@ -412,6 +445,7 @@ export function AdminBookingsListScreen() {
                       date: undefined,
                       platform: undefined,
                       payment: undefined,
+                      sort: undefined,
                       q: undefined,
                       page: 1,
                       limit: 25,
