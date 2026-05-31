@@ -8,7 +8,12 @@ import { adminTokenStorage } from "./storage";
  * with the same chips and pills the web admin uses.
  */
 
-export type AdminBookingStatus = "CONFIRMED" | "PENDING" | "CANCELLED";
+export type AdminBookingStatus =
+  | "CONFIRMED"
+  | "PENDING"
+  | "CANCELLED"
+  | "COMPLETED"
+  | "ABSENT";
 export type AdminPaymentStatus =
   | "PENDING"
   | "PARTIAL"
@@ -99,15 +104,22 @@ export interface ListResponse {
   totalPages: number;
 }
 
+/**
+ * Multi-select filter values for the admin bookings list. Each
+ * field is a string[] — empty / undefined / containing "ALL" means
+ * "no filter / show all." The mobile list screen drives these from
+ * its chip UI (with the same toggle semantics as the web page);
+ * `list()` serialises them to CSV when calling /api/mobile/admin/
+ * bookings. Payment is multi-select syntactically but semantically
+ * single-value (completed XOR pending); two values picked together
+ * drop the filter, mirroring the server behaviour.
+ */
 export interface ListFilters {
-  status?: "ALL" | "CONFIRMED" | "PENDING" | "CANCELLED" | "COMPLETED" | "ABSENT";
-  sport?: "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+  status?: AdminBookingStatus[];
+  sport?: Array<"CRICKET" | "FOOTBALL" | "PICKLEBALL">;
   date?: string;
-  platform?: "web" | "android" | "ios";
-  // Completion-state filter on top of `status`. "pending" pins
-  // booking.status to CONFIRMED and matches non-COMPLETED (or null)
-  // payments — same semantics as the web payment filter.
-  payment?: "completed" | "pending";
+  platform?: Array<"web" | "android" | "ios">;
+  payment?: Array<"completed" | "pending">;
   /** Free-text customer search — matches user.name (case-insensitive),
    *  user.phone (substring), or user.email (case-insensitive). Same
    *  filter the web admin /bookings page exposes. */
@@ -224,13 +236,24 @@ export const adminBookingsApi = {
     );
   },
 
+  /** Helper: serialise a multi-select filter array to the CSV the
+   *  server expects (or null when empty / undefined). Mobile clients
+   *  pass arrays through ListFilters; this collapses them down to
+   *  the wire format the /api/mobile/admin/bookings handler reads
+   *  via toFilterList(). */
   list(filters: ListFilters = {}): Promise<ListResponse> {
     const params = new URLSearchParams();
-    if (filters.status) params.set("status", filters.status);
-    if (filters.sport) params.set("sport", filters.sport);
+    // CSV serialisation for multi-select fields. Omit when the array
+    // is empty / undefined — the server treats absence as "no filter"
+    // (and for status, falls back to its CONFIRMED+ABSENT default).
+    const setCsv = (key: string, list: string[] | undefined) => {
+      if (list && list.length > 0) params.set(key, list.join(","));
+    };
+    setCsv("status", filters.status);
+    setCsv("sport", filters.sport);
+    setCsv("platform", filters.platform);
+    setCsv("payment", filters.payment);
     if (filters.date) params.set("date", filters.date);
-    if (filters.platform) params.set("platform", filters.platform);
-    if (filters.payment) params.set("payment", filters.payment);
     if (filters.q) params.set("q", filters.q);
     // Only forward sort when it's the non-default "date" value;
     // omit otherwise so the server falls through to its createdAt

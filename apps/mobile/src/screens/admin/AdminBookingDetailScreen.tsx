@@ -579,15 +579,69 @@ export function AdminBookingDetailScreen() {
                 valueColor={PAYMENT_STATUS_COLOR[payment.status] ?? colors.zinc400}
                 bold
               />
-              <KV label="Amount" value={formatRupees(booking.totalAmount)} bold />
-              {booking.originalAmount && booking.originalAmount > booking.totalAmount ? (
-                <KV
-                  label="Original"
-                  value={formatRupees(booking.originalAmount)}
-                  mutedValue
-                  strike
-                />
-              ) : null}
+              {booking.status === "ABSENT" ? (
+                // Absent bookings: the venue kept what the customer
+                // already paid (advance for partial bookings; full
+                // amount for fully-paid ones). Anything still owed
+                // is forfeit. Replace the standard Amount line with
+                // a retained-earnings figure + struck-through total
+                // so admins read the closeout outcome at a glance.
+                (() => {
+                  const retained = payment.amount;
+                  const forfeit = Math.max(
+                    booking.totalAmount - retained,
+                    0,
+                  );
+                  return (
+                    <>
+                      <KV
+                        label="Advance retained"
+                        value={formatRupees(retained)}
+                        valueColor={colors.yellow400}
+                        bold
+                      />
+                      <KV
+                        label="Booking total"
+                        value={formatRupees(booking.totalAmount)}
+                        mutedValue
+                        strike
+                      />
+                      {forfeit > 0 ? (
+                        <KV
+                          label="Remainder forfeit (no-show)"
+                          value={formatRupees(forfeit)}
+                          mutedValue
+                        />
+                      ) : null}
+                      <Text
+                        variant="tiny"
+                        color={colors.yellow400}
+                        style={{ marginTop: spacing["1"] }}
+                      >
+                        Customer no-show. Only the advance is counted
+                        as earnings — remainder forfeit, not refunded.
+                      </Text>
+                    </>
+                  );
+                })()
+              ) : (
+                <>
+                  <KV
+                    label="Amount"
+                    value={formatRupees(booking.totalAmount)}
+                    bold
+                  />
+                  {booking.originalAmount &&
+                  booking.originalAmount > booking.totalAmount ? (
+                    <KV
+                      label="Original"
+                      value={formatRupees(booking.originalAmount)}
+                      mutedValue
+                      strike
+                    />
+                  ) : null}
+                </>
+              )}
 
               {payment.isPartialPayment ? (
                 <PartialBlock

@@ -915,10 +915,14 @@ export async function adminEditPayment(
 
 export async function getAdminBookings(filters?: {
   date?: string;
-  sport?: string;
-  status?: string;
+  // Multi-select filters — string[] or a single string ("ALL"
+  // disables, "" disables). The web layer parses URL CSV; the
+  // mobile client passes string[] directly. Server normalises both
+  // shapes via toFilterList() below.
+  sport?: string | string[];
+  status?: string | string[];
   paymentMethod?: string;
-  platform?: string;
+  platform?: string | string[];
   // Payment-completion filter on top of the payment.status enum.
   // Two values are surfaced to admin staff:
   //   - "completed"  payment.status === COMPLETED (everything settled)
@@ -926,7 +930,7 @@ export async function getAdminBookings(filters?: {
   //                  (payment.status != COMPLETED OR payment is null)
   //                  i.e. confirmed-but-money-still-owed: PARTIAL
   //                  remainders, UPI awaiting cash collection, etc.
-  payment?: string;
+  payment?: string | string[];
   /** Free-text user search — matches against name, phone, OR email.
    *  Useful when a customer rings up and the front desk needs to
    *  pull their booking by phone number / name without scrolling. */
@@ -949,19 +953,44 @@ export async function getAdminBookings(filters?: {
   const limit = filters?.limit ?? 20;
   const skip = (page - 1) * limit;
 
+  // Normalise a multi-select filter param to a clean string[]. Accepts
+  // either an array (mobile JSON body) or a CSV string (web URL).
+  // Empty / "ALL" / "" values disable the filter (returns []).
+  const toFilterList = (raw: string | string[] | undefined): string[] => {
+    if (!raw) return [];
+    const list = Array.isArray(raw)
+      ? raw
+      : raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+    return list.filter((v) => v !== "ALL");
+  };
+
   const where: Record<string, unknown> = {};
 
   if (filters?.date) {
     where.date = new Date(filters.date);
   }
-  if (filters?.status) {
-    where.status = filters.status;
+
+  const statusList = toFilterList(filters?.status);
+  if (statusList.length > 0) {
+    where.status =
+      statusList.length === 1 ? statusList[0] : { in: statusList };
   }
-  if (filters?.sport) {
-    where.courtConfig = { sport: filters.sport };
+
+  const sportList = toFilterList(filters?.sport);
+  if (sportList.length > 0) {
+    where.courtConfig =
+      sportList.length === 1
+        ? { sport: sportList[0] }
+        : { sport: { in: sportList } };
   }
-  if (filters?.platform) {
-    where.platform = filters.platform;
+
+  const platformList = toFilterList(filters?.platform);
+  if (platformList.length > 0) {
+    where.platform =
+      platformList.length === 1 ? platformList[0] : { in: platformList };
   }
 
   // User search — matches the customer's name (case-insensitive
@@ -979,26 +1008,24 @@ export async function getAdminBookings(filters?: {
     };
   }
 
-  // Payment-completion filter — applies on top of any explicit
-  // status filter set above. The "pending" case is more nuanced
-  // than a single column check: it pins booking.status to CONFIRMED
-  // (we don't want CANCELLED bookings showing up as "money owed"
-  // even if their payment row is PARTIAL) and matches both rows
-  // with a non-COMPLETED payment AND rows with no payment at all
-  // (recurring children frequently have payment === null).
-  if (filters?.payment === "completed") {
+  // Payment-completion filter — semantically single-value (a booking
+  // is either fully settled or it owes money). When the URL/array
+  // contains BOTH "completed" + "pending" the union covers
+  // everything, so we just drop the filter entirely.
+  const paymentList = toFilterList(filters?.payment);
+  const paymentVal = paymentList.length === 1 ? paymentList[0] : null;
+  if (paymentVal === "completed") {
     where.payment = { is: { status: "COMPLETED" } };
-  } else if (filters?.payment === "pending") {
-    // Combine with any user-provided status filter via AND: if the
-    // user picked "Cancelled + Pending payment" it should return
-    // empty, not silently override. Same applies if status was left
-    // unspecified — we still pin to CONFIRMED here.
-    const existingStatus = where.status as string | undefined;
-    if (existingStatus && existingStatus !== "CONFIRMED") {
-      // Mutually exclusive — return nothing instead of silently
-      // ignoring the payment filter.
+  } else if (paymentVal === "pending") {
+    // "pending payment" is "CONFIRMED + money still owed." When the
+    // user's explicit status filter doesn't include CONFIRMED we
+    // short-circuit to no matches instead of silently broadening
+    // beyond what they picked.
+    if (statusList.length > 0 && !statusList.includes("CONFIRMED")) {
       where.id = "__no_match__";
     } else {
+      // Pin to CONFIRMED so cancelled/absent bookings don't show up
+      // as "money owed" even if their payment row is PARTIAL.
       where.status = "CONFIRMED";
       where.OR = [
         { payment: { is: { status: { not: "COMPLETED" } } } },

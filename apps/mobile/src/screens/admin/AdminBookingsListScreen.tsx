@@ -44,22 +44,27 @@ type Nav = NativeStackNavigationProp<
   "AdminBookingsList"
 >;
 
-const STATUS_OPTIONS: Array<{
+// Multi-select chip option. Each non-ALL row toggles in/out of the
+// list; the ALL row clears the list (= "no filter"). Mirrors the
+// web /admin/bookings chip rows. "Completed" is intentionally
+// omitted from the Status row — same as the web, the Absent +
+// Confirmed pair already covers the operational case.
+type ChipOption<V extends string> = {
   label: string;
-  value: ListFilters["status"];
+  value: V;
   dot?: string;
-}> = [
+  emoji?: string;
+};
+
+const STATUS_OPTIONS: Array<ChipOption<"ALL" | "CONFIRMED" | "PENDING" | "CANCELLED" | "ABSENT">> = [
   { label: "All", value: "ALL" },
   { label: "Confirmed", value: "CONFIRMED", dot: colors.emerald400 },
   { label: "Pending", value: "PENDING", dot: colors.yellow400 },
   { label: "Cancelled", value: "CANCELLED", dot: colors.destructive },
-  { label: "Completed", value: "COMPLETED", dot: colors.emerald400 },
   { label: "Absent", value: "ABSENT", dot: colors.warning },
 ];
 
-// Sort options — mirrors the web admin's Sort row. "createdAt"
-// (default) sorts by when the booking was placed; "date" sorts by
-// the actual session date.
+// Sort options — mirrors the web admin's Sort row. Single-select.
 const SORT_OPTIONS: Array<{
   label: string;
   value: NonNullable<ListFilters["sort"]>;
@@ -68,41 +73,52 @@ const SORT_OPTIONS: Array<{
   { label: "Booking date", value: "date" },
 ];
 
-const SPORT_OPTIONS: Array<{
-  label: string;
-  value: ListFilters["sport"] | undefined;
-  emoji: string;
-}> = [
-  { label: "All", value: undefined, emoji: "" },
+const SPORT_OPTIONS: Array<ChipOption<"ALL" | "CRICKET" | "FOOTBALL" | "PICKLEBALL">> = [
+  { label: "All", value: "ALL", emoji: "" },
   { label: "Cricket", value: "CRICKET", emoji: "🏏" },
   { label: "Football", value: "FOOTBALL", emoji: "⚽" },
   { label: "Pickleball", value: "PICKLEBALL", emoji: "🏓" },
 ];
 
-const PLATFORM_OPTIONS: Array<{
-  label: string;
-  value: ListFilters["platform"] | undefined;
-  emoji: string;
-}> = [
-  { label: "All", value: undefined, emoji: "" },
+const PLATFORM_OPTIONS: Array<ChipOption<"ALL" | "web" | "android" | "ios">> = [
+  { label: "All", value: "ALL", emoji: "" },
   { label: "Web", value: "web", emoji: "💻" },
   { label: "Android", value: "android", emoji: "🤖" },
   { label: "iOS", value: "ios", emoji: "🍎" },
 ];
 
-// Payment-completion filter — mirrors the web admin's Payment row.
-// "pending" is "money still owed" — booking is CONFIRMED but
-// payment is non-COMPLETED (or null), so this surfaces partial
-// remainders + recurring children awaiting cash collection.
-const PAYMENT_OPTIONS: Array<{
-  label: string;
-  value: ListFilters["payment"] | undefined;
-  dot?: string;
-}> = [
-  { label: "All", value: undefined },
+const PAYMENT_OPTIONS: Array<ChipOption<"ALL" | "completed" | "pending">> = [
+  { label: "All", value: "ALL" },
   { label: "Completed", value: "completed", dot: colors.emerald400 },
   { label: "Pending", value: "pending", dot: colors.warning },
 ];
+
+// Toggle a value in/out of a multi-select filter list. "ALL" is
+// exclusive — clicking it clears the list (= no filter); clicking
+// any other value adds/removes from the current list.
+function toggleMulti<V extends string>(
+  current: V[] | undefined,
+  value: V | "ALL",
+): V[] | undefined {
+  if (value === "ALL") return undefined;
+  const list = current ?? [];
+  if (list.includes(value as V)) {
+    const next = list.filter((v) => v !== value);
+    return next.length > 0 ? next : undefined;
+  }
+  return [...list, value as V];
+}
+
+// Active state for a chip given the current filter list. "ALL" is
+// active when the list is empty / undefined; specific values are
+// active when present in the list.
+function isChipActive<V extends string>(
+  current: V[] | undefined,
+  value: V | "ALL",
+): boolean {
+  if (value === "ALL") return !current || current.length === 0;
+  return current?.includes(value as V) ?? false;
+}
 
 const STATUS_TEXT: Record<string, string> = {
   CONFIRMED: colors.emerald400,
@@ -121,7 +137,10 @@ const SPORT_EMOJI: Record<string, string> = {
 export function AdminBookingsListScreen() {
   const navigation = useNavigation<Nav>();
   const [filters, setFilters] = useState<ListFilters>({
-    status: "CONFIRMED",
+    // Default to the front-desk working view: live + no-show.
+    // Mirrors the web /admin/bookings default. User can deselect /
+    // clear via the chips below.
+    status: ["CONFIRMED", "ABSENT"],
     page: 1,
     limit: 25,
   });
@@ -277,15 +296,22 @@ export function AdminBookingsListScreen() {
               FILTERS
             </Text>
             {(() => {
-              // Default-aware count: status=CONFIRMED is the
-              // landing default and shouldn't be counted as an
-              // "active" filter. Anything else does.
+              // Default-aware count: status=[CONFIRMED, ABSENT] is
+              // the landing default (the front-desk working view)
+              // and shouldn't be counted as an "active" filter.
+              // Anything other than the exact two-element default
+              // set does count.
+              const status = filters.status ?? [];
+              const statusIsDefault =
+                status.length === 2 &&
+                status.includes("CONFIRMED") &&
+                status.includes("ABSENT");
               const activeCount =
-                (filters.status && filters.status !== "CONFIRMED" ? 1 : 0) +
-                (filters.sport ? 1 : 0) +
+                (!statusIsDefault ? 1 : 0) +
+                (filters.sport && filters.sport.length > 0 ? 1 : 0) +
                 (filters.date ? 1 : 0) +
-                (filters.platform ? 1 : 0) +
-                (filters.payment ? 1 : 0);
+                (filters.platform && filters.platform.length > 0 ? 1 : 0) +
+                (filters.payment && filters.payment.length > 0 ? 1 : 0);
               return activeCount > 0 ? (
                 <View style={styles.activeBadge}>
                   <Text
@@ -357,54 +383,78 @@ export function AdminBookingsListScreen() {
                 ))}
               </FilterRow>
 
-              {/* Status row */}
+              {/* Status row — multi-select; "All" clears the picks.
+                  Default is Confirmed + Absent (the front-desk
+                  working view). */}
               <FilterRow label="Status">
                 {STATUS_OPTIONS.map((opt) => (
                   <Chip
                     key={opt.label}
                     label={opt.label}
                     dotColor={opt.dot}
-                    active={filters.status === opt.value}
-                    onPress={() => setFilter("status", opt.value)}
+                    active={isChipActive(filters.status, opt.value)}
+                    onPress={() =>
+                      setFilter(
+                        "status",
+                        toggleMulti(filters.status, opt.value),
+                      )
+                    }
                   />
                 ))}
               </FilterRow>
 
-              {/* Sport row */}
+              {/* Sport row — multi-select. */}
               <FilterRow label="Sport">
                 {SPORT_OPTIONS.map((opt) => (
                   <Chip
                     key={opt.label}
                     label={opt.label}
                     emoji={opt.emoji}
-                    active={filters.sport === opt.value}
-                    onPress={() => setFilter("sport", opt.value)}
+                    active={isChipActive(filters.sport, opt.value)}
+                    onPress={() =>
+                      setFilter(
+                        "sport",
+                        toggleMulti(filters.sport, opt.value),
+                      )
+                    }
                   />
                 ))}
               </FilterRow>
 
-              {/* Platform row */}
+              {/* Platform row — multi-select. */}
               <FilterRow label="Platform">
                 {PLATFORM_OPTIONS.map((opt) => (
                   <Chip
                     key={opt.label}
                     label={opt.label}
                     emoji={opt.emoji}
-                    active={filters.platform === opt.value}
-                    onPress={() => setFilter("platform", opt.value)}
+                    active={isChipActive(filters.platform, opt.value)}
+                    onPress={() =>
+                      setFilter(
+                        "platform",
+                        toggleMulti(filters.platform, opt.value),
+                      )
+                    }
                   />
                 ))}
               </FilterRow>
 
-              {/* Payment row — completion state on top of Status. */}
+              {/* Payment row — completion state on top of Status.
+                  Multi-select syntactically; server collapses both
+                  values selected together to "no filter." */}
               <FilterRow label="Payment">
                 {PAYMENT_OPTIONS.map((opt) => (
                   <Chip
                     key={opt.label}
                     label={opt.label}
                     dotColor={opt.dot}
-                    active={filters.payment === opt.value}
-                    onPress={() => setFilter("payment", opt.value)}
+                    active={isChipActive(filters.payment, opt.value)}
+                    onPress={() =>
+                      setFilter(
+                        "payment",
+                        toggleMulti(filters.payment, opt.value),
+                      )
+                    }
                   />
                 ))}
               </FilterRow>
@@ -428,19 +478,31 @@ export function AdminBookingsListScreen() {
 
               {/* Clear-all only renders when at least one filter is
                   off-default — otherwise it'd be a no-op and just
-                  add visual noise. */}
-              {(filters.status !== "CONFIRMED" ||
-                filters.sport ||
-                filters.date ||
-                filters.platform ||
-                filters.payment ||
-                filters.sort ||
-                filters.q) && (
+                  add visual noise. Status default is the
+                  Confirmed+Absent pair; we treat any other set
+                  (different items / extra items / missing items)
+                  as "touched." */}
+              {(() => {
+                const status = filters.status ?? [];
+                const statusIsDefault =
+                  status.length === 2 &&
+                  status.includes("CONFIRMED") &&
+                  status.includes("ABSENT");
+                return (
+                  !statusIsDefault ||
+                  (filters.sport && filters.sport.length > 0) ||
+                  filters.date ||
+                  (filters.platform && filters.platform.length > 0) ||
+                  (filters.payment && filters.payment.length > 0) ||
+                  filters.sort ||
+                  filters.q
+                );
+              })() && (
                 <Pressable
                   onPress={() => {
                     setSearchInput("");
                     setFilters({
-                      status: "CONFIRMED",
+                      status: ["CONFIRMED", "ABSENT"],
                       sport: undefined,
                       date: undefined,
                       platform: undefined,

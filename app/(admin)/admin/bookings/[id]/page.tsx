@@ -279,28 +279,80 @@ export default async function AdminBookingDetailPage({
                 {booking.payment.status}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-400">Amount</span>
-              <span className="text-lg font-bold text-white">
-                {/* Show Booking.totalAmount (authoritative post-discount) rather
-                    than Payment.amount. Payment.amount can legitimately drift
-                    from the final owed figure — e.g. partial-payment bookings
-                    where markRemainderCollected adds `remaining` onto the
-                    pre-discount gateway charge, leaving Payment.amount at the
-                    pre-coupon total while Booking.totalAmount correctly shows
-                    the post-coupon total the customer actually owes / paid. */}
-                {formatPrice(booking.totalAmount)}
-              </span>
-            </div>
-            {booking.originalAmount !== null &&
-              booking.originalAmount > booking.totalAmount && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-zinc-500">Original</span>
-                  <span className="text-zinc-500 line-through">
-                    {formatPrice(booking.originalAmount)}
+            {booking.status === "ABSENT" ? (
+              // Absent bookings: the venue keeps whatever the customer
+              // already paid (the advance, or the full amount for
+              // fully-paid bookings). Anything still owed is forfeit
+              // — not chased, not refunded. Show the retained earning
+              // as the primary figure and the original booking total
+              // as struck-through context so admins reading the page
+              // see at a glance what actually closed.
+              (() => {
+                const retained = booking.payment.amount;
+                const forfeit = Math.max(
+                  booking.totalAmount - retained,
+                  0,
+                );
+                return (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">
+                        Advance retained
+                      </span>
+                      <span className="text-lg font-bold text-amber-300">
+                        {formatPrice(retained)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-zinc-500">Booking total</span>
+                      <span className="text-zinc-500 line-through">
+                        {formatPrice(booking.totalAmount)}
+                      </span>
+                    </div>
+                    {forfeit > 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-zinc-500">
+                          Remainder forfeit (no-show)
+                        </span>
+                        <span className="text-zinc-500">
+                          {formatPrice(forfeit)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200">
+                      Customer no-show. Only the advance is counted as
+                      earnings — the remainder is forfeit and not
+                      refunded.
+                    </div>
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Amount</span>
+                  <span className="text-lg font-bold text-white">
+                    {/* Show Booking.totalAmount (authoritative post-discount) rather
+                        than Payment.amount. Payment.amount can legitimately drift
+                        from the final owed figure — e.g. partial-payment bookings
+                        where markRemainderCollected adds `remaining` onto the
+                        pre-discount gateway charge, leaving Payment.amount at the
+                        pre-coupon total while Booking.totalAmount correctly shows
+                        the post-coupon total the customer actually owes / paid. */}
+                    {formatPrice(booking.totalAmount)}
                   </span>
                 </div>
-              )}
+                {booking.originalAmount !== null &&
+                  booking.originalAmount > booking.totalAmount && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-zinc-500">Original</span>
+                      <span className="text-zinc-500 line-through">
+                        {formatPrice(booking.originalAmount)}
+                      </span>
+                    </div>
+                  )}
+              </>
+            )}
             {booking.payment.isPartialPayment && (() => {
               const advance =
                 booking.payment.advanceAmount ?? 0;
