@@ -45,6 +45,22 @@ export interface SlotAvailability {
   status: SlotStatus;
   price: number; // in rupees
   blockedReason?: BlockedReason;
+  /**
+   * Canonical storage coordinates this displayed slot maps to. Set
+   * only by `getDisplayShiftedAvailability` for the late-night
+   * 12am-1am tile that's been shifted onto the next calendar
+   * date's grid — for that slot, `lockDate` is the prior date and
+   * `lockHour` is 24 (the legacy storage convention). Every other
+   * slot omits these fields and locks against the request date /
+   * `hour` directly.
+   *
+   * Booking-flow clients (web slot-selection-client, mobile
+   * BookSlotsScreen) MUST forward `lockDate` to /api/booking/lock
+   * when present — otherwise the resulting booking would be
+   * recorded on the wrong calendar date.
+   */
+  lockDate?: string; // "YYYY-MM-DD"
+  lockHour?: number;
 }
 
 // Severity ordering for ConfigSize → used to sort blockedBy /
@@ -465,6 +481,116 @@ export async function getMergedMediumAvailability(
       price: l.price || r.price,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Display-shifted availability for customer-facing slot grids
+// ---------------------------------------------------------------------------
+//
+// Storage convention: a booking at "12am-1am of Saturday" is written
+// as `(date = Friday, BookingSlot.startHour = 24)` — the venue's
+// session date, not the wall-clock date the hour actually falls on.
+//
+// That made the customer slot grid for Friday display the 12am tile
+// at the bottom even though wall-clock-wise it's Saturday's earliest
+// hour. This wrapper flips the display: the customer's Saturday grid
+// surfaces the 12am-1am slot at the top, sourced from Friday's
+// hour-24 storage; Friday's grid no longer shows it.
+//
+// Storage convention is unchanged — `lockDate` + `lockHour` on each
+// returned slot tell the booking-flow client to send the request
+// against the original session date so the resulting Booking row
+// still writes `(date = Friday, startHour = 24)`. The customer never
+// sees the session-date storage; they see the wall-clock display.
+
+function ymd(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+/**
+ * Customer-facing variant of `getSlotAvailability`. Same data, but
+ * the 12am-1am slot is positioned on the FOLLOWING calendar date
+ * instead of the venue's evening session date. See the file-level
+ * comment above for the rationale and storage contract.
+ */
+export async function getDisplayShiftedAvailability(
+  courtConfigId: string,
+  date: Date,
+): Promise<SlotAvailability[]> {
+  const prevDate = new Date(date);
+  prevDate.setUTCDate(prevDate.getUTCDate() - 1);
+
+  const [current, prior] = await Promise.all([
+    getSlotAvailability(courtConfigId, date),
+    getSlotAvailability(courtConfigId, prevDate),
+  ]);
+
+  const currentDateStr = ymd(date);
+  const prevDateStr = ymd(prevDate);
+
+  const out: SlotAvailability[] = [];
+
+  // Prior date's hour-24 entry → displayed at hour 0 of the
+  // requested date. Carries lockDate so the booking client targets
+  // the original session date when locking.
+  const lateNight = prior.find((s) => s.hour === 24);
+  if (lateNight) {
+    out.push({
+      ...lateNight,
+      hour: 0,
+      lockDate: prevDateStr,
+      lockHour: 24,
+    });
+  }
+
+  // Current date's slots EXCEPT hour 24 — that one shifts to the
+  // NEXT date's grid (handled when that next date is requested).
+  for (const s of current) {
+    if (s.hour === 24) continue;
+    out.push({
+      ...s,
+      lockDate: currentDateStr,
+      lockHour: s.hour,
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Display-shifted variant of `getMergedMediumAvailability`. Same
+ * shift semantics as `getDisplayShiftedAvailability`.
+ */
+export async function getDisplayShiftedMediumAvailability(
+  sport: Sport,
+  date: Date,
+): Promise<SlotAvailability[]> {
+  const prevDate = new Date(date);
+  prevDate.setUTCDate(prevDate.getUTCDate() - 1);
+
+  const [current, prior] = await Promise.all([
+    getMergedMediumAvailability(sport, date),
+    getMergedMediumAvailability(sport, prevDate),
+  ]);
+
+  const currentDateStr = ymd(date);
+  const prevDateStr = ymd(prevDate);
+
+  const out: SlotAvailability[] = [];
+  const lateNight = prior.find((s) => s.hour === 24);
+  if (lateNight) {
+    out.push({
+      ...lateNight,
+      hour: 0,
+      lockDate: prevDateStr,
+      lockHour: 24,
+    });
+  }
+  for (const s of current) {
+    if (s.hour === 24) continue;
+    out.push({ ...s, lockDate: currentDateStr, lockHour: s.hour });
+  }
+  return out;
 }
 
 // Check if specific slots are available for a config (used during booking)

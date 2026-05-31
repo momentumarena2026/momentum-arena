@@ -234,6 +234,31 @@ export function BookSlotsScreen() {
       return;
     }
     if (selected.length === 0) return;
+
+    // Resolve storage coords for the selected slots. The 12am-1am
+    // tile lives on the next calendar date's grid but its storage
+    // is the prior date / startHour 24 (server surfaces this as
+    // lockDate/lockHour on each slot). Mixed-date selections can't
+    // share a Booking row — refuse early.
+    const selectedSlotsResolved = slots.filter((s) =>
+      selected.includes(s.hour),
+    );
+    const lockDateSet = new Set(
+      selectedSlotsResolved.map((s) => s.lockDate ?? selectedDate),
+    );
+    if (lockDateSet.size > 1) {
+      Alert.alert(
+        "Can't book across midnight",
+        "You've selected slots that span midnight. Please book the late-night slot separately.",
+      );
+      return;
+    }
+    const resolvedLockDate =
+      Array.from(lockDateSet)[0] ?? selectedDate;
+    const resolvedLockHours = selectedSlotsResolved.map(
+      (s) => s.lockHour ?? s.hour,
+    );
+
     setLocking(true);
     try {
       const equipmentSelection =
@@ -248,14 +273,14 @@ export function BookSlotsScreen() {
           ? {
               mode: "medium",
               sport: params.sport,
-              date: selectedDate,
-              hours: selected,
+              date: resolvedLockDate,
+              hours: resolvedLockHours,
               equipmentSelection,
             }
           : {
               courtConfigId: params.courtConfigId!,
-              date: selectedDate,
-              hours: selected,
+              date: resolvedLockDate,
+              hours: resolvedLockHours,
               equipmentSelection,
             }
       );
