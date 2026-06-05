@@ -25,6 +25,11 @@ export type AccountStackParamList = {
   // successful purchase). Same screen component, two registrations.
   ShopOrders: undefined;
   ShopOrderDetail: { orderId: string };
+  // Cafe order history mirrors Shop's pattern — entry from the
+  // Account screen tile, registered here so the Cafe tab can never
+  // get "stuck" on the orders list after a cross-tab jump.
+  CafeOrders: undefined;
+  CafeOrderDetail: { orderId: string };
 };
 
 export type BookStackParamList = {
@@ -56,7 +61,7 @@ export type MainTabsParamList = {
   // funnel — naming is purely a UX decision so the user understands
   // they're picking a sport, not a date.
   Sports: NavigatorScreenParams<BookStackParamList>;
-  Cafe: undefined;
+  Cafe: NavigatorScreenParams<CafeStackParamList>;
   // Shop sits at the 4th position — pickup-at-venue product catalog
   // for items the customer can buy alongside or independently of a
   // booking. Account stays on the right edge of the nav.
@@ -81,6 +86,24 @@ export type ShopStackParamList = {
   // not part of this stack — it lives in AccountStack so the Shop
   // tab can never get polluted by a cross-tab jump from Account.
   ShopOrderDetail: { orderId: string };
+};
+
+/**
+ * Cafe stack — mirror of ShopStack. Menu + Cart + Checkout +
+ * post-checkout order detail. The orders LIST and the orders
+ * DETAIL when reached from that list live on AccountStack so the
+ * Cafe tab can never get stuck on "My orders" after a cross-tab
+ * jump from Account.
+ *
+ * CafeOrderDetail is registered in BOTH stacks (here for the
+ * post-checkout success navigation, and on AccountStack for the
+ * orders-list drill-down). Same screen, two registrations.
+ */
+export type CafeStackParamList = {
+  CafeMenu: undefined;
+  CafeCart: undefined;
+  CafeCheckout: undefined;
+  CafeOrderDetail: { orderId: string };
 };
 
 export type RootStackParamList = {
