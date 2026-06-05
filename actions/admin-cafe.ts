@@ -59,10 +59,15 @@ export async function createCafeItem(data: {
   description?: string;
   category: CafeItemCategory;
   price: number;
-  // Cost price in paise. Optional — the venue can skip it when the
-  // information isn't handy yet and fill it in later via update.
-  // Reporting paths treat null as "unknown margin," not zero.
+  // Cost price in rupees. Optional — the venue can skip it when
+  // the information isn't handy yet and fill it in later via
+  // update. Reporting paths treat null as "unknown margin," not
+  // zero.
   costPrice?: number | null;
+  // Stock count. Pass an integer for trackable items
+  // (drinks, packaged snacks, ice-cream); omit / null for
+  // kitchen-prepared items that never deplete from stock.
+  quantity?: number | null;
   image?: string;
   isVeg: boolean;
   tags?: string[];
@@ -86,6 +91,17 @@ export async function createCafeItem(data: {
       return { success: false, error: "Cost price cannot be negative" };
     }
 
+    if (
+      data.quantity !== undefined &&
+      data.quantity !== null &&
+      (!Number.isInteger(data.quantity) || data.quantity < 0)
+    ) {
+      return {
+        success: false,
+        error: "Stock quantity must be a non-negative whole number",
+      };
+    }
+
     // Get max sort order for this category
     const maxSort = await db.cafeItem.findFirst({
       where: { category: data.category },
@@ -100,6 +116,7 @@ export async function createCafeItem(data: {
         category: data.category,
         price: data.price,
         costPrice: data.costPrice ?? null,
+        quantity: data.quantity ?? null,
         image: data.image?.trim() || null,
         isVeg: data.isVeg,
         tags: data.tags || [],
@@ -124,6 +141,11 @@ export async function updateCafeItem(
     // Pass `null` to explicitly clear a previously-set cost price;
     // omit the field to leave the existing value alone.
     costPrice: number | null;
+    // Same semantics — `null` clears tracking (back to "unlimited /
+    // kitchen-prepared"); a number sets the on-hand stock; omit to
+    // leave alone. Used both for "restock when the venue procures
+    // goods" and for "adjust after a manual sale."
+    quantity: number | null;
     image: string | null;
     isVeg: boolean;
     tags: string[];
@@ -149,6 +171,18 @@ export async function updateCafeItem(
         return { success: false, error: "Cost price cannot be negative" };
       }
       updateData.costPrice = data.costPrice;
+    }
+    if (data.quantity !== undefined) {
+      if (
+        data.quantity !== null &&
+        (!Number.isInteger(data.quantity) || data.quantity < 0)
+      ) {
+        return {
+          success: false,
+          error: "Stock quantity must be a non-negative whole number",
+        };
+      }
+      updateData.quantity = data.quantity;
     }
     if (data.image !== undefined) updateData.image = data.image?.trim() || null;
     if (data.isVeg !== undefined) updateData.isVeg = data.isVeg;

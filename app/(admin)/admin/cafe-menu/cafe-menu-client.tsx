@@ -31,10 +31,14 @@ interface CafeItemRow {
   description: string | null;
   category: CafeItemCategory;
   price: number;
-  // Cost-of-goods for the item, in paise. Null when the venue
+  // Cost-of-goods for the item, in rupees. Null when the venue
   // hasn't filled it in yet — reporting paths treat that as
   // "unknown margin," not zero.
   costPrice: number | null;
+  // Stock count. Null = unlimited / kitchen-prepared (cooked to
+  // order — never depletes). Integer = on-hand count;
+  // order paths decrement on order create.
+  quantity: number | null;
   image: string | null;
   isVeg: boolean;
   isAvailable: boolean;
@@ -58,6 +62,9 @@ const EMPTY_FORM = {
   // Empty string = "leave unset" on the form; we only persist a
   // costPrice when the admin actually types a number.
   costPrice: "",
+  // Stock quantity. Empty string = kitchen-prepared / unlimited
+  // (CafeItem.quantity stays NULL). Integer = on-hand count.
+  quantity: "",
   image: "",
   isVeg: true,
   tags: "",
@@ -160,6 +167,11 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
       // null costPrice → leave the field blank so the admin can
       // still skip filling it in.
       costPrice: item.costPrice != null ? String(item.costPrice) : "",
+      // null quantity → kitchen-prepared / unlimited. Show blank
+      // so the admin sees "this item doesn't track stock" and
+      // can opt in by typing a number later (or stay null by
+      // leaving it blank on edit).
+      quantity: item.quantity != null ? String(item.quantity) : "",
       image: item.image || "",
       isVeg: item.isVeg,
       tags: item.tags.join(", "),
@@ -217,6 +229,23 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
       costRupees = parsed;
     }
 
+    // Stock quantity is optional. Empty form value → null →
+    // kitchen-prepared / unlimited (the DB column stays NULL and
+    // the order paths skip the stock check for this item). A
+    // typed value must be a non-negative integer; "10.5 bottles"
+    // makes no sense, and Math.round would silently round it.
+    let quantityValue: number | null = null;
+    const qtyRaw = form.quantity.trim();
+    if (qtyRaw !== "") {
+      const parsed = Number(qtyRaw);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        setError("Stock quantity must be a non-negative whole number");
+        setSaving(false);
+        return;
+      }
+      quantityValue = parsed;
+    }
+
     const tags = form.tags
       .split(",")
       .map((t) => t.trim())
@@ -230,6 +259,10 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
         price: priceRupees,
         // Explicit `null` clears a previously-set cost price.
         costPrice: costRupees,
+        // Same semantics — null clears stock tracking (back to
+        // unlimited / kitchen-prepared); a number sets the new
+        // on-hand count.
+        quantity: quantityValue,
         image: form.image || null,
         isVeg: form.isVeg,
         tags,
@@ -246,6 +279,7 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
         category: form.category,
         price: priceRupees,
         costPrice: costRupees,
+        quantity: quantityValue,
         image: form.image || undefined,
         isVeg: form.isVeg,
         tags,
@@ -396,6 +430,25 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
               }
               placeholder="Cost price in ₹ (optional, for margin)"
               className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+            />
+            {/* Stock quantity — optional integer for procured-good
+                items (drinks, ice-cream, packaged snacks). Leave
+                blank for kitchen-prepared items (cooked to order)
+                so the order paths skip the stock check entirely.
+                Customer + admin order paths decrement on order
+                create; floor staff resets / restocks by editing
+                this field after a procurement. Spans both columns
+                so its longer placeholder fits without wrapping. */}
+            <input
+              type="number"
+              step="1"
+              min={0}
+              value={form.quantity}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, quantity: e.target.value }))
+              }
+              placeholder="Stock quantity (optional — leave blank for kitchen items)"
+              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 sm:col-span-2"
             />
             {/* Image picker — replaces the previous raw URL text
                 input. The admin clicks "Upload image" which opens
@@ -580,6 +633,32 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                         <p className="mt-1 text-sm font-semibold text-emerald-400">
                           {formatPrice(item.price)}
                         </p>
+                        {/* Stock indicator. NULL quantity = the
+                            item doesn't track stock (kitchen-
+                            prepared, cooked to order). Otherwise
+                            show on-hand count; "Out of stock" in
+                            red when 0, amber when low (≤ 3),
+                            muted otherwise. Lets the admin scan
+                            the menu and spot what needs
+                            restocking without opening the edit
+                            form. */}
+                        {item.quantity === null ? (
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            Kitchen item · no stock tracking
+                          </p>
+                        ) : item.quantity === 0 ? (
+                          <p className="mt-1 text-[11px] font-medium text-red-400">
+                            Out of stock
+                          </p>
+                        ) : item.quantity <= 3 ? (
+                          <p className="mt-1 text-[11px] font-medium text-amber-400">
+                            {item.quantity} left — restock soon
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            {item.quantity} in stock
+                          </p>
+                        )}
                         {item.tags.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {item.tags.map((tag) => (
