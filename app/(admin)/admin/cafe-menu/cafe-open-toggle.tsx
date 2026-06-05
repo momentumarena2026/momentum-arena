@@ -3,25 +3,23 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setCafeOpen } from "@/actions/cafe-settings";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 /**
- * Header-level toggle on /admin/cafe-menu that flips
- * CafeSettings.isOpen. Live status (the customer-facing /cafe
- * surface and the mobile Cafe tab) reads this on every render so
- * the change reflects within a refresh.
+ * Header-level switch on /admin/cafe-menu that flips
+ * CafeSettings.isOpen. Renders as a real toggle switch (label on
+ * the left, slider on the right) — NOT a chip/pill — so the
+ * interaction reads as a binary switch the way the rest of the
+ * admin surface does (the per-item availability slider lower on
+ * the same page uses the same visual).
  *
- * Optimistic flip: we update the local state immediately so the
- * pill switches colour the moment the admin taps; if the server
- * rejects (e.g. auth lapsed) we roll back and surface the
- * error inline.
- *
- * Resilience note — `setCafeOpen` is wrapped in a server-side
- * try/catch that re-throws as a plain Error with a readable
- * message. We catch it here and render it as a small red caption;
- * without that pair the throw would bubble through React 19's
- * server-action error path and surface as the generic "Server
- * Components render" digest error the user has no way to act on.
+ * The slider is fully optimistic: it flips immediately on tap, the
+ * server action runs in a transition, and if the action returns
+ * `{ ok: false, error }` we roll back and surface the error
+ * inline. The action itself NEVER throws — it always returns a
+ * serialisable result — so React's server-action error boundary
+ * (which would surface as the "Server Components render" digest
+ * error) can never be reached from this path.
  */
 export function CafeOpenToggle({ initialOpen }: { initialOpen: boolean }) {
   const router = useRouter();
@@ -30,60 +28,77 @@ export function CafeOpenToggle({ initialOpen }: { initialOpen: boolean }) {
   const [pending, startTransition] = useTransition();
 
   function toggle() {
+    if (pending) return;
     const next = !open;
-    // Optimistic — flip first so the pill feels instant; revert
-    // below if the server-side action throws.
     setOpen(next);
     setError(null);
     startTransition(async () => {
-      try {
-        await setCafeOpen(next);
-        // Pull the new server-rendered state back so the page-
-        // level `isOpen` prop and any sibling components stay in
-        // sync with the row we just updated. revalidatePath inside
-        // the action handles the cache layer; this forces the
-        // current route to re-fetch immediately rather than wait
-        // for the next navigation.
-        router.refresh();
-      } catch (err) {
+      const result = await setCafeOpen(next);
+      if (!result.ok) {
         setOpen(!next);
-        setError(
-          err instanceof Error && err.message
-            ? err.message
-            : "Couldn't update — please try again.",
-        );
+        setError(result.error);
+        return;
       }
+      // Pull the new server-rendered state back so any sibling
+      // server components (page header copy, etc) stay in sync
+      // with the row we just updated.
+      router.refresh();
     });
   }
 
+  const label = open ? "Open for orders" : "Closed";
+  const sublabel = open
+    ? "Customers can place orders from /cafe."
+    : "Customers see the closed page. Admin walk-ins still work.";
+
   return (
     <div className="flex flex-col items-end gap-1">
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={pending}
-        aria-pressed={open}
-        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-50 ${
-          open
-            ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
-            : "border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/15"
-        }`}
-        title={
-          open
-            ? "Cafe is OPEN — customers can place orders. Tap to close."
-            : "Cafe is CLOSED — customers see the closed page. Tap to open."
-        }
-      >
-        {pending ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : open ? (
-          <CheckCircle2 className="h-3.5 w-3.5" />
-        ) : (
-          <XCircle className="h-3.5 w-3.5" />
-        )}
-        {open ? "Open for orders" : "Closed"}
-      </button>
-      {error ? <p className="text-[10px] text-red-400">{error}</p> : null}
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <div
+            className={`text-sm font-semibold ${
+              open ? "text-emerald-300" : "text-zinc-400"
+            }`}
+          >
+            {label}
+          </div>
+          <div className="text-[11px] text-zinc-500 max-w-[14rem]">
+            {sublabel}
+          </div>
+        </div>
+        {/* Toggle switch. Big enough to be unambiguous as a
+            switch (h-7 w-12 vs the small per-item h-5 w-9), with a
+            white knob that slides across. Click area is the entire
+            track. */}
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={pending}
+          role="switch"
+          aria-checked={open}
+          aria-label={open ? "Close cafe" : "Open cafe"}
+          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors disabled:opacity-60 ${
+            open
+              ? "border-emerald-500/40 bg-emerald-600"
+              : "border-zinc-700 bg-zinc-700"
+          }`}
+        >
+          <span
+            className={`inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-white shadow-sm transition-transform ${
+              open ? "translate-x-6" : "translate-x-1"
+            }`}
+          >
+            {pending ? (
+              <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
+            ) : null}
+          </span>
+        </button>
+      </div>
+      {error ? (
+        <p className="text-[11px] text-red-400 max-w-[18rem] text-right">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
