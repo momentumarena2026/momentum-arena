@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   createCafeItem,
@@ -17,6 +18,7 @@ import {
   Coffee,
   UtensilsCrossed,
   IceCreamCone,
+  ImagePlus,
   Sandwich,
   Package,
   Search,
@@ -71,6 +73,34 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+
+  // Image upload — mirrors /admin/products's UX. File input is
+  // hidden, triggered by an "Upload image" button; on success we
+  // stamp the Vercel Blob URL into form.image. The server route
+  // enforces 5MB + JPEG/PNG/WebP via lib/blob's `uploadImage`.
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handleImageFile(file: File) {
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/cafe/upload-image", {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+      setForm((p) => ({ ...p, image: data.url }));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   // Category filter
   const categoryFiltered =
@@ -134,6 +164,7 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
     });
     setShowForm(true);
     setError(null);
+    setUploadError(null);
   };
 
   const openCreate = () => {
@@ -141,6 +172,7 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
     setForm(EMPTY_FORM);
     setShowForm(true);
     setError(null);
+    setUploadError(null);
   };
 
   const handleSave = async () => {
@@ -358,15 +390,72 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
               placeholder="Cost price in ₹ (optional, for margin)"
               className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
             />
-            <input
-              type="text"
-              value={form.image}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, image: e.target.value }))
-              }
-              placeholder="Image URL (optional)"
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 sm:col-span-2"
-            />
+            {/* Image picker — replaces the previous raw URL text
+                input. The admin clicks "Upload image" which opens
+                the OS file picker; on success the helper POSTs to
+                /api/admin/cafe/upload-image and stamps the returned
+                Vercel Blob URL into form.image. 80×80 thumbnail
+                renders the current pick (or a dashed placeholder
+                when none). Same UX as /admin/products. */}
+            <div className="sm:col-span-2 flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-800 p-2.5">
+              {form.image ? (
+                <Image
+                  src={form.image}
+                  alt="Preview"
+                  width={80}
+                  height={80}
+                  className="h-20 w-20 rounded-md object-cover"
+                  unoptimized
+                />
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed border-zinc-700 text-zinc-600">
+                  <ImagePlus className="h-5 w-5" />
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleImageFile(f);
+                    e.target.value = "";
+                  }}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 hover:border-zinc-500 disabled:opacity-60"
+                  >
+                    {uploading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-3.5 w-3.5" />
+                    )}
+                    {form.image ? "Replace image" : "Upload image"}
+                  </button>
+                  {form.image ? (
+                    <button
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, image: "" }))}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  JPEG / PNG / WebP, ≤ 5 MB.
+                </p>
+                {uploadError ? (
+                  <p className="text-xs text-red-400">{uploadError}</p>
+                ) : null}
+              </div>
+            </div>
             <textarea
               value={form.description}
               onChange={(e) =>
