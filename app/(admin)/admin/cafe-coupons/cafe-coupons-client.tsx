@@ -84,8 +84,12 @@ export function CafeCouponsClient({
       value,
       maxUses: form.maxUses ? parseInt(form.maxUses) : undefined,
       maxUsesPerUser: parseInt(form.maxUsesPerUser) || 1,
+      // Both CafeDiscount.minOrderAmount and CafeOrder.totalAmount
+      // are now Float rupees — admin enters the rupee value
+      // directly, no paise conversion. Decimal values supported via
+      // parseFloat (e.g. "199.50" for a ₹199.50 minimum order).
       minOrderAmount: form.minOrderAmount
-        ? parseInt(form.minOrderAmount) * 100
+        ? parseFloat(form.minOrderAmount)
         : undefined,
       categoryFilter:
         form.categoryFilter.length > 0 ? form.categoryFilter : undefined,

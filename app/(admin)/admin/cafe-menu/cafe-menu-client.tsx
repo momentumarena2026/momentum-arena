@@ -153,11 +153,13 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
       name: item.name,
       description: item.description || "",
       category: item.category,
-      price: String(item.price / 100),
+      // Values are stored in rupees (Float, decimals allowed), so
+      // display them as-is. Leading "0." or trailing ".50" round-
+      // trips cleanly via String(<number>).
+      price: String(item.price),
       // null costPrice → leave the field blank so the admin can
-      // still skip filling it in. Stored value in paise → display
-      // rupees with the same /100 transform as selling price.
-      costPrice: item.costPrice != null ? String(item.costPrice / 100) : "",
+      // still skip filling it in.
+      costPrice: item.costPrice != null ? String(item.costPrice) : "",
       image: item.image || "",
       isVeg: item.isVeg,
       tags: item.tags.join(", "),
@@ -179,8 +181,13 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
     setSaving(true);
     setError(null);
 
-    const priceInPaise = Math.round(parseFloat(form.price) * 100);
-    if (isNaN(priceInPaise) || priceInPaise <= 0) {
+    // Selling price — rupees with optional decimals. The DB stores
+    // it as a Float so we hand over `parseFloat` directly; the
+    // gateway adapters multiply by 100 on the way to Razorpay /
+    // PhonePe (see app/api/razorpay/cafe-create-order and the
+    // PhonePe initiator).
+    const priceRupees = parseFloat(form.price);
+    if (isNaN(priceRupees) || priceRupees <= 0) {
       setError("Price must be a positive number");
       setSaving(false);
       return;
@@ -191,23 +198,23 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
     // and shouldn't exceed the selling price (the venue isn't
     // making negative margin in the regular case; we let admins
     // catch typos before they break the margin reports).
-    let costPriceInPaise: number | null = null;
+    let costRupees: number | null = null;
     const costRaw = form.costPrice.trim();
     if (costRaw !== "") {
-      const parsed = Math.round(parseFloat(costRaw) * 100);
+      const parsed = parseFloat(costRaw);
       if (isNaN(parsed) || parsed < 0) {
         setError("Cost price must be a non-negative number");
         setSaving(false);
         return;
       }
-      if (parsed > priceInPaise) {
+      if (parsed > priceRupees) {
         setError(
           "Cost price is higher than selling price — double-check the figures",
         );
         setSaving(false);
         return;
       }
-      costPriceInPaise = parsed;
+      costRupees = parsed;
     }
 
     const tags = form.tags
@@ -220,9 +227,9 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
         name: form.name,
         description: form.description || null,
         category: form.category,
-        price: priceInPaise,
+        price: priceRupees,
         // Explicit `null` clears a previously-set cost price.
-        costPrice: costPriceInPaise,
+        costPrice: costRupees,
         image: form.image || null,
         isVeg: form.isVeg,
         tags,
@@ -237,8 +244,8 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
         name: form.name,
         description: form.description || undefined,
         category: form.category,
-        price: priceInPaise,
-        costPrice: costPriceInPaise,
+        price: priceRupees,
+        costPrice: costRupees,
         image: form.image || undefined,
         isVeg: form.isVeg,
         tags,

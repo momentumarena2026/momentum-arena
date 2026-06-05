@@ -189,11 +189,13 @@ export async function validateCafeCoupon(
       }
     }
 
-    // Check minimum order amount
+    // Check minimum order amount. Both sides are rupees (Float)
+    // after the cafe-prices-to-float-rupees migration; drop the
+    // pre-migration /100 paise display.
     if (discount.minOrderAmount && amount < discount.minOrderAmount) {
       return {
         valid: false,
-        error: `Minimum order of ₹${(discount.minOrderAmount / 100).toLocaleString("en-IN")} required`,
+        error: `Minimum order of ₹${discount.minOrderAmount.toLocaleString("en-IN")} required`,
       };
     }
 
@@ -210,13 +212,17 @@ export async function validateCafeCoupon(
       }
     }
 
-    // Calculate discount amount
+    // Calculate discount amount. Both `amount` and the returned
+    // `discountValue` are rupees (Float) post-migration; the
+    // surrounding CafeOrder.discountAmount column is Float too.
     let discountValue: number;
     if (discount.type === "PERCENTAGE") {
-      // value is in basis points (e.g., 1000 = 10%)
-      discountValue = Math.round((amount * discount.value) / 10000);
+      // value is in basis points (e.g., 1000 = 10%). 200 ₹ × 1000
+      // bps / 10000 = 20 ₹.
+      discountValue = (amount * discount.value) / 10000;
     } else {
-      // FLAT - value is in paise
+      // FLAT — value is the rupee amount (post-migration; was
+      // paise pre-migration).
       discountValue = discount.value;
     }
 
