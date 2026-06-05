@@ -54,6 +54,11 @@ const STATUS_CONFIG: Record<
   CafeOrderStatus,
   { icon: typeof Clock; color: string; bg: string; label: string }
 > = {
+  // Default list query hides PENDING_PAYMENT, but if an admin
+  // explicitly filters for it (orphaned-payment debugging) or the
+  // detail page hits one, we want it to render with a sensible
+  // pill instead of crashing on a missing key.
+  PENDING_PAYMENT: { icon: Clock, color: "text-zinc-400", bg: "bg-zinc-500/10", label: "Awaiting Payment" },
   PENDING: { icon: Clock, color: "text-yellow-400", bg: "bg-yellow-500/10", label: "Pending" },
   PREPARING: { icon: ChefHat, color: "text-blue-400", bg: "bg-blue-500/10", label: "Preparing" },
   READY: { icon: Bell, color: "text-purple-400", bg: "bg-purple-500/10", label: "Ready" },

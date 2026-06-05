@@ -43,7 +43,15 @@ export async function getCafeOrders(
   const limit = 20;
   const skip = (page - 1) * limit;
 
-  const where: Record<string, unknown> = {};
+  // Default — hide PENDING_PAYMENT from every admin list. These
+  // are mid-checkout intents that haven't been paid for and
+  // haven't decremented stock yet; they're not real orders to the
+  // operator. An explicit `filters.status === "PENDING_PAYMENT"`
+  // can still surface them (for ops debugging), but the default
+  // tab views never do.
+  const where: Record<string, unknown> = {
+    status: { not: "PENDING_PAYMENT" },
+  };
 
   if (filters?.date) {
     const start = new Date(filters.date);
@@ -54,6 +62,8 @@ export async function getCafeOrders(
   }
 
   if (filters?.status) {
+    // Explicit status filter overrides the PENDING_PAYMENT
+    // exclusion above — useful for an "orphaned payments" view.
     where.status = filters.status;
   }
 
@@ -94,18 +104,23 @@ export async function getCafeOrderStats(skipAuth?: boolean) {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
+  // Exclude both CANCELLED (the original rule) and PENDING_PAYMENT
+  // (new — these are mid-checkout intents, not real orders). Stats
+  // should reflect only orders that actually transacted.
+  const excludedStatuses: CafeOrderStatus[] = ["CANCELLED", "PENDING_PAYMENT"];
+
   const [todayOrders, todayRevenue, pendingCount, popularItems] =
     await Promise.all([
       db.cafeOrder.count({
         where: {
           createdAt: { gte: today, lt: tomorrow },
-          status: { not: "CANCELLED" },
+          status: { notIn: excludedStatuses },
         },
       }),
       db.cafeOrder.aggregate({
         where: {
           createdAt: { gte: today, lt: tomorrow },
-          status: { not: "CANCELLED" },
+          status: { notIn: excludedStatuses },
         },
         _sum: { totalAmount: true },
       }),
@@ -117,7 +132,7 @@ export async function getCafeOrderStats(skipAuth?: boolean) {
         where: {
           order: {
             createdAt: { gte: today, lt: tomorrow },
-            status: { not: "CANCELLED" },
+            status: { notIn: excludedStatuses },
           },
         },
         _sum: { quantity: true },
@@ -166,6 +181,12 @@ export async function getLiveCafeOrders(skipAuth?: boolean) {
 }
 
 const STATUS_PIPELINE: Record<CafeOrderStatus, CafeOrderStatus[]> = {
+  // PENDING_PAYMENT is a checkout intent that only flips via the
+  // payment-verify route (→ PENDING/COMPLETED) or the cafe-cancel
+  // path (→ CANCELLED). No admin manual transitions allowed — the
+  // gateway owns this state. The empty array enforces that
+  // `updateCafeOrderStatus` rejects any attempt to move out of it.
+  PENDING_PAYMENT: [],
   PENDING: ["PREPARING", "CANCELLED"],
   PREPARING: ["READY", "CANCELLED"],
   READY: ["COMPLETED", "CANCELLED"],
@@ -418,7 +439,7 @@ export async function cancelCafeOrder(
   try {
     const order = await db.cafeOrder.findUnique({
       where: { id: orderId },
-      include: { payment: true },
+      include: { payment: true, items: true },
     });
 
     if (!order) return { success: false, error: "Order not found" };
@@ -427,6 +448,36 @@ export async function cancelCafeOrder(
     }
     if (order.status === "COMPLETED") {
       return { success: false, error: "Cannot cancel a completed order" };
+    }
+
+    // Stock restoration. Orders past PENDING_PAYMENT had their
+    // Ready-line stock decremented at order-create time (in-person)
+    // or at payment-verify time (online). When the admin cancels,
+    // return that stock to the shelf so the items become available
+    // again to other customers.
+    //
+    // PENDING_PAYMENT orders never decremented inventory — they
+    // were waiting for the gateway to confirm — so they get no
+    // stock restoration and no refund (no payment was captured).
+    const shouldRestoreStock = order.status !== "PENDING_PAYMENT";
+    let stockToRestore: { id: string; quantity: number }[] = [];
+    if (shouldRestoreStock) {
+      const cafeItemIds = order.items.map((i) => i.cafeItemId);
+      const currentItems = await db.cafeItem.findMany({
+        where: { id: { in: cafeItemIds } },
+        select: { id: true, quantity: true },
+      });
+      const currentMap = new Map(currentItems.map((c) => [c.id, c]));
+      // Only restore lines whose item still tracks stock. If the
+      // admin flipped an item from Ready → Prepare since the order
+      // was placed, quantity is now null (untracked) and there's
+      // nothing meaningful to increment.
+      stockToRestore = order.items
+        .filter((line) => currentMap.get(line.cafeItemId)?.quantity !== null)
+        .map((line) => ({
+          id: line.cafeItemId,
+          quantity: line.quantity,
+        }));
     }
 
     await db.$transaction(async (tx) => {
@@ -448,11 +499,26 @@ export async function cancelCafeOrder(
         await tx.cafePayment.update({
           where: { id: order.payment.id },
           data: {
-            status: "REFUNDED",
-            refundedBy: admin.id,
-            refundedAt: new Date(),
+            // PENDING_PAYMENT cancellation never captured the
+            // funds; mark FAILED instead of REFUNDED so the
+            // refund-due reports don't surface a phantom liability.
+            status:
+              order.status === "PENDING_PAYMENT" ? "FAILED" : "REFUNDED",
+            refundedBy:
+              order.status === "PENDING_PAYMENT" ? null : admin.id,
+            refundedAt:
+              order.status === "PENDING_PAYMENT" ? null : new Date(),
             refundReason: reason,
           },
+        });
+      }
+      // Atomic restore inside the same transaction so a cancel
+      // either fully reverts (status + stock + payment together)
+      // or none of it lands.
+      for (const item of stockToRestore) {
+        await tx.cafeItem.update({
+          where: { id: item.id },
+          data: { quantity: { increment: item.quantity } },
         });
       }
     });

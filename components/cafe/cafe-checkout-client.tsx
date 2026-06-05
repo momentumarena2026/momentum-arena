@@ -150,6 +150,31 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
           return;
         }
 
+        // Cancel-on-dismiss helper. Called when the customer
+        // closes the Razorpay modal without paying, or when the
+        // gateway reports payment.failed. Hits the cafe-cancel
+        // endpoint which flips the order to CANCELLED so it never
+        // shows up on the admin board, and rolls back the coupon
+        // burn so the customer can retry with the same code.
+        // Stock is not touched — PENDING_PAYMENT orders never
+        // decremented inventory.
+        const cancelPendingPaymentOrder = async (reason: string) => {
+          try {
+            await fetch("/api/razorpay/cafe-cancel", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ orderId: result.orderId, reason }),
+            });
+          } catch (cancelErr) {
+            // Best-effort — if the cancel POST fails (network
+            // hiccup) the server-side sweep cron will clean up
+            // any PENDING_PAYMENT orders eventually. We don't
+            // surface the error to the customer; they already
+            // know payment didn't go through.
+            console.error("[cafe-cancel] best-effort cancel failed", cancelErr);
+          }
+        };
+
         const razorpay = new window.Razorpay({
           key: rpData.keyId,
           amount: rpData.amount,
@@ -183,10 +208,23 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
               setLoading(false);
             }
           },
+          modal: {
+            // ondismiss fires when the customer closes the modal
+            // without completing payment (clicks the X, taps the
+            // backdrop, hits back, etc). Treat this as a hard
+            // cancel — release the PENDING_PAYMENT order so the
+            // admin tab stays clean.
+            ondismiss: async () => {
+              await cancelPendingPaymentOrder("Customer dismissed Razorpay modal");
+              setError("Payment cancelled. Your order was not placed.");
+              setLoading(false);
+            },
+          },
           theme: { color: "#059669" },
         });
 
-        razorpay.on("payment.failed", function () {
+        razorpay.on("payment.failed", async function () {
+          await cancelPendingPaymentOrder("Razorpay reported payment.failed");
           setError("Payment failed. Please try again.");
           setLoading(false);
         });
