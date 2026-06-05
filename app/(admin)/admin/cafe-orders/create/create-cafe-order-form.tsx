@@ -31,6 +31,17 @@ interface MenuItem {
   price: number;
   isVeg: boolean;
   tags: string[];
+  /**
+   * `true` when the item is cooked / assembled in the kitchen
+   * (CafeItem.quantity is NULL — no stock tracking, made to
+   * order). `false` when it's a procured ready-to-serve item
+   * (CafeItem.quantity is a number — e.g. drinks, ice-cream,
+   * packaged snacks). Drives the order-status routing in
+   * `adminCreateCafeOrder`: an order made up entirely of
+   * needsPreparation=false items lands directly in COMPLETED
+   * (no kitchen ticket); anything else stays PENDING.
+   */
+  needsPreparation: boolean;
 }
 
 interface CartItem {
@@ -39,6 +50,11 @@ interface CartItem {
   price: number;
   quantity: number;
   isVeg: boolean;
+  // Mirrors MenuItem.needsPreparation; carried into the cart so
+  // the order-summary hint can reflect "this whole order is
+  // ready to hand over" vs "kitchen will prepare" without
+  // looking the item back up by id.
+  needsPreparation: boolean;
 }
 
 interface Customer {
@@ -114,6 +130,7 @@ export function CreateCafeOrderForm({
           price: item.price,
           quantity: 1,
           isVeg: item.isVeg,
+          needsPreparation: item.needsPreparation,
         },
       ];
     });
@@ -285,6 +302,24 @@ export function CreateCafeOrderForm({
                             <span className="text-sm font-medium text-white truncate">
                               {item.name}
                             </span>
+                            {/* Fulfilment badge — tells the operator at
+                                a glance whether ringing this item up
+                                will skip the kitchen ("Ready" — handed
+                                over at counter, order COMPLETED on
+                                create) or send a ticket to the kitchen
+                                ("Kitchen" — PENDING → PREPARING →
+                                READY → COMPLETED via the live-order
+                                board). Tied to CafeItem.quantity:
+                                stocked → Ready, NULL → Kitchen. */}
+                            {item.needsPreparation ? (
+                              <span className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+                                Kitchen
+                              </span>
+                            ) : (
+                              <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+                                Ready
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs font-medium text-emerald-400 mt-0.5">
                             {formatPrice(item.price)}
@@ -392,6 +427,44 @@ export function CreateCafeOrderForm({
               </span>
             </div>
           )}
+
+          {/* Fulfilment hint — tells the admin what'll happen when
+              they tap Place Order:
+                - all ready    → "Hand over now" — order goes
+                                 straight to COMPLETED, skips the
+                                 kitchen kanban entirely.
+                - has kitchen  → "Send to kitchen" — order lands
+                                 in PENDING and the live-order
+                                 board picks it up.
+              The server re-checks `CafeItem.quantity` directly to
+              route status, so this is purely a UX preview; the two
+              paths can't drift. */}
+          {cart.length > 0 && (() => {
+            const allReady = cart.every((c) => !c.needsPreparation);
+            return (
+              <div
+                className={`rounded-lg border px-3 py-2 text-xs ${
+                  allReady
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-200"
+                }`}
+              >
+                {allReady ? (
+                  <>
+                    <span className="font-semibold">Hand over now.</span>{" "}
+                    Every item is ready-to-serve — the order will be marked
+                    COMPLETED and won&apos;t appear on the kitchen board.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold">Send to kitchen.</span>{" "}
+                    At least one item needs preparation — the order lands
+                    in the live-order board for the kitchen to work through.
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Customer section */}
           <div className="border-t border-zinc-800 pt-3 space-y-3">
@@ -533,17 +606,27 @@ export function CreateCafeOrderForm({
 
           {error && <p className="text-sm text-red-400">{error}</p>}
 
-          {/* Submit */}
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || cart.length === 0}
-            className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-            ) : null}
-            Place Order {cart.length > 0 && `(${formatPrice(totalAmount)})`}
-          </button>
+          {/* Submit — button label changes with the fulfilment
+              hint above. "Place & Hand Over" makes it explicit
+              that ready-only orders skip the kitchen and complete
+              on click. */}
+          {(() => {
+            const allReady =
+              cart.length > 0 && cart.every((c) => !c.needsPreparation);
+            return (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || cart.length === 0}
+                className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+              >
+                {submitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                ) : null}
+                {allReady ? "Place & Hand Over" : "Place Order"}
+                {cart.length > 0 && ` (${formatPrice(totalAmount)})`}
+              </button>
+            );
+          })()}
         </div>
       </div>
     </div>

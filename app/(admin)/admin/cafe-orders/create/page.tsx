@@ -21,6 +21,14 @@ export default async function CreateCafeOrderPage() {
           price: item.price,
           isVeg: item.isVeg,
           tags: item.tags,
+          // `needsPreparation` drives the ready-vs-kitchen UX.
+          // CafeItem.quantity is the source of truth: a non-null
+          // stock count means the item is procured / ready to
+          // serve (drinks, ice-cream); NULL means the kitchen has
+          // to prepare it. Derived here so the form doesn't have
+          // to interpret the raw number, and the server still
+          // re-checks `quantity` directly to route status.
+          needsPreparation: item.quantity == null,
         }))}
       />
     </div>
