@@ -1,7 +1,8 @@
 import { put, del } from "@vercel/blob";
 
 /**
- * Server-side image upload helper for the shop module.
+ * Server-side image upload helper used by every admin module that
+ * stores public-facing images (shop products, cafe menu items, ...).
  *
  * Wraps `@vercel/blob`'s `put()` with a stable folder convention,
  * size + MIME validation, and a randomised pathname so two admins
@@ -41,15 +42,16 @@ export interface UploadedImage {
 }
 
 /**
- * Upload a product image to Vercel Blob.
+ * Upload a public-facing image to Vercel Blob.
  *
  * @param file  A `File` (browser) or `Blob` with a known size/type.
- * @param folder  Top-level folder inside the bucket. Defaults to
- *                "products" — admins uploading from /admin/products.
+ * @param folder  Top-level folder inside the bucket. Use a stable
+ *                module name like "products" or "cafe" so we can
+ *                grep + manage the store later.
  */
-export async function uploadProductImage(
+export async function uploadImage(
   file: File | Blob,
-  folder = "products",
+  folder: string,
 ): Promise<UploadedImage> {
   if (file.size > MAX_BYTES) {
     throw new Error(
@@ -88,15 +90,23 @@ export async function uploadProductImage(
 }
 
 /**
- * Best-effort delete — when an admin replaces or removes a Product
- * image we drop the previous blob to avoid orphans. Failures are
- * logged but never thrown; the caller's primary work (DB write)
- * should always succeed even if the blob delete races.
+ * Best-effort delete — when an admin replaces or removes an image
+ * we drop the previous blob to avoid orphans. Failures are logged
+ * but never thrown; the caller's primary work (DB write) should
+ * always succeed even if the blob delete races.
  */
-export async function deleteProductImage(urlOrPathname: string): Promise<void> {
+export async function deleteImage(urlOrPathname: string): Promise<void> {
   try {
     await del(urlOrPathname);
   } catch (err) {
     console.warn("[blob] failed to delete", urlOrPathname, err);
   }
 }
+
+// Legacy aliases — the shop module called these `uploadProductImage`
+// and `deleteProductImage` before the helper was generalised for the
+// cafe module. Keep them so other modules don't have to change in
+// lockstep.
+export const uploadProductImage = (file: File | Blob, folder = "products") =>
+  uploadImage(file, folder);
+export const deleteProductImage = deleteImage;
