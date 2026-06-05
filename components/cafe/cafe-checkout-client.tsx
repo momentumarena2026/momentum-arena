@@ -44,7 +44,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
     code: string;
     discount: number;
   } | null>(null);
-  const [tableNumber, setTableNumber] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showQr, setShowQr] = useState(false);
@@ -98,7 +97,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
         note: note.trim() || undefined,
         guestName: !isLoggedIn ? guestName.trim() || undefined : undefined,
         guestPhone: !isLoggedIn ? guestPhone.trim() || undefined : undefined,
-        tableNumber: tableNumber || undefined,
       });
 
       if (!result.success || !result.orderId) {
@@ -281,40 +279,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
           <p className="text-xs text-zinc-500 mt-2">For order reference only. No account required.</p>
         </div>
       )}
-
-      {/* Table Number (optional) */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4">
-        <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">
-          Dine-In Table (Optional)
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setTableNumber(null)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              tableNumber === null
-                ? "bg-amber-600 text-white"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-            }`}
-          >
-            Takeaway
-          </button>
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
-            <button
-              key={num}
-              type="button"
-              onClick={() => setTableNumber(num)}
-              className={`w-10 h-10 rounded-lg text-sm font-bold transition-colors ${
-                tableNumber === num
-                  ? "bg-amber-600 text-white"
-                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-              }`}
-            >
-              {num}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* Order Summary */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4">
