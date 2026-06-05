@@ -178,6 +178,15 @@ export default async function CafeConfirmationPage({
           className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl text-center transition-colors"
           label="Back"
         />
+        {/* Direct path to the order-history page so a customer who
+            just placed an order can flip straight to "all my
+            orders" without going through the cafe menu first. */}
+        <Link
+          href="/cafe/orders"
+          className="flex-1 border border-zinc-700 hover:border-amber-500/50 hover:text-amber-200 text-zinc-300 font-semibold py-3 rounded-xl text-center transition-colors"
+        >
+          View All My Orders
+        </Link>
       </div>
     </div>
   );

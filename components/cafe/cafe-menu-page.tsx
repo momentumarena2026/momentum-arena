@@ -170,15 +170,33 @@ export function CafeMenuPage({
           <div className="absolute bottom-2 right-10 text-5xl">🍰</div>
         </div>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-8 relative z-10">
-          <div className="flex items-center gap-3">
+          <div className="flex items-start gap-3">
             <a href="/" className="flex-shrink-0"><img src="/blackLogo.png" alt="Momentum Arena" className="h-14 sm:h-24 w-auto" /></a>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="text-xl sm:text-3xl md:text-4xl font-bold text-white truncate">Momentum Cafe ☕</h1>
               <p className="text-amber-200/60 text-xs sm:text-sm max-w-lg truncate">
                 Snacks, beverages & meals — served fresh at the arena.
               </p>
             </div>
+            {/* Quick link to past orders. Compact, slightly muted so
+                it doesn't compete with the menu — but always there
+                so signed-in customers can pull up their history
+                without digging through the bottom-nav profile. */}
+            <a
+              href="/cafe/orders"
+              className="hidden sm:inline-flex items-center gap-1.5 self-center rounded-full border border-amber-700/40 bg-amber-900/20 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-900/40 transition-colors"
+            >
+              My Orders
+            </a>
           </div>
+          {/* Mobile placement — full-width pill under the title so
+              it stays tappable without crowding the header row. */}
+          <a
+            href="/cafe/orders"
+            className="sm:hidden mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-700/40 bg-amber-900/20 px-3 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-900/40 transition-colors"
+          >
+            My Orders →
+          </a>
         </div>
       </div>
 
