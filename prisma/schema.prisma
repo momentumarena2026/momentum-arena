@@ -852,6 +852,16 @@ model CafeItem {
   // aren't forced to backfill — the reporting path falls back
   // to "unknown margin" when null.
   costPrice   Float?
+  // Optional stock count. NULL means the item is unlimited /
+  // kitchen-prepared (cooked-to-order — sandwiches, hot meals
+  // etc. never run out unless raw ingredients do, and ingredient
+  // tracking is out of scope). Non-null means "we have N units
+  // on hand"; the customer + admin order paths decrement on
+  // order create and refuse the order when stock would go
+  // negative. Floor staff resets / restocks this whenever they
+  // physically procure goods (drinks, ice-cream, packaged
+  // snacks).
+  quantity    Int?
   image       String?
   isVeg       Boolean          @default(true)
   isAvailable Boolean          @default(true)
@@ -1336,8 +1346,13 @@ model RewardAlert {
 // ===========================
 
 model CafeSettings {
-  id          String @id @default(cuid())
-  totalTables Int    @default(10)
+  id          String  @id @default(cuid())
+  totalTables Int     @default(10)
+  // Master open/closed switch. true → customer-facing /cafe + the
+  // mobile Cafe tab show the menu + ordering flow. false → both
+  // surfaces render the "Cafe is closed" page; admin can keep
+  // creating walk-in orders from the admin side regardless.
+  isOpen      Boolean @default(true)
 
   updatedAt DateTime @updatedAt
 }

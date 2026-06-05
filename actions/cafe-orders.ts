@@ -44,6 +44,28 @@ export async function createCafeOrder(data: {
 
     const itemMap = new Map(cafeItems.map((i) => [i.id, i]));
 
+    // Stock guard. For items with non-null `quantity` (drinks,
+    // ice-cream, packaged snacks — anything the venue physically
+    // procures) we refuse the order when the requested quantity
+    // exceeds what's on hand. Kitchen-prepared items leave
+    // CafeItem.quantity as NULL and skip the check entirely.
+    //
+    // The DB-level decrement that follows the order create runs
+    // with a conditional WHERE clause so a race between two
+    // simultaneous orders can't drive stock negative — see the
+    // updateMany below.
+    for (const line of data.items) {
+      const cafeItem = itemMap.get(line.cafeItemId)!;
+      if (cafeItem.quantity !== null && cafeItem.quantity < line.quantity) {
+        return {
+          success: false,
+          error: cafeItem.quantity === 0
+            ? `${cafeItem.name} is out of stock`
+            : `Only ${cafeItem.quantity} ${cafeItem.name} left — please reduce the quantity`,
+        };
+      }
+    }
+
     // Calculate totals from current prices
     let totalAmount = 0;
     const orderItems = data.items.map((item) => {
@@ -128,6 +150,35 @@ export async function createCafeOrder(data: {
         payment: true,
       },
     });
+
+    // Decrement stock atomically for items that track quantity.
+    // Using updateMany with a `quantity: { gte: line.quantity }`
+    // guard so a concurrent order that's already pulled the last
+    // unit can't push us negative — the per-item update simply
+    // matches zero rows in that case. If that happens, we surface
+    // a sold-out error and leave the order in place (the customer
+    // sees the rejection at the next refresh; the order itself is
+    // PENDING and an admin can choose to fulfil or cancel it).
+    //
+    // Sequential rather than parallel — small N, simpler reasoning
+    // and predictable error attribution to a specific item name.
+    for (const line of data.items) {
+      const cafeItem = itemMap.get(line.cafeItemId)!;
+      if (cafeItem.quantity === null) continue; // unlimited
+      const updated = await db.cafeItem.updateMany({
+        where: {
+          id: line.cafeItemId,
+          quantity: { gte: line.quantity },
+        },
+        data: { quantity: { decrement: line.quantity } },
+      });
+      if (updated.count === 0) {
+        return {
+          success: false,
+          error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
+        };
+      }
+    }
 
     // Record discount usage if applied
     if (discountCodeId && discountAmount > 0) {

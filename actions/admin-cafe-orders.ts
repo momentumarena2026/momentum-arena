@@ -275,6 +275,22 @@ export async function adminCreateCafeOrder(data: {
 
     const itemMap = new Map(cafeItems.map((i) => [i.id, i]));
 
+    // Stock guard — mirror of the customer path in
+    // actions/cafe-orders.ts. NULL quantity = unlimited /
+    // kitchen-prepared; non-null = trackable stock that must
+    // cover the requested line.
+    for (const line of data.items) {
+      const cafeItem = itemMap.get(line.cafeItemId)!;
+      if (cafeItem.quantity !== null && cafeItem.quantity < line.quantity) {
+        return {
+          success: false,
+          error: cafeItem.quantity === 0
+            ? `${cafeItem.name} is out of stock`
+            : `Only ${cafeItem.quantity} ${cafeItem.name} left — please reduce the quantity`,
+        };
+      }
+    }
+
     // Calculate totals
     let totalAmount = 0;
     const orderItems = data.items.map((item) => {
@@ -342,6 +358,29 @@ export async function adminCreateCafeOrder(data: {
         payment: true,
       },
     });
+
+    // Atomic stock decrement for trackable items. Same race-safe
+    // pattern as the customer order path — `updateMany` with a
+    // gte guard so two simultaneous orders can't drive stock
+    // negative. NULL-quantity items (kitchen-prepared) skip the
+    // update entirely.
+    for (const line of data.items) {
+      const cafeItem = itemMap.get(line.cafeItemId)!;
+      if (cafeItem.quantity === null) continue;
+      const updated = await db.cafeItem.updateMany({
+        where: {
+          id: line.cafeItemId,
+          quantity: { gte: line.quantity },
+        },
+        data: { quantity: { decrement: line.quantity } },
+      });
+      if (updated.count === 0) {
+        return {
+          success: false,
+          error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
+        };
+      }
+    }
 
     return { success: true, order };
   } catch (error) {
