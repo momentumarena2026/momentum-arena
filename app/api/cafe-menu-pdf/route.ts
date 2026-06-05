@@ -14,8 +14,14 @@ const CATEGORY_LABELS: Record<string, { label: string }> = {
 
 const CATEGORY_ORDER = ["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"];
 
-function formatMenuPrice(paise: number): string {
-  return `Rs. ${(paise / 100).toLocaleString("en-IN")}`;
+function formatMenuPrice(rupees: number): string {
+  // CafeItem.price is now stored as RUPEES (Float, decimals
+  // allowed). Render directly — the previous /100 divide assumed
+  // the old paise storage and started double-divaling values
+  // once the migration ran. `toLocaleString` keeps thousand
+  // separators on integer prices and trims trailing zeros on
+  // decimal ones via default options.
+  return `Rs. ${rupees.toLocaleString("en-IN")}`;
 }
 
 // Amber/Orange cafe theme

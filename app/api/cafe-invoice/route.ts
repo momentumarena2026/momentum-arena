@@ -18,8 +18,13 @@ const COMPANY = {
 
 const GST_RATE = 18;
 
-function formatPriceInv(paise: number): string {
-  return `Rs. ${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+function formatPriceInv(rupees: number): string {
+  // Cafe amounts are now Float rupees in storage; the /100 divide
+  // belonged to the paise era and would double-down on the actual
+  // rupee value. minimumFractionDigits=2 keeps the invoice's
+  // accounting style ("Rs. 99.50") even for whole-rupee totals
+  // ("Rs. 200.00").
+  return `Rs. ${rupees.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function numberToWords(num: number): string {
@@ -304,28 +309,30 @@ export async function GET(request: Request) {
   doc.line(margin, y, pageWidth - margin, y);
   y += 4;
 
-  // GST calculation (inclusive of 18% GST)
-  const totalAmountPaise = order.totalAmount;
-  const baseAmountPaise = Math.round(totalAmountPaise / 1.18);
-  const cgstPaise = Math.round((totalAmountPaise - baseAmountPaise) / 2);
-  const sgstPaise = totalAmountPaise - baseAmountPaise - cgstPaise;
+  // GST calculation (inclusive of 18% GST). All cafe amounts are
+  // now Float rupees — the old "Paise" name on these locals is a
+  // historical artefact; the math (18% GST split into half CGST,
+  // half SGST) is unit-agnostic.
+  const totalAmount = order.totalAmount;
+  const baseAmount = totalAmount / 1.18;
+  const cgst = (totalAmount - baseAmount) / 2;
+  const sgst = totalAmount - baseAmount - cgst;
 
-  const discountPaise = order.discountAmount || 0;
-  const originalPaise =
-    order.originalAmount || totalAmountPaise + discountPaise;
+  const discount = order.discountAmount || 0;
+  const originalAmount = order.originalAmount || totalAmount + discount;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   const rightCol = pageWidth - margin;
   const labelCol = rightCol - 45;
 
-  if (discountPaise > 0) {
+  if (discount > 0) {
     doc.text("Subtotal:", labelCol, y);
-    doc.text(formatPriceInv(originalPaise), rightCol, y, { align: "right" });
+    doc.text(formatPriceInv(originalAmount), rightCol, y, { align: "right" });
     y += 5;
     doc.text("Discount:", labelCol, y);
     doc.setTextColor(220, 50, 50);
-    doc.text(`- ${formatPriceInv(discountPaise)}`, rightCol, y, {
+    doc.text(`- ${formatPriceInv(discount)}`, rightCol, y, {
       align: "right",
     });
     doc.setTextColor(0, 0, 0);
@@ -333,15 +340,15 @@ export async function GET(request: Request) {
   }
 
   doc.text("Taxable Amount:", labelCol, y);
-  doc.text(formatPriceInv(baseAmountPaise), rightCol, y, { align: "right" });
+  doc.text(formatPriceInv(baseAmount), rightCol, y, { align: "right" });
   y += 5;
 
   doc.text(`CGST (${GST_RATE / 2}%):`, labelCol, y);
-  doc.text(formatPriceInv(cgstPaise), rightCol, y, { align: "right" });
+  doc.text(formatPriceInv(cgst), rightCol, y, { align: "right" });
   y += 5;
 
   doc.text(`SGST (${GST_RATE / 2}%):`, labelCol, y);
-  doc.text(formatPriceInv(sgstPaise), rightCol, y, { align: "right" });
+  doc.text(formatPriceInv(sgst), rightCol, y, { align: "right" });
   y += 5;
 
   // Total
@@ -352,14 +359,16 @@ export async function GET(request: Request) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("Total:", labelCol, y);
-  doc.text(formatPriceInv(totalAmountPaise), rightCol, y, { align: "right" });
+  doc.text(formatPriceInv(totalAmount), rightCol, y, { align: "right" });
   y += 8;
 
-  // Amount in words
+  // Amount in words — numberToWords takes an integer; floor the
+  // rupee total. (Decimals on the invoice show in `formatPriceInv`
+  // above; "Forty-nine and 50/100" is more than this helper does.)
   doc.setFontSize(8);
   doc.setFont("helvetica", "italic");
   doc.setTextColor(80, 80, 80);
-  const totalRupees = Math.round(totalAmountPaise / 100);
+  const totalRupees = Math.floor(totalAmount);
   doc.text(`Amount in words: ${numberToWords(totalRupees)}`, margin, y);
   y += 6;
 

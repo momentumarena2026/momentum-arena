@@ -839,13 +839,19 @@ model CafeItem {
   name        String
   description String?
   category    CafeItemCategory
-  price       Int // selling price, in paise
-  // Cost price (paise). What it costs the venue to source/prepare
-  // the item; subtracting this from `price` gives the margin per
-  // unit, which the cafe-revenue reports use to compute profit.
-  // Nullable so existing rows aren't forced to backfill — the
-  // reporting path falls back to "unknown margin" when null.
-  costPrice   Int?
+  // Selling price, in RUPEES (with optional decimal — e.g. 99.50).
+  // Stored as Float so menu pricing can be sub-rupee accurate;
+  // payment-gateway boundaries (Razorpay / PhonePe) multiply by
+  // 100 to convert to paise on the wire. `formatPrice(price)`
+  // renders directly without a /100 divide.
+  price       Float
+  // Cost price (rupees, optional decimal). What it costs the
+  // venue to source/prepare the item; subtracting this from
+  // `price` gives the margin per unit, which the cafe-revenue
+  // reports use to compute profit. Nullable so existing rows
+  // aren't forced to backfill — the reporting path falls back
+  // to "unknown margin" when null.
+  costPrice   Float?
   image       String?
   isVeg       Boolean          @default(true)
   isAvailable Boolean          @default(true)
@@ -868,9 +874,10 @@ model CafeOrder {
   guestPhone     String?
   orderNumber    String          @unique
   status         CafeOrderStatus @default(PENDING)
-  totalAmount    Int
-  originalAmount Int?
-  discountAmount Int             @default(0)
+  // Order totals in RUPEES (decimal). See CafeItem.price.
+  totalAmount    Float
+  originalAmount Float?
+  discountAmount Float           @default(0)
   discountCodeId String?
   note           String?
   tableNumber    Int?
@@ -900,8 +907,12 @@ model CafeOrderItem {
   cafeItem   CafeItem  @relation(fields: [cafeItemId], references: [id])
   itemName   String // snapshot of name at time of order
   quantity   Int
-  unitPrice  Int // paise
-  totalPrice Int // quantity * unitPrice
+  // Per-unit + line total snapshotted at order time, in RUPEES
+  // (Float so decimal-priced items round-trip cleanly). Gateway
+  // adapters multiply by 100 at the boundary for Razorpay /
+  // PhonePe. See CafeItem.price for the unit decision.
+  unitPrice  Float
+  totalPrice Float
 
   @@index([orderId])
 }
@@ -912,7 +923,9 @@ model CafePayment {
   order   CafeOrder     @relation(fields: [orderId], references: [id])
   method  PaymentMethod
   status  PaymentStatus @default(PENDING)
-  amount  Int
+  // Captured payment amount in RUPEES (decimal). Gateway boundary
+  // does ×100 → paise on the way out to Razorpay / PhonePe.
+  amount  Float
 
   razorpayOrderId   String?
   razorpayPaymentId String?
@@ -948,11 +961,17 @@ model CafeDiscount {
   id             String             @id @default(cuid())
   code           String             @unique
   type           DiscountType
-  value          Int // percentage (basis points) or flat (paise)
+  // PERCENTAGE rows store basis points (10000 = 100%). FLAT rows
+  // store a rupee amount with optional decimal — Float so a "₹49.50
+  // off" coupon round-trips cleanly. Migration distinguishes the
+  // two types via a conditional /100 update on FLAT rows only.
+  value          Float
   maxUses        Int?
   usedCount      Int                @default(0)
   maxUsesPerUser Int                @default(1)
-  minOrderAmount Int? // minimum order in paise
+  // Minimum order in RUPEES (decimal). Lined up with
+  // CafeOrder.totalAmount's new Float-rupee unit.
+  minOrderAmount Float?
   categoryFilter CafeItemCategory[]
   validFrom      DateTime
   validUntil     DateTime
@@ -971,7 +990,9 @@ model CafeDiscountUsage {
   discount       CafeDiscount @relation(fields: [discountId], references: [id])
   userId         String
   orderId        String       @unique
-  discountAmount Int
+  // Amount the customer saved on this usage, in RUPEES (decimal).
+  // Matches CafeOrder.discountAmount's unit.
+  discountAmount Float
 
   createdAt DateTime @default(now())
 
@@ -989,8 +1010,10 @@ model CafeOrderEditHistory {
 
   previousItems  Json?
   newItems       Json?
-  previousAmount Int?
-  newAmount      Int?
+  // Order-total snapshots before / after the edit, in RUPEES
+  // (decimal). Matches CafeOrder.totalAmount's unit.
+  previousAmount Float?
+  newAmount      Float?
 
   note      String?
   createdAt DateTime @default(now())

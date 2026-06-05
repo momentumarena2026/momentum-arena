@@ -13,10 +13,15 @@ async function requireAdmin() {
 const cafeCouponSchema = z.object({
   code: z.string().min(3).max(20),
   type: z.enum(["PERCENTAGE", "FLAT"]),
-  value: z.number().int().min(1),
+  // PERCENTAGE values are basis-point integers (1000 = 10%); FLAT
+  // values are rupee amounts that may be fractional after the
+  // float-rupee migration. Accept any positive number — admins
+  // pick the right unit via the type radio.
+  value: z.number().positive(),
   maxUses: z.number().int().min(1).optional(),
   maxUsesPerUser: z.number().int().min(1).default(1),
-  minOrderAmount: z.number().int().min(0).optional(),
+  // Minimum order in rupees (Float, decimal allowed).
+  minOrderAmount: z.number().min(0).optional(),
   categoryFilter: z
     .array(z.enum(["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"]))
     .default([]),

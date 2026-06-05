@@ -26,11 +26,16 @@ export async function POST(request: NextRequest) {
       process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
 
+    // PhonePe wants paise; CafeOrder.totalAmount is rupees (Float).
+    // Round to integer paise at the gateway boundary so 99.50 →
+    // 9950, never a non-integer paise value PhonePe would reject.
+    const amountPaise = Math.round(order.totalAmount * 100);
+
     const result = await initiatePhonePePayment({
       merchantOrderId,
-      amount: order.totalAmount,
+      amount: amountPaise,
       redirectUrl: `${origin}/api/phonepe/cafe-redirect?orderId=${orderId}`,
-      message: `Café order — ₹${(order.totalAmount / 100).toLocaleString("en-IN")}`,
+      message: `Café order — ₹${order.totalAmount.toLocaleString("en-IN")}`,
     });
 
     // Update or create cafe payment
