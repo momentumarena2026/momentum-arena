@@ -54,6 +54,19 @@ const CATEGORIES: { value: CafeItemCategory; label: string; icon: typeof Coffee 
   { value: "COMBOS", label: "Combos", icon: Package },
 ];
 
+// Fulfilment kind — drives the entire kitchen-vs-counter routing:
+// `PREPARE` items go through the live-orders PENDING→PREPARING→READY
+// →COMPLETED kanban; `READY` items skip the kanban (admin order
+// creation lands directly in COMPLETED) and carry a stock counter
+// that decrements per order.
+//
+// The DB doesn't have an explicit column for this — it's derived
+// from CafeItem.quantity: NULL = PREPARE, integer = READY. We keep
+// that derivation but surface the choice as a first-class chip in
+// the form so the admin doesn't have to know that "leave Stock
+// blank" means "this is a kitchen item."
+type Fulfilment = "READY" | "PREPARE";
+
 const EMPTY_FORM = {
   name: "",
   description: "",
@@ -62,8 +75,12 @@ const EMPTY_FORM = {
   // Empty string = "leave unset" on the form; we only persist a
   // costPrice when the admin actually types a number.
   costPrice: "",
-  // Stock quantity. Empty string = kitchen-prepared / unlimited
-  // (CafeItem.quantity stays NULL). Integer = on-hand count.
+  // Default new items to PREPARE (most cafe items are cooked to
+  // order). The admin opts into READY when the item is something
+  // the venue procures with finite stock.
+  fulfilment: "PREPARE" as Fulfilment,
+  // Stock quantity. Only meaningful when fulfilment === "READY";
+  // ignored (and persisted as null) when "PREPARE".
   quantity: "",
   image: "",
   isVeg: true,
@@ -167,10 +184,11 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
       // null costPrice → leave the field blank so the admin can
       // still skip filling it in.
       costPrice: item.costPrice != null ? String(item.costPrice) : "",
-      // null quantity → kitchen-prepared / unlimited. Show blank
-      // so the admin sees "this item doesn't track stock" and
-      // can opt in by typing a number later (or stay null by
-      // leaving it blank on edit).
+      // null quantity in the DB = kitchen-prepared (cooked to
+      // order); integer = procured / ready-to-serve with finite
+      // stock. Mirror that into the explicit fulfilment chip + a
+      // stock string the admin can edit when READY is selected.
+      fulfilment: item.quantity != null ? "READY" : "PREPARE",
       quantity: item.quantity != null ? String(item.quantity) : "",
       image: item.image || "",
       isVeg: item.isVeg,
@@ -229,14 +247,23 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
       costRupees = parsed;
     }
 
-    // Stock quantity is optional. Empty form value → null →
-    // kitchen-prepared / unlimited (the DB column stays NULL and
-    // the order paths skip the stock check for this item). A
-    // typed value must be a non-negative integer; "10.5 bottles"
-    // makes no sense, and Math.round would silently round it.
+    // Quantity routing follows the fulfilment chip — not the raw
+    // text in form.quantity. PREPARE always persists null (kitchen-
+    // prepared, no stock cap) regardless of what was in the field
+    // before; READY requires a non-negative integer so the order-
+    // time stock decrement has something to count against. We
+    // accept 0 explicitly — that's "currently out of stock, will
+    // restock" rather than "untracked."
     let quantityValue: number | null = null;
-    const qtyRaw = form.quantity.trim();
-    if (qtyRaw !== "") {
+    if (form.fulfilment === "READY") {
+      const qtyRaw = form.quantity.trim();
+      if (qtyRaw === "") {
+        setError(
+          "Ready-to-serve items need a stock count. Enter 0 if currently out of stock.",
+        );
+        setSaving(false);
+        return;
+      }
       const parsed = Number(qtyRaw);
       if (!Number.isInteger(parsed) || parsed < 0) {
         setError("Stock quantity must be a non-negative whole number");
@@ -456,29 +483,88 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
               />
             </label>
-            {/* Stock quantity — optional integer for procured-good
-                items (drinks, ice-cream, packaged snacks). Leave
-                blank for kitchen-prepared items (cooked to order)
-                so the order paths skip the stock check entirely. */}
-            <label className="block sm:col-span-2">
+            {/* Fulfilment — single-select chip pair. PREPARE
+                routes through the kitchen kanban; READY skips
+                straight to COMPLETED on admin order create and
+                draws from a finite stock count. The Stock input
+                only renders for READY, and clearing back to
+                PREPARE wipes the stock value on save. */}
+            <div className="block sm:col-span-2">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                Stock quantity{" "}
-                <span className="text-zinc-600">
-                  — optional, leave blank for kitchen-prepared items
-                </span>
+                Fulfilment
               </span>
-              <input
-                type="number"
-                step="1"
-                min={0}
-                value={form.quantity}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, quantity: e.target.value }))
-                }
-                placeholder="e.g. 24"
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
-              />
-            </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((p) => ({
+                      ...p,
+                      fulfilment: "PREPARE",
+                      // Wipe any stale stock text so the next
+                      // round-trip persists null cleanly.
+                      quantity: "",
+                    }))
+                  }
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    form.fulfilment === "PREPARE"
+                      ? "border-amber-500/50 bg-amber-500/15 text-amber-200"
+                      : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                  }`}
+                  aria-pressed={form.fulfilment === "PREPARE"}
+                >
+                  <UtensilsCrossed className="h-3.5 w-3.5" />
+                  Cooked to order
+                  <span className="text-[10px] opacity-70">
+                    · goes through kitchen
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((p) => ({ ...p, fulfilment: "READY" }))
+                  }
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    form.fulfilment === "READY"
+                      ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-200"
+                      : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                  }`}
+                  aria-pressed={form.fulfilment === "READY"}
+                >
+                  <Package className="h-3.5 w-3.5" />
+                  Ready to serve
+                  <span className="text-[10px] opacity-70">
+                    · hand over at counter
+                  </span>
+                </button>
+              </div>
+              {form.fulfilment === "READY" ? (
+                <label className="mt-3 block">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                    Stock on hand
+                  </span>
+                  <input
+                    type="number"
+                    step="1"
+                    min={0}
+                    value={form.quantity}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, quantity: e.target.value }))
+                    }
+                    placeholder="e.g. 24"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    Decrements automatically on each order. Set to 0 to
+                    mark out-of-stock without removing the item.
+                  </p>
+                </label>
+              ) : (
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  No stock counter — every order goes through the
+                  kitchen pipeline (PENDING → PREPARING → READY → COMPLETED).
+                </p>
+              )}
+            </div>
             {/* Image picker — replaces the previous raw URL text
                 input. The admin clicks "Upload image" which opens
                 the OS file picker; on success the helper POSTs to
@@ -668,15 +754,25 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                           <span className="font-medium text-white truncate">
                             {item.name}
                           </span>
-                          {/* Category pill — surfaces the item's
-                              category assignment on the list card
-                              itself, not just inside the edit form.
-                              Pulled from CATEGORIES so the label
-                              matches the dropdown verbatim. */}
-                          <span className="shrink-0 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-300">
-                            {CATEGORIES.find((c) => c.value === item.category)
-                              ?.label ?? item.category}
-                          </span>
+                          {/* Fulfilment badge — mirrors the chip
+                              selector in the edit form. Emerald
+                              "Ready" if the item carries a stock
+                              count; amber "Prep" if it's a kitchen
+                              item (quantity is null). Lets the
+                              admin scan the menu and tell counter
+                              items from kitchen items without
+                              opening every card. */}
+                          {item.quantity != null ? (
+                            <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                              <Package className="h-2.5 w-2.5" />
+                              Ready
+                            </span>
+                          ) : (
+                            <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                              <UtensilsCrossed className="h-2.5 w-2.5" />
+                              Prep
+                            </span>
+                          )}
                         </div>
                         {item.description && (
                           <p className="mt-1 text-xs text-zinc-500 line-clamp-2">

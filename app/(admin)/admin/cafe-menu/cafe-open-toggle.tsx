@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { setCafeOpen } from "@/actions/cafe-settings";
 import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
@@ -14,8 +15,16 @@ import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
  * pill switches colour the moment the admin taps; if the server
  * rejects (e.g. auth lapsed) we roll back and surface the
  * error inline.
+ *
+ * Resilience note — `setCafeOpen` is wrapped in a server-side
+ * try/catch that re-throws as a plain Error with a readable
+ * message. We catch it here and render it as a small red caption;
+ * without that pair the throw would bubble through React 19's
+ * server-action error path and surface as the generic "Server
+ * Components render" digest error the user has no way to act on.
  */
 export function CafeOpenToggle({ initialOpen }: { initialOpen: boolean }) {
+  const router = useRouter();
   const [open, setOpen] = useState(initialOpen);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -29,9 +38,20 @@ export function CafeOpenToggle({ initialOpen }: { initialOpen: boolean }) {
     startTransition(async () => {
       try {
         await setCafeOpen(next);
+        // Pull the new server-rendered state back so the page-
+        // level `isOpen` prop and any sibling components stay in
+        // sync with the row we just updated. revalidatePath inside
+        // the action handles the cache layer; this forces the
+        // current route to re-fetch immediately rather than wait
+        // for the next navigation.
+        router.refresh();
       } catch (err) {
         setOpen(!next);
-        setError(err instanceof Error ? err.message : "Couldn't update");
+        setError(
+          err instanceof Error && err.message
+            ? err.message
+            : "Couldn't update — please try again.",
+        );
       }
     });
   }
