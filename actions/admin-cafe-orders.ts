@@ -317,6 +317,23 @@ export async function adminCreateCafeOrder(data: {
         ? "COMPLETED"
         : "PENDING";
 
+    // Order-status routing: ready-to-serve items (CafeItem.quantity
+    // is a non-null integer — drinks, ice-cream, packaged snacks)
+    // are handed over at the counter the moment the order is rung
+    // up, so they skip the kitchen pipeline entirely and land
+    // straight in COMPLETED. Kitchen-prepared items (quantity is
+    // NULL — sandwiches, hot meals) need PREPARING → READY →
+    // COMPLETED, so the order starts at PENDING and the kitchen
+    // kanban takes over. Mixed orders (some of each) stay PENDING
+    // — the kitchen sees the whole ticket so the ready items get
+    // handed over alongside the prepared ones, not separately.
+    const allReady = data.items.every(
+      (line) => itemMap.get(line.cafeItemId)?.quantity != null,
+    );
+    const orderStatus: "PENDING" | "COMPLETED" = allReady
+      ? "COMPLETED"
+      : "PENDING";
+
     const guestPhoneTrimmed = data.guestPhone?.trim();
     const guestPhoneNormalized = guestPhoneTrimmed
       ? normalizeIndianPhone(guestPhoneTrimmed)
@@ -328,7 +345,7 @@ export async function adminCreateCafeOrder(data: {
         userId: data.userId || null,
         guestName: data.guestName?.trim() || null,
         guestPhone: guestPhoneNormalized,
-        status: "PENDING",
+        status: orderStatus,
         totalAmount,
         originalAmount: totalAmount,
         note: data.note?.trim() || null,
@@ -349,7 +366,9 @@ export async function adminCreateCafeOrder(data: {
             adminUsername: admin.username,
             editType: "ORDER_CREATED",
             newAmount: totalAmount,
-            note: `Order created by ${admin.username}`,
+            note: allReady
+              ? `Order created by ${admin.username} — all items ready-to-serve, handed over at counter (status: COMPLETED)`
+              : `Order created by ${admin.username}`,
           },
         },
       },
