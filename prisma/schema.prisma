@@ -839,7 +839,13 @@ model CafeItem {
   name        String
   description String?
   category    CafeItemCategory
-  price       Int // in paise
+  price       Int // selling price, in paise
+  // Cost price (paise). What it costs the venue to source/prepare
+  // the item; subtracting this from `price` gives the margin per
+  // unit, which the cafe-revenue reports use to compute profit.
+  // Nullable so existing rows aren't forced to backfill — the
+  // reporting path falls back to "unknown margin" when null.
+  costPrice   Int?
   image       String?
   isVeg       Boolean          @default(true)
   isAvailable Boolean          @default(true)

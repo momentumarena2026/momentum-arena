@@ -20,6 +20,7 @@ export default async function AdminCafeMenuPage() {
           description: item.description,
           category: item.category,
           price: item.price,
+          costPrice: item.costPrice,
           image: item.image,
           isVeg: item.isVeg,
           isAvailable: item.isAvailable,
