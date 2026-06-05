@@ -819,6 +819,12 @@ model BookingEditHistory {
 // ===========================
 
 enum CafeOrderStatus {
+  // Payment-first online flow. Order created at checkout but
+  // invisible to admin tabs + stock NOT yet decremented until the
+  // gateway confirms. Either flips to PENDING/COMPLETED on payment
+  // verify, or to CANCELLED on dismiss / failure / timeout. Mirrors
+  // the SlotHold → Booking pattern on the sports-booking side.
+  PENDING_PAYMENT
   PENDING
   PREPARING
   READY

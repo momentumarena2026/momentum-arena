@@ -1,0 +1,11 @@
+-- Add PENDING_PAYMENT to CafeOrderStatus enum. Used by the
+-- payment-first customer checkout: an order in PENDING_PAYMENT
+-- has no stock decrement yet, is hidden from admin tabs, and is
+-- waiting for Razorpay / PhonePe to confirm. Confirmation flips
+-- it to PENDING / COMPLETED; dismiss/failure flips it to
+-- CANCELLED.
+--
+-- ALTER TYPE … ADD VALUE must run outside a transaction in
+-- Postgres; Prisma handles that. IF NOT EXISTS makes the
+-- migration safe to re-run.
+ALTER TYPE "CafeOrderStatus" ADD VALUE IF NOT EXISTS 'PENDING_PAYMENT' BEFORE 'PENDING';

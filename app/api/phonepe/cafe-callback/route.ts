@@ -5,6 +5,7 @@ import {
   verifyPhonePeWebhook,
   type PhonePeWebhookBody,
 } from "@/lib/phonepe";
+import { finalizePaidCafeOrder } from "@/lib/cafe-finalize";
 
 /**
  * PhonePe v2 server-to-server webhook for cafe orders.
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
 
     const payment = await db.cafePayment.findFirst({
       where: { phonePeMerchantTxnId: merchantOrderId },
+      select: { id: true, status: true, orderId: true },
     });
     if (!payment || payment.status === "COMPLETED") {
       // Either the cafe payment is missing (stale webhook) or
@@ -50,6 +52,21 @@ export async function POST(request: NextRequest) {
         confirmedAt: new Date(),
       },
     });
+
+    // Payment-first commit step. Same shared finaliser the
+    // Razorpay verify uses — decrements Ready stock and flips
+    // order status (allReady → COMPLETED, else PENDING). Best-
+    // effort on error: PhonePe expects a 200 either way; the
+    // admin recovery page handles any stuck orders.
+    try {
+      await finalizePaidCafeOrder(payment.orderId);
+    } catch (finalizeErr) {
+      console.error(
+        "[phonepe-cafe-callback] finalize failed for",
+        payment.orderId,
+        finalizeErr,
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

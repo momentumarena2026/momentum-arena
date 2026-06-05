@@ -130,10 +130,33 @@ export async function createCafeOrder(data: {
     const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
     const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}-${rand}`;
 
-    // Determine payment status
-    const paymentStatus =
-      data.paymentMethod === "CASH" || data.paymentMethod === "UPI_QR"
-        ? "PENDING"
+    // Payment-first vs in-person routing. RAZORPAY / PHONEPE are
+    // online and pay BEFORE the order is real — same shape as the
+    // sports-booking SlotHold → Booking flow. CASH / UPI_QR are
+    // in-person counter flows where the order IS real the moment
+    // the admin / customer confirms it; payment is collected at the
+    // venue.
+    //
+    // Online: order lands in PENDING_PAYMENT (invisible to admin
+    // tabs, no stock decrement) and waits for the gateway. The
+    // verify endpoint flips status + decrements stock atomically.
+    //
+    // In-person: order lands directly into the kitchen pipeline.
+    // If every line is a Ready (procured, non-null quantity)
+    // item, we skip the pipeline and land in COMPLETED — same
+    // routing the admin walk-in flow uses on /admin/cafe-orders/
+    // create. Stock is decremented immediately.
+    const isOnlineMethod =
+      data.paymentMethod === "RAZORPAY" || data.paymentMethod === "PHONEPE";
+
+    const allReady = data.items.every(
+      (line) => itemMap.get(line.cafeItemId)!.quantity !== null,
+    );
+
+    const orderStatus = isOnlineMethod
+      ? "PENDING_PAYMENT"
+      : allReady
+        ? "COMPLETED"
         : "PENDING";
 
     // Normalize guest phone so the "91XXXXXXXXXX" form is used
@@ -150,7 +173,7 @@ export async function createCafeOrder(data: {
         guestName: !userId ? (data.guestName?.trim() || "Guest") : null,
         guestPhone: !userId ? (guestPhoneNormalized || null) : null,
         tableNumber: data.tableNumber || null,
-        status: "PENDING",
+        status: orderStatus,
         totalAmount,
         originalAmount,
         discountAmount,
@@ -162,7 +185,7 @@ export async function createCafeOrder(data: {
         payment: {
           create: {
             method: data.paymentMethod,
-            status: paymentStatus,
+            status: "PENDING",
             amount: totalAmount,
           },
         },
@@ -173,36 +196,41 @@ export async function createCafeOrder(data: {
       },
     });
 
-    // Decrement stock atomically for items that track quantity.
-    // Using updateMany with a `quantity: { gte: line.quantity }`
-    // guard so a concurrent order that's already pulled the last
-    // unit can't push us negative — the per-item update simply
-    // matches zero rows in that case. If that happens, we surface
-    // a sold-out error and leave the order in place (the customer
-    // sees the rejection at the next refresh; the order itself is
-    // PENDING and an admin can choose to fulfil or cancel it).
+    // Stock decrement — ONLY for the in-person path. Online orders
+    // are still in PENDING_PAYMENT and won't touch stock until the
+    // gateway confirms (see /api/razorpay/cafe-verify and the
+    // PhonePe callback). This is what the customer asked for: an
+    // abandoned Razorpay modal must NOT eat into inventory or
+    // pollute the admin orders tab.
     //
-    // Sequential rather than parallel — small N, simpler reasoning
-    // and predictable error attribution to a specific item name.
-    for (const line of data.items) {
-      const cafeItem = itemMap.get(line.cafeItemId)!;
-      if (cafeItem.quantity === null) continue; // unlimited
-      const updated = await db.cafeItem.updateMany({
-        where: {
-          id: line.cafeItemId,
-          quantity: { gte: line.quantity },
-        },
-        data: { quantity: { decrement: line.quantity } },
-      });
-      if (updated.count === 0) {
-        return {
-          success: false,
-          error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
-        };
+    // updateMany + `quantity: { gte: line.quantity }` guard so a
+    // concurrent order that pulled the last unit can't push us
+    // negative — the per-item update matches zero rows instead.
+    if (!isOnlineMethod) {
+      for (const line of data.items) {
+        const cafeItem = itemMap.get(line.cafeItemId)!;
+        if (cafeItem.quantity === null) continue; // unlimited
+        const updated = await db.cafeItem.updateMany({
+          where: {
+            id: line.cafeItemId,
+            quantity: { gte: line.quantity },
+          },
+          data: { quantity: { decrement: line.quantity } },
+        });
+        if (updated.count === 0) {
+          return {
+            success: false,
+            error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
+          };
+        }
       }
     }
 
-    // Record discount usage if applied
+    // Record discount usage if applied. For online orders this is
+    // deliberately recorded UPFRONT — we don't want a coupon to be
+    // burned twice by a customer who half-completes payment, then
+    // tries again with the same code. The verify path doesn't
+    // re-apply the coupon; the cancel path returns it.
     if (discountCodeId && discountAmount > 0) {
       await db.cafeDiscount.update({
         where: { id: discountCodeId },

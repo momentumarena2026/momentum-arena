@@ -28,9 +28,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  if (order.status !== "PENDING") {
+  // Accept PENDING_PAYMENT (new payment-first flow) AND legacy
+  // PENDING (in case a transitional order was created the old way
+  // before this deploy). Anything past that — already paid, already
+  // in the kitchen, cancelled — refuses.
+  if (order.status !== "PENDING_PAYMENT" && order.status !== "PENDING") {
     return NextResponse.json(
-      { error: "Order is not in PENDING status" },
+      { error: "Order is not awaiting payment" },
       { status: 400 }
     );
   }

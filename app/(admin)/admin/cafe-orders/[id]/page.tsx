@@ -37,6 +37,7 @@ export default async function CafeOrderDetailPage({
   });
 
   const statusColors: Record<string, string> = {
+    PENDING_PAYMENT: "text-zinc-400 bg-zinc-500/10 border-zinc-500/30",
     PENDING: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
     PREPARING: "text-blue-400 bg-blue-500/10 border-blue-500/30",
     READY: "text-purple-400 bg-purple-500/10 border-purple-500/30",
