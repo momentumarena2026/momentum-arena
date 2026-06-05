@@ -32,6 +32,28 @@ export async function createCafeOrder(data: {
       return { success: false, error: "At least one item is required" };
     }
 
+    // Closed-cafe guard. The customer-facing /cafe page renders
+    // CafeClosedPage when `CafeSettings.isOpen === false`, but a
+    // stale browser tab or in-flight mobile request from before the
+    // admin closed the cafe could still hit this action. Refuse at
+    // the action layer so the closed state is authoritative.
+    //
+    // We deliberately read `isOpen` directly off the row rather than
+    // routing through `getCafeSettings` here — this is a hot path
+    // and the row is a single record. If the lookup fails (the row
+    // genuinely doesn't exist yet — fresh DB), treat as open so we
+    // don't lock customers out of a never-configured cafe.
+    const settings = await db.cafeSettings.findFirst({
+      select: { isOpen: true },
+    });
+    if (settings && settings.isOpen === false) {
+      return {
+        success: false,
+        error:
+          "The cafe is currently closed and not accepting online orders. Please try again later.",
+      };
+    }
+
     // Validate items exist and are available
     const cafeItemIds = data.items.map((i) => i.cafeItemId);
     const cafeItems = await db.cafeItem.findMany({
