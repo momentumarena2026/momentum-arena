@@ -9,7 +9,6 @@ import { createCafeOrder } from "@/actions/cafe-orders";
 import { DiscountInput } from "@/components/booking/discount-input";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { CheckoutAuth } from "@/components/checkout-auth";
-import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { PhoneInput } from "@/components/ui/phone-input";
 import {
   trackCafeCheckoutStarted,
@@ -46,8 +45,6 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showQr, setShowQr] = useState(false);
-  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
 
   const finalAmount = appliedCoupon
     ? Math.max(0, totalAmount - appliedCoupon.discount)
@@ -244,43 +241,25 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
         return;
       }
 
-      // For UPI_QR, show QR for UTR entry
-      if (paymentMethod === "UPI_QR") {
-        setCreatedOrderId(result.orderId);
-        setShowQr(true);
-        setLoading(false);
-        return;
-      }
-
-      // For CASH, order is created directly
-      trackCafeOrderPlaced(result.orderId!, finalAmount, "CASH");
+      // UPI_QR and CASH are both "pay-at-the-counter" methods for
+      // cafe — there's no QR-scan step in between. The customer
+      // places the order, walks up to the counter, and pays there.
+      // Going through UpiQrCheckout was a leftover from the sports
+      // booking flow where the QR doubles as the UTR-entry capture.
+      // For cafe we don't need that — the order's already live in
+      // the kitchen and the cashier collects whatever payment the
+      // customer hands them.
+      trackCafeOrderPlaced(
+        result.orderId!,
+        finalAmount,
+        paymentMethod as "CASH" | "UPI_QR",
+      );
       clearCart();
       router.push(`/cafe/confirmation/${result.orderId}`);
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
-  }
-
-  // Show UPI QR after order creation
-  if (showQr && createdOrderId) {
-    return (
-      <div className="min-h-screen bg-black max-w-2xl mx-auto py-6 px-4">
-        <h1 className="text-2xl font-bold text-white mb-6">Complete Payment</h1>
-        <UpiQrCheckout
-          amount={finalAmount}
-          qrType="cafe"
-          onPaymentInitiated={() => {
-            clearCart();
-          }}
-        />
-        {error && (
-          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-center text-sm text-red-400">
-            {error}
-          </div>
-        )}
-      </div>
-    );
   }
 
   if (items.length === 0) {
