@@ -1001,79 +1001,87 @@ export async function updateCafePayment(
 }
 
 /**
- * Add a split-payment row to an order — the customer settled part
- * of the bill via one method and the rest via another. The parent
- * CafePayment row stays as the "summary" record (its `amount`
- * tracks total expected, `status` flips to COMPLETED once splits
- * sum to ≥ total). Each split carries its own method + amount +
- * optional UTR + per-row note.
+ * Mark a cafe order's payment as collected at the counter,
+ * optionally splitting the collected amount across multiple
+ * tender methods. Mirrors `markRemainderCollected` on the booking
+ * side — same shape: `{ cashAmount, upiAmount, discountAmount }`
+ * with the three slices summing to order.totalAmount.
  *
- * Refuses to overshoot — if sum(existing splits) + amount > total
- * the row is rejected (use cancelCafeOrder/editPayment if the
- * total itself is wrong).
+ *   - cashAmount + upiAmount + discountAmount must equal
+ *     order.totalAmount.
+ *   - cashAmount + upiAmount must be > 0 (100%-discount = refund-
+ *     shaped, refuse).
+ *   - Sets primary CafePayment.method to the dominant slice
+ *     (CASH | UPI_QR), stamps splitCashAmount / splitUpiAmount /
+ *     splitDiscountAmount, flips status to COMPLETED.
+ *   - Logs PAYMENT_COLLECTED in edit history with the split.
+ *
+ * Used both for one-shot single-method collection ("Cash" button
+ * sets cashAmount=total, upi=0, discount=0) and for the three-
+ * input split form. The single-method shortcut buttons just call
+ * this with one slice populated.
  */
-export async function addCafePaymentSplit(
+export async function markCafePaymentCollected(
   orderId: string,
-  data: {
-    method: PaymentMethod;
-    amount: number;
-    utrNumber?: string;
-    note?: string;
+  split: {
+    cashAmount?: number;
+    upiAmount?: number;
+    discountAmount?: number;
   },
 ) {
   const admin = await requireCafeAdminWithDetails();
   try {
-    if (data.amount <= 0) {
-      return { success: false, error: "Split amount must be positive" };
-    }
     const order = await db.cafeOrder.findUnique({
       where: { id: orderId },
-      include: { payment: { include: { splits: true } } },
+      include: { payment: true },
     });
     if (!order) return { success: false, error: "Order not found" };
     if (!order.payment) {
       return { success: false, error: "Order has no payment record" };
     }
+    if (order.status === "CANCELLED") {
+      return { success: false, error: "Order is cancelled" };
+    }
 
-    const existingSum = order.payment.splits.reduce(
-      (s, sp) => s + sp.amount,
-      0,
-    );
+    const cash = Math.max(0, split.cashAmount ?? 0);
+    const upi = Math.max(0, split.upiAmount ?? 0);
+    const discount = Math.max(0, split.discountAmount ?? 0);
+    const sum = cash + upi + discount;
     const totalDue = order.totalAmount;
-    const newSum = existingSum + data.amount;
-    if (newSum > totalDue + 0.01) {
+
+    if (Math.abs(sum - totalDue) > 0.01) {
       return {
         success: false,
-        error: `Splits would total ₹${newSum} — exceeds order total ₹${totalDue}`,
+        error: `Split must sum to ₹${totalDue} (got ₹${sum})`,
+      };
+    }
+    if (cash + upi <= 0) {
+      return {
+        success: false,
+        error: "At least one of cash or UPI must be positive",
       };
     }
 
-    const status: "PENDING" | "COMPLETED" =
-      newSum >= totalDue - 0.01 ? "COMPLETED" : "PENDING";
+    // Dominant slice drives the headline .method field. If only
+    // one of cash/upi is positive, use that; if both, pick whichever
+    // is larger (consistent with the booking model).
+    const dominantMethod: PaymentMethod = upi > cash ? "UPI_QR" : "CASH";
+
+    // Only mark the split columns when actually mixed — keeps the
+    // single-method case looking identical to a non-split row.
+    const isMixed = (cash > 0 && upi > 0) || discount > 0;
 
     await db.$transaction([
-      db.cafePaymentSplit.create({
-        data: {
-          paymentId: order.payment.id,
-          method: data.method,
-          amount: data.amount,
-          utrNumber: data.utrNumber || null,
-          note: data.note || null,
-          createdById: admin.id,
-        },
-      }),
       db.cafePayment.update({
         where: { id: order.payment.id },
         data: {
-          status,
-          confirmedAt:
-            status === "COMPLETED" && !order.payment.confirmedAt
-              ? new Date()
-              : undefined,
-          confirmedBy:
-            status === "COMPLETED" && !order.payment.confirmedAt
-              ? admin.id
-              : undefined,
+          method: dominantMethod,
+          status: "COMPLETED",
+          confirmedAt: order.payment.confirmedAt ?? new Date(),
+          confirmedBy: order.payment.confirmedBy ?? admin.id,
+          splitCashAmount: isMixed ? cash : null,
+          splitUpiAmount: isMixed ? upi : null,
+          splitDiscountAmount: isMixed && discount > 0 ? discount : null,
         },
       }),
       db.cafeOrderEditHistory.create({
@@ -1081,74 +1089,119 @@ export async function addCafePaymentSplit(
           orderId,
           adminId: admin.id,
           adminUsername: admin.username,
-          editType: "PAYMENT_SPLIT_ADDED",
-          previousAmount: existingSum,
-          newAmount: newSum,
-          note: `Split ${data.method} ₹${data.amount}${
-            data.utrNumber ? ` (UTR ${data.utrNumber})` : ""
-          }${data.note ? ` — ${data.note}` : ""}`,
-        },
-      }),
-    ]);
-
-    return { success: true, status, paidSoFar: newSum, totalDue };
-  } catch (error) {
-    console.error("Failed to add payment split:", error);
-    return { success: false, error: "Failed to add payment split" };
-  }
-}
-
-/**
- * Remove a split-payment row. The parent CafePayment.status flips
- * back to PENDING if removing the split drops the captured sum
- * below the order total.
- */
-export async function removeCafePaymentSplit(
-  orderId: string,
-  splitId: string,
-) {
-  const admin = await requireCafeAdminWithDetails();
-  try {
-    const order = await db.cafeOrder.findUnique({
-      where: { id: orderId },
-      include: { payment: { include: { splits: true } } },
-    });
-    if (!order || !order.payment) {
-      return { success: false, error: "Order or payment not found" };
-    }
-    const split = order.payment.splits.find((s) => s.id === splitId);
-    if (!split) {
-      return { success: false, error: "Split not found on this order" };
-    }
-    const remainingSum = order.payment.splits
-      .filter((s) => s.id !== splitId)
-      .reduce((sum, s) => sum + s.amount, 0);
-    const totalDue = order.totalAmount;
-    const newStatus: "PENDING" | "COMPLETED" =
-      remainingSum >= totalDue - 0.01 ? "COMPLETED" : "PENDING";
-
-    await db.$transaction([
-      db.cafePaymentSplit.delete({ where: { id: splitId } }),
-      db.cafePayment.update({
-        where: { id: order.payment.id },
-        data: { status: newStatus },
-      }),
-      db.cafeOrderEditHistory.create({
-        data: {
-          orderId,
-          adminId: admin.id,
-          adminUsername: admin.username,
-          editType: "PAYMENT_SPLIT_REMOVED",
+          editType: "PAYMENT_COLLECTED",
           previousAmount: order.payment.amount,
-          newAmount: remainingSum,
-          note: `Removed split ${split.method} ₹${split.amount}`,
+          newAmount: totalDue,
+          note: isMixed
+            ? `Collected ₹${totalDue} — Cash ₹${cash}, UPI ₹${upi}${
+                discount > 0 ? `, Discount ₹${discount}` : ""
+              }`
+            : `Collected ₹${totalDue} via ${dominantMethod}`,
         },
       }),
     ]);
 
     return { success: true };
   } catch (error) {
-    console.error("Failed to remove payment split:", error);
-    return { success: false, error: "Failed to remove payment split" };
+    console.error("Failed to mark cafe payment collected:", error);
+    return { success: false, error: "Failed to mark collected" };
+  }
+}
+
+/**
+ * Re-attribute the already-collected payment's split between
+ * cash, UPI, and discount. Mirrors the booking-side
+ * `updateRemainderSplit`. Used when admin realises the initial
+ * collection entry was wrong (typed cash instead of UPI etc).
+ *
+ *   - cashAmount + upiAmount + discountAmount must equal
+ *     order.totalAmount.
+ *   - cashAmount + upiAmount must be > 0.
+ *   - Doesn't flip the payment status (already COMPLETED) — just
+ *     rewrites the slices and the dominant .method field.
+ *   - Logs PAYMENT_SPLIT_UPDATED with the diff.
+ */
+export async function updateCafePaymentSplit(
+  orderId: string,
+  split: {
+    cashAmount?: number;
+    upiAmount?: number;
+    discountAmount?: number;
+  },
+) {
+  const admin = await requireCafeAdminWithDetails();
+  try {
+    const order = await db.cafeOrder.findUnique({
+      where: { id: orderId },
+      include: { payment: true },
+    });
+    if (!order) return { success: false, error: "Order not found" };
+    if (!order.payment) {
+      return { success: false, error: "Order has no payment record" };
+    }
+    if (order.payment.status !== "COMPLETED") {
+      return {
+        success: false,
+        error: "Can only edit the split on a collected payment",
+      };
+    }
+
+    const cash = Math.max(0, split.cashAmount ?? 0);
+    const upi = Math.max(0, split.upiAmount ?? 0);
+    const discount = Math.max(0, split.discountAmount ?? 0);
+    const sum = cash + upi + discount;
+    const totalDue = order.totalAmount;
+
+    if (Math.abs(sum - totalDue) > 0.01) {
+      return {
+        success: false,
+        error: `Split must sum to ₹${totalDue} (got ₹${sum})`,
+      };
+    }
+    if (cash + upi <= 0) {
+      return {
+        success: false,
+        error: "At least one of cash or UPI must be positive",
+      };
+    }
+
+    // No-op detection
+    const prevCash = order.payment.splitCashAmount ?? 0;
+    const prevUpi = order.payment.splitUpiAmount ?? 0;
+    const prevDiscount = order.payment.splitDiscountAmount ?? 0;
+    if (prevCash === cash && prevUpi === upi && prevDiscount === discount) {
+      return { success: true, noop: true };
+    }
+
+    const dominantMethod: PaymentMethod = upi > cash ? "UPI_QR" : "CASH";
+    const isMixed = (cash > 0 && upi > 0) || discount > 0;
+
+    await db.$transaction([
+      db.cafePayment.update({
+        where: { id: order.payment.id },
+        data: {
+          method: dominantMethod,
+          splitCashAmount: isMixed ? cash : null,
+          splitUpiAmount: isMixed ? upi : null,
+          splitDiscountAmount: isMixed && discount > 0 ? discount : null,
+        },
+      }),
+      db.cafeOrderEditHistory.create({
+        data: {
+          orderId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType: "PAYMENT_SPLIT_UPDATED",
+          previousAmount: order.payment.amount,
+          newAmount: order.payment.amount,
+          note: `Split re-attributed — Cash ₹${prevCash} → ₹${cash}, UPI ₹${prevUpi} → ₹${upi}, Discount ₹${prevDiscount} → ₹${discount}`,
+        },
+      }),
+    ]);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update cafe payment split:", error);
+    return { success: false, error: "Failed to update split" };
   }
 }

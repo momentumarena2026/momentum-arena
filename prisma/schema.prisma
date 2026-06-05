@@ -1021,37 +1021,26 @@ model CafePayment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  splits CafePaymentSplit[]
+  // Denormalised split breakdown — mirrors the booking-side
+  // Payment.remainderCashAmount / Upi / Discount columns. When the
+  // order was settled across more than one tender method, these
+  // hold the slices and sum to CafePayment.amount. When the
+  // payment was a single-method settlement these stay null and
+  // the .method field alone tells the whole story.
+  //
+  // splitDiscountAmount is the goodwill write-off slice — does NOT
+  // count toward captured revenue (same semantics as the booking
+  // model). splitCashAmount + splitUpiAmount = what the venue
+  // actually took in.
+  splitCashAmount     Float?
+  splitUpiAmount      Float?
+  splitDiscountAmount Float?
 
   @@index([status, method])
   @@index([utrExpiresAt])
   // Same idempotency rationale as Payment — keep cafe webhook lookups fast.
   @@index([razorpayPaymentId])
   @@index([phonePeMerchantTxnId])
-}
-
-/**
- * Split-payment breakdown rows on a CafePayment. Used when an
- * order is settled across more than one tender method (e.g. ₹300
- * cash + ₹200 UPI). The parent CafePayment row stays in place as
- * the "summary" record carrying the total + final status; splits
- * track the individual tendered amounts. With no splits, the
- * CafePayment alone represents the whole payment exactly as
- * before — backwards-compatible.
- */
-model CafePaymentSplit {
-  id          String        @id @default(cuid())
-  paymentId   String
-  payment     CafePayment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  method      PaymentMethod
-  amount      Float
-  utrNumber   String?
-  note        String?
-  createdAt   DateTime      @default(now())
-  // AdminUser.id of the staffer who recorded this split.
-  createdById String?
-
-  @@index([paymentId])
 }
 
 model CafeDiscount {
