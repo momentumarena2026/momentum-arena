@@ -4,18 +4,39 @@ import { db } from "@/lib/db";
 import { adminAuth } from "@/lib/admin-auth-session";
 import { hasPermission } from "@/lib/permissions";
 
-// Get or create default cafe settings
+// Get or create default cafe settings. Defensive: if the create
+// itself fails (RLS / migration mid-flight / etc.) we fall back to
+// a literal default so the customer-facing /cafe page and the
+// admin /admin/cafe-menu header keep rendering instead of crashing
+// the segment with a Server Components error. The fallback object
+// matches the shape Prisma returns so callers don't need to
+// special-case the empty state.
 export async function getCafeSettings() {
-  let settings = await db.cafeSettings.findFirst();
-  if (!settings) {
-    settings = await db.cafeSettings.create({
-      data: { totalTables: 10 },
-    });
+  try {
+    let settings = await db.cafeSettings.findFirst();
+    if (!settings) {
+      settings = await db.cafeSettings.create({
+        data: { totalTables: 10 },
+      });
+    }
+    return settings;
+  } catch (err) {
+    console.error("[cafe-settings] getCafeSettings failed", err);
+    return {
+      id: "__fallback__",
+      totalTables: 10,
+      isOpen: true,
+      updatedAt: new Date(),
+    };
   }
-  return settings;
 }
 
-async function requireCafeAdmin() {
+// Update cafe settings (admin only). Auth check inlined rather than
+// extracted into a non-exported helper — "use server" files may
+// emit warnings or fail to bundle correctly when they contain
+// non-exported async functions in some Next 16 builds; keeping the
+// file's exports tight avoids the gotcha entirely.
+export async function updateCafeSettings(data: { totalTables: number }) {
   const session = await adminAuth();
   if (
     !session ||
@@ -26,11 +47,6 @@ async function requireCafeAdmin() {
   ) {
     throw new Error("Unauthorized: MANAGE_CAFE_MENU permission required");
   }
-}
-
-// Update cafe settings (admin only)
-export async function updateCafeSettings(data: { totalTables: number }) {
-  await requireCafeAdmin();
 
   const settings = await getCafeSettings();
   return db.cafeSettings.update({
@@ -46,13 +62,18 @@ export async function updateCafeSettings(data: { totalTables: number }) {
  * creation stays available either way so floor staff can keep
  * the cafe running operationally even when customer ordering is
  * closed.
- *
- * Separate from `updateCafeSettings` so the admin toggle UI can
- * fire a one-field action and so a future automation
- * (e.g. "auto-close at 11pm") can target just this flag.
  */
 export async function setCafeOpen(isOpen: boolean) {
-  await requireCafeAdmin();
+  const session = await adminAuth();
+  if (
+    !session ||
+    !hasPermission(
+      (session as unknown as { permissions: string[] }).permissions,
+      "MANAGE_CAFE_MENU",
+    )
+  ) {
+    throw new Error("Unauthorized: MANAGE_CAFE_MENU permission required");
+  }
 
   const settings = await getCafeSettings();
   const updated = await db.cafeSettings.update({
