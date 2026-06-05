@@ -387,69 +387,98 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
             </button>
           </div>
 
+          {/* Every field now wears a small uppercase caption so the
+              admin can tell name from category and price from cost
+              from stock at a glance — without the placeholders the
+              previous unlabelled layout left three numeric inputs
+              in a row that all looked identical once filled. */}
           <div className="grid gap-3 sm:grid-cols-2">
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-              placeholder="Item name"
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
-            />
-            <select
-              value={form.category}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  category: e.target.value as CafeItemCategory,
-                }))
-              }
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white"
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              step="0.01"
-              value={form.price}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, price: e.target.value }))
-              }
-              placeholder="Selling price in ₹ (e.g., 150)"
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
-            />
-            <input
-              type="number"
-              step="0.01"
-              value={form.costPrice}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, costPrice: e.target.value }))
-              }
-              placeholder="Cost price in ₹ (optional, for margin)"
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
-            />
+            <label className="block sm:col-span-1">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Item name
+              </span>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                placeholder="e.g. Cold Coffee"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              />
+            </label>
+            <label className="block sm:col-span-1">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Category
+              </span>
+              <select
+                value={form.category}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    category: e.target.value as CafeItemCategory,
+                  }))
+                }
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white"
+              >
+                {CATEGORIES.map((cat) => (
+                  <option key={cat.value} value={cat.value}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block sm:col-span-1">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Selling price (₹)
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                value={form.price}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, price: e.target.value }))
+                }
+                placeholder="e.g. 150"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              />
+            </label>
+            <label className="block sm:col-span-1">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Cost price (₹) <span className="text-zinc-600">— optional</span>
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                value={form.costPrice}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, costPrice: e.target.value }))
+                }
+                placeholder="What it costs to source"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              />
+            </label>
             {/* Stock quantity — optional integer for procured-good
                 items (drinks, ice-cream, packaged snacks). Leave
                 blank for kitchen-prepared items (cooked to order)
-                so the order paths skip the stock check entirely.
-                Customer + admin order paths decrement on order
-                create; floor staff resets / restocks by editing
-                this field after a procurement. Spans both columns
-                so its longer placeholder fits without wrapping. */}
-            <input
-              type="number"
-              step="1"
-              min={0}
-              value={form.quantity}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, quantity: e.target.value }))
-              }
-              placeholder="Stock quantity (optional — leave blank for kitchen items)"
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 sm:col-span-2"
-            />
+                so the order paths skip the stock check entirely. */}
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Stock quantity{" "}
+                <span className="text-zinc-600">
+                  — optional, leave blank for kitchen-prepared items
+                </span>
+              </span>
+              <input
+                type="number"
+                step="1"
+                min={0}
+                value={form.quantity}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, quantity: e.target.value }))
+                }
+                placeholder="e.g. 24"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              />
+            </label>
             {/* Image picker — replaces the previous raw URL text
                 input. The admin clicks "Upload image" which opens
                 the OS file picker; on success the helper POSTs to
@@ -457,7 +486,11 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                 Vercel Blob URL into form.image. 80×80 thumbnail
                 renders the current pick (or a dashed placeholder
                 when none). Same UX as /admin/products. */}
-            <div className="sm:col-span-2 flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-800 p-2.5">
+            <div className="sm:col-span-2">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Image <span className="text-zinc-600">— optional</span>
+              </span>
+              <div className="flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-800 p-2.5">
               {form.image ? (
                 <Image
                   src={form.image}
@@ -515,25 +548,36 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                   <p className="text-xs text-red-400">{uploadError}</p>
                 ) : null}
               </div>
+              </div>
             </div>
-            <textarea
-              value={form.description}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, description: e.target.value }))
-              }
-              placeholder="Description (optional)"
-              rows={2}
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 sm:col-span-2"
-            />
-            <input
-              type="text"
-              value={form.tags}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, tags: e.target.value }))
-              }
-              placeholder="Tags (comma separated: Bestseller, Spicy)"
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
-            />
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Description <span className="text-zinc-600">— optional</span>
+              </span>
+              <textarea
+                value={form.description}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, description: e.target.value }))
+                }
+                placeholder="Short description for the menu (e.g. 200 ml)"
+                rows={2}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              />
+            </label>
+            <label className="block sm:col-span-1">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Tags <span className="text-zinc-600">— comma separated</span>
+              </span>
+              <input
+                type="text"
+                value={form.tags}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, tags: e.target.value }))
+                }
+                placeholder="Bestseller, Spicy"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              />
+            </label>
             <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
               <input
                 type="checkbox"
@@ -613,7 +657,7 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span
                             className={`inline-block h-2.5 w-2.5 rounded-sm border ${
                               item.isVeg
@@ -623,6 +667,15 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                           />
                           <span className="font-medium text-white truncate">
                             {item.name}
+                          </span>
+                          {/* Category pill — surfaces the item's
+                              category assignment on the list card
+                              itself, not just inside the edit form.
+                              Pulled from CATEGORIES so the label
+                              matches the dropdown verbatim. */}
+                          <span className="shrink-0 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-300">
+                            {CATEGORIES.find((c) => c.value === item.category)
+                              ?.label ?? item.category}
                           </span>
                         </div>
                         {item.description && (
