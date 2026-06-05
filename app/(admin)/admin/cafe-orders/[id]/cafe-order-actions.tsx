@@ -8,9 +8,6 @@ import {
   addItemsToCafeOrder,
   cancelItemsFromCafeOrder,
   updateCafeItemQuantity,
-  updateCafePayment,
-  addCafePaymentSplit,
-  removeCafePaymentSplit,
 } from "@/actions/admin-cafe-orders";
 import {
   CafeOrderStatus,
@@ -31,9 +28,13 @@ import {
   History,
   Search,
   Wallet,
-  CreditCard,
-  Receipt,
+  Banknote,
+  QrCode,
+  Tag,
 } from "lucide-react";
+import { EditCafePaymentModal } from "@/components/admin/cafe/edit-cafe-payment-modal";
+import { MarkCafePaidButton } from "@/components/admin/cafe/mark-cafe-paid-button";
+import { EditCafeSplitButton } from "@/components/admin/cafe/edit-cafe-split-button";
 import { formatPrice } from "@/lib/pricing";
 
 interface OrderItem {
@@ -80,45 +81,24 @@ const EDIT_TYPE_CONFIG: Record<string, { color: string; label: string }> = {
   QUANTITY_CHANGED: { color: "text-yellow-400", label: "Quantity Changed" },
   ORDER_CANCELLED: { color: "text-red-400", label: "Order Cancelled" },
   PAYMENT_EDITED: { color: "text-fuchsia-400", label: "Payment Edited" },
-  PAYMENT_SPLIT_ADDED: { color: "text-fuchsia-400", label: "Split Added" },
-  PAYMENT_SPLIT_REMOVED: { color: "text-fuchsia-400", label: "Split Removed" },
+  PAYMENT_COLLECTED: { color: "text-emerald-400", label: "Payment Collected" },
+  PAYMENT_SPLIT_UPDATED: { color: "text-sky-400", label: "Split Re-attributed" },
 };
-
-// Payment-method options surfaced in the admin payment editor +
-// split form. PHONEPE is admin-rare for cafe; surface it anyway so
-// the operator can reconcile an external PhonePe transfer when
-// needed.
-const PAYMENT_METHOD_OPTIONS: PaymentMethod[] = [
-  "CASH",
-  "UPI_QR",
-  "RAZORPAY",
-  "PHONEPE",
-  "FREE",
-];
-
-const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = [
-  "PENDING",
-  "COMPLETED",
-  "FAILED",
-  "REFUNDED",
-];
-
-export interface PaymentSplit {
-  id: string;
-  method: PaymentMethod;
-  amount: number;
-  utrNumber: string | null;
-  note: string | null;
-  createdAt: string;
-}
 
 export interface PaymentInfo {
   id: string;
   method: PaymentMethod;
   status: PaymentStatus;
   amount: number;
+  razorpayPaymentId: string | null;
   utrNumber: string | null;
-  splits: PaymentSplit[];
+  // Denormalised split slices on the same CafePayment row.
+  // Mirrors the booking-side Payment.remainderCash/Upi/Discount
+  // columns. When all three are null the payment was settled with
+  // a single method (no split UI shown).
+  splitCashAmount: number | null;
+  splitUpiAmount: number | null;
+  splitDiscountAmount: number | null;
 }
 
 export function CafeOrderActions({
@@ -148,29 +128,18 @@ export function CafeOrderActions({
   >([]);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
-  // ─── Payment editor + splits ───
-  const [showPaymentEdit, setShowPaymentEdit] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({
-    method: payment?.method ?? "CASH",
-    status: payment?.status ?? "PENDING",
-    amount: payment?.amount?.toString() ?? "",
-    utrNumber: payment?.utrNumber ?? "",
-  });
-  const [showSplitAdd, setShowSplitAdd] = useState(false);
-  const [splitForm, setSplitForm] = useState({
-    method: "CASH" as PaymentMethod,
-    amount: "",
-    utrNumber: "",
-    note: "",
-  });
-  const paidSoFar = payment
-    ? payment.splits.length > 0
-      ? payment.splits.reduce((s, sp) => s + sp.amount, 0)
-      : payment.status === "COMPLETED"
-        ? payment.amount
-        : 0
-    : 0;
-  const remainingDue = Math.max(0, order.totalAmount - paidSoFar);
+  // Payment editor — modal-style, mirrors EditPaymentModal on
+  // bookings exactly. Mark-paid + edit-split affordances are
+  // their own self-contained components (see imports).
+  const [editPaymentOpen, setEditPaymentOpen] = useState(false);
+  const isMixed =
+    payment !== null &&
+    (payment.splitCashAmount !== null ||
+      payment.splitUpiAmount !== null ||
+      payment.splitDiscountAmount !== null);
+  const cashSlice = payment?.splitCashAmount ?? 0;
+  const upiSlice = payment?.splitUpiAmount ?? 0;
+  const discountSlice = payment?.splitDiscountAmount ?? 0;
 
   const isEditable =
     order.status === "PENDING" || order.status === "PREPARING";
@@ -195,59 +164,6 @@ export function CafeOrderActions({
     if (!result.success) alert(result.error);
     setLoading(false);
     setShowCancel(false);
-    router.refresh();
-  };
-
-  const handlePaymentEdit = async () => {
-    if (!payment) return;
-    const amt = paymentForm.amount.trim();
-    const parsedAmount = amt === "" ? undefined : Number(amt);
-    if (parsedAmount !== undefined && (Number.isNaN(parsedAmount) || parsedAmount < 0)) {
-      alert("Amount must be a non-negative number");
-      return;
-    }
-    setLoading(true);
-    const result = await updateCafePayment(order.id, {
-      method: paymentForm.method as PaymentMethod,
-      status: paymentForm.status as PaymentStatus,
-      amount: parsedAmount,
-      utrNumber: paymentForm.utrNumber.trim() || null,
-    });
-    if (!result.success) alert(result.error);
-    setLoading(false);
-    setShowPaymentEdit(false);
-    router.refresh();
-  };
-
-  const handleAddSplit = async () => {
-    const amt = Number(splitForm.amount.trim());
-    if (Number.isNaN(amt) || amt <= 0) {
-      alert("Split amount must be a positive number");
-      return;
-    }
-    setLoading(true);
-    const result = await addCafePaymentSplit(order.id, {
-      method: splitForm.method,
-      amount: amt,
-      utrNumber: splitForm.utrNumber.trim() || undefined,
-      note: splitForm.note.trim() || undefined,
-    });
-    if (!result.success) {
-      alert(result.error);
-    } else {
-      setSplitForm({ method: "CASH", amount: "", utrNumber: "", note: "" });
-      setShowSplitAdd(false);
-    }
-    setLoading(false);
-    router.refresh();
-  };
-
-  const handleRemoveSplit = async (splitId: string) => {
-    if (!confirm("Remove this split payment?")) return;
-    setLoading(true);
-    const result = await removeCafePaymentSplit(order.id, splitId);
-    if (!result.success) alert(result.error);
-    setLoading(false);
     router.refresh();
   };
 
@@ -377,49 +293,54 @@ export function CafeOrderActions({
         </div>
       )}
 
-      {/* Payment editor + splits — admin reconciliation surface.
-          Available regardless of order status so a paid-but-not-yet-
-          completed order can be reconciled, and a refund can be
-          recorded on a CANCELLED order. */}
+      {/* Payment panel — mirrors the booking detail page's
+          payment surface. Three affordances depending on state:
+            - PENDING payment with totalAmount > 0 → "Mark collected"
+              picker (Cash / UPI / Split) via MarkCafePaidButton.
+            - COMPLETED payment with mixed split → split breakdown
+              + "Edit collection split" via EditCafeSplitButton.
+            - Any state → "Edit Payment" (modal) for retroactive
+              corrections (method / status / amount / UTR / note). */}
       {payment ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+        <div
+          className={`rounded-xl border p-4 ${
+            payment.status === "COMPLETED"
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : payment.status === "REFUNDED" || payment.status === "FAILED"
+              ? "border-red-500/30 bg-red-500/5"
+              : "border-amber-500/30 bg-amber-500/5"
+          }`}
+        >
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-medium text-zinc-500 uppercase">
+            <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
               Payment
             </h3>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setShowPaymentEdit((p) => !p);
-                  setShowSplitAdd(false);
-                }}
-                className="flex items-center gap-1 text-xs text-fuchsia-400 hover:text-fuchsia-300"
-              >
-                <Wallet className="h-3 w-3" />
-                {showPaymentEdit ? "Close" : "Edit Payment"}
-              </button>
-              <button
-                onClick={() => {
-                  setShowSplitAdd((p) => !p);
-                  setShowPaymentEdit(false);
-                }}
-                className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300"
-              >
-                <CreditCard className="h-3 w-3" />
-                {showSplitAdd ? "Close" : "Add Split"}
-              </button>
-            </div>
+            <button
+              onClick={() => setEditPaymentOpen(true)}
+              className="flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800"
+            >
+              <Wallet className="h-3 w-3" />
+              Edit Payment
+            </button>
           </div>
 
           {/* Summary line */}
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white">
-                {payment.method.replace("_", " ")} · {payment.status}
+                {payment.method.replace("_", " ")}
+                <span className="ml-2 text-xs text-zinc-400 font-normal">
+                  · {payment.status}
+                </span>
               </p>
               {payment.utrNumber ? (
                 <p className="text-[11px] text-zinc-500">
                   UTR {payment.utrNumber}
+                </p>
+              ) : null}
+              {payment.razorpayPaymentId ? (
+                <p className="text-[11px] text-zinc-500 truncate">
+                  {payment.razorpayPaymentId}
                 </p>
               ) : null}
             </div>
@@ -428,226 +349,90 @@ export function CafeOrderActions({
                 {formatPrice(payment.amount)}
               </p>
               <p className="text-[11px] text-zinc-500">
-                {paidSoFar > 0
-                  ? `Paid ${formatPrice(paidSoFar)} of ${formatPrice(order.totalAmount)}`
-                  : `Due ${formatPrice(order.totalAmount)}`}
+                Order total {formatPrice(order.totalAmount)}
               </p>
             </div>
           </div>
 
-          {/* Split-payment rows */}
-          {payment.splits.length > 0 ? (
-            <div className="mt-3 space-y-1.5">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-500">
-                Splits
+          {/* Mark-paid picker — only for PENDING / PARTIAL */}
+          {payment.status === "PENDING" || payment.status === "PARTIAL" ? (
+            <MarkCafePaidButton
+              orderId={order.id}
+              totalAmount={order.totalAmount}
+              formattedTotal={formatPrice(order.totalAmount)}
+            />
+          ) : null}
+
+          {/* Split breakdown + edit-split affordance, only when
+              the payment was collected as a mixed tender. */}
+          {isMixed ? (
+            <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                Collected as
               </p>
-              {payment.splits.map((sp) => (
-                <div
-                  key={sp.id}
-                  className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Receipt className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-white">
-                        {sp.method.replace("_", " ")} ·{" "}
-                        <span className="font-medium text-emerald-400">
-                          {formatPrice(sp.amount)}
-                        </span>
-                      </p>
-                      {sp.utrNumber || sp.note ? (
-                        <p className="text-[10px] text-zinc-500 truncate">
-                          {sp.utrNumber ? `UTR ${sp.utrNumber}` : ""}
-                          {sp.utrNumber && sp.note ? " · " : ""}
-                          {sp.note ?? ""}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleRemoveSplit(sp.id)}
-                    className="text-[10px] text-red-400 hover:text-red-300 shrink-0"
-                  >
-                    Remove
-                  </button>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Banknote className="h-3 w-3 text-emerald-400" />
+                  <span className="text-zinc-300">
+                    Cash <span className="font-semibold text-white">{formatPrice(cashSlice)}</span>
+                  </span>
                 </div>
-              ))}
-              <p className="text-[10px] text-zinc-500 text-right">
-                {remainingDue > 0
-                  ? `Remaining due ${formatPrice(remainingDue)}`
-                  : "Fully settled"}
-              </p>
-            </div>
-          ) : null}
-
-          {/* Edit payment inline form */}
-          {showPaymentEdit ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 p-3">
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  Method
-                </span>
-                <select
-                  value={paymentForm.method}
-                  onChange={(e) =>
-                    setPaymentForm((p) => ({ ...p, method: e.target.value as PaymentMethod }))
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                >
-                  {PAYMENT_METHOD_OPTIONS.map((m) => (
-                    <option key={m} value={m}>
-                      {m.replace("_", " ")}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  Status
-                </span>
-                <select
-                  value={paymentForm.status}
-                  onChange={(e) =>
-                    setPaymentForm((p) => ({ ...p, status: e.target.value as PaymentStatus }))
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                >
-                  {PAYMENT_STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  Amount (₹)
-                </span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={paymentForm.amount}
-                  onChange={(e) =>
-                    setPaymentForm((p) => ({ ...p, amount: e.target.value }))
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                />
-              </label>
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  UTR / reference
-                </span>
-                <input
-                  type="text"
-                  value={paymentForm.utrNumber}
-                  onChange={(e) =>
-                    setPaymentForm((p) => ({ ...p, utrNumber: e.target.value }))
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                />
-              </label>
-              <div className="sm:col-span-2 flex items-center gap-2 pt-1">
-                <button
-                  onClick={handlePaymentEdit}
-                  disabled={loading}
-                  className="rounded-md bg-fuchsia-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-fuchsia-700 disabled:opacity-50"
-                >
-                  {loading ? "Saving…" : "Save Payment"}
-                </button>
-                <button
-                  onClick={() => setShowPaymentEdit(false)}
-                  className="text-xs text-zinc-400 hover:text-zinc-200"
-                >
-                  Cancel
-                </button>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <QrCode className="h-3 w-3 text-emerald-400" />
+                  <span className="text-zinc-300">
+                    UPI <span className="font-semibold text-white">{formatPrice(upiSlice)}</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Tag className="h-3 w-3 text-amber-400" />
+                  <span className="text-zinc-300">
+                    Disc <span className="font-semibold text-white">{formatPrice(discountSlice)}</span>
+                  </span>
+                </div>
               </div>
-            </div>
-          ) : null}
-
-          {/* Add-split inline form */}
-          {showSplitAdd ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3">
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  Method
-                </span>
-                <select
-                  value={splitForm.method}
-                  onChange={(e) =>
-                    setSplitForm((p) => ({ ...p, method: e.target.value as PaymentMethod }))
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                >
-                  {PAYMENT_METHOD_OPTIONS.map((m) => (
-                    <option key={m} value={m}>
-                      {m.replace("_", " ")}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  Amount (₹)
-                </span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={splitForm.amount}
-                  onChange={(e) =>
-                    setSplitForm((p) => ({ ...p, amount: e.target.value }))
-                  }
-                  placeholder={
-                    remainingDue > 0 ? `Suggest ${remainingDue}` : "0"
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
+              {payment.status === "COMPLETED" ? (
+                <EditCafeSplitButton
+                  orderId={order.id}
+                  totalAmount={order.totalAmount}
+                  initialCash={cashSlice}
+                  initialUpi={upiSlice}
+                  initialDiscount={discountSlice}
                 />
-              </label>
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  UTR / reference{" "}
-                  <span className="text-zinc-600 normal-case">— optional</span>
-                </span>
-                <input
-                  type="text"
-                  value={splitForm.utrNumber}
-                  onChange={(e) =>
-                    setSplitForm((p) => ({ ...p, utrNumber: e.target.value }))
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                />
-              </label>
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1">
-                  Note{" "}
-                  <span className="text-zinc-600 normal-case">— optional</span>
-                </span>
-                <input
-                  type="text"
-                  value={splitForm.note}
-                  onChange={(e) =>
-                    setSplitForm((p) => ({ ...p, note: e.target.value }))
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                />
-              </label>
-              <div className="sm:col-span-2 flex items-center gap-2 pt-1">
-                <button
-                  onClick={handleAddSplit}
-                  disabled={loading}
-                  className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-                >
-                  {loading ? "Adding…" : "Record Split"}
-                </button>
-                <button
-                  onClick={() => setShowSplitAdd(false)}
-                  className="text-xs text-zinc-400 hover:text-zinc-200"
-                >
-                  Cancel
-                </button>
-              </div>
+              ) : null}
             </div>
           ) : null}
         </div>
+      ) : null}
+
+      {/* Edit-payment modal — same shape as bookings */}
+      {payment ? (
+        <EditCafePaymentModal
+          orderId={order.id}
+          current={{
+            method: payment.method as
+              | "CASH"
+              | "UPI_QR"
+              | "RAZORPAY"
+              | "PHONEPE"
+              | "FREE",
+            status: payment.status as
+              | "PENDING"
+              | "PARTIAL"
+              | "COMPLETED"
+              | "REFUNDED"
+              | "FAILED",
+            amount: payment.amount,
+            razorpayPaymentId: payment.razorpayPaymentId,
+            utrNumber: payment.utrNumber,
+          }}
+          totalAmount={order.totalAmount}
+          isOpen={editPaymentOpen}
+          onClose={() => setEditPaymentOpen(false)}
+          onSuccess={() => {
+            setEditPaymentOpen(false);
+            router.refresh();
+          }}
+        />
       ) : null}
 
       {/* Edit order items (only when PENDING or PREPARING) */}

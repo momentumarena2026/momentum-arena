@@ -21,7 +21,7 @@ export default async function CafeOrderDetailPage({
         include: { cafeItem: { select: { name: true, isVeg: true, isAvailable: true } } },
       },
       user: { select: { id: true, name: true, email: true, phone: true } },
-      payment: { include: { splits: { orderBy: { createdAt: "asc" } } } },
+      payment: true,
       createdByAdmin: { select: { username: true } },
       editHistory: { orderBy: { createdAt: "desc" } },
     },
@@ -205,15 +205,11 @@ export default async function CafeOrderDetailPage({
                 method: order.payment.method,
                 status: order.payment.status,
                 amount: order.payment.amount,
+                razorpayPaymentId: order.payment.razorpayPaymentId,
                 utrNumber: order.payment.utrNumber,
-                splits: order.payment.splits.map((sp) => ({
-                  id: sp.id,
-                  method: sp.method,
-                  amount: sp.amount,
-                  utrNumber: sp.utrNumber,
-                  note: sp.note,
-                  createdAt: sp.createdAt.toISOString(),
-                })),
+                splitCashAmount: order.payment.splitCashAmount,
+                splitUpiAmount: order.payment.splitUpiAmount,
+                splitDiscountAmount: order.payment.splitDiscountAmount,
               }
             : null
         }
