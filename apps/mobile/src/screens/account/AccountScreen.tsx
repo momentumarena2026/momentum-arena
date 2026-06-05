@@ -19,6 +19,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  Coffee,
   ShoppingBag,
   Sparkles,
   User as UserIcon,
@@ -216,6 +217,15 @@ export function AccountScreen() {
           // orders list, and (b) require a custom headerLeft to get
           // back navigation right.
           onPress={() => navigation.navigate("ShopOrders")}
+        />
+        <ActionTile
+          icon={<Coffee size={20} color={"#fcd34d"} />}
+          title="Cafe orders"
+          subtitle="Your cafe order history"
+          // Same pattern as ShopOrders — registered on AccountStack so
+          // the Cafe tab in the bottom nav stays on the menu and back
+          // pops cleanly to AccountHome.
+          onPress={() => navigation.navigate("CafeOrders")}
         />
         <ActionTile
           icon={<RefreshCw size={20} color={colors.zinc400} />}

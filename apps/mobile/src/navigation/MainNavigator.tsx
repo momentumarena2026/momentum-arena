@@ -8,9 +8,9 @@ import {
   User,
 } from "lucide-react-native";
 import { HomeScreen } from "../screens/home/HomeScreen";
-import { CafeMenuScreen } from "../screens/cafe/CafeMenuScreen";
 import { AccountStack } from "./AccountStack";
 import { BookStack } from "./BookStack";
+import { CafeStack } from "./CafeStack";
 import { ShopStack } from "./ShopStack";
 import { colors } from "../theme";
 import type { MainTabsParamList } from "./types";
@@ -65,7 +65,7 @@ export function MainNavigator() {
         component={BookStack}
         options={{ tabBarLabel: "Sports" }}
       />
-      <Tab.Screen name="Cafe" component={CafeMenuScreen} />
+      <Tab.Screen name="Cafe" component={CafeStack} />
       <Tab.Screen name="Shop" component={ShopStack} />
       <Tab.Screen name="Account" component={AccountStack} />
     </Tab.Navigator>

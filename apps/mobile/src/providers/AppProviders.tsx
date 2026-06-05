@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../lib/queryClient";
 import { AuthProvider } from "./AuthProvider";
 import { AdminAuthProvider } from "./AdminAuthProvider";
+import { CafeCartProvider } from "./CafeCartProvider";
 import type { PropsWithChildren } from "react";
 import { StyleSheet } from "react-native";
 import { colors } from "../theme";
@@ -14,7 +15,9 @@ export function AppProviders({ children }: PropsWithChildren) {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            <AdminAuthProvider>{children}</AdminAuthProvider>
+            <AdminAuthProvider>
+              <CafeCartProvider>{children}</CafeCartProvider>
+            </AdminAuthProvider>
           </AuthProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

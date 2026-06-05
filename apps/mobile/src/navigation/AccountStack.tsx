@@ -8,6 +8,8 @@ import { RecurringBookingsScreen } from "../screens/bookings/RecurringBookingsSc
 import { BookingDetailScreen } from "../screens/bookings/BookingDetailScreen";
 import { ShopOrdersListScreen } from "../screens/shop/ShopOrdersListScreen";
 import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
+import { CafeOrdersListScreen } from "../screens/cafe/CafeOrdersListScreen";
+import { CafeOrderDetailScreen } from "../screens/cafe/CafeOrderDetailScreen";
 import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
 import { colors } from "../theme";
 import type { AccountStackParamList } from "./types";
@@ -84,6 +86,20 @@ export function AccountStack() {
         name="ShopOrderDetail"
         component={ShopOrderDetailScreen}
         options={{ title: "Order" }}
+      />
+      {/* Cafe orders mirror the shop pattern — entry from the
+          AccountHome tile, registered here so back from the list
+          pops to AccountHome and the Cafe tab in the bottom nav
+          never gets stuck on the orders view. */}
+      <Stack.Screen
+        name="CafeOrders"
+        component={CafeOrdersListScreen}
+        options={{ title: "My cafe orders" }}
+      />
+      <Stack.Screen
+        name="CafeOrderDetail"
+        component={CafeOrderDetailScreen}
+        options={{ title: "Cafe order" }}
       />
     </Stack.Navigator>
   );

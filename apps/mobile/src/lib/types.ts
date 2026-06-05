@@ -165,6 +165,10 @@ export interface CafeItem {
   description: string | null;
   category: CafeItemCategory;
   price: number;
+  // Stock counter. null = unlimited / kitchen-prepared (no decrement
+  // on order); integer = on-hand units tracked for procured items.
+  // Drives Ready vs Kitchen routing for COMPLETED vs PENDING orders.
+  quantity: number | null;
   image: string | null;
   isVeg: boolean;
   isAvailable: boolean;

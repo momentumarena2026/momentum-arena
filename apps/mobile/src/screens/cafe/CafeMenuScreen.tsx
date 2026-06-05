@@ -2,12 +2,15 @@ import { useMemo } from "react";
 import {
   ActivityIndicator,
   Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
-import { Clock, Coffee } from "lucide-react-native";
+import { Clock, Coffee, Minus, Plus, ShoppingCart } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
@@ -15,27 +18,21 @@ import { colors, radius, spacing } from "../../theme";
 import { cafeApi } from "../../lib/cafe";
 import type { CafeItem } from "../../lib/types";
 import { formatRupees } from "../../lib/format";
+import { useCafeCart } from "../../providers/CafeCartProvider";
+import type { CafeStackParamList } from "../../navigation/types";
+
+type Nav = NativeStackNavigationProp<CafeStackParamList, "CafeMenu">;
 
 /**
- * Cafe tab. Single query fetches {isOpen, items} so we pick the
- * right render in one shot:
- *   - isOpen = false → "Cafe is closed" page (mirrors web's
- *     CafeClosedPage component visually + emotionally — warm,
- *     not apologetic).
- *   - isOpen = true  → read-only menu listing grouped by
- *     category, with prices and veg / non-veg dots. Native
- *     add-to-cart + checkout flow is intentionally not ported
- *     yet — customers in the app see the menu and tap to view,
- *     ordering happens at the counter for now (mirrors the
- *     interim state on web where the customer ordering UI is
- *     still being built out).
+ * Cafe tab entry. Single query → {isOpen, items}; the screen
+ * either renders the warm "Cafe closed" view or the open menu with
+ * inline +/- qty controls. A sticky footer surfaces the cart count
+ * + checkout CTA the moment there's anything in it.
  */
 export function CafeMenuScreen() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["cafe", "menu"],
     queryFn: () => cafeApi.menu(),
-    // Cafe open/closed flips are admin events — no need to refetch
-    // aggressively. 30s staleness is plenty.
     staleTime: 30_000,
   });
 
@@ -69,11 +66,7 @@ export function CafeMenuScreen() {
   return <CafeOpenView items={data.items} />;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// CLOSED view — RN port of components/cafe/cafe-closed-page.tsx.
-// Keeps the same copy + amber-cream palette so the two surfaces
-// read identically when a venue closes the cafe.
-// ─────────────────────────────────────────────────────────────────────
+// ─────────── CLOSED view ───────────
 
 function CafeClosedView() {
   return (
@@ -102,7 +95,6 @@ function CafeClosedView() {
             </Text>
           </View>
         </View>
-
         <Text
           variant="tiny"
           color={colors.zinc600}
@@ -117,11 +109,7 @@ function CafeClosedView() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// OPEN view — read-only menu listing. Cart/checkout flow is the
-// follow-up; for now the screen surfaces the menu (so customers
-// see what's available) and tells them to order at the counter.
-// ─────────────────────────────────────────────────────────────────────
+// ─────────── OPEN view ───────────
 
 const CATEGORY_LABELS: Record<string, string> = {
   SNACKS: "Snacks",
@@ -133,10 +121,13 @@ const CATEGORY_LABELS: Record<string, string> = {
 const CATEGORY_ORDER = ["BEVERAGES", "SNACKS", "MEALS", "DESSERTS", "COMBOS"];
 
 function CafeOpenView({ items }: { items: CafeItem[] }) {
+  const navigation = useNavigation<Nav>();
+  const cart = useCafeCart();
+
   const grouped = useMemo(() => {
     const out: Record<string, CafeItem[]> = {};
     for (const item of items) {
-      if (!item.isAvailable) continue; // hide unavailable from menu listing
+      if (!item.isAvailable) continue;
       if (!out[item.category]) out[item.category] = [];
       out[item.category].push(item);
     }
@@ -146,14 +137,14 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
   const categories = CATEGORY_ORDER.filter((c) => grouped[c]?.length > 0);
 
   return (
-    <Screen>
+    <Screen padded={false}>
       <ScrollView contentContainerStyle={styles.menuScroll}>
         <View style={styles.menuHeader}>
           <Text variant="heading" weight="700" color={colors.foreground}>
-            Momentum Cafe
+            Momentum Cafe ☕
           </Text>
           <Text variant="small" color={colors.zinc400}>
-            Browse the menu. Place orders at the counter for now.
+            Order now, pick up at the counter.
           </Text>
         </View>
 
@@ -174,20 +165,83 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
               >
                 {CATEGORY_LABELS[cat] ?? cat}
               </Text>
-              {grouped[cat].map((item) => (
-                <ItemRow key={item.id} item={item} />
-              ))}
+              {grouped[cat].map((item) => {
+                const qty = cart.getQuantity(item.id);
+                const outOfStock =
+                  item.quantity !== null &&
+                  item.quantity !== undefined &&
+                  item.quantity === 0;
+                const stockReached =
+                  item.quantity !== null &&
+                  item.quantity !== undefined &&
+                  qty >= item.quantity;
+                return (
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    quantity={qty}
+                    outOfStock={outOfStock}
+                    stockReached={stockReached}
+                    onAdd={() =>
+                      cart.addItem({
+                        cafeItemId: item.id,
+                        name: item.name,
+                        price: item.price,
+                        isVeg: item.isVeg,
+                        imageUrl: item.image ?? null,
+                        trackedStock: item.quantity ?? null,
+                      })
+                    }
+                    onIncrement={() => cart.increment(item.id)}
+                    onDecrement={() => cart.decrement(item.id)}
+                  />
+                );
+              })}
             </View>
           ))
         )}
       </ScrollView>
+
+      {cart.itemCount > 0 ? (
+        <View style={styles.cartFooter}>
+          <View style={{ flex: 1 }}>
+            <Text variant="tiny" color={colors.zinc500}>
+              {cart.itemCount} item{cart.itemCount !== 1 ? "s" : ""} in cart
+            </Text>
+            <Text variant="bodyStrong" weight="700" color={colors.foreground}>
+              {formatRupees(cart.subtotal)}
+            </Text>
+          </View>
+          <Button
+            label="View Cart"
+            onPress={() => navigation.navigate("CafeCart")}
+            size="md"
+          />
+        </View>
+      ) : null}
     </Screen>
   );
 }
 
-function ItemRow({ item }: { item: CafeItem }) {
+function ItemRow({
+  item,
+  quantity,
+  outOfStock,
+  stockReached,
+  onAdd,
+  onIncrement,
+  onDecrement,
+}: {
+  item: CafeItem;
+  quantity: number;
+  outOfStock: boolean;
+  stockReached: boolean;
+  onAdd: () => void;
+  onIncrement: () => void;
+  onDecrement: () => void;
+}) {
   return (
-    <View style={styles.itemRow}>
+    <View style={[styles.itemRow, outOfStock ? styles.itemRowDimmed : null]}>
       {item.image ? (
         <Image source={{ uri: item.image }} style={styles.itemImage} />
       ) : (
@@ -195,8 +249,6 @@ function ItemRow({ item }: { item: CafeItem }) {
       )}
       <View style={styles.itemBody}>
         <View style={styles.itemNameRow}>
-          {/* Tiny veg/non-veg square — same convention as the web
-              cafe menu page. Green = veg, red = non-veg. */}
           <View
             style={[
               styles.vegBadge,
@@ -238,10 +290,66 @@ function ItemRow({ item }: { item: CafeItem }) {
             {item.description}
           </Text>
         ) : null}
+        <Text variant="small" weight="700" color={colors.emerald400}>
+          {formatRupees(item.price)}
+        </Text>
       </View>
-      <Text variant="small" weight="700" color={colors.emerald400}>
-        {formatRupees(item.price)}
-      </Text>
+
+      <View style={styles.qtyColumn}>
+        {outOfStock ? (
+          <Text variant="tiny" color={colors.destructive_300} weight="600">
+            Sold out
+          </Text>
+        ) : quantity === 0 ? (
+          <Pressable
+            onPress={onAdd}
+            style={({ pressed }) => [
+              styles.addBtn,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <ShoppingCart size={14} color={colors.background} />
+            <Text variant="tiny" weight="700" color={colors.background}>
+              Add
+            </Text>
+          </Pressable>
+        ) : (
+          <View style={styles.qtyRow}>
+            <Pressable
+              onPress={onDecrement}
+              style={({ pressed }) => [
+                styles.qtyBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Minus size={14} color={colors.foreground} />
+            </Pressable>
+            <Text variant="small" weight="700" color={colors.foreground}>
+              {quantity}
+            </Text>
+            <Pressable
+              onPress={onIncrement}
+              disabled={stockReached}
+              style={({ pressed }) => [
+                styles.qtyBtn,
+                pressed && { opacity: 0.7 },
+                stockReached && { opacity: 0.4 },
+              ]}
+            >
+              <Plus size={14} color={colors.foreground} />
+            </Pressable>
+          </View>
+        )}
+        {stockReached && !outOfStock ? (
+          <Text
+            variant="tiny"
+            color={colors.warning}
+            style={styles.stockHint}
+          >
+            Max stock
+          </Text>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -251,11 +359,7 @@ const AMBER_300 = "#fcd34d";
 const AMBER_200 = "#fde68a";
 
 const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  loading: { flex: 1, alignItems: "center", justifyContent: "center" },
   errorWrap: {
     flex: 1,
     alignItems: "center",
@@ -265,10 +369,7 @@ const styles = StyleSheet.create({
   },
 
   // CLOSED view
-  closedScroll: {
-    padding: spacing["4"],
-    gap: spacing["4"],
-  },
+  closedScroll: { padding: spacing["4"], gap: spacing["4"] },
   heroCard: {
     borderRadius: 24,
     borderWidth: 1,
@@ -289,9 +390,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing["2"],
   },
-  heroBody: {
-    paddingHorizontal: spacing["2"],
-  },
+  heroBody: { paddingHorizontal: spacing["2"] },
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -304,22 +403,16 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     marginTop: spacing["2"],
   },
-  fallbackHint: {
-    paddingHorizontal: spacing["4"],
-  },
+  fallbackHint: { paddingHorizontal: spacing["4"] },
 
   // OPEN view
   menuScroll: {
     padding: spacing["4"],
+    paddingBottom: spacing["10"],
     gap: spacing["4"],
   },
-  menuHeader: {
-    gap: spacing["1"],
-    paddingBottom: spacing["2"],
-  },
-  section: {
-    gap: spacing["2"],
-  },
+  menuHeader: { gap: spacing["1"], paddingBottom: spacing["2"] },
+  section: { gap: spacing["2"] },
   sectionHeading: {
     paddingTop: spacing["2"],
     textTransform: "uppercase",
@@ -335,32 +428,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     padding: spacing["3"],
   },
-  itemImage: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.md,
-  },
+  itemRowDimmed: { opacity: 0.5 },
+  itemImage: { width: 56, height: 56, borderRadius: radius.md },
   itemImagePlaceholder: {
     width: 56,
     height: 56,
     borderRadius: radius.md,
     backgroundColor: colors.zinc900,
   },
-  itemBody: {
-    flex: 1,
-    gap: 2,
-  },
+  itemBody: { flex: 1, gap: 2 },
   itemNameRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing["2"],
   },
-  itemName: {
-    flex: 1,
-  },
-  itemDescription: {
-    lineHeight: 16,
-  },
+  itemName: { flex: 1 },
+  itemDescription: { lineHeight: 16 },
   vegBadge: {
     width: 14,
     height: 14,
@@ -369,11 +452,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  vegDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
+  vegDot: { width: 6, height: 6, borderRadius: 3 },
   emptyCard: {
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -381,5 +460,48 @@ const styles = StyleSheet.create({
     backgroundColor: colors.zinc900,
     padding: spacing["6"],
   },
-});
 
+  // qty controls
+  qtyColumn: { alignItems: "flex-end", gap: 4 },
+  addBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["1.5"],
+    borderRadius: 999,
+    backgroundColor: colors.emerald400,
+  },
+  qtyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2.5"],
+  },
+  qtyBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    backgroundColor: colors.zinc900,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stockHint: { textAlign: "right" },
+
+  // Cart footer
+  cartFooter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    paddingHorizontal: spacing["4"],
+    paddingVertical: spacing["3"],
+    backgroundColor: colors.card,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+});

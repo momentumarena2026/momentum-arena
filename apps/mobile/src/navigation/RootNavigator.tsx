@@ -84,10 +84,28 @@ export function RootNavigator() {
             });
           }
           break;
-        case "cafe_order_status":
-          // No CafeOrderDetail screen yet — drop into the cafe tab.
-          navigationRef.navigate("Main", { screen: "Cafe" });
+        case "cafe_order_status": {
+          // Land on the cafe order detail screen under AccountStack
+          // when the push payload carries an orderId; otherwise
+          // fall back to the cafe tab. Kitchen status-flip
+          // notifications attach `cafeOrderId` on the push data.
+          const orderId = payload.cafeOrderId;
+          if (orderId) {
+            navigationRef.navigate("Main", {
+              screen: "Account",
+              params: {
+                screen: "CafeOrderDetail",
+                params: { orderId },
+              },
+            });
+          } else {
+            navigationRef.navigate("Main", {
+              screen: "Cafe",
+              params: { screen: "CafeMenu" },
+            });
+          }
           break;
+        }
         case "rewards_earned":
           // Tap on a "you earned N pts" notification → land on the
           // Momentum Points screen (under Account tab). Account stack
