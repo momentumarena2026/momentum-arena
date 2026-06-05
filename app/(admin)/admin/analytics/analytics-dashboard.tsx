@@ -20,7 +20,6 @@ import {
   getKPIStats,
   getRevenueOverTime,
   getSportRevenueBreakdown,
-  getCafeCategoryBreakdown,
   getPeakHourAnalysis,
   getTopCustomers,
   getPaymentMethodBreakdown,
@@ -41,7 +40,10 @@ interface KPIData {
   activeCustomers: number;
 }
 
-type Scope = "all" | "sports" | "cafe";
+// Scope is locked to "sports" here — cafe analytics live on
+// /admin/analytics/cafe with their own dashboard. Kept as a type
+// for the existing RevenueOverTime action's signature.
+type Scope = "sports";
 type GroupBy = "day" | "week" | "month";
 
 // --------------- Helpers ---------------
@@ -58,14 +60,6 @@ const SPORT_COLORS: Record<string, string> = {
   Cricket: "#10b981",
   Football: "#3b82f6",
   Pickleball: "#f59e0b",
-};
-
-const CAFE_COLORS: Record<string, string> = {
-  Snacks: "#f59e0b",
-  Beverages: "#8b5cf6",
-  Meals: "#10b981",
-  Desserts: "#ec4899",
-  Combos: "#3b82f6",
 };
 
 const PAYMENT_COLORS: Record<string, string> = {
@@ -140,8 +134,9 @@ export function AnalyticsDashboard({
 }: Props) {
   const [dateFrom, setDateFrom] = useState(defaultDateFrom);
   const [dateTo, setDateTo] = useState(defaultDateTo);
-  const [scope, setScope] = useState<Scope>("all");
   const [groupBy, setGroupBy] = useState<GroupBy>("day");
+  // Locked to "sports" — see top-of-file note.
+  const scope: Scope = "sports";
 
   const [kpi, setKpi] = useState<KPIData | null>(initialKPI);
   const [revenueData, setRevenueData] = useState<
@@ -154,9 +149,6 @@ export function AnalyticsDashboard({
   >([]);
   const [sportBreakdown, setSportBreakdown] = useState<
     Array<{ sport: string; revenue: number; bookingCount: number }>
-  >([]);
-  const [cafeBreakdown, setCafeBreakdown] = useState<
-    Array<{ category: string; revenue: number; orderCount: number }>
   >([]);
   const [peakHours, setPeakHours] = useState<
     Array<{ hour: number; bookingCount: number }>
@@ -180,12 +172,11 @@ export function AnalyticsDashboard({
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [kpiRes, revRes, sportRes, cafeRes, peakRes, custRes, payRes] =
+      const [kpiRes, revRes, sportRes, peakRes, custRes, payRes] =
         await Promise.all([
           getKPIStats(dateFrom, dateTo),
           getRevenueOverTime({ dateFrom, dateTo, scope, groupBy }),
           getSportRevenueBreakdown(dateFrom, dateTo),
-          getCafeCategoryBreakdown(dateFrom, dateTo),
           getPeakHourAnalysis(dateFrom, dateTo),
           getTopCustomers(dateFrom, dateTo),
           getPaymentMethodBreakdown(dateFrom, dateTo),
@@ -194,7 +185,6 @@ export function AnalyticsDashboard({
       if (kpiRes.success && kpiRes.data) setKpi(kpiRes.data);
       if (revRes.success && revRes.data) setRevenueData(revRes.data);
       if (sportRes.success && sportRes.data) setSportBreakdown(sportRes.data);
-      if (cafeRes.success && cafeRes.data) setCafeBreakdown(cafeRes.data);
       if (peakRes.success && peakRes.data) setPeakHours(peakRes.data);
       if (custRes.success && custRes.data) setTopCustomers(custRes.data);
       if (payRes.success && payRes.data) setPaymentMethods(payRes.data);
@@ -214,19 +204,9 @@ export function AnalyticsDashboard({
   const kpiCards = kpi
     ? [
         {
-          label: "Total Revenue",
-          value: formatINR(kpi.totalRevenue),
-          color: "text-white",
-        },
-        {
           label: "Sports Revenue",
           value: formatINR(kpi.sportsRevenue),
           color: "text-emerald-400",
-        },
-        {
-          label: "Cafe Revenue",
-          value: formatINR(kpi.cafeRevenue),
-          color: "text-amber-400",
         },
         {
           label: "Total Bookings",
@@ -244,6 +224,11 @@ export function AnalyticsDashboard({
           color:
             kpi.cancellationRate > 10 ? "text-red-400" : "text-emerald-400",
         },
+        {
+          label: "Active Customers",
+          value: kpi.activeCustomers.toLocaleString("en-IN"),
+          color: "text-white",
+        },
       ]
     : [];
 
@@ -252,11 +237,6 @@ export function AnalyticsDashboard({
   const sportPieData = sportBreakdown.map((s) => ({
     name: s.sport.charAt(0).toUpperCase() + s.sport.slice(1).toLowerCase(),
     value: s.revenue,
-  }));
-
-  const cafePieData = cafeBreakdown.map((c) => ({
-    name: c.category.charAt(0).toUpperCase() + c.category.slice(1).toLowerCase(),
-    value: c.revenue,
   }));
 
   const paymentPieData = paymentMethods.map((p) => ({
@@ -287,24 +267,6 @@ export function AnalyticsDashboard({
             onChange={(e) => setDateTo(e.target.value)}
             className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
           />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-zinc-400">Scope</label>
-          <div className="flex gap-1">
-            {(["all", "sports", "cafe"] as Scope[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setScope(s)}
-                className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-                  scope === s
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
-                }`}
-              >
-                {s === "all" ? "All" : s === "sports" ? "Sports" : "Cafe"}
-              </button>
-            ))}
-          </div>
         </div>
         <div>
           <label className="mb-1 block text-xs text-zinc-400">Group by</label>
@@ -397,33 +359,12 @@ export function AnalyticsDashboard({
                 <Legend
                   wrapperStyle={{ color: "#a1a1aa", fontSize: 12 }}
                 />
-                {scope !== "cafe" && (
-                  <Line
-                    type="monotone"
-                    dataKey="sportsRevenue"
-                    name="Sports"
-                    stroke="#10b981"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                )}
-                {scope !== "sports" && (
-                  <Line
-                    type="monotone"
-                    dataKey="cafeRevenue"
-                    name="Cafe"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                )}
                 <Line
                   type="monotone"
-                  dataKey="totalRevenue"
-                  name="Total"
-                  stroke="#ffffff"
+                  dataKey="sportsRevenue"
+                  name="Sports"
+                  stroke="#10b981"
                   strokeWidth={2}
-                  strokeDasharray="5 5"
                   dot={false}
                 />
               </LineChart>
@@ -432,97 +373,50 @@ export function AnalyticsDashboard({
         </div>
       )}
 
-      {/* Pie Charts Row */}
+      {/* Sport Revenue Breakdown — full width now that the cafe pie
+          has moved to its own /admin/analytics/cafe dashboard. */}
       {loading ? (
-        <div className="grid gap-6 md:grid-cols-2">
-          <ChartSkeleton />
-          <ChartSkeleton />
-        </div>
+        <ChartSkeleton />
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* Sport Revenue Pie */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-            <h2 className="mb-4 text-sm font-semibold text-white">
-              Sport Revenue Breakdown
-            </h2>
-            {sportPieData.length === 0 ? (
-              <p className="py-12 text-center text-zinc-500">No data</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={sportPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    label={({ name, percent }) =>
-                      `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-                    }
-                    labelLine={{ stroke: "#a1a1aa" }}
-                  >
-                    {sportPieData.map((entry) => (
-                      <Cell
-                        key={entry.name}
-                        fill={SPORT_COLORS[entry.name] || "#6b7280"}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    content={({ active, payload }) => (
-                      <ChartTooltip
-                        active={active}
-                        payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
-                      />
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          {/* Cafe Category Pie */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-            <h2 className="mb-4 text-sm font-semibold text-white">
-              Cafe Category Breakdown
-            </h2>
-            {cafePieData.length === 0 ? (
-              <p className="py-12 text-center text-zinc-500">No data</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={cafePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    label={({ name, percent }) =>
-                      `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-                    }
-                    labelLine={{ stroke: "#a1a1aa" }}
-                  >
-                    {cafePieData.map((entry) => (
-                      <Cell
-                        key={entry.name}
-                        fill={CAFE_COLORS[entry.name] || "#6b7280"}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    content={({ active, payload }) => (
-                      <ChartTooltip
-                        active={active}
-                        payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
-                      />
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+          <h2 className="mb-4 text-sm font-semibold text-white">
+            Sport Revenue Breakdown
+          </h2>
+          {sportPieData.length === 0 ? (
+            <p className="py-12 text-center text-zinc-500">No data</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={320}>
+              <PieChart>
+                <Pie
+                  data={sportPieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={120}
+                  label={({ name, percent }) =>
+                    `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
+                  }
+                  labelLine={{ stroke: "#a1a1aa" }}
+                >
+                  {sportPieData.map((entry) => (
+                    <Cell
+                      key={entry.name}
+                      fill={SPORT_COLORS[entry.name] || "#6b7280"}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  content={({ active, payload }) => (
+                    <ChartTooltip
+                      active={active}
+                      payload={payload as unknown as Array<{ name: string; value: number; color: string }>}
+                    />
+                  )}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
       )}
 
@@ -639,11 +533,8 @@ export function AnalyticsDashboard({
                     <th className="pb-3 pr-4 font-medium text-zinc-400 text-right">
                       Total Spent
                     </th>
-                    <th className="pb-3 pr-4 font-medium text-zinc-400 text-right">
-                      Bookings
-                    </th>
                     <th className="pb-3 font-medium text-zinc-400 text-right">
-                      Cafe Orders
+                      Bookings
                     </th>
                   </tr>
                 </thead>
@@ -667,11 +558,8 @@ export function AnalyticsDashboard({
                       <td className="py-3 pr-4 text-right font-medium text-emerald-400">
                         {formatINR(customer.totalSpent)}
                       </td>
-                      <td className="py-3 pr-4 text-right text-zinc-300">
-                        {customer.bookingCount}
-                      </td>
                       <td className="py-3 text-right text-zinc-300">
-                        {customer.orderCount}
+                        {customer.bookingCount}
                       </td>
                     </tr>
                   ))}
