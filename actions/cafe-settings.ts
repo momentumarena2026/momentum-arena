@@ -1,8 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { adminAuth } from "@/lib/admin-auth-session";
-import { hasPermission } from "@/lib/permissions";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // Get or create default cafe settings. Defensive: if the create
 // itself fails (RLS / migration mid-flight / etc.) we fall back to
@@ -31,23 +30,12 @@ export async function getCafeSettings() {
   }
 }
 
-// Update cafe settings (admin only). Auth check inlined rather than
-// extracted into a non-exported helper — "use server" files may
-// emit warnings or fail to bundle correctly when they contain
-// non-exported async functions in some Next 16 builds; keeping the
-// file's exports tight avoids the gotcha entirely.
+// Update cafe settings (admin only). Uses the same `requireAdmin`
+// helper every other cafe-admin action uses (actions/admin-cafe.ts,
+// actions/admin-cafe-orders.ts) so the auth surface is identical
+// across the admin area.
 export async function updateCafeSettings(data: { totalTables: number }) {
-  const session = await adminAuth();
-  if (
-    !session ||
-    !hasPermission(
-      (session as unknown as { permissions: string[] }).permissions,
-      "MANAGE_CAFE_MENU",
-    )
-  ) {
-    throw new Error("Unauthorized: MANAGE_CAFE_MENU permission required");
-  }
-
+  await requireAdmin("MANAGE_CAFE_MENU");
   const settings = await getCafeSettings();
   return db.cafeSettings.update({
     where: { id: settings.id },
@@ -56,71 +44,49 @@ export async function updateCafeSettings(data: { totalTables: number }) {
 }
 
 /**
- * Result shape for `setCafeOpen` — kept as a plain serialisable
- * discriminated union so the server action can RETURN errors
- * instead of THROWING them. Throwing across the server-action
- * boundary in Next 16 + React 19 surfaces as the generic "Server
- * Components render" digest error on the client, which is
- * impossible for the admin to act on. Returning a result instead
- * keeps the error path completely inside our client-side `if (!ok)`
- * branch — no error boundary, no digest.
+ * Result shape for `setCafeOpen` — plain serialisable discriminated
+ * union so the server action can RETURN errors instead of THROWING
+ * them. Any throw across a Next 16 / React 19 server action
+ * boundary surfaces as the generic "Server Components render"
+ * digest error on the client. Returning a result keeps the error
+ * path inside our client-side `if (!ok)` branch.
  */
 export type SetCafeOpenResult =
   | { ok: true; isOpen: boolean }
   | { ok: false; error: string };
 
 /**
- * Master open/closed switch. Drives the customer-facing `/cafe`
- * page and the mobile Cafe tab: `true` → menu + ordering flow,
- * `false` → "Cafe is closed" page. Admin-side walk-in order
- * creation stays available either way so floor staff can keep
- * the cafe running operationally even when customer ordering is
- * closed.
+ * Master open/closed switch. Drives the customer-facing /cafe page
+ * and the mobile Cafe tab:
+ *   - `true`  → menu + ordering flow active
+ *   - `false` → "Cafe is closed" page for customers
  *
- * Implementation note — DO NOT route through `getCafeSettings()`.
- * That helper returns a synthetic `{ id: "__fallback__", ... }`
- * object when the read fails, and feeding that id into
- * `db.cafeSettings.update` triggers Prisma's "record not found"
- * (P2025). Instead we hit the row directly here and create-if-
- * missing, so the synthetic id is never reachable. Every failure
- * mode (auth lapse, missing migration column, transient pool,
- * unknown Prisma error) gets caught and returned as a `{ ok:false,
- * error }` tuple — the action itself never throws.
+ * The admin walk-in order creation on /admin/cafe-orders/create is
+ * unaffected — floor staff keep serving counter orders regardless.
+ *
+ * Auth is via `requireAdmin("MANAGE_CAFE_MENU")` — the same gate
+ * the page itself sits behind, so anyone who can SEE the toggle
+ * can also flip it.
  */
 export async function setCafeOpen(isOpen: boolean): Promise<SetCafeOpenResult> {
-  // Auth check returns a failure result instead of throwing — the
-  // throw path used to bubble across the action boundary as the
-  // digest render error.
+  // Auth — same surface as every other cafe-menu admin action. If
+  // the call would throw (no session / no permission) we catch it
+  // and convert into a failure result rather than letting it bubble
+  // across the server-action boundary as a digest error.
   try {
-    const session = await adminAuth();
-    if (
-      !session ||
-      !hasPermission(
-        (session as unknown as { permissions: string[] }).permissions,
-        "MANAGE_CAFE_MENU",
-      )
-    ) {
-      return {
-        ok: false,
-        error: "You don't have permission to change the cafe state.",
-      };
-    }
-  } catch (err) {
-    console.error("[cafe-settings] setCafeOpen auth failed", err);
+    await requireAdmin("MANAGE_CAFE_MENU");
+  } catch {
     return {
       ok: false,
-      error: "Auth check failed — please sign in again and retry.",
+      error: "You don't have permission to change the cafe state.",
     };
   }
 
-  // DB write — findFirst by id only so the read succeeds even if a
-  // future column was added to the schema but hasn't migrated yet.
-  // If we have a row, update by its real id; if not, create the
-  // singleton.
+  // DB write — findFirst by id only, so the read succeeds even if a
+  // future schema column hasn't migrated yet. Upsert on absence so
+  // the synthetic-id path from the fallback is unreachable here.
   try {
-    const existing = await db.cafeSettings.findFirst({
-      select: { id: true },
-    });
+    const existing = await db.cafeSettings.findFirst({ select: { id: true } });
     if (existing) {
       await db.cafeSettings.update({
         where: { id: existing.id },
@@ -142,19 +108,16 @@ export async function setCafeOpen(isOpen: boolean): Promise<SetCafeOpenResult> {
     };
   }
 
-  // Revalidate downstream surfaces. revalidatePath itself can
-  // (theoretically) fail if Next's cache layer hits an issue; keep
-  // it inside try/catch so a stale-cache miss never turns into a
-  // digest error AFTER the write has already succeeded.
+  // Best-effort cache revalidation — the write already succeeded
+  // so a stale-cache miss must NOT surface as a failure to the
+  // client (router.refresh on the client side will pull the new
+  // state anyway).
   try {
     const { revalidatePath } = await import("next/cache");
     revalidatePath("/cafe");
     revalidatePath("/admin/cafe-menu");
   } catch (err) {
     console.error("[cafe-settings] revalidatePath failed", err);
-    // Write succeeded — fall through to the success result. The
-    // client's own router.refresh() will pull the new state on
-    // its own.
   }
 
   return { ok: true, isOpen };
