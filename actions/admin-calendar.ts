@@ -116,20 +116,37 @@ export async function getCalendarData(
   });
 
   // Build hours array — admin calendar always renders the full
-  // 24-hour wall-clock grid. Hour 0 displays the X-1 hour-24
-  // bookings; hours 1–23 display X's hour-1..23 bookings; X's
-  // own hour-24 entries belong on X+1's grid (handled there).
+  // 24-hour wall-clock grid.
   const hours: number[] = [];
   for (let h = 0; h < 24; h++) hours.push(h);
 
-  // Map a display cell (hour on X's grid) to the canonical storage
-  // coordinates used by Booking.date + BookingSlot.startHour.
+  // Map a display cell (hour on X's grid) to ALL canonical storage
+  // coordinates a booking/block could be stored under for that
+  // wall-clock moment.
+  //
+  // Hour 0 (12am-1am of X) has two valid storage forms in this
+  // codebase:
+  //   - Legacy customer-flow midnight booking on the venue's
+  //     "session date":  (date = X-1, startHour = 24).
+  //   - Admin create-booking flow (lib/admin-booking.ts ->
+  //     getAvailableSlots iterates 0..23, stores against the
+  //     actual calendar date):  (date = X, startHour = 0).
+  //
+  // Both represent the same wall-clock slot — we have to match
+  // either so the admin's late-night bookings show up on the same
+  // cell as the customer's midnight bookings.
+  //
+  // Hours 1..23 only have the natural-day storage form.
   const storageCoordsForHour = (
     hour: number,
-  ): { storageDate: Date; storageHour: number } => {
-    if (hour === 0)
-      return { storageDate: dateOnlyPrev, storageHour: 24 };
-    return { storageDate: dateOnly, storageHour: hour };
+  ): Array<{ storageDate: Date; storageHour: number }> => {
+    if (hour === 0) {
+      return [
+        { storageDate: dateOnlyPrev, storageHour: 24 },
+        { storageDate: dateOnly, storageHour: 0 },
+      ];
+    }
+    return [{ storageDate: dateOnly, storageHour: hour }];
   };
 
   // Compare two dates by their UTC midnight ISO timestamp — booking.date
@@ -137,6 +154,23 @@ export async function getCalendarData(
   // to that day's UTC midnight.
   const sameUtcDay = (a: Date, b: Date): boolean =>
     a.toISOString().split("T")[0] === b.toISOString().split("T")[0];
+
+  // Helper: does a (date, hour) record match any of the storage
+  // coords this display cell maps to? Used by both the block-match
+  // and booking-match loops below.
+  const matchesAnyCoord = (
+    coords: Array<{ storageDate: Date; storageHour: number }>,
+    recordDate: Date,
+    recordHour: number | null,
+  ): boolean =>
+    coords.some(
+      ({ storageDate, storageHour }) =>
+        sameUtcDay(recordDate, storageDate) &&
+        // Full-day blocks (startHour == null) match every hour on
+        // their date — checked at the callsite by passing null and
+        // letting the date comparison alone decide.
+        (recordHour === null || recordHour === storageHour),
+    );
 
   // Build the grid: configId -> hour -> CellData
   const grid: Record<string, Record<number, CellData>> = {};
@@ -147,21 +181,17 @@ export async function getCalendarData(
     // Check slot blocks for this config
     for (const hour of hours) {
       const cellData: CellData = {};
-      // Resolve the canonical storage coordinates this display cell
-      // maps to. Hour 0 of date X = (date X-1, slot startHour 24).
-      // Every match below compares against these, not `hour` directly.
-      const { storageDate, storageHour } = storageCoordsForHour(hour);
+      // Resolve the canonical storage coords this display cell could
+      // map to. Most hours have one mapping; hour 0 has two (legacy
+      // X-1/startHour 24 and new-convention X/startHour 0).
+      const coords = storageCoordsForHour(hour);
 
       // Check if this hour is blocked
       const isBlocked = blocks.some((block) => {
-        if (!sameUtcDay(block.date, storageDate)) return false;
-        // Full-day blocks (startHour is null) on the storage date hit
-        // every display cell that maps back to that date — for the
-        // hour-0 case that's only the cell sourced from X-1, not X's
-        // mid-day cells.
-        const matchesHour =
-          block.startHour === null || block.startHour === storageHour;
-        if (!matchesHour) return false;
+        // matchesAnyCoord handles both the date and the hour
+        // (passing null for full-day blocks).
+        if (!matchesAnyCoord(coords, block.date, block.startHour))
+          return false;
 
         // Block applies to this specific config
         if (block.courtConfigId === config.id) return true;
@@ -185,10 +215,8 @@ export async function getCalendarData(
 
       if (isBlocked) {
         const matchingBlock = blocks.find((block) => {
-          if (!sameUtcDay(block.date, storageDate)) return false;
-          const matchesHour =
-            block.startHour === null || block.startHour === storageHour;
-          if (!matchesHour) return false;
+          if (!matchesAnyCoord(coords, block.date, block.startHour))
+            return false;
           if (block.courtConfigId === config.id) return true;
           if (block.sport === config.sport && !block.courtConfigId) return true;
           if (!block.courtConfigId && !block.sport) return true;
@@ -204,15 +232,16 @@ export async function getCalendarData(
         cellData.blockReason = matchingBlock?.reason || undefined;
       }
 
-      // Check bookings with zone overlap for this hour
+      // Check bookings with zone overlap for this hour. A booking
+      // contributes to this display cell if ANY of its slots
+      // matches ANY of the cell's storage coords. The
+      // .some-over-slots × .some-over-coords combination is small —
+      // 1 or 2 coords, a handful of slots per booking.
       const matchingBooking = bookings.find((booking) => {
-        // Booking must live on the storage date this cell maps to —
-        // either X (hours 1–23) or X-1 (hour 0 / startHour 24).
-        if (!sameUtcDay(booking.date, storageDate)) return false;
-        const hasHour = booking.slots.some(
-          (s) => s.startHour === storageHour,
+        const slotMatch = booking.slots.some((slot) =>
+          matchesAnyCoord(coords, booking.date, slot.startHour),
         );
-        if (!hasHour) return false;
+        if (!slotMatch) return false;
 
         // Check zone overlap between booking's court config and this config
         return zonesOverlap(

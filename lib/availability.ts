@@ -328,7 +328,8 @@ export async function getSlotAvailability(
 
   // Build availability array
   const hours = getAllSlotHours();
-  return hours.map((hour) => {
+  const inWindow = new Set(hours);
+  const result: SlotAvailability[] = hours.map((hour) => {
     let status: SlotStatus = "available";
 
     // Block all hours on past dates, and past hours on today's date.
@@ -359,6 +360,46 @@ export async function getSlotAvailability(
       blockedReason,
     };
   });
+
+  // Surface out-of-window occupied/blocked hours so the display
+  // layer can pick them up. The admin /admin/bookings/create flow
+  // iterates 0..23 (wall-clock), so a 12am-2am admin booking on
+  // date X lands as BookingSlot rows with startHour ∈ {0, 1} on
+  // date X — outside the customer-facing operating window (5..24).
+  // Without this, those slots are invisible to getSlotAvailability
+  // and the customer's grid (via getDisplayShiftedAvailability)
+  // shows them as bookable when they're really taken.
+  //
+  // Result rows here are never "available" — we never invent
+  // bookable slots outside the operating window. They exist purely
+  // so a downstream display layer can mark the matching cell as
+  // booked / locked / blocked.
+  const allOutOfWindow = new Set<number>([
+    ...occupiedHours.keys(),
+    ...blockedHours,
+  ]);
+  for (const hour of allOutOfWindow) {
+    if (inWindow.has(hour)) continue;
+    let status: SlotStatus = "available";
+    if (blockedHours.has(hour)) status = "blocked";
+    else if (occupiedHours.has(hour)) status = occupiedHours.get(hour)!;
+    if (status === "available") continue; // shouldn't happen but defensive
+    const blockedReason: BlockedReason | undefined =
+      status === "booked" || status === "locked"
+        ? {
+            blockedBy: blockedByForHour(hour),
+            alternativesAtThisHour: alternativesForHour(hour),
+          }
+        : undefined;
+    result.push({
+      hour,
+      status,
+      price: prices.get(hour) ?? 0,
+      blockedReason,
+    });
+  }
+
+  return result;
 }
 
 // Get prices for each hour slot based on pricing rules and time classifications
@@ -465,22 +506,42 @@ export async function getMergedMediumAvailability(
     blocked: 2,
   };
 
+  // Iterate the UNION of left + right hours — getSlotAvailability
+  // now surfaces out-of-window occupied hours (e.g. an admin late-
+  // night session on one side). If we still only iterated `right`,
+  // a hour-0 booking on the left half would silently drop.
   const leftByHour = new Map(left.map((s) => [s.hour, s]));
-  return right.map((r) => {
-    const l = leftByHour.get(r.hour)!;
-    let status: SlotStatus;
-    if (l.status === "available" || r.status === "available") {
-      status = "available";
-    } else {
-      status = severity[l.status] <= severity[r.status] ? l.status : r.status;
-    }
-    return {
-      hour: r.hour,
-      status,
-      // Prices are equal between halves; fall back to right in case left is 0.
-      price: l.price || r.price,
-    };
-  });
+  const rightByHour = new Map(right.map((s) => [s.hour, s]));
+  const allHours = new Set<number>([
+    ...leftByHour.keys(),
+    ...rightByHour.keys(),
+  ]);
+  return Array.from(allHours)
+    .sort((a, b) => a - b)
+    .map((hour) => {
+      const l = leftByHour.get(hour);
+      const r = rightByHour.get(hour);
+      let status: SlotStatus;
+      if (l?.status === "available" || r?.status === "available") {
+        // At least one side bookable — customer sees it as available.
+        status = "available";
+      } else if (l && r) {
+        status = severity[l.status] <= severity[r.status] ? l.status : r.status;
+      } else {
+        // Only one side has this hour surfaced (out-of-window slot
+        // unique to that side). Use its status — the missing side
+        // is by definition not bookable in the operating window
+        // either, so we don't promote it to "available."
+        status = (l ?? r)!.status;
+      }
+      return {
+        hour,
+        status,
+        // Prices are equal between halves; fall back to whichever
+        // side has a non-zero figure.
+        price: l?.price || r?.price || 0,
+      };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -507,11 +568,39 @@ function ymd(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+// Severity ordering for SlotStatus — used by the display-shifted
+// wrappers to pick the worst status when two storage conventions
+// collide on the same display cell (e.g. prior date's hour 24 +
+// current date's hour 0 both representing 12am of `date`).
+const STATUS_SEVERITY: Record<SlotStatus, number> = {
+  available: 0,
+  locked: 1,
+  booked: 2,
+  blocked: 2,
+};
+function worseStatus(a: SlotStatus, b: SlotStatus): SlotStatus {
+  return STATUS_SEVERITY[a] >= STATUS_SEVERITY[b] ? a : b;
+}
+
 /**
  * Customer-facing variant of `getSlotAvailability`. Same data, but
  * the 12am-1am slot is positioned on the FOLLOWING calendar date
  * instead of the venue's evening session date. See the file-level
  * comment above for the rationale and storage contract.
+ *
+ * Handles TWO storage conventions for the late-night slot:
+ *
+ *   1. Customer-flow legacy: `(date = X-1, startHour = 24)` —
+ *      written by /api/booking/lock when a customer books the
+ *      12am-1am tile from X's display-shifted grid.
+ *   2. Admin create-booking: `(date = X, startHour ∈ {0..4})` —
+ *      written by /admin/bookings/create which iterates wall-clock
+ *      hours 0..23. The 1am-2am slot of date X only has form (2).
+ *
+ * Both surface on the same display cell. If both exist for the
+ * same hour (shouldn't really happen — they're equivalent — but
+ * possible if two paths race), the worst status wins so the
+ * customer sees the "booked" signal instead of "available."
  */
 export async function getDisplayShiftedAvailability(
   courtConfigId: string,
@@ -528,33 +617,57 @@ export async function getDisplayShiftedAvailability(
   const currentDateStr = ymd(date);
   const prevDateStr = ymd(prevDate);
 
-  const out: SlotAvailability[] = [];
+  // Build a display-hour map so we can merge multiple storage
+  // sources cleanly (prior's hour 24 + current's hour 0 both →
+  // display hour 0).
+  const byDisplayHour = new Map<number, SlotAvailability>();
+  const upsert = (s: SlotAvailability) => {
+    const existing = byDisplayHour.get(s.hour);
+    if (!existing) {
+      byDisplayHour.set(s.hour, s);
+      return;
+    }
+    // Merge: pick the worse status. Lock coords are stable per
+    // source — for booked slots they're irrelevant (the customer
+    // can't lock a taken slot anyway); for available cells they
+    // come from the cell's natural storage, which is the
+    // current-date one when both are available.
+    const merged: SlotAvailability = {
+      ...existing,
+      status: worseStatus(existing.status, s.status),
+      blockedReason: s.blockedReason ?? existing.blockedReason,
+    };
+    byDisplayHour.set(s.hour, merged);
+  };
 
-  // Prior date's hour-24 entry → displayed at hour 0 of the
-  // requested date. Carries lockDate so the booking client targets
-  // the original session date when locking.
-  const lateNight = prior.find((s) => s.hour === 24);
-  if (lateNight) {
-    out.push({
-      ...lateNight,
+  // (1) Prior date's hour-24 entry → display hour 0 of `date`.
+  //     Carries lockDate=prior so the booking client targets the
+  //     legacy session-date storage when locking.
+  const legacyMidnight = prior.find((s) => s.hour === 24);
+  if (legacyMidnight) {
+    upsert({
+      ...legacyMidnight,
       hour: 0,
       lockDate: prevDateStr,
       lockHour: 24,
     });
   }
 
-  // Current date's slots EXCEPT hour 24 — that one shifts to the
-  // NEXT date's grid (handled when that next date is requested).
+  // (2) Current date's slots, EXCEPT hour 24 — that one belongs on
+  //     the NEXT date's grid (handled when that next date is
+  //     requested). Hours 0..4 from current's out-of-window surface
+  //     are the admin-stored late-night sessions; they sit at their
+  //     natural display position (hour 0 → 0, hour 1 → 1, etc.).
   for (const s of current) {
     if (s.hour === 24) continue;
-    out.push({
+    upsert({
       ...s,
       lockDate: currentDateStr,
       lockHour: s.hour,
     });
   }
 
-  return out;
+  return Array.from(byDisplayHour.values()).sort((a, b) => a.hour - b.hour);
 }
 
 /**
@@ -576,11 +689,26 @@ export async function getDisplayShiftedMediumAvailability(
   const currentDateStr = ymd(date);
   const prevDateStr = ymd(prevDate);
 
-  const out: SlotAvailability[] = [];
-  const lateNight = prior.find((s) => s.hour === 24);
-  if (lateNight) {
-    out.push({
-      ...lateNight,
+  // Same two-convention merge as getDisplayShiftedAvailability — see
+  // its comment block for the storage-form details.
+  const byDisplayHour = new Map<number, SlotAvailability>();
+  const upsert = (s: SlotAvailability) => {
+    const existing = byDisplayHour.get(s.hour);
+    if (!existing) {
+      byDisplayHour.set(s.hour, s);
+      return;
+    }
+    byDisplayHour.set(s.hour, {
+      ...existing,
+      status: worseStatus(existing.status, s.status),
+      blockedReason: s.blockedReason ?? existing.blockedReason,
+    });
+  };
+
+  const legacyMidnight = prior.find((s) => s.hour === 24);
+  if (legacyMidnight) {
+    upsert({
+      ...legacyMidnight,
       hour: 0,
       lockDate: prevDateStr,
       lockHour: 24,
@@ -588,9 +716,9 @@ export async function getDisplayShiftedMediumAvailability(
   }
   for (const s of current) {
     if (s.hour === 24) continue;
-    out.push({ ...s, lockDate: currentDateStr, lockHour: s.hour });
+    upsert({ ...s, lockDate: currentDateStr, lockHour: s.hour });
   }
-  return out;
+  return Array.from(byDisplayHour.values()).sort((a, b) => a.hour - b.hour);
 }
 
 // Check if specific slots are available for a config (used during booking)
