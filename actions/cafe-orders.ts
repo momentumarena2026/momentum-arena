@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
+import { createCafePaymentIntent } from "@/lib/cafe-intent";
 
 async function getOptionalCustomerId(): Promise<string | null> {
   try {
@@ -125,39 +126,24 @@ export async function createCafeOrder(data: {
       }
     }
 
-    // Generate order number with random suffix to prevent race condition
-    const orderCount = await db.cafeOrder.count();
-    const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
-    const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}-${rand}`;
-
-    // Payment-first vs in-person routing. RAZORPAY / PHONEPE are
-    // online and pay BEFORE the order is real — same shape as the
-    // sports-booking SlotHold → Booking flow. CASH / UPI_QR are
-    // in-person counter flows where the order IS real the moment
-    // the admin / customer confirms it; payment is collected at the
-    // venue.
+    // Payment-first vs in-person dispatch.
     //
-    // Online: order lands in PENDING_PAYMENT (invisible to admin
-    // tabs, no stock decrement) and waits for the gateway. The
-    // verify endpoint flips status + decrements stock atomically.
+    // ONLINE methods (RAZORPAY, PHONEPE) — stash a CafePaymentIntent
+    // (cart + totals + customer info) and return its id. NO
+    // CafeOrder row is created. The gateway create-order /
+    // initiate-payment endpoint stamps the gateway reference on the
+    // intent. On verified payment, `materializeOrderFromIntent`
+    // creates the real CafeOrder + items + payment. Modal dismiss /
+    // payment failure deletes the intent — the CafeOrder table
+    // never carries phantom cancelled rows. Mirrors the
+    // SlotHold → Booking pattern on the sports side.
     //
-    // In-person: order lands directly into the kitchen pipeline.
-    // If every line is a Ready (procured, non-null quantity)
-    // item, we skip the pipeline and land in COMPLETED — same
-    // routing the admin walk-in flow uses on /admin/cafe-orders/
-    // create. Stock is decremented immediately.
+    // IN-PERSON methods (CASH, UPI_QR) — order is real the moment
+    // the counter staff confirms it. Create the CafeOrder directly,
+    // decrement stock, route Ready-only orders straight to
+    // COMPLETED.
     const isOnlineMethod =
       data.paymentMethod === "RAZORPAY" || data.paymentMethod === "PHONEPE";
-
-    const allReady = data.items.every(
-      (line) => itemMap.get(line.cafeItemId)!.quantity !== null,
-    );
-
-    const orderStatus = isOnlineMethod
-      ? "PENDING_PAYMENT"
-      : allReady
-        ? "COMPLETED"
-        : "PENDING";
 
     // Normalize guest phone so the "91XXXXXXXXXX" form is used
     // consistently — this is what our SMS/analytics pipelines expect.
@@ -165,6 +151,50 @@ export async function createCafeOrder(data: {
     const guestPhoneNormalized = guestPhoneTrimmed
       ? normalizeIndianPhone(guestPhoneTrimmed)
       : null;
+
+    if (isOnlineMethod) {
+      // Online path — stash a CafePaymentIntent and return its id.
+      // The gateway create-order route will look it up by this id
+      // and stamp the gateway reference. Stock is not touched, no
+      // CafeOrder is created, and the coupon usage is NOT burned
+      // here (it's burned at materialise time, so abandoned
+      // checkouts don't waste a coupon).
+      const intent = await createCafePaymentIntent({
+        userId: userId || null,
+        guestName: userId ? null : data.guestName?.trim() || "Guest",
+        guestPhone: userId ? null : guestPhoneNormalized,
+        note: data.note?.trim() || null,
+        paymentMethod: data.paymentMethod,
+        cart: data.items.map((i) => ({
+          cafeItemId: i.cafeItemId,
+          quantity: i.quantity,
+        })),
+        totalAmount,
+        originalAmount,
+        discountAmount,
+        discountCodeId,
+      });
+      return {
+        success: true,
+        // The client treats this as `orderId` for backwards-compat
+        // with the existing flow, but it's the INTENT id — the real
+        // CafeOrder id is returned by the verify endpoint once the
+        // payment lands.
+        orderId: intent.id,
+        intent: true,
+      };
+    }
+
+    // ─── In-person path (CASH / UPI_QR) ───
+    // Generate order number with random suffix to prevent race condition
+    const orderCount = await db.cafeOrder.count();
+    const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
+    const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}-${rand}`;
+
+    const allReady = data.items.every(
+      (line) => itemMap.get(line.cafeItemId)!.quantity !== null,
+    );
+    const orderStatus: "PENDING" | "COMPLETED" = allReady ? "COMPLETED" : "PENDING";
 
     const order = await db.cafeOrder.create({
       data: {
@@ -179,9 +209,7 @@ export async function createCafeOrder(data: {
         discountAmount,
         discountCodeId,
         note: data.note?.trim() || null,
-        items: {
-          create: orderItems,
-        },
+        items: { create: orderItems },
         payment: {
           create: {
             method: data.paymentMethod,
@@ -190,47 +218,32 @@ export async function createCafeOrder(data: {
           },
         },
       },
-      include: {
-        items: true,
-        payment: true,
-      },
+      include: { items: true, payment: true },
     });
 
-    // Stock decrement — ONLY for the in-person path. Online orders
-    // are still in PENDING_PAYMENT and won't touch stock until the
-    // gateway confirms (see /api/razorpay/cafe-verify and the
-    // PhonePe callback). This is what the customer asked for: an
-    // abandoned Razorpay modal must NOT eat into inventory or
-    // pollute the admin orders tab.
-    //
-    // updateMany + `quantity: { gte: line.quantity }` guard so a
-    // concurrent order that pulled the last unit can't push us
-    // negative — the per-item update matches zero rows instead.
-    if (!isOnlineMethod) {
-      for (const line of data.items) {
-        const cafeItem = itemMap.get(line.cafeItemId)!;
-        if (cafeItem.quantity === null) continue; // unlimited
-        const updated = await db.cafeItem.updateMany({
-          where: {
-            id: line.cafeItemId,
-            quantity: { gte: line.quantity },
-          },
-          data: { quantity: { decrement: line.quantity } },
-        });
-        if (updated.count === 0) {
-          return {
-            success: false,
-            error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
-          };
-        }
+    // Stock decrement for in-person path. Sequential + gte guard
+    // so a concurrent order can't drive stock negative.
+    for (const line of data.items) {
+      const cafeItem = itemMap.get(line.cafeItemId)!;
+      if (cafeItem.quantity === null) continue;
+      const updated = await db.cafeItem.updateMany({
+        where: {
+          id: line.cafeItemId,
+          quantity: { gte: line.quantity },
+        },
+        data: { quantity: { decrement: line.quantity } },
+      });
+      if (updated.count === 0) {
+        return {
+          success: false,
+          error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
+        };
       }
     }
 
-    // Record discount usage if applied. For online orders this is
-    // deliberately recorded UPFRONT — we don't want a coupon to be
-    // burned twice by a customer who half-completes payment, then
-    // tries again with the same code. The verify path doesn't
-    // re-apply the coupon; the cancel path returns it.
+    // Burn coupon usage. For in-person orders this is safe at
+    // create time — there's no abandon path. For online orders
+    // it's burned inside materializeOrderFromIntent instead.
     if (discountCodeId && discountAmount > 0) {
       await db.cafeDiscount.update({
         where: { id: discountCodeId },

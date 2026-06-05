@@ -2,21 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
-import { finalizePaidCafeOrder } from "@/lib/cafe-finalize";
+import { materializeOrderFromIntent } from "@/lib/cafe-intent";
 
 /**
- * Razorpay verify endpoint for cafe orders — the "payment-first"
- * commit step. Mirrors the sports-booking verify flow:
- *   - Customer's order is sitting in PENDING_PAYMENT (no stock
- *     decrement, hidden from admin tabs).
- *   - We verify the Razorpay signature, mark the payment
- *     COMPLETED, then run `finalizePaidCafeOrder` which atomically
- *     decrements Ready-line stock and flips order status
- *     (allReady → COMPLETED, else PENDING).
- *   - If the finalize step hits a sold-out race (someone took the
- *     last unit between intent and verify), the order is cancelled
- *     and we surface `refundRequired: true` so the operator knows
- *     to issue a refund out-of-band.
+ * Verify Razorpay payment + materialise the real CafeOrder from
+ * the CafePaymentIntent. Until this endpoint runs successfully, NO
+ * CafeOrder exists in the database — the intent table holds the
+ * cart while the customer is in the modal.
+ *
+ * Steps:
+ *   1. Verify the Razorpay signature.
+ *   2. Look up the intent by the `orderId` (which is the intent id
+ *      passed in by the client).
+ *   3. Idempotency — if already consumed, return the existing
+ *      orderId.
+ *   4. `materializeOrderFromIntent` creates the CafeOrder + items +
+ *      payment in a single transaction, decrements Ready stock
+ *      atomically, routes status (allReady → COMPLETED, else
+ *      PENDING), burns the coupon, and marks the intent consumed.
+ *   5. Sold-out-after-payment race → the helper creates a CANCELLED
+ *      order with the captured payment info so admin can issue a
+ *      refund, and we surface `refundRequired: true` to the client.
  */
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
@@ -27,28 +33,39 @@ export async function POST(request: NextRequest) {
   const { orderId, razorpayPaymentId, razorpayOrderId, razorpaySignature } =
     await request.json();
 
-  const payment = await db.cafePayment.findFirst({
-    where: { order: { id: orderId } },
-    include: { order: { select: { userId: true, status: true } } },
-  });
-
-  if (!payment || payment.order.userId !== userId) {
-    return NextResponse.json({ error: "Payment not found" }, { status: 404 });
+  if (!orderId || !razorpayPaymentId || !razorpayOrderId || !razorpaySignature) {
+    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  // Idempotency — duplicate verify call (user double-clicked, or
-  // webhook + client both fired). If the order has already left
-  // PENDING_PAYMENT, the state machine has advanced; return the
-  // current state instead of trying to advance it again.
-  if (
-    payment.status === "COMPLETED" &&
-    payment.order.status !== "PENDING_PAYMENT"
-  ) {
-    return NextResponse.json({
-      success: true,
-      orderId,
-      status: payment.order.status,
+  const intent = await db.cafePaymentIntent.findUnique({
+    where: { id: orderId },
+  });
+  if (!intent) {
+    // Could be a duplicate verify call (intent already consumed +
+    // deleted by sweeper) — look up the materialised order by
+    // razorpayOrderId so the customer sees their confirmation.
+    const existingPayment = await db.cafePayment.findFirst({
+      where: { razorpayOrderId },
+      select: { orderId: true, order: { select: { status: true } } },
     });
+    if (existingPayment?.orderId) {
+      return NextResponse.json({
+        success: true,
+        orderId: existingPayment.orderId,
+        status: existingPayment.order?.status ?? "PENDING",
+      });
+    }
+    return NextResponse.json(
+      { error: "Checkout session expired — please start again" },
+      { status: 410 },
+    );
+  }
+
+  if (intent.userId && intent.userId !== userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (intent.razorpayOrderId && intent.razorpayOrderId !== razorpayOrderId) {
+    return NextResponse.json({ error: "Order mismatch" }, { status: 400 });
   }
 
   // Verify signature
@@ -57,7 +74,6 @@ export async function POST(request: NextRequest) {
     razorpayPaymentId,
     razorpaySignature,
   );
-
   if (!isValid) {
     return NextResponse.json(
       { error: "Invalid payment signature" },
@@ -65,30 +81,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Mark payment COMPLETED first so a finalize crash still leaves
-  // a trail of "what was paid for" — the admin recovery page can
-  // pick it up from there.
-  await db.cafePayment.update({
-    where: { id: payment.id },
-    data: {
-      status: "COMPLETED",
-      razorpayPaymentId,
-      razorpaySignature,
-      confirmedAt: new Date(),
-    },
+  const result = await materializeOrderFromIntent(intent.id, {
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
   });
 
-  const result = await finalizePaidCafeOrder(orderId);
   if (!result.ok) {
     return NextResponse.json(
-      { error: result.error, refundRequired: true },
+      {
+        error: result.error,
+        refundRequired: !!result.refundOrderId,
+        orderId: result.refundOrderId, // null when there's no audit row
+      },
       { status: 409 },
     );
   }
 
   return NextResponse.json({
     success: true,
-    orderId,
+    orderId: result.orderId,
+    orderNumber: result.orderNumber,
     status: result.status,
   });
 }

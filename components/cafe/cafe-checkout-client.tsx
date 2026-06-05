@@ -191,6 +191,9 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
+                // `result.orderId` is the CafePaymentIntent id on
+                // the new flow; the verify endpoint materialises
+                // the real CafeOrder from it.
                 orderId: result.orderId,
                 razorpayPaymentId: response.razorpay_payment_id,
                 razorpayOrderId: response.razorpay_order_id,
@@ -198,13 +201,21 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
               }),
             });
 
-            if (verifyRes.ok) {
-              trackCafeOrderPlaced(result.orderId!, finalAmount, "RAZORPAY");
+            const verifyData = await verifyRes.json().catch(() => null);
+
+            if (verifyRes.ok && verifyData?.orderId) {
+              // Navigation uses the orderId returned BY THE VERIFY
+              // RESPONSE — that's the real CafeOrder id (the intent
+              // id we sent in doesn't address a CafeOrder).
+              trackCafeOrderPlaced(verifyData.orderId, finalAmount, "RAZORPAY");
               clearCart();
-              router.push(`/cafe/confirmation/${result.orderId}`);
+              router.push(`/cafe/confirmation/${verifyData.orderId}`);
             } else {
               trackError("cafe_payment", "Payment verification failed");
-              setError("Payment verification failed. Please contact support.");
+              setError(
+                verifyData?.error ??
+                  "Payment verification failed. Please contact support.",
+              );
               setLoading(false);
             }
           },

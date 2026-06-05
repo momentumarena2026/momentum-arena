@@ -5,13 +5,21 @@ import {
   verifyPhonePeWebhook,
   type PhonePeWebhookBody,
 } from "@/lib/phonepe";
-import { finalizePaidCafeOrder } from "@/lib/cafe-finalize";
+import { materializeOrderFromIntent } from "@/lib/cafe-intent";
 
 /**
- * PhonePe v2 server-to-server webhook for cafe orders.
- * See app/api/phonepe/callback/route.ts for the booking-side
- * counterpart and a longer comment on the auth/payload shape — this
- * route is the same wire format with cafe-specific persistence.
+ * PhonePe v2 server-to-server webhook for cafe orders. Same wire
+ * format as the booking-side counterpart (see
+ * app/api/phonepe/callback/route.ts for the long-form auth
+ * rationale).
+ *
+ * The intent-flow shape: we don't have a CafeOrder yet when this
+ * fires — only a CafePaymentIntent. Look up the intent by the
+ * phonePeMerchantTxnId, materialise the order, mark intent
+ * consumed. The redirect handler runs the same logic for the
+ * user-facing return path; one will win the race and the other
+ * idempotently no-ops via the `consumedAt` check inside the
+ * materialise helper.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -27,44 +35,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false }, { status: 400 });
     }
 
-    // Server-side status verification (defense in depth — see
-    // booking callback for the longer rationale).
+    // Defence-in-depth: re-check status server-side rather than
+    // trusting the webhook body verbatim.
     const status = await checkPhonePeStatus(merchantOrderId);
     if (!status.success) {
       return NextResponse.json({ success: true });
     }
 
-    const payment = await db.cafePayment.findFirst({
+    const intent = await db.cafePaymentIntent.findUnique({
       where: { phonePeMerchantTxnId: merchantOrderId },
-      select: { id: true, status: true, orderId: true },
     });
-    if (!payment || payment.status === "COMPLETED") {
-      // Either the cafe payment is missing (stale webhook) or
-      // already completed (PhonePe retry). Both are no-ops.
+    if (!intent || intent.consumedAt) {
+      // Either no matching intent (sweeper cleaned up an abandoned
+      // checkout) or already consumed (redirect handler beat us
+      // here). Both are no-ops.
       return NextResponse.json({ success: true });
     }
 
-    await db.cafePayment.update({
-      where: { id: payment.id },
-      data: {
-        status: "COMPLETED",
-        phonePeTransactionId: status.transactionId,
-        confirmedAt: new Date(),
-      },
-    });
-
-    // Payment-first commit step. Same shared finaliser the
-    // Razorpay verify uses — decrements Ready stock and flips
-    // order status (allReady → COMPLETED, else PENDING). Best-
-    // effort on error: PhonePe expects a 200 either way; the
-    // admin recovery page handles any stuck orders.
     try {
-      await finalizePaidCafeOrder(payment.orderId);
-    } catch (finalizeErr) {
+      await materializeOrderFromIntent(intent.id, {
+        phonePeMerchantTxnId: merchantOrderId,
+        phonePeTransactionId: status.transactionId,
+      });
+    } catch (materialiseErr) {
       console.error(
-        "[phonepe-cafe-callback] finalize failed for",
-        payment.orderId,
-        finalizeErr,
+        "[phonepe-cafe-callback] materialise failed for",
+        intent.id,
+        materialiseErr,
       );
     }
 

@@ -882,6 +882,61 @@ model CafeItem {
   @@index([category, isAvailable])
 }
 
+/**
+ * Mid-checkout intent for an online (Razorpay / PhonePe) cafe
+ * order. Holds the cart + totals + gateway IDs while the customer
+ * is in the payment modal. ONLY converts into a CafeOrder when
+ * payment verifies — abandoned intents stay here (and a sweeper
+ * deletes them past `expiresAt`) so the CafeOrder table never
+ * carries phantom cancelled rows.
+ *
+ * Mirrors the SlotHold → Booking pattern on the sports side.
+ */
+model CafePaymentIntent {
+  id                   String        @id @default(cuid())
+  userId               String?
+  guestName            String?
+  guestPhone           String?
+  note                 String?
+  paymentMethod        PaymentMethod // RAZORPAY or PHONEPE only
+
+  // Snapshot of the cart at intent time. Stored as JSON because the
+  // intent never serves a relational query — we materialise it
+  // into CafeOrderItem rows at verify time, where the relational
+  // model takes over.
+  cart                 Json
+
+  // Totals frozen at intent time so the customer is paying the
+  // amount they saw. Re-validated at verify time against current
+  // CafeItem prices; on mismatch we refuse + refund.
+  totalAmount          Float
+  originalAmount       Float
+  discountAmount       Float         @default(0)
+  discountCodeId       String?
+
+  // Gateway references. Stamped after the create-order /
+  // initiate-payment call so the verify endpoint can look up the
+  // intent from a Razorpay order id / PhonePe merchant txn id.
+  razorpayOrderId      String?       @unique
+  phonePeMerchantTxnId String?       @unique
+
+  // TTL — past this the sweeper cleans the row up. 30 min matches
+  // the upper bound a customer might leave a payment modal open
+  // without abandoning.
+  expiresAt            DateTime
+
+  // Set when the intent has been materialised into a CafeOrder
+  // (verify succeeded). Used for idempotency on duplicate verify
+  // callbacks.
+  consumedAt           DateTime?
+  consumedOrderId      String?       @unique
+
+  createdAt            DateTime      @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 model CafeOrder {
   id             String          @id @default(cuid())
   userId         String?
