@@ -29,6 +29,10 @@ interface CafeItemRow {
   description: string | null;
   category: CafeItemCategory;
   price: number;
+  // Cost-of-goods for the item, in paise. Null when the venue
+  // hasn't filled it in yet — reporting paths treat that as
+  // "unknown margin," not zero.
+  costPrice: number | null;
   image: string | null;
   isVeg: boolean;
   isAvailable: boolean;
@@ -49,6 +53,9 @@ const EMPTY_FORM = {
   description: "",
   category: "SNACKS" as CafeItemCategory,
   price: "",
+  // Empty string = "leave unset" on the form; we only persist a
+  // costPrice when the admin actually types a number.
+  costPrice: "",
   image: "",
   isVeg: true,
   tags: "",
@@ -117,6 +124,10 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
       description: item.description || "",
       category: item.category,
       price: String(item.price / 100),
+      // null costPrice → leave the field blank so the admin can
+      // still skip filling it in. Stored value in paise → display
+      // rupees with the same /100 transform as selling price.
+      costPrice: item.costPrice != null ? String(item.costPrice / 100) : "",
       image: item.image || "",
       isVeg: item.isVeg,
       tags: item.tags.join(", "),
@@ -143,6 +154,30 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
       return;
     }
 
+    // Cost price is optional. Empty form value → null (skip /
+    // clear). A typed value must parse to a non-negative number
+    // and shouldn't exceed the selling price (the venue isn't
+    // making negative margin in the regular case; we let admins
+    // catch typos before they break the margin reports).
+    let costPriceInPaise: number | null = null;
+    const costRaw = form.costPrice.trim();
+    if (costRaw !== "") {
+      const parsed = Math.round(parseFloat(costRaw) * 100);
+      if (isNaN(parsed) || parsed < 0) {
+        setError("Cost price must be a non-negative number");
+        setSaving(false);
+        return;
+      }
+      if (parsed > priceInPaise) {
+        setError(
+          "Cost price is higher than selling price — double-check the figures",
+        );
+        setSaving(false);
+        return;
+      }
+      costPriceInPaise = parsed;
+    }
+
     const tags = form.tags
       .split(",")
       .map((t) => t.trim())
@@ -154,6 +189,8 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
         description: form.description || null,
         category: form.category,
         price: priceInPaise,
+        // Explicit `null` clears a previously-set cost price.
+        costPrice: costPriceInPaise,
         image: form.image || null,
         isVeg: form.isVeg,
         tags,
@@ -169,6 +206,7 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
         description: form.description || undefined,
         category: form.category,
         price: priceInPaise,
+        costPrice: costPriceInPaise,
         image: form.image || undefined,
         isVeg: form.isVeg,
         tags,
@@ -307,7 +345,17 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
               onChange={(e) =>
                 setForm((p) => ({ ...p, price: e.target.value }))
               }
-              placeholder="Price in ₹ (e.g., 150)"
+              placeholder="Selling price in ₹ (e.g., 150)"
+              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+            />
+            <input
+              type="number"
+              step="0.01"
+              value={form.costPrice}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, costPrice: e.target.value }))
+              }
+              placeholder="Cost price in ₹ (optional, for margin)"
               className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
             />
             <input
@@ -317,7 +365,7 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                 setForm((p) => ({ ...p, image: e.target.value }))
               }
               placeholder="Image URL (optional)"
-              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+              className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 sm:col-span-2"
             />
             <textarea
               value={form.description}

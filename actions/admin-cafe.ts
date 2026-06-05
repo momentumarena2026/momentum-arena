@@ -59,6 +59,10 @@ export async function createCafeItem(data: {
   description?: string;
   category: CafeItemCategory;
   price: number;
+  // Cost price in paise. Optional — the venue can skip it when the
+  // information isn't handy yet and fill it in later via update.
+  // Reporting paths treat null as "unknown margin," not zero.
+  costPrice?: number | null;
   image?: string;
   isVeg: boolean;
   tags?: string[];
@@ -74,6 +78,14 @@ export async function createCafeItem(data: {
       return { success: false, error: "Price must be positive" };
     }
 
+    if (
+      data.costPrice !== undefined &&
+      data.costPrice !== null &&
+      data.costPrice < 0
+    ) {
+      return { success: false, error: "Cost price cannot be negative" };
+    }
+
     // Get max sort order for this category
     const maxSort = await db.cafeItem.findFirst({
       where: { category: data.category },
@@ -87,6 +99,7 @@ export async function createCafeItem(data: {
         description: data.description?.trim() || null,
         category: data.category,
         price: data.price,
+        costPrice: data.costPrice ?? null,
         image: data.image?.trim() || null,
         isVeg: data.isVeg,
         tags: data.tags || [],
@@ -108,6 +121,9 @@ export async function updateCafeItem(
     description: string | null;
     category: CafeItemCategory;
     price: number;
+    // Pass `null` to explicitly clear a previously-set cost price;
+    // omit the field to leave the existing value alone.
+    costPrice: number | null;
     image: string | null;
     isVeg: boolean;
     tags: string[];
@@ -127,6 +143,12 @@ export async function updateCafeItem(
     if (data.price !== undefined) {
       if (data.price <= 0) return { success: false, error: "Price must be positive" };
       updateData.price = data.price;
+    }
+    if (data.costPrice !== undefined) {
+      if (data.costPrice !== null && data.costPrice < 0) {
+        return { success: false, error: "Cost price cannot be negative" };
+      }
+      updateData.costPrice = data.costPrice;
     }
     if (data.image !== undefined) updateData.image = data.image?.trim() || null;
     if (data.isVeg !== undefined) updateData.isVeg = data.isVeg;
