@@ -593,6 +593,39 @@ export async function addItemsToCafeOrder(
 
     const newTotal = order.totalAmount + addedAmount;
 
+    // Pre-flight stock check + reservation. Add-on items must be
+    // stocked the same way createCafeOrder reserves them — gte
+    // guard so a concurrent order can't push us negative. Items
+    // with quantity===null (kitchen-prepared) skip the check.
+    // We attempt every decrement BEFORE writing anything else, and
+    // roll back on race-loss so the add-items operation is
+    // atomic.
+    const decremented: { id: string; quantity: number }[] = [];
+    for (const line of items) {
+      const ci = itemMap.get(line.cafeItemId)!;
+      if (ci.quantity === null) continue;
+      const updated = await db.cafeItem.updateMany({
+        where: { id: line.cafeItemId, quantity: { gte: line.quantity } },
+        data: { quantity: { decrement: line.quantity } },
+      });
+      if (updated.count === 0) {
+        for (const rb of decremented) {
+          await db.cafeItem.update({
+            where: { id: rb.id },
+            data: { quantity: { increment: rb.quantity } },
+          });
+        }
+        return {
+          success: false,
+          error:
+            ci.quantity === 0
+              ? `${ci.name} is out of stock`
+              : `Only ${ci.quantity} ${ci.name} left — try a smaller quantity`,
+        };
+      }
+      decremented.push({ id: line.cafeItemId, quantity: line.quantity });
+    }
+
     await db.$transaction([
       db.cafeOrderItem.createMany({ data: newItems }),
       db.cafeOrder.update({
@@ -664,19 +697,34 @@ export async function cancelItemsFromCafeOrder(
 
     const newTotal = order.totalAmount - removedAmount;
 
-    await db.$transaction([
-      db.cafeOrderItem.deleteMany({
+    // Stock restore for removed lines. Only restore lines whose
+    // CafeItem still tracks stock (quantity != null currently). If
+    // the admin flipped an item from Ready → Prepare since the
+    // order was placed, quantity is now null and nothing meaningful
+    // can be incremented.
+    const removedCafeItemIds = itemsToRemove.map((i) => i.cafeItemId);
+    const currentItems = await db.cafeItem.findMany({
+      where: { id: { in: removedCafeItemIds } },
+      select: { id: true, quantity: true },
+    });
+    const currentMap = new Map(currentItems.map((c) => [c.id, c]));
+    const stockToRestore = itemsToRemove
+      .filter((line) => currentMap.get(line.cafeItemId)?.quantity !== null)
+      .map((line) => ({ id: line.cafeItemId, quantity: line.quantity }));
+
+    await db.$transaction(async (tx) => {
+      await tx.cafeOrderItem.deleteMany({
         where: { id: { in: orderItemIds }, orderId },
-      }),
-      db.cafeOrder.update({
+      });
+      await tx.cafeOrder.update({
         where: { id: orderId },
         data: { totalAmount: newTotal },
-      }),
-      db.cafePayment.updateMany({
+      });
+      await tx.cafePayment.updateMany({
         where: { orderId },
         data: { amount: newTotal },
-      }),
-      db.cafeOrderEditHistory.create({
+      });
+      await tx.cafeOrderEditHistory.create({
         data: {
           orderId,
           adminId: admin.id,
@@ -690,8 +738,14 @@ export async function cancelItemsFromCafeOrder(
           })),
           note: `Removed ${itemsToRemove.length} item(s)`,
         },
-      }),
-    ]);
+      });
+      for (const item of stockToRestore) {
+        await tx.cafeItem.update({
+          where: { id: item.id },
+          data: { quantity: { increment: item.quantity } },
+        });
+      }
+    });
 
     return { success: true };
   } catch (error) {
@@ -729,31 +783,95 @@ export async function updateCafeItemQuantity(
     const priceDiff = newItemTotal - item.totalPrice;
     const newOrderTotal = order.totalAmount + priceDiff;
 
-    await db.$transaction([
-      db.cafeOrderItem.update({
-        where: { id: orderItemId },
-        data: { quantity: newQuantity, totalPrice: newItemTotal },
-      }),
-      db.cafeOrder.update({
-        where: { id: orderId },
-        data: { totalAmount: newOrderTotal },
-      }),
-      db.cafePayment.updateMany({
-        where: { orderId },
-        data: { amount: newOrderTotal },
-      }),
-      db.cafeOrderEditHistory.create({
-        data: {
-          orderId,
-          adminId: admin.id,
-          adminUsername: admin.username,
-          editType: "QUANTITY_CHANGED",
-          previousAmount: order.totalAmount,
-          newAmount: newOrderTotal,
-          note: `Changed ${item.itemName} quantity from ${item.quantity} to ${newQuantity}`,
-        },
-      }),
-    ]);
+    // Stock delta. If qty went up, we need to decrement the
+    // CafeItem.quantity by the increase (with gte race guard so a
+    // concurrent buyer can't take the last one out from under us).
+    // If qty went down, we restore the freed units. quantity=null
+    // on the live CafeItem means "kitchen-prepared / untracked" —
+    // skip both decrement and restore.
+    const qtyDelta = newQuantity - item.quantity;
+    let stockOp: "increment" | "decrement" | null = null;
+    let stockAmount = 0;
+    if (qtyDelta !== 0) {
+      const live = await db.cafeItem.findUnique({
+        where: { id: item.cafeItemId },
+        select: { name: true, quantity: true },
+      });
+      if (live && live.quantity !== null) {
+        if (qtyDelta > 0) {
+          // Reserve more — use gte guard so we don't oversell.
+          const reserved = await db.cafeItem.updateMany({
+            where: {
+              id: item.cafeItemId,
+              quantity: { gte: qtyDelta },
+            },
+            data: { quantity: { decrement: qtyDelta } },
+          });
+          if (reserved.count === 0) {
+            return {
+              success: false,
+              error:
+                live.quantity === 0
+                  ? `${live.name} is out of stock — can't increase quantity`
+                  : `Only ${live.quantity} ${live.name} left — try a smaller increase`,
+            };
+          }
+          stockOp = "decrement";
+          stockAmount = qtyDelta;
+        } else {
+          // Free units back to stock.
+          stockOp = "increment";
+          stockAmount = -qtyDelta;
+        }
+      }
+    }
+
+    try {
+      await db.$transaction([
+        db.cafeOrderItem.update({
+          where: { id: orderItemId },
+          data: { quantity: newQuantity, totalPrice: newItemTotal },
+        }),
+        db.cafeOrder.update({
+          where: { id: orderId },
+          data: { totalAmount: newOrderTotal },
+        }),
+        db.cafePayment.updateMany({
+          where: { orderId },
+          data: { amount: newOrderTotal },
+        }),
+        db.cafeOrderEditHistory.create({
+          data: {
+            orderId,
+            adminId: admin.id,
+            adminUsername: admin.username,
+            editType: "QUANTITY_CHANGED",
+            previousAmount: order.totalAmount,
+            newAmount: newOrderTotal,
+            note: `Changed ${item.itemName} quantity from ${item.quantity} to ${newQuantity}`,
+          },
+        }),
+        ...(stockOp === "increment"
+          ? [
+              db.cafeItem.update({
+                where: { id: item.cafeItemId },
+                data: { quantity: { increment: stockAmount } },
+              }),
+            ]
+          : []),
+      ]);
+    } catch (transactionErr) {
+      // If the order-side write fails AFTER we already reserved
+      // stock above, return the units to the shelf so the counter
+      // stays honest.
+      if (stockOp === "decrement") {
+        await db.cafeItem.update({
+          where: { id: item.cafeItemId },
+          data: { quantity: { increment: stockAmount } },
+        });
+      }
+      throw transactionErr;
+    }
 
     return { success: true };
   } catch (error) {
@@ -771,4 +889,266 @@ export async function getCafeOrderEditHistory(orderId: string) {
   });
 
   return { history };
+}
+
+/**
+ * Edit the primary CafePayment row on an order — method, status,
+ * amount, UTR, optional refund metadata. Lets the admin reconcile
+ * a payment when the customer hands them something different from
+ * what was selected at checkout (e.g. customer chose UPI_QR but
+ * ended up paying cash). Logs PAYMENT_EDITED in edit history.
+ *
+ * Amount changes do NOT propagate to the order total — the order
+ * total is driven by items; CafePayment.amount tracks how much
+ * has been settled. To reconcile a discrepancy use addCafePayment
+ * Split instead (see below).
+ */
+export async function updateCafePayment(
+  orderId: string,
+  data: {
+    method?: PaymentMethod;
+    // PARTIAL is the sports-booking advance-payment status; cafe
+    // doesn't use it but the enum is shared, so accept the full
+    // PaymentStatus union here to match Prisma's type.
+    status?:
+      | "PENDING"
+      | "PARTIAL"
+      | "COMPLETED"
+      | "FAILED"
+      | "REFUNDED";
+    amount?: number;
+    utrNumber?: string | null;
+    refundReason?: string | null;
+  },
+) {
+  const admin = await requireCafeAdminWithDetails();
+  try {
+    const order = await db.cafeOrder.findUnique({
+      where: { id: orderId },
+      include: { payment: true },
+    });
+    if (!order) return { success: false, error: "Order not found" };
+    if (!order.payment) {
+      return { success: false, error: "Order has no payment record" };
+    }
+
+    if (data.amount !== undefined && data.amount < 0) {
+      return { success: false, error: "Payment amount cannot be negative" };
+    }
+
+    const prev = order.payment;
+    const next: Record<string, unknown> = {};
+    if (data.method !== undefined) next.method = data.method;
+    if (data.status !== undefined) {
+      next.status = data.status;
+      if (data.status === "COMPLETED" && !prev.confirmedAt) {
+        next.confirmedAt = new Date();
+        next.confirmedBy = admin.id;
+      }
+      if (data.status === "REFUNDED" && !prev.refundedAt) {
+        next.refundedAt = new Date();
+        next.refundedBy = admin.id;
+      }
+    }
+    if (data.amount !== undefined) next.amount = data.amount;
+    if (data.utrNumber !== undefined) next.utrNumber = data.utrNumber;
+    if (data.refundReason !== undefined) next.refundReason = data.refundReason;
+
+    // Composable note describing what changed — surfaces in the
+    // edit-history timeline so the staff can audit who flipped a
+    // payment and from what to what.
+    const changeNote = [
+      data.method && prev.method !== data.method
+        ? `method ${prev.method} → ${data.method}`
+        : null,
+      data.status && prev.status !== data.status
+        ? `status ${prev.status} → ${data.status}`
+        : null,
+      data.amount !== undefined && prev.amount !== data.amount
+        ? `amount ${prev.amount} → ${data.amount}`
+        : null,
+      data.utrNumber !== undefined && (prev.utrNumber ?? null) !== data.utrNumber
+        ? `UTR ${prev.utrNumber ?? "(blank)"} → ${data.utrNumber ?? "(blank)"}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    if (!changeNote) {
+      return { success: true, noop: true };
+    }
+
+    await db.$transaction([
+      db.cafePayment.update({ where: { id: prev.id }, data: next }),
+      db.cafeOrderEditHistory.create({
+        data: {
+          orderId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType: "PAYMENT_EDITED",
+          previousAmount: prev.amount,
+          newAmount: data.amount ?? prev.amount,
+          note: `Payment edit — ${changeNote}`,
+        },
+      }),
+    ]);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update payment:", error);
+    return { success: false, error: "Failed to update payment" };
+  }
+}
+
+/**
+ * Add a split-payment row to an order — the customer settled part
+ * of the bill via one method and the rest via another. The parent
+ * CafePayment row stays as the "summary" record (its `amount`
+ * tracks total expected, `status` flips to COMPLETED once splits
+ * sum to ≥ total). Each split carries its own method + amount +
+ * optional UTR + per-row note.
+ *
+ * Refuses to overshoot — if sum(existing splits) + amount > total
+ * the row is rejected (use cancelCafeOrder/editPayment if the
+ * total itself is wrong).
+ */
+export async function addCafePaymentSplit(
+  orderId: string,
+  data: {
+    method: PaymentMethod;
+    amount: number;
+    utrNumber?: string;
+    note?: string;
+  },
+) {
+  const admin = await requireCafeAdminWithDetails();
+  try {
+    if (data.amount <= 0) {
+      return { success: false, error: "Split amount must be positive" };
+    }
+    const order = await db.cafeOrder.findUnique({
+      where: { id: orderId },
+      include: { payment: { include: { splits: true } } },
+    });
+    if (!order) return { success: false, error: "Order not found" };
+    if (!order.payment) {
+      return { success: false, error: "Order has no payment record" };
+    }
+
+    const existingSum = order.payment.splits.reduce(
+      (s, sp) => s + sp.amount,
+      0,
+    );
+    const totalDue = order.totalAmount;
+    const newSum = existingSum + data.amount;
+    if (newSum > totalDue + 0.01) {
+      return {
+        success: false,
+        error: `Splits would total ₹${newSum} — exceeds order total ₹${totalDue}`,
+      };
+    }
+
+    const status: "PENDING" | "COMPLETED" =
+      newSum >= totalDue - 0.01 ? "COMPLETED" : "PENDING";
+
+    await db.$transaction([
+      db.cafePaymentSplit.create({
+        data: {
+          paymentId: order.payment.id,
+          method: data.method,
+          amount: data.amount,
+          utrNumber: data.utrNumber || null,
+          note: data.note || null,
+          createdById: admin.id,
+        },
+      }),
+      db.cafePayment.update({
+        where: { id: order.payment.id },
+        data: {
+          status,
+          confirmedAt:
+            status === "COMPLETED" && !order.payment.confirmedAt
+              ? new Date()
+              : undefined,
+          confirmedBy:
+            status === "COMPLETED" && !order.payment.confirmedAt
+              ? admin.id
+              : undefined,
+        },
+      }),
+      db.cafeOrderEditHistory.create({
+        data: {
+          orderId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType: "PAYMENT_SPLIT_ADDED",
+          previousAmount: existingSum,
+          newAmount: newSum,
+          note: `Split ${data.method} ₹${data.amount}${
+            data.utrNumber ? ` (UTR ${data.utrNumber})` : ""
+          }${data.note ? ` — ${data.note}` : ""}`,
+        },
+      }),
+    ]);
+
+    return { success: true, status, paidSoFar: newSum, totalDue };
+  } catch (error) {
+    console.error("Failed to add payment split:", error);
+    return { success: false, error: "Failed to add payment split" };
+  }
+}
+
+/**
+ * Remove a split-payment row. The parent CafePayment.status flips
+ * back to PENDING if removing the split drops the captured sum
+ * below the order total.
+ */
+export async function removeCafePaymentSplit(
+  orderId: string,
+  splitId: string,
+) {
+  const admin = await requireCafeAdminWithDetails();
+  try {
+    const order = await db.cafeOrder.findUnique({
+      where: { id: orderId },
+      include: { payment: { include: { splits: true } } },
+    });
+    if (!order || !order.payment) {
+      return { success: false, error: "Order or payment not found" };
+    }
+    const split = order.payment.splits.find((s) => s.id === splitId);
+    if (!split) {
+      return { success: false, error: "Split not found on this order" };
+    }
+    const remainingSum = order.payment.splits
+      .filter((s) => s.id !== splitId)
+      .reduce((sum, s) => sum + s.amount, 0);
+    const totalDue = order.totalAmount;
+    const newStatus: "PENDING" | "COMPLETED" =
+      remainingSum >= totalDue - 0.01 ? "COMPLETED" : "PENDING";
+
+    await db.$transaction([
+      db.cafePaymentSplit.delete({ where: { id: splitId } }),
+      db.cafePayment.update({
+        where: { id: order.payment.id },
+        data: { status: newStatus },
+      }),
+      db.cafeOrderEditHistory.create({
+        data: {
+          orderId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType: "PAYMENT_SPLIT_REMOVED",
+          previousAmount: order.payment.amount,
+          newAmount: remainingSum,
+          note: `Removed split ${split.method} ₹${split.amount}`,
+        },
+      }),
+    ]);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to remove payment split:", error);
+    return { success: false, error: "Failed to remove payment split" };
+  }
 }

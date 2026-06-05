@@ -1021,11 +1021,37 @@ model CafePayment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  splits CafePaymentSplit[]
+
   @@index([status, method])
   @@index([utrExpiresAt])
   // Same idempotency rationale as Payment — keep cafe webhook lookups fast.
   @@index([razorpayPaymentId])
   @@index([phonePeMerchantTxnId])
+}
+
+/**
+ * Split-payment breakdown rows on a CafePayment. Used when an
+ * order is settled across more than one tender method (e.g. ₹300
+ * cash + ₹200 UPI). The parent CafePayment row stays in place as
+ * the "summary" record carrying the total + final status; splits
+ * track the individual tendered amounts. With no splits, the
+ * CafePayment alone represents the whole payment exactly as
+ * before — backwards-compatible.
+ */
+model CafePaymentSplit {
+  id          String        @id @default(cuid())
+  paymentId   String
+  payment     CafePayment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  method      PaymentMethod
+  amount      Float
+  utrNumber   String?
+  note        String?
+  createdAt   DateTime      @default(now())
+  // AdminUser.id of the staffer who recorded this split.
+  createdById String?
+
+  @@index([paymentId])
 }
 
 model CafeDiscount {
