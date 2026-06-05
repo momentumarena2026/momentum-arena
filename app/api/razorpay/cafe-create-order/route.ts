@@ -3,6 +3,16 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { createRazorpayOrder, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 
+/**
+ * Initiate Razorpay for a CafePaymentIntent. The intent id arrives
+ * as `orderId` in the request body for client backwards-compat —
+ * it's actually the intent id from createCafeOrder's online-path
+ * response. We look it up, create the Razorpay order, stamp the
+ * razorpayOrderId on the intent so verify can find it.
+ *
+ * No CafeOrder exists yet at this point — that only happens once
+ * the verify endpoint materialises a paid intent.
+ */
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
   if (!userId) {
@@ -10,59 +20,44 @@ export async function POST(request: NextRequest) {
   }
 
   const { orderId } = await request.json();
-
   if (!orderId) {
     return NextResponse.json({ error: "Missing orderId" }, { status: 400 });
   }
 
-  const order = await db.cafeOrder.findUnique({
+  const intent = await db.cafePaymentIntent.findUnique({
     where: { id: orderId },
-    include: { payment: true },
   });
-
-  if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
-
-  if (order.userId !== userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  }
-
-  // Accept PENDING_PAYMENT (new payment-first flow) AND legacy
-  // PENDING (in case a transitional order was created the old way
-  // before this deploy). Anything past that — already paid, already
-  // in the kitchen, cancelled — refuses.
-  if (order.status !== "PENDING_PAYMENT" && order.status !== "PENDING") {
+  if (!intent) {
     return NextResponse.json(
-      { error: "Order is not awaiting payment" },
-      { status: 400 }
+      { error: "Checkout session expired — please start again" },
+      { status: 404 },
     );
   }
-
-  if (!order.payment) {
+  if (intent.userId && intent.userId !== userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+  if (intent.consumedAt) {
     return NextResponse.json(
-      { error: "Payment record not found" },
-      { status: 400 }
+      { error: "This checkout was already completed" },
+      { status: 409 },
     );
   }
 
   try {
     const razorpayOrder = await createRazorpayOrder(
-      order.totalAmount,
-      orderId
+      intent.totalAmount,
+      intent.id,
     );
 
-    await db.cafePayment.update({
-      where: { id: order.payment.id },
-      data: {
-        razorpayOrderId: razorpayOrder.id,
-      },
+    await db.cafePaymentIntent.update({
+      where: { id: intent.id },
+      data: { razorpayOrderId: razorpayOrder.id },
     });
 
     return NextResponse.json({
       orderId: razorpayOrder.id,
       keyId: RAZORPAY_KEY_ID,
-      amount: order.totalAmount,
+      amount: intent.totalAmount,
       currency: "INR",
     });
   } catch (error) {
@@ -73,7 +68,7 @@ export async function POST(request: NextRequest) {
             ? error.message
             : "Failed to create Razorpay order",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -2,84 +2,82 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { checkPhonePeStatus } from "@/lib/phonepe";
 import {
-  finalizePaidCafeOrder,
-  cancelPendingPaymentOrder,
-} from "@/lib/cafe-finalize";
+  materializeOrderFromIntent,
+  deleteCafePaymentIntent,
+} from "@/lib/cafe-intent";
 
 /**
- * PhonePe redirect-back endpoint. Customer comes back here from
- * the PhonePe payment page; we re-check the server-side payment
- * state (defence in depth — don't trust the redirect itself) and
- * either:
- *   - finalize the order (decrement stock + flip status) and send
- *     the customer to the confirmation page, OR
- *   - cancel the order (so it doesn't sit in PENDING_PAYMENT
- *     forever and pollute the admin tab on the next sweep) and
- *     send them back to /cafe with an error query.
+ * PhonePe redirect-back endpoint. Customer returns here after the
+ * gateway page; we re-check server-side payment status (don't
+ * trust the redirect URL itself) and either:
  *
- * Mirrors the sports-booking redirect handler's pattern of
- * "trust the verified server response, not the client URL."
+ *   - Materialise the CafeOrder from the intent → redirect to the
+ *     real /cafe/confirmation/[orderId].
+ *   - Or delete the intent (gateway reported failure) → redirect
+ *     back to /cafe with an error code.
+ *
+ * The intent id arrives as `intentId` in the query. Legacy URLs
+ * carrying `orderId` are still tolerated (treated identically) so
+ * any in-flight gateway sessions from before this deploy still
+ * round-trip cleanly.
  */
 export async function GET(request: NextRequest) {
-  const orderId = request.nextUrl.searchParams.get("orderId");
+  const intentId =
+    request.nextUrl.searchParams.get("intentId") ??
+    request.nextUrl.searchParams.get("orderId");
   const origin =
     request.headers.get("origin") ||
     process.env.NEXTAUTH_URL ||
     "http://localhost:3000";
 
-  if (!orderId) {
-    return NextResponse.redirect(`${origin}/cafe?error=missing_order`);
+  if (!intentId) {
+    return NextResponse.redirect(`${origin}/cafe?error=missing_intent`);
   }
 
   try {
-    const payment = await db.cafePayment.findUnique({
-      where: { orderId },
+    const intent = await db.cafePaymentIntent.findUnique({
+      where: { id: intentId },
     });
 
-    if (!payment?.phonePeMerchantTxnId) {
+    // Intent already consumed (callback won the race) — pull the
+    // materialised order id and land the user on confirmation.
+    if (intent?.consumedOrderId) {
+      return NextResponse.redirect(
+        `${origin}/cafe/confirmation/${intent.consumedOrderId}`,
+      );
+    }
+
+    if (!intent?.phonePeMerchantTxnId) {
       return NextResponse.redirect(`${origin}/cafe?error=payment_not_found`);
     }
 
-    // Already completed (callback got here first) — just send the
-    // customer to confirmation; the finaliser is idempotent and
-    // would no-op anyway.
-    if (payment.status === "COMPLETED") {
-      return NextResponse.redirect(`${origin}/cafe/confirmation/${orderId}`);
-    }
-
-    const status = await checkPhonePeStatus(payment.phonePeMerchantTxnId);
+    const status = await checkPhonePeStatus(intent.phonePeMerchantTxnId);
 
     if (status.success) {
-      await db.cafePayment.update({
-        where: { id: payment.id },
-        data: {
-          status: "COMPLETED",
-          phonePeTransactionId: status.transactionId,
-          confirmedAt: new Date(),
-        },
+      const result = await materializeOrderFromIntent(intent.id, {
+        phonePeMerchantTxnId: intent.phonePeMerchantTxnId,
+        phonePeTransactionId: status.transactionId,
       });
 
-      const finalizeResult = await finalizePaidCafeOrder(orderId);
-      if (!finalizeResult.ok) {
-        // Sold-out race after payment landed — order is now
-        // CANCELLED and the customer is owed a refund. Land them
-        // somewhere informative rather than the confirmation page.
+      if (!result.ok) {
+        // Sold-out race after payment captured. The helper has
+        // materialised a CANCELLED audit row carrying the captured
+        // payment info; land the customer on a page that surfaces
+        // the refund-required state.
         return NextResponse.redirect(
           `${origin}/cafe?error=sold_out_refund_required`,
         );
       }
 
-      return NextResponse.redirect(`${origin}/cafe/confirmation/${orderId}`);
+      return NextResponse.redirect(
+        `${origin}/cafe/confirmation/${result.orderId}`,
+      );
     }
 
-    // Payment failed at PhonePe — cancel the PENDING_PAYMENT order
-    // so it doesn't linger. Stock wasn't decremented, so cancel is
-    // a clean status flip + payment FAILED.
-    await cancelPendingPaymentOrder(
-      orderId,
-      `PhonePe payment ${status.state.toLowerCase()}`,
-    );
-
+    // Payment failed at PhonePe — drop the intent so it doesn't
+    // linger and bounce the customer back to /cafe with a status
+    // code.
+    await deleteCafePaymentIntent(intent.id);
     return NextResponse.redirect(
       `${origin}/cafe?error=payment_${status.state.toLowerCase()}`,
     );
