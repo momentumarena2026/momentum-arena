@@ -266,11 +266,43 @@ export async function updateCafeOrderStatus(
   }
 }
 
+/**
+ * Look up an existing customer by phone number. Returns the matching
+ * User row (id, name, email, phone) or null. Used by the admin
+ * create-order form to pre-fill the customer name once the admin
+ * has typed a 10-digit phone — see /admin/cafe-orders/create.
+ *
+ * Matches against the canonical "+91XXXXXXXXXX" form stored in
+ * User.phone (normalizeIndianPhone handles the strip+prefix).
+ */
+export async function findCafeCustomerByPhone(rawPhone: string) {
+  await requireCafeAdmin();
+  const trimmed = rawPhone.trim();
+  if (trimmed.length < 10) return { customer: null };
+  const normalized = normalizeIndianPhone(trimmed);
+  const customer = await db.user.findFirst({
+    where: { phone: normalized },
+    select: { id: true, name: true, email: true, phone: true },
+  });
+  return { customer };
+}
+
 export async function adminCreateCafeOrder(data: {
   items: { cafeItemId: string; quantity: number }[];
   userId?: string;
   guestName?: string;
   guestPhone?: string;
+  // Phone-first customer flow. When `customerPhone` is provided,
+  // the action looks up an existing User by phone; on miss it
+  // creates a new User with this phone + customerName (and uses
+  // that id for `userId`). Takes precedence over the legacy
+  // userId / guestName / guestPhone trio.
+  customerPhone?: string;
+  customerName?: string;
+  // Optional flat discount in rupees. Reduces the order total +
+  // payment amount + edit-history newAmount by this much. Bound
+  // at the action layer to never push the total below zero.
+  discountAmount?: number;
   paymentMethod: PaymentMethod;
   note?: string;
 }) {
@@ -313,11 +345,11 @@ export async function adminCreateCafeOrder(data: {
     }
 
     // Calculate totals
-    let totalAmount = 0;
+    let originalAmount = 0;
     const orderItems = data.items.map((item) => {
       const cafeItem = itemMap.get(item.cafeItemId)!;
       const totalPrice = cafeItem.price * item.quantity;
-      totalAmount += totalPrice;
+      originalAmount += totalPrice;
       return {
         cafeItemId: item.cafeItemId,
         itemName: cafeItem.name,
@@ -326,6 +358,13 @@ export async function adminCreateCafeOrder(data: {
         totalPrice,
       };
     });
+
+    // Apply admin-entered flat discount. Bound at the action layer
+    // so a typo in the form (₹1000 discount on a ₹100 order) lands
+    // as 100% off rather than a negative total.
+    const rawDiscount = Math.max(0, data.discountAmount ?? 0);
+    const discountAmount = Math.min(rawDiscount, originalAmount);
+    const totalAmount = originalAmount - discountAmount;
 
     // Generate order number with random suffix to prevent race condition
     const orderCount = await db.cafeOrder.count();
@@ -355,20 +394,62 @@ export async function adminCreateCafeOrder(data: {
       ? "COMPLETED"
       : "PENDING";
 
-    const guestPhoneTrimmed = data.guestPhone?.trim();
-    const guestPhoneNormalized = guestPhoneTrimmed
-      ? normalizeIndianPhone(guestPhoneTrimmed)
+    // Phone-first customer resolution. When customerPhone is sent,
+    // we look up a user by normalised phone first; on miss we
+    // create a fresh User with the phone (+ optional name). The
+    // resolved userId then drives both Order.userId AND the
+    // guestName/guestPhone columns are nulled out (no stale guest
+    // data on a real account-attached order).
+    //
+    // Falls back to the legacy userId / guest fields when the new
+    // customerPhone arg is absent, so existing callers (mobile
+    // admin, server-side imports) keep working unchanged.
+    let resolvedUserId: string | null = data.userId ?? null;
+    let resolvedGuestName: string | null = data.guestName?.trim() || null;
+    let resolvedGuestPhone: string | null = data.guestPhone?.trim()
+      ? normalizeIndianPhone(data.guestPhone.trim())
       : null;
+
+    const customerPhoneRaw = data.customerPhone?.trim();
+    if (customerPhoneRaw && customerPhoneRaw.length >= 10) {
+      const normalised = normalizeIndianPhone(customerPhoneRaw);
+      const existing = await db.user.findFirst({
+        where: { phone: normalised },
+        select: { id: true },
+      });
+      if (existing) {
+        resolvedUserId = existing.id;
+        resolvedGuestName = null;
+        resolvedGuestPhone = null;
+      } else {
+        // No matching user — create one carrying the phone (+
+        // name when provided). Bare-phone records are a valid
+        // first-time customer record that the venue can flesh out
+        // later. The User schema requires no fields beyond the
+        // ones set here.
+        const created = await db.user.create({
+          data: {
+            phone: normalised,
+            name: data.customerName?.trim() || null,
+          },
+          select: { id: true },
+        });
+        resolvedUserId = created.id;
+        resolvedGuestName = null;
+        resolvedGuestPhone = null;
+      }
+    }
 
     const order = await db.cafeOrder.create({
       data: {
         orderNumber,
-        userId: data.userId || null,
-        guestName: data.guestName?.trim() || null,
-        guestPhone: guestPhoneNormalized,
+        userId: resolvedUserId,
+        guestName: resolvedGuestName,
+        guestPhone: resolvedGuestPhone,
         status: orderStatus,
         totalAmount,
-        originalAmount: totalAmount,
+        originalAmount,
+        discountAmount,
         note: data.note?.trim() || null,
         createdByAdminId: admin.id,
         items: {
@@ -387,9 +468,17 @@ export async function adminCreateCafeOrder(data: {
             adminUsername: admin.username,
             editType: "ORDER_CREATED",
             newAmount: totalAmount,
-            note: allReady
-              ? `Order created by ${admin.username} — all items ready-to-serve, handed over at counter (status: COMPLETED)`
-              : `Order created by ${admin.username}`,
+            note: [
+              `Order created by ${admin.username}`,
+              allReady
+                ? "all items ready-to-serve, handed over at counter (status: COMPLETED)"
+                : null,
+              discountAmount > 0
+                ? `discount ₹${discountAmount} applied`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" — "),
           },
         },
       },

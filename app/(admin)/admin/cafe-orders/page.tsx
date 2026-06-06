@@ -12,11 +12,14 @@ export default async function AdminCafeOrdersPage({
   }>;
 }) {
   const params = await searchParams;
-  const today = new Date().toISOString().split("T")[0];
 
+  // No default date filter — the admin sees ALL orders across all
+  // dates by default, paginated. A date filter is only applied when
+  // the admin explicitly picks one from the date input. Mirrors the
+  // /admin/bookings list which is also date-agnostic by default.
   const [{ orders, total, totalPages }, stats] = await Promise.all([
     getCafeOrders({
-      date: params.date || today,
+      date: params.date || undefined,
       status: params.status as any,
       search: params.search,
       page: parseInt(params.page || "1"),
@@ -64,7 +67,7 @@ export default async function AdminCafeOrdersPage({
         totalPages={totalPages}
         currentPage={parseInt(params.page || "1")}
         currentStatus={params.status || ""}
-        currentDate={params.date || today}
+        currentDate={params.date || ""}
       />
     </div>
   );
