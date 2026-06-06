@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   adminCreateCafeOrder,
-  searchCafeCustomers,
+  findCafeCustomerByPhone,
 } from "@/actions/admin-cafe-orders";
 import { CafeItemCategory, PaymentMethod } from "@prisma/client";
 import {
@@ -13,13 +13,13 @@ import {
   X,
   Loader2,
   CheckCircle2,
-  Search,
   User,
   Coffee,
   Sandwich,
   UtensilsCrossed,
   IceCreamCone,
   Package,
+  Tag,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -57,7 +57,7 @@ interface CartItem {
   needsPreparation: boolean;
 }
 
-interface Customer {
+interface MatchedCustomer {
   id: string;
   name: string | null;
   email: string | null;
@@ -87,13 +87,19 @@ export function CreateCafeOrderForm({
   const router = useRouter();
   const [activeCategory, setActiveCategory] = useState<string>("ALL");
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [isWalkin, setIsWalkin] = useState(true);
-  const [guestName, setGuestName] = useState("");
-  const [guestPhone, setGuestPhone] = useState("");
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [searchingCustomers, setSearchingCustomers] = useState(false);
+
+  // Phone-first customer flow — single input instead of Walk-in /
+  // Existing toggles. On 10-digit phone we debounce a lookup;
+  // matched user surfaces as a read-only name pill, unmatched
+  // shows a name input the admin can fill in (creates a new User
+  // on submit).
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [matchedCustomer, setMatchedCustomer] =
+    useState<MatchedCustomer | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+
+  const [discountAmount, setDiscountAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -158,25 +164,48 @@ export function CreateCafeOrderForm({
     return cart.find((c) => c.cafeItemId === itemId)?.quantity || 0;
   };
 
-  const totalAmount = cart.reduce(
+  const subtotalAmount = cart.reduce(
     (sum, c) => sum + c.price * c.quantity,
-    0
+    0,
   );
+  const parsedDiscount = Math.max(0, Number(discountAmount) || 0);
+  const effectiveDiscount = Math.min(parsedDiscount, subtotalAmount);
+  const totalAmount = Math.max(0, subtotalAmount - effectiveDiscount);
 
-  const handleCustomerSearch = useCallback(
-    async (query: string) => {
-      setCustomerSearch(query);
-      if (query.length < 2) {
-        setCustomers([]);
-        return;
+  // Debounced phone → user lookup. The PhoneInput hands us the
+  // local part (no +91 prefix); we fire the lookup once it crosses
+  // 10 digits so the admin gets the pre-fill the moment they're
+  // done typing. Cleared phone wipes the matched-customer state +
+  // the typed name so a back-and-forth between two phones doesn't
+  // strand stale data.
+  useEffect(() => {
+    const digits = customerPhone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setMatchedCustomer(null);
+      return;
+    }
+    let cancelled = false;
+    setLookingUp(true);
+    const t = setTimeout(async () => {
+      try {
+        const result = await findCafeCustomerByPhone(customerPhone);
+        if (cancelled) return;
+        setMatchedCustomer(result.customer);
+        if (result.customer?.name) {
+          setCustomerName(result.customer.name);
+        }
+      } finally {
+        if (!cancelled) setLookingUp(false);
       }
-      setSearchingCustomers(true);
-      const result = await searchCafeCustomers(query);
-      setCustomers(result.customers);
-      setSearchingCustomers(false);
-    },
-    []
-  );
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [customerPhone]);
+
+  const phoneDigits = customerPhone.replace(/\D/g, "");
+  const phoneReady = phoneDigits.length >= 10;
 
   const handleSubmit = async () => {
     if (cart.length === 0) {
@@ -192,9 +221,13 @@ export function CreateCafeOrderForm({
         cafeItemId: c.cafeItemId,
         quantity: c.quantity,
       })),
-      userId: selectedCustomer?.id,
-      guestName: isWalkin ? guestName || "Walk-in" : undefined,
-      guestPhone: isWalkin ? guestPhone || undefined : undefined,
+      // Phone-first: send the typed phone (action looks up by phone
+      // and creates a User if there's no match). When no phone was
+      // typed at all, the order falls through as a plain anonymous
+      // order — no userId, no guest data.
+      customerPhone: phoneReady ? customerPhone : undefined,
+      customerName: phoneReady ? customerName.trim() || undefined : undefined,
+      discountAmount: effectiveDiscount > 0 ? effectiveDiscount : undefined,
       paymentMethod,
       note: note || undefined,
     });
@@ -221,9 +254,10 @@ export function CreateCafeOrderForm({
               setSuccessOrder(null);
               setCart([]);
               setNote("");
-              setGuestName("");
-              setGuestPhone("");
-              setSelectedCustomer(null);
+              setCustomerPhone("");
+              setCustomerName("");
+              setMatchedCustomer(null);
+              setDiscountAmount("");
             }}
             className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700"
           >
@@ -466,111 +500,97 @@ export function CreateCafeOrderForm({
             );
           })()}
 
-          {/* Customer section */}
-          <div className="border-t border-zinc-800 pt-3 space-y-3">
+          {/* Customer section — phone-first. The admin types the
+              customer's phone; we look them up automatically and
+              pre-fill the name if there's a match (read-only).
+              On miss we show a "New customer" hint + a name input
+              that becomes the new User record on submit. Drops the
+              prior Walk-in / Existing Customer toggle entirely. */}
+          <div className="border-t border-zinc-800 pt-3 space-y-2">
             <div className="flex items-center gap-2">
               <User className="h-4 w-4 text-zinc-400" />
               <span className="text-sm font-medium text-white">Customer</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setIsWalkin(true);
-                  setSelectedCustomer(null);
-                }}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  isWalkin
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
-                }`}
-              >
-                Walk-in Guest
-              </button>
-              <button
-                onClick={() => setIsWalkin(false)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  !isWalkin
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
-                }`}
-              >
-                Existing Customer
-              </button>
+              {lookingUp ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+              ) : null}
+              {phoneReady && matchedCustomer ? (
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                  Existing
+                </span>
+              ) : phoneReady && !matchedCustomer && !lookingUp ? (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                  New
+                </span>
+              ) : null}
             </div>
 
-            {isWalkin ? (
-              <div className="grid gap-2 grid-cols-2">
-                <input
-                  type="text"
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  placeholder="Guest name (optional)"
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white placeholder-zinc-500"
-                />
-                <PhoneInput
-                  value={guestPhone}
-                  onChange={setGuestPhone}
-                  placeholder="Phone (optional)"
-                />
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {selectedCustomer ? (
-                  <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2">
-                    <div>
-                      <p className="text-sm font-medium text-white">
-                        {selectedCustomer.name || selectedCustomer.email}
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        {selectedCustomer.phone || selectedCustomer.email}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setSelectedCustomer(null)}
-                      className="text-zinc-500 hover:text-white"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
-                    <input
-                      type="text"
-                      value={customerSearch}
-                      onChange={(e) => handleCustomerSearch(e.target.value)}
-                      placeholder="Search by name, email, or phone"
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2 pl-8 text-sm text-white placeholder-zinc-500"
-                    />
-                    {searchingCustomers && (
-                      <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-zinc-500" />
-                    )}
-                    {customers.length > 0 && (
-                      <div className="absolute left-0 right-0 top-full mt-1 rounded-lg border border-zinc-700 bg-zinc-800 shadow-lg z-10 max-h-40 overflow-y-auto">
-                        {customers.map((c) => (
-                          <button
-                            key={c.id}
-                            onClick={() => {
-                              setSelectedCustomer(c);
-                              setCustomers([]);
-                              setCustomerSearch("");
-                            }}
-                            className="w-full p-2 text-left hover:bg-zinc-700 text-sm"
-                          >
-                            <p className="text-white">
-                              {c.name || c.email}
-                            </p>
-                            <p className="text-xs text-zinc-500">
-                              {c.phone || c.email}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Phone field — full width on its own row so the
+                "+91" prefix + input don't overflow the cart card.
+                The PhoneInput keeps the local digits internally; we
+                debounce a lookup at 10 digits. */}
+            <PhoneInput
+              value={customerPhone}
+              onChange={setCustomerPhone}
+              placeholder="Phone (10 digits)"
+            />
+
+            {/* Name field — pre-filled (read-only) on a match,
+                editable on a miss. Hidden until a phone has been
+                typed so the form doesn't ask for a name before it
+                makes sense. */}
+            {phoneReady ? (
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                readOnly={!!matchedCustomer}
+                placeholder={
+                  matchedCustomer ? "Existing customer" : "Customer name (optional)"
+                }
+                className={`w-full rounded-lg border p-2 text-sm placeholder-zinc-500 ${
+                  matchedCustomer
+                    ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-200"
+                    : "border-zinc-700 bg-zinc-800 text-white"
+                }`}
+              />
+            ) : null}
+          </div>
+
+          {/* Flat discount input — admin can knock the order total
+              down by a typed rupee amount. Bounded server-side so
+              a too-large discount lands as 100% off rather than a
+              negative total. */}
+          <div className="border-t border-zinc-800 pt-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-zinc-400" />
+              <span className="text-sm font-medium text-white">
+                Discount (₹)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={discountAmount}
+                onChange={(e) => setDiscountAmount(e.target.value)}
+                placeholder="0"
+                className="w-32 rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white placeholder-zinc-500"
+              />
+              {effectiveDiscount > 0 ? (
+                <p className="text-xs text-amber-300">
+                  Saving {formatPrice(effectiveDiscount)} →{" "}
+                  <span className="font-semibold text-emerald-300">
+                    {formatPrice(totalAmount)}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500">
+                  Subtotal {formatPrice(subtotalAmount)}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Payment method */}
