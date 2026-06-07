@@ -266,11 +266,11 @@ function EditRow({
         disabled={pending}
       />
       <LabelledNumber
-        label="Start hour (0–24)"
+        label="Start hour (0–28)"
         value={value.startHour}
         onChange={(n) => onChange({ ...value, startHour: n })}
         min={0}
-        max={24}
+        max={28}
         disabled={pending || lockedStartHour !== null}
         helper={
           lockedStartHour !== null
@@ -279,11 +279,11 @@ function EditRow({
         }
       />
       <LabelledNumber
-        label="End hour (0–24)"
+        label="End hour (1–29)"
         value={value.endHour}
         onChange={(n) => onChange({ ...value, endHour: n })}
         min={1}
-        max={24}
+        max={29}
         disabled={pending}
       />
       <LabelledSelect
