@@ -226,7 +226,7 @@ export function CafeAnalyticsDashboard({
   const kpiCards = kpi
     ? [
         {
-          label: "Total Revenue",
+          label: "Total Earnings",
           value: formatINR(kpi.totalRevenue),
           color: "text-emerald-400",
         },
@@ -376,13 +376,13 @@ export function CafeAnalyticsDashboard({
         </div>
       )}
 
-      {/* Revenue & Profit Over Time */}
+      {/* Earnings & Profit Over Time */}
       {loading ? (
         <ChartSkeleton />
       ) : (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="mb-4 text-sm font-semibold text-white">
-            Revenue, Profit & Orders Over Time
+            Earnings, Profit & Orders Over Time
           </h2>
           {revenueSeries.length === 0 ? (
             <p className="py-12 text-center text-zinc-500">
@@ -431,7 +431,7 @@ export function CafeAnalyticsDashboard({
                   yAxisId="left"
                   type="monotone"
                   dataKey="revenue"
-                  name="Revenue"
+                  name="Earnings"
                   stroke="#10b981"
                   strokeWidth={2}
                   dot={false}
@@ -514,10 +514,10 @@ export function CafeAnalyticsDashboard({
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Top 10 items by revenue */}
+          {/* Top 10 items by earnings */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
             <h2 className="mb-4 text-sm font-semibold text-white">
-              Top 10 Items (by revenue)
+              Top 10 Items (by earnings)
             </h2>
             {topItems.length === 0 ? (
               <p className="py-12 text-center text-zinc-500">No data</p>
@@ -554,7 +554,7 @@ export function CafeAnalyticsDashboard({
                   <Legend wrapperStyle={{ color: "#a1a1aa", fontSize: 12 }} />
                   <Bar
                     dataKey="revenue"
-                    name="Revenue"
+                    name="Earnings"
                     fill="#10b981"
                     radius={[0, 4, 4, 0]}
                   />
@@ -569,10 +569,10 @@ export function CafeAnalyticsDashboard({
             )}
           </div>
 
-          {/* Category-level revenue + profit bar */}
+          {/* Category-level earnings + profit bar */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
             <h2 className="mb-4 text-sm font-semibold text-white">
-              Category Revenue & Profit
+              Category Earnings & Profit
             </h2>
             {categoryRows.length === 0 ? (
               <p className="py-12 text-center text-zinc-500">No data</p>
@@ -611,7 +611,7 @@ export function CafeAnalyticsDashboard({
                   <Legend wrapperStyle={{ color: "#a1a1aa", fontSize: 12 }} />
                   <Bar
                     dataKey="revenue"
-                    name="Revenue"
+                    name="Earnings"
                     fill="#10b981"
                     radius={[4, 4, 0, 0]}
                   />
@@ -726,7 +726,7 @@ export function CafeAnalyticsDashboard({
                 <Bar
                   yAxisId="right"
                   dataKey="revenue"
-                  name="Revenue"
+                  name="Earnings"
                   fill="#10b981"
                   radius={[4, 4, 0, 0]}
                 />
