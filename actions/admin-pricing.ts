@@ -70,8 +70,14 @@ export async function bulkUpdatePricing(
 }
 
 const timeClassSchema = z.object({
-  startHour: z.number().int().min(5).max(24),
-  endHour: z.number().int().min(6).max(25),
+  // Bands are subsets of the arena's open/close window. Arena
+  // hours are now configurable up to closeHour = 29 (5am next
+  // day) — see ArenaSettings + lib/court-config.ts — so accept
+  // the same wide range here. The endpoint-ordering check
+  // (endHour > startHour) and the overlap check below catch
+  // anything the bounds would otherwise allow.
+  startHour: z.number().int().min(0).max(28),
+  endHour: z.number().int().min(1).max(29),
   dayType: z.enum(["WEEKDAY", "WEEKEND"]),
   timeType: z.enum(["PEAK", "OFF_PEAK"]),
 });
