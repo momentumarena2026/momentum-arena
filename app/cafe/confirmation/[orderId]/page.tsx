@@ -172,18 +172,23 @@ export default async function CafeConfirmationPage({
 
       {/* Actions. Invoice download intentionally hidden customer-side
           — /api/cafe-invoice route stays mounted for admin / internal
-          use. Re-add the anchor here to re-expose. */}
-      <div className="flex flex-col sm:flex-row gap-3">
+          use. Re-add the anchor here to re-expose.
+
+          View All My Orders is the primary action — that's the
+          forward step after seeing this confirmation. Back is the
+          secondary escape hatch. Both share the same
+          inline-flex/justify-center/gap shape so the arrow + label
+          on Back center together (the prior className override on
+          BackButton was dropping its default flex layout, leaving
+          the arrow nudged to the left of a centred label). */}
+      <div className="flex flex-col-reverse sm:flex-row gap-3">
         <BackButton
-          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl text-center transition-colors"
+          className="inline-flex items-center justify-center gap-2 flex-1 border border-zinc-700 hover:border-zinc-500 hover:text-white text-zinc-300 font-semibold py-3 rounded-xl text-center transition-colors"
           label="Back"
         />
-        {/* Direct path to the order-history page so a customer who
-            just placed an order can flip straight to "all my
-            orders" without going through the cafe menu first. */}
         <Link
           href="/cafe/orders"
-          className="flex-1 border border-zinc-700 hover:border-amber-500/50 hover:text-amber-200 text-zinc-300 font-semibold py-3 rounded-xl text-center transition-colors"
+          className="inline-flex items-center justify-center flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl text-center transition-colors"
         >
           View All My Orders
         </Link>
