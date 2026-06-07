@@ -13,7 +13,7 @@ export default async function SportsAnalyticsPage() {
   const dateTo = now.toISOString().split("T")[0];
 
   // Default range = "earliest confirmed payment" → today, so the KPI
-  // totals match the lifetime "Total Revenue" on /admin/bookings out
+  // totals match the lifetime "Total Sports Earnings" on /admin/bookings out
   // of the box. Admins can narrow the window via the filter.
   const earliestPayment = await db.payment.findFirst({
     where: { status: "COMPLETED", confirmedAt: { not: null } },
@@ -33,7 +33,7 @@ export default async function SportsAnalyticsPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Sports Analytics</h1>
         <p className="mt-1 text-zinc-400">
-          Revenue, bookings, and performance insights for the sports side.
+          Earnings, bookings, and performance insights for the sports side.
           Cafe analytics live on the <strong>Cafe</strong> tab.
         </p>
       </div>

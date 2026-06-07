@@ -167,7 +167,7 @@ export default async function AdminBookingsPage({
       border: "border-yellow-500/20",
     },
     {
-      label: "Total Revenue",
+      label: "Total Sports Earnings",
       value: formatPrice(stats.totalRevenue),
       icon: IndianRupee,
       color: "text-emerald-300",

@@ -27,7 +27,7 @@ export default async function CafeAnalyticsPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Cafe Analytics</h1>
         <p className="mt-1 text-zinc-400">
-          Revenue, profit, items, payments, and customer insights for the
+          Earnings, profit, items, payments, and customer insights for the
           cafe. Sports analytics live on the <strong>Sports</strong> tab.
         </p>
       </div>

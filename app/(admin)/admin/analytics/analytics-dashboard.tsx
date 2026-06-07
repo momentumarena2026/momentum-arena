@@ -217,7 +217,7 @@ export function AnalyticsDashboard({
   const kpiCards = kpi
     ? [
         {
-          label: "Sports Revenue",
+          label: "Sports Earnings",
           value: formatINR(kpi.sportsRevenue),
           color: "text-emerald-400",
         },
@@ -331,17 +331,17 @@ export function AnalyticsDashboard({
       <DailyEarningsChart />
       <MonthlyEarningsChart />
 
-      {/* Revenue Over Time */}
+      {/* Earnings Over Time */}
       {loading ? (
         <ChartSkeleton />
       ) : (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="mb-4 text-sm font-semibold text-white">
-            Revenue Over Time
+            Earnings Over Time
           </h2>
           {revenueData.length === 0 ? (
             <p className="py-12 text-center text-zinc-500">
-              No revenue data for this period
+              No earnings data for this period
             </p>
           ) : (
             <ResponsiveContainer width="100%" height={320}>
@@ -386,14 +386,14 @@ export function AnalyticsDashboard({
         </div>
       )}
 
-      {/* Sport Revenue Breakdown — full width now that the cafe pie
+      {/* Sport Earnings Breakdown — full width now that the cafe pie
           has moved to its own /admin/analytics/cafe dashboard. */}
       {loading ? (
         <ChartSkeleton />
       ) : (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="mb-4 text-sm font-semibold text-white">
-            Sport Revenue Breakdown
+            Sport Earnings Breakdown
           </h2>
           {sportPieData.length === 0 ? (
             <p className="py-12 text-center text-zinc-500">No data</p>
@@ -433,7 +433,7 @@ export function AnalyticsDashboard({
         </div>
       )}
 
-      {/* Monthly revenue per sport — one line per sport across
+      {/* Monthly earnings per sport — one line per sport across
           the selected window. Lines share the same SPORT_COLORS
           palette as the breakdown pie so the visual identity
           carries between the two charts. */}
@@ -442,7 +442,7 @@ export function AnalyticsDashboard({
       ) : (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="mb-1 text-sm font-semibold text-white">
-            Sport Revenue by Month
+            Sport Earnings by Month
           </h2>
           <p className="mb-4 text-xs text-zinc-500">
             Monthly totals per sport across the selected window.
