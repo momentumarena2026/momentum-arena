@@ -295,17 +295,26 @@ export function CafeMenuPage({
                           : "border-zinc-800/40 opacity-50"
                       }`}
                     >
-                      {/* Image */}
+                      {/* Image — aspect-locked so every card is the
+                          same shape regardless of viewport or the
+                          underlying photo's orientation. Tall
+                          product photos (water bottles, drinks)
+                          previously overflowed a fixed-height
+                          container and surfaced white background;
+                          `aspect-[4/3]` + `object-cover` crops to
+                          the middle of the photo so the subject
+                          fills the frame instead. */}
                       {item.image ? (
-                        <div className="h-36 bg-zinc-800 overflow-hidden">
+                        <div className="aspect-[4/3] bg-zinc-800 overflow-hidden">
                           <img
                             src={item.image}
                             alt={item.name}
+                            loading="lazy"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           />
                         </div>
                       ) : (
-                        <div className="h-28 bg-gradient-to-br from-zinc-800/80 to-zinc-900 flex items-center justify-center">
+                        <div className="aspect-[4/3] bg-gradient-to-br from-zinc-800/80 to-zinc-900 flex items-center justify-center">
                           <span className="text-4xl opacity-40">
                             {CATEGORY_EMOJIS[item.category] || "🍽️"}
                           </span>
