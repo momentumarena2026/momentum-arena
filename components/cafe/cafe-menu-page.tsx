@@ -295,22 +295,27 @@ export function CafeMenuPage({
                           : "border-zinc-800/40 opacity-50"
                       }`}
                     >
-                      {/* Image — aspect-locked so every card is the
-                          same shape regardless of viewport or the
-                          underlying photo's orientation. Tall
-                          product photos (water bottles, drinks)
-                          previously overflowed a fixed-height
-                          container and surfaced white background;
-                          `aspect-[4/3]` + `object-cover` crops to
-                          the middle of the photo so the subject
-                          fills the frame instead. */}
+                      {/* Image — aspect-locked + white-backed so
+                          product shots that ship with their own
+                          white photography background blend
+                          cleanly instead of looking like a bleached
+                          crop on the dark card. Standard food-
+                          delivery app pattern (Zomato / Swiggy)
+                          for the same reason. `object-contain`
+                          shows the full subject without cropping;
+                          the white container absorbs any
+                          surrounding white photo background so a
+                          200ml bottle photo doesn't look like a
+                          tiny shape lost in an oversized frame.
+                          Subtle padding around the image gives the
+                          subject a touch of breathing room. */}
                       {item.image ? (
-                        <div className="aspect-[4/3] bg-zinc-800 overflow-hidden">
+                        <div className="aspect-[4/3] bg-white overflow-hidden p-2">
                           <img
                             src={item.image}
                             alt={item.name}
                             loading="lazy"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                           />
                         </div>
                       ) : (
