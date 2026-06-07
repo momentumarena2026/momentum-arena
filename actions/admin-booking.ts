@@ -1132,10 +1132,25 @@ export async function getAdminStats() {
       },
       _sum: { totalAmount: true },
     }),
+    // "Total Sports Earnings" — must match the analytics-page KPI
+    // query verbatim. The analytics query has a confirmedAt
+    // window; for a windowless lifetime total here we still
+    // require confirmedAt to be non-null so historical COMPLETED
+    // payments that were never timestamp-stamped don't slip in
+    // and create a divergent number vs the analytics dashboard.
+    //
+    // Without this guard, the all-bookings tile counts every
+    // CONFIRMED+COMPLETED booking forever, while the analytics
+    // KPI (which uses confirmedAt: { gte: from, lte: to }) drops
+    // any payment whose confirmedAt is NULL — surfacing as the
+    // ~₹2,000 mystery gap admins kept asking about.
     db.booking.aggregate({
       where: {
         status: "CONFIRMED",
-        payment: { status: "COMPLETED" },
+        payment: {
+          status: "COMPLETED",
+          confirmedAt: { not: null },
+        },
       },
       _sum: { totalAmount: true },
     }),
