@@ -13,16 +13,16 @@ import { Clock, Loader2 } from "lucide-react";
  *
  * Constraints (mirror the action):
  *   - opening hour: 0..23 (inclusive)
- *   - closing hour: 1..25 (25 = midnight–1am next day, matching
- *     the legacy convention)
+ *   - closing hour: 1..29 (≥24 = next day; 25 = 1am, 29 = 5am next
+ *     day). Lets overnight venues run through to early morning.
  *   - opening must be strictly before closing
  *
- * Closing hour 25 is rendered as "1am (next day)" so the operator
- * doesn't think it's a typo. The picker exposes the full 0..25
- * range and the action enforces the same bounds server-side.
+ * Closing hours ≥ 24 render with " (next day)" so the operator
+ * doesn't think it's a typo. The picker exposes 1..29 and the
+ * action enforces the same bounds server-side.
  */
 const OPEN_OPTIONS: number[] = Array.from({ length: 24 }, (_, i) => i);
-const CLOSE_OPTIONS: number[] = Array.from({ length: 25 }, (_, i) => i + 1);
+const CLOSE_OPTIONS: number[] = Array.from({ length: 29 }, (_, i) => i + 1);
 
 function labelHour(h: number): string {
   // hour 24 → 12am, hour 25 → 1am next day. formatHour wraps mod
@@ -75,10 +75,9 @@ export function ArenaHoursEditor({
           </h2>
           <p className="mt-1 text-xs text-zinc-400 max-w-xl">
             The bookable window — drives the customer slot picker, the
-            admin calendar, and pricing rule generation. Set the
-            closing hour past midnight ({" "}
-            <span className="font-mono">12am</span> → {" "}
-            <span className="font-mono">1am next day</span>) for
+            admin calendar, and pricing rule generation. Closing
+            hours past midnight are supported up to{" "}
+            <span className="font-mono">5am next day</span> for
             overnight venues.
           </p>
         </div>

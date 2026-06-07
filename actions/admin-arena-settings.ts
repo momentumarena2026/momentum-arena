@@ -47,10 +47,10 @@ export async function getArenaSettings(): Promise<{
  *   - openHour 0..23 (inclusive). 24 doesn't make sense as a
  *     start because the slot would land outside the same calendar
  *     day before any 12am bookings even exist.
- *   - closeHour 1..25 (inclusive). 25 means "last slot is 12am–
- *     1am next day" — the existing convention; the
- *     hours-rendering helpers already handle hour 24 by wrapping
- *     to 12am.
+ *   - closeHour 1..29 (inclusive). Values ≥ 24 mean the last slot
+ *     ends after midnight next day; e.g. 25 = last slot 12am-1am,
+ *     29 = last slot 4am-5am. The hours-rendering helpers already
+ *     wrap hour-mod-24 for display.
  *   - openHour < closeHour (must give at least one bookable hour).
  *
  * Never throws — returns `{ok:false, error}` for every failure so
@@ -78,10 +78,11 @@ export async function updateArenaSettings(data: {
   if (!Number.isFinite(open) || open < 0 || open > 23) {
     return { ok: false, error: "Opening hour must be between 0 and 23." };
   }
-  if (!Number.isFinite(close) || close < 1 || close > 25) {
+  if (!Number.isFinite(close) || close < 1 || close > 29) {
     return {
       ok: false,
-      error: "Closing hour must be between 1 and 25 (25 = 1am next day).",
+      error:
+        "Closing hour must be between 1 and 29 (25 = 1am next day, 29 = 5am next day).",
     };
   }
   if (open >= close) {
