@@ -606,119 +606,141 @@ export async function getDisplayShiftedAvailability(
   courtConfigId: string,
   date: Date,
 ): Promise<SlotAvailability[]> {
+  // New design (per user feedback): the customer's picker for
+  // date X shows EXACTLY the hours inside X's open/close window,
+  // in chronological order. For an overnight venue (e.g. 5am →
+  // 2am next day), that means 5..25 displayed as 5am, 6am, …,
+  // 11pm, 12am, 1am — with the post-midnight wall-clock slots
+  // sitting AFTER 11pm instead of being shifted onto the next
+  // date's "hour 0" cell.
+  //
+  // We still need to reconcile the two equivalent storage forms
+  // for late-night slots so the picker doesn't sell the same
+  // wall-clock moment twice:
+  //   - Form A (preferred / customer-flow): (date=X, hour ≥ 24).
+  //     A 12am-1am session of X+1 stored as X's hour 24.
+  //   - Form B (legacy / admin-flow): (date=X+1, hour = h-24).
+  //     The same wall-clock stored under the next date's
+  //     early-morning hour. Older admin bookings + the legacy
+  //     customer flow used this form.
+  // For each in-window hour h on date X:
+  //   - h ≥ 24 → also peek at (X+1, h-24)
+  //   - h <  24 → also peek at (X-1, h+24)  (handles the case
+  //     where the previous day's late-night window extended past
+  //     midnight and stored under Form A on day X-1)
+  // worseStatus picks the most restrictive — so any conflict on
+  // either form blocks the display cell.
+  const operatingHours = await getAllSlotHoursLive();
+  const windowSet = new Set(operatingHours);
+
   const prevDate = new Date(date);
   prevDate.setUTCDate(prevDate.getUTCDate() - 1);
+  const nextDate = new Date(date);
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 
-  const [current, prior] = await Promise.all([
+  const [current, prev, next] = await Promise.all([
     getSlotAvailability(courtConfigId, date),
     getSlotAvailability(courtConfigId, prevDate),
+    getSlotAvailability(courtConfigId, nextDate),
   ]);
 
   const currentDateStr = ymd(date);
-  const prevDateStr = ymd(prevDate);
 
-  // Build a display-hour map so we can merge multiple storage
-  // sources cleanly (prior's hour 24 + current's hour 0 both →
-  // display hour 0).
-  const byDisplayHour = new Map<number, SlotAvailability>();
-  const upsert = (s: SlotAvailability) => {
-    const existing = byDisplayHour.get(s.hour);
-    if (!existing) {
-      byDisplayHour.set(s.hour, s);
-      return;
-    }
-    // Merge: pick the worse status. Lock coords are stable per
-    // source — for booked slots they're irrelevant (the customer
-    // can't lock a taken slot anyway); for available cells they
-    // come from the cell's natural storage, which is the
-    // current-date one when both are available.
-    const merged: SlotAvailability = {
-      ...existing,
-      status: worseStatus(existing.status, s.status),
-      blockedReason: s.blockedReason ?? existing.blockedReason,
-    };
-    byDisplayHour.set(s.hour, merged);
-  };
-
-  // (1) Prior date's hour-24 entry → display hour 0 of `date`.
-  //     Carries lockDate=prior so the booking client targets the
-  //     legacy session-date storage when locking.
-  const legacyMidnight = prior.find((s) => s.hour === 24);
-  if (legacyMidnight) {
-    upsert({
-      ...legacyMidnight,
-      hour: 0,
-      lockDate: prevDateStr,
-      lockHour: 24,
-    });
-  }
-
-  // (2) Current date's slots, EXCEPT hour 24 — that one belongs on
-  //     the NEXT date's grid (handled when that next date is
-  //     requested). Hours 0..4 from current's out-of-window surface
-  //     are the admin-stored late-night sessions; they sit at their
-  //     natural display position (hour 0 → 0, hour 1 → 1, etc.).
+  // Build result from current's IN-WINDOW slots only. Drop the
+  // out-of-window admin-stored hours (e.g. (X, 0..4) for an
+  // overnight venue with open=5) — those belong on the PRIOR
+  // day's late-night display surface, reached via the cross-date
+  // peek below.
+  const byHour = new Map<number, SlotAvailability>();
   for (const s of current) {
-    if (s.hour === 24) continue;
-    upsert({
+    if (!windowSet.has(s.hour)) continue;
+    byHour.set(s.hour, {
       ...s,
       lockDate: currentDateStr,
       lockHour: s.hour,
     });
   }
 
-  return Array.from(byDisplayHour.values()).sort((a, b) => a.hour - b.hour);
+  const mergeAt = (h: number, other: SlotAvailability | undefined) => {
+    if (!other || other.status === "available") return;
+    const cur = byHour.get(h);
+    if (!cur) return;
+    byHour.set(h, {
+      ...cur,
+      status: worseStatus(cur.status, other.status),
+      blockedReason: other.blockedReason ?? cur.blockedReason,
+    });
+  };
+
+  for (const h of operatingHours) {
+    if (h >= 24) {
+      mergeAt(h, next.find((s) => s.hour === h - 24));
+    } else {
+      mergeAt(h, prev.find((s) => s.hour === h + 24));
+    }
+  }
+
+  return Array.from(byHour.values()).sort((a, b) => a.hour - b.hour);
 }
 
 /**
  * Display-shifted variant of `getMergedMediumAvailability`. Same
- * shift semantics as `getDisplayShiftedAvailability`.
+ * "show the in-window hours for the selected date, in
+ * chronological order, with cross-date reconciliation for the two
+ * equivalent storage forms" semantics as
+ * `getDisplayShiftedAvailability`. See its comment block for the
+ * storage-form details.
  */
 export async function getDisplayShiftedMediumAvailability(
   sport: Sport,
   date: Date,
 ): Promise<SlotAvailability[]> {
+  const operatingHours = await getAllSlotHoursLive();
+  const windowSet = new Set(operatingHours);
+
   const prevDate = new Date(date);
   prevDate.setUTCDate(prevDate.getUTCDate() - 1);
+  const nextDate = new Date(date);
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 
-  const [current, prior] = await Promise.all([
+  const [current, prev, next] = await Promise.all([
     getMergedMediumAvailability(sport, date),
     getMergedMediumAvailability(sport, prevDate),
+    getMergedMediumAvailability(sport, nextDate),
   ]);
 
   const currentDateStr = ymd(date);
-  const prevDateStr = ymd(prevDate);
 
-  // Same two-convention merge as getDisplayShiftedAvailability — see
-  // its comment block for the storage-form details.
-  const byDisplayHour = new Map<number, SlotAvailability>();
-  const upsert = (s: SlotAvailability) => {
-    const existing = byDisplayHour.get(s.hour);
-    if (!existing) {
-      byDisplayHour.set(s.hour, s);
-      return;
-    }
-    byDisplayHour.set(s.hour, {
-      ...existing,
-      status: worseStatus(existing.status, s.status),
-      blockedReason: s.blockedReason ?? existing.blockedReason,
+  const byHour = new Map<number, SlotAvailability>();
+  for (const s of current) {
+    if (!windowSet.has(s.hour)) continue;
+    byHour.set(s.hour, {
+      ...s,
+      lockDate: currentDateStr,
+      lockHour: s.hour,
+    });
+  }
+
+  const mergeAt = (h: number, other: SlotAvailability | undefined) => {
+    if (!other || other.status === "available") return;
+    const cur = byHour.get(h);
+    if (!cur) return;
+    byHour.set(h, {
+      ...cur,
+      status: worseStatus(cur.status, other.status),
+      blockedReason: other.blockedReason ?? cur.blockedReason,
     });
   };
 
-  const legacyMidnight = prior.find((s) => s.hour === 24);
-  if (legacyMidnight) {
-    upsert({
-      ...legacyMidnight,
-      hour: 0,
-      lockDate: prevDateStr,
-      lockHour: 24,
-    });
+  for (const h of operatingHours) {
+    if (h >= 24) {
+      mergeAt(h, next.find((s) => s.hour === h - 24));
+    } else {
+      mergeAt(h, prev.find((s) => s.hour === h + 24));
+    }
   }
-  for (const s of current) {
-    if (s.hour === 24) continue;
-    upsert({ ...s, lockDate: currentDateStr, lockHour: s.hour });
-  }
-  return Array.from(byDisplayHour.values()).sort((a, b) => a.hour - b.hour);
+
+  return Array.from(byHour.values()).sort((a, b) => a.hour - b.hour);
 }
 
 // Check if specific slots are available for a config (used during booking)
