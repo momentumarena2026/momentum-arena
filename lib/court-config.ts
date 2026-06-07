@@ -89,7 +89,16 @@ export const COURT_CONFIGS: CourtConfigDef[] = [
   },
 ];
 
-// Operating hours: 5 AM to 1 AM (hour 5 through 24, where 24 = midnight-1AM)
+// Operating hours: 5 AM to 1 AM (hour 5 through 24, where 24 = midnight-1AM).
+//
+// HISTORICALLY HARDCODED — now lives on the ArenaSettings DB row
+// (read via getArenaSettings() in actions/admin-arena-settings.ts;
+// edited from /admin/pricing). These constants stay as the
+// DEFAULTS that the action falls back to when the row is missing
+// or unreadable, and as the seed values for the migration. Every
+// server-side caller should prefer `getOperatingHours()` /
+// `getAllSlotHoursLive()` below; this constant remains exported
+// for sync UI code where a one-render fallback is acceptable.
 export const OPERATING_HOURS = {
   start: 5,
   end: 25, // exclusive — last slot starts at hour 24 (12 AM)
@@ -97,6 +106,44 @@ export const OPERATING_HOURS = {
 
 export const SLOT_DURATION_HOURS = 1;
 export const LOCK_TTL_MINUTES = 5;
+
+/**
+ * Live arena operating hours from the ArenaSettings DB row. Falls
+ * back to OPERATING_HOURS defaults on read failure. Cached per
+ * request via React's fetch dedupe + tag-revalidate so a single
+ * page-render that calls this multiple times only hits the DB
+ * once. Server-only — exposes the same shape as the action.
+ */
+export async function getOperatingHours(): Promise<{
+  start: number;
+  end: number;
+}> {
+  // Lazy import to avoid the server-only Prisma client being
+  // pulled into client bundles that import unrelated helpers
+  // from this file (e.g. formatHour). The async helper itself is
+  // only callable from server code, so this is safe.
+  const { db } = await import("./db");
+  try {
+    const row = await db.arenaSettings.findFirst({
+      select: { openHour: true, closeHour: true },
+    });
+    if (row) return { start: row.openHour, end: row.closeHour };
+  } catch (err) {
+    console.error("[court-config] getOperatingHours fell back", err);
+  }
+  return { start: OPERATING_HOURS.start, end: OPERATING_HOURS.end };
+}
+
+/** Async variant of `getAllSlotHours` — pulls live operating
+ *  hours from the DB and expands them into the [start, end) array
+ *  of hour indices. Use this on every server-side path that
+ *  needs the bookable hour list. */
+export async function getAllSlotHoursLive(): Promise<number[]> {
+  const { start, end } = await getOperatingHours();
+  const hours: number[] = [];
+  for (let h = start; h < end; h++) hours.push(h);
+  return hours;
+}
 
 // Check if two zone arrays overlap
 export function zonesOverlap(a: CourtZone[], b: CourtZone[]): boolean {

@@ -1,6 +1,6 @@
 import { CourtZone, Sport, BookingCategory } from "@prisma/client";
 import { db } from "./db";
-import { getAllSlotHours, isWeekend } from "./court-config";
+import { getAllSlotHoursLive, isWeekend } from "./court-config";
 import { getTodayIST, getCurrentHourIST } from "./ist-date";
 
 export type SlotStatus = "available" | "booked" | "locked" | "blocked";
@@ -153,7 +153,7 @@ export async function getSlotAvailability(
   for (const block of slotBlocks) {
     if (block.startHour === null) {
       // Entire day blocked
-      getAllSlotHours().forEach((h) => blockedHours.add(h));
+      (await getAllSlotHoursLive()).forEach((h) => blockedHours.add(h));
     } else {
       blockedHours.add(block.startHour);
     }
@@ -172,7 +172,7 @@ export async function getSlotAvailability(
   });
   for (const block of overlappingConfigBlocks) {
     if (block.startHour === null) {
-      getAllSlotHours().forEach((h) => blockedHours.add(h));
+      (await getAllSlotHoursLive()).forEach((h) => blockedHours.add(h));
     } else {
       blockedHours.add(block.startHour);
     }
@@ -284,7 +284,7 @@ export async function getSlotAvailability(
     if (!blocksPerSibling.has(block.courtConfigId))
       blocksPerSibling.set(block.courtConfigId, new Set());
     if (block.startHour === null) {
-      getAllSlotHours().forEach((h) =>
+      (await getAllSlotHoursLive()).forEach((h) =>
         blocksPerSibling.get(block.courtConfigId!)!.add(h),
       );
     } else {
@@ -327,7 +327,7 @@ export async function getSlotAvailability(
   }
 
   // Build availability array
-  const hours = getAllSlotHours();
+  const hours = (await getAllSlotHoursLive());
   const inWindow = new Set(hours);
   const result: SlotAvailability[] = hours.map((hour) => {
     let status: SlotStatus = "available";
@@ -421,7 +421,7 @@ async function getSlotPrices(
   });
 
   const priceMap = new Map<number, number>();
-  const hours = getAllSlotHours();
+  const hours = (await getAllSlotHoursLive());
 
   for (const hour of hours) {
     // Find which time type this hour falls into

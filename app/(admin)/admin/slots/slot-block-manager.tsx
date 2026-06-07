@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { blockSlot, unblockSlot } from "@/actions/admin-slots";
-import { formatHourRangeCompact, getAllSlotHours, SPORT_INFO } from "@/lib/court-config";
+import { formatHourRangeCompact, SPORT_INFO } from "@/lib/court-config";
 import { Plus, Trash2, Loader2, CalendarOff, X } from "lucide-react";
 import { Sport } from "@prisma/client";
 import { getTodayIST } from "@/lib/ist-date";
@@ -27,9 +27,13 @@ interface Block {
 interface SlotBlockManagerProps {
   configs: Config[];
   existingBlocks: Block[];
+  /** Live operating hours from ArenaSettings — passed in by the
+   *  server parent (page.tsx) since this is a client component
+   *  and can't await the helper itself. */
+  slotHours: number[];
 }
 
-export function SlotBlockManager({ configs, existingBlocks }: SlotBlockManagerProps) {
+export function SlotBlockManager({ configs, existingBlocks, slotHours }: SlotBlockManagerProps) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [blockType, setBlockType] = useState<"config" | "sport">("config");
@@ -37,7 +41,10 @@ export function SlotBlockManager({ configs, existingBlocks }: SlotBlockManagerPr
   const [selectedSport, setSelectedSport] = useState("");
   const [date, setDate] = useState(getTodayIST());
   const [blockFullDay, setBlockFullDay] = useState(true);
-  const [selectedHour, setSelectedHour] = useState(5);
+  // Default to the first bookable hour from the live operating
+  // window so a venue with an unusual open time (e.g. 7am) doesn't
+  // see "5am" as the default selection.
+  const [selectedHour, setSelectedHour] = useState(slotHours[0] ?? 5);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -161,7 +168,7 @@ export function SlotBlockManager({ configs, existingBlocks }: SlotBlockManagerPr
               onChange={(e) => setSelectedHour(parseInt(e.target.value))}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white"
             >
-              {getAllSlotHours().map((h) => (
+              {slotHours.map((h) => (
                 <option key={h} value={h}>
                   {formatHourRangeCompact(h)}
                 </option>

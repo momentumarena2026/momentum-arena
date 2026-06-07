@@ -1,10 +1,15 @@
 import { getAllPricingData } from "@/actions/admin-pricing";
+import { getArenaSettings } from "@/actions/admin-arena-settings";
 import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
+import { ArenaHoursEditor } from "./arena-hours-editor";
 import { PricingEditor } from "./pricing-editor";
 import { TimeClassificationsEditor } from "./time-classifications-editor";
 
 export default async function AdminPricingPage() {
-  const { configs, rules, classifications } = await getAllPricingData();
+  const [{ configs, rules, classifications }, arenaHours] = await Promise.all([
+    getAllPricingData(),
+    getArenaSettings(),
+  ]);
 
   // Group configs by sport
   const configsBySport = configs.reduce((acc, config) => {
@@ -29,6 +34,16 @@ export default async function AdminPricingPage() {
           Set prices per slot for each court configuration
         </p>
       </div>
+
+      {/* Arena open/close window — drives the customer slot picker,
+          the admin calendar, the pricing rule generator, and every
+          path that calls getAllSlotHoursLive() on the server.
+          Sits above time classifications because peak/off-peak
+          bands are SUBSETS of this window. */}
+      <ArenaHoursEditor
+        initialOpenHour={arenaHours.openHour}
+        initialCloseHour={arenaHours.closeHour}
+      />
 
       {/* Peak / Off-Peak Hours editor — replaces the previous read-only
           summary. Edits hit the existing updateTimeClassification +

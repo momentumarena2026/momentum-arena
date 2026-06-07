@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { isWeekend, getAllSlotHours } from "./court-config";
+import { isWeekend, getAllSlotHoursLive } from "./court-config";
 import { DayType, TimeType } from "@prisma/client";
 
 export interface SlotPrice {
@@ -26,7 +26,7 @@ export async function getSlotPricesForDate(
     }),
   ]);
 
-  const hours = getAllSlotHours();
+  const hours = await getAllSlotHoursLive();
   return hours.map((hour) => {
     // Determine time type for this hour
     let timeType: TimeType = "OFF_PEAK";
