@@ -20,6 +20,7 @@ import {
   getKPIStats,
   getRevenueOverTime,
   getSportRevenueBreakdown,
+  getSportRevenueByMonth,
   getPeakHourAnalysis,
   getTopCustomers,
   getPaymentMethodBreakdown,
@@ -150,6 +151,13 @@ export function AnalyticsDashboard({
   const [sportBreakdown, setSportBreakdown] = useState<
     Array<{ sport: string; revenue: number; bookingCount: number }>
   >([]);
+  // Monthly multi-line series — one numeric key per sport. Sports
+  // labels are returned alongside the data because Recharts needs
+  // an explicit Line per series.
+  const [sportMonthly, setSportMonthly] = useState<
+    Array<Record<string, number | string>>
+  >([]);
+  const [sportMonthlyLabels, setSportMonthlyLabels] = useState<string[]>([]);
   const [peakHours, setPeakHours] = useState<
     Array<{ hour: number; bookingCount: number }>
   >([]);
@@ -172,11 +180,12 @@ export function AnalyticsDashboard({
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [kpiRes, revRes, sportRes, peakRes, custRes, payRes] =
+      const [kpiRes, revRes, sportRes, sportMonRes, peakRes, custRes, payRes] =
         await Promise.all([
           getKPIStats(dateFrom, dateTo),
           getRevenueOverTime({ dateFrom, dateTo, scope, groupBy }),
           getSportRevenueBreakdown(dateFrom, dateTo),
+          getSportRevenueByMonth(dateFrom, dateTo),
           getPeakHourAnalysis(dateFrom, dateTo),
           getTopCustomers(dateFrom, dateTo),
           getPaymentMethodBreakdown(dateFrom, dateTo),
@@ -185,6 +194,10 @@ export function AnalyticsDashboard({
       if (kpiRes.success && kpiRes.data) setKpi(kpiRes.data);
       if (revRes.success && revRes.data) setRevenueData(revRes.data);
       if (sportRes.success && sportRes.data) setSportBreakdown(sportRes.data);
+      if (sportMonRes.success && sportMonRes.data) {
+        setSportMonthly(sportMonRes.data);
+        setSportMonthlyLabels(sportMonRes.sports ?? []);
+      }
       if (peakRes.success && peakRes.data) setPeakHours(peakRes.data);
       if (custRes.success && custRes.data) setTopCustomers(custRes.data);
       if (payRes.success && payRes.data) setPaymentMethods(payRes.data);
@@ -415,6 +428,79 @@ export function AnalyticsDashboard({
                   )}
                 />
               </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+
+      {/* Monthly revenue per sport — one line per sport across
+          the selected window. Lines share the same SPORT_COLORS
+          palette as the breakdown pie so the visual identity
+          carries between the two charts. */}
+      {loading ? (
+        <ChartSkeleton />
+      ) : (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+          <h2 className="mb-1 text-sm font-semibold text-white">
+            Sport Revenue by Month
+          </h2>
+          <p className="mb-4 text-xs text-zinc-500">
+            Monthly totals per sport across the selected window.
+          </p>
+          {sportMonthly.length === 0 || sportMonthlyLabels.length === 0 ? (
+            <p className="py-12 text-center text-zinc-500">
+              No data for this period
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={340}>
+              <LineChart data={sportMonthly}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                <XAxis
+                  dataKey="period"
+                  tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                  tickFormatter={(v: string) => {
+                    // "2026-03" → "Mar 26"
+                    const [y, m] = v.split("-");
+                    const date = new Date(Number(y), Number(m) - 1, 1);
+                    return date.toLocaleDateString("en-IN", {
+                      month: "short",
+                      year: "2-digit",
+                    });
+                  }}
+                />
+                <YAxis
+                  tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                  tickFormatter={(v: number) => formatINR(v)}
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => (
+                    <ChartTooltip
+                      active={active}
+                      payload={
+                        payload as unknown as Array<{
+                          name: string;
+                          value: number;
+                          color: string;
+                        }>
+                      }
+                      label={typeof label === "string" ? label : String(label)}
+                    />
+                  )}
+                />
+                <Legend wrapperStyle={{ color: "#a1a1aa", fontSize: 12 }} />
+                {sportMonthlyLabels.map((sport) => (
+                  <Line
+                    key={sport}
+                    type="monotone"
+                    dataKey={sport}
+                    name={sport}
+                    stroke={SPORT_COLORS[sport] || "#6b7280"}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                ))}
+              </LineChart>
             </ResponsiveContainer>
           )}
         </div>

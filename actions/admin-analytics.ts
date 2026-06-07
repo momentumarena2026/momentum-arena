@@ -178,6 +178,113 @@ export async function getSportRevenueBreakdown(
 }
 
 // ===========================
+// 2b. Sport Revenue × Month
+// ===========================
+
+/**
+ * Sport revenue bucketed by month (YYYY-MM). Returns rows shaped
+ * for a Recharts stacked / multi-line chart — one bucket per
+ * month, one numeric field per sport (Cricket / Football /
+ * Pickleball, etc.) carrying that sport's revenue in that month.
+ *
+ * Months with no bookings for a given sport report 0 (not
+ * missing) so the chart line doesn't dip-to-undefined at idle
+ * months. We pre-fill a row for every YYYY-MM in [dateFrom, dateTo]
+ * including months with zero total revenue, so a 6-month window
+ * always renders six tick-marks even when the venue had a quiet
+ * month.
+ *
+ * Uses Booking.totalAmount keyed by Payment.confirmedAt (matching
+ * the other "revenue × time" helpers) so cross-chart totals tally.
+ */
+export async function getSportRevenueByMonth(
+  dateFrom: string,
+  dateTo: string,
+) {
+  await requireAnalyticsAccess();
+
+  try {
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setUTCHours(23, 59, 59, 999);
+
+    const results = await db.booking.findMany({
+      where: {
+        status: "CONFIRMED",
+        payment: {
+          status: "COMPLETED",
+          confirmedAt: { gte: from, lte: to },
+        },
+      },
+      select: {
+        totalAmount: true,
+        payment: { select: { confirmedAt: true } },
+        courtConfig: { select: { sport: true } },
+      },
+    });
+
+    // Discover every sport present in the window — we'll initialise
+    // each month's row with all sports → 0 so the chart's <Line>
+    // dataKeys never bottom out at `undefined`.
+    const sports = new Set<string>();
+    for (const b of results) sports.add(b.courtConfig.sport);
+
+    // Pre-build the month axis. Iterate from the first day of
+    // dateFrom's month to dateTo, stepping one month at a time.
+    const monthAxis: string[] = [];
+    const cursor = new Date(
+      Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1),
+    );
+    const endCursor = new Date(
+      Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1),
+    );
+    while (cursor.getTime() <= endCursor.getTime()) {
+      const key = `${cursor.getUTCFullYear()}-${String(
+        cursor.getUTCMonth() + 1,
+      ).padStart(2, "0")}`;
+      monthAxis.push(key);
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+
+    // Initialise each month with all known sports = 0.
+    const buckets = new Map<string, Record<string, number | string>>();
+    for (const m of monthAxis) {
+      const row: Record<string, number | string> = { period: m };
+      for (const s of sports) row[titleSport(s)] = 0;
+      buckets.set(m, row);
+    }
+
+    // Accumulate.
+    for (const b of results) {
+      const at = b.payment?.confirmedAt;
+      if (!at) continue;
+      const key = `${at.getUTCFullYear()}-${String(
+        at.getUTCMonth() + 1,
+      ).padStart(2, "0")}`;
+      const row = buckets.get(key);
+      if (!row) continue;
+      const sportLabel = titleSport(b.courtConfig.sport);
+      row[sportLabel] = ((row[sportLabel] as number) ?? 0) + b.totalAmount;
+    }
+
+    const data = monthAxis.map((m) => buckets.get(m)!);
+    const sportLabels = Array.from(sports).map(titleSport).sort();
+
+    return { success: true, data, sports: sportLabels };
+  } catch (error) {
+    console.error("getSportRevenueByMonth error:", error);
+    return {
+      success: false,
+      error: "Failed to fetch sport revenue by month",
+    };
+  }
+}
+
+function titleSport(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+// ===========================
 // 3. Cafe Category Breakdown
 // ===========================
 
