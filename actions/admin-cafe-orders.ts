@@ -304,6 +304,17 @@ export async function adminCreateCafeOrder(data: {
   // at the action layer to never push the total below zero.
   discountAmount?: number;
   paymentMethod: PaymentMethod;
+  // Optional split-payment spec. When provided, paymentMethod is
+  // ignored / overridden by the dominant slice (CASH if cashAmount
+  // ≥ upiAmount, else UPI_QR), the payment is marked COMPLETED
+  // straight away (admin recorded the already-collected mixed
+  // tender), and splitCashAmount / splitUpiAmount get stamped on
+  // the CafePayment row — same denormalised shape that
+  // markCafePaymentCollected uses on the order-detail page.
+  //
+  // Constraint: cashAmount + upiAmount must equal the order total
+  // (post-discount), and at least one of them must be > 0.
+  split?: { cashAmount: number; upiAmount: number };
   note?: string;
 }) {
   const admin = await requireCafeAdminWithDetails();
@@ -371,11 +382,46 @@ export async function adminCreateCafeOrder(data: {
     const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
     const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}-${rand}`;
 
-    // Determine payment status
-    const paymentStatus =
+    // Resolve the split spec (if any) into the actual payment
+    // shape — method (dominant slice), status (COMPLETED, the
+    // admin is recording an already-collected payment), and the
+    // denormalised splitCashAmount / splitUpiAmount columns.
+    //
+    // Validation: both slices ≥ 0, at least one > 0, sum equals
+    // the post-discount total within a 1-paise rounding window.
+    let resolvedMethod: PaymentMethod = data.paymentMethod;
+    let resolvedPaymentStatus:
+      | "PENDING"
+      | "COMPLETED"
+      | "PARTIAL"
+      | "FAILED"
+      | "REFUNDED" =
       data.paymentMethod === "FREE" || data.paymentMethod === "RAZORPAY"
         ? "COMPLETED"
         : "PENDING";
+    let splitCashAmount: number | null = null;
+    let splitUpiAmount: number | null = null;
+
+    if (data.split) {
+      const cash = Math.max(0, data.split.cashAmount ?? 0);
+      const upi = Math.max(0, data.split.upiAmount ?? 0);
+      if (cash + upi <= 0) {
+        return {
+          success: false,
+          error: "Split must have at least one of cash or UPI > 0",
+        };
+      }
+      if (Math.abs(cash + upi - totalAmount) > 0.01) {
+        return {
+          success: false,
+          error: `Split must sum to ₹${totalAmount} (got ₹${cash + upi})`,
+        };
+      }
+      resolvedMethod = upi > cash ? "UPI_QR" : "CASH";
+      resolvedPaymentStatus = "COMPLETED";
+      splitCashAmount = cash;
+      splitUpiAmount = upi;
+    }
 
     // Order-status routing: ready-to-serve items (CafeItem.quantity
     // is a non-null integer — drinks, ice-cream, packaged snacks)
@@ -457,9 +503,17 @@ export async function adminCreateCafeOrder(data: {
         },
         payment: {
           create: {
-            method: data.paymentMethod,
-            status: paymentStatus,
+            method: resolvedMethod,
+            status: resolvedPaymentStatus,
             amount: totalAmount,
+            // Stamp split slices when a split spec was provided.
+            // Stays null on single-method orders so the order
+            // detail page's "is mixed?" check (any non-null slice)
+            // keeps its meaning.
+            splitCashAmount,
+            splitUpiAmount,
+            confirmedAt: resolvedPaymentStatus === "COMPLETED" ? new Date() : null,
+            confirmedBy: resolvedPaymentStatus === "COMPLETED" ? admin.id : null,
           },
         },
         editHistory: {
@@ -475,6 +529,9 @@ export async function adminCreateCafeOrder(data: {
                 : null,
               discountAmount > 0
                 ? `discount ₹${discountAmount} applied`
+                : null,
+              data.split
+                ? `split payment Cash ₹${data.split.cashAmount} + UPI ₹${data.split.upiAmount}`
                 : null,
             ]
               .filter(Boolean)

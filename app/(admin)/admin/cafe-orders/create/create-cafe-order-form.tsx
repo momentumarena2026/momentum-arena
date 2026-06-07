@@ -100,7 +100,16 @@ export function CreateCafeOrderForm({
   const [lookingUp, setLookingUp] = useState(false);
 
   const [discountAmount, setDiscountAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+
+  // Payment-method picker. The "SPLIT" value is a UI-only psuedo-
+  // method that doesn't correspond to a PaymentMethod enum row —
+  // when selected, two amount inputs (Cash + UPI) appear and the
+  // action receives a `split` spec instead of a single method.
+  type PaymentChoice = PaymentMethod | "SPLIT";
+  const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>("CASH");
+  const [splitCash, setSplitCash] = useState("");
+  const [splitUpi, setSplitUpi] = useState("");
+
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +222,27 @@ export function CreateCafeOrderForm({
       return;
     }
 
+    // Split-payment client-side validation. Sum must equal the
+    // post-discount total and at least one of the two slices must
+    // be positive. The action re-checks both rules — this is just
+    // for the inline error pre-submit.
+    let splitPayload: { cashAmount: number; upiAmount: number } | undefined;
+    if (paymentChoice === "SPLIT") {
+      const cash = Number(splitCash) || 0;
+      const upi = Number(splitUpi) || 0;
+      if (cash + upi <= 0) {
+        setError("Split must have at least one of cash or UPI > 0");
+        return;
+      }
+      if (Math.abs(cash + upi - totalAmount) > 0.01) {
+        setError(
+          `Split sums to ₹${cash + upi} but the order total is ₹${totalAmount}`,
+        );
+        return;
+      }
+      splitPayload = { cashAmount: cash, upiAmount: upi };
+    }
+
     setSubmitting(true);
     setError(null);
 
@@ -228,7 +258,13 @@ export function CreateCafeOrderForm({
       customerPhone: phoneReady ? customerPhone : undefined,
       customerName: phoneReady ? customerName.trim() || undefined : undefined,
       discountAmount: effectiveDiscount > 0 ? effectiveDiscount : undefined,
-      paymentMethod,
+      // For SPLIT the action ignores `paymentMethod` and resolves
+      // the dominant slice itself — but we still need a valid
+      // PaymentMethod here for the type. CASH is fine; the action
+      // will overwrite with whichever slice is larger.
+      paymentMethod:
+        paymentChoice === "SPLIT" ? "CASH" : (paymentChoice as PaymentMethod),
+      split: splitPayload,
       note: note || undefined,
     });
 
@@ -258,6 +294,9 @@ export function CreateCafeOrderForm({
               setCustomerName("");
               setMatchedCustomer(null);
               setDiscountAmount("");
+              setPaymentChoice("CASH");
+              setSplitCash("");
+              setSplitUpi("");
             }}
             className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700"
           >
@@ -593,16 +632,19 @@ export function CreateCafeOrderForm({
             </div>
           </div>
 
-          {/* Payment method */}
+          {/* Payment method — single-method pills + a "Split" pill
+              that reveals two amount inputs (Cash + UPI) for the
+              mixed-tender flow. Live sum hint flips emerald when
+              the split equals the order total. */}
           <div className="border-t border-zinc-800 pt-3 space-y-2">
             <span className="text-sm font-medium text-white">Payment</span>
             <div className="flex items-center gap-2 flex-wrap">
               {PAYMENT_METHODS.map((pm) => (
                 <button
                   key={pm.value}
-                  onClick={() => setPaymentMethod(pm.value)}
+                  onClick={() => setPaymentChoice(pm.value)}
                   className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    paymentMethod === pm.value
+                    paymentChoice === pm.value
                       ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                       : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
                   }`}
@@ -610,7 +652,80 @@ export function CreateCafeOrderForm({
                   {pm.label}
                 </button>
               ))}
+              <button
+                onClick={() => setPaymentChoice("SPLIT")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  paymentChoice === "SPLIT"
+                    ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
+                }`}
+              >
+                Split (Cash + UPI)
+              </button>
             </div>
+
+            {paymentChoice === "SPLIT" ? (
+              (() => {
+                const cashN = Number(splitCash) || 0;
+                const upiN = Number(splitUpi) || 0;
+                const sum = cashN + upiN;
+                const ok = Math.abs(sum - totalAmount) < 0.01 && cashN + upiN > 0;
+                return (
+                  <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                          Cash ₹
+                        </span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.01"
+                          value={splitCash}
+                          onChange={(e) => setSplitCash(e.target.value)}
+                          placeholder="0"
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-900 p-2 text-sm text-white placeholder-zinc-500"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                          UPI ₹
+                        </span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.01"
+                          value={splitUpi}
+                          onChange={(e) => setSplitUpi(e.target.value)}
+                          placeholder={
+                            cashN > 0
+                              ? `Suggest ${Math.max(
+                                  0,
+                                  totalAmount - cashN,
+                                )}`
+                              : "0"
+                          }
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-900 p-2 text-sm text-white placeholder-zinc-500"
+                        />
+                      </label>
+                    </div>
+                    <p
+                      className={`text-[11px] ${
+                        ok
+                          ? "text-emerald-300"
+                          : sum > totalAmount
+                            ? "text-red-400"
+                            : "text-zinc-500"
+                      }`}
+                    >
+                      Sum: {formatPrice(sum)} / {formatPrice(totalAmount)}
+                    </p>
+                  </div>
+                );
+              })()
+            ) : null}
           </div>
 
           {/* Note */}
