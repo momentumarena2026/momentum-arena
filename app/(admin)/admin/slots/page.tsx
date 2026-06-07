@@ -1,11 +1,17 @@
 import { db } from "@/lib/db";
-import { SPORT_INFO } from "@/lib/court-config";
+import { SPORT_INFO, getAllSlotHoursLive } from "@/lib/court-config";
 import { SlotBlockManager } from "./slot-block-manager";
 
 export default async function AdminSlotsPage() {
-  const configs = await db.courtConfig.findMany({
-    orderBy: [{ sport: "asc" }, { size: "asc" }],
-  });
+  const [configs, slotHours] = await Promise.all([
+    db.courtConfig.findMany({
+      orderBy: [{ sport: "asc" }, { size: "asc" }],
+    }),
+    // Live operating hours from ArenaSettings — passed as a prop
+    // into the client SlotBlockManager so it doesn't have to import
+    // a server-only helper.
+    getAllSlotHoursLive(),
+  ]);
 
   const { getTodayIST } = await import("@/lib/ist-date");
   const today = getTodayIST();
@@ -28,6 +34,7 @@ export default async function AdminSlotsPage() {
       </div>
 
       <SlotBlockManager
+        slotHours={slotHours}
         configs={configs.map((c) => ({
           id: c.id,
           sport: c.sport,

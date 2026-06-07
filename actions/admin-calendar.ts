@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
-import { zonesOverlap, OPERATING_HOURS } from "@/lib/court-config";
+import { zonesOverlap } from "@/lib/court-config";
 import type { CourtZone, Sport, ConfigSize } from "@prisma/client";
 
 export interface CellBooking {

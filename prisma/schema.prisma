@@ -1421,6 +1421,24 @@ model RewardAlert {
 // CAFE SETTINGS
 // ===========================
 
+/**
+ * Singleton settings for the arena's operating hours. Replaces
+ * the previously-hardcoded `OPERATING_HOURS = { start: 5, end: 25 }`
+ * in lib/court-config.ts. `openHour` is the first bookable hour
+ * (inclusive, 0..23); `closeHour` is the exclusive end (1..25 —
+ * 25 representing the slot starting at midnight, ending 1am next
+ * day, matching the existing convention).
+ *
+ * Read by every customer slot picker + admin calendar + pricing
+ * generator. Edited from /admin/pricing.
+ */
+model ArenaSettings {
+  id        String   @id @default(cuid())
+  openHour  Int      @default(5)
+  closeHour Int      @default(25)
+  updatedAt DateTime @updatedAt
+}
+
 model CafeSettings {
   id          String  @id @default(cuid())
   totalTables Int     @default(10)
