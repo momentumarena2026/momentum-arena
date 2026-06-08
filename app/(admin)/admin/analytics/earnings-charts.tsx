@@ -41,6 +41,20 @@ const MONTHS = [
   "December",
 ];
 
+// Weekday labels — indexed by Date.getDay() (0 = Sunday). Short
+// 3-char form is used on the X-axis (under the day number); the
+// long form is used in the tooltip header.
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_LONG = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
 function formatINR(rupees: number): string {
   return `\u20B9${rupees.toLocaleString("en-IN")}`;
 }
@@ -205,13 +219,63 @@ export function DailyEarningsChart() {
       ) : primary.length === 0 ? (
         <p className="py-12 text-center text-zinc-500">No data for this month</p>
       ) : (
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={chartData} barCategoryGap="20%">
+        <ResponsiveContainer width="100%" height={340}>
+          <BarChart
+            data={chartData}
+            barCategoryGap="20%"
+            margin={{ top: 5, right: 5, bottom: 8, left: 0 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+            {/* Two-line X-axis tick: day-of-month on top, weekday
+                short label (Mon, Tue, …) under it. Weekday is
+                computed from the primary month/year — when compare
+                is on, the secondary bar's day-of-month aligns to
+                the same x tick, so we anchor the weekday to the
+                primary month consistently. height=44 reserves room
+                for the two lines without clipping. */}
             <XAxis
               dataKey="day"
-              tick={{ fill: "#a1a1aa", fontSize: 11 }}
               interval={0}
+              height={44}
+              tick={(props) => {
+                // Recharts types `x` / `y` as string | number on
+                // XAxisTickContentProps; coerce to number for SVG
+                // transform. `payload.value` is the bound dataKey
+                // value — `day` in our case (1..31).
+                const p = props as {
+                  x: number | string;
+                  y: number | string;
+                  payload: { value: number };
+                };
+                const day = p.payload.value;
+                const wd = WEEKDAY_SHORT[
+                  new Date(year, month - 1, day).getDay()
+                ];
+                return (
+                  <g transform={`translate(${Number(p.x)},${Number(p.y)})`}>
+                    <text
+                      x={0}
+                      y={0}
+                      dy={12}
+                      textAnchor="middle"
+                      fill="#a1a1aa"
+                      fontSize={11}
+                    >
+                      {day}
+                    </text>
+                    <text
+                      x={0}
+                      y={0}
+                      dy={26}
+                      textAnchor="middle"
+                      fill="#71717a"
+                      fontSize={9}
+                    >
+                      {wd}
+                    </text>
+                  </g>
+                );
+              }}
             />
             <YAxis
               tick={{ fill: "#a1a1aa", fontSize: 11 }}
@@ -226,10 +290,13 @@ export function DailyEarningsChart() {
                   primaryBookings: number;
                   compare: number;
                 };
+                const weekdayLong = WEEKDAY_LONG[
+                  new Date(year, month - 1, row.day).getDay()
+                ];
                 return (
                   <div className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 shadow-lg">
                     <p className="mb-1 text-xs text-zinc-400">
-                      Day {label} · {row.primaryBookings} booking
+                      Day {label} · {weekdayLong} · {row.primaryBookings} booking
                       {row.primaryBookings === 1 ? "" : "s"}
                     </p>
                     <p className="text-sm font-medium text-emerald-400">
