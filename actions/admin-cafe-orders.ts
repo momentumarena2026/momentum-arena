@@ -383,22 +383,29 @@ export async function adminCreateCafeOrder(data: {
     const orderNumber = `MA-CAFE-${String(orderCount + 1).padStart(4, "0")}-${rand}`;
 
     // Resolve the split spec (if any) into the actual payment
-    // shape — method (dominant slice), status (COMPLETED, the
-    // admin is recording an already-collected payment), and the
+    // shape — method (dominant slice), status, and the
     // denormalised splitCashAmount / splitUpiAmount columns.
     //
-    // Validation: both slices ≥ 0, at least one > 0, sum equals
-    // the post-discount total within a 1-paise rounding window.
+    // Status: admin-created orders are always COMPLETED on the
+    // payment side. The admin types the order at the counter
+    // while the customer hands them the money — there's no
+    // separate "wait for the customer to pay" step, so the
+    // previous CASH / UPI_QR → PENDING gating was a redundant
+    // extra click that always immediately got resolved by
+    // "Mark collected at counter". Skip it: every method
+    // resolves to COMPLETED here, with confirmedAt / confirmedBy
+    // stamped to the creating admin.
+    //
+    // Validation (split path): both slices ≥ 0, at least one > 0,
+    // sum equals the post-discount total within a 1-paise
+    // rounding window.
     let resolvedMethod: PaymentMethod = data.paymentMethod;
     let resolvedPaymentStatus:
       | "PENDING"
       | "COMPLETED"
       | "PARTIAL"
       | "FAILED"
-      | "REFUNDED" =
-      data.paymentMethod === "FREE" || data.paymentMethod === "RAZORPAY"
-        ? "COMPLETED"
-        : "PENDING";
+      | "REFUNDED" = "COMPLETED";
     let splitCashAmount: number | null = null;
     let splitUpiAmount: number | null = null;
 
