@@ -941,6 +941,12 @@ function InventoryTable({
                   <th className="pb-3 pr-4 font-medium text-zinc-400 text-right">
                     Units Sold
                   </th>
+                  <th className="pb-3 pr-4 font-medium text-zinc-400 text-right">
+                    Cash
+                  </th>
+                  <th className="pb-3 pr-4 font-medium text-zinc-400 text-right">
+                    Online
+                  </th>
                   <th className="pb-3 font-medium text-zinc-400 text-right">
                     Left in Stock
                   </th>
@@ -971,6 +977,20 @@ function InventoryTable({
                     </td>
                     <td className="py-3 pr-4 text-right font-semibold text-emerald-400">
                       {r.unitsSold.toLocaleString("en-IN")}
+                    </td>
+                    <td className="py-3 pr-4 text-right text-zinc-300">
+                      {r.cashUnits > 0 ? (
+                        r.cashUnits.toLocaleString("en-IN")
+                      ) : (
+                        <span className="text-zinc-600">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 pr-4 text-right text-zinc-300">
+                      {r.onlineUnits > 0 ? (
+                        r.onlineUnits.toLocaleString("en-IN")
+                      ) : (
+                        <span className="text-zinc-600">—</span>
+                      )}
                     </td>
                     <td className="py-3 text-right">
                       {r.stockLeft === null ? (

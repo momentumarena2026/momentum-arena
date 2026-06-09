@@ -13,6 +13,7 @@ import {
   generateRewardTxnLedgerLifetimeReport,
   generateRewardTxnLedgerMonthlyReport,
 } from "./workers/rewards";
+import { generateCafeInventoryMonthlyReport } from "./workers/cafe-inventory";
 
 /**
  * Async report queue.
@@ -40,7 +41,8 @@ interface EnqueueInput {
     | "REWARD_LIABILITY_LIFETIME"
     | "REWARD_ALERTS_MONTHLY"
     | "REWARD_TXN_LEDGER_MONTHLY"
-    | "REWARD_TXN_LEDGER_LIFETIME";
+    | "REWARD_TXN_LEDGER_LIFETIME"
+    | "CAFE_INVENTORY_MONTHLY";
   year: number;
   month: number; // 1-12
   requestedById: string;
@@ -69,6 +71,7 @@ const VALID_TYPES = [
   "REWARD_ALERTS_MONTHLY",
   "REWARD_TXN_LEDGER_MONTHLY",
   "REWARD_TXN_LEDGER_LIFETIME",
+  "CAFE_INVENTORY_MONTHLY",
 ] as const;
 
 export async function enqueueReport(input: EnqueueInput): Promise<EnqueueResult> {
@@ -269,6 +272,8 @@ async function runWorker(
       return generateRewardTxnLedgerMonthlyReport({ year, month });
     case "REWARD_TXN_LEDGER_LIFETIME":
       return generateRewardTxnLedgerLifetimeReport({ year, month });
+    case "CAFE_INVENTORY_MONTHLY":
+      return generateCafeInventoryMonthlyReport({ year, month });
     default:
       throw new Error(`Unknown report type: ${type}`);
   }

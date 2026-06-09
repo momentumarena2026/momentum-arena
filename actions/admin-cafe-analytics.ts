@@ -737,6 +737,14 @@ export interface CafeItemInventoryRow {
   description: string | null;
   category: string;
   unitsSold: number;
+  /** Units sold via CASH (parent CafePayment.method === "CASH"). */
+  cashUnits: number;
+  /** Units sold via any digital method — UPI_QR, RAZORPAY, PHONEPE.
+   *  FREE / null methods are intentionally counted in unitsSold but
+   *  not in cash or online (they're comp / promo lines, not a
+   *  payment channel). cashUnits + onlineUnits may therefore total
+   *  less than unitsSold. */
+  onlineUnits: number;
   /** null = kitchen-prepared / unlimited; integer = on-hand count. */
   stockLeft: number | null;
 }
@@ -782,23 +790,48 @@ export async function getCafeItemInventoryTable(
     const safePage = Math.max(1, Math.trunc(page));
     const safeSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
 
-    // Aggregate sold-units per cafeItemId across the window. Use a
-    // groupBy on CafeOrderItem (rather than scanning every order)
-    // so the count scales with item-line cardinality, not order
-    // count.
-    const sold = await db.cafeOrderItem.groupBy({
-      by: ["cafeItemId"],
+    // Aggregate sold-units per cafeItemId across the window, with
+    // a breakdown by payment channel (cash vs online). Prisma's
+    // groupBy can't group by a relation field, so we fetch the raw
+    // lines + parent payment.method in one query and bucket in
+    // memory. Item-line cardinality is small (one row per line, not
+    // per order item × quantity) so this stays cheap.
+    const lines = await db.cafeOrderItem.findMany({
       where: {
         order: {
           createdAt: { gte: from, lte: to },
           status: { in: [...VALID_STATUSES] },
         },
       },
-      _sum: { quantity: true },
+      select: {
+        cafeItemId: true,
+        quantity: true,
+        order: {
+          select: { payment: { select: { method: true } } },
+        },
+      },
     });
-    const soldMap = new Map<string, number>(
-      sold.map((s) => [s.cafeItemId, s._sum.quantity ?? 0]),
-    );
+
+    const soldMap = new Map<string, number>();
+    const cashMap = new Map<string, number>();
+    const onlineMap = new Map<string, number>();
+    for (const l of lines) {
+      const id = l.cafeItemId;
+      const q = l.quantity;
+      soldMap.set(id, (soldMap.get(id) ?? 0) + q);
+      const method = l.order.payment?.method;
+      if (method === "CASH") {
+        cashMap.set(id, (cashMap.get(id) ?? 0) + q);
+      } else if (
+        method === "UPI_QR" ||
+        method === "RAZORPAY" ||
+        method === "PHONEPE"
+      ) {
+        onlineMap.set(id, (onlineMap.get(id) ?? 0) + q);
+      }
+      // FREE / null payment.method intentionally falls through —
+      // counted in total but not in either channel.
+    }
 
     // Pull every item — we list the full menu so the admin can
     // also spot zero-sale items. Ordered by sold-DESC at the
@@ -821,6 +854,8 @@ export async function getCafeItemInventoryTable(
         description: i.description,
         category: String(i.category),
         unitsSold: soldMap.get(i.id) ?? 0,
+        cashUnits: cashMap.get(i.id) ?? 0,
+        onlineUnits: onlineMap.get(i.id) ?? 0,
         stockLeft: i.quantity,
       }))
       .sort((a, b) => {
