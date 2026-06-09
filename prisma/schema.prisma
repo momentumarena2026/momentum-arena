@@ -2108,6 +2108,12 @@ enum ReportType {
   // on-hand stock. Replicates the /admin/analytics/cafe inventory
   // table exactly so admins can download what they see.
   CAFE_INVENTORY_MONTHLY
+  // Same shape as CAFE_INVENTORY_MONTHLY but no date filter —
+  // every cafe order ever. Matches the cafe analytics page's
+  // DEFAULT window (earliest order → today), which is what the
+  // inventory table shows out of the box. Year/month on the
+  // Report row are request-timestamp metadata only.
+  CAFE_INVENTORY_LIFETIME
 }
 
 enum ReportStatus {

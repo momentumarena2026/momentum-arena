@@ -96,6 +96,7 @@ const enqueueBody = z.object({
     "REWARD_TXN_LEDGER_MONTHLY",
     "REWARD_TXN_LEDGER_LIFETIME",
     "CAFE_INVENTORY_MONTHLY",
+    "CAFE_INVENTORY_LIFETIME",
   ]),
   year: z.number().int().min(2024).max(2100),
   month: z.number().int().min(1).max(12),

@@ -52,8 +52,39 @@ export async function generateCafeInventoryMonthlyReport(input: {
   const monthEnd = new Date(Date.UTC(input.year, input.month, 1));
   const yyyy = String(input.year).padStart(4, "0");
   const mm = String(input.month).padStart(2, "0");
+  return buildCafeInventoryReport({
+    dateWhere: { createdAt: { gte: monthStart, lt: monthEnd } },
+    filename: `momentum-arena_${yyyy}-${mm}_cafe-inventory.xlsx`,
+  });
+}
 
-  // Pull every line in the month with its parent payment method,
+/**
+ * All-time variant. No date filter — matches the cafe analytics
+ * page's DEFAULT window (earliest cafe order → today), which is
+ * what the inventory table on screen shows out of the box. Use
+ * this when you want the download to mirror the page exactly.
+ * The request's year/month are persisted on the Report row for
+ * ordering/audit only; the worker ignores them.
+ */
+export async function generateCafeInventoryLifetimeReport(_input: {
+  year: number;
+  month: number;
+}): Promise<{ filename: string; bytes: Buffer }> {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  return buildCafeInventoryReport({
+    dateWhere: {}, // no date filter — every order ever
+    filename: `momentum-arena_${yyyy}-${mm}-${dd}_cafe-inventory-lifetime.xlsx`,
+  });
+}
+
+async function buildCafeInventoryReport(opts: {
+  dateWhere: { createdAt?: { gte: Date; lt: Date } };
+  filename: string;
+}): Promise<{ filename: string; bytes: Buffer }> {
+  // Pull every qualifying line with its parent payment method,
   // and every CafeItem. Lines aggregate in memory because Prisma
   // groupBy can't group by a relation field; menu cardinality is
   // small so this stays cheap.
@@ -61,7 +92,7 @@ export async function generateCafeInventoryMonthlyReport(input: {
     db.cafeOrderItem.findMany({
       where: {
         order: {
-          createdAt: { gte: monthStart, lt: monthEnd },
+          ...opts.dateWhere,
           status: { in: [...VALID_STATUSES] },
         },
       },
@@ -181,6 +212,5 @@ export async function generateCafeInventoryMonthlyReport(input: {
 
   const arrayBuffer = await workbook.xlsx.writeBuffer();
   const bytes = Buffer.from(arrayBuffer);
-  const filename = `momentum-arena_${yyyy}-${mm}_cafe-inventory.xlsx`;
-  return { filename, bytes };
+  return { filename: opts.filename, bytes };
 }
