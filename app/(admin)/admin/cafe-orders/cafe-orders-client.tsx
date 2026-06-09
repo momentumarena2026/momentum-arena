@@ -72,14 +72,18 @@ const NEXT_STATUS: Partial<Record<CafeOrderStatus, CafeOrderStatus>> = {
   READY: "COMPLETED",
 };
 
-function timeAgo(dateStr: string) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+// Absolute date+time stamp on each order card. Matches the
+// detail-page format ({dateStyle: "medium", timeStyle: "short"})
+// so the admin sees the same string they'd see after clicking
+// through. Previously this was a "12h ago" relative chip — that
+// reads as filler for orders older than a day, and offers no
+// audit-grade timestamp when the admin is reconciling against
+// physical receipts.
+function formatOrderDateTime(dateStr: string) {
+  return new Date(dateStr).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 export function CafeOrdersClient({
@@ -276,8 +280,8 @@ export function CafeOrdersClient({
                       <p className="text-sm font-semibold text-white">
                         {formatPrice(order.totalAmount)}
                       </p>
-                      <p className="text-[10px] text-zinc-500">
-                        {timeAgo(order.createdAt)}
+                      <p className="text-[10px] text-zinc-500 whitespace-nowrap">
+                        {formatOrderDateTime(order.createdAt)}
                       </p>
                     </div>
                     {/* Status transition buttons */}
