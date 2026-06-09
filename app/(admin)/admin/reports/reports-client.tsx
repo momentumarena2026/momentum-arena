@@ -83,7 +83,12 @@ const TYPES = [
   {
     value: "CAFE_INVENTORY_MONTHLY",
     label: "Cafe inventory & sales (monthly)",
-    desc: "One row per cafe item — units sold in the month, split into Cash vs Online (UPI / Razorpay / PhonePe), plus current on-hand stock. Exact replica of the inventory table on the cafe analytics page.",
+    desc: "One row per cafe item — units sold in the selected month, split into Cash vs Online (UPI / Razorpay / PhonePe), plus current on-hand stock.",
+  },
+  {
+    value: "CAFE_INVENTORY_LIFETIME",
+    label: "Cafe inventory & sales (all-time)",
+    desc: "Same shape as the monthly version but covers every cafe order ever — matches the inventory table on the cafe analytics page out of the box (its default window is all-time). Month picker is ignored for this type.",
   },
 ] as const;
 
@@ -164,7 +169,8 @@ export function ReportsClient({ initialReports }: Props) {
         const isLifetime =
           type === "EXPENSES_LIFETIME" ||
           type === "REWARD_LIABILITY_LIFETIME" ||
-          type === "REWARD_TXN_LEDGER_LIFETIME";
+          type === "REWARD_TXN_LEDGER_LIFETIME" ||
+          type === "CAFE_INVENTORY_LIFETIME";
         toast.success(
           isLifetime
             ? `${TYPES.find((t) => t.value === type)?.label} queued (all-time)`
@@ -262,13 +268,16 @@ export function ReportsClient({ initialReports }: Props) {
               knows what's happening. */}
           {type === "EXPENSES_LIFETIME" ||
           type === "REWARD_LIABILITY_LIFETIME" ||
-          type === "REWARD_TXN_LEDGER_LIFETIME" ? (
+          type === "REWARD_TXN_LEDGER_LIFETIME" ||
+          type === "CAFE_INVENTORY_LIFETIME" ? (
             <div className="flex-1 rounded-md border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-xs text-zinc-400">
               {type === "EXPENSES_LIFETIME"
                 ? "Covers every expense entry ever recorded — no month filter applied."
                 : type === "REWARD_TXN_LEDGER_LIFETIME"
                   ? "Covers every reward transaction ever recorded — every row, all-time. No month filter applied."
-                  : "Activity columns cover every reward transaction ever recorded — no month filter applied."}
+                  : type === "CAFE_INVENTORY_LIFETIME"
+                    ? "Covers every cafe order ever — matches the cafe analytics inventory table's default all-time window. No month filter applied."
+                    : "Activity columns cover every reward transaction ever recorded — no month filter applied."}
             </div>
           ) : (
             <>
