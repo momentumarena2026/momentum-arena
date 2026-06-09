@@ -728,3 +728,125 @@ export async function getCafeDayOfWeekBreakdown(
     return { success: false, error: "Failed to load day-of-week breakdown" };
   }
 }
+
+// ─────────── Inventory × sales table ───────────
+
+export interface CafeItemInventoryRow {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  unitsSold: number;
+  /** null = kitchen-prepared / unlimited; integer = on-hand count. */
+  stockLeft: number | null;
+}
+
+export interface CafeItemInventoryPage {
+  rows: CafeItemInventoryRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+/**
+ * Paginated table of every cafe item with units sold (within the
+ * selected date window) and current on-hand stock. Returned in
+ * units-sold DESC order so the bestsellers float to the top of
+ * page 1.
+ *
+ * Sold count: sum of CafeOrderItem.quantity across orders whose
+ * status is in VALID_STATUSES (excludes CANCELLED + PENDING_PAYMENT)
+ * and whose createdAt falls within [dateFrom, dateTo]. Items with
+ * zero sales in the window still appear (with unitsSold=0) so the
+ * admin sees their full menu and stock state in one view, not a
+ * truncated bestseller list.
+ *
+ * Stock: pulled from the live CafeItem.quantity column. Kitchen
+ * items (quantity=null) surface as null and render as "—" on the
+ * client.
+ */
+export async function getCafeItemInventoryTable(
+  dateFrom: string,
+  dateTo: string,
+  page = 1,
+  pageSize = 20,
+): Promise<{
+  success: boolean;
+  data?: CafeItemInventoryPage;
+  error?: string;
+}> {
+  try {
+    await requireAdmin("VIEW_ANALYTICS");
+    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const safePage = Math.max(1, Math.trunc(page));
+    const safeSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
+
+    // Aggregate sold-units per cafeItemId across the window. Use a
+    // groupBy on CafeOrderItem (rather than scanning every order)
+    // so the count scales with item-line cardinality, not order
+    // count.
+    const sold = await db.cafeOrderItem.groupBy({
+      by: ["cafeItemId"],
+      where: {
+        order: {
+          createdAt: { gte: from, lte: to },
+          status: { in: [...VALID_STATUSES] },
+        },
+      },
+      _sum: { quantity: true },
+    });
+    const soldMap = new Map<string, number>(
+      sold.map((s) => [s.cafeItemId, s._sum.quantity ?? 0]),
+    );
+
+    // Pull every item — we list the full menu so the admin can
+    // also spot zero-sale items. Ordered by sold-DESC at the
+    // application layer because we can't ORDER BY an aggregated
+    // join in a single Prisma call without raw SQL.
+    const items = await db.cafeItem.findMany({
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        category: true,
+        quantity: true,
+      },
+    });
+
+    const rows: CafeItemInventoryRow[] = items
+      .map((i) => ({
+        id: i.id,
+        name: i.name,
+        description: i.description,
+        category: String(i.category),
+        unitsSold: soldMap.get(i.id) ?? 0,
+        stockLeft: i.quantity,
+      }))
+      .sort((a, b) => {
+        // Primary: units sold DESC; tiebreaker: name ASC so the
+        // ordering is deterministic across pages.
+        if (b.unitsSold !== a.unitsSold) return b.unitsSold - a.unitsSold;
+        return a.name.localeCompare(b.name);
+      });
+
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / safeSize));
+    const start = (safePage - 1) * safeSize;
+    const sliced = rows.slice(start, start + safeSize);
+
+    return {
+      success: true,
+      data: {
+        rows: sliced,
+        page: safePage,
+        pageSize: safeSize,
+        total,
+        totalPages,
+      },
+    };
+  } catch (err) {
+    console.error("[cafe-analytics] getCafeItemInventoryTable failed", err);
+    return { success: false, error: "Failed to load inventory table" };
+  }
+}
