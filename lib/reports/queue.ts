@@ -123,17 +123,42 @@ export async function enqueueReport(input: EnqueueInput): Promise<EnqueueResult>
     };
   }
 
-  const created = await db.report.create({
-    data: {
-      type: input.type,
-      year: input.year,
-      month: input.month,
-      requestedById: input.requestedById,
-    },
-    select: { id: true, type: true, year: true, month: true, status: true },
-  });
-
-  return { success: true, report: created };
+  try {
+    const created = await db.report.create({
+      data: {
+        type: input.type,
+        year: input.year,
+        month: input.month,
+        requestedById: input.requestedById,
+      },
+      select: { id: true, type: true, year: true, month: true, status: true },
+    });
+    return { success: true, report: created };
+  } catch (err) {
+    // Most likely cause when a NEW report type was just shipped:
+    // the Postgres ReportType enum is missing the value because the
+    // migration adding it hasn't been applied to this DB yet (this
+    // project applies migrations out-of-band — see
+    // scripts/apply-*-migration.js). Prisma's generated client knows
+    // the value (from `prisma generate`), so VALID_TYPES above
+    // passes, but the INSERT then fails at the DB layer. Surface a
+    // readable message instead of a generic 500 so the operator
+    // knows to run the migration.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/invalid input value for enum/i.test(msg)) {
+      console.error(
+        `[reports] enum value not in DB for type ${input.type} — apply the migration`,
+        err,
+      );
+      return {
+        success: false,
+        error:
+          "This report type isn't enabled on the server yet (pending DB migration). Contact the dev team.",
+      };
+    }
+    console.error("[reports] enqueue create failed", err);
+    return { success: false, error: "Couldn't queue report. Please try again." };
+  }
 }
 
 /**
