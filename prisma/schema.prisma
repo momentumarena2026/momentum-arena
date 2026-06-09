@@ -2102,6 +2102,12 @@ enum ReportType {
   // covers every RewardTransaction ever recorded. Year/month on
   // the Report row are request-timestamp metadata only.
   REWARD_TXN_LEDGER_LIFETIME
+  // Cafe item inventory + sales snapshot for the calendar month.
+  // One row per CafeItem: id, name + description, total units
+  // sold in the month, cash / online unit splits, current
+  // on-hand stock. Replicates the /admin/analytics/cafe inventory
+  // table exactly so admins can download what they see.
+  CAFE_INVENTORY_MONTHLY
 }
 
 enum ReportStatus {

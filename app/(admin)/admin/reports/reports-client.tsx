@@ -80,6 +80,11 @@ const TYPES = [
     label: "Rewards transactions (all-time)",
     desc: "Same per-transaction shape as the monthly version but covers every RewardTransaction ever recorded. Month picker is ignored. Use this for annual / lifetime reconciliation.",
   },
+  {
+    value: "CAFE_INVENTORY_MONTHLY",
+    label: "Cafe inventory & sales (monthly)",
+    desc: "One row per cafe item — units sold in the month, split into Cash vs Online (UPI / Razorpay / PhonePe), plus current on-hand stock. Exact replica of the inventory table on the cafe analytics page.",
+  },
 ] as const;
 
 const MONTHS = [
