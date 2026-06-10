@@ -53,17 +53,25 @@ interface AdminEquipmentSnapshot {
 }
 
 /**
- * Recompute Booking.totalAmount + Booking.equipmentTotalAmount from
- * the current set of slot prices, discounts, and equipment rentals.
- * Must be called inside a transaction (or after every mutation).
+ * READ-ONLY snapshot of a booking's equipment rentals + totals.
+ * `bookingTotalRupees` is the AUTHORITATIVE stored
+ * Booking.totalAmount — NOT re-derived from slot prices.
+ *
+ * History note: this used to recompute totalAmount from
+ * slotTotal − discount + equipment and WRITE it back on every
+ * call — including the booking detail page's render path. That
+ * write-on-read silently reverted any admin price negotiation
+ * made via Edit Payment the moment the page reloaded (the
+ * payment row kept the edited amount, the booking total snapped
+ * back to the slot-derived figure — the "edited payment doesn't
+ * stick" bug). Reads must never write.
  */
-async function recomputeBookingTotals(
+async function readEquipmentSnapshot(
   bookingId: string,
 ): Promise<AdminEquipmentSnapshot> {
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
     include: {
-      slots: true,
       equipmentRentals: { include: { equipment: true } },
     },
   });
@@ -71,19 +79,59 @@ async function recomputeBookingTotals(
     throw new Error("Booking not found");
   }
 
-  const slotTotal = booking.slots.reduce((s, slot) => s + slot.price, 0);
-  // EquipmentRental.totalPrice is in paise; round to whole rupees so
-  // Booking.totalAmount stays integer rupees like the rest of the
-  // booking accounting.
   const equipmentTotalPaise = booking.equipmentRentals.reduce(
     (s, r) => s + r.totalPrice,
     0,
   );
   const equipmentTotalRupees = Math.round(equipmentTotalPaise / 100);
 
-  // Booking.discountAmount already lives on the booking; keep it as-is.
+  return {
+    rentals: booking.equipmentRentals.map((r) => ({
+      id: r.id,
+      equipmentId: r.equipmentId,
+      name: r.equipment.name,
+      quantity: r.quantity,
+      pricePerUnitPaise: r.equipment.pricePerHour,
+      totalPricePaise: r.totalPrice,
+    })),
+    equipmentTotalRupees,
+    bookingTotalRupees: booking.totalAmount,
+  };
+}
+
+/**
+ * Sync Booking.totalAmount + equipmentTotalAmount after an
+ * equipment mutation, by applying the equipment DELTA to the
+ * stored total:
+ *
+ *   newTotal = totalAmount − oldEquipmentTotal + newEquipmentTotal
+ *
+ * This preserves whatever base price the booking carries —
+ * including admin-negotiated totals set via Edit Payment — instead
+ * of re-deriving from slot prices (which would wipe negotiations).
+ * Call ONLY from paths that actually change equipment rows.
+ */
+async function applyEquipmentDelta(
+  bookingId: string,
+): Promise<AdminEquipmentSnapshot> {
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      equipmentRentals: { include: { equipment: true } },
+    },
+  });
+  if (!booking) {
+    throw new Error("Booking not found");
+  }
+
+  const equipmentTotalPaise = booking.equipmentRentals.reduce(
+    (s, r) => s + r.totalPrice,
+    0,
+  );
+  const equipmentTotalRupees = Math.round(equipmentTotalPaise / 100);
+  const oldEquipmentRupees = booking.equipmentTotalAmount ?? 0;
   const newTotal =
-    slotTotal - booking.discountAmount + equipmentTotalRupees;
+    booking.totalAmount - oldEquipmentRupees + equipmentTotalRupees;
 
   await db.booking.update({
     where: { id: bookingId },
@@ -116,7 +164,9 @@ export async function getBookingEquipmentSnapshot(
   adminIdOverride?: string,
 ): Promise<AdminEquipmentSnapshot> {
   await requireBookingsAdmin(adminIdOverride);
-  return recomputeBookingTotals(bookingId);
+  // Read-only — page renders must never write totals (see
+  // readEquipmentSnapshot's history note).
+  return readEquipmentSnapshot(bookingId);
 }
 
 /**
@@ -140,7 +190,7 @@ async function slotCountFor(bookingId: string): Promise<number> {
  * the current slot count + live Equipment.pricePerHour. Call this
  * after an admin slot edit so the rental total scales with the new
  * slot count. Also refreshes Booking.equipmentTotalAmount + the
- * booking grand total via `recomputeBookingTotals`.
+ * booking grand total via `applyEquipmentDelta`.
  *
  * Idempotent — safe to call from any path that mutates BookingSlots.
  */
@@ -161,7 +211,7 @@ export async function repriceBookingEquipment(bookingId: string): Promise<void> 
       }),
     ),
   );
-  await recomputeBookingTotals(bookingId);
+  await applyEquipmentDelta(bookingId);
 }
 
 export async function addBookingEquipment(
@@ -207,7 +257,7 @@ export async function addBookingEquipment(
     });
   }
 
-  const snapshot = await recomputeBookingTotals(bookingId);
+  const snapshot = await applyEquipmentDelta(bookingId);
   revalidatePath(`/admin/bookings/${bookingId}`);
   return { success: true, ...snapshot };
 }
@@ -232,7 +282,7 @@ export async function removeBookingEquipment(
   }
 
   await db.equipmentRental.delete({ where: { id: rentalId } });
-  const snapshot = await recomputeBookingTotals(bookingId);
+  const snapshot = await applyEquipmentDelta(bookingId);
   revalidatePath(`/admin/bookings/${bookingId}`);
   return { success: true, ...snapshot };
 }
@@ -273,7 +323,7 @@ export async function updateBookingEquipmentQuantity(
     });
   }
 
-  const snapshot = await recomputeBookingTotals(bookingId);
+  const snapshot = await applyEquipmentDelta(bookingId);
   revalidatePath(`/admin/bookings/${bookingId}`);
   return { success: true, ...snapshot };
 }
