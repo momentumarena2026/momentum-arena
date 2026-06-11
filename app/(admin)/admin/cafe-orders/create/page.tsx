@@ -18,6 +18,7 @@ export default async function CreateCafeOrderPage() {
           id: item.id,
           name: item.name,
           description: item.description,
+          image: item.image,
           category: item.category,
           price: item.price,
           isVeg: item.isVeg,
