@@ -741,7 +741,28 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
                         : "border-zinc-800/50 bg-zinc-900/50 opacity-50"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-3">
+                      {/* Item thumbnail — white-backed +
+                          object-contain so product shots with
+                          white photography backgrounds blend
+                          (same treatment as the customer menu +
+                          the admin create-order tiles). Dashed
+                          placeholder when no image so the grid
+                          rows stay aligned. */}
+                      {item.image ? (
+                        <Image
+                          src={item.image}
+                          alt={item.name}
+                          width={56}
+                          height={56}
+                          unoptimized
+                          className="h-14 w-14 shrink-0 rounded-lg bg-white object-contain p-0.5"
+                        />
+                      ) : (
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-800 text-zinc-600">
+                          <ImagePlus className="h-5 w-5" />
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span
