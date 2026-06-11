@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { jsPDF } from "jspdf";
 import fs from "fs";
 import path from "path";
+import sharp from "sharp";
 
 const CATEGORY_LABELS: Record<string, { label: string }> = {
   SNACKS: { label: "Snacks" },
@@ -41,15 +42,51 @@ const C = {
   borderWarm: [55, 40, 28] as [number, number, number],
 };
 
-function loadLogoImage(): string | null {
+/**
+ * Logo, sharp-compressed. The raw blackLogo.png is ~200KB and jsPDF
+ * re-encodes PNGs into raw flate streams — embedding it untouched
+ * ballooned the PDF to ~6MB. Downscale to 240px wide and flatten
+ * onto the page's dark background as a JPEG (~3KB, DCT-embedded
+ * as-is by jsPDF) so the menu stays comfortably under the 100KB
+ * budget.
+ */
+async function loadLogoImage(): Promise<string | null> {
   try {
     const logoPath = path.join(process.cwd(), "public", "blackLogo.png");
-    if (fs.existsSync(logoPath)) {
-      const buf = fs.readFileSync(logoPath);
-      return `data:image/png;base64,${buf.toString("base64")}`;
-    }
+    if (!fs.existsSync(logoPath)) return null;
+    const jpeg = await sharp(logoPath)
+      .resize(240, 180, { fit: "inside", withoutEnlargement: true })
+      .flatten({ background: { r: 18, g: 12, b: 8 } }) // == C.bgDark
+      .jpeg({ quality: 70 })
+      .toBuffer();
+    return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
   } catch { /* ignore */ }
   return null;
+}
+
+/**
+ * Product thumbnail loader. Fetches the item's Vercel Blob image,
+ * downscales to an 80px square on a white canvas (product shots
+ * ship with white photography backgrounds — same treatment as the
+ * web menu cards), and compresses to JPEG q55 (~2-4KB each). A
+ * 4-second timeout per image + allSettled at the call site means
+ * one slow/dead blob never blocks or breaks the whole menu — the
+ * item just renders without a thumb.
+ */
+async function loadItemThumb(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const jpeg = await sharp(buf)
+      .resize(80, 80, { fit: "contain", background: "#ffffff" })
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality: 55 })
+      .toBuffer();
+    return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 // Draw clipart icons using jsPDF drawing primitives
@@ -233,7 +270,7 @@ function drawHeader(doc: jsPDF, pw: number, logoImg: string | null): number {
 
   // Logo
   if (logoImg) {
-    doc.addImage(logoImg, "PNG", pw / 2 - 12, headerY, 24, 18);
+    doc.addImage(logoImg, "JPEG", pw / 2 - 12, headerY, 24, 18);
   }
 
   const afterLogo = logoImg ? headerY + 21 : headerY + 2;
@@ -291,7 +328,7 @@ function drawHeader(doc: jsPDF, pw: number, logoImg: string | null): number {
 
 function drawContinuationHeader(doc: jsPDF, pw: number, margin: number, logoImg: string | null): number {
   if (logoImg) {
-    doc.addImage(logoImg, "PNG", margin, 5, 12, 9);
+    doc.addImage(logoImg, "JPEG", margin, 5, 12, 9);
   }
   doc.setTextColor(...C.amber);
   doc.setFontSize(8);
@@ -332,7 +369,25 @@ export async function GET() {
     grouped[item.category].push(item);
   }
 
-  const logoImg = loadLogoImage();
+  // Load the logo + every product thumb in parallel. allSettled so
+  // a dead blob URL degrades to a thumb-less row, never a 500.
+  const [logoImg, thumbEntries] = await Promise.all([
+    loadLogoImage(),
+    Promise.allSettled(
+      items
+        .filter((i) => !!i.image)
+        .map(async (i) => ({
+          id: i.id,
+          thumb: await loadItemThumb(i.image!),
+        })),
+    ),
+  ]);
+  const thumbs = new Map<string, string>();
+  for (const e of thumbEntries) {
+    if (e.status === "fulfilled" && e.value.thumb) {
+      thumbs.set(e.value.id, e.value.thumb);
+    }
+  }
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pw = 210;
   const ph = 297;
@@ -386,8 +441,15 @@ export async function GET() {
 
     for (let ii = 0; ii < catItems.length; ii++) {
       const item = catItems[ii];
-      const hasDesc = !!item.description;
-      const itemH = hasDesc ? 13 : 8;
+      const thumb = thumbs.get(item.id) ?? null;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      const descLines: string[] = item.description
+        ? (doc.splitTextToSize(item.description, cw - 44) as string[]).slice(0, 2)
+        : [];
+      // Row tall enough for the 9.5mm thumbnail; grows a notch when
+      // a second description line is present.
+      const itemH = descLines.length > 1 ? 14.5 : 12;
 
       if (y + itemH > footerY) {
         doc.addPage();
@@ -398,15 +460,37 @@ export async function GET() {
       // Alternating card background
       const cardColor = ii % 2 === 0 ? C.bgCard : C.bgCardAlt;
       doc.setFillColor(...cardColor);
-      doc.roundedRect(margin, y - 0.5, cw, itemH - 1, 1, 1, "F");
+      doc.roundedRect(margin, y, cw, itemH, 1, 1, "F");
 
       // Left amber accent line
       doc.setFillColor(...C.amber);
-      doc.rect(margin, y - 0.5, 1, itemH - 1, "F");
+      doc.rect(margin, y, 1, itemH, "F");
+
+      // Product thumbnail — 9.5mm square, white-backed JPEG with a
+      // warm hairline frame. Falls back to the category clipart in
+      // a placeholder box when the item has no usable image so the
+      // text column stays aligned across rows.
+      const thumbX = margin + 3;
+      const thumbY = y + (itemH - 9.5) / 2;
+      if (thumb) {
+        doc.addImage(thumb, "JPEG", thumbX, thumbY, 9.5, 9.5);
+        doc.setDrawColor(...C.borderWarm);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(thumbX, thumbY, 9.5, 9.5, 0.8, 0.8, "S");
+      } else {
+        doc.setFillColor(...C.bgDark);
+        doc.roundedRect(thumbX, thumbY, 9.5, 9.5, 0.8, 0.8, "F");
+        doc.setDrawColor(...C.borderWarm);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(thumbX, thumbY, 9.5, 9.5, 0.8, 0.8, "S");
+        drawCategoryIcon(doc, item.category, thumbX + 4.75, thumbY + 4.75);
+      }
+
+      const nameX = margin + 19;
 
       // Veg/Non-veg square indicator
-      const ix = margin + 5;
-      const iy = y + 2;
+      const ix = margin + 15.5;
+      const iy = y + 4;
       doc.setDrawColor(...(item.isVeg ? C.vegGreen : C.nonVegRed));
       doc.setLineWidth(0.5);
       doc.rect(ix - 1.5, iy - 1.5, 3, 3, "S");
@@ -417,51 +501,49 @@ export async function GET() {
       doc.setTextColor(...C.textCream);
       doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
-      doc.text(item.name, margin + 11, y + 3.5);
+      doc.text(item.name, nameX, y + 5);
 
       // Tags
-      let tx = margin + 11 + doc.getTextWidth(item.name) + 2;
+      let tx = nameX + doc.getTextWidth(item.name) + 2;
       if (item.tags.includes("Popular")) {
         doc.setFontSize(5.5);
         doc.setFillColor(...C.amber);
         const tw = doc.getTextWidth("POPULAR") + 3;
-        doc.roundedRect(tx, y, tw, 3.5, 0.8, 0.8, "F");
+        doc.roundedRect(tx, y + 1.5, tw, 3.5, 0.8, 0.8, "F");
         doc.setTextColor(30, 15, 5);
         doc.setFont("helvetica", "bold");
-        doc.text("POPULAR", tx + 1.5, y + 2.5);
+        doc.text("POPULAR", tx + 1.5, y + 4);
         tx += tw + 1.5;
       }
       if (item.tags.includes("Bestseller")) {
         doc.setFontSize(5.5);
         doc.setFillColor(220, 50, 50);
         const tw = doc.getTextWidth("BESTSELLER") + 3;
-        doc.roundedRect(tx, y, tw, 3.5, 0.8, 0.8, "F");
+        doc.roundedRect(tx, y + 1.5, tw, 3.5, 0.8, 0.8, "F");
         doc.setTextColor(255, 255, 255);
         doc.setFont("helvetica", "bold");
-        doc.text("BESTSELLER", tx + 1.5, y + 2.5);
+        doc.text("BESTSELLER", tx + 1.5, y + 4);
       }
 
       // Price
       doc.setTextColor(...C.amber);
       doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
-      doc.text(formatMenuPrice(item.price), pw - margin - 4, y + 3.5, { align: "right" });
-
-      y += 5;
+      doc.text(formatMenuPrice(item.price), pw - margin - 4, y + 5, { align: "right" });
 
       // Description
-      if (item.description) {
+      if (descLines.length > 0) {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(7);
         doc.setTextColor(...C.textGray);
-        const descLines = doc.splitTextToSize(item.description, cw - 20);
-        for (const line of descLines.slice(0, 2)) {
-          doc.text(line, margin + 11, y + 1);
-          y += 3;
+        let dy = y + 8.5;
+        for (const line of descLines) {
+          doc.text(line, nameX, dy);
+          dy += 3;
         }
       }
 
-      y += 2.5;
+      y += itemH + 1.5;
     }
 
     y += 3;
