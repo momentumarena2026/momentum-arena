@@ -28,6 +28,7 @@ interface MenuItem {
   id: string;
   name: string;
   description: string | null;
+  image: string | null;
   category: CafeItemCategory;
   price: number;
   isVeg: boolean;
@@ -365,7 +366,24 @@ export function CreateCafeOrderForm({
                           : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
                       }`}
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
+                        {/* Item thumbnail — white-backed +
+                            object-contain so product shots with
+                            white photography backgrounds blend
+                            (same treatment as the customer menu).
+                            Dashed placeholder when no image. */}
+                        {item.image ? (
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            loading="lazy"
+                            className="h-12 w-12 shrink-0 rounded-lg bg-white object-contain p-0.5"
+                          />
+                        ) : (
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-800 text-base opacity-60">
+                            🍽️
+                          </div>
+                        )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span
