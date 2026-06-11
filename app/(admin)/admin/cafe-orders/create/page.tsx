@@ -17,6 +17,7 @@ export default async function CreateCafeOrderPage() {
         menuItems={items.map((item) => ({
           id: item.id,
           name: item.name,
+          description: item.description,
           category: item.category,
           price: item.price,
           isVeg: item.isVeg,
