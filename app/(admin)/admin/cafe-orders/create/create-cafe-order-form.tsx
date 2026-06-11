@@ -27,6 +27,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 interface MenuItem {
   id: string;
   name: string;
+  description: string | null;
   category: CafeItemCategory;
   price: number;
   isVeg: boolean;
@@ -394,6 +395,15 @@ export function CreateCafeOrderForm({
                               </span>
                             )}
                           </div>
+                          {/* Item description — e.g. "200 ml" /
+                              "1 Litre". Disambiguates same-named
+                              items (two Water Bottles at different
+                              sizes) without opening the menu page. */}
+                          {item.description ? (
+                            <p className="text-[11px] text-zinc-500 truncate mt-0.5">
+                              {item.description}
+                            </p>
+                          ) : null}
                           <p className="text-xs font-medium text-emerald-400 mt-0.5">
                             {formatPrice(item.price)}
                           </p>
