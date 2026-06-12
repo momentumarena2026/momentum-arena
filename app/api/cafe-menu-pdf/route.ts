@@ -20,24 +20,25 @@ function formatMenuPrice(rupees: number): string {
   return `Rs. ${rupees.toLocaleString("en-IN")}`;
 }
 
-// Light, airy cafe theme — very light orange / cream tones for a
-// print-friendly single-page menu (the previous dark theme burned
-// ink on a full-bleed A4).
+// Medium-tone orange cafe theme — warm and saturated enough to feel
+// like a cafe brand without the heavy dark background of the first
+// version or the washed-out pastels of the second. Page stays light
+// for printing; the orange accents step up to mid-saturation.
 const C = {
-  bgPage: [255, 250, 243] as [number, number, number], // warm ivory
-  bgCard: [255, 244, 229] as [number, number, number], // pale peach
-  bgCardAlt: [253, 239, 219] as [number, number, number], // slightly deeper peach
-  orangeSoft: [253, 230, 200] as [number, number, number], // category bar fill
-  orangeLight: [250, 204, 144] as [number, number, number], // accents / lines
-  orangeMid: [240, 165, 80] as [number, number, number], // decorative
-  orangeText: [194, 109, 22] as [number, number, number], // prices / headings
-  brownDark: [92, 58, 20] as [number, number, number], // primary text
-  brownMid: [140, 100, 60] as [number, number, number], // secondary text
-  brownDim: [180, 150, 115] as [number, number, number], // tertiary text
+  bgPage: [255, 247, 237] as [number, number, number], // warm cream
+  bgCard: [254, 236, 214] as [number, number, number], // light apricot
+  bgCardAlt: [252, 228, 198] as [number, number, number], // deeper apricot
+  orangeSoft: [248, 188, 110] as [number, number, number], // category bar fill
+  orangeLight: [242, 153, 60] as [number, number, number], // accents / lines
+  orangeMid: [228, 126, 26] as [number, number, number], // decorative / icons
+  orangeText: [176, 88, 8] as [number, number, number], // prices / headings
+  brownDark: [74, 44, 12] as [number, number, number], // primary text
+  brownMid: [128, 88, 48] as [number, number, number], // secondary text
+  brownDim: [166, 130, 95] as [number, number, number], // tertiary text
   logoChip: [24, 16, 10] as [number, number, number], // dark badge behind logo
   vegGreen: [34, 160, 84] as [number, number, number],
   nonVegRed: [220, 70, 60] as [number, number, number],
-  border: [243, 220, 190] as [number, number, number],
+  border: [238, 196, 150] as [number, number, number],
 };
 
 /**
