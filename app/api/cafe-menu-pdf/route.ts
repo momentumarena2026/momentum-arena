@@ -16,39 +16,36 @@ const CATEGORY_LABELS: Record<string, { label: string }> = {
 const CATEGORY_ORDER = ["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"];
 
 function formatMenuPrice(rupees: number): string {
-  // CafeItem.price is now stored as RUPEES (Float, decimals
-  // allowed). Render directly — the previous /100 divide assumed
-  // the old paise storage and started double-divaling values
-  // once the migration ran. `toLocaleString` keeps thousand
-  // separators on integer prices and trims trailing zeros on
-  // decimal ones via default options.
+  // CafeItem.price is stored as RUPEES (Float, decimals allowed).
   return `Rs. ${rupees.toLocaleString("en-IN")}`;
 }
 
-// Amber/Orange cafe theme
+// Light, airy cafe theme — very light orange / cream tones for a
+// print-friendly single-page menu (the previous dark theme burned
+// ink on a full-bleed A4).
 const C = {
-  bgDark: [18, 12, 8] as [number, number, number],
-  bgCard: [32, 22, 14] as [number, number, number],
-  bgCardAlt: [38, 26, 16] as [number, number, number],
-  amber: [245, 158, 11] as [number, number, number],
-  amberDark: [180, 83, 9] as [number, number, number],
-  amberLight: [252, 211, 77] as [number, number, number],
-  textWhite: [255, 255, 255] as [number, number, number],
-  textCream: [255, 243, 224] as [number, number, number],
-  textGray: [168, 150, 132] as [number, number, number],
-  textDimGray: [120, 105, 90] as [number, number, number],
-  vegGreen: [34, 197, 94] as [number, number, number],
-  nonVegRed: [239, 68, 68] as [number, number, number],
-  borderWarm: [55, 40, 28] as [number, number, number],
+  bgPage: [255, 250, 243] as [number, number, number], // warm ivory
+  bgCard: [255, 244, 229] as [number, number, number], // pale peach
+  bgCardAlt: [253, 239, 219] as [number, number, number], // slightly deeper peach
+  orangeSoft: [253, 230, 200] as [number, number, number], // category bar fill
+  orangeLight: [250, 204, 144] as [number, number, number], // accents / lines
+  orangeMid: [240, 165, 80] as [number, number, number], // decorative
+  orangeText: [194, 109, 22] as [number, number, number], // prices / headings
+  brownDark: [92, 58, 20] as [number, number, number], // primary text
+  brownMid: [140, 100, 60] as [number, number, number], // secondary text
+  brownDim: [180, 150, 115] as [number, number, number], // tertiary text
+  logoChip: [24, 16, 10] as [number, number, number], // dark badge behind logo
+  vegGreen: [34, 160, 84] as [number, number, number],
+  nonVegRed: [220, 70, 60] as [number, number, number],
+  border: [243, 220, 190] as [number, number, number],
 };
 
 /**
  * Logo, sharp-compressed. The raw blackLogo.png is ~200KB and jsPDF
  * re-encodes PNGs into raw flate streams — embedding it untouched
- * ballooned the PDF to ~6MB. Downscale to 240px wide and flatten
- * onto the page's dark background as a JPEG (~3KB, DCT-embedded
- * as-is by jsPDF) so the menu stays comfortably under the 100KB
- * budget.
+ * ballooned the PDF to ~6MB. Downscale to 240px and flatten onto
+ * the dark chip colour we draw behind it (the artwork is built for
+ * dark backgrounds) as a ~3KB JPEG.
  */
 async function loadLogoImage(): Promise<string | null> {
   try {
@@ -56,7 +53,7 @@ async function loadLogoImage(): Promise<string | null> {
     if (!fs.existsSync(logoPath)) return null;
     const jpeg = await sharp(logoPath)
       .resize(240, 180, { fit: "inside", withoutEnlargement: true })
-      .flatten({ background: { r: 18, g: 12, b: 8 } }) // == C.bgDark
+      .flatten({ background: { r: 24, g: 16, b: 10 } }) // == C.logoChip
       .jpeg({ quality: 70 })
       .toBuffer();
     return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
@@ -66,12 +63,9 @@ async function loadLogoImage(): Promise<string | null> {
 
 /**
  * Product thumbnail loader. Fetches the item's Vercel Blob image,
- * downscales to an 80px square on a white canvas (product shots
- * ship with white photography backgrounds — same treatment as the
- * web menu cards), and compresses to JPEG q55 (~2-4KB each). A
- * 4-second timeout per image + allSettled at the call site means
- * one slow/dead blob never blocks or breaks the whole menu — the
- * item just renders without a thumb.
+ * downscales to an 80px square on a white canvas, compresses to
+ * JPEG q55 (~2-4KB each). 4s timeout + allSettled at the call site
+ * so a dead blob degrades to a clipart placeholder, never a 500.
  */
 async function loadItemThumb(url: string): Promise<string | null> {
   try {
@@ -89,106 +83,69 @@ async function loadItemThumb(url: string): Promise<string | null> {
   }
 }
 
-// Draw clipart icons using jsPDF drawing primitives
+// ── Clipart icons (vector, near-zero bytes) ────────────────────────
+
 function drawCoffeeIcon(doc: jsPDF, cx: number, cy: number, size: number) {
   const s = size;
-  // Cup body
-  doc.setFillColor(...C.amberDark);
+  doc.setFillColor(...C.orangeMid);
   doc.roundedRect(cx - s * 0.4, cy - s * 0.1, s * 0.8, s * 0.6, s * 0.08, s * 0.08, "F");
-  // Handle
-  doc.setDrawColor(...C.amberDark);
+  doc.setDrawColor(...C.orangeMid);
   doc.setLineWidth(s * 0.08);
-  doc.circle(cx + s * 0.55, cy + s * 0.15, s * 0.15, "S");
-  // Saucer
-  doc.setFillColor(...C.amber);
-  doc.ellipse(cx, cy + s * 0.55, s * 0.55, s * 0.1, "F");
-  // Steam lines
-  doc.setDrawColor(...C.amberLight);
-  doc.setLineWidth(s * 0.04);
-  doc.line(cx - s * 0.15, cy - s * 0.2, cx - s * 0.1, cy - s * 0.4);
-  doc.line(cx, cy - s * 0.2, cx + s * 0.05, cy - s * 0.45);
-  doc.line(cx + s * 0.15, cy - s * 0.2, cx + s * 0.1, cy - s * 0.38);
+  doc.ellipse(cx + s * 0.5, cy + s * 0.18, s * 0.18, s * 0.22, "S");
+  doc.setFillColor(...C.orangeLight);
+  doc.ellipse(cx, cy - s * 0.1, s * 0.4, s * 0.1, "F");
+  for (let i = -1; i <= 1; i++) {
+    doc.setDrawColor(...C.orangeLight);
+    doc.setLineWidth(s * 0.06);
+    doc.line(cx + i * s * 0.18, cy - s * 0.5, cx + i * s * 0.18, cy - s * 0.25);
+  }
 }
 
 function drawSnackIcon(doc: jsPDF, cx: number, cy: number, size: number) {
   const s = size;
-  // Popcorn bucket
-  doc.setFillColor(220, 50, 50);
-  doc.rect(cx - s * 0.3, cy - s * 0.1, s * 0.6, s * 0.6, "F");
-  // Bucket top wider
-  doc.setFillColor(220, 50, 50);
-  doc.rect(cx - s * 0.35, cy - s * 0.15, s * 0.7, s * 0.15, "F");
-  // Stripes
-  doc.setFillColor(255, 255, 255);
-  doc.rect(cx - s * 0.15, cy - s * 0.1, s * 0.06, s * 0.6, "F");
-  doc.rect(cx + s * 0.1, cy - s * 0.1, s * 0.06, s * 0.6, "F");
-  // Popcorn puffs
-  doc.setFillColor(...C.amberLight);
-  doc.circle(cx - s * 0.15, cy - s * 0.25, s * 0.12, "F");
-  doc.circle(cx + s * 0.05, cy - s * 0.3, s * 0.13, "F");
-  doc.circle(cx + s * 0.2, cy - s * 0.22, s * 0.1, "F");
-  doc.circle(cx - s * 0.05, cy - s * 0.2, s * 0.1, "F");
+  doc.setFillColor(...C.orangeMid);
+  doc.triangle(cx - s * 0.45, cy + s * 0.4, cx + s * 0.45, cy + s * 0.4, cx, cy - s * 0.45, "F");
+  doc.setFillColor(...C.orangeLight);
+  doc.circle(cx - s * 0.08, cy + s * 0.05, s * 0.07, "F");
+  doc.circle(cx + s * 0.12, cy + s * 0.22, s * 0.07, "F");
+  doc.circle(cx - s * 0.15, cy + s * 0.28, s * 0.07, "F");
 }
 
 function drawMealIcon(doc: jsPDF, cx: number, cy: number, size: number) {
   const s = size;
-  // Plate
-  doc.setFillColor(...C.textGray);
-  doc.ellipse(cx, cy + s * 0.15, s * 0.5, s * 0.2, "F");
-  doc.setFillColor(...C.textWhite);
-  doc.ellipse(cx, cy + s * 0.12, s * 0.4, s * 0.15, "F");
-  // Cloche/dome
-  doc.setFillColor(...C.amberDark);
-  doc.ellipse(cx, cy - s * 0.05, s * 0.35, s * 0.3, "F");
-  // Handle knob
-  doc.setFillColor(...C.amber);
-  doc.circle(cx, cy - s * 0.35, s * 0.06, "F");
-  // Steam
-  doc.setDrawColor(...C.amberLight);
-  doc.setLineWidth(s * 0.03);
-  doc.line(cx - s * 0.1, cy - s * 0.45, cx - s * 0.05, cy - s * 0.55);
-  doc.line(cx + s * 0.1, cy - s * 0.42, cx + s * 0.05, cy - s * 0.55);
+  doc.setDrawColor(...C.orangeMid);
+  doc.setLineWidth(s * 0.09);
+  doc.circle(cx, cy, s * 0.45, "S");
+  doc.setFillColor(...C.orangeMid);
+  doc.circle(cx, cy, s * 0.28, "F");
+  doc.setFillColor(...C.orangeLight);
+  doc.circle(cx - s * 0.06, cy - s * 0.06, s * 0.1, "F");
 }
 
 function drawDessertIcon(doc: jsPDF, cx: number, cy: number, size: number) {
   const s = size;
-  // Cake base
-  doc.setFillColor(...C.amberDark);
-  doc.roundedRect(cx - s * 0.35, cy + s * 0.05, s * 0.7, s * 0.35, s * 0.05, s * 0.05, "F");
-  // Cake top layer
-  doc.setFillColor(220, 130, 70);
-  doc.roundedRect(cx - s * 0.3, cy - s * 0.15, s * 0.6, s * 0.25, s * 0.05, s * 0.05, "F");
-  // Frosting
-  doc.setFillColor(...C.amberLight);
-  doc.ellipse(cx, cy - s * 0.15, s * 0.32, s * 0.08, "F");
-  // Cherry
-  doc.setFillColor(220, 50, 50);
-  doc.circle(cx, cy - s * 0.3, s * 0.08, "F");
-  // Candle
-  doc.setFillColor(...C.textWhite);
-  doc.rect(cx - s * 0.02, cy - s * 0.5, s * 0.04, s * 0.2, "F");
-  // Flame
-  doc.setFillColor(...C.amber);
-  doc.ellipse(cx, cy - s * 0.55, s * 0.04, s * 0.06, "F");
+  doc.setFillColor(...C.orangeMid);
+  doc.triangle(cx - s * 0.35, cy - s * 0.1, cx + s * 0.35, cy - s * 0.1, cx, cy + s * 0.45, "F");
+  doc.setFillColor(...C.orangeLight);
+  doc.ellipse(cx, cy - s * 0.15, s * 0.38, s * 0.12, "F");
+  doc.setFillColor(...C.nonVegRed);
+  doc.circle(cx, cy - s * 0.32, s * 0.09, "F");
 }
 
 function drawComboIcon(doc: jsPDF, cx: number, cy: number, size: number) {
   const s = size;
-  // Star shape
-  doc.setFillColor(...C.amber);
   const points = 5;
-  const outerR = s * 0.4;
-  const innerR = s * 0.18;
+  const outerR = s * 0.45;
+  const innerR = s * 0.2;
   for (let i = 0; i < points; i++) {
-    const outerAngle = (Math.PI * 2 * i) / points - Math.PI / 2;
-    const innerAngle = outerAngle + Math.PI / points;
-    const ox = cx + Math.cos(outerAngle) * outerR;
-    const oy = cy + Math.sin(outerAngle) * outerR;
+    const angle = (Math.PI * 2 * i) / points - Math.PI / 2;
+    const ox = cx + Math.cos(angle) * outerR;
+    const oy = cy + Math.sin(angle) * outerR;
+    const innerAngle = angle + Math.PI / points;
     const ix = cx + Math.cos(innerAngle) * innerR;
     const iy = cy + Math.sin(innerAngle) * innerR;
-    doc.setFillColor(...C.amber);
+    doc.setFillColor(...C.orangeMid);
     doc.triangle(cx, cy, ox, oy, ix, iy, "F");
-    // Next outer point
     const nextAngle = (Math.PI * 2 * (i + 1)) / points - Math.PI / 2;
     const nx = cx + Math.cos(nextAngle) * outerR;
     const ny = cy + Math.sin(nextAngle) * outerR;
@@ -196,8 +153,7 @@ function drawComboIcon(doc: jsPDF, cx: number, cy: number, size: number) {
   }
 }
 
-function drawCategoryIcon(doc: jsPDF, cat: string, cx: number, cy: number) {
-  const size = 6;
+function drawCategoryIcon(doc: jsPDF, cat: string, cx: number, cy: number, size = 5) {
   switch (cat) {
     case "SNACKS": drawSnackIcon(doc, cx, cy, size); break;
     case "BEVERAGES": drawCoffeeIcon(doc, cx, cy, size); break;
@@ -207,155 +163,131 @@ function drawCategoryIcon(doc: jsPDF, cat: string, cx: number, cy: number) {
   }
 }
 
+// ── Page chrome ────────────────────────────────────────────────────
+
 function drawBackground(doc: jsPDF, pw: number, ph: number) {
-  doc.setFillColor(...C.bgDark);
+  doc.setFillColor(...C.bgPage);
   doc.rect(0, 0, pw, ph, "F");
 
-  // Subtle texture
+  // Soft corner blushes
   // @ts-expect-error jsPDF GState
-  doc.setGState(new doc.GState({ opacity: 0.03 }));
-  for (let i = 0; i < pw; i += 8) {
-    doc.setFillColor(180, 120, 60);
-    doc.rect(i, 0, 4, ph, "F");
-  }
-  // @ts-expect-error jsPDF GState
-  doc.setGState(new doc.GState({ opacity: 0.02 }));
-  for (let i = -ph; i < pw; i += 30) {
-    doc.setFillColor(255, 180, 80);
-    doc.rect(i, 0, 12, ph, "F");
-  }
+  doc.setGState(new doc.GState({ opacity: 0.18 }));
+  doc.setFillColor(...C.orangeSoft);
+  doc.circle(-15, -15, 70, "F");
+  doc.circle(pw + 15, ph + 15, 70, "F");
   // @ts-expect-error jsPDF GState
   doc.setGState(new doc.GState({ opacity: 1 }));
 
-  // Corner glow
-  // @ts-expect-error jsPDF GState
-  doc.setGState(new doc.GState({ opacity: 0.06 }));
-  doc.setFillColor(...C.amber);
-  doc.circle(-20, -20, 80, "F");
-  doc.circle(pw + 20, ph + 20, 80, "F");
-  // @ts-expect-error jsPDF GState
-  doc.setGState(new doc.GState({ opacity: 1 }));
+  // Top/bottom soft orange bands
+  doc.setFillColor(...C.orangeLight);
+  doc.rect(0, 0, pw, 2.5, "F");
+  doc.setFillColor(...C.orangeSoft);
+  doc.rect(0, 2.5, pw, 0.8, "F");
+  doc.setFillColor(...C.orangeLight);
+  doc.rect(0, ph - 2.5, pw, 2.5, "F");
+  doc.setFillColor(...C.orangeSoft);
+  doc.rect(0, ph - 3.3, pw, 0.8, "F");
 
-  // Top/bottom amber bars
-  doc.setFillColor(...C.amberDark);
-  doc.rect(0, 0, pw, 3, "F");
-  doc.setFillColor(...C.amber);
-  doc.rect(0, 3, pw, 0.5, "F");
-  doc.setFillColor(...C.amberDark);
-  doc.rect(0, ph - 3, pw, 3, "F");
-  doc.setFillColor(...C.amber);
-  doc.rect(0, ph - 3.5, pw, 0.5, "F");
-
-  // Side borders
-  doc.setDrawColor(...C.amberDark);
+  // Hairline side borders + corner dots
+  doc.setDrawColor(...C.orangeLight);
   doc.setLineWidth(0.3);
-  doc.line(8, 8, 8, ph - 8);
-  doc.line(pw - 8, 8, pw - 8, ph - 8);
-
-  // Corner decorative squares
-  const cornerSize = 3;
-  doc.setFillColor(...C.amber);
-  // Top-left
-  doc.rect(8 - cornerSize / 2, 8 - cornerSize / 2, cornerSize, cornerSize, "F");
-  // Top-right
-  doc.rect(pw - 8 - cornerSize / 2, 8 - cornerSize / 2, cornerSize, cornerSize, "F");
-  // Bottom-left
-  doc.rect(8 - cornerSize / 2, ph - 8 - cornerSize / 2, cornerSize, cornerSize, "F");
-  // Bottom-right
-  doc.rect(pw - 8 - cornerSize / 2, ph - 8 - cornerSize / 2, cornerSize, cornerSize, "F");
+  doc.line(7, 7, 7, ph - 7);
+  doc.line(pw - 7, 7, pw - 7, ph - 7);
+  doc.setFillColor(...C.orangeMid);
+  for (const [x, y] of [[7, 7], [pw - 7, 7], [7, ph - 7], [pw - 7, ph - 7]] as const) {
+    doc.circle(x, y, 1, "F");
+  }
 }
 
 function drawHeader(doc: jsPDF, pw: number, logoImg: string | null): number {
-  const headerY = 10;
+  const headerY = 9;
 
-  // Logo
+  // Logo on a dark rounded chip (the artwork is built for dark
+  // backgrounds — floating it straight on ivory looks washed out).
   if (logoImg) {
-    doc.addImage(logoImg, "JPEG", pw / 2 - 12, headerY, 24, 18);
+    doc.setFillColor(...C.logoChip);
+    doc.roundedRect(pw / 2 - 13, headerY - 1, 26, 18, 2, 2, "F");
+    doc.addImage(logoImg, "JPEG", pw / 2 - 11, headerY, 22, 16);
   }
 
-  const afterLogo = logoImg ? headerY + 21 : headerY + 2;
+  const afterLogo = logoImg ? headerY + 20 : headerY + 2;
 
-  // Company name
-  doc.setTextColor(...C.amber);
-  doc.setFontSize(11);
+  doc.setTextColor(...C.orangeText);
+  doc.setFontSize(10);
   doc.setFont("helvetica", "bold");
   doc.text("MOMENTUM ARENA", pw / 2, afterLogo, { align: "center" });
 
-  // Subtitle
-  doc.setTextColor(...C.textDimGray);
-  doc.setFontSize(6.5);
+  doc.setTextColor(...C.brownDim);
+  doc.setFontSize(6);
   doc.setFont("helvetica", "normal");
-  doc.text("Mathura's Premier Multi-Sport Arena", pw / 2, afterLogo + 5, { align: "center" });
+  doc.text("Mathura's Premier Multi-Sport Arena", pw / 2, afterLogo + 4, { align: "center" });
 
-  // Decorative line
-  const lineY = afterLogo + 9;
-  doc.setDrawColor(...C.amber);
+  // Decorative line + dots
+  const lineY = afterLogo + 7.5;
+  doc.setDrawColor(...C.orangeLight);
   doc.setLineWidth(0.4);
-  doc.line(pw / 2 - 45, lineY, pw / 2 - 15, lineY);
-  doc.line(pw / 2 + 15, lineY, pw / 2 + 45, lineY);
-  doc.setFillColor(...C.amber);
-  doc.circle(pw / 2 - 10, lineY, 0.7, "F");
+  doc.line(pw / 2 - 42, lineY, pw / 2 - 14, lineY);
+  doc.line(pw / 2 + 14, lineY, pw / 2 + 42, lineY);
+  doc.setFillColor(...C.orangeMid);
+  doc.circle(pw / 2 - 9, lineY, 0.7, "F");
   doc.circle(pw / 2, lineY, 0.9, "F");
-  doc.circle(pw / 2 + 10, lineY, 0.7, "F");
+  doc.circle(pw / 2 + 9, lineY, 0.7, "F");
 
-  // CAFE MENU title
-  doc.setTextColor(...C.textCream);
-  doc.setFontSize(30);
+  // Title
+  doc.setTextColor(...C.brownDark);
+  doc.setFontSize(24);
   doc.setFont("helvetica", "bold");
-  doc.text("CAFE MENU", pw / 2, lineY + 14, { align: "center" });
+  doc.text("CAFE MENU", pw / 2, lineY + 10, { align: "center" });
+  drawCoffeeIcon(doc, pw / 2 - 40, lineY + 7, 4.5);
+  drawCoffeeIcon(doc, pw / 2 + 40, lineY + 7, 4.5);
 
-  // Coffee clipart on both sides of title
-  drawCoffeeIcon(doc, pw / 2 - 45, lineY + 10, 5);
-  drawCoffeeIcon(doc, pw / 2 + 45, lineY + 10, 5);
-
-  // Tagline
-  doc.setTextColor(...C.amberLight);
-  doc.setFontSize(8);
+  doc.setTextColor(...C.orangeText);
+  doc.setFontSize(7);
   doc.setFont("helvetica", "italic");
-  doc.text("Fuel Your Game  |  Snacks, Beverages & Meals", pw / 2, lineY + 20, { align: "center" });
+  doc.text("Fuel Your Game  |  Snacks, Beverages & Meals", pw / 2, lineY + 15, { align: "center" });
 
-  // Bottom flourish
-  const fy = lineY + 24;
-  doc.setDrawColor(...C.amber);
+  const fy = lineY + 18.5;
+  doc.setDrawColor(...C.orangeLight);
   doc.setLineWidth(0.3);
-  doc.line(pw / 2 - 50, fy, pw / 2 + 50, fy);
-  doc.setFillColor(...C.amber);
-  doc.circle(pw / 2 - 52, fy, 0.6, "F");
-  doc.circle(pw / 2 + 52, fy, 0.6, "F");
+  doc.line(pw / 2 - 48, fy, pw / 2 + 48, fy);
 
-  return fy + 6;
+  return fy + 4;
 }
 
 function drawContinuationHeader(doc: jsPDF, pw: number, margin: number, logoImg: string | null): number {
   if (logoImg) {
+    doc.setFillColor(...C.logoChip);
+    doc.roundedRect(margin - 1, 4, 14, 11, 1.5, 1.5, "F");
     doc.addImage(logoImg, "JPEG", margin, 5, 12, 9);
   }
-  doc.setTextColor(...C.amber);
+  doc.setTextColor(...C.orangeText);
   doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
   doc.text("MOMENTUM ARENA  |  CAFE MENU", pw / 2, 10, { align: "center" });
-  doc.setDrawColor(...C.borderWarm);
+  doc.setDrawColor(...C.border);
   doc.setLineWidth(0.3);
-  doc.line(margin, 14, pw - margin, 14);
-  return 19;
+  doc.line(margin, 16, pw - margin, 16);
+  return 20;
 }
 
 function drawFooter(doc: jsPDF, pw: number, ph: number, margin: number, pageNum: number, totalPages: number) {
-  const fy = ph - 18;
-  doc.setDrawColor(...C.borderWarm);
+  const fy = ph - 16;
+  doc.setDrawColor(...C.border);
   doc.setLineWidth(0.3);
   doc.line(margin, fy, pw - margin, fy);
 
-  doc.setFontSize(6.5);
-  doc.setFont("helvetica", "italic");
-  doc.setTextColor(...C.textDimGray);
-  doc.text("All prices inclusive of GST  |  Menu items subject to availability", pw / 2, fy + 4, { align: "center" });
-  doc.text("+91 63961 77261  |  momentumarena2026@gmail.com  |  momentumarena.com", pw / 2, fy + 8, { align: "center" });
-
   doc.setFontSize(6);
-  doc.setTextColor(...C.textDimGray);
-  doc.text(`${pageNum} / ${totalPages}`, pw / 2, fy + 12, { align: "center" });
+  doc.setFont("helvetica", "italic");
+  doc.setTextColor(...C.brownDim);
+  doc.text("All prices inclusive of GST  |  Menu items subject to availability", pw / 2, fy + 3.5, { align: "center" });
+  doc.text("+91 63961 77261  |  momentumarena2026@gmail.com  |  momentumarena.com", pw / 2, fy + 7, { align: "center" });
+  if (totalPages > 1) {
+    doc.setFontSize(5.5);
+    doc.text(`${pageNum} / ${totalPages}`, pw / 2, fy + 10.5, { align: "center" });
+  }
 }
+
+// ── Generator ──────────────────────────────────────────────────────
 
 export async function GET() {
   const items = await db.cafeItem.findMany({
@@ -369,7 +301,7 @@ export async function GET() {
     grouped[item.category].push(item);
   }
 
-  // Load the logo + every product thumb in parallel. allSettled so
+  // Load the logo + every product thumb in parallel; allSettled so
   // a dead blob URL degrades to a thumb-less row, never a 500.
   const [logoImg, thumbEntries] = await Promise.all([
     loadLogoImage(),
@@ -388,165 +320,164 @@ export async function GET() {
       thumbs.set(e.value.id, e.value.thumb);
     }
   }
+
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pw = 210;
   const ph = 297;
-  const margin = 16;
-  const cw = pw - margin * 2;
+  const margin = 13;
+  const gutter = 6;
+  // Two-column layout — the menu flows down the LEFT half of the
+  // page, then continues in the RIGHT half, so a typical menu fits
+  // on a single sheet. Spills to a second page only when both
+  // halves are full.
+  const colW = (pw - margin * 2 - gutter) / 2;
+  const colX = [margin, margin + colW + gutter];
+  const footerY = ph - 20;
 
-  // First page
   drawBackground(doc, pw, ph);
   let y = drawHeader(doc, pw, logoImg);
+  let col = 0;
+  let colTop = y; // top of the column area on the current page
+
+  // Centre divider between the two halves (drawn per page).
+  const drawDivider = (topY: number) => {
+    doc.setDrawColor(...C.border);
+    doc.setLineWidth(0.3);
+    doc.line(pw / 2, topY, pw / 2, footerY - 2);
+  };
+  drawDivider(colTop);
+
+  // Advance cursor: ensure `h` mm fit in the current column; move
+  // to the right column, then to a fresh page, as needed.
+  const ensure = (h: number) => {
+    if (y + h <= footerY) return;
+    if (col === 0) {
+      col = 1;
+      y = colTop;
+      if (y + h <= footerY) return;
+    }
+    doc.addPage();
+    drawBackground(doc, pw, ph);
+    colTop = drawContinuationHeader(doc, pw, margin, logoImg);
+    drawDivider(colTop);
+    col = 0;
+    y = colTop;
+  };
 
   const categories = CATEGORY_ORDER.filter((c) => grouped[c]?.length > 0);
-  const footerY = ph - 22;
 
   for (let ci = 0; ci < categories.length; ci++) {
     const cat = categories[ci];
     const catItems = grouped[cat];
     const catInfo = CATEGORY_LABELS[cat] || { label: cat };
 
-    if (y + 22 > footerY) {
-      doc.addPage();
-      drawBackground(doc, pw, ph);
-      y = drawContinuationHeader(doc, pw, margin, logoImg);
-    }
+    // Keep the category header glued to at least its first item.
+    ensure(9 + 13);
+    const x = colX[col];
 
-    // Category header — amber bar
-    doc.setFillColor(...C.amberDark);
-    doc.roundedRect(margin, y, cw, 10, 1.5, 1.5, "F");
-    // @ts-expect-error jsPDF GState
-    doc.setGState(new doc.GState({ opacity: 0.3 }));
-    doc.setFillColor(...C.amber);
-    doc.roundedRect(margin, y, cw, 5, 1.5, 1.5, "F");
-    // @ts-expect-error jsPDF GState
-    doc.setGState(new doc.GState({ opacity: 1 }));
-
-    // Category icon on left
-    drawCategoryIcon(doc, cat, margin + 10, y + 5);
-
-    // Category label
-    doc.setTextColor(...C.textWhite);
-    doc.setFontSize(12);
+    // Category header — soft orange band, brown text.
+    doc.setFillColor(...C.orangeSoft);
+    doc.roundedRect(x, y, colW, 8, 1.5, 1.5, "F");
+    doc.setDrawColor(...C.orangeLight);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, y, colW, 8, 1.5, 1.5, "S");
+    drawCategoryIcon(doc, cat, x + 6, y + 4, 4.5);
+    doc.setTextColor(...C.brownDark);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
-    doc.text(catInfo.label.toUpperCase(), pw / 2, y + 7, { align: "center" });
-
-    // Item count
-    doc.setFontSize(6.5);
+    doc.text(catInfo.label.toUpperCase(), x + 12, y + 5.3);
+    doc.setFontSize(6);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(...C.amberLight);
-    doc.text(`${catItems.length} items`, pw - margin - 4, y + 7, { align: "right" });
-
-    y += 14;
+    doc.setTextColor(...C.orangeText);
+    doc.text(`${catItems.length} items`, x + colW - 3, y + 5.3, { align: "right" });
+    y += 10.5;
 
     for (let ii = 0; ii < catItems.length; ii++) {
       const item = catItems[ii];
       const thumb = thumbs.get(item.id) ?? null;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(6);
       const descLines: string[] = item.description
-        ? (doc.splitTextToSize(item.description, cw - 44) as string[]).slice(0, 2)
+        ? (doc.splitTextToSize(item.description, colW - 26) as string[]).slice(0, 2)
         : [];
-      // Row tall enough for the 9.5mm thumbnail; grows a notch when
-      // a second description line is present.
-      const itemH = descLines.length > 1 ? 14.5 : 12;
+      const itemH = descLines.length > 1 ? 13.5 : 11;
 
-      if (y + itemH > footerY) {
-        doc.addPage();
-        drawBackground(doc, pw, ph);
-        y = drawContinuationHeader(doc, pw, margin, logoImg);
-      }
+      ensure(itemH + 1.5);
+      const ix0 = colX[col];
 
-      // Alternating card background
+      // Card
       const cardColor = ii % 2 === 0 ? C.bgCard : C.bgCardAlt;
       doc.setFillColor(...cardColor);
-      doc.roundedRect(margin, y, cw, itemH, 1, 1, "F");
+      doc.roundedRect(ix0, y, colW, itemH, 1, 1, "F");
+      doc.setFillColor(...C.orangeLight);
+      doc.rect(ix0, y, 0.8, itemH, "F");
 
-      // Left amber accent line
-      doc.setFillColor(...C.amber);
-      doc.rect(margin, y, 1, itemH, "F");
-
-      // Product thumbnail — 9.5mm square, white-backed JPEG with a
-      // warm hairline frame. Falls back to the category clipart in
-      // a placeholder box when the item has no usable image so the
-      // text column stays aligned across rows.
-      const thumbX = margin + 3;
-      const thumbY = y + (itemH - 9.5) / 2;
+      // Thumbnail (8.5mm) or clipart placeholder
+      const tX = ix0 + 2.2;
+      const tY = y + (itemH - 8.5) / 2;
       if (thumb) {
-        doc.addImage(thumb, "JPEG", thumbX, thumbY, 9.5, 9.5);
-        doc.setDrawColor(...C.borderWarm);
+        doc.addImage(thumb, "JPEG", tX, tY, 8.5, 8.5);
+        doc.setDrawColor(...C.border);
         doc.setLineWidth(0.3);
-        doc.roundedRect(thumbX, thumbY, 9.5, 9.5, 0.8, 0.8, "S");
+        doc.roundedRect(tX, tY, 8.5, 8.5, 0.8, 0.8, "S");
       } else {
-        doc.setFillColor(...C.bgDark);
-        doc.roundedRect(thumbX, thumbY, 9.5, 9.5, 0.8, 0.8, "F");
-        doc.setDrawColor(...C.borderWarm);
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(tX, tY, 8.5, 8.5, 0.8, 0.8, "F");
+        doc.setDrawColor(...C.border);
         doc.setLineWidth(0.3);
-        doc.roundedRect(thumbX, thumbY, 9.5, 9.5, 0.8, 0.8, "S");
-        drawCategoryIcon(doc, item.category, thumbX + 4.75, thumbY + 4.75);
+        doc.roundedRect(tX, tY, 8.5, 8.5, 0.8, 0.8, "S");
+        drawCategoryIcon(doc, item.category, tX + 4.25, tY + 4.25, 4);
       }
 
-      const nameX = margin + 19;
+      const nameX = ix0 + 15.5;
 
-      // Veg/Non-veg square indicator
-      const ix = margin + 15.5;
-      const iy = y + 4;
+      // Veg / non-veg indicator
+      const vx = ix0 + 12.6;
+      const vy = y + 3.6;
       doc.setDrawColor(...(item.isVeg ? C.vegGreen : C.nonVegRed));
-      doc.setLineWidth(0.5);
-      doc.rect(ix - 1.5, iy - 1.5, 3, 3, "S");
+      doc.setLineWidth(0.4);
+      doc.rect(vx - 1.2, vy - 1.2, 2.4, 2.4, "S");
       doc.setFillColor(...(item.isVeg ? C.vegGreen : C.nonVegRed));
-      doc.circle(ix, iy, 0.6, "F");
+      doc.circle(vx, vy, 0.5, "F");
 
-      // Item name
-      doc.setTextColor(...C.textCream);
-      doc.setFontSize(9.5);
+      // Price (right-aligned) — measure first so the name can be
+      // truncated to never collide with it in the narrow column.
+      doc.setFontSize(8.5);
       doc.setFont("helvetica", "bold");
-      doc.text(item.name, nameX, y + 5);
+      const priceStr = formatMenuPrice(item.price);
+      const priceW = doc.getTextWidth(priceStr);
 
-      // Tags
-      let tx = nameX + doc.getTextWidth(item.name) + 2;
-      if (item.tags.includes("Popular")) {
-        doc.setFontSize(5.5);
-        doc.setFillColor(...C.amber);
-        const tw = doc.getTextWidth("POPULAR") + 3;
-        doc.roundedRect(tx, y + 1.5, tw, 3.5, 0.8, 0.8, "F");
-        doc.setTextColor(30, 15, 5);
-        doc.setFont("helvetica", "bold");
-        doc.text("POPULAR", tx + 1.5, y + 4);
-        tx += tw + 1.5;
+      // Name — ellipsis-truncate to the space left of the price.
+      doc.setFontSize(8);
+      const maxNameW = colW - (nameX - ix0) - priceW - 5;
+      let name = item.name;
+      while (name.length > 3 && doc.getTextWidth(name) > maxNameW) {
+        name = name.slice(0, -1);
       }
-      if (item.tags.includes("Bestseller")) {
-        doc.setFontSize(5.5);
-        doc.setFillColor(220, 50, 50);
-        const tw = doc.getTextWidth("BESTSELLER") + 3;
-        doc.roundedRect(tx, y + 1.5, tw, 3.5, 0.8, 0.8, "F");
-        doc.setTextColor(255, 255, 255);
-        doc.setFont("helvetica", "bold");
-        doc.text("BESTSELLER", tx + 1.5, y + 4);
-      }
+      if (name !== item.name) name = `${name.replace(/\s+$/, "")}…`;
+      doc.setTextColor(...C.brownDark);
+      doc.text(name, nameX, y + 4.4);
 
-      // Price
-      doc.setTextColor(...C.amber);
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.text(formatMenuPrice(item.price), pw - margin - 4, y + 5, { align: "right" });
+      doc.setTextColor(...C.orangeText);
+      doc.setFontSize(8.5);
+      doc.text(priceStr, ix0 + colW - 2.5, y + 4.4, { align: "right" });
 
       // Description
       if (descLines.length > 0) {
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        doc.setTextColor(...C.textGray);
-        let dy = y + 8.5;
+        doc.setFontSize(6);
+        doc.setTextColor(...C.brownMid);
+        let dy = y + 7.4;
         for (const line of descLines) {
           doc.text(line, nameX, dy);
-          dy += 3;
+          dy += 2.7;
         }
       }
 
       y += itemH + 1.5;
     }
 
-    y += 3;
+    y += 2;
   }
 
   // Footer on all pages
@@ -562,7 +493,11 @@ export async function GET() {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="Momentum-Arena-Cafe-Menu.pdf"`,
-      "Cache-Control": "public, max-age=3600, s-maxage=3600",
+      // Edge caches for 60s, then serves stale while regenerating in
+      // the background — menu edits propagate within ~a minute while
+      // every customer still gets an instant CDN hit. max-age=0 keeps
+      // browsers from pinning an old copy.
+      "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=3600",
     },
   });
 }
