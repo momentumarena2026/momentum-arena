@@ -568,17 +568,43 @@ export async function selectUpiPayment(
 ): Promise<BookingState> {
   const session = await auth();
   if (!session?.user?.id) {
+    logServerAction({
+      action: "payment.upi_qr.commit",
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId },
+      error: "Not authenticated",
+    });
     return { success: false, error: "Not authenticated" };
   }
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
+    logServerAction({
+      userId: session.user.id,
+      action: "payment.upi_qr.commit",
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId },
+      error: "Hold not found or expired",
+    });
     return { success: false, error: "Hold not found or expired" };
   }
 
   // Bowling-machine re-check (same as cash + razorpay flows).
   const stillOk = await verifyBowlingHoldStillBookable(holdId);
   if (!stillOk.ok) {
+    logServerAction({
+      userId: session.user.id,
+      action: "payment.upi_qr.commit",
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId, conflicts: stillOk.conflicts },
+      error: stillOk.reason,
+    });
     return { success: false, error: stillOk.reason };
   }
 
@@ -592,10 +618,28 @@ export async function selectUpiPayment(
   }, "PENDING");
 
   if (!bookingId) {
+    logServerAction({
+      userId: session.user.id,
+      action: "payment.upi_qr.commit",
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId, amount },
+      error: "Failed to create booking",
+    });
     return { success: false, error: "Failed to create booking" };
   }
 
   notifyAdminPendingBooking(bookingId).catch(console.error);
+
+  logServerAction({
+    userId: session.user.id,
+    action: "payment.upi_qr.commit",
+    category: AnalyticsCategory.PAYMENT,
+    outcome: "success",
+    platform: "web",
+    metadata: { holdId, bookingId, amount, paymentMethod: "UPI_QR" },
+  });
 
   return { success: true, bookingId };
 }
@@ -620,13 +664,35 @@ export async function selectCashPayment(
   overrideAmount?: number,
   options?: { isAdvance?: boolean }
 ): Promise<BookingState> {
+  const isAdvance = !!options?.isAdvance;
+  const action = isAdvance
+    ? "payment.cash.advance_commit"
+    : "payment.cash.commit";
+
   const session = await auth();
   if (!session?.user?.id) {
+    logServerAction({
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId, isAdvance },
+      error: "Not authenticated",
+    });
     return { success: false, error: "Not authenticated" };
   }
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
+    logServerAction({
+      userId: session.user.id,
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId, isAdvance },
+      error: "Hold not found or expired",
+    });
     return { success: false, error: "Hold not found or expired" };
   }
 
@@ -635,12 +701,20 @@ export async function selectCashPayment(
   // turf bookings on the shared zones between lock and checkout.
   const stillOk = await verifyBowlingHoldStillBookable(holdId);
   if (!stillOk.ok) {
+    logServerAction({
+      userId: session.user.id,
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId, isAdvance, conflicts: stillOk.conflicts },
+      error: stillOk.reason,
+    });
     return { success: false, error: stillOk.reason };
   }
 
   const amount =
     overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
-  const isAdvance = !!options?.isAdvance;
   // effectiveTotal is POST-discount. `amount` is the advance the customer
   // paid via UPI QR (already post-discount via overrideAmount from the
   // checkout client). Subtracting the advance from pre-discount hold.total
@@ -654,13 +728,14 @@ export async function selectCashPayment(
   const remainingAmount = isAdvance
     ? Math.max(effectiveTotal - amount, 0)
     : undefined;
+  const paymentMethod = isAdvance ? "UPI_QR" : "CASH";
 
   const bookingId = await createBookingFromHold(holdId, {
     // UPI-QR advance: customer paid the advance via the QR flow, so record
     // UPI_QR as the method. confirmUpiPayment later flips PENDING -> PARTIAL
     // once admin verifies the UTR screenshot. The venue-side cash collection
     // shows up in remainderMethod when markRemainderCollected runs.
-    method: isAdvance ? "UPI_QR" : "CASH",
+    method: paymentMethod,
     status: "PENDING",
     amount,
     isPartialPayment: isAdvance,
@@ -669,10 +744,43 @@ export async function selectCashPayment(
   }, "PENDING");
 
   if (!bookingId) {
+    logServerAction({
+      userId: session.user.id,
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      platform: "web",
+      metadata: {
+        holdId,
+        isAdvance,
+        amount,
+        advanceAmount,
+        remainingAmount,
+        paymentMethod,
+      },
+      error: "Failed to create booking",
+    });
     return { success: false, error: "Failed to create booking" };
   }
 
   notifyAdminPendingBooking(bookingId).catch(console.error);
+
+  logServerAction({
+    userId: session.user.id,
+    action,
+    category: AnalyticsCategory.PAYMENT,
+    outcome: "success",
+    platform: "web",
+    metadata: {
+      holdId,
+      bookingId,
+      isAdvance,
+      amount,
+      advanceAmount,
+      remainingAmount,
+      paymentMethod,
+    },
+  });
 
   return { success: true, bookingId };
 }
