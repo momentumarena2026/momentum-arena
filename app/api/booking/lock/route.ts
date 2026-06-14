@@ -12,6 +12,7 @@ import { getBowlingMachineAvailability } from "@/lib/bowling-availability";
 import { snapshotEquipmentForHold } from "@/lib/equipment";
 import { db } from "@/lib/db";
 import { Prisma, Sport } from "@prisma/client";
+import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 /**
  * Snapshot the customer's equipment picks onto the just-created hold,
@@ -62,6 +63,26 @@ async function applyEquipmentToFreshHold(
     console.warn("[lock] equipment update failed for hold", holdId, err);
     return { applied: false, error: "Couldn't save equipment selection" };
   }
+}
+
+function logBookingLock(
+  request: NextRequest,
+  userId: string,
+  outcome: "success" | "error",
+  metadata: Record<string, unknown>,
+  error?: string,
+) {
+  logServerAction({
+    userId,
+    action: "booking.lock",
+    category: AnalyticsCategory.BOOKING,
+    outcome,
+    path: request.nextUrl.pathname,
+    method: "POST",
+    platform: resolveRequestPlatform(request),
+    metadata,
+    error,
+  });
 }
 
 // POST /api/booking/lock — creates a transient SlotHold (5 min TTL).
@@ -122,6 +143,13 @@ export async function POST(request: NextRequest) {
       }
     }
     if (unavailable.length > 0) {
+      logBookingLock(
+        request,
+        userId,
+        "error",
+        { mode: "bowling-machine", courtConfigId, date, slots: picks.length },
+        "Slots no longer available",
+      );
       return NextResponse.json(
         {
           success: false,
@@ -151,8 +179,23 @@ export async function POST(request: NextRequest) {
         formData.get("equipmentSelection"),
         picks.length,
       );
+      logBookingLock(request, userId, "success", {
+        mode: "bowling-machine",
+        holdId: result.holdId,
+        courtConfigId,
+        date,
+        slotCount: picks.length,
+        equipmentApplied: eq.applied,
+      });
       return NextResponse.json({ ...result, equipmentApplied: eq.applied });
     }
+    logBookingLock(
+      request,
+      userId,
+      "error",
+      { mode: "bowling-machine", courtConfigId, date },
+      result.error,
+    );
     return NextResponse.json(result);
   }
 
@@ -200,8 +243,23 @@ export async function POST(request: NextRequest) {
         formData.get("equipmentSelection"),
         hours.length,
       );
+      logBookingLock(request, userId, "success", {
+        mode: "medium",
+        holdId: result.holdId,
+        sport,
+        date,
+        slotCount: hours.length,
+        equipmentApplied: eq.applied,
+      });
       return NextResponse.json({ ...result, equipmentApplied: eq.applied });
     }
+    logBookingLock(
+      request,
+      userId,
+      "error",
+      { mode: "medium", sport, date },
+      result.error,
+    );
     return NextResponse.json(result);
   }
 
@@ -230,8 +288,23 @@ export async function POST(request: NextRequest) {
       formData.get("equipmentSelection"),
       hours.length,
     );
+    logBookingLock(request, userId, "success", {
+      mode: mode ?? "default",
+      holdId: result.holdId,
+      courtConfigId,
+      date,
+      slotCount: hours.length,
+      equipmentApplied: eq.applied,
+    });
     return NextResponse.json({ ...result, equipmentApplied: eq.applied });
   }
 
+  logBookingLock(
+    request,
+    userId,
+    "error",
+    { mode: mode ?? "default", courtConfigId, date },
+    result.error,
+  );
   return NextResponse.json(result);
 }

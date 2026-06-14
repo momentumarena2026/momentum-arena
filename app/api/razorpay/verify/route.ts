@@ -8,6 +8,7 @@ import {
 } from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
 import { awardBookingPoints } from "@/lib/rewards/earn";
+import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
@@ -37,6 +38,17 @@ export async function POST(request: NextRequest) {
     razorpaySignature
   );
   if (!isValid) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.verify",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId, razorpayOrderId },
+      error: "Invalid payment signature",
+    });
     return NextResponse.json(
       { error: "Invalid payment signature" },
       { status: 400 }
@@ -48,19 +60,72 @@ export async function POST(request: NextRequest) {
     where: { razorpayPaymentId },
   });
   if (existing) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.verify",
+      outcome: "success",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: {
+        holdId,
+        bookingId: existing.bookingId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        idempotent: true,
+      },
+    });
     return NextResponse.json({ success: true, bookingId: existing.bookingId });
   }
 
   if (!hold) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.verify",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId, razorpayOrderId },
+      error: "Hold expired",
+    });
     return NextResponse.json(
       { error: "Hold expired — please try again" },
       { status: 410 }
     );
   }
   if (hold.userId !== userId) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.verify",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId, razorpayOrderId },
+      error: "Forbidden",
+    });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (hold.razorpayOrderId !== razorpayOrderId) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.verify",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: {
+        holdId,
+        razorpayOrderId,
+        expectedOrderId: hold.razorpayOrderId,
+      },
+      error: "Order mismatch",
+    });
     return NextResponse.json({ error: "Order mismatch" }, { status: 400 });
   }
 
@@ -106,6 +171,17 @@ export async function POST(request: NextRequest) {
   );
 
   if (!bookingId) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.verify",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId, razorpayOrderId, razorpayPaymentId, isAdvance: !!isAdvance },
+      error: "Failed to create booking",
+    });
     return NextResponse.json(
       { error: "Failed to create booking" },
       { status: 500 }
@@ -136,6 +212,24 @@ export async function POST(request: NextRequest) {
         console.error("[rewards] award failed for", bookingId, err)
       ),
     ]);
+  });
+
+  logServerAction({
+    userId,
+    category: AnalyticsCategory.PAYMENT,
+    action: "payment.razorpay.verify",
+    outcome: "success",
+    path: request.nextUrl.pathname,
+    method: "POST",
+    platform: resolveRequestPlatform(request),
+    metadata: {
+      holdId,
+      bookingId,
+      razorpayOrderId,
+      razorpayPaymentId,
+      amount: paymentAmount,
+      isAdvance: !!isAdvance,
+    },
   });
 
   return NextResponse.json({ success: true, bookingId });

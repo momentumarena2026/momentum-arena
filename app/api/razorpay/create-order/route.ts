@@ -5,6 +5,7 @@ import { createRazorpayOrder, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getValidHold } from "@/lib/slot-hold";
 import { LOCK_TTL_MINUTES } from "@/lib/court-config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
+import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
 
@@ -22,6 +23,17 @@ export async function POST(request: NextRequest) {
 
   const hold = await getValidHold(holdId, userId);
   if (!hold) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.create_order",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId },
+      error: "Hold not found or expired",
+    });
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 }
@@ -34,6 +46,17 @@ export async function POST(request: NextRequest) {
   // for hour-granular sports — they have their own conflict path.
   const stillOk = await verifyBowlingHoldStillBookable(holdId);
   if (!stillOk.ok) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.create_order",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId, conflicts: stillOk.conflicts },
+      error: stillOk.reason,
+    });
     return NextResponse.json(
       { error: stillOk.reason, conflicts: stillOk.conflicts },
       { status: 409 },
@@ -78,6 +101,24 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.create_order",
+      outcome: "success",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: {
+        holdId,
+        orderId: order.id,
+        amount: orderAmount,
+        isAdvance: !!isAdvance,
+        advanceAmount: advanceAmount ?? null,
+        remainingAmount: remainingAmount ?? null,
+      },
+    });
+
     return NextResponse.json({
       orderId: order.id,
       keyId: RAZORPAY_KEY_ID,
@@ -89,10 +130,20 @@ export async function POST(request: NextRequest) {
       remainingAmount: remainingAmount ?? null,
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create order" },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to create order";
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.razorpay.create_order",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId },
+      error: message,
+    });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

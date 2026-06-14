@@ -3,6 +3,7 @@ import { getMobileUser } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { validateCoupon } from "@/actions/coupon-validation";
+import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 // POST /api/mobile/booking/apply-coupon — HTTP wrapper for applyCouponToHold
 // (which is a server action tied to NextAuth and therefore unreachable from
@@ -28,6 +29,17 @@ export async function POST(request: NextRequest) {
 
   const hold = await getValidHold(holdId, user.id);
   if (!hold) {
+    logServerAction({
+      userId: user.id,
+      action: "booking.apply_coupon",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId, code },
+      error: "Hold not found or expired",
+    });
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 }
@@ -45,6 +57,22 @@ export async function POST(request: NextRequest) {
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {
+    logServerAction({
+      userId: user.id,
+      action: "booking.apply_coupon",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: {
+        holdId,
+        code,
+        sport: hold.courtConfig.sport,
+        amount: hold.totalAmount,
+      },
+      error: result.error ?? "Invalid coupon",
+    });
     return NextResponse.json(
       { success: false, error: result.error ?? "Invalid coupon" },
       { status: 400 }
@@ -63,6 +91,23 @@ export async function POST(request: NextRequest) {
       discountAmount: result.discountAmount,
       pointsToRedeem: null,
       pointsRedeemPaiseSaved: null,
+    },
+  });
+
+  logServerAction({
+    userId: user.id,
+    action: "booking.apply_coupon",
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    path: request.nextUrl.pathname,
+    method: "POST",
+    platform: resolveRequestPlatform(request),
+    metadata: {
+      holdId,
+      code: code.toUpperCase().trim(),
+      discountAmount: result.discountAmount,
+      sport: hold.courtConfig.sport,
+      amount: hold.totalAmount,
     },
   });
 
@@ -100,6 +145,17 @@ export async function DELETE(request: NextRequest) {
       pointsToRedeem: null,
       pointsRedeemPaiseSaved: null,
     },
+  });
+
+  logServerAction({
+    userId: user.id,
+    action: "booking.clear_coupon",
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    path: request.nextUrl.pathname,
+    method: "DELETE",
+    platform: resolveRequestPlatform(request),
+    metadata: { holdId, previousCode: hold.couponCode },
   });
 
   return NextResponse.json({ success: true });

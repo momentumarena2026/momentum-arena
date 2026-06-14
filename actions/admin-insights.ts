@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { FUNNELS, type FunnelKey } from "@/lib/analytics-funnels";
-import type { Prisma } from "@prisma/client";
+import { AnalyticsCategory, type Prisma } from "@prisma/client";
 
 /**
  * First-party analytics queries for /admin/analytics/{funnels,events,
@@ -468,4 +468,149 @@ export async function listEventNames(): Promise<string[]> {
     ORDER BY "name"
   `;
   return rows.map((r) => r.name);
+}
+
+// ---------- Server action log ----------
+
+export interface ServerLogRow {
+  id: string;
+  action: string;
+  category: string;
+  outcome: string;
+  userId: string | null;
+  userName: string | null;
+  userPhone: string | null;
+  path: string | null;
+  method: string | null;
+  platform: string;
+  metadata: Prisma.JsonValue;
+  error: string | null;
+  occurredAt: string;
+}
+
+export interface ServerLogsListResult {
+  rows: ServerLogRow[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export async function listServerActionLogs(filters: {
+  action?: string;
+  category?: AnalyticsCategory;
+  userId?: string;
+  outcome?: string;
+  before?: string;
+  limit?: number;
+}): Promise<ServerLogsListResult> {
+  await requireAdmin("VIEW_ANALYTICS");
+
+  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
+
+  const where: Prisma.ServerActionLogWhereInput = {};
+  if (filters.action) where.action = filters.action;
+  if (filters.category) where.category = filters.category;
+  if (filters.userId) where.userId = filters.userId;
+  if (filters.outcome) where.outcome = filters.outcome;
+  if (filters.before) where.occurredAt = { lt: new Date(filters.before) };
+
+  const rows = await db.serverActionLog.findMany({
+    where,
+    orderBy: { occurredAt: "desc" },
+    take: limit + 1,
+    select: {
+      id: true,
+      action: true,
+      category: true,
+      outcome: true,
+      userId: true,
+      path: true,
+      method: true,
+      platform: true,
+      metadata: true,
+      error: true,
+      occurredAt: true,
+      user: { select: { name: true, phone: true } },
+    },
+  });
+
+  const hasMore = rows.length > limit;
+  const sliced = hasMore ? rows.slice(0, limit) : rows;
+  const nextCursor = hasMore ? sliced[sliced.length - 1].occurredAt.toISOString() : null;
+
+  return {
+    rows: sliced.map((r) => ({
+      id: r.id,
+      action: r.action,
+      category: String(r.category),
+      outcome: r.outcome,
+      userId: r.userId,
+      userName: r.user?.name ?? null,
+      userPhone: r.user?.phone ?? null,
+      path: r.path,
+      method: r.method,
+      platform: r.platform,
+      metadata: r.metadata,
+      error: r.error,
+      occurredAt: r.occurredAt.toISOString(),
+    })),
+    hasMore,
+    nextCursor,
+  };
+}
+
+/** Distinct server action names from the last 30 days. */
+export async function listServerActionNames(): Promise<string[]> {
+  await requireAdmin("VIEW_ANALYTICS");
+  const cutoff = new Date();
+  cutoff.setUTCDate(cutoff.getUTCDate() - 30);
+  type Row = { action: string };
+  const rows = await db.$queryRaw<Row[]>`
+    SELECT DISTINCT "action"
+    FROM "ServerActionLog"
+    WHERE "occurredAt" >= ${cutoff}
+    ORDER BY "action"
+  `;
+  return rows.map((r) => r.action);
+}
+
+export interface ServerLogUserOption {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  lastOccurredAt: string;
+}
+
+/** Users with server logs, newest activity first — for the filter dropdown. */
+export async function listServerLogUsers(
+  limit = 200,
+): Promise<ServerLogUserOption[]> {
+  await requireAdmin("VIEW_ANALYTICS");
+
+  type Row = {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    lastOccurredAt: Date;
+  };
+
+  const rows = await db.$queryRaw<Row[]>`
+    SELECT
+      u.id,
+      u.name,
+      u.phone,
+      MAX(s."occurredAt") AS "lastOccurredAt"
+    FROM "ServerActionLog" s
+    INNER JOIN "User" u ON u.id = s."userId"
+    WHERE s."userId" IS NOT NULL
+    GROUP BY u.id, u.name, u.phone
+    ORDER BY MAX(s."occurredAt") DESC
+    LIMIT ${limit}
+  `;
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    phone: r.phone,
+    lastOccurredAt: r.lastOccurredAt.toISOString(),
+  }));
 }
