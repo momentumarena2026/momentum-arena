@@ -17,6 +17,7 @@ import {
 } from "@/lib/notifications";
 import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
+import { AnalyticsCategory, logServerAction } from "@/lib/server-log";
 import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
@@ -149,11 +150,28 @@ export async function applyCouponToHold(
 ): Promise<{ success: boolean; discountAmount?: number; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) {
+    logServerAction({
+      action: "booking.apply_coupon",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId, code },
+      error: "Not authenticated",
+    });
     return { success: false, error: "Not authenticated" };
   }
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
+    logServerAction({
+      userId: session.user.id,
+      action: "booking.apply_coupon",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      platform: "web",
+      metadata: { holdId, code },
+      error: "Hold not found or expired",
+    });
     return { success: false, error: "Hold not found or expired" };
   }
 
@@ -169,6 +187,20 @@ export async function applyCouponToHold(
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {
+    logServerAction({
+      userId: session.user.id,
+      action: "booking.apply_coupon",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      platform: "web",
+      metadata: {
+        holdId,
+        code,
+        sport: hold.courtConfig.sport,
+        amount: hold.totalAmount,
+      },
+      error: result.error ?? "Invalid coupon",
+    });
     return { success: false, error: result.error ?? "Invalid coupon" };
   }
 
@@ -185,6 +217,21 @@ export async function applyCouponToHold(
       discountAmount: result.discountAmount,
       pointsToRedeem: null,
       pointsRedeemPaiseSaved: null,
+    },
+  });
+
+  logServerAction({
+    userId: session.user.id,
+    action: "booking.apply_coupon",
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    platform: "web",
+    metadata: {
+      holdId,
+      code: code.toUpperCase().trim(),
+      discountAmount: result.discountAmount,
+      sport: hold.courtConfig.sport,
+      amount: hold.totalAmount,
     },
   });
 
@@ -214,6 +261,16 @@ export async function clearCouponFromHold(
       pointsRedeemPaiseSaved: null,
     },
   });
+
+  logServerAction({
+    userId: session.user.id,
+    action: "booking.clear_coupon",
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    platform: "web",
+    metadata: { holdId, previousCode: hold.couponCode },
+  });
+
   return { success: true };
 }
 

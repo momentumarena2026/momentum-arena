@@ -11,6 +11,7 @@ import {
 } from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
 import { awardBookingPoints } from "@/lib/rewards/earn";
+import { AnalyticsCategory, logServerAction } from "@/lib/server-log";
 
 /**
  * PhonePe v2 server-to-server webhook for booking payments.
@@ -52,6 +53,16 @@ export async function POST(request: NextRequest) {
     // replayed-stale-event class of bug.
     const status = await checkPhonePeStatus(merchantOrderId);
     if (!status.success) {
+      logServerAction({
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.callback",
+        outcome: "error",
+        path: request.nextUrl.pathname,
+        method: "POST",
+        platform: "web",
+        metadata: { merchantOrderId, phonePeState: status.state },
+        error: `Payment ${status.state.toLowerCase()}`,
+      });
       // Failed / pending — acknowledge so PhonePe stops retrying,
       // but don't create anything.
       return NextResponse.json({ success: true });
@@ -62,8 +73,23 @@ export async function POST(request: NextRequest) {
     // gets exercised regularly in production.
     const existingPayment = await db.payment.findFirst({
       where: { phonePeMerchantTxnId: merchantOrderId },
+      include: { booking: { select: { userId: true } } },
     });
     if (existingPayment) {
+      logServerAction({
+        userId: existingPayment.booking.userId,
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.callback",
+        outcome: "success",
+        path: request.nextUrl.pathname,
+        method: "POST",
+        platform: "web",
+        metadata: {
+          merchantOrderId,
+          bookingId: existingPayment.bookingId,
+          idempotent: true,
+        },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -75,6 +101,15 @@ export async function POST(request: NextRequest) {
       where: { phonePeMerchantTxnId: merchantOrderId },
     });
     if (!hold) {
+      logServerAction({
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.callback",
+        outcome: "success",
+        path: request.nextUrl.pathname,
+        method: "POST",
+        platform: "web",
+        metadata: { merchantOrderId, holdAlreadyConsumed: true },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -113,6 +148,22 @@ export async function POST(request: NextRequest) {
     );
 
     if (bookingId) {
+      logServerAction({
+        userId: hold.userId,
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.callback",
+        outcome: "success",
+        path: request.nextUrl.pathname,
+        method: "POST",
+        platform: "web",
+        metadata: {
+          holdId: hold.id,
+          bookingId,
+          merchantOrderId,
+          amount: paymentAmount,
+          isAdvance,
+        },
+      });
       // Defer SMS dispatch via `after()` so the Vercel serverless
       // function stays alive until MSG91 responds. Fire-and-forget
       // `.catch()` would be killed the moment NextResponse.json
@@ -135,11 +186,32 @@ export async function POST(request: NextRequest) {
           ),
         ]);
       });
+    } else {
+      logServerAction({
+        userId: hold.userId,
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.callback",
+        outcome: "error",
+        path: request.nextUrl.pathname,
+        method: "POST",
+        platform: "web",
+        metadata: { holdId: hold.id, merchantOrderId },
+        error: "Failed to create booking",
+      });
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("PhonePe callback error:", error);
+    logServerAction({
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.phonepe.callback",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: "web",
+      error: error instanceof Error ? error.message : "Callback error",
+    });
     return NextResponse.json({ success: true }); // Always 200 to PhonePe
   }
 }

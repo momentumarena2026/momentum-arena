@@ -7,6 +7,7 @@ import {
 } from "@/lib/notifications";
 import { createBookingFromHold } from "@/actions/booking";
 import { awardBookingPoints } from "@/lib/rewards/earn";
+import { AnalyticsCategory, logServerAction } from "@/lib/server-log";
 
 // PhonePe redirects the user back here after the payment flow.
 // Check the status, and if success, create Booking atomically from the Hold.
@@ -34,16 +35,53 @@ export async function GET(request: NextRequest) {
           status: "COMPLETED",
         },
         orderBy: { createdAt: "desc" },
+        include: { booking: { select: { userId: true } } },
       });
       if (payment) {
+        logServerAction({
+          userId: payment.booking.userId,
+          category: AnalyticsCategory.PAYMENT,
+          action: "payment.phonepe.redirect",
+          outcome: "success",
+          path: request.nextUrl.pathname,
+          method: "GET",
+          platform: "web",
+          metadata: {
+            holdId,
+            bookingId: payment.bookingId,
+            idempotent: true,
+            via: "callback_race",
+          },
+        });
         return NextResponse.redirect(
           `${origin}/book/confirmation?id=${payment.bookingId}`
         );
       }
+      logServerAction({
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.redirect",
+        outcome: "error",
+        path: request.nextUrl.pathname,
+        method: "GET",
+        platform: "web",
+        metadata: { holdId },
+        error: "Hold expired",
+      });
       return NextResponse.redirect(`${origin}/book?error=hold_expired`);
     }
 
     if (!hold.phonePeMerchantTxnId) {
+      logServerAction({
+        userId: hold.userId,
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.redirect",
+        outcome: "error",
+        path: request.nextUrl.pathname,
+        method: "GET",
+        platform: "web",
+        metadata: { holdId },
+        error: "Payment not found on hold",
+      });
       return NextResponse.redirect(`${origin}/book?error=payment_not_found`);
     }
 
@@ -93,10 +131,40 @@ export async function GET(request: NextRequest) {
           where: { phonePeMerchantTxnId: hold.phonePeMerchantTxnId },
         });
         if (payment) {
+          logServerAction({
+            userId: hold.userId,
+            category: AnalyticsCategory.PAYMENT,
+            action: "payment.phonepe.redirect",
+            outcome: "success",
+            path: request.nextUrl.pathname,
+            method: "GET",
+            platform: "web",
+            metadata: {
+              holdId,
+              bookingId: payment.bookingId,
+              merchantOrderId: hold.phonePeMerchantTxnId,
+              idempotent: true,
+              via: "redirect_race",
+            },
+          });
           return NextResponse.redirect(
             `${origin}/book/confirmation?id=${payment.bookingId}`
           );
         }
+        logServerAction({
+          userId: hold.userId,
+          category: AnalyticsCategory.PAYMENT,
+          action: "payment.phonepe.redirect",
+          outcome: "error",
+          path: request.nextUrl.pathname,
+          method: "GET",
+          platform: "web",
+          metadata: {
+            holdId,
+            merchantOrderId: hold.phonePeMerchantTxnId,
+          },
+          error: "Failed to create booking",
+        });
         return NextResponse.redirect(`${origin}/book?error=payment_failed`);
       }
 
@@ -121,15 +189,56 @@ export async function GET(request: NextRequest) {
           ),
         ]);
       });
+      logServerAction({
+        userId: hold.userId,
+        category: AnalyticsCategory.PAYMENT,
+        action: "payment.phonepe.redirect",
+        outcome: "success",
+        path: request.nextUrl.pathname,
+        method: "GET",
+        platform: "web",
+        metadata: {
+          holdId,
+          bookingId,
+          merchantOrderId: hold.phonePeMerchantTxnId,
+          amount: paymentAmount,
+          isAdvance,
+        },
+      });
       return NextResponse.redirect(`${origin}/book/confirmation?id=${bookingId}`);
     }
 
     // Payment failed / pending on PhonePe side → hold expires naturally
+    logServerAction({
+      userId: hold.userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.phonepe.redirect",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "GET",
+      platform: "web",
+      metadata: {
+        holdId,
+        merchantOrderId: hold.phonePeMerchantTxnId,
+        phonePeState: status.state,
+      },
+      error: `Payment ${status.state.toLowerCase()}`,
+    });
     return NextResponse.redirect(
       `${origin}/book?error=payment_${status.state.toLowerCase()}`
     );
   } catch (error) {
     console.error("PhonePe redirect error:", error);
+    logServerAction({
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.phonepe.redirect",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "GET",
+      platform: "web",
+      metadata: { holdId },
+      error: error instanceof Error ? error.message : "Payment failed",
+    });
     return NextResponse.redirect(`${origin}/book?error=payment_failed`);
   }
 }

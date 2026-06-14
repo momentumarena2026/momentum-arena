@@ -262,6 +262,7 @@ model User {
   // AnalyticsSession's userId once the auth event lands.
   analyticsEvents   AnalyticsEvent[]
   analyticsSessions AnalyticsSession[]
+  serverActionLogs  ServerActionLog[]
   // Cohort assignment — frozen at first event. Used for week-on-week
   // and month-on-month retention queries in the analytics dashboard.
   cohort            UserCohort?        @relation("UserCohortFK")
@@ -1992,6 +1993,30 @@ model AnalyticsEvent {
   @@index([userId, occurredAt])
   // BRIN-friendly time-only index for the daily retention cron and
   // for the rollup writer's "events since last bucket" scan.
+  @@index([occurredAt])
+  @@index([category, occurredAt])
+}
+
+// Server-side audit trail — one row per meaningful API / server-action
+// outcome. Separate from AnalyticsEvent so product funnels aren't
+// polluted and we can store path/method/outcome without a session FK.
+model ServerActionLog {
+  id         String            @id @default(cuid())
+  userId     String?
+  user       User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Dotted machine name — e.g. "booking.lock", "booking.apply_coupon".
+  action     String
+  category   AnalyticsCategory
+  outcome    String // "success" | "error"
+  path       String?
+  method     String?
+  platform   String // "web" | "android" | "ios"
+  metadata   Json              @default("{}")
+  error      String?
+  occurredAt DateTime          @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([action, occurredAt])
   @@index([occurredAt])
   @@index([category, occurredAt])
 }

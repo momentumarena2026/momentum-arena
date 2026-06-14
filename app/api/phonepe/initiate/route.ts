@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { initiatePhonePePayment } from "@/lib/phonepe";
 import { getValidHold } from "@/lib/slot-hold";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
+import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
 
@@ -21,6 +22,17 @@ export async function POST(request: NextRequest) {
 
   const hold = await getValidHold(holdId, userId);
   if (!hold) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.phonepe.initiate",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId },
+      error: "Hold not found or expired",
+    });
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 }
@@ -32,6 +44,17 @@ export async function POST(request: NextRequest) {
   // zones between lock and payment-init.
   const stillOk = await verifyBowlingHoldStillBookable(holdId);
   if (!stillOk.ok) {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.phonepe.initiate",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId, conflicts: stillOk.conflicts },
+      error: stillOk.reason,
+    });
     return NextResponse.json(
       { error: stillOk.reason, conflicts: stillOk.conflicts },
       { status: 409 },
@@ -99,6 +122,24 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.phonepe.initiate",
+      outcome: "success",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: {
+        holdId,
+        merchantOrderId,
+        amount: orderAmount,
+        isAdvance: !!isAdvance,
+        advanceAmount: advanceAmount ?? null,
+        remainingAmount: remainingAmount ?? null,
+      },
+    });
+
     return NextResponse.json({
       redirectUrl: result.redirectUrl,
       isAdvance: !!isAdvance,
@@ -106,15 +147,20 @@ export async function POST(request: NextRequest) {
       remainingAmount: remainingAmount ?? null,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to initiate payment",
-      },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to initiate payment";
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.phonepe.initiate",
+      outcome: "error",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { holdId },
+      error: message,
+    });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
