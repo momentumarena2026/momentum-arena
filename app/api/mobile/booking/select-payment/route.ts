@@ -3,6 +3,11 @@ import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
 import { notifyAdminPendingBooking } from "@/lib/notifications";
+import {
+  AnalyticsCategory,
+  logServerAction,
+  resolveRequestPlatform,
+} from "@/lib/server-log";
 
 // POST /api/mobile/booking/select-payment — native wrapper around the web
 // server actions `selectUpiPayment` and `selectCashPayment`. The web actions
@@ -12,8 +17,20 @@ import { notifyAdminPendingBooking } from "@/lib/notifications";
 //     isAdvance?: boolean }
 // Returns { success, bookingId } matching the action return shape.
 export async function POST(request: NextRequest) {
+  const platform = resolveRequestPlatform(request);
+  const path = request.nextUrl.pathname;
+
   const user = await getMobileUser(request);
   if (!user) {
+    logServerAction({
+      action: "payment.select_payment",
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      path,
+      method: "POST",
+      platform,
+      error: "Unauthorized",
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -26,17 +43,57 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
+    logServerAction({
+      userId: user.id,
+      action: "payment.select_payment",
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      path,
+      method: "POST",
+      platform,
+      error: "Invalid body",
+    });
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
   const { holdId, method, overrideAmount, isAdvance } = body;
+  const advance = !!isAdvance;
+  const action =
+    method === "UPI_QR"
+      ? "payment.upi_qr.commit"
+      : advance
+        ? "payment.cash.advance_commit"
+        : "payment.cash.commit";
+
   if (!holdId || !method) {
+    logServerAction({
+      userId: user.id,
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      path,
+      method: "POST",
+      platform,
+      metadata: { holdId, method, isAdvance: advance },
+      error: "Missing holdId or method",
+    });
     return NextResponse.json(
       { error: "Missing holdId or method" },
       { status: 400 }
     );
   }
   if (method !== "UPI_QR" && method !== "CASH") {
+    logServerAction({
+      userId: user.id,
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      path,
+      method: "POST",
+      platform,
+      metadata: { holdId, method, isAdvance: advance },
+      error: "Unsupported method",
+    });
     return NextResponse.json(
       { error: "Unsupported method" },
       { status: 400 }
@@ -45,6 +102,17 @@ export async function POST(request: NextRequest) {
 
   const hold = await getValidHold(holdId, user.id);
   if (!hold) {
+    logServerAction({
+      userId: user.id,
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      path,
+      method: "POST",
+      platform,
+      metadata: { holdId, method, isAdvance: advance },
+      error: "Hold not found or expired",
+    });
     return NextResponse.json(
       { success: false, error: "Hold not found or expired" },
       { status: 404 }
@@ -59,7 +127,6 @@ export async function POST(request: NextRequest) {
   // Compute the remainder against the post-discount + post-redemption
   // total so neither the coupon nor the points are clawed back at
   // the venue.
-  const advance = !!isAdvance;
   const appliedDiscount =
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
@@ -97,6 +164,25 @@ export async function POST(request: NextRequest) {
   );
 
   if (!bookingId) {
+    logServerAction({
+      userId: user.id,
+      action,
+      category: AnalyticsCategory.PAYMENT,
+      outcome: "error",
+      path,
+      method: "POST",
+      platform,
+      metadata: {
+        holdId,
+        method,
+        isAdvance: advance,
+        amount,
+        advanceAmount,
+        remainingAmount,
+        paymentMethod,
+      },
+      error: "Failed to create booking",
+    });
     return NextResponse.json(
       { success: false, error: "Failed to create booking" },
       { status: 500 }
@@ -105,6 +191,26 @@ export async function POST(request: NextRequest) {
 
   // Fire-and-forget — same behaviour as the web actions.
   notifyAdminPendingBooking(bookingId).catch(() => {});
+
+  logServerAction({
+    userId: user.id,
+    action,
+    category: AnalyticsCategory.PAYMENT,
+    outcome: "success",
+    path,
+    method: "POST",
+    platform,
+    metadata: {
+      holdId,
+      bookingId,
+      method,
+      isAdvance: advance,
+      amount,
+      advanceAmount,
+      remainingAmount,
+      paymentMethod,
+    },
+  });
 
   return NextResponse.json({ success: true, bookingId });
 }
