@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
+import { logBookingRequest } from "@/lib/server-log";
 
 // GET /api/mobile/booking/hold/[holdId] — returns the SlotHold contents
 // (including courtConfig) for the native checkout screen. Verifies the hold
@@ -11,17 +12,36 @@ export async function GET(
 ) {
   const user = await getMobileUser(request);
   if (!user) {
+    logBookingRequest(request, "booking.view_hold", "error", {
+      error: "Unauthorized",
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { holdId } = await params;
   const hold = await getValidHold(holdId, user.id);
   if (!hold) {
+    logBookingRequest(request, "booking.view_hold", "error", {
+      userId: user.id,
+      metadata: { holdId },
+      error: "Hold not found or expired",
+    });
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 }
     );
   }
+
+  logBookingRequest(request, "booking.view_hold", "success", {
+    userId: user.id,
+    metadata: {
+      holdId,
+      sport: hold.courtConfig.sport,
+      date: hold.date,
+      slotCount: hold.hours.length,
+      totalAmount: hold.totalAmount,
+    },
+  });
 
   return NextResponse.json({
     id: hold.id,

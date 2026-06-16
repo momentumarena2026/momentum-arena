@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthUserId } from "@/lib/auth-unified";
+import { sportForCourtConfigId } from "@/lib/booking-log-sport";
 import { getBowlingMachineAvailability } from "@/lib/bowling-availability";
+import { logBookingRequest } from "@/lib/server-log";
 
 /**
  * GET /api/availability/bowling-machine?configId=...&date=YYYY-MM-DD
@@ -15,11 +18,24 @@ import { getBowlingMachineAvailability } from "@/lib/bowling-availability";
  * status values mid-stream.
  */
 export async function GET(request: NextRequest) {
+  const userId = await getAuthUserId(request).catch(() => null);
   const url = new URL(request.url);
   const configId = url.searchParams.get("configId");
   const date = url.searchParams.get("date");
 
+  const logAvail = (
+    outcome: "success" | "error",
+    metadata: Record<string, unknown>,
+    error?: string,
+  ) =>
+    logBookingRequest(request, "booking.view_bowling_availability", outcome, {
+      userId,
+      metadata,
+      error,
+    });
+
   if (!configId || !date) {
+    logAvail("error", { configId, date }, "configId and date are required");
     return NextResponse.json(
       { error: "configId and date are required" },
       { status: 400 },
@@ -28,11 +44,20 @@ export async function GET(request: NextRequest) {
 
   try {
     const slots = await getBowlingMachineAvailability(configId, new Date(date));
+    const resolvedSport = await sportForCourtConfigId(configId);
+    logAvail("success", {
+      configId,
+      date,
+      sport: resolvedSport,
+      slotCount: slots.length,
+      availableCount: slots.filter((s) => s.status === "available").length,
+    });
     return NextResponse.json({ slots });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load availability" },
-      { status: 500 },
-    );
+    const message =
+      err instanceof Error ? err.message : "Failed to load availability";
+    const resolvedSport = await sportForCourtConfigId(configId);
+    logAvail("error", { configId, date, sport: resolvedSport }, message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

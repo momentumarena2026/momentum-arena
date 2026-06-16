@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { previewRedemption } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
+import { logBookingRequest } from "@/lib/server-log";
 
 /**
  * Mobile counterpart of applyPointsRedemptionToHold /
@@ -18,6 +19,9 @@ import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 export async function POST(request: NextRequest) {
   const user = await getMobileUser(request);
   if (!user) {
+    logBookingRequest(request, "booking.apply_points", "error", {
+      error: "Unauthorized",
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -25,10 +29,19 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
+    logBookingRequest(request, "booking.apply_points", "error", {
+      userId: user.id,
+      error: "Invalid body",
+    });
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const { holdId, points } = body;
   if (!holdId || !Number.isInteger(points) || (points ?? 0) <= 0) {
+    logBookingRequest(request, "booking.apply_points", "error", {
+      userId: user.id,
+      metadata: { holdId, points },
+      error: "Missing holdId or invalid points",
+    });
     return NextResponse.json(
       { error: "Missing holdId or invalid points" },
       { status: 400 },
@@ -37,11 +50,17 @@ export async function POST(request: NextRequest) {
 
   const hold = await getValidHold(holdId, user.id);
   if (!hold) {
+    logBookingRequest(request, "booking.apply_points", "error", {
+      userId: user.id,
+      metadata: { holdId, points },
+      error: "Hold not found or expired",
+    });
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 },
     );
   }
+  const sport = hold.courtConfig.sport;
 
   const cfg = await getRewardConfig();
   const couponDiscount =
@@ -53,28 +72,33 @@ export async function POST(request: NextRequest) {
 
   const preview = await previewRedemption({ userId: user.id, billPaise });
   if (preview.blockedReason) {
+    logBookingRequest(request, "booking.apply_points", "error", {
+      userId: user.id,
+      metadata: { holdId, points, sport },
+      error: preview.blockedReason,
+    });
     return NextResponse.json(
       { success: false, error: preview.blockedReason },
       { status: 400 },
     );
   }
   if ((points ?? 0) > preview.maxPoints) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Max ${preview.maxPoints} points allowed on this bill`,
-      },
-      { status: 400 },
-    );
+    const error = `Max ${preview.maxPoints} points allowed on this bill`;
+    logBookingRequest(request, "booking.apply_points", "error", {
+      userId: user.id,
+      metadata: { holdId, points, maxPoints: preview.maxPoints, sport },
+      error,
+    });
+    return NextResponse.json({ success: false, error }, { status: 400 });
   }
   if ((points ?? 0) < cfg.minPointsToRedeem) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Need at least ${cfg.minPointsToRedeem} points`,
-      },
-      { status: 400 },
-    );
+    const error = `Need at least ${cfg.minPointsToRedeem} points`;
+    logBookingRequest(request, "booking.apply_points", "error", {
+      userId: user.id,
+      metadata: { holdId, points, minPoints: cfg.minPointsToRedeem, sport },
+      error,
+    });
+    return NextResponse.json({ success: false, error }, { status: 400 });
   }
 
   const paiseSaved = pointsToPaise(points!, cfg);
@@ -84,6 +108,11 @@ export async function POST(request: NextRequest) {
       pointsToRedeem: points,
       pointsRedeemPaiseSaved: paiseSaved,
     },
+  });
+
+  logBookingRequest(request, "booking.apply_points", "success", {
+    userId: user.id,
+    metadata: { holdId, points, paiseSaved, sport },
   });
 
   return NextResponse.json({
@@ -96,20 +125,43 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const user = await getMobileUser(request);
   if (!user) {
+    logBookingRequest(request, "booking.clear_points", "error", {
+      error: "Unauthorized",
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const holdId = new URL(request.url).searchParams.get("holdId");
   if (!holdId) {
+    logBookingRequest(request, "booking.clear_points", "error", {
+      userId: user.id,
+      error: "Missing holdId",
+    });
     return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
   }
 
   const hold = await getValidHold(holdId, user.id);
-  if (!hold) return NextResponse.json({ success: false });
+  if (!hold) {
+    logBookingRequest(request, "booking.clear_points", "error", {
+      userId: user.id,
+      metadata: { holdId },
+      error: "Hold not found or expired",
+    });
+    return NextResponse.json({ success: false });
+  }
 
   await db.slotHold.update({
     where: { id: holdId },
     data: { pointsToRedeem: null, pointsRedeemPaiseSaved: null },
+  });
+
+  logBookingRequest(request, "booking.clear_points", "success", {
+    userId: user.id,
+    metadata: {
+      holdId,
+      previousPoints: hold.pointsToRedeem,
+      sport: hold.courtConfig.sport,
+    },
   });
 
   return NextResponse.json({ success: true });

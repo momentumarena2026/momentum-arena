@@ -311,6 +311,37 @@ export const SPORT_INFO: Record<
   },
 };
 
+const SPORT_COLOR_BADGE_CLASS: Record<string, string> = {
+  emerald:
+    "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+  blue: "border-blue-500/25 bg-blue-500/10 text-blue-300",
+  yellow: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+};
+
+/** True when `value` is a Prisma {@link Sport} enum member. */
+export function isSport(value: string): value is Sport {
+  return (Object.values(Sport) as string[]).includes(value);
+}
+
+/** Display label for a sport — sourced from {@link SPORT_INFO}. */
+export function formatSportLabel(sport: Sport | string): string {
+  const key = String(sport).toUpperCase() as Sport;
+  return isSport(key) ? SPORT_INFO[key].name : String(sport);
+}
+
+/** Tailwind classes for admin sport badges, keyed off {@link SPORT_INFO}. */
+export function sportBadgeClass(sport: Sport | string): string {
+  const key = String(sport).toUpperCase();
+  if (!isSport(key)) {
+    return "border-zinc-600 bg-zinc-800 text-zinc-300";
+  }
+  const color = SPORT_INFO[key].color;
+  return (
+    SPORT_COLOR_BADGE_CLASS[color] ??
+    "border-zinc-600 bg-zinc-800 text-zinc-300"
+  );
+}
+
 /**
  * Render a friendly one-line label for a config that's BLOCKING a
  * slot — used in the slot-grid amber state to tell the customer

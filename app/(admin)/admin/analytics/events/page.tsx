@@ -3,8 +3,8 @@ import {
   listEventNames,
   listServerActionLogs,
   listServerActionNames,
-  listServerLogUsers,
 } from "@/actions/admin-insights";
+import { getUsersByIds, listUsersForPicker } from "@/actions/admin-user-groups";
 import { parseAnalyticsCategory } from "@/lib/server-log";
 import { EventsClient } from "./events-client";
 import { EventsViewTabs, ServerLogsClient } from "./server-logs-client";
@@ -32,11 +32,13 @@ export default async function EventsPage({
       userId: sp.userId,
       outcome: sp.outcome,
     };
-    const [initialPage, actionNames, userOptions] = await Promise.all([
-      listServerActionLogs({ ...filters, limit: 100 }),
-      listServerActionNames(),
-      listServerLogUsers(),
-    ]);
+    const [initialPage, actionNames, selectedUsers, defaultUsers] =
+      await Promise.all([
+        listServerActionLogs({ ...filters, limit: 100 }),
+        listServerActionNames(),
+        filters.userId ? getUsersByIds([filters.userId]) : Promise.resolve([]),
+        listUsersForPicker(50),
+      ]);
 
     return (
       <div className="space-y-6">
@@ -55,7 +57,8 @@ export default async function EventsPage({
           initialPage={initialPage}
           initialFilters={filters}
           actionNames={actionNames}
-          userOptions={userOptions}
+          selectedUser={selectedUsers[0] ?? null}
+          defaultUsers={defaultUsers}
         />
       </div>
     );

@@ -487,4 +487,17 @@ export const bookingApi = {
     isAdvance?: boolean;
   }) =>
     api.post<SelectPaymentResult>("/api/mobile/booking/select-payment", body),
+
+  /** Audit log when the customer taps a payment tile (no booking created). */
+  logPaymentMethod: (body: { holdId: string; paymentMethod: string }) =>
+    api.post<{ ok: boolean }>("/api/mobile/booking/payment-method", body),
+
+  /** Audit log when the customer taps a court-size tile (no slots reserved). */
+  logCourtSelection: (body: {
+    sport: Sport;
+    courtConfigId?: string;
+    mode?: "medium" | "bowling";
+    label: string;
+    size?: string;
+  }) => api.post<{ ok: boolean }>("/api/booking/select-court", body),
 };

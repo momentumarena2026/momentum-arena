@@ -3,7 +3,8 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { FUNNELS, type FunnelKey } from "@/lib/analytics-funnels";
-import { AnalyticsCategory, type Prisma } from "@prisma/client";
+import { AnalyticsCategory, extractSportFromMetadata, metadataHoldId } from "@/lib/server-log";
+import { Sport, type Prisma } from "@prisma/client";
 
 /**
  * First-party analytics queries for /admin/analytics/{funnels,events,
@@ -484,6 +485,7 @@ export interface ServerLogRow {
   method: string | null;
   platform: string;
   metadata: Prisma.JsonValue;
+  sport: Sport | null;
   error: string | null;
   occurredAt: string;
 }
@@ -537,80 +539,64 @@ export async function listServerActionLogs(filters: {
   const sliced = hasMore ? rows.slice(0, limit) : rows;
   const nextCursor = hasMore ? sliced[sliced.length - 1].occurredAt.toISOString() : null;
 
+  const holdIdsNeedingSport = [
+    ...new Set(
+      sliced
+        .map((r) => {
+          if (extractSportFromMetadata(r.metadata)) return null;
+          return metadataHoldId(r.metadata);
+        })
+        .filter((id): id is string => !!id),
+    ),
+  ];
+
+  const sportByHoldId = new Map<string, Sport>();
+  if (holdIdsNeedingSport.length > 0) {
+    const holds = await db.slotHold.findMany({
+      where: { id: { in: holdIdsNeedingSport } },
+      select: { id: true, courtConfig: { select: { sport: true } } },
+    });
+    for (const hold of holds) {
+      sportByHoldId.set(hold.id, hold.courtConfig.sport);
+    }
+  }
+
   return {
-    rows: sliced.map((r) => ({
-      id: r.id,
-      action: r.action,
-      category: String(r.category),
-      outcome: r.outcome,
-      userId: r.userId,
-      userName: r.user?.name ?? null,
-      userPhone: r.user?.phone ?? null,
-      path: r.path,
-      method: r.method,
-      platform: r.platform,
-      metadata: r.metadata,
-      error: r.error,
-      occurredAt: r.occurredAt.toISOString(),
-    })),
+    rows: sliced.map((r) => {
+      const sport =
+        extractSportFromMetadata(r.metadata) ??
+        sportByHoldId.get(metadataHoldId(r.metadata) ?? "") ??
+        null;
+      return {
+        id: r.id,
+        action: r.action,
+        category: String(r.category),
+        outcome: r.outcome,
+        userId: r.userId,
+        userName: r.user?.name ?? null,
+        userPhone: r.user?.phone ?? null,
+        path: r.path,
+        method: r.method,
+        platform: r.platform,
+        metadata: r.metadata,
+        sport,
+        error: r.error,
+        occurredAt: r.occurredAt.toISOString(),
+      };
+    }),
     hasMore,
     nextCursor,
   };
 }
 
-/** Distinct server action names from the last 30 days. */
+/** Distinct server action names (all time). */
 export async function listServerActionNames(): Promise<string[]> {
   await requireAdmin("VIEW_ANALYTICS");
-  const cutoff = new Date();
-  cutoff.setUTCDate(cutoff.getUTCDate() - 30);
   type Row = { action: string };
   const rows = await db.$queryRaw<Row[]>`
     SELECT DISTINCT "action"
     FROM "ServerActionLog"
-    WHERE "occurredAt" >= ${cutoff}
     ORDER BY "action"
   `;
   return rows.map((r) => r.action);
-}
-
-export interface ServerLogUserOption {
-  id: string;
-  name: string | null;
-  phone: string | null;
-  lastOccurredAt: string;
-}
-
-/** Users with server logs, newest activity first — for the filter dropdown. */
-export async function listServerLogUsers(
-  limit = 200,
-): Promise<ServerLogUserOption[]> {
-  await requireAdmin("VIEW_ANALYTICS");
-
-  type Row = {
-    id: string;
-    name: string | null;
-    phone: string | null;
-    lastOccurredAt: Date;
-  };
-
-  const rows = await db.$queryRaw<Row[]>`
-    SELECT
-      u.id,
-      u.name,
-      u.phone,
-      MAX(s."occurredAt") AS "lastOccurredAt"
-    FROM "ServerActionLog" s
-    INNER JOIN "User" u ON u.id = s."userId"
-    WHERE s."userId" IS NOT NULL
-    GROUP BY u.id, u.name, u.phone
-    ORDER BY MAX(s."occurredAt") DESC
-    LIMIT ${limit}
-  `;
-
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    phone: r.phone,
-    lastOccurredAt: r.lastOccurredAt.toISOString(),
-  }));
 }

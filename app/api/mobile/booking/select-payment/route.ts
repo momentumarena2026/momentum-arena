@@ -203,12 +203,13 @@ export async function POST(request: NextRequest) {
     metadata: {
       holdId,
       bookingId,
+      paymentMethod: method,
       method,
       isAdvance: advance,
       amount,
       advanceAmount,
       remainingAmount,
-      paymentMethod,
+      sport: hold.courtConfig.sport,
     },
   });
 
