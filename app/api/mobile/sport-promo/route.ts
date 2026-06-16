@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BookingCategory, Sport } from "@prisma/client";
 import { getActiveSportPromo } from "@/actions/sport-promo";
+import { getAuthUserId } from "@/lib/auth-unified";
+import { logBookingRequest } from "@/lib/server-log";
 
 // Returns the active auto-apply promo for `sport` (and optional
 // `bookingCategory`), or null if no live coupon qualifies. Mobile
@@ -17,19 +19,32 @@ import { getActiveSportPromo } from "@/actions/sport-promo";
 // the mobile slot screen has no way to render the banner/decoration
 // until the user signs in.
 export async function GET(request: NextRequest) {
+  const userId = await getAuthUserId(request).catch(() => null);
   const sport = request.nextUrl.searchParams.get("sport");
   const bookingCategory = request.nextUrl.searchParams.get("bookingCategory");
 
   if (!sport) {
+    logBookingRequest(request, "booking.view_sport_promo", "error", {
+      userId,
+      error: "Sport is required",
+    });
     return NextResponse.json({ error: "Sport is required" }, { status: 400 });
   }
 
-  // Cast is safe: invalid sport just produces null from getActiveSportPromo
-  // (sportFilter mismatch). Callers shouldn't be sending garbage anyway.
   const promo = await getActiveSportPromo(
     sport as Sport,
     (bookingCategory as BookingCategory | null) || undefined,
   );
+
+  logBookingRequest(request, "booking.view_sport_promo", "success", {
+    userId,
+    metadata: {
+      sport,
+      bookingCategory,
+      hasPromo: !!promo,
+      promoCode: promo?.code ?? null,
+    },
+  });
 
   return NextResponse.json({ promo });
 }

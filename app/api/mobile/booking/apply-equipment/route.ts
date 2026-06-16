@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
+import { logBookingRequest } from "@/lib/server-log";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -17,6 +18,9 @@ import { Prisma } from "@prisma/client";
 export async function POST(request: NextRequest) {
   const user = await getMobileUser(request);
   if (!user) {
+    logBookingRequest(request, "booking.apply_equipment", "error", {
+      error: "Unauthorized",
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -24,15 +28,37 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
+    logBookingRequest(request, "booking.apply_equipment", "error", {
+      userId: user.id,
+      error: "Invalid body",
+    });
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const { holdId, picks } = body;
   if (!holdId || !Array.isArray(picks)) {
+    logBookingRequest(request, "booking.apply_equipment", "error", {
+      userId: user.id,
+      metadata: { holdId },
+      error: "Invalid data",
+    });
     return NextResponse.json({ error: "Invalid data" }, { status: 400 });
   }
 
+  const action = picks.length === 0 ? "booking.clear_equipment" : "booking.apply_equipment";
+  const logEquip = (
+    outcome: "success" | "error",
+    metadata: Record<string, unknown>,
+    error?: string,
+  ) =>
+    logBookingRequest(request, action, outcome, {
+      userId: user.id,
+      metadata,
+      error,
+    });
+
   const hold = await getValidHold(holdId, user.id);
   if (!hold) {
+    logEquip("error", { holdId }, "Hold not found or expired");
     return NextResponse.json(
       { error: "Hold not found or expired" },
       { status: 404 },
@@ -47,12 +73,14 @@ export async function POST(request: NextRequest) {
         equipmentTotalAmount: null,
       },
     });
+    logEquip("success", { holdId, pickCount: 0 });
     return NextResponse.json({ success: true, totalPaise: 0 });
   }
 
   const byId = new Map<string, number>();
   for (const p of picks) {
     if (!p.equipmentId || !Number.isInteger(p.quantity) || p.quantity <= 0) {
+      logEquip("error", { holdId, pickCount: picks.length }, "Invalid equipment selection");
       return NextResponse.json({ success: false, error: "Invalid equipment selection" }, { status: 400 });
     }
     byId.set(p.equipmentId, (byId.get(p.equipmentId) ?? 0) + p.quantity);
@@ -66,15 +94,13 @@ export async function POST(request: NextRequest) {
     },
   });
   if (items.length !== byId.size) {
+    logEquip("error", { holdId, pickCount: picks.length }, "One of those items is no longer available");
     return NextResponse.json(
       { success: false, error: "One of those items is no longer available" },
       { status: 400 },
     );
   }
 
-  // Rental scales by slot count — same rule as the web hold path.
-  // Mirrors actions/booking.ts so the customer sees the same total
-  // no matter which surface they checkout from.
   const slotCount = Math.max(1, hold.hours.length);
   const snapshot = items.map((eq) => {
     const quantity = byId.get(eq.id) ?? 0;
@@ -96,6 +122,14 @@ export async function POST(request: NextRequest) {
       equipmentSelection: snapshot as unknown as Prisma.InputJsonValue,
       equipmentTotalAmount: totalRupees,
     },
+  });
+
+  logEquip("success", {
+    holdId,
+    pickCount: picks.length,
+    itemCount: items.length,
+    totalPaise,
+    sport: hold.courtConfig.sport,
   });
 
   return NextResponse.json({ success: true, totalPaise });

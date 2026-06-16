@@ -15,6 +15,7 @@ import {
   selectUpiPayment,
   applyCouponToHold,
   clearCouponFromHold,
+  logPaymentMethodSelected,
 } from "@/actions/booking";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { createRecurringBooking } from "@/actions/recurring-booking";
@@ -637,7 +638,11 @@ export function CheckoutClient({
         <h2 className="mb-3 font-semibold text-white">Payment Method</h2>
         <PaymentSelector
           selected={paymentMethod}
-          onSelect={(m) => { setPaymentMethod(m); trackPaymentMethodSelected(m); }}
+          onSelect={(m) => {
+            setPaymentMethod(m);
+            trackPaymentMethodSelected(m);
+            void logPaymentMethodSelected(holdId, m);
+          }}
           gateway={gateway}
           onlineEnabled={onlineEnabled}
           upiQrEnabled={upiQrEnabled}

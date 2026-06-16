@@ -908,7 +908,14 @@ export function CheckoutScreen() {
           </Text>
           <PaymentMethodTiles
             selected={method}
-            onSelect={setMethod}
+            onSelect={(m) => {
+              setMethod(m);
+              if (hold?.id) {
+                bookingApi
+                  .logPaymentMethod({ holdId: hold.id, paymentMethod: m })
+                  .catch(() => {});
+              }
+            }}
             gateway={gateway}
             onlineEnabled={onlineEnabled}
             upiQrEnabled={upiQrEnabled}

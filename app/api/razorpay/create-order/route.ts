@@ -116,6 +116,8 @@ export async function POST(request: NextRequest) {
         isAdvance: !!isAdvance,
         advanceAmount: advanceAmount ?? null,
         remainingAmount: remainingAmount ?? null,
+        paymentMethod: "online",
+        sport: hold.courtConfig.sport,
       },
     });
 

@@ -232,6 +232,17 @@ export async function removeUserFromGroup(groupId: string, userId: string) {
  * table for the Users admin page) — this is shaped for autocomplete:
  * smaller payload, lower limit, no role filter.
  */
+export async function listUsersForPicker(limit = 30) {
+  await requireAdmin();
+
+  return db.user.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true, email: true, phone: true },
+    take: Math.min(Math.max(limit, 1), 100),
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
 export async function searchUsersForPicker(query: string, limit = 20) {
   await requireAdmin();
 

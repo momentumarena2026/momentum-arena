@@ -10,6 +10,7 @@ import { getSlotPricesForDate } from "@/lib/pricing";
 import { getMediumConfigs } from "@/lib/availability";
 import { getBowlingMachineAvailability } from "@/lib/bowling-availability";
 import { snapshotEquipmentForHold } from "@/lib/equipment";
+import { sportForCourtConfigId } from "@/lib/booking-log-sport";
 import { db } from "@/lib/db";
 import { Prisma, Sport } from "@prisma/client";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
@@ -143,11 +144,18 @@ export async function POST(request: NextRequest) {
       }
     }
     if (unavailable.length > 0) {
+      const resolvedSport = await sportForCourtConfigId(courtConfigId);
       logBookingLock(
         request,
         userId,
         "error",
-        { mode: "bowling-machine", courtConfigId, date, slots: picks.length },
+        {
+          mode: "bowling-machine",
+          courtConfigId,
+          date,
+          sport: resolvedSport,
+          slots: picks.length,
+        },
         "Slots no longer available",
       );
       return NextResponse.json(
@@ -179,21 +187,24 @@ export async function POST(request: NextRequest) {
         formData.get("equipmentSelection"),
         picks.length,
       );
+      const resolvedSport = await sportForCourtConfigId(courtConfigId);
       logBookingLock(request, userId, "success", {
         mode: "bowling-machine",
         holdId: result.holdId,
         courtConfigId,
         date,
+        sport: resolvedSport,
         slotCount: picks.length,
         equipmentApplied: eq.applied,
       });
       return NextResponse.json({ ...result, equipmentApplied: eq.applied });
     }
+    const resolvedSport = await sportForCourtConfigId(courtConfigId);
     logBookingLock(
       request,
       userId,
       "error",
-      { mode: "bowling-machine", courtConfigId, date },
+      { mode: "bowling-machine", courtConfigId, date, sport: resolvedSport },
       result.error,
     );
     return NextResponse.json(result);
@@ -268,6 +279,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid data" }, { status: 400 });
   }
 
+  const resolvedSport = await sportForCourtConfigId(courtConfigId);
   const allPrices = await getSlotPricesForDate(courtConfigId, bookingDate);
   const slotPrices = hours.map((hour) => {
     const priceData = allPrices.find((p) => p.hour === hour);
@@ -293,6 +305,7 @@ export async function POST(request: NextRequest) {
       holdId: result.holdId,
       courtConfigId,
       date,
+      sport: resolvedSport,
       slotCount: hours.length,
       equipmentApplied: eq.applied,
     });
@@ -303,7 +316,7 @@ export async function POST(request: NextRequest) {
     request,
     userId,
     "error",
-    { mode: mode ?? "default", courtConfigId, date },
+    { mode: mode ?? "default", courtConfigId, date, sport: resolvedSport },
     result.error,
   );
   return NextResponse.json(result);

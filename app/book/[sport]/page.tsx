@@ -1,11 +1,11 @@
 import { db } from "@/lib/db";
 import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
+import { CourtSelectLink } from "@/components/booking/court-select-link";
 import { CourtDiagram, SharedCourtDiagram } from "@/components/booking/court-diagram";
 import { BowlingMachineDiagram } from "@/components/booking/bowling-machine-diagram";
 import { Maximize2, Target } from "lucide-react";
 import { Sport, CourtZone, BookingCategory } from "@prisma/client";
 import Image from "next/image";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { getActiveSportPromo } from "@/actions/sport-promo";
@@ -151,9 +151,13 @@ export default async function SportConfigPage({
             const rep = tile.representative;
             const sizeInfo = SIZE_INFO[rep.size];
             return (
-              <Link
+              <CourtSelectLink
                 key="medium"
                 href={`/book/${sport}/medium`}
+                sport={sportKey}
+                mode="medium"
+                label={sizeInfo.name}
+                size={rep.size}
                 className="group rounded-2xl border border-zinc-800 bg-zinc-900 p-5 transition-all duration-300 hover:border-emerald-500/30 hover:bg-zinc-900/80"
               >
                 <div className="mb-3 flex items-center justify-between">
@@ -178,7 +182,7 @@ export default async function SportConfigPage({
                 <div className="mt-3 flex items-center justify-end text-emerald-500 text-sm font-medium opacity-0 transition-opacity group-hover:opacity-100">
                   Select →
                 </div>
-              </Link>
+              </CourtSelectLink>
             );
           }
 
@@ -186,9 +190,13 @@ export default async function SportConfigPage({
           const sizeInfo = SIZE_INFO[config.size];
 
           return (
-            <Link
+            <CourtSelectLink
               key={config.id}
               href={`/book/${sport}/${config.id}`}
+              sport={sportKey}
+              courtConfigId={config.id}
+              label={config.label}
+              size={config.size}
               className="group rounded-2xl border border-zinc-800 bg-zinc-900 p-5 transition-all duration-300 hover:border-emerald-500/30 hover:bg-zinc-900/80"
             >
               <div className="mb-3 flex items-center justify-between">
@@ -221,7 +229,7 @@ export default async function SportConfigPage({
               <div className="mt-3 flex items-center justify-end text-emerald-500 text-sm font-medium opacity-0 transition-opacity group-hover:opacity-100">
                 Select →
               </div>
-            </Link>
+            </CourtSelectLink>
           );
         })}
       </div>
@@ -242,8 +250,13 @@ export default async function SportConfigPage({
             Bowling Machine practice
           </h2>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Link
+            <CourtSelectLink
               href={`/book/${sport}/${bowlingConfig.id}`}
+              sport={sportKey}
+              courtConfigId={bowlingConfig.id}
+              mode="bowling"
+              label="Bowling Machine"
+              size={bowlingConfig.size}
               className="group rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 transition-all duration-300 hover:border-emerald-400/60 hover:bg-emerald-500/10"
             >
               {/* Title + pill row. `flex-wrap` lets the pill drop to a
@@ -274,7 +287,7 @@ export default async function SportConfigPage({
               <div className="mt-3 flex items-center justify-end text-emerald-400 text-sm font-medium opacity-0 transition-opacity group-hover:opacity-100">
                 Pick a time →
               </div>
-            </Link>
+            </CourtSelectLink>
           </div>
         </div>
       )}

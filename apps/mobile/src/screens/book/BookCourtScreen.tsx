@@ -81,6 +81,18 @@ function findBowlingConfig(configs: CourtConfig[]): CourtConfig | undefined {
   return configs.find((c) => c.category === "BOWLING_MACHINE");
 }
 
+function logCourtSelection(
+  sport: CourtConfig["sport"],
+  payload: {
+    courtConfigId?: string;
+    mode?: "medium" | "bowling";
+    label: string;
+    size?: string;
+  },
+) {
+  void bookingApi.logCourtSelection({ sport, ...payload }).catch(() => {});
+}
+
 export function BookCourtScreen() {
   const { params } = useRoute<Rt>();
   const navigation = useNavigation<Nav>();
@@ -118,12 +130,22 @@ export function BookCourtScreen() {
     autoSkippedRef.current = true;
     const tile = tiles[0];
     if (tile.kind === "medium") {
+      logCourtSelection(params.sport, {
+        mode: "medium",
+        label: "Half Field",
+        size: tile.representative.size,
+      });
       navigation.replace("BookSlots", {
         mode: "medium",
         courtLabel: "Half Field",
         sport: params.sport,
       });
     } else {
+      logCourtSelection(params.sport, {
+        courtConfigId: tile.config.id,
+        label: tile.config.label,
+        size: tile.config.size,
+      });
       navigation.replace("BookSlots", {
         courtConfigId: tile.config.id,
         courtLabel: tile.config.label,
@@ -234,13 +256,18 @@ export function BookCourtScreen() {
             return (
               <Pressable
                 key="medium"
-                onPress={() =>
+                onPress={() => {
+                  logCourtSelection(params.sport, {
+                    mode: "medium",
+                    label: "Half Field",
+                    size: rep.size,
+                  });
                   navigation.navigate("BookSlots", {
                     mode: "medium",
                     courtLabel: "Half Field",
                     sport: params.sport,
-                  })
-                }
+                  });
+                }}
                 style={({ pressed }) => pressed && styles.pressed}
               >
                 <Card>
@@ -274,13 +301,18 @@ export function BookCourtScreen() {
           return (
             <Pressable
               key={c.id}
-              onPress={() =>
+              onPress={() => {
+                logCourtSelection(params.sport, {
+                  courtConfigId: c.id,
+                  label: c.label,
+                  size: c.size,
+                });
                 navigation.navigate("BookSlots", {
                   courtConfigId: c.id,
                   courtLabel: c.label,
                   sport: params.sport,
-                })
-              }
+                });
+              }}
               style={({ pressed }) => pressed && styles.pressed}
             >
               <Card>
@@ -319,13 +351,19 @@ export function BookCourtScreen() {
         const bowlingTile = bowling ? (
           <Pressable
             key="bowling"
-            onPress={() =>
+            onPress={() => {
+              logCourtSelection(params.sport, {
+                courtConfigId: bowling.id,
+                mode: "bowling",
+                label: "Bowling Machine",
+                size: bowling.size,
+              });
               navigation.navigate("BookBowlingSlots", {
                 courtConfigId: bowling.id,
                 courtLabel: "Bowling Machine",
                 sport: params.sport,
-              })
-            }
+              });
+            }}
             style={({ pressed }) => pressed && styles.pressed}
           >
             <Card style={styles.bowlingCard}>

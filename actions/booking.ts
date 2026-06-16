@@ -17,7 +17,8 @@ import {
 } from "@/lib/notifications";
 import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
-import { AnalyticsCategory, logServerAction } from "@/lib/server-log";
+import { sportForCourtConfigId } from "@/lib/booking-log-sport";
+import { AnalyticsCategory, logWebServerAction } from "@/lib/server-log";
 import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
@@ -56,6 +57,12 @@ export async function lockSlots(
 ): Promise<HoldState> {
   const session = await auth();
   if (!session?.user?.id) {
+    logWebServerAction("actions/booking.lockSlots", {
+      action: "booking.lock",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      error: "Please login to book",
+    });
     return { success: false, error: "Please login to book" };
   }
 
@@ -63,6 +70,13 @@ export async function lockSlots(
   try {
     parsedHours = JSON.parse(formData.get("hours") as string) as number[];
   } catch {
+    logWebServerAction("actions/booking.lockSlots", {
+      userId: session.user.id,
+      action: "booking.lock",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      error: "Invalid booking data",
+    });
     return { success: false, error: "Invalid booking data" };
   }
 
@@ -74,10 +88,19 @@ export async function lockSlots(
 
   const parsed = lockSlotsSchema.safeParse(raw);
   if (!parsed.success) {
+    logWebServerAction("actions/booking.lockSlots", {
+      userId: session.user.id,
+      action: "booking.lock",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: raw,
+      error: "Invalid booking data",
+    });
     return { success: false, error: "Invalid booking data" };
   }
 
   const { courtConfigId, date, hours } = parsed.data;
+  const resolvedSport = await sportForCourtConfigId(courtConfigId);
   const bookingDate = new Date(date);
 
   // Reject bookings on past dates or past hours of today. This is the
@@ -85,6 +108,14 @@ export async function lockSlots(
   // the slot-selection page open from a previous day.
   const todayIST = getTodayIST();
   if (date < todayIST) {
+    logWebServerAction("actions/booking.lockSlots", {
+      userId: session.user.id,
+      action: "booking.lock",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { courtConfigId, date, hours, sport: resolvedSport },
+      error: "Date has already passed",
+    });
     return {
       success: false,
       error:
@@ -95,6 +126,14 @@ export async function lockSlots(
     const currentHour = getCurrentHourIST();
     const pastHours = hours.filter((h) => h <= currentHour);
     if (pastHours.length > 0) {
+      logWebServerAction("actions/booking.lockSlots", {
+        userId: session.user.id,
+        action: "booking.lock",
+        category: AnalyticsCategory.BOOKING,
+        outcome: "error",
+        metadata: { courtConfigId, date, hours, conflicts: pastHours, sport: resolvedSport },
+        error: "Some selected slots have already started",
+      });
       return {
         success: false,
         error:
@@ -119,12 +158,41 @@ export async function lockSlots(
   );
 
   if (!result.success) {
+    logWebServerAction("actions/booking.lockSlots", {
+      userId: session.user.id,
+      action: "booking.lock",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: {
+        courtConfigId,
+        date,
+        hours,
+        conflicts: result.conflicts,
+        sport: resolvedSport,
+      },
+      error: result.error,
+    });
     return {
       success: false,
       error: result.error,
       conflicts: result.conflicts,
     };
   }
+
+  logWebServerAction("actions/booking.lockSlots", {
+    userId: session.user.id,
+    action: "booking.lock",
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    metadata: {
+      holdId: result.holdId,
+      courtConfigId,
+      date,
+      hours,
+      slotCount: hours.length,
+      sport: resolvedSport,
+    },
+  });
 
   return { success: true, holdId: result.holdId };
 }
@@ -133,10 +201,27 @@ export async function lockSlots(
 export async function cancelHold(holdId: string): Promise<HoldState> {
   const session = await auth();
   if (!session?.user?.id) {
+    logWebServerAction("actions/booking.cancelHold", {
+      action: "booking.release_hold",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId },
+      error: "Not authenticated",
+    });
     return { success: false, error: "Not authenticated" };
   }
 
+  const hold = await getValidHold(holdId, session.user.id);
+  const sport = hold?.courtConfig.sport ?? null;
   const released = await releaseSlotHold(holdId, session.user.id);
+  logWebServerAction("actions/booking.cancelHold", {
+    userId: session.user.id,
+    action: "booking.release_hold",
+    category: AnalyticsCategory.BOOKING,
+    outcome: released ? "success" : "error",
+    metadata: { holdId, released, sport },
+    error: released ? undefined : "Hold not found or already released",
+  });
   return { success: released };
 }
 
@@ -150,11 +235,10 @@ export async function applyCouponToHold(
 ): Promise<{ success: boolean; discountAmount?: number; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) {
-    logServerAction({
+    logWebServerAction("actions/booking.applyCouponToHold", {
       action: "booking.apply_coupon",
       category: AnalyticsCategory.BOOKING,
       outcome: "error",
-      platform: "web",
       metadata: { holdId, code },
       error: "Not authenticated",
     });
@@ -163,12 +247,11 @@ export async function applyCouponToHold(
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
-    logServerAction({
+    logWebServerAction("actions/booking.applyCouponToHold", {
       userId: session.user.id,
       action: "booking.apply_coupon",
       category: AnalyticsCategory.BOOKING,
       outcome: "error",
-      platform: "web",
       metadata: { holdId, code },
       error: "Hold not found or expired",
     });
@@ -187,12 +270,11 @@ export async function applyCouponToHold(
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {
-    logServerAction({
+    logWebServerAction("actions/booking.applyCouponToHold", {
       userId: session.user.id,
       action: "booking.apply_coupon",
       category: AnalyticsCategory.BOOKING,
       outcome: "error",
-      platform: "web",
       metadata: {
         holdId,
         code,
@@ -220,12 +302,11 @@ export async function applyCouponToHold(
     },
   });
 
-  logServerAction({
+  logWebServerAction("actions/booking.applyCouponToHold", {
     userId: session.user.id,
     action: "booking.apply_coupon",
     category: AnalyticsCategory.BOOKING,
     outcome: "success",
-    platform: "web",
     metadata: {
       holdId,
       code: code.toUpperCase().trim(),
@@ -262,12 +343,11 @@ export async function clearCouponFromHold(
     },
   });
 
-  logServerAction({
+  logWebServerAction("actions/booking.clearCouponFromHold", {
     userId: session.user.id,
     action: "booking.clear_coupon",
     category: AnalyticsCategory.BOOKING,
     outcome: "success",
-    platform: "web",
     metadata: { holdId, previousCode: hold.couponCode },
   });
 
@@ -297,12 +377,30 @@ export async function applyEquipmentSelectionToHold(
   picks: Array<{ equipmentId: string; quantity: number }>,
 ): Promise<ApplyEquipmentResult> {
   const session = await auth();
+  const action =
+    picks.length === 0 ? "booking.clear_equipment" : "booking.apply_equipment";
+
   if (!session?.user?.id) {
+    logWebServerAction("actions/booking.applyEquipmentSelectionToHold", {
+      action,
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, pickCount: picks.length },
+      error: "Not authenticated",
+    });
     return { success: false, error: "Not authenticated" };
   }
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
+    logWebServerAction("actions/booking.applyEquipmentSelectionToHold", {
+      userId: session.user.id,
+      action,
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, pickCount: picks.length },
+      error: "Hold not found or expired",
+    });
     return { success: false, error: "Hold not found or expired" };
   }
 
@@ -316,6 +414,13 @@ export async function applyEquipmentSelectionToHold(
         equipmentTotalAmount: null,
       },
     });
+    logWebServerAction("actions/booking.applyEquipmentSelectionToHold", {
+      userId: session.user.id,
+      action,
+      category: AnalyticsCategory.BOOKING,
+      outcome: "success",
+      metadata: { holdId, pickCount: 0 },
+    });
     return { success: true, totalPaise: 0 };
   }
 
@@ -328,6 +433,14 @@ export async function applyEquipmentSelectionToHold(
     Math.max(1, hold.hours.length),
   );
   if (!snap.ok) {
+    logWebServerAction("actions/booking.applyEquipmentSelectionToHold", {
+      userId: session.user.id,
+      action,
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, pickCount: picks.length },
+      error: snap.error,
+    });
     return { success: false, error: snap.error };
   }
 
@@ -336,6 +449,19 @@ export async function applyEquipmentSelectionToHold(
     data: {
       equipmentSelection: snap.result.snapshot as unknown as Prisma.InputJsonValue,
       equipmentTotalAmount: snap.result.totalRupees,
+    },
+  });
+
+  logWebServerAction("actions/booking.applyEquipmentSelectionToHold", {
+    userId: session.user.id,
+    action,
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    metadata: {
+      holdId,
+      pickCount: picks.length,
+      totalPaise: snap.result.totalPaise,
+      sport: hold.courtConfig.sport,
     },
   });
 
@@ -364,14 +490,38 @@ export async function applyPointsRedemptionToHold(
 ): Promise<ApplyPointsResult> {
   const session = await auth();
   if (!session?.user?.id) {
+    logWebServerAction("actions/booking.applyPointsRedemptionToHold", {
+      action: "booking.apply_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, points },
+      error: "Not authenticated",
+    });
     return { success: false, error: "Not authenticated" };
   }
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
+    logWebServerAction("actions/booking.applyPointsRedemptionToHold", {
+      userId: session.user.id,
+      action: "booking.apply_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, points },
+      error: "Hold not found or expired",
+    });
     return { success: false, error: "Hold not found or expired" };
   }
+  const sport = hold.courtConfig.sport;
   if (!Number.isInteger(points) || points <= 0) {
+    logWebServerAction("actions/booking.applyPointsRedemptionToHold", {
+      userId: session.user.id,
+      action: "booking.apply_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, points, sport },
+      error: "Points must be a positive integer",
+    });
     return { success: false, error: "Points must be a positive integer" };
   }
 
@@ -391,19 +541,39 @@ export async function applyPointsRedemptionToHold(
     billPaise,
   });
   if (preview.blockedReason) {
+    logWebServerAction("actions/booking.applyPointsRedemptionToHold", {
+      userId: session.user.id,
+      action: "booking.apply_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, points, sport },
+      error: preview.blockedReason,
+    });
     return { success: false, error: preview.blockedReason };
   }
   if (points > preview.maxPoints) {
-    return {
-      success: false,
-      error: `Max ${preview.maxPoints} points allowed on this bill`,
-    };
+    const error = `Max ${preview.maxPoints} points allowed on this bill`;
+    logWebServerAction("actions/booking.applyPointsRedemptionToHold", {
+      userId: session.user.id,
+      action: "booking.apply_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, points, maxPoints: preview.maxPoints, sport },
+      error,
+    });
+    return { success: false, error };
   }
   if (points < cfg.minPointsToRedeem) {
-    return {
-      success: false,
-      error: `Need at least ${cfg.minPointsToRedeem} points`,
-    };
+    const error = `Need at least ${cfg.minPointsToRedeem} points`;
+    logWebServerAction("actions/booking.applyPointsRedemptionToHold", {
+      userId: session.user.id,
+      action: "booking.apply_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId, points, minPoints: cfg.minPointsToRedeem, sport },
+      error,
+    });
+    return { success: false, error };
   }
 
   const paiseSaved = pointsToPaise(points, cfg);
@@ -415,6 +585,14 @@ export async function applyPointsRedemptionToHold(
     },
   });
 
+  logWebServerAction("actions/booking.applyPointsRedemptionToHold", {
+    userId: session.user.id,
+    action: "booking.apply_points",
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    metadata: { holdId, points, paiseSaved, sport },
+  });
+
   return { success: true, pointsToRedeem: points, paiseSaved };
 }
 
@@ -422,10 +600,29 @@ export async function clearPointsRedemptionFromHold(
   holdId: string,
 ): Promise<{ success: boolean }> {
   const session = await auth();
-  if (!session?.user?.id) return { success: false };
+  if (!session?.user?.id) {
+    logWebServerAction("actions/booking.clearPointsRedemptionFromHold", {
+      action: "booking.clear_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId },
+      error: "Not authenticated",
+    });
+    return { success: false };
+  }
 
   const hold = await getValidHold(holdId, session.user.id);
-  if (!hold) return { success: false };
+  if (!hold) {
+    logWebServerAction("actions/booking.clearPointsRedemptionFromHold", {
+      userId: session.user.id,
+      action: "booking.clear_points",
+      category: AnalyticsCategory.BOOKING,
+      outcome: "error",
+      metadata: { holdId },
+      error: "Hold not found or expired",
+    });
+    return { success: false };
+  }
 
   await db.slotHold.update({
     where: { id: holdId },
@@ -434,6 +631,15 @@ export async function clearPointsRedemptionFromHold(
       pointsRedeemPaiseSaved: null,
     },
   });
+
+  logWebServerAction("actions/booking.clearPointsRedemptionFromHold", {
+    userId: session.user.id,
+    action: "booking.clear_points",
+    category: AnalyticsCategory.BOOKING,
+    outcome: "success",
+    metadata: { holdId, previousPoints: hold.pointsToRedeem, sport: hold.courtConfig.sport },
+  });
+
   return { success: true };
 }
 
@@ -562,17 +768,39 @@ export async function confirmRazorpayPayment(
 // UPI QR: user clicks "I've completed the payment".
 // Atomically creates Booking(PENDING) + Payment(PENDING, UPI_QR), deletes Hold.
 // Admin verifies WhatsApp screenshot to move Booking -> CONFIRMED.
+
+/** Fire-and-forget audit when the customer picks a checkout payment tile. */
+export async function logPaymentMethodSelected(
+  holdId: string,
+  paymentMethod: string,
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id) return;
+
+  const hold = await getValidHold(holdId, session.user.id);
+  logWebServerAction("actions/booking.logPaymentMethodSelected", {
+    userId: session.user.id,
+    action: "payment.select_payment",
+    category: AnalyticsCategory.PAYMENT,
+    outcome: "success",
+    metadata: {
+      holdId,
+      paymentMethod,
+      sport: hold?.courtConfig.sport ?? null,
+    },
+  });
+}
+
 export async function selectUpiPayment(
   holdId: string,
   overrideAmount?: number
 ): Promise<BookingState> {
   const session = await auth();
   if (!session?.user?.id) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectUpiPayment", {
       action: "payment.upi_qr.commit",
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: { holdId },
       error: "Not authenticated",
     });
@@ -581,12 +809,11 @@ export async function selectUpiPayment(
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectUpiPayment", {
       userId: session.user.id,
       action: "payment.upi_qr.commit",
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: { holdId },
       error: "Hold not found or expired",
     });
@@ -596,12 +823,11 @@ export async function selectUpiPayment(
   // Bowling-machine re-check (same as cash + razorpay flows).
   const stillOk = await verifyBowlingHoldStillBookable(holdId);
   if (!stillOk.ok) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectUpiPayment", {
       userId: session.user.id,
       action: "payment.upi_qr.commit",
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: { holdId, conflicts: stillOk.conflicts },
       error: stillOk.reason,
     });
@@ -618,12 +844,11 @@ export async function selectUpiPayment(
   }, "PENDING");
 
   if (!bookingId) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectUpiPayment", {
       userId: session.user.id,
       action: "payment.upi_qr.commit",
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: { holdId, amount },
       error: "Failed to create booking",
     });
@@ -632,13 +857,18 @@ export async function selectUpiPayment(
 
   notifyAdminPendingBooking(bookingId).catch(console.error);
 
-  logServerAction({
+  logWebServerAction("actions/booking.selectUpiPayment", {
     userId: session.user.id,
     action: "payment.upi_qr.commit",
     category: AnalyticsCategory.PAYMENT,
     outcome: "success",
-    platform: "web",
-    metadata: { holdId, bookingId, amount, paymentMethod: "UPI_QR" },
+    metadata: {
+      holdId,
+      bookingId,
+      amount,
+      paymentMethod: "upi_qr",
+      sport: hold.courtConfig.sport,
+    },
   });
 
   return { success: true, bookingId };
@@ -671,11 +901,10 @@ export async function selectCashPayment(
 
   const session = await auth();
   if (!session?.user?.id) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectCashPayment", {
       action,
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: { holdId, isAdvance },
       error: "Not authenticated",
     });
@@ -684,12 +913,11 @@ export async function selectCashPayment(
 
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectCashPayment", {
       userId: session.user.id,
       action,
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: { holdId, isAdvance },
       error: "Hold not found or expired",
     });
@@ -701,12 +929,11 @@ export async function selectCashPayment(
   // turf bookings on the shared zones between lock and checkout.
   const stillOk = await verifyBowlingHoldStillBookable(holdId);
   if (!stillOk.ok) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectCashPayment", {
       userId: session.user.id,
       action,
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: { holdId, isAdvance, conflicts: stillOk.conflicts },
       error: stillOk.reason,
     });
@@ -744,12 +971,11 @@ export async function selectCashPayment(
   }, "PENDING");
 
   if (!bookingId) {
-    logServerAction({
+    logWebServerAction("actions/booking.selectCashPayment", {
       userId: session.user.id,
       action,
       category: AnalyticsCategory.PAYMENT,
       outcome: "error",
-      platform: "web",
       metadata: {
         holdId,
         isAdvance,
@@ -765,12 +991,11 @@ export async function selectCashPayment(
 
   notifyAdminPendingBooking(bookingId).catch(console.error);
 
-  logServerAction({
+  logWebServerAction("actions/booking.selectCashPayment", {
     userId: session.user.id,
     action,
     category: AnalyticsCategory.PAYMENT,
     outcome: "success",
-    platform: "web",
     metadata: {
       holdId,
       bookingId,
@@ -778,7 +1003,9 @@ export async function selectCashPayment(
       amount,
       advanceAmount,
       remainingAmount,
-      paymentMethod,
+      paymentMethod: isAdvance ? "cash" : paymentMethod,
+      method: paymentMethod,
+      sport: hold.courtConfig.sport,
     },
   });
 
