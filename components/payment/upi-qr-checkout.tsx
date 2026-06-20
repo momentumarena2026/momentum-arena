@@ -51,6 +51,8 @@ interface UpiQrCheckoutProps {
   onCancel?: () => void;
   isAdvance?: boolean;
   advanceAmount?: number;
+  /** Venue balance after the advance UPI payment (50% now flow). */
+  remainingAmount?: number;
   qrType?: "turf" | "cafe";
 }
 
@@ -82,6 +84,7 @@ export function UpiQrCheckout({
   onCancel,
   isAdvance,
   advanceAmount,
+  remainingAmount,
   qrType = "turf",
 }: UpiQrCheckoutProps) {
   const [step, setStep] = useState<Step>("scan");
@@ -230,7 +233,8 @@ export function UpiQrCheckout({
 
   // ---------- Step 1: Scan QR and pay ----------
   return (
-    <div className="space-y-5">
+    <div>
+      <div className="space-y-5">
       {/* QR-first layout. Most users scan from a second device, so the
           QR is the primary surface. The "Pay with UPI App" CTA below
           sits right above the "I've Completed the Payment" button so
@@ -252,9 +256,13 @@ export function UpiQrCheckout({
           Pay {formatPrice(displayAmount)}
         </p>
 
-        {isAdvance && advanceAmount && (
+        {isAdvance && advanceAmount != null && (
           <p className="mt-1 text-xs text-yellow-400">
-            Advance payment &middot; Remaining at venue: {formatPrice(amount - advanceAmount)}
+            Paying advance: {formatPrice(advanceAmount)} &bull; Remaining at
+            venue:{" "}
+            {formatPrice(
+              remainingAmount ?? Math.max(0, amount - advanceAmount),
+            )}
           </p>
         )}
 
@@ -289,60 +297,65 @@ export function UpiQrCheckout({
           {commitError}
         </div>
       )}
+      </div>
 
-      {/* Same-device alternative — opens an installed UPI app via the
-          `upi://pay?…` deep link with the VPA, payee, and amount
-          pre-filled. Only rendered on mobile browsers (UA-sniffed)
-          since desktop browsers have no handler for the `upi://`
-          scheme. */}
-      {showUpiAppButton ? (
-        <a
-          href={upiDeepLink}
-          onClick={() => trackUpiAppLaunched(displayAmount)}
-          className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 active:bg-emerald-700"
-        >
-          <Smartphone className="h-5 w-5" />
-          <div className="flex flex-col items-start leading-tight">
-            <span className="text-base">Pay with UPI App</span>
-            <span className="text-[11px] font-normal text-emerald-50/85">
-              Opens PhonePe, GPay, Paytm, BHIM…
-            </span>
-          </div>
-        </a>
-      ) : null}
+      {/* Bottom spacer for mobile fixed bar — tall enough for the
+          two-button footer + helper copy + safe area. */}
+      <div className="h-64 md:h-6" aria-hidden />
 
-      {/* Mark Payment Done button */}
-      <button
-        onClick={handlePaymentDone}
-        disabled={committing}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500/30 bg-emerald-500/10 px-4 py-3.5 font-semibold text-emerald-400 transition-all hover:bg-emerald-500/20 hover:border-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {committing ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Reserving your slot...
-          </>
-        ) : (
-          <>
-            <CircleCheck className="h-5 w-5" />
-            I&apos;ve Completed the Payment
-          </>
-        )}
-      </button>
+      {/* Sticky action bar — mirrors the slot-selection Pay CTA:
+          fixed to the viewport bottom on mobile browsers, sticky tile
+          on md+ with a small gap from the scroll content above. */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:sticky md:bottom-4 md:left-auto md:right-auto md:z-auto md:mt-0 bg-black/95 backdrop-blur-md border-t border-zinc-800 md:border md:border-zinc-800 md:rounded-xl px-4 pt-3 pb-4 max-md:pb-[calc(1rem+env(safe-area-inset-bottom,0px))] space-y-3">
+        {showUpiAppButton ? (
+          <a
+            href={upiDeepLink}
+            onClick={() => trackUpiAppLaunched(displayAmount)}
+            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 active:bg-emerald-700"
+          >
+            <Smartphone className="h-5 w-5" />
+            <div className="flex flex-col items-start leading-tight">
+              <span className="text-base">Pay with UPI App</span>
+              <span className="text-[11px] font-normal text-emerald-50/85">
+                Opens PhonePe, GPay, Paytm, BHIM…
+              </span>
+            </div>
+          </a>
+        ) : null}
 
-      <p className="text-center text-xs text-zinc-600">
-        Click above after you&apos;ve successfully paid via UPI
-      </p>
-
-      {onCancel && (
         <button
-          onClick={onCancel}
+          onClick={handlePaymentDone}
           disabled={committing}
-          className="w-full text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2 disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500/30 bg-emerald-500/10 px-4 py-3.5 font-semibold text-emerald-400 transition-all hover:bg-emerald-500/20 hover:border-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          ← Go back
+          {committing ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Reserving your slot...
+            </>
+          ) : (
+            <>
+              <CircleCheck className="h-5 w-5" />
+              I&apos;ve Completed the Payment
+            </>
+          )}
         </button>
-      )}
+
+        <p className="text-center text-xs text-zinc-600">
+          Click above after you&apos;ve successfully paid via UPI to confirm
+          your slot
+        </p>
+
+        {onCancel ? (
+          <button
+            onClick={onCancel}
+            disabled={committing}
+            className="w-full text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2 disabled:opacity-50"
+          >
+            ← Go back
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

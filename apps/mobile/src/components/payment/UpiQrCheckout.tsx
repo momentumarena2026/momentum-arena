@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -33,6 +34,11 @@ interface Props {
   /** Called once the user indicates they've shared the screenshot — the
    *  CheckoutScreen uses this to navigate to BookingDetail. */
   onDone: (bookingId: string) => void;
+  /** Venue balance after the advance UPI payment (50% now flow). */
+  remainingAmount?: number;
+  /** Optional content rendered above the QR inside the scroll area
+   *  (e.g. the "Scan & pay" screen title from CheckoutScreen). */
+  header?: ReactNode;
 }
 
 // Absolute image URLs so RN's Image loader can fetch them from the same
@@ -75,6 +81,8 @@ export function UpiQrCheckout({
   onPaymentInitiated,
   onCancel,
   onDone,
+  remainingAmount,
+  header,
 }: Props) {
   const [step, setStep] = useState<Step>("scan");
   const [committing, setCommitting] = useState(false);
@@ -235,14 +243,22 @@ export function UpiQrCheckout({
     );
   }
 
-  // Step 1 — scan.
+  // Step 1 — scan. Scrollable QR + warning; action buttons pin to the
+  // bottom footer like the main checkout Pay CTA.
   return (
-    <View style={styles.stack}>
-      {/* QR-first layout. Most users scan from a second device, so the
-          QR is the primary surface. The "Pay with UPI App" CTA sits
-          right above the "I've Completed the Payment" button so users
-          paying on the same device see it just before they confirm. */}
-      <View style={styles.qrCard}>
+    <View style={styles.screen}>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {header}
+
+        {/* QR-first layout. Most users scan from a second device, so the
+            QR is the primary surface. The "Pay with UPI App" CTA sits
+            in the sticky footer right above the "Completed" button. */}
+        <View style={styles.qrCard}>
         <View style={styles.qrWrap}>
           <Image
             source={{ uri: selectedQr.image }}
@@ -258,10 +274,12 @@ export function UpiQrCheckout({
         >
           Pay {formatRupees(displayAmount)}
         </Text>
-        {isAdvance && advanceAmount ? (
+        {isAdvance && advanceAmount != null ? (
           <Text variant="tiny" color="#facc15" style={styles.amountSub}>
-            Advance payment · Remaining at venue:{" "}
-            {formatRupees(amount - advanceAmount)}
+            Paying advance: {formatRupees(advanceAmount)} • Remaining at venue:{" "}
+            {formatRupees(
+              remainingAmount ?? Math.max(0, amount - advanceAmount),
+            )}
           </Text>
         ) : null}
         <Text variant="small" color={colors.zinc400} style={styles.amountSub}>
@@ -299,76 +317,89 @@ export function UpiQrCheckout({
         </View>
       ) : null}
 
-      {/* Same-device alternative — opens an installed UPI app via the
-          `upi://pay?…` deep link with the VPA, payee, and amount
-          pre-filled. Sits directly above the "Completed" button so
-          users on the same phone see it as the natural next step. */}
-      <Pressable
-        onPress={openUpiApp}
-        disabled={committing}
-        style={({ pressed }) => [
-          styles.upiAppBtn,
-          pressed && !committing && { opacity: 0.9 },
-        ]}
-      >
-        <Smartphone size={20} color="#fff" />
-        <View style={styles.upiAppBtnText}>
-          <Text variant="body" weight="700" color="#fff">
-            Pay with UPI App
-          </Text>
-          <Text variant="tiny" color="rgba(255,255,255,0.85)">
-            Opens PhonePe, GPay, Paytm, BHIM…
-          </Text>
-        </View>
-      </Pressable>
+      </ScrollView>
 
-      <Pressable
-        onPress={handleDone}
-        disabled={committing}
-        style={({ pressed }) => [
-          styles.primaryBtn,
-          pressed && !committing && { opacity: 0.9 },
-          committing && { opacity: 0.7 },
-        ]}
-      >
-        {committing ? (
-          <>
-            <ActivityIndicator color={colors.emerald400} />
-            <Text variant="body" weight="600" color={colors.emerald400}>
-              Reserving your slot…
+      <View style={styles.actionFooter}>
+        <Pressable
+          onPress={openUpiApp}
+          disabled={committing}
+          style={({ pressed }) => [
+            styles.upiAppBtn,
+            pressed && !committing && { opacity: 0.9 },
+          ]}
+        >
+          <Smartphone size={20} color="#fff" />
+          <View style={styles.upiAppBtnText}>
+            <Text variant="body" weight="700" color="#fff">
+              Pay with UPI App
             </Text>
-          </>
-        ) : (
-          <>
-            <CircleCheck size={20} color={colors.emerald400} />
-            <Text variant="body" weight="600" color={colors.emerald400}>
-              I've Completed the Payment
+            <Text variant="tiny" color="rgba(255,255,255,0.85)">
+              Opens PhonePe, GPay, Paytm, BHIM…
             </Text>
-          </>
-        )}
-      </Pressable>
+          </View>
+        </Pressable>
 
-      <Text variant="tiny" align="center" color={colors.zinc600}>
-        Click above after you've successfully paid via UPI
-      </Text>
+        <Pressable
+          onPress={handleDone}
+          disabled={committing}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            pressed && !committing && { opacity: 0.9 },
+            committing && { opacity: 0.7 },
+          ]}
+        >
+          {committing ? (
+            <>
+              <ActivityIndicator color={colors.emerald400} />
+              <Text variant="body" weight="600" color={colors.emerald400}>
+                Reserving your slot…
+              </Text>
+            </>
+          ) : (
+            <>
+              <CircleCheck size={20} color={colors.emerald400} />
+              <Text variant="body" weight="600" color={colors.emerald400}>
+                I've Completed the Payment
+              </Text>
+            </>
+          )}
+        </Pressable>
 
-      <Pressable
-        onPress={onCancel}
-        disabled={committing}
-        style={({ pressed }) => [
-          styles.cancelBtn,
-          pressed && !committing && { opacity: 0.7 },
-        ]}
-      >
-        <Text variant="small" align="center" color={colors.zinc500}>
-          ← Go back
+        <Text variant="tiny" align="center" color={colors.zinc600}>
+          Click above after you've successfully paid via UPI to confirm your
+          slot
         </Text>
-      </Pressable>
+
+        <Pressable
+          onPress={onCancel}
+          disabled={committing}
+          style={({ pressed }) => [
+            styles.cancelBtn,
+            pressed && !committing && { opacity: 0.7 },
+          ]}
+        >
+          <Text variant="small" align="center" color={colors.zinc500}>
+            ← Go back
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  flex: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: spacing["6"],
+    paddingTop: spacing["3"],
+    paddingBottom: spacing["6"],
+    gap: spacing["5"],
+  },
   stack: {
     gap: spacing["5"],
   },
@@ -455,6 +486,15 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     paddingVertical: spacing["2"],
+  },
+  actionFooter: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing["6"],
+    paddingTop: spacing["2.5"],
+    paddingBottom: spacing["5"],
+    backgroundColor: colors.background,
+    gap: spacing["3"],
   },
   reservedCard: {
     alignItems: "center",
