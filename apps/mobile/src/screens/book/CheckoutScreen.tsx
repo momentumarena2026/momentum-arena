@@ -606,57 +606,47 @@ export function CheckoutScreen() {
     const upiAmount = isAdvanceFlow ? advanceAmount : payableAmount;
     return (
       <Screen padded={false}>
-        <ScrollView contentContainerStyle={styles.scroll}>
-          <View style={styles.header}>
-            <Text variant="tiny" color={colors.primary} style={styles.kicker}>
-              UPI QR PAYMENT
-            </Text>
-            <Text variant="title">Scan &amp; pay</Text>
-          </View>
-          <UpiQrCheckout
-            amount={payableAmount}
-            isAdvance={isAdvanceFlow}
-            advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
-            onCancel={() => setShowUpiQr(false)}
-            onPaymentInitiated={async () => {
-              // Commit the booking as PENDING. Admin confirms the UTR via the
-              // WhatsApp screenshot separately; the booking appears in "My
-              // Bookings" immediately so the user can see it.
-              try {
-                const res = await bookingApi.selectPayment({
-                  holdId: params.holdId,
-                  method: isAdvanceFlow ? "CASH" : "UPI_QR",
-                  overrideAmount: upiAmount,
-                  isAdvance: isAdvanceFlow,
-                });
-                if (!res.success || !res.bookingId) {
-                  return { error: res.error || "Failed to create booking" };
-                }
-                fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
-                return { bookingId: res.bookingId };
-              } catch (err) {
-                return {
-                  error:
-                    err instanceof ApiError
-                      ? err.message
-                      : "Failed to create booking",
-                };
+        <UpiQrCheckout
+          header={
+            <View style={styles.header}>
+              <Text variant="tiny" color={colors.primary} style={styles.kicker}>
+                UPI QR PAYMENT
+              </Text>
+              <Text variant="title">Scan &amp; pay</Text>
+            </View>
+          }
+          amount={payableAmount}
+          isAdvance={isAdvanceFlow}
+          advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
+          remainingAmount={isAdvanceFlow ? remainingAmount : undefined}
+          onCancel={() => setShowUpiQr(false)}
+          onPaymentInitiated={async () => {
+            // Commit the booking as PENDING. Admin confirms the UTR via the
+            // WhatsApp screenshot separately; the booking appears in "My
+            // Bookings" immediately so the user can see it.
+            try {
+              const res = await bookingApi.selectPayment({
+                holdId: params.holdId,
+                method: isAdvanceFlow ? "CASH" : "UPI_QR",
+                overrideAmount: upiAmount,
+                isAdvance: isAdvanceFlow,
+              });
+              if (!res.success || !res.bookingId) {
+                return { error: res.error || "Failed to create booking" };
               }
-            }}
-            onDone={(bookingId) => goToBookingDetail(bookingId)}
-          />
-          {isAdvanceFlow ? (
-            <Text
-              variant="tiny"
-              align="center"
-              color="#facc15"
-              style={styles.advanceNote}
-            >
-              Paying advance: {formatRupees(advanceAmount)} · Remaining at
-              venue: {formatRupees(remainingAmount)}
-            </Text>
-          ) : null}
-        </ScrollView>
+              fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
+              return { bookingId: res.bookingId };
+            } catch (err) {
+              return {
+                error:
+                  err instanceof ApiError
+                    ? err.message
+                    : "Failed to create booking",
+              };
+            }
+          }}
+          onDone={(bookingId) => goToBookingDetail(bookingId)}
+        />
       </Screen>
     );
   }
@@ -1189,9 +1179,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(239, 68, 68, 0.30)",
     backgroundColor: "rgba(239, 68, 68, 0.10)",
     padding: spacing["3"],
-  },
-  advanceNote: {
-    marginTop: spacing["4"],
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
