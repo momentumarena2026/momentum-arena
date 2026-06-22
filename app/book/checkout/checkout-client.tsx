@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { CountdownTimer } from "@/components/booking/countdown-timer";
-import { PaymentSelector, type PaymentMethodType } from "@/components/payment/payment-selector";
-import { AdvancePaymentSelector, type AdvancePaymentMethod } from "@/components/payment/advance-payment-selector";
+import { PaymentSelector, type AmountMode, type PayMethod } from "@/components/payment/payment-selector";
 import { DiscountInput } from "@/components/booking/discount-input";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
+import { DqrCheckout } from "@/components/payment/dqr-checkout";
 import { formatPrice } from "@/lib/pricing";
 import { validateCoupon } from "@/actions/coupon-validation";
 import { getAutoApplyCodeForSport } from "@/lib/auto-apply-promo";
@@ -66,6 +66,9 @@ interface CheckoutClientProps {
   onlineEnabled?: boolean;
   upiQrEnabled?: boolean;
   advanceEnabled?: boolean;
+  /** When true, "Pay by UPI" uses PhonePe Dynamic QR (auto-confirm);
+   *  otherwise it falls back to the static QR + manual-verify flow. */
+  dqrEnabled?: boolean;
   /** Rental gear total in rupees, locked from the slot-selection
    *  page. Added straight into the payable; checkout-client no
    *  longer renders an interactive picker — see the Booking Summary
@@ -105,18 +108,20 @@ export function CheckoutClient({
   onlineEnabled = true,
   upiQrEnabled = true,
   advanceEnabled = true,
+  dqrEnabled = false,
   lockedEquipmentTotalRupees = 0,
 }: CheckoutClientProps) {
   const router = useRouter();
-  // Default selection to the first method that's currently enabled so the
-  // user never lands on a hidden tile.
-  const initialMethod: PaymentMethodType = onlineEnabled
-    ? "online"
-    : upiQrEnabled
-      ? "upi_qr"
-      : "cash";
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>(initialMethod);
-  const [advanceMethod, setAdvanceMethod] = useState<AdvancePaymentMethod>("online");
+  // Two-level selection: amount mode (full / 50% advance) × method
+  // (UPI / gateway). UPI is pre-selected to steer customers away from
+  // the fee-bearing gateway. Fall back sensibly when a method/mode is
+  // disabled by admin.
+  const [amountMode, setAmountMode] = useState<AmountMode>(
+    onlineEnabled || upiQrEnabled ? "full" : "advance",
+  );
+  const [method, setMethod] = useState<PayMethod>(
+    upiQrEnabled ? "upi" : "gateway",
+  );
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUpiQr, setShowUpiQr] = useState(false);
@@ -456,19 +461,13 @@ export function CheckoutClient({
     setError(null);
 
     try {
-      if (paymentMethod === "online") {
-        await handleOnlinePayment(false);
-      } else if (paymentMethod === "upi_qr") {
-        // Just show the QR — don't commit yet. Hold stays active, and will be
-        // released if user leaves before clicking "I've completed the payment".
+      if (method === "gateway") {
+        await handleOnlinePayment(amountMode === "advance");
+      } else {
+        // UPI — show the QR (DQR auto-confirm if enabled, else the
+        // static QR + manual-verify flow). Hold stays active until the
+        // booking is created.
         setShowUpiQr(true);
-      } else if (paymentMethod === "cash") {
-        if (advanceMethod === "online") {
-          await handleOnlinePayment(true);
-        } else {
-          // Same as UPI QR: booking is only created after user confirms payment
-          setShowUpiQr(true);
-        }
       }
     } catch {
       setError("Something went wrong");
@@ -478,58 +477,93 @@ export function CheckoutClient({
   };
 
   if (showUpiQr) {
-    const upiAmount = paymentMethod === "cash" ? advanceAmount : payableAmount;
+    const isAdvance = amountMode === "advance";
+    const upiAmount = isAdvance ? advanceAmount : payableAmount;
+
+    // Shared post-confirmation side effects: fire the rewards-redeem
+    // funnel step and kick off the recurring series (non-advance only).
+    const fireRewardsAndRecurring = () => {
+      if (pointsRedeemed > 0) {
+        window.dispatchEvent(
+          new CustomEvent("rewards:redeem-completed", {
+            detail: {
+              points: pointsRedeemed,
+              paiseSaved: pointsRedeemPaiseSaved,
+            },
+          }),
+        );
+      }
+      if (!isAdvance) handleRecurringAfterPayment().catch(() => {});
+    };
+
+    const advanceNote = isAdvance ? (
+      <p className="text-center text-xs text-yellow-400">
+        Paying advance: {formatPrice(advanceAmount)} • Remaining at venue:{" "}
+        {formatPrice(remainingAmount)}
+      </p>
+    ) : null;
+
+    // DQR: auto-confirming dynamic QR. The booking is created server-side
+    // on payment; onConfirmed navigates straight to the confirmation.
+    if (dqrEnabled) {
+      return (
+        <div className="space-y-4">
+          <DqrCheckout
+            holdId={holdId}
+            amount={upiAmount}
+            isAdvance={isAdvance}
+            advanceAmount={isAdvance ? advanceAmount : undefined}
+            remainingAmount={isAdvance ? remainingAmount : undefined}
+            onConfirmed={(bookingId) => {
+              paymentCompletedRef.current = true;
+              fireRewardsAndRecurring();
+              router.push(`/book/confirmation?id=${bookingId}`);
+            }}
+            onCancel={() => {
+              releaseLock();
+              router.back();
+            }}
+          />
+          {advanceNote}
+        </div>
+      );
+    }
+
+    // Legacy static QR: booking created PENDING when the user taps
+    // "I've completed the payment"; verified later via UTR / admin.
     return (
       <div className="space-y-4">
         <UpiQrCheckout
           amount={upiAmount}
           bookingId={holdId}
-          isAdvance={paymentMethod === "cash"}
-          advanceAmount={paymentMethod === "cash" ? advanceAmount : undefined}
+          isAdvance={isAdvance}
+          advanceAmount={isAdvance ? advanceAmount : undefined}
           onPaymentInitiated={async () => {
-            // User clicked "I've completed the payment" — commit the booking as PENDING.
-            // Mark paymentCompleted so the hold isn't released by unload/unmount handlers.
+            // Mark paymentCompleted so the hold isn't released by unload/unmount.
             paymentCompletedRef.current = true;
-            // For the 50% advance flow, the customer only paid the advance
-            // amount via UPI QR — pass that (not the full slot price) so
-            // the Payment row records the correct amount and leaves a
-            // remainingAmount = half to collect at the venue.
-            const commit =
-              paymentMethod === "cash"
-                ? await selectCashPayment(holdId, advanceAmount, { isAdvance: true })
-                : await selectUpiPayment(holdId, payableAmount);
+            // For the 50% advance flow, the customer paid only the advance
+            // via UPI QR — record that (not the full price) so the Payment
+            // leaves a remainingAmount to collect at the venue.
+            const commit = isAdvance
+              ? await selectCashPayment(holdId, advanceAmount, { isAdvance: true })
+              : await selectUpiPayment(holdId, payableAmount);
 
             if (commit.success && commit.bookingId) {
-              if (pointsRedeemed > 0) {
-                window.dispatchEvent(
-                  new CustomEvent("rewards:redeem-completed", {
-                    detail: {
-                      points: pointsRedeemed,
-                      paiseSaved: pointsRedeemPaiseSaved,
-                    },
-                  }),
-                );
-              }
-              // Fire-and-forget recurring series creation for non-advance UPI.
-              if (paymentMethod === "upi_qr") {
-                handleRecurringAfterPayment().catch(() => {});
-              }
-              // Do NOT router.push here — the UpiQrCheckout component now stays
-              // on its "paid" step so the user can share their payment
-              // screenshot on WhatsApp before navigating to the confirmation.
+              fireRewardsAndRecurring();
+              // Don't router.push — UpiQrCheckout stays on its "paid" step
+              // so the user can share the payment screenshot on WhatsApp.
               return { bookingId: commit.bookingId };
             }
 
             paymentCompletedRef.current = false;
             return { error: commit.error || "Failed to create booking" };
           }}
-          onCancel={() => { releaseLock(); router.back(); }}
+          onCancel={() => {
+            releaseLock();
+            router.back();
+          }}
         />
-        {paymentMethod === "cash" && (
-          <p className="text-center text-xs text-yellow-400">
-            Paying advance: {formatPrice(advanceAmount)} • Remaining at venue: {formatPrice(remainingAmount)}
-          </p>
-        )}
+        {advanceNote}
       </div>
     );
   }
@@ -637,30 +671,27 @@ export function CheckoutClient({
       <div>
         <h2 className="mb-3 font-semibold text-white">Payment Method</h2>
         <PaymentSelector
-          selected={paymentMethod}
-          onSelect={(m) => {
-            setPaymentMethod(m);
-            trackPaymentMethodSelected(m);
-            void logPaymentMethodSelected(holdId, m);
+          amountMode={amountMode}
+          onAmountModeChange={(m) => {
+            setAmountMode(m);
+            trackPaymentMethodSelected(`${m}_${method}`);
+            void logPaymentMethodSelected(holdId, `${m}_${method}`);
+          }}
+          method={method}
+          onMethodChange={(m) => {
+            setMethod(m);
+            trackPaymentMethodSelected(`${amountMode}_${m}`);
+            void logPaymentMethodSelected(holdId, `${amountMode}_${m}`);
           }}
           gateway={gateway}
+          fullAmount={payableAmount}
+          advanceAmount={advanceAmount}
+          remainingAmount={remainingAmount}
           onlineEnabled={onlineEnabled}
           upiQrEnabled={upiQrEnabled}
           advanceEnabled={advanceEnabled}
         />
       </div>
-
-      {/* Advance Payment for Cash */}
-      {paymentMethod === "cash" && (
-        <AdvancePaymentSelector
-          totalAmount={payableAmount}
-          advanceAmount={advanceAmount}
-          remainingAmount={remainingAmount}
-          selected={advanceMethod}
-          onSelect={setAdvanceMethod}
-          gateway={gateway}
-        />
-      )}
 
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-center text-sm text-red-400">
@@ -679,12 +710,14 @@ export function CheckoutClient({
             <Loader2 className="h-4 w-4 animate-spin" />
             Processing...
           </span>
-        ) : paymentMethod === "online" ? (
-          `Pay ${formatPrice(payableAmount)}`
-        ) : paymentMethod === "upi_qr" ? (
-          `Show QR — ${formatPrice(payableAmount)}`
+        ) : method === "gateway" ? (
+          amountMode === "advance"
+            ? `Pay Advance ${formatPrice(advanceAmount)}`
+            : `Pay ${formatPrice(payableAmount)}`
+        ) : amountMode === "advance" ? (
+          `Pay Advance ${formatPrice(advanceAmount)} via UPI`
         ) : (
-          `Pay Advance ${formatPrice(advanceAmount)} — Book Now`
+          `Pay ${formatPrice(payableAmount)} via UPI`
         )}
       </button>
 
