@@ -7,6 +7,7 @@ import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { createCafeOrder } from "@/actions/cafe-orders";
 import { DiscountInput } from "@/components/booking/discount-input";
+import { DqrCheckout } from "@/components/payment/dqr-checkout";
 // UTR submission disabled — admin verifies via WhatsApp screenshot
 import { CheckoutAuth } from "@/components/checkout-auth";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -18,7 +19,9 @@ import {
   trackError,
 } from "@/lib/analytics";
 
-type PaymentMethod = "ONLINE" | "UPI_QR" | "CASH";
+// "UPI_NOW" = pay now via PhonePe Dynamic QR (auto-confirm online),
+// distinct from "UPI_QR" which is the legacy pay-at-the-counter option.
+type PaymentMethod = "UPI_NOW" | "ONLINE" | "UPI_QR" | "CASH";
 
 declare global {
   interface Window {
@@ -29,13 +32,20 @@ declare global {
   }
 }
 
-export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHONEPE" }: { isLoggedIn?: boolean; gateway?: "PHONEPE" | "RAZORPAY" }) {
+export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHONEPE", dqrEnabled = false }: { isLoggedIn?: boolean; gateway?: "PHONEPE" | "RAZORPAY"; dqrEnabled?: boolean }) {
   const router = useRouter();
   const { data: session } = useSession();
   const isLoggedIn = initialLoggedIn || !!session?.user;
   const { items, totalAmount, clearCart } = useCafeCart();
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("ONLINE");
+  // UPI-first when DQR is live; otherwise the gateway stays the default
+  // (cafe has no static online-UPI, so UPI-first only applies with DQR).
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    dqrEnabled ? "UPI_NOW" : "ONLINE",
+  );
   const [showAuth, setShowAuth] = useState(false);
+  // DQR pay-now: holds the CafePaymentIntent id once created, then
+  // renders the dynamic-QR step.
+  const [dqrIntentId, setDqrIntentId] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
@@ -65,9 +75,43 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
     if (items.length === 0) return;
     trackCafeCheckoutStarted(items.length, finalAmount);
 
-    // If online payment selected and not logged in, show inline auth
-    if (paymentMethod === "ONLINE" && !isLoggedIn && !session?.user) {
+    // Online pay-now methods (gateway + DQR) require a signed-in user.
+    if (
+      (paymentMethod === "ONLINE" || paymentMethod === "UPI_NOW") &&
+      !isLoggedIn &&
+      !session?.user
+    ) {
       setShowAuth(true);
+      return;
+    }
+
+    // UPI_NOW: create a CafePaymentIntent (gateway-style), then show the
+    // dynamic QR. The intent is stamped PHONEPE but materialises as a
+    // UPI_QR / PHONEPE_DQR payment on confirm (see lib/dqr-confirm).
+    if (paymentMethod === "UPI_NOW") {
+      setLoading(true);
+      setError("");
+      setShowAuth(false);
+      try {
+        const result = await createCafeOrder({
+          items: items.map((i) => ({ cafeItemId: i.itemId, quantity: i.quantity })),
+          paymentMethod: "PHONEPE",
+          discountCode: appliedCoupon?.code,
+          note: note.trim() || undefined,
+          guestName: !isLoggedIn ? guestName.trim() || undefined : undefined,
+          guestPhone: !isLoggedIn ? guestPhone.trim() || undefined : undefined,
+        });
+        if (!result.success || !result.orderId) {
+          setError(result.error || "Failed to start payment");
+          setLoading(false);
+          return;
+        }
+        setDqrIntentId(result.orderId);
+        setLoading(false);
+      } catch {
+        setError("Something went wrong. Please try again.");
+        setLoading(false);
+      }
       return;
     }
 
@@ -262,6 +306,25 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
     }
   }
 
+  // DQR pay-now step — render the dynamic QR once the intent exists.
+  if (dqrIntentId) {
+    return (
+      <div className="min-h-screen bg-black max-w-2xl mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold text-white mb-6">Scan to Pay</h1>
+        <DqrCheckout
+          holdId={dqrIntentId}
+          amount={finalAmount}
+          surface="cafe"
+          onConfirmed={(orderId) => {
+            clearCart();
+            router.push(`/cafe/confirmation/${orderId}`);
+          }}
+          onCancel={() => setDqrIntentId(null)}
+        />
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="min-h-screen bg-black max-w-2xl mx-auto text-center py-20 px-4">
@@ -358,11 +421,27 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
         </h2>
         <div className="space-y-2">
           {(
-            [
-              { value: "ONLINE" as const, label: "Pay Online", icon: "💳" },
-              { value: "UPI_QR" as const, label: "UPI QR at Counter", icon: "🔲" },
-              { value: "CASH" as const, label: "Cash at Counter", icon: "💵" },
-            ]
+            dqrEnabled
+              ? [
+                  {
+                    value: "UPI_NOW" as const,
+                    label: "Pay now via UPI",
+                    sub: "Recommended · no extra charge",
+                    icon: "🔳",
+                  },
+                  {
+                    value: "ONLINE" as const,
+                    label: gateway === "PHONEPE" ? "PhonePe — Cards / Netbanking" : "Card / Netbanking",
+                    sub: undefined,
+                    icon: "💳",
+                  },
+                  { value: "CASH" as const, label: "Pay at Counter", sub: undefined, icon: "💵" },
+                ]
+              : [
+                  { value: "ONLINE" as const, label: "Pay Online", sub: undefined, icon: "💳" },
+                  { value: "UPI_QR" as const, label: "UPI QR at Counter", sub: undefined, icon: "🔲" },
+                  { value: "CASH" as const, label: "Cash at Counter", sub: undefined, icon: "💵" },
+                ]
           ).map((method) => (
             <label
               key={method.value}
@@ -381,8 +460,11 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
                 className="sr-only"
               />
               <span className="text-lg">{method.icon}</span>
-              <span className="text-white text-sm font-medium">
-                {method.label}
+              <span className="flex flex-col">
+                <span className="text-white text-sm font-medium">{method.label}</span>
+                {method.sub && (
+                  <span className="text-[11px] text-emerald-300/80">{method.sub}</span>
+                )}
               </span>
               {paymentMethod === method.value && (
                 <svg
