@@ -249,6 +249,25 @@ export interface PaymentConfig {
   onlineEnabled: boolean;
   upiQrEnabled: boolean;
   advanceEnabled: boolean;
+  /** When true, "Pay by UPI" uses PhonePe Dynamic QR (auto-confirm). */
+  dqrEnabled: boolean;
+}
+
+export interface DqrInitResult {
+  qrString: string;
+  qrImage: string;
+  transactionId: string;
+  expiresIn: number;
+  amount: number;
+  isAdvance?: boolean;
+  advanceAmount?: number | null;
+  remainingAmount?: number | null;
+  error?: string;
+}
+
+export interface DqrStatusResult {
+  state: "PENDING" | "COMPLETED" | "FAILED";
+  bookingId?: string | null;
 }
 
 export interface SelectPaymentResult {
@@ -487,6 +506,19 @@ export const bookingApi = {
     isAdvance?: boolean;
   }) =>
     api.post<SelectPaymentResult>("/api/mobile/booking/select-payment", body),
+
+  /**
+   * Generate a PhonePe Dynamic QR for this hold. Authed (bearer) — the
+   * shared /api/phonepe/dqr/* routes resolve mobile vs web automatically.
+   */
+  dqrInitiate: (body: { holdId: string; isAdvance?: boolean }) =>
+    api.post<DqrInitResult>("/api/phonepe/dqr/initiate", body),
+
+  /** Poll a DQR transaction; on COMPLETED the booking is created server-side. */
+  dqrStatus: (transactionId: string) =>
+    api.get<DqrStatusResult>(
+      `/api/phonepe/dqr/status?transactionId=${encodeURIComponent(transactionId)}`,
+    ),
 
   /** Audit log when the customer taps a payment tile (no booking created). */
   logPaymentMethod: (body: { holdId: string; paymentMethod: string }) =>
