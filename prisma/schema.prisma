@@ -71,6 +71,11 @@ model PaymentGatewayConfig {
   onlineEnabled  Boolean        @default(true)
   upiQrEnabled   Boolean        @default(true)
   advanceEnabled Boolean        @default(true)
+  // When on (AND the PHONEPE_DQR_* env creds are present), the "Pay by
+  // UPI" option generates a PhonePe Dynamic QR with auto-confirmation
+  // instead of the legacy static-QR + manual-UTR flow. Defaults off so
+  // it stays dormant until PhonePe onboarding lands the credentials.
+  dqrEnabled     Boolean        @default(false)
   updatedAt      DateTime       @updatedAt
 }
 
