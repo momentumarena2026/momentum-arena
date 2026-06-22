@@ -12,7 +12,7 @@ import {
   formatPaymentMethodLabel,
   getServerActionLabel,
   parseAnalyticsCategory,
-} from "@/lib/server-log";
+} from "@/lib/server-log-shared";
 import { searchUsersForPicker } from "@/actions/admin-user-groups";
 import {
   listServerActionLogs,
