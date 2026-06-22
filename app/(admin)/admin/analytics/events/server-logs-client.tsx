@@ -13,7 +13,7 @@ import {
   getServerActionLabel,
   parseAnalyticsCategory,
 } from "@/lib/server-log";
-import { searchUsersForPicker, listUsersForPicker } from "@/actions/admin-user-groups";
+import { searchUsersForPicker } from "@/actions/admin-user-groups";
 import {
   listServerActionLogs,
   type ServerLogRow,
@@ -329,12 +329,17 @@ function UserSearchFilter({
   );
   const [debounced, setDebounced] = useState("");
   const [results, setResults] = useState<PickerUser[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, startLoading] = useTransition();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Reset the input text when the selected user changes from outside
+  // (e.g. a userId arriving via the URL). React's "adjust state during
+  // render" pattern — no effect, so no set-state-in-effect cascade.
+  const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
+  if (selectedUser !== prevSelectedUser) {
+    setPrevSelectedUser(selectedUser);
     setQuery(selectedUser ? formatUserLabel(selectedUser) : "");
-  }, [selectedUser]);
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query.trim()), 200);
@@ -352,16 +357,13 @@ function UserSearchFilter({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
-    (async () => {
+    startLoading(async () => {
       const rows =
         debounced.length >= 2
           ? await searchUsersForPicker(debounced, 30)
           : defaultUsers;
-      if (cancelled) return;
-      setResults(rows);
-      setLoading(false);
-    })();
+      if (!cancelled) setResults(rows);
+    });
     return () => {
       cancelled = true;
     };

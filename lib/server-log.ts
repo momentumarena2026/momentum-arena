@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getMobilePlatform } from "@/lib/mobile-auth";
 import { AnalyticsCategory, Sport, type Prisma } from "@prisma/client";
@@ -168,8 +168,17 @@ export function logWebServerAction(
 }
 
 /**
- * Fire-and-forget server-side audit log. Never throws — failures are
- * written to stderr so a logging outage can't break bookings/payments.
+ * Server-side audit log. Never throws — failures are written to stderr
+ * so a logging outage can't break bookings/payments.
+ *
+ * The insert is scheduled on the request's `after()` window so Vercel
+ * keeps the serverless function alive until the row is flushed. A bare
+ * fire-and-forget promise is killed the moment the route returns its
+ * response — the same trap that orphaned MSG91 dispatches (see
+ * app/api/razorpay/verify/route.ts) — which would silently drop audit
+ * rows. `after()` throws when called outside a request scope (build
+ * step, standalone scripts, tests); there we fall back to best-effort
+ * fire-and-forget.
  */
 export function logServerAction(input: LogServerActionInput): void {
   const label = getServerActionLabel(input.action);
@@ -186,21 +195,28 @@ export function logServerAction(input: LogServerActionInput): void {
     metadata.sport = String(metadata.sport);
   }
 
-  void db.serverActionLog
-    .create({
-      data: {
-        userId: input.userId ?? null,
-        action: input.action,
-        category: input.category,
-        outcome: input.outcome,
-        path: path ?? null,
-        method: method ?? null,
-        platform: input.platform ?? "web",
-        metadata: metadata as Prisma.InputJsonValue,
-        error: input.error ?? null,
-      },
-    })
-    .catch((err) => {
-      console.error("[server-log] write failed", input.action, err);
-    });
+  const persist = () =>
+    db.serverActionLog
+      .create({
+        data: {
+          userId: input.userId ?? null,
+          action: input.action,
+          category: input.category,
+          outcome: input.outcome,
+          path: path ?? null,
+          method: method ?? null,
+          platform: input.platform ?? "web",
+          metadata: metadata as Prisma.InputJsonValue,
+          error: input.error ?? null,
+        },
+      })
+      .catch((err) => {
+        console.error("[server-log] write failed", input.action, err);
+      });
+
+  try {
+    after(persist);
+  } catch {
+    void persist();
+  }
 }
