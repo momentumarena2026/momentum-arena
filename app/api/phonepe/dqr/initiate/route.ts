@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       qrString: result.qrString,
+      qrImage: result.qrImage,
       transactionId,
       expiresIn: DQR_TTL_MINUTES * 60,
       amount: orderAmount,

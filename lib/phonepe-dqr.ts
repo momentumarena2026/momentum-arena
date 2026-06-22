@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import QRCode from "qrcode";
 
 /**
  * PhonePe Dynamic QR (DQR) — the offline/enterprise "generate a
@@ -98,6 +99,10 @@ export interface QrInitParams {
 export interface QrInitResult {
   /** `upi://pay?...` URI — render as a QR and/or open as a deep link. */
   qrString: string;
+  /** PNG data URL of the QR, rendered server-side so web AND React
+   *  Native clients can show it via a plain <img>/<Image> with no
+   *  client-side QR dependency. */
+  qrImage: string;
   transactionId: string;
 }
 
@@ -155,7 +160,11 @@ export async function qrInit(params: QrInitParams): Promise<QrInitResult> {
     );
   }
 
-  return { qrString, transactionId: params.transactionId };
+  // Render the QR server-side so every client (web + React Native) can
+  // display it without a client-side QR library.
+  const qrImage = await QRCode.toDataURL(qrString, { width: 320, margin: 1 });
+
+  return { qrString, qrImage, transactionId: params.transactionId };
 }
 
 export type DqrState = "PENDING" | "COMPLETED" | "FAILED";

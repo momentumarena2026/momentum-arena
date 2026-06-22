@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import QRCode from "qrcode";
 import {
   AlertCircle,
   CheckCircle2,
@@ -116,11 +115,7 @@ export function DqrCheckout({
       }
       txnRef.current = data.transactionId;
       setQrString(data.qrString);
-      const url = await QRCode.toDataURL(data.qrString, {
-        width: 280,
-        margin: 1,
-      });
-      setQrDataUrl(url);
+      setQrDataUrl(data.qrImage);
       setPhase("scan");
     } catch {
       setError("Couldn't start UPI payment");
