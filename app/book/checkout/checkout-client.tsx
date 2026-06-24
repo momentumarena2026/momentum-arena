@@ -164,6 +164,29 @@ export function CheckoutClient({
         onRedemptionChanged,
       );
   }, []);
+
+  // Mirror the post-coupon base into the Booking Summary tile. SummaryFooter
+  // renders the summary Total but lives across a server boundary (page.tsx),
+  // so we sync via a window event — the reverse of redemption-changed which
+  // it sends us. Without this, a coupon applied here updates the Pay button
+  // but the summary Total still shows the pre-coupon amount. Skip the first
+  // run so the SSR preDiscountTotal (already correct, and lower than `amount`
+  // when a sport promo is predicted) isn't briefly overwritten before the
+  // auto-promo applies.
+  const discountSyncMounted = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!discountSyncMounted.current) {
+      discountSyncMounted.current = true;
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("checkout:discount-changed", {
+        detail: { effectiveAmount },
+      }),
+    );
+  }, [effectiveAmount]);
+
   // Bumped whenever the coupon mutates so the slider re-fetches the
   // preview (and resets to 0). applyCouponToHold / clearCouponFromHold
   // already null out the redemption columns server-side; bumping the

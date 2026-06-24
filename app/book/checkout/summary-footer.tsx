@@ -61,8 +61,27 @@ export function SummaryFooter({
     paiseSaved: number;
   }>({ points: 0, paiseSaved: 0 });
 
+  // Post-coupon base. Starts at the SSR `preDiscountTotal` and is updated
+  // when the sibling CheckoutClient applies/clears a coupon (it lives across
+  // a server boundary, so it tells us via the `checkout:discount-changed`
+  // window event — the reverse of redemption-changed we send it). Without
+  // this the summary Total ignored a coupon applied in the discount drawer.
+  const [effectiveBase, setEffectiveBase] = useState(preDiscountTotal);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onDiscountChanged(e: Event) {
+      const detail = (e as CustomEvent<{ effectiveAmount?: number }>).detail;
+      if (detail && typeof detail.effectiveAmount === "number") {
+        setEffectiveBase(detail.effectiveAmount);
+      }
+    }
+    window.addEventListener("checkout:discount-changed", onDiscountChanged);
+    return () =>
+      window.removeEventListener("checkout:discount-changed", onDiscountChanged);
+  }, []);
+
   const rupeesSaved = Math.floor(redemption.paiseSaved / 100);
-  const total = preDiscountTotal - rupeesSaved + equipmentTotalRupees;
+  const total = effectiveBase - rupeesSaved + equipmentTotalRupees;
 
   // Project the points the customer will earn on this booking. Same
   // bps math the server runs at award time (see lib/rewards/earn.ts
@@ -95,7 +114,7 @@ export function SummaryFooter({
       <RedeemSlider
         variant="row"
         holdId={holdId}
-        billRupees={preDiscountTotal}
+        billRupees={effectiveBase}
         billNonce={billNonce}
         onChange={setRedemption}
       />
