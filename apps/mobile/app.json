@@ -1,4 +1,25 @@
 {
   "name": "MomentumArena",
-  "displayName": "MomentumArena"
+  "displayName": "MomentumArena",
+  "expo": {
+    "name": "MomentumArena",
+    "slug": "momentum-arena",
+    "runtimeVersion": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "com.momentumarena"
+    },
+    "updates": {
+      "enabled": true,
+      "url": "https://development.momentumarena.com/api/updates/manifest",
+      "checkAutomatically": "ON_LOAD",
+      "requestHeaders": {
+        "expo-channel-name": "development"
+      },
+      "codeSigningCertificate": "./certs/certificate.pem",
+      "codeSigningMetadata": {
+        "keyid": "main",
+        "alg": "rsa-v1_5-sha256"
+      }
+    }
+  }
 }

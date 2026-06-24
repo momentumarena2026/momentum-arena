@@ -1,4 +1,5 @@
-const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
+const { getDefaultConfig } = require('expo/metro-config');
+const { mergeConfig } = require('@react-native/metro-config');
 
 // Stamp the current git branch into src/config/build-config.generated.ts
 // before any source is bundled. metro.config.js is loaded by every

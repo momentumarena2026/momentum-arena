@@ -4,6 +4,7 @@ import { AppProviders } from "./src/providers/AppProviders";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { SplashScreen } from "./src/screens/splash/SplashScreen";
 import { initAnalytics } from "./src/lib/analytics";
+import { ensureOtaRolloutBucket } from "./src/lib/ota";
 
 export default function App() {
   // Wire AppState + foreground-flush listeners exactly once. Safe
@@ -12,6 +13,8 @@ export default function App() {
   // when there are events to flush.
   useEffect(() => {
     initAnalytics();
+    // Assign a sticky OTA rollout bucket once, for staged % rollouts.
+    ensureOtaRolloutBucket();
   }, []);
 
   // Show the animated splash on every cold start. The native
