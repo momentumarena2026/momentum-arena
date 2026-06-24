@@ -10,6 +10,45 @@ import {
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 
+/**
+ * Square brand tile for an iOS UPI-app button. Real logo assets aren't
+ * bundled, so these are brand-coloured marks (drop a logo PNG into
+ * /public and swap the inner mark if pixel-perfect logos are wanted).
+ */
+function UpiAppGlyph({ id }: { id: string }) {
+  if (id === "gpay") {
+    return (
+      <span className="flex aspect-square w-full items-center justify-center rounded-2xl border border-zinc-300 bg-white">
+        <svg viewBox="0 0 24 24" className="h-7 w-7" aria-hidden="true">
+          <circle cx="7" cy="7" r="3.2" fill="#4285F4" />
+          <circle cx="17" cy="7" r="3.2" fill="#EA4335" />
+          <circle cx="7" cy="17" r="3.2" fill="#FBBC05" />
+          <circle cx="17" cy="17" r="3.2" fill="#34A853" />
+        </svg>
+      </span>
+    );
+  }
+  if (id === "phonepe") {
+    return (
+      <span className="flex aspect-square w-full items-center justify-center rounded-2xl bg-[#5f259f] text-lg font-bold text-white">
+        Pe
+      </span>
+    );
+  }
+  if (id === "paytm") {
+    return (
+      <span className="flex aspect-square w-full items-center justify-center rounded-2xl bg-[#00b9f1] text-lg font-bold text-white">
+        P
+      </span>
+    );
+  }
+  return (
+    <span className="flex aspect-square w-full items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-800">
+      <Smartphone className="h-6 w-6 text-emerald-400" />
+    </span>
+  );
+}
+
 interface DqrCheckoutProps {
   holdId: string;
   amount: number;
@@ -87,10 +126,10 @@ export function DqrCheckout({
       ? qrString.slice(qrString.indexOf("?") + 1)
       : "";
   const upiApps = [
-    { name: "Google Pay", href: `tez://upi/pay?${upiParams}` },
-    { name: "PhonePe", href: `phonepe://pay?${upiParams}` },
-    { name: "Paytm", href: `paytmmp://pay?${upiParams}` },
-    { name: "Other UPI app", href: `upi://pay?${upiParams}` },
+    { id: "gpay", label: "GPay", href: `tez://upi/pay?${upiParams}` },
+    { id: "phonepe", label: "PhonePe", href: `phonepe://pay?${upiParams}` },
+    { id: "paytm", label: "Paytm", href: `paytmmp://pay?${upiParams}` },
+    { id: "other", label: "UPI", href: `upi://pay?${upiParams}` },
   ];
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
@@ -220,34 +259,29 @@ export function DqrCheckout({
   }
 
   return (
-    <div className="space-y-5">
+    <div className={`space-y-5 ${isIos ? "pb-44" : ""}`}>
+      {/* QR is ALWAYS shown at the top (matches desktop), then the amount
+          and the auto-confirm status. Plain <img> on a ready data URL so it
+          decodes immediately — iOS Safari skips next/image's lazy-load. */}
       <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-        {/* Desktop leads with the QR (scan with your phone). On mobile the
-            QR moves to the disclosure below — leading with a scan target on
-            the same device is useless. */}
-        {!isMobile &&
-          (qrDataUrl ? (
-            <div className="rounded-xl bg-white p-3">
-              {/* Plain <img>, not next/image: the src is a ready data URL,
-                  so it decodes immediately with no lazy-load/intersection
-                  step (which iOS Safari skips when the QR sits inside a
-                  collapsed <details>, leaving it blank). */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={qrDataUrl}
-                alt="UPI QR — scan to pay"
-                width={280}
-                height={280}
-                className="rounded-lg"
-              />
-            </div>
-          ) : (
-            <div className="flex h-[280px] w-[280px] items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-            </div>
-          ))}
+        {qrDataUrl ? (
+          <div className="rounded-xl bg-white p-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={qrDataUrl}
+              alt="UPI QR — scan to pay"
+              width={240}
+              height={240}
+              className="rounded-lg"
+            />
+          </div>
+        ) : (
+          <div className="flex h-[240px] w-[240px] items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+          </div>
+        )}
 
-        <p className={`${isMobile ? "" : "mt-5"} text-3xl font-bold text-emerald-400`}>
+        <p className="mt-5 text-3xl font-bold text-emerald-400">
           Pay {formatPrice(displayAmount)}
         </p>
         {isAdvance && advanceAmount != null && (
@@ -264,10 +298,8 @@ export function DqrCheckout({
         </p>
       </div>
 
-      {/* Mobile primary action: tap to open the UPI app with payee + amount
-          already filled in. Android resolves `upi://` to a chooser, so one
-          button suffices; iOS can't choose, so we list each app explicitly. */}
-      {isMobile && qrString && !isIos && (
+      {/* Android: a single button resolves upi:// to the system chooser. */}
+      {isMobile && !isIos && qrString && (
         <div className="space-y-2">
           <a
             href={qrString}
@@ -282,27 +314,6 @@ export function DqrCheckout({
         </div>
       )}
 
-      {isMobile && qrString && isIos && (
-        <div className="space-y-2">
-          <p className="text-center text-sm font-medium text-zinc-300">
-            Pay {formatPrice(displayAmount)} — choose your UPI app
-          </p>
-          {upiApps.map((app) => (
-            <a
-              key={app.name}
-              href={app.href}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700"
-            >
-              <Smartphone className="h-5 w-5" />
-              <span>{app.name}</span>
-            </a>
-          ))}
-          <p className="text-center text-xs text-zinc-500">
-            The amount is pre-filled. Pick the app you have installed.
-          </p>
-        </div>
-      )}
-
       <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
         <p className="text-xs leading-relaxed text-amber-200/90">
@@ -311,27 +322,6 @@ export function DqrCheckout({
           accounts aren&apos;t accepted and will fail.
         </p>
       </div>
-
-      {/* Mobile: QR demoted to an optional "scan from another device". */}
-      {isMobile && qrDataUrl && (
-        <details className="rounded-xl border border-zinc-800 bg-zinc-900">
-          <summary className="cursor-pointer list-none px-4 py-3 text-center text-sm text-zinc-400">
-            Or scan with another device
-          </summary>
-          <div className="flex justify-center pb-5">
-            <div className="rounded-xl bg-white p-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={qrDataUrl}
-                alt="UPI QR — scan to pay"
-                width={220}
-                height={220}
-                className="rounded-lg"
-              />
-            </div>
-          </div>
-        </details>
-      )}
 
       {/* Desktop: no UPI app to deep-link into — instruct to scan. */}
       {!isMobile && (
@@ -347,6 +337,28 @@ export function DqrCheckout({
         >
           ← Go back
         </button>
+      )}
+
+      {/* iOS: sticky bottom bar of square app-icon buttons. iOS has no UPI
+          chooser, so each app gets its own scheme-specific deep link. */}
+      {isMobile && isIos && qrString && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-950/95 px-4 pb-6 pt-3 backdrop-blur">
+          <p className="mb-2.5 text-center text-xs font-medium text-zinc-300">
+            Pay {formatPrice(displayAmount)} — choose your UPI app
+          </p>
+          <div className="mx-auto flex w-full max-w-md gap-3">
+            {upiApps.map((app) => (
+              <a
+                key={app.id}
+                href={app.href}
+                className="flex flex-1 flex-col items-center gap-1.5 active:opacity-80"
+              >
+                <UpiAppGlyph id={app.id} />
+                <span className="text-[11px] text-zinc-400">{app.label}</span>
+              </a>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
