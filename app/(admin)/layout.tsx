@@ -42,6 +42,7 @@ const allNavItems = [
   { href: "/admin/users/groups", label: "User Groups", group: "Settings", permission: "MANAGE_COUPONS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
   { href: "/admin/generator", label: "Generator", group: "Settings", permission: "MANAGE_PRICING" },
+  { href: "/admin/ota", label: "OTA Updates", group: "Settings", permission: "MANAGE_PRICING" },
   { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },
   { href: "/admin/payment-settings", label: "Payment Gateway", group: "Settings", permission: "VIEW_RAZORPAY" },
   { href: "/admin/razorpay", label: "Razorpay", group: "Settings", permission: "VIEW_RAZORPAY" },

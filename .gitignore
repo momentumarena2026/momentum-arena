@@ -47,3 +47,6 @@ next-env.d.ts
 /expenses.csv
 /private-data/
 
+
+# Expo OTA code-signing private key — never commit
+apps/mobile/keys/
