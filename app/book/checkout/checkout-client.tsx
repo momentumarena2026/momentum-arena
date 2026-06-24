@@ -338,6 +338,20 @@ export function CheckoutClient({
     trackCouponApplied(code, discountAmt);
   };
 
+  // Undo an applied coupon. Clears it server-side (also nulls the redemption
+  // columns), restores the pre-coupon total, and re-enables the DiscountInput.
+  // The effectiveAmount change is broadcast to the summary tile by the
+  // checkout:discount-changed effect above, so the Total reverts in lockstep.
+  const handleDiscountRemoved = async () => {
+    await clearCouponFromHold(holdId);
+    setEffectiveAmount(amount);
+    setDiscountApplied(false);
+    setDiscountLabel(null);
+    setPointsRedeemed(0);
+    setPointsRedeemPaiseSaved(0);
+    setBillNonce((n) => n + 1);
+  };
+
   const handleRecurringAfterPayment = async () => {
     if (!recurringEnabled || !recurringCourtConfigId || !recurringStartDate) return;
 
@@ -653,6 +667,7 @@ export function CheckoutClient({
             disabled={discountApplied}
             disabledMessage={discountLabel || "Discount applied"}
             onDiscountApplied={handleDiscountApplied}
+            onRemove={handleDiscountRemoved}
           />
         </div>
       )}

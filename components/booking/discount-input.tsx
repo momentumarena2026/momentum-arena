@@ -15,6 +15,9 @@ interface DiscountInputProps {
   disabled?: boolean;
   disabledMessage?: string;
   onDiscountApplied: (discountAmount: number, newTotal: number, code: string) => void;
+  /** When provided, an applied coupon shows a Remove button that calls this
+   *  (parent clears the coupon server-side + resets its total). */
+  onRemove?: () => void | Promise<void>;
 }
 
 interface CouponItem {
@@ -38,15 +41,33 @@ export function DiscountInput({
   disabled,
   disabledMessage,
   onDiscountApplied,
+  onRemove,
 }: DiscountInputProps) {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<{
     code: string;
     discountAmount: number;
     newTotal: number;
   } | null>(null);
+
+  // Clear an applied coupon. Resets the component's own state AND lets the
+  // parent undo the coupon server-side (clearCouponFromHold) + restore its
+  // total, so the input reappears empty and re-usable.
+  const handleRemove = async () => {
+    if (removing) return;
+    setRemoving(true);
+    try {
+      await onRemove?.();
+      setApplied(null);
+      setCode("");
+      setError(null);
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   // Coupon drawer state
   const [showDrawer, setShowDrawer] = useState(false);
@@ -74,9 +95,25 @@ export function DiscountInput({
   if (disabled) {
     return (
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-        <div className="flex items-center gap-2">
-          <Check className="h-4 w-4 text-emerald-400" />
-          <span className="text-sm text-emerald-400">{disabledMessage}</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+            <span className="text-sm text-emerald-400">{disabledMessage}</span>
+          </div>
+          {onRemove && (
+            <button
+              onClick={handleRemove}
+              disabled={removing}
+              className="flex shrink-0 items-center gap-1 text-xs text-zinc-400 hover:text-red-400 disabled:opacity-50"
+            >
+              {removing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <X className="h-3.5 w-3.5" />
+              )}
+              Remove
+            </button>
+          )}
         </div>
       </div>
     );
@@ -85,9 +122,9 @@ export function DiscountInput({
   if (applied) {
     return (
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Check className="h-4 w-4 text-emerald-400" />
+            <Check className="h-4 w-4 shrink-0 text-emerald-400" />
             <span className="text-sm font-medium text-emerald-400">
               {applied.code}
             </span>
@@ -95,6 +132,20 @@ export function DiscountInput({
               — {formatPrice(applied.discountAmount)} off
             </span>
           </div>
+          {onRemove && (
+            <button
+              onClick={handleRemove}
+              disabled={removing}
+              className="flex shrink-0 items-center gap-1 text-xs text-zinc-400 hover:text-red-400 disabled:opacity-50"
+            >
+              {removing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <X className="h-3.5 w-3.5" />
+              )}
+              Remove
+            </button>
+          )}
         </div>
       </div>
     );
