@@ -14,6 +14,11 @@ import { formatPrice } from "@/lib/pricing";
 interface DqrCheckoutProps {
   holdId: string;
   amount: number;
+  /** Full net payable (post coupon + points) sent to the booking initiate
+   *  route as `overrideAmount`; the route halves it for the advance flow.
+   *  Without this the route falls back to the gross hold total and the
+   *  customer's discount/points are silently dropped. Booking surface only. */
+  overrideAmount?: number;
   isAdvance?: boolean;
   advanceAmount?: number;
   remainingAmount?: number;
@@ -38,6 +43,7 @@ const POLL_MS = 3000;
 export function DqrCheckout({
   holdId,
   amount,
+  overrideAmount,
   isAdvance,
   advanceAmount,
   remainingAmount,
@@ -104,7 +110,7 @@ export function DqrCheckout({
         body: JSON.stringify(
           surface === "cafe"
             ? { orderId: holdId }
-            : { holdId, isAdvance: !!isAdvance },
+            : { holdId, isAdvance: !!isAdvance, overrideAmount },
         ),
       });
       const data = await res.json();
@@ -121,7 +127,7 @@ export function DqrCheckout({
       setError("Couldn't start UPI payment");
       setPhase("error");
     }
-  }, [initiateUrl, surface, holdId, isAdvance]);
+  }, [initiateUrl, surface, holdId, isAdvance, overrideAmount]);
 
   // Kick off on mount. `initiate` only setStates AFTER its network
   // await (and from event handlers), so this is a genuine data-fetch

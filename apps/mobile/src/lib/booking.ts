@@ -511,8 +511,12 @@ export const bookingApi = {
    * Generate a PhonePe Dynamic QR for this hold. Authed (bearer) — the
    * shared /api/phonepe/dqr/* routes resolve mobile vs web automatically.
    */
-  dqrInitiate: (body: { holdId: string; isAdvance?: boolean }) =>
-    api.post<DqrInitResult>("/api/phonepe/dqr/initiate", body),
+  dqrInitiate: (body: {
+    holdId: string;
+    isAdvance?: boolean;
+    /** Full net payable (post coupon + points); route halves it for advance. */
+    overrideAmount?: number;
+  }) => api.post<DqrInitResult>("/api/phonepe/dqr/initiate", body),
 
   /** Poll a DQR transaction; on COMPLETED the booking is created server-side. */
   dqrStatus: (transactionId: string) =>

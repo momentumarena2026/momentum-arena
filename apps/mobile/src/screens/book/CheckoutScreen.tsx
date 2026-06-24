@@ -582,6 +582,7 @@ export function CheckoutScreen() {
             header={qrHeader}
             holdId={params.holdId}
             amount={upiAmount}
+            overrideAmount={payableAmount}
             isAdvance={isAdvanceFlow}
             advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
             remainingAmount={isAdvanceFlow ? remainingAmount : undefined}

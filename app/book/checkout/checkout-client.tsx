@@ -511,6 +511,7 @@ export function CheckoutClient({
           <DqrCheckout
             holdId={holdId}
             amount={upiAmount}
+            overrideAmount={payableAmount}
             isAdvance={isAdvance}
             advanceAmount={isAdvance ? advanceAmount : undefined}
             remainingAmount={isAdvance ? remainingAmount : undefined}

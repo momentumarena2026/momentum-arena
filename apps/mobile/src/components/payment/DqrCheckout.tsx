@@ -23,6 +23,9 @@ import { bookingApi } from "../../lib/booking";
 interface Props {
   holdId: string;
   amount: number;
+  /** Full net payable (post coupon + points); sent as overrideAmount so the
+   *  route charges the discounted total, not the gross hold amount. */
+  overrideAmount?: number;
   isAdvance?: boolean;
   advanceAmount?: number;
   remainingAmount?: number;
@@ -45,6 +48,7 @@ const POLL_MS = 3000;
 export function DqrCheckout({
   holdId,
   amount,
+  overrideAmount,
   isAdvance,
   advanceAmount,
   remainingAmount,
@@ -92,7 +96,7 @@ export function DqrCheckout({
   const initiate = useCallback(async () => {
     doneRef.current = false;
     try {
-      const res = await bookingApi.dqrInitiate({ holdId, isAdvance });
+      const res = await bookingApi.dqrInitiate({ holdId, isAdvance, overrideAmount });
       if (!res.qrImage || !res.transactionId) {
         setError(res.error || "Couldn't start UPI payment");
         setPhase("error");
@@ -106,7 +110,7 @@ export function DqrCheckout({
       setError("Couldn't start UPI payment");
       setPhase("error");
     }
-  }, [holdId, isAdvance]);
+  }, [holdId, isAdvance, overrideAmount]);
 
   useEffect(() => {
     void initiate();
