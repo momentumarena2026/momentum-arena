@@ -28,8 +28,14 @@ import QRCode from "qrcode";
  * enterprise V1 conventions.
  */
 
-const PHONEPE_ENV = process.env.PHONEPE_ENV || "SANDBOX"; // "SANDBOX" | "PRODUCTION"
-const isProd = PHONEPE_ENV === "PRODUCTION";
+// DQR host env. Defaults to the shared PHONEPE_ENV, but can be set
+// independently via PHONEPE_DQR_ENV so DQR can target PROD while the rest
+// of the PhonePe integration (the v2 checkout in lib/phonepe.ts) stays on
+// SANDBOX — e.g. testing prod DQR creds on a development deploy without
+// flipping the shared flag (which would point the gateway at real money).
+const DQR_ENV =
+  process.env.PHONEPE_DQR_ENV || process.env.PHONEPE_ENV || "SANDBOX"; // "SANDBOX" | "PRODUCTION"
+const isProd = DQR_ENV === "PRODUCTION";
 
 const DQR_MERCHANT_ID = process.env.PHONEPE_DQR_MERCHANT_ID;
 const DQR_SALT_KEY = process.env.PHONEPE_DQR_SALT_KEY;
