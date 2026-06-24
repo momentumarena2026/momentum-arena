@@ -10,41 +10,54 @@ import {
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 
-/**
- * Square brand tile for an iOS UPI-app button. Real logo assets aren't
- * bundled, so these are brand-coloured marks (drop a logo PNG into
- * /public and swap the inner mark if pixel-perfect logos are wanted).
- */
-function UpiAppGlyph({ id }: { id: string }) {
+// Logo file each UPI-app tile loads from /public/upi (drop the brand PNGs
+// there). `other` maps to the generic UPI logo.
+const UPI_LOGO_SRC: Record<string, string> = {
+  gpay: "/upi/gpay.png",
+  phonepe: "/upi/phonepe.png",
+  paytm: "/upi/paytm.png",
+  other: "/upi/upi.png",
+};
+
+/** Brand-coloured fallback mark, shown until the real logo PNG is present. */
+function UpiFallbackMark({ id }: { id: string }) {
   if (id === "gpay") {
     return (
-      <span className="flex aspect-square w-full items-center justify-center rounded-2xl border border-zinc-300 bg-white">
-        <svg viewBox="0 0 24 24" className="h-7 w-7" aria-hidden="true">
-          <circle cx="7" cy="7" r="3.2" fill="#4285F4" />
-          <circle cx="17" cy="7" r="3.2" fill="#EA4335" />
-          <circle cx="7" cy="17" r="3.2" fill="#FBBC05" />
-          <circle cx="17" cy="17" r="3.2" fill="#34A853" />
-        </svg>
-      </span>
+      <svg viewBox="0 0 24 24" className="h-7 w-7" aria-hidden="true">
+        <circle cx="7" cy="7" r="3.2" fill="#4285F4" />
+        <circle cx="17" cy="7" r="3.2" fill="#EA4335" />
+        <circle cx="7" cy="17" r="3.2" fill="#FBBC05" />
+        <circle cx="17" cy="17" r="3.2" fill="#34A853" />
+      </svg>
     );
   }
-  if (id === "phonepe") {
-    return (
-      <span className="flex aspect-square w-full items-center justify-center rounded-2xl bg-[#5f259f] text-lg font-bold text-white">
-        Pe
-      </span>
-    );
-  }
-  if (id === "paytm") {
-    return (
-      <span className="flex aspect-square w-full items-center justify-center rounded-2xl bg-[#00b9f1] text-lg font-bold text-white">
-        P
-      </span>
-    );
-  }
+  if (id === "phonepe")
+    return <span className="text-lg font-bold text-[#5f259f]">Pe</span>;
+  if (id === "paytm")
+    return <span className="text-lg font-bold text-[#00b9f1]">P</span>;
+  return <Smartphone className="h-6 w-6 text-emerald-500" />;
+}
+
+/**
+ * Square brand tile for an iOS UPI-app button. Renders the brand logo from
+ * /public/upi; if that file isn't present yet it falls back to a
+ * brand-coloured mark, so the buttons never show a broken image.
+ */
+function UpiAppGlyph({ id, label }: { id: string; label: string }) {
+  const [imgOk, setImgOk] = useState(true);
   return (
-    <span className="flex aspect-square w-full items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-800">
-      <Smartphone className="h-6 w-6 text-emerald-400" />
+    <span className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl border border-zinc-200 bg-white p-1.5">
+      {imgOk ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={UPI_LOGO_SRC[id] ?? UPI_LOGO_SRC.other}
+          alt={label}
+          className="h-full w-full object-contain"
+          onError={() => setImgOk(false)}
+        />
+      ) : (
+        <UpiFallbackMark id={id} />
+      )}
     </span>
   );
 }
@@ -353,7 +366,7 @@ export function DqrCheckout({
                 href={app.href}
                 className="flex flex-1 flex-col items-center gap-1.5 active:opacity-80"
               >
-                <UpiAppGlyph id={app.id} />
+                <UpiAppGlyph id={app.id} label={app.label} />
                 <span className="text-[11px] text-zinc-400">{app.label}</span>
               </a>
             ))}
