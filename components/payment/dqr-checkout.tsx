@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import {
   AlertCircle,
   CheckCircle2,
@@ -67,12 +66,32 @@ export function DqrCheckout({
   // mismatch — the server can't know the device, so it always renders the
   // desktop layout first, then this flips it on the client.
   const [isMobile, setIsMobile] = useState(false);
+  // iOS has no UPI intent chooser: a `upi://` link opens whichever app
+  // claims the scheme (often WhatsApp), so on iOS we render explicit
+  // per-app buttons built from the same UPI params. Android's `upi://`
+  // shows a proper chooser, so it keeps the single button.
+  const [isIos, setIsIos] = useState(false);
   useEffect(() => {
     if (typeof navigator !== "undefined") {
+      const ua = navigator.userAgent;
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIsMobile(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
+      setIsMobile(/Android|iPhone|iPad|iPod|Mobile/i.test(ua));
+      setIsIos(/iPhone|iPad|iPod/i.test(ua));
     }
   }, []);
+
+  // Same UPI params, re-prefixed per app. The qrString is
+  // `upi://pay?pa=…&am=…`; everything after `?` is reused verbatim.
+  const upiParams =
+    qrString && qrString.includes("?")
+      ? qrString.slice(qrString.indexOf("?") + 1)
+      : "";
+  const upiApps = [
+    { name: "Google Pay", href: `tez://upi/pay?${upiParams}` },
+    { name: "PhonePe", href: `phonepe://pay?${upiParams}` },
+    { name: "Paytm", href: `paytmmp://pay?${upiParams}` },
+    { name: "Other UPI app", href: `upi://pay?${upiParams}` },
+  ];
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
   const initiateUrl =
@@ -209,13 +228,17 @@ export function DqrCheckout({
         {!isMobile &&
           (qrDataUrl ? (
             <div className="rounded-xl bg-white p-3">
-              <Image
+              {/* Plain <img>, not next/image: the src is a ready data URL,
+                  so it decodes immediately with no lazy-load/intersection
+                  step (which iOS Safari skips when the QR sits inside a
+                  collapsed <details>, leaving it blank). */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={qrDataUrl}
                 alt="UPI QR — scan to pay"
                 width={280}
                 height={280}
                 className="rounded-lg"
-                unoptimized
               />
             </div>
           ) : (
@@ -242,8 +265,9 @@ export function DqrCheckout({
       </div>
 
       {/* Mobile primary action: tap to open the UPI app with payee + amount
-          already filled in. */}
-      {isMobile && qrString && (
+          already filled in. Android resolves `upi://` to a chooser, so one
+          button suffices; iOS can't choose, so we list each app explicitly. */}
+      {isMobile && qrString && !isIos && (
         <div className="space-y-2">
           <a
             href={qrString}
@@ -254,6 +278,27 @@ export function DqrCheckout({
           </a>
           <p className="text-center text-xs text-zinc-500">
             Opens PhonePe, Google Pay, Paytm, BHIM…
+          </p>
+        </div>
+      )}
+
+      {isMobile && qrString && isIos && (
+        <div className="space-y-2">
+          <p className="text-center text-sm font-medium text-zinc-300">
+            Pay {formatPrice(displayAmount)} — choose your UPI app
+          </p>
+          {upiApps.map((app) => (
+            <a
+              key={app.name}
+              href={app.href}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700"
+            >
+              <Smartphone className="h-5 w-5" />
+              <span>{app.name}</span>
+            </a>
+          ))}
+          <p className="text-center text-xs text-zinc-500">
+            The amount is pre-filled. Pick the app you have installed.
           </p>
         </div>
       )}
@@ -275,13 +320,13 @@ export function DqrCheckout({
           </summary>
           <div className="flex justify-center pb-5">
             <div className="rounded-xl bg-white p-3">
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={qrDataUrl}
                 alt="UPI QR — scan to pay"
                 width={220}
                 height={220}
                 className="rounded-lg"
-                unoptimized
               />
             </div>
           </div>
