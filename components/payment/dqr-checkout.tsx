@@ -10,13 +10,13 @@ import {
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 
-// Logo file each UPI-app tile loads from /public/upi (drop the brand PNGs
-// there). `other` maps to the generic UPI logo.
+// Logo file each UPI-app tile loads from /public/upi. `other` maps to the
+// generic UPI logo. (webp/jpg render fine on iOS Safari 14+.)
 const UPI_LOGO_SRC: Record<string, string> = {
-  gpay: "/upi/gpay.png",
-  phonepe: "/upi/phonepe.png",
-  paytm: "/upi/paytm.png",
-  other: "/upi/upi.png",
+  gpay: "/upi/gpay.jpg",
+  phonepe: "/upi/phonepe.webp",
+  paytm: "/upi/paytm.webp",
+  other: "/upi/upi.webp",
 };
 
 /** Brand-coloured fallback mark, shown until the real logo PNG is present. */
