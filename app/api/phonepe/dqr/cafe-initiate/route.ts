@@ -43,9 +43,16 @@ export async function POST(request: NextRequest) {
   try {
     // < 35 chars: "DQRC_" (5) + 12 + "_" (1) + 13-digit ms = 31.
     const transactionId = `DQRC_${intent.id.slice(-12)}_${Date.now()}`;
+    // Callback base from the domain THIS request hit — dev→dev, prod→prod,
+    // never a shared env that could cross-wire environments. Web sends
+    // Origin; mobile doesn't, so fall back to the forwarded host Vercel
+    // sets to the public domain (then NEXTAUTH_URL, then local).
+    const fwdHost =
+      request.headers.get("x-forwarded-host") || request.headers.get("host");
+    const fwdProto = request.headers.get("x-forwarded-proto") || "https";
     const origin =
       request.headers.get("origin") ||
-      process.env.NEXTAUTH_URL ||
+      (fwdHost ? `${fwdProto}://${fwdHost}` : process.env.NEXTAUTH_URL) ||
       "http://localhost:3000";
 
     // CafePaymentIntent.totalAmount is rupees (Float); round at the

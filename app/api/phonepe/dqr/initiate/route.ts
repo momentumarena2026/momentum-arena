@@ -67,9 +67,17 @@ export async function POST(request: NextRequest) {
 
     // < 35 chars per DQR spec: "DQR_" (4) + 12 + "_" (1) + 13-digit ms = 30.
     const transactionId = `DQR_${holdId.slice(-12)}_${Date.now()}`;
+    // Build the callback base from the domain THIS request actually hit so
+    // the dev deploy always registers a dev callback and prod a prod one —
+    // never a shared env that could cross-wire environments. Web fetches
+    // send Origin; the mobile app doesn't, so fall back to the forwarded
+    // host Vercel sets to the public domain (then NEXTAUTH_URL, then local).
+    const fwdHost =
+      request.headers.get("x-forwarded-host") || request.headers.get("host");
+    const fwdProto = request.headers.get("x-forwarded-proto") || "https";
     const origin =
       request.headers.get("origin") ||
-      process.env.NEXTAUTH_URL ||
+      (fwdHost ? `${fwdProto}://${fwdHost}` : process.env.NEXTAUTH_URL) ||
       "http://localhost:3000";
 
     // Hold amounts are rupees (same convention as the gateway routes);
