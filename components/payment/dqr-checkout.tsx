@@ -59,6 +59,21 @@ export function DqrCheckout({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneRef = useRef(false);
 
+  // On a phone, scanning a QR shown on that same phone is impossible, so we
+  // lead with a tap-to-pay deep link (opens the UPI app with payee + amount
+  // prefilled) and demote the QR to a "scan from another device" disclosure.
+  // Desktop has no UPI app, so it keeps the QR as the primary path.
+  // Set after mount (not in useState init) to avoid an SSR hydration
+  // mismatch — the server can't know the device, so it always renders the
+  // desktop layout first, then this flips it on the client.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsMobile(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
+    }
+  }, []);
+
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
   const initiateUrl =
     surface === "cafe"
@@ -188,24 +203,28 @@ export function DqrCheckout({
   return (
     <div className="space-y-5">
       <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-        <div className="rounded-xl bg-white p-3">
-          {qrDataUrl ? (
-            <Image
-              src={qrDataUrl}
-              alt="UPI QR — scan to pay"
-              width={280}
-              height={280}
-              className="rounded-lg"
-              unoptimized
-            />
+        {/* Desktop leads with the QR (scan with your phone). On mobile the
+            QR moves to the disclosure below — leading with a scan target on
+            the same device is useless. */}
+        {!isMobile &&
+          (qrDataUrl ? (
+            <div className="rounded-xl bg-white p-3">
+              <Image
+                src={qrDataUrl}
+                alt="UPI QR — scan to pay"
+                width={280}
+                height={280}
+                className="rounded-lg"
+                unoptimized
+              />
+            </div>
           ) : (
             <div className="flex h-[280px] w-[280px] items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
             </div>
-          )}
-        </div>
+          ))}
 
-        <p className="mt-5 text-3xl font-bold text-emerald-400">
+        <p className={`${isMobile ? "" : "mt-5"} text-3xl font-bold text-emerald-400`}>
           Pay {formatPrice(displayAmount)}
         </p>
         {isAdvance && advanceAmount != null && (
@@ -222,6 +241,23 @@ export function DqrCheckout({
         </p>
       </div>
 
+      {/* Mobile primary action: tap to open the UPI app with payee + amount
+          already filled in. */}
+      {isMobile && qrString && (
+        <div className="space-y-2">
+          <a
+            href={qrString}
+            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-bold text-white hover:bg-emerald-500 active:bg-emerald-700"
+          >
+            <Smartphone className="h-5 w-5" />
+            <span>Pay {formatPrice(displayAmount)} via UPI</span>
+          </a>
+          <p className="text-center text-xs text-zinc-500">
+            Opens PhonePe, Google Pay, Paytm, BHIM…
+          </p>
+        </div>
+      )}
+
       <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
         <p className="text-xs leading-relaxed text-amber-200/90">
@@ -231,14 +267,32 @@ export function DqrCheckout({
         </p>
       </div>
 
-      {qrString && (
-        <a
-          href={qrString}
-          className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white hover:bg-emerald-500 active:bg-emerald-700"
-        >
-          <Smartphone className="h-5 w-5" />
-          <span>Pay with UPI App</span>
-        </a>
+      {/* Mobile: QR demoted to an optional "scan from another device". */}
+      {isMobile && qrDataUrl && (
+        <details className="rounded-xl border border-zinc-800 bg-zinc-900">
+          <summary className="cursor-pointer list-none px-4 py-3 text-center text-sm text-zinc-400">
+            Or scan with another device
+          </summary>
+          <div className="flex justify-center pb-5">
+            <div className="rounded-xl bg-white p-3">
+              <Image
+                src={qrDataUrl}
+                alt="UPI QR — scan to pay"
+                width={220}
+                height={220}
+                className="rounded-lg"
+                unoptimized
+              />
+            </div>
+          </div>
+        </details>
+      )}
+
+      {/* Desktop: no UPI app to deep-link into — instruct to scan. */}
+      {!isMobile && (
+        <p className="text-center text-xs text-zinc-500">
+          Scan the QR with any UPI app to pay
+        </p>
       )}
 
       {onCancel && (
