@@ -12,6 +12,17 @@ const LOCKOUT_MINUTES = 30;
 const isDevOtpEnabled = process.env.ENABLE_DEV_OTP === "true" && process.env.NODE_ENV === "development";
 const DEV_OTP = "123456";
 
+// Store-reviewer bypass: a single hard-coded test phone that skips the SMS
+// gateway and accepts a fixed OTP, so Apple / Google reviewers can sign in
+// without receiving a real SMS. Fully env-gated — if APPSTORE_TEST_PHONE or
+// APPSTORE_TEST_OTP is unset there is no bypass, and it only ever matches this
+// one number. Set these only on the review/dev backend, never on production.
+function isAppStoreReviewPhone(normalizedPhone: string): boolean {
+  const testPhone = process.env.APPSTORE_TEST_PHONE;
+  if (!testPhone || !process.env.APPSTORE_TEST_OTP) return false;
+  return normalizedPhone === normalizePhone(testPhone);
+}
+
 // --- Rate Limiting ---
 
 async function checkRateLimit(identifier: string): Promise<{ allowed: boolean; retryAfter?: number }> {
@@ -90,6 +101,11 @@ export async function sendPhoneOtp(phone: string): Promise<OtpResult> {
   // Normalize phone: ensure it has 91 prefix, no +
   const normalizedPhone = normalizePhone(phone);
 
+  // Store-reviewer test phone: skip the SMS gateway entirely.
+  if (isAppStoreReviewPhone(normalizedPhone)) {
+    return { success: true };
+  }
+
   // Check lockout
   const lockout = await checkLockout(normalizedPhone);
   if (lockout.locked) {
@@ -155,6 +171,13 @@ export type VerifyResult = {
 
 export async function verifyPhoneOtp(phone: string, otp: string): Promise<VerifyResult> {
   const normalizedPhone = normalizePhone(phone);
+
+  // Store-reviewer test phone: accept the fixed OTP without calling MSG91.
+  if (isAppStoreReviewPhone(normalizedPhone)) {
+    return otp === process.env.APPSTORE_TEST_OTP
+      ? { success: true }
+      : { success: false, error: "Invalid OTP.", attemptsRemaining: 3 };
+  }
 
   if (isDevOtpEnabled && !MSG91_AUTH_KEY) {
     return otp === DEV_OTP
@@ -242,6 +265,11 @@ export async function verifyPhoneOtp(phone: string, otp: string): Promise<Verify
 
 export async function resendPhoneOtp(phone: string): Promise<OtpResult> {
   const normalizedPhone = normalizePhone(phone);
+
+  // Store-reviewer test phone: pretend the resend succeeded (no SMS).
+  if (isAppStoreReviewPhone(normalizedPhone)) {
+    return { success: true };
+  }
 
   if (isDevOtpEnabled && !MSG91_AUTH_KEY) {
     console.log(`\n🔑 [DEV] Resend OTP for ${normalizedPhone}: ${DEV_OTP}\n`);
