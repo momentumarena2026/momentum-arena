@@ -37,12 +37,23 @@ const DQR_SALT_INDEX = process.env.PHONEPE_DQR_SALT_INDEX || "1";
 const DQR_STORE_ID = process.env.PHONEPE_DQR_STORE_ID;
 const DQR_TERMINAL_ID = process.env.PHONEPE_DQR_TERMINAL_ID;
 
-// Mercury host. Production drops the `/enterprise-sandbox` prefix the
-// UAT host carries — note that prefix becomes part of the signed API
-// path (see `pathOf`), which is a common DQR checksum gotcha.
+// Mercury host. The UAT host carries an `/enterprise-sandbox` prefix
+// that production drops. IMPORTANT: that prefix is part of the request
+// URL only — the X-VERIFY checksum signs the *logical* API path
+// (`/v3/qr/init`, `/v3/transaction/.../status`) on BOTH environments,
+// exactly as the DQR docs show. Signing the prefixed UAT pathname would
+// fail auth on sandbox (matches the PG v1 sandbox convention).
 const DQR_BASE = isProd
   ? "https://mercury-t2.phonepe.com"
   : "https://mercury-uat.phonepe.com/enterprise-sandbox";
+
+// Logical API paths — used verbatim in the X-VERIFY checksum and
+// appended to DQR_BASE for the actual request URL.
+const QR_INIT_PATH = "/v3/qr/init";
+const txnStatusPath = (merchantId: string, transactionId: string) =>
+  `/v3/transaction/${encodeURIComponent(merchantId)}/${encodeURIComponent(
+    transactionId,
+  )}/status`;
 
 export const DQR_CONFIRMED_BY = "PHONEPE_DQR";
 
@@ -63,11 +74,6 @@ function requireMerchantId(): string {
     );
   }
   return DQR_MERCHANT_ID;
-}
-
-/** Pathname of a full mercury URL — this is what the V1 checksum signs. */
-function pathOf(url: string): string {
-  return new URL(url).pathname;
 }
 
 /**
@@ -126,8 +132,9 @@ export async function qrInit(params: QrInitParams): Promise<QrInitResult> {
   };
 
   const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
-  const endpoint = `${DQR_BASE}/v3/qr/init`;
-  const checksum = xVerify(base64 + pathOf(endpoint));
+  const endpoint = `${DQR_BASE}${QR_INIT_PATH}`;
+  // Sign the logical path (no /enterprise-sandbox prefix), per the docs.
+  const checksum = xVerify(base64 + QR_INIT_PATH);
 
   const res = await fetch(endpoint, {
     method: "POST",
@@ -182,10 +189,10 @@ export interface QrStatusResult {
 export async function qrStatus(transactionId: string): Promise<QrStatusResult> {
   const merchantId = requireMerchantId();
 
-  const endpoint = `${DQR_BASE}/v3/transaction/${encodeURIComponent(
-    merchantId,
-  )}/${encodeURIComponent(transactionId)}/status`;
-  const checksum = xVerify(pathOf(endpoint));
+  const statusPath = txnStatusPath(merchantId, transactionId);
+  const endpoint = `${DQR_BASE}${statusPath}`;
+  // Sign the logical path (no /enterprise-sandbox prefix), per the docs.
+  const checksum = xVerify(statusPath);
 
   const res = await fetch(endpoint, {
     method: "GET",
