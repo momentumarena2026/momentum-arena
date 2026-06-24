@@ -157,7 +157,15 @@ export async function qrInit(params: QrInitParams): Promise<QrInitResult> {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`PhonePe DQR init failed: ${res.status} ${text.slice(0, 500)}`);
+    // Surface the resolved env/host so a misconfig (e.g. PHONEPE_DQR_ENV not
+    // applied → request hit UAT with prod creds) is self-evident instead of
+    // showing PhonePe's opaque "try again later". Host/env are not secret.
+    console.error(
+      `[dqr] init failed env=${DQR_ENV} host=${DQR_BASE} status=${res.status} body=${text.slice(0, 300)}`,
+    );
+    throw new Error(
+      `PhonePe DQR init failed [env=${DQR_ENV} host=${DQR_BASE}]: ${res.status} ${text.slice(0, 400)}`,
+    );
   }
 
   const data = (await res.json()) as {
