@@ -56,10 +56,20 @@ const DQR_BASE = isProd
 // Logical API paths — used verbatim in the X-VERIFY checksum and
 // appended to DQR_BASE for the actual request URL.
 const QR_INIT_PATH = "/v3/qr/init";
+const INTENT_INIT_PATH = "/v1/intent/init";
 const txnStatusPath = (merchantId: string, transactionId: string) =>
   `/v3/transaction/${encodeURIComponent(merchantId)}/${encodeURIComponent(
     transactionId,
   )}/status`;
+
+// Which "generate a UPI request" product to use for the customer-facing
+// UPI option. Open Intent (/v1/intent/init) returns a tappable upi://
+// intent that works same-device with any UPI app; DQR (/v3/qr/init) is
+// scan-only. Default to intent; set PHONEPE_DQR_MODE=qr to fall back to
+// scan without a code change. Status + callback are identical either way.
+export function isOpenIntentMode(): boolean {
+  return (process.env.PHONEPE_DQR_MODE || "intent").toLowerCase() !== "qr";
+}
 
 export const DQR_CONFIRMED_BY = "PHONEPE_DQR";
 
@@ -186,6 +196,86 @@ export async function qrInit(params: QrInitParams): Promise<QrInitResult> {
   const qrImage = await QRCode.toDataURL(qrString, { width: 320, margin: 1 });
 
   return { qrString, qrImage, transactionId: params.transactionId };
+}
+
+/**
+ * Generate an Open Intent for one transaction via /v1/intent/init. Returns
+ * the same shape as {@link qrInit} — a `upi://pay?...` string (here a
+ * tappable intent rather than a scan-only QR) plus a server-rendered QR
+ * image — so callers, status polling and the callback stay identical. The
+ * intent endpoint is the path that lets the same string be *tapped* to pay
+ * (the /v3/qr/init string is registered scan-only). Same V1 X-VERIFY +
+ * `{ request: base64 }` body + creds as qrInit.
+ */
+export async function intentInit(params: QrInitParams): Promise<QrInitResult> {
+  const merchantId = requireMerchantId();
+
+  // Intent Init validates `message` as "alphanumeric with - _ / @ only"
+  // (no spaces, ₹ or em-dash — unlike /v3/qr/init which tolerates them), so
+  // strip any other char to a hyphen and drop it if nothing's left.
+  const safeMessage = params.message
+    ? params.message.replace(/[^A-Za-z0-9/_@-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80)
+    : "";
+
+  const payload = {
+    merchantId,
+    transactionId: params.transactionId,
+    merchantOrderId: params.transactionId,
+    amount: params.amountPaise,
+    storeId: DQR_STORE_ID,
+    // Only no-customer-phone solution type Intent Init accepts; enablement
+    // + this endpoint are what make the returned string tappable.
+    solutionType: "DQR",
+    intentExpiryInSeconds: params.expiresIn,
+    ...(DQR_TERMINAL_ID ? { terminalId: DQR_TERMINAL_ID } : {}),
+    ...(safeMessage ? { message: safeMessage } : {}),
+  };
+
+  const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  const endpoint = `${DQR_BASE}${INTENT_INIT_PATH}`;
+  const checksum = xVerify(base64 + INTENT_INIT_PATH);
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    signal: AbortSignal.timeout(10000),
+    headers: {
+      "Content-Type": "application/json",
+      "X-VERIFY": checksum,
+      "X-CALL-MODE": "POST",
+      "X-CALLBACK-URL": params.callbackUrl,
+    },
+    body: JSON.stringify({ request: base64 }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(
+      `[dqr] intent init failed env=${DQR_ENV} host=${DQR_BASE} status=${res.status} body=${text.slice(0, 300)}`,
+    );
+    throw new Error(
+      `PhonePe intent init failed [env=${DQR_ENV} host=${DQR_BASE}]: ${res.status} ${text.slice(0, 400)}`,
+    );
+  }
+
+  const data = (await res.json()) as {
+    success?: boolean;
+    code?: string;
+    data?: { intentString?: string };
+  };
+
+  const intentString = data.data?.intentString;
+  if (!data.success || !intentString) {
+    throw new Error(
+      `PhonePe intent init unsuccessful: code=${data.code ?? "?"} success=${data.success}`,
+    );
+  }
+
+  const qrImage = await QRCode.toDataURL(intentString, {
+    width: 320,
+    margin: 1,
+  });
+
+  return { qrString: intentString, qrImage, transactionId: params.transactionId };
 }
 
 export type DqrState = "PENDING" | "COMPLETED" | "FAILED";

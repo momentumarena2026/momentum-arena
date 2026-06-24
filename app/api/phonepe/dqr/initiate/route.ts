@@ -3,7 +3,7 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
-import { isDqrConfigured, qrInit } from "@/lib/phonepe-dqr";
+import { isDqrConfigured, qrInit, intentInit, isOpenIntentMode } from "@/lib/phonepe-dqr";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 // QR validity / hold extension. 15 min comfortably covers scanning +
@@ -84,7 +84,8 @@ export async function POST(request: NextRequest) {
     // DQR wants paise.
     const orderAmountPaise = orderAmount * 100;
 
-    const result = await qrInit({
+    const generate = isOpenIntentMode() ? intentInit : qrInit;
+    const result = await generate({
       transactionId,
       amountPaise: orderAmountPaise,
       expiresIn: DQR_TTL_MINUTES * 60,

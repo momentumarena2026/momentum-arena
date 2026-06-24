@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isDqrConfigured, qrInit } from "@/lib/phonepe-dqr";
+import { isDqrConfigured, qrInit, intentInit, isOpenIntentMode } from "@/lib/phonepe-dqr";
 
 const DQR_TTL_MINUTES = 15;
 
@@ -59,7 +59,8 @@ export async function POST(request: NextRequest) {
     // gateway boundary so 99.50 → 9950 paise.
     const amountPaise = Math.round(intent.totalAmount * 100);
 
-    const result = await qrInit({
+    const generate = isOpenIntentMode() ? intentInit : qrInit;
+    const result = await generate({
       transactionId,
       amountPaise,
       expiresIn: DQR_TTL_MINUTES * 60,
