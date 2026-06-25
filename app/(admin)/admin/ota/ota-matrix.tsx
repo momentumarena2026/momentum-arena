@@ -238,12 +238,10 @@ interface OtaMatrixProps {
 }
 
 export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
-  const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
+  const [activeChannel, setActiveChannel] = useState<Channel>("development");
   const [platformFilter, setPlatformFilter] = useState<Platform | "all">("all");
 
-  const visibleChannels = (
-    channelFilter === "all" ? CHANNELS : [channelFilter]
-  ) as Channel[];
+  const visibleChannels: Channel[] = [activeChannel];
   const visiblePlatforms = (
     platformFilter === "all" ? PLATFORMS : [platformFilter]
   ) as Platform[];
@@ -271,44 +269,44 @@ export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
     }`;
 
   return (
-    <div className="space-y-10">
-      {/* OTA matrix section */}
-      <section className="space-y-5">
-        <div>
-          <h1 className="text-2xl font-bold text-white">OTA Updates</h1>
-          <p className="mt-1 max-w-3xl text-zinc-400">
-            Roll out over-the-air JS bundle updates to the mobile app, grouped by
-            channel × platform. Only one release is live per slot and runtime
-            version.
-          </p>
-        </div>
+    <div className="space-y-8">
+      {/* Page header */}
+      <div>
+        <h1 className="text-2xl font-bold text-white">OTA Updates</h1>
+        <p className="mt-1 max-w-3xl text-zinc-400">
+          Roll out over-the-air JS bundle updates to the mobile app. Switch
+          between the Development and Production environments with the tabs below.
+        </p>
+      </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wider text-zinc-500">
-              Channel
-            </span>
-            <div className="inline-flex overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
-              <button
-                type="button"
-                onClick={() => setChannelFilter("all")}
-                className={segBtn(channelFilter === "all")}
-              >
-                All
-              </button>
-              {CHANNELS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setChannelFilter(c)}
-                  className={`border-l border-zinc-800 ${segBtn(channelFilter === c)}`}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Environment tabs (channel) — each tab shows only that channel's
+          release slots and version gates. */}
+      <div className="border-b border-zinc-800">
+        <nav className="-mb-px flex gap-6">
+          {CHANNELS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setActiveChannel(c)}
+              className={`border-b-2 px-1 pb-3 text-sm font-medium capitalize transition-colors ${
+                activeChannel === c
+                  ? "border-emerald-500 text-emerald-400"
+                  : "border-transparent text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* OTA releases for the active environment */}
+      <section className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold capitalize text-white">
+            {activeChannel} · OTA releases
+          </h2>
+          {/* Platform filter */}
           <div className="flex items-center gap-2">
             <span className="text-[11px] uppercase tracking-wider text-zinc-500">
               Platform
