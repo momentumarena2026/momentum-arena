@@ -31,9 +31,10 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-15
+    # Must match the local toolchain (Xcode 26.x). The macos-15 runner's newest
+    # Xcode was 16.4, which couldn't resolve the project's packages.
+    runs-on: macos-26
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
     steps:
       - uses: actions/checkout@v4
