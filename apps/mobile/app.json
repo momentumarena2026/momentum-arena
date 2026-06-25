@@ -4,7 +4,7 @@
   "expo": {
     "name": "MomentumArena",
     "slug": "momentum-arena",
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "2",
     "ios": {
       "bundleIdentifier": "com.momentumarena"
     },

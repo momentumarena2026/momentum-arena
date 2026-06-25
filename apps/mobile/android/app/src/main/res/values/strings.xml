@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">MomentumArena</string>
-    <string name="expo_runtime_version">1.0.0</string>
+    <string name="expo_runtime_version">2</string>
     <string name="expo_updates_request_headers">{"expo-channel-name":"development"}</string>
     <string name="expo_updates_code_signing_metadata">{"keyid":"main","alg":"rsa-v1_5-sha256"}</string>
     <string name="expo_updates_code_signing_certificate">-----BEGIN CERTIFICATE-----\nMIIC3zCCAcegAwIBAgIJOyIpZ0Xim/e5MA0GCSqGSIb3DQEBCwUAMBkxFzAVBgNV\nBAMTDk1vbWVudHVtIEFyZW5hMB4XDTI2MDYyNDIyMzY1NFoXDTM2MDYyNDIyMzY1\nNFowGTEXMBUGA1UEAxMOTW9tZW50dW0gQXJlbmEwggEiMA0GCSqGSIb3DQEBAQUA\nA4IBDwAwggEKAoIBAQC4SZhjaILm7IG7YYKErHQuPlPcHi6f8/zYgtrlMuC87yZn\n8mvqK/vwsV8k07/Igmd0MDshM5ZmHVcz8CF9u/DxujzXbRo2CzLWvDAkoqZod2hd\ngAnY+WWhF1UOxSLuwbjng0rK/3+Yp8/OfboDUY+yTPoFIKvEiHNn+7QU8O4aOSh8\nR1DZVEoimZwW37l2haHnv7MwTi5LQtMne26vB7zxbnBKiN7eL3SNap7u33Bv4p02\nUY5vMVAIoQbsmBP11tbtrVcgU2iWc1HcaYoKNptJFMgPQ59qsre87pRscg3ZJ8zG\nUXz+0Gs6TVHzmJ8vjPBzL9T2YdD0Sfgm230PWdUVAgMBAAGjKjAoMA4GA1UdDwEB\n/wQEAwIHgDAWBgNVHSUBAf8EDDAKBggrBgEFBQcDAzANBgkqhkiG9w0BAQsFAAOC\nAQEAFPfoVzLPOBrLrYrxYNLPn2PGNM3XxKgVTyxD1FLRJxtp78KAH5YBHD4RxPdq\nSbXBgBHdDLNffa6Ditzm8RgCYMWdP0jUHojk1IF+qkeOlbM0r3aERgBs1GpVyT9B\nQAXpzC1mdrG5w8RQ+F0WSfAg7P/0vudvJoxNu1IjTeUqjt/Nh75h0gZIk2CNShaE\nxk+kJW0DryP4FuDSJpH2gwMRp17OTu8cTGD9SD2dEnSE5CujYovYyzADHIEG/MrC\nbs9u74sUFgK+9EzE25mmLS0t5DadKj6zh8Zrp6M5aviy9XyVX2On6RN2nl8P5lHy\nNNjOh5zIwUS8Mk/G8ReK+h1kyA==\n-----END CERTIFICATE-----\n</string>
