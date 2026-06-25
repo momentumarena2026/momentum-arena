@@ -60,7 +60,12 @@ react {
     //
     // Added by install-expo-modules
     entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", rootDir.getAbsoluteFile().getParentFile().getAbsolutePath(), "android", "absolute"].execute(null, rootDir).text.trim())
-    cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+    // Resolve @expo/cli relative to the installed `expo` package. With npm's
+    // non-hoisted layout, @expo/cli lives under node_modules/expo/node_modules,
+    // so a bare require.resolve('@expo/cli') from rootDir (android/) fails; the
+    // failed command yields an empty string and cliFile silently became the
+    // android/app directory (-> BundleHermesCTask "cliFile ... is not a file").
+    cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
     bundleCommand = "export:embed"
 }
 

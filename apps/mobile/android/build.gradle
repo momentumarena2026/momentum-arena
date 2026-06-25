@@ -23,3 +23,20 @@ buildscript {
 
 apply plugin: "com.facebook.react.rootproject"
 apply plugin: "expo-root-project"
+
+// Force every Android subproject onto the NDK we declare above
+// (`ndkVersion = "27.1.12297006"`, which is fully installed). Some modules —
+// e.g. `expo-updates`, which builds native code via the expo-module gradle
+// plugin — don't read `rootProject.ext.ndkVersion`, so AGP falls back to its
+// pinned default `27.0.12077973`. That NDK is only a partial/corrupt install on
+// this machine (no source.properties), which fails CMake configuration with
+// `[CXX1101] ... did not have a source.properties file`. Pinning the version
+// here keeps all native builds on the one valid NDK.
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        subproject.android.ndkVersion = rootProject.ext.ndkVersion
+    }
+    subproject.plugins.withId("com.android.application") {
+        subproject.android.ndkVersion = rootProject.ext.ndkVersion
+    }
+}
