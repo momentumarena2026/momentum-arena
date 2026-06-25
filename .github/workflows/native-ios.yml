@@ -32,6 +32,9 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
     steps:
       - uses: actions/checkout@v4
 
@@ -82,3 +85,9 @@ jobs:
         env:
           LANE: ${{ inputs.track == 'appstore' && 'release' || 'beta' }}
         run: bundle exec fastlane ios "$LANE"
+
+      - name: Dump raw xcodebuild log on failure
+        if: failure()
+        run: |
+          echo "===== gym raw build log (tail 200) ====="
+          tail -200 ~/Library/Logs/gym/MomentumArena-MomentumArena.log 2>/dev/null || echo "(no gym log found)"

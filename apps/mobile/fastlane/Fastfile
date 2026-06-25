@@ -58,7 +58,7 @@ def build_ios
     # The project has no Swift Package deps; gym's resolve-packages preflight
     # just times out on CI, so skip it.
     skip_package_dependencies_resolution: true,
-    xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=#{IOS_PROFILE_NAME} CODE_SIGN_IDENTITY=\"Apple Distribution\" -disableAutomaticPackageResolution",
+    xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=#{IOS_PROFILE_NAME} CODE_SIGN_IDENTITY=\"Apple Distribution\"",
     export_options: {
       signingStyle: "manual",
       teamID: TEAM_ID,
