@@ -1,0 +1,84 @@
+# fastlane automation for the bare RN app (iOS + Android), wired to the same
+# versioning + OTA-target conventions used everywhere else:
+#   - build number  = unix-epoch-minutes (scripts/next-build-number.js)
+#   - OTA target    = scripts/configure-ota-target.js <development|production>
+#                     (sets the manifest host + channel before archiving)
+#   - iOS auth      = App Store Connect API key (XLBK5M2393)
+#   - Android auth  = Google Play service-account JSON (set GOOGLE_PLAY_JSON_KEY)
+#
+# Usage:
+#   bundle exec fastlane ios beta        # development → TestFlight
+#   bundle exec fastlane ios release     # production  → App Store
+#   bundle exec fastlane android beta    # development → Play internal track
+#   bundle exec fastlane android release # production  → Play production track
+
+BUILD_NUMBER = `node #{File.expand_path('../scripts/next-build-number.js', __dir__)}`.strip
+MARKETING_VERSION = "1.0.0"
+
+def configure_ota(target)
+  sh("node", File.expand_path("../scripts/configure-ota-target.js", __dir__), target)
+end
+
+def asc_key
+  app_store_connect_api_key(
+    key_id: "XLBK5M2393",
+    issuer_id: "cead394e-4785-4b48-b1cb-e431f9f62b1b",
+    key_filepath: File.expand_path("~/.appstoreconnect/private_keys/AuthKey_XLBK5M2393.p8"),
+  )
+end
+
+platform :ios do
+  desc "Development build → TestFlight"
+  lane :beta do
+    configure_ota("development")
+    api_key = asc_key
+    build_app(
+      workspace: "ios/MomentumArena.xcworkspace",
+      scheme: "MomentumArena",
+      configuration: "Release",
+      export_method: "app-store",
+      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 -allowProvisioningUpdates",
+    )
+    upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
+  end
+
+  desc "Production build → App Store"
+  lane :release do
+    configure_ota("production")
+    api_key = asc_key
+    build_app(
+      workspace: "ios/MomentumArena.xcworkspace",
+      scheme: "MomentumArena",
+      configuration: "Release",
+      export_method: "app-store",
+      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 -allowProvisioningUpdates",
+    )
+    upload_to_app_store(api_key: api_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
+  end
+end
+
+platform :android do
+  desc "Development build → Play internal track"
+  lane :beta do
+    configure_ota("development")
+    gradle(
+      project_dir: "android",
+      task: "bundle",
+      build_type: "Release",
+      properties: { "versionCode" => BUILD_NUMBER.to_i, "versionName" => MARKETING_VERSION },
+    )
+    upload_to_play_store(track: "internal", json_key: ENV["GOOGLE_PLAY_JSON_KEY"], skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+  end
+
+  desc "Production build → Play production track"
+  lane :release do
+    configure_ota("production")
+    gradle(
+      project_dir: "android",
+      task: "bundle",
+      build_type: "Release",
+      properties: { "versionCode" => BUILD_NUMBER.to_i, "versionName" => MARKETING_VERSION },
+    )
+    upload_to_play_store(track: "production", json_key: ENV["GOOGLE_PLAY_JSON_KEY"], skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+  end
+end
