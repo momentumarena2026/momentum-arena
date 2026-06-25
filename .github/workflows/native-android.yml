@@ -45,6 +45,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
       - name: Install Android SDK packages (platform 36, build-tools 36, NDK 27)
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
