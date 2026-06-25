@@ -92,8 +92,8 @@ android {
         applicationId "com.momentumarena"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode (project.hasProperty("versionCode") ? project.versionCode.toInteger() : 1)
+        versionName (project.hasProperty("versionName") ? project.versionName : "1.0")
     }
     signingConfigs {
         debug {
@@ -102,15 +102,28 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Upload key for Play App Signing. Credentials come from the
+            // gitignored android/keystore.properties (never committed).
+            def kp = new Properties()
+            def kpFile = rootProject.file("keystore.properties")
+            if (kpFile.exists()) {
+                kp.load(new FileInputStream(kpFile))
+                storeFile file(kp['storeFile'])
+                storePassword kp['storePassword']
+                keyAlias kp['keyAlias']
+                keyPassword kp['keyPassword']
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Use the upload key when keystore.properties is present (real
+            // release); else fall back to debug so local dev builds still work.
+            signingConfig rootProject.file("keystore.properties").exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
