@@ -35,35 +35,48 @@ def asc_key
   )
 end
 
+IOS_PROFILE_NAME = "MomentumArenaAppStoreCI"
+
+# Build the iOS app with MANUAL App Store signing. Automatic signing can't be
+# used on CI here: it archives with an "iOS Development" certificate (team
+# WHF7M743MW) that we don't ship. Instead we fetch/create an App Store
+# distribution profile via the API key and sign with the imported Apple
+# Distribution certificate.
+def build_ios
+  get_provisioning_profile(
+    api_key: asc_key,
+    app_identifier: "com.momentumarena",
+    provisioning_name: IOS_PROFILE_NAME,
+    readonly: false,
+    skip_certificate_verification: true,
+  )
+  build_app(
+    workspace: "ios/MomentumArena.xcworkspace",
+    scheme: "MomentumArena",
+    configuration: "Release",
+    export_method: "app-store",
+    xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=#{IOS_PROFILE_NAME} CODE_SIGN_IDENTITY=\"Apple Distribution\"",
+    export_options: {
+      signingStyle: "manual",
+      teamID: TEAM_ID,
+      provisioningProfiles: { "com.momentumarena" => IOS_PROFILE_NAME },
+    },
+  )
+end
+
 platform :ios do
   desc "Development build → TestFlight"
   lane :beta do
     configure_ota("development")
-    api_key = asc_key
-    build_app(
-      workspace: "ios/MomentumArena.xcworkspace",
-      scheme: "MomentumArena",
-      configuration: "Release",
-      export_method: "app-store",
-      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic #{ASC_AUTH}",
-      export_xcargs: ASC_AUTH,
-    )
-    upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
+    build_ios
+    upload_to_testflight(api_key: asc_key, skip_waiting_for_build_processing: true)
   end
 
   desc "Production build → App Store"
   lane :release do
     configure_ota("production")
-    api_key = asc_key
-    build_app(
-      workspace: "ios/MomentumArena.xcworkspace",
-      scheme: "MomentumArena",
-      configuration: "Release",
-      export_method: "app-store",
-      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic #{ASC_AUTH}",
-      export_xcargs: ASC_AUTH,
-    )
-    upload_to_app_store(api_key: api_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
+    build_ios
+    upload_to_app_store(api_key: asc_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
   end
 end
 
