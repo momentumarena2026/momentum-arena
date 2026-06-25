@@ -14,6 +14,7 @@
 
 BUILD_NUMBER = `node #{File.expand_path('../scripts/next-build-number.js', __dir__)}`.strip
 MARKETING_VERSION = "1.0.0"
+TEAM_ID = "WHF7M743MW" # Apple Developer team (Sportive Ventures)
 
 def configure_ota(target)
   sh("node", File.expand_path("../scripts/configure-ota-target.js", __dir__), target)
@@ -37,7 +38,7 @@ platform :ios do
       scheme: "MomentumArena",
       configuration: "Release",
       export_method: "app-store",
-      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 -allowProvisioningUpdates",
+      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates",
     )
     upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
   end
@@ -51,7 +52,7 @@ platform :ios do
       scheme: "MomentumArena",
       configuration: "Release",
       export_method: "app-store",
-      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 -allowProvisioningUpdates",
+      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates",
     )
     upload_to_app_store(api_key: api_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
   end
