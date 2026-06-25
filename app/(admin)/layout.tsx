@@ -31,7 +31,9 @@ const allNavItems = [
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
-  { href: "/admin/push", label: "Push Notifications", group: "Operations", permission: "MANAGE_PUSH" },
+  { href: "/admin/release-flow", label: "Release Flow", group: "Mobile Apps", permission: "MANAGE_PRICING" },
+  { href: "/admin/ota", label: "App Updates (OTA)", group: "Mobile Apps", permission: "MANAGE_PRICING" },
+  { href: "/admin/push", label: "Push Notifications", group: "Mobile Apps", permission: "MANAGE_PUSH" },
   { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
   // User Groups is the single source of truth for cohort targeting —
   // coupons, push notifications, and any future segment-specific
@@ -42,13 +44,12 @@ const allNavItems = [
   { href: "/admin/users/groups", label: "User Groups", group: "Settings", permission: "MANAGE_COUPONS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
   { href: "/admin/generator", label: "Generator", group: "Settings", permission: "MANAGE_PRICING" },
-  { href: "/admin/ota", label: "OTA Updates", group: "Settings", permission: "MANAGE_PRICING" },
   { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },
   { href: "/admin/payment-settings", label: "Payment Gateway", group: "Settings", permission: "VIEW_RAZORPAY" },
   { href: "/admin/razorpay", label: "Razorpay", group: "Settings", permission: "VIEW_RAZORPAY" },
 ];
 
-const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Operations", "Settings"];
+const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Operations", "Mobile Apps", "Settings"];
 
 export default async function AdminLayout({
   children,
