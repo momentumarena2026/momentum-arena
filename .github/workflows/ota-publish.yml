@@ -14,6 +14,13 @@ name: OTA publish
 on:
   push:
     branches: [development, main]
+    # Only run when the mobile app (or the publish script) actually changes.
+    # Web-only pushes don't change the JS bundle, so publishing a DRAFT for them
+    # is wasteful (and needlessly exposes the job to flaky npm/network blips).
+    paths:
+      - "apps/mobile/**"
+      - "scripts/publish-ota.ts"
+  workflow_dispatch: {} # allow manual publish without a mobile change
 
 concurrency:
   group: ota-${{ github.ref }}
