@@ -1,0 +1,8 @@
+# Non-native sources excluded from the @expo/fingerprint native-change gate.
+**/__tests__/**
+**/*.test.ts
+**/*.test.tsx
+**/*.md
+docs/**
+certs/**
+keys/**

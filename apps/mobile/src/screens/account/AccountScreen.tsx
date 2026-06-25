@@ -1,5 +1,6 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
+import * as Updates from "expo-updates";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
@@ -12,6 +13,7 @@ import {
   ChevronRight,
   Clock,
   History,
+  Download,
   LogIn,
   LogOut,
   MessageCircle,
@@ -19,6 +21,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  Smartphone,
   Coffee,
   ShoppingBag,
   Sparkles,
@@ -34,6 +37,7 @@ import { useAdminAuth } from "../../providers/AdminAuthProvider";
 import { bookingsApi } from "../../lib/bookings";
 import { rewardsApi } from "../../lib/rewards";
 import { trackRewardsTileTap } from "../../lib/analytics";
+import { versionLabel } from "../../lib/appVersion";
 import {
   formatHoursAsRanges,
   formatRupees,
@@ -283,6 +287,9 @@ export function AccountScreen() {
           <UpcomingEmpty onBook={goToBook} />
         )}
       </View>
+
+      {/* ─── App version + OTA update check ──────────────────────────── */}
+      <AppVersionCard />
 
       {/* ─── Footer: sign out + version ──────────────────────────────── */}
       <Button
@@ -648,6 +655,104 @@ function Perk({
 
 function Divider() {
   return <View style={styles.divider} />;
+}
+
+/**
+ * "App version" card — shows the full version label (marketing version +
+ * native build + OTA sequence + channel) and a "Check for updates" button
+ * that runs the over-the-air update flow:
+ *
+ *   checkForUpdateAsync() → (if available) fetchUpdateAsync() → reloadAsync()
+ *
+ * Status copy walks through Checking… / Up to date / Updating… and reports
+ * errors inline. In dev (and any build where `Updates.isEnabled` is false)
+ * the OTA pipeline is unavailable, so we surface "Updates disabled in dev"
+ * and disable the button rather than throwing.
+ */
+type OtaStatus =
+  | "idle"
+  | "checking"
+  | "uptodate"
+  | "updating"
+  | "disabled"
+  | "error";
+
+function AppVersionCard() {
+  const [status, setStatus] = useState<OtaStatus>("idle");
+
+  async function onCheck() {
+    // Dev / non-updates builds: Updates.isEnabled is false. Don't even
+    // try — checkForUpdateAsync throws when updates are disabled.
+    if (!Updates.isEnabled) {
+      setStatus("disabled");
+      return;
+    }
+    try {
+      setStatus("checking");
+      const result = await Updates.checkForUpdateAsync();
+      if (result.isAvailable) {
+        setStatus("updating");
+        await Updates.fetchUpdateAsync();
+        // Reloads the app with the freshly-downloaded bundle. Execution
+        // does not continue past this line on success.
+        await Updates.reloadAsync();
+      } else {
+        setStatus("uptodate");
+      }
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  const statusText: string | null =
+    status === "checking"
+      ? "Checking…"
+      : status === "updating"
+        ? "Updating…"
+        : status === "uptodate"
+          ? "Up to date"
+          : status === "disabled"
+            ? "Updates disabled in dev"
+            : status === "error"
+              ? "Couldn't check — try again"
+              : null;
+
+  const busy = status === "checking" || status === "updating";
+
+  return (
+    <View style={styles.sectionCard}>
+      <Text style={styles.sectionHeader}>App Version</Text>
+      <View style={styles.infoList}>
+        <InfoRow
+          icon={<Smartphone size={16} color={colors.zinc400} />}
+          label="Version"
+          value={versionLabel()}
+        />
+        {statusText ? (
+          <Text
+            style={[
+              styles.otaStatus,
+              status === "error" && { color: colors.destructive },
+              status === "uptodate" && { color: colors.emerald400 },
+            ]}
+          >
+            {statusText}
+          </Text>
+        ) : null}
+      </View>
+      <Button
+        label="Check for updates"
+        variant="secondary"
+        size="sm"
+        onPress={onCheck}
+        loading={busy}
+        leadingIcon={
+          busy ? undefined : <Download size={16} color={colors.foreground} />
+        }
+        fullWidth
+      />
+    </View>
+  );
 }
 
 /**
@@ -1059,6 +1164,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     color: colors.foreground,
+  },
+
+  // ── App version card
+  otaStatus: {
+    fontSize: 13,
+    color: colors.zinc400,
+    marginTop: spacing["1"],
   },
 
   // ── Footer
