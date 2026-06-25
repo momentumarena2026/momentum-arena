@@ -38,6 +38,7 @@ platform :ios do
       scheme: "MomentumArena",
       configuration: "Release",
       export_method: "app-store",
+      api_key: api_key,
       xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates",
     )
     upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
@@ -52,6 +53,7 @@ platform :ios do
       scheme: "MomentumArena",
       configuration: "Release",
       export_method: "app-store",
+      api_key: api_key,
       xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates",
     )
     upload_to_app_store(api_key: api_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
