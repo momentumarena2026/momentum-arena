@@ -31,6 +31,7 @@ export interface OtaReleaseRow {
   kind: "UPDATE" | "ROLLBACK";
   status: OtaReleaseStatus;
   rolloutPercent: number;
+  sequence: number;
   changelog: string | null;
   publishedBy: string | null;
   assetCount: number;
@@ -63,6 +64,7 @@ export async function listOtaReleases(): Promise<OtaReleaseRow[]> {
     kind: r.kind,
     status: r.status,
     rolloutPercent: r.rolloutPercent,
+    sequence: r.sequence,
     changelog: r.changelog,
     publishedBy: r.publishedBy,
     assetCount: r._count.assets,

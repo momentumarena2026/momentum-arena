@@ -2456,6 +2456,7 @@ model OtaRelease {
   kind           OtaReleaseKind   @default(UPDATE)
   status         OtaReleaseStatus @default(DRAFT)
   rolloutPercent Int              @default(0) // 0..100, sticky per install
+  sequence       Int              @default(0) // OTA build number within (channel, platform, runtimeVersion); stamped into manifest extra.otaBuildNumber
 
   // Launch asset = the JS bundle.
   launchAssetKey         String // md5 hex
@@ -2490,4 +2491,25 @@ model OtaReleaseAsset {
 
   @@unique([releaseId, key])
   @@index([releaseId])
+}
+
+// Native-binary version gate, per (platform, channel). Drives /api/app/version-check:
+// the app reports its installed native build number and gets back whether a store
+// update is available and whether it is FORCED (build < minSupportedBuild → blocking
+// "Update Required" screen). latestBuild is bumped when a new store build ships;
+// minSupportedBuild is raised by an admin ONLY after that build is live on the store.
+model AppVersionGate {
+  id                String      @id @default(cuid())
+  platform          OtaPlatform
+  channel           String // "development" | "production"
+  latestBuild       Int // newest native build number available on the store
+  latestVersionName String? // marketing version of the latest build, e.g. "1.0.0"
+  minSupportedBuild Int         @default(0) // installed build < this → forced update
+  storeUrl          String // App Store / Play Store deep link
+  message           String? // optional custom copy for the update prompt
+  updatedBy         String? // AdminUser.id
+  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime    @default(now())
+
+  @@unique([platform, channel])
 }

@@ -93,11 +93,19 @@ async function main() {
     : {};
 
   const db = new PrismaClient();
+  // OTA build number for this (channel, platform, runtimeVersion) slot.
+  const last = await db.otaRelease.findFirst({
+    where: { channel, platform, runtimeVersion: runtime },
+    orderBy: { sequence: "desc" },
+    select: { sequence: true },
+  });
+  const sequence = (last?.sequence ?? 0) + 1;
   const release = await db.otaRelease.create({
     data: {
       id: releaseId,
       channel, platform, runtimeVersion: runtime,
       status: "DRAFT",
+      sequence,
       rolloutPercent: Math.min(100, Math.max(0, rollout)),
       launchAssetKey: launch.key,
       launchAssetHash: launch.hash,

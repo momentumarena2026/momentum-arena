@@ -42,7 +42,12 @@ export function buildManifest(release: ReleaseWithAssets) {
       }),
     ),
     metadata: (release.metadata as Record<string, unknown>) ?? {},
-    extra: (release.extra as Record<string, unknown>) ?? {},
+    extra: {
+      ...((release.extra as Record<string, unknown>) ?? {}),
+      // OTA build number — the app reads this from Updates.manifest.extra to
+      // display "OTA N" in the version string.
+      otaBuildNumber: release.sequence,
+    },
   };
 }
 
