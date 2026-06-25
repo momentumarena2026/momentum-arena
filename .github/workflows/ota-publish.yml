@@ -40,7 +40,7 @@ jobs:
           RTV=$(node -e "process.stdout.write(require('./apps/mobile/app.json').expo.runtimeVersion)")
           echo "runtime=$RTV" >> "$GITHUB_OUTPUT"
 
-      - name: Install root deps (publish script: prisma, @vercel/blob, tsx)
+      - name: Install root deps (prisma + @vercel/blob + tsx)
         run: npm ci
 
       - name: Install mobile deps (expo export + fingerprint need node_modules)

@@ -205,7 +205,7 @@ export function HomeScreen() {
             />
           </View>
           <Text variant="tiny" color={colors.mutedForeground} style={styles.heroKicker}>
-            MATHURA'S PREMIER
+            ⚡ OTA UPDATE LIVE ⚡
           </Text>
           <Text variant="display" style={styles.heroTitle} align="center">
             Multi-sport Arena
