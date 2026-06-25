@@ -1,0 +1,99 @@
+name: Android native build
+
+# Manually triggered build + upload of a NATIVE Android build to Google Play.
+# Use this when a change is native (the OTA fingerprint differs) — OTA cannot
+# deliver native changes, so they need a fresh store build.
+#
+#   track = internal   -> Play internal testing  (OTA target: development)
+#   track = production  -> Play production track  (OTA target: production)
+#
+# Required repo secrets:
+#   ANDROID_KEYSTORE_BASE64   - base64 of apps/mobile/android/app/upload-keystore.jks
+#   ANDROID_KEYSTORE_PASSWORD - upload keystore store password
+#   ANDROID_KEY_ALIAS         - upload key alias
+#   ANDROID_KEY_PASSWORD      - upload key password
+#   GOOGLE_PLAY_JSON_KEY      - the Play service-account JSON (entire file contents)
+#
+# Build number is auto-generated (unix-epoch-minutes) by the fastlane lanes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Play track to publish to"
+        type: choice
+        options: [internal, production]
+        default: internal
+
+concurrency:
+  group: android-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages (platform 36, build-tools 36, NDK 27)
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+
+      - name: Make JDK 17 resolvable at the path RNGP hardcodes
+        # @react-native/gradle-plugin's patched gradle.properties points at a
+        # local Homebrew JDK 17 path. Symlink that path to the runner's JDK 17 so
+        # the included build resolves its toolchain on Linux without editing the patch.
+        run: |
+          sudo mkdir -p /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents
+          sudo ln -sfn "$JAVA_HOME" /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+
+      - name: Set up Ruby (fastlane)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: apps/mobile
+
+      - name: Install mobile JS deps
+        working-directory: apps/mobile
+        run: npm ci
+
+      - name: Restore signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > apps/mobile/android/app/upload-keystore.jks
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > apps/mobile/android/keystore.properties
+
+      - name: Write Play service-account key
+        env:
+          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
+        run: printf '%s' "$GOOGLE_PLAY_JSON_KEY" > "$RUNNER_TEMP/play.json"
+
+      - name: Build AAB + upload to Play
+        working-directory: apps/mobile
+        env:
+          GOOGLE_PLAY_JSON_KEY: ${{ runner.temp }}/play.json
+          LANE: ${{ inputs.track == 'production' && 'release' || 'beta' }}
+        run: |
+          export JAVA17_HOME="$JAVA_HOME"
+          bundle exec fastlane android "$LANE"
