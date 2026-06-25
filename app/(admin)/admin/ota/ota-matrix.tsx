@@ -5,13 +5,22 @@ import type { OtaReleaseRow } from "@/actions/admin-ota";
 import type { AppVersionGateRow } from "@/actions/admin-app-version";
 import { OtaActions } from "./ota-actions";
 import { VersionGateEditor } from "./version-gate-editor";
-import { Smartphone, Apple, Package } from "lucide-react";
+import {
+  Smartphone,
+  Apple,
+  Package,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
 const CHANNELS = ["development", "production"] as const;
 const PLATFORMS = ["ios", "android"] as const;
 
 type Channel = (typeof CHANNELS)[number];
 type Platform = (typeof PLATFORMS)[number];
+
+// Releases per page, inside each slot card.
+const PAGE_SIZE = 6;
 
 const STATUS_BADGE: Record<
   OtaReleaseRow["status"],
@@ -43,13 +52,192 @@ function shortId(id: string) {
   return id.slice(0, 8);
 }
 
+function RolloutBar({ percent }: { percent: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-zinc-800">
+        <div
+          className="h-full rounded-full bg-emerald-500"
+          style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
+        />
+      </div>
+      <span className="tabular-nums text-xs text-zinc-300">{percent}%</span>
+    </div>
+  );
+}
+
+/**
+ * One full-width card per (channel × platform) slot, with its own pagination
+ * so a long release history never blows up the page. Rows arrive newest-first.
+ */
+function ReleaseSlotCard({
+  channel,
+  platform,
+  rows,
+}: {
+  channel: Channel;
+  platform: Platform;
+  rows: OtaReleaseRow[];
+}) {
+  const [page, setPage] = useState(0);
+  const PlatformIcon = platform === "ios" ? Apple : Smartphone;
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const start = safePage * PAGE_SIZE;
+  const pageRows = rows.slice(start, start + PAGE_SIZE);
+  const live = rows.find((r) => r.status === "PUBLISHED");
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+      {/* Card header */}
+      <div className="flex flex-wrap items-center gap-2.5 border-b border-zinc-800 px-5 py-3.5">
+        <div className="rounded-lg bg-zinc-800 p-1.5">
+          <PlatformIcon className="h-4 w-4 text-zinc-400" />
+        </div>
+        <span className="font-medium capitalize text-white">{platform}</span>
+        <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400">
+          {channel}
+        </span>
+        {live && (
+          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+            Live · OTA #{live.sequence} · {live.rolloutPercent}%
+          </span>
+        )}
+        <span className="ml-auto text-xs text-zinc-500">
+          {rows.length} release{rows.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="px-5 py-10 text-center">
+          <Package className="mx-auto h-7 w-7 text-zinc-700" />
+          <p className="mt-2 text-xs text-zinc-600">No releases in this slot</p>
+        </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800 text-left text-[11px] uppercase tracking-wider text-zinc-500">
+                  <th className="px-5 py-2.5 font-medium">OTA</th>
+                  <th className="px-5 py-2.5 font-medium">Status</th>
+                  <th className="px-5 py-2.5 font-medium">Rollout</th>
+                  <th className="w-full px-5 py-2.5 font-medium">Changelog</th>
+                  <th className="px-5 py-2.5 font-medium">Created</th>
+                  <th className="px-5 py-2.5 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((r) => {
+                  const badge = STATUS_BADGE[r.status];
+                  return (
+                    <tr
+                      key={r.id}
+                      className="border-b border-zinc-800/60 align-top transition-colors last:border-0 hover:bg-zinc-800/30"
+                    >
+                      <td className="whitespace-nowrap px-5 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-white">
+                            OTA #{r.sequence}
+                          </span>
+                          {r.kind === "ROLLBACK" && (
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+                              Rollback
+                            </span>
+                          )}
+                        </div>
+                        <span className="block text-[11px] text-zinc-500">
+                          rt {r.runtimeVersion}
+                        </span>
+                        <span className="font-mono text-[11px] text-zinc-600">
+                          {shortId(r.id)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span
+                          className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium ${badge.cls}`}
+                        >
+                          {badge.label}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {r.status === "PUBLISHED" ? (
+                          <RolloutBar percent={r.rolloutPercent} />
+                        ) : (
+                          <span className="text-zinc-600">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {r.changelog ? (
+                          <span className="line-clamp-2 text-zinc-400">
+                            {r.changelog}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-600">—</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3.5 text-zinc-400">
+                        {formatDate(r.createdAt)}
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <OtaActions
+                          releaseId={r.id}
+                          status={r.status}
+                          rolloutPercent={r.rolloutPercent}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination footer */}
+          {pageCount > 1 && (
+            <div className="flex items-center justify-between border-t border-zinc-800 px-5 py-3">
+              <span className="text-xs text-zinc-500">
+                Showing {start + 1}–{Math.min(start + PAGE_SIZE, rows.length)} of{" "}
+                {rows.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPage(safePage - 1)}
+                  disabled={safePage === 0}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="px-1 text-xs text-zinc-400">
+                  Page {safePage + 1} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(safePage + 1)}
+                  disabled={safePage >= pageCount - 1}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 interface OtaMatrixProps {
   releases: OtaReleaseRow[];
   gates: AppVersionGateRow[];
 }
 
 export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
-  // "all" + each concrete value, rendered as segmented controls.
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [platformFilter, setPlatformFilter] = useState<Platform | "all">("all");
 
@@ -61,8 +249,7 @@ export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
   ) as Platform[];
 
   // Index releases by (channel, platform). listOtaReleases returns rows
-  // already ordered channel → platform → version → newest, so each slot's
-  // array stays newest-first as we append.
+  // already ordered newest-first per slot, so each array stays newest-first.
   const releaseSlots = new Map<string, OtaReleaseRow[]>();
   for (const r of releases) {
     const key = `${r.channel}::${r.platform}`;
@@ -87,15 +274,13 @@ export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
     <div className="space-y-10">
       {/* OTA matrix section */}
       <section className="space-y-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white">OTA Updates</h1>
-            <p className="mt-1 text-zinc-400">
-              Roll out over-the-air JS bundle updates to the mobile app, grouped
-              by channel × platform. Only one release is live per slot and
-              runtime version.
-            </p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-white">OTA Updates</h1>
+          <p className="mt-1 max-w-3xl text-zinc-400">
+            Roll out over-the-air JS bundle updates to the mobile app, grouped by
+            channel × platform. Only one release is live per slot and runtime
+            version.
+          </p>
         </div>
 
         {/* Filters */}
@@ -150,125 +335,17 @@ export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
           </div>
         </div>
 
-        {/* Matrix: one card per (channel × platform) slot */}
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        {/* Full-width stacked slot cards */}
+        <div className="space-y-5">
           {visibleChannels.flatMap((channel) =>
-            visiblePlatforms.map((platform) => {
-              const rows = releaseSlots.get(`${channel}::${platform}`) ?? [];
-              const PlatformIcon = platform === "ios" ? Apple : Smartphone;
-              return (
-                <div
-                  key={`${channel}-${platform}`}
-                  className="rounded-xl border border-zinc-800 bg-zinc-900"
-                >
-                  <div className="flex items-center gap-2.5 border-b border-zinc-800 px-5 py-3.5">
-                    <div className="rounded-lg bg-zinc-800 p-1.5">
-                      <PlatformIcon className="h-4 w-4 text-zinc-400" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-white capitalize">
-                        {platform}
-                      </span>
-                      <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400">
-                        {channel}
-                      </span>
-                    </div>
-                    <span className="ml-auto text-xs text-zinc-500">
-                      {rows.length} release{rows.length !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-
-                  {rows.length === 0 ? (
-                    <div className="px-5 py-8 text-center">
-                      <Package className="mx-auto h-7 w-7 text-zinc-700" />
-                      <p className="mt-2 text-xs text-zinc-600">
-                        No releases in this slot
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-zinc-800 text-left text-[11px] uppercase tracking-wider text-zinc-500">
-                            <th className="px-5 py-2.5 font-medium">OTA</th>
-                            <th className="px-5 py-2.5 font-medium">Status</th>
-                            <th className="px-5 py-2.5 font-medium">Rollout</th>
-                            <th className="px-5 py-2.5 font-medium">Changelog</th>
-                            <th className="px-5 py-2.5 font-medium">Created</th>
-                            <th className="px-5 py-2.5 font-medium">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((r) => {
-                            const badge = STATUS_BADGE[r.status];
-                            return (
-                              <tr
-                                key={r.id}
-                                className="border-b border-zinc-800/60 align-top last:border-0"
-                              >
-                                <td className="px-5 py-3.5">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-medium text-white">
-                                      OTA #{r.sequence}
-                                    </span>
-                                    {r.kind === "ROLLBACK" && (
-                                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
-                                        Rollback
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="block text-[11px] text-zinc-500">
-                                    rt {r.runtimeVersion}
-                                  </span>
-                                  <span className="font-mono text-[11px] text-zinc-600">
-                                    {shortId(r.id)}
-                                  </span>
-                                </td>
-                                <td className="px-5 py-3.5">
-                                  <span
-                                    className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${badge.cls}`}
-                                  >
-                                    {badge.label}
-                                  </span>
-                                </td>
-                                <td className="px-5 py-3.5">
-                                  {r.status === "PUBLISHED" ? (
-                                    <span className="text-zinc-200">
-                                      {r.rolloutPercent}%
-                                    </span>
-                                  ) : (
-                                    <span className="text-zinc-600">—</span>
-                                  )}
-                                </td>
-                                <td className="max-w-xs px-5 py-3.5">
-                                  {r.changelog ? (
-                                    <span className="line-clamp-2 text-zinc-400">
-                                      {r.changelog}
-                                    </span>
-                                  ) : (
-                                    <span className="text-zinc-600">—</span>
-                                  )}
-                                </td>
-                                <td className="whitespace-nowrap px-5 py-3.5 text-zinc-400">
-                                  {formatDate(r.createdAt)}
-                                </td>
-                                <td className="px-5 py-3.5">
-                                  <OtaActions
-                                    releaseId={r.id}
-                                    status={r.status}
-                                    rolloutPercent={r.rolloutPercent}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            })
+            visiblePlatforms.map((platform) => (
+              <ReleaseSlotCard
+                key={`${channel}-${platform}`}
+                channel={channel}
+                platform={platform}
+                rows={releaseSlots.get(`${channel}::${platform}`) ?? []}
+              />
+            ))
           )}
         </div>
       </section>
@@ -277,11 +354,11 @@ export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
       <section className="space-y-5">
         <div>
           <h2 className="text-xl font-bold text-white">Native Version Gate</h2>
-          <p className="mt-1 text-zinc-400">
+          <p className="mt-1 max-w-3xl text-zinc-400">
             Controls the store-update prompt and the blocking{" "}
             <span className="text-zinc-300">Update Required</span> screen per
-            channel × platform. Raising the minimum forces every older install
-            to update — only do it after the new build is live on the store.
+            channel × platform. Raising the minimum forces every older install to
+            update — only do it after the new build is live on the store.
           </p>
         </div>
 
