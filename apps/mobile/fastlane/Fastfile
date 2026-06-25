@@ -20,11 +20,18 @@ def configure_ota(target)
   sh("node", File.expand_path("../scripts/configure-ota-target.js", __dir__), target)
 end
 
+ASC_KEY_ID = "XLBK5M2393"
+ASC_ISSUER_ID = "cead394e-4785-4b48-b1cb-e431f9f62b1b"
+ASC_KEY_PATH = File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{ASC_KEY_ID}.p8")
+# gym/build_app has no api_key option, so authenticate xcodebuild's
+# -allowProvisioningUpdates directly via these flags (used on archive + export).
+ASC_AUTH = "-allowProvisioningUpdates -authenticationKeyID #{ASC_KEY_ID} -authenticationKeyIssuerID #{ASC_ISSUER_ID} -authenticationKeyPath #{ASC_KEY_PATH}"
+
 def asc_key
   app_store_connect_api_key(
-    key_id: "XLBK5M2393",
-    issuer_id: "cead394e-4785-4b48-b1cb-e431f9f62b1b",
-    key_filepath: File.expand_path("~/.appstoreconnect/private_keys/AuthKey_XLBK5M2393.p8"),
+    key_id: ASC_KEY_ID,
+    issuer_id: ASC_ISSUER_ID,
+    key_filepath: ASC_KEY_PATH,
   )
 end
 
@@ -38,8 +45,8 @@ platform :ios do
       scheme: "MomentumArena",
       configuration: "Release",
       export_method: "app-store",
-      api_key: api_key,
-      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates",
+      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic #{ASC_AUTH}",
+      export_xcargs: ASC_AUTH,
     )
     upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
   end
@@ -53,8 +60,8 @@ platform :ios do
       scheme: "MomentumArena",
       configuration: "Release",
       export_method: "app-store",
-      api_key: api_key,
-      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates",
+      xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Automatic #{ASC_AUTH}",
+      export_xcargs: ASC_AUTH,
     )
     upload_to_app_store(api_key: api_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
   end
