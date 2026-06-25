@@ -6,9 +6,9 @@ name: OTA publish
 # (fingerprint changed) → warn that a new store build is required.
 #
 # Required repo secrets:
-#   DATABASE_URL_DEVELOPMENT  - Neon URL for the development DB
-#   DATABASE_URL_PRODUCTION   - Neon URL for the production DB
-#   BLOB_READ_WRITE_TOKEN     - Vercel Blob token (momentum-arena-OTA store)
+#   STAGING_DB_URL         - Neon URL for the development/staging DB
+#   PRODUCTION_DB_URL      - Neon URL for the production DB
+#   BLOB_READ_WRITE_TOKEN  - Vercel Blob token (momentum-arena-OTA store)
 # The manifest is signed server-side, so EXPO_OTA_PRIVATE_KEY is NOT needed here.
 
 on:
@@ -29,15 +29,13 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Resolve channel + DB + runtimeVersion
+      - name: Resolve channel + runtimeVersion
         id: cfg
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "channel=production" >> "$GITHUB_OUTPUT"
-            echo "db=${{ secrets.DATABASE_URL_PRODUCTION }}" >> "$GITHUB_OUTPUT"
           else
             echo "channel=development" >> "$GITHUB_OUTPUT"
-            echo "db=${{ secrets.DATABASE_URL_DEVELOPMENT }}" >> "$GITHUB_OUTPUT"
           fi
           RTV=$(node -e "process.stdout.write(require('./apps/mobile/app.json').expo.runtimeVersion)")
           echo "runtime=$RTV" >> "$GITHUB_OUTPUT"
@@ -54,7 +52,8 @@ jobs:
 
       - name: Decide + publish per platform
         env:
-          DATABASE_URL: ${{ steps.cfg.outputs.db }}
+          # Branch-selected DB, read straight from secrets (never via an output).
+          DATABASE_URL: ${{ github.ref == 'refs/heads/main' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
           CHANNEL: ${{ steps.cfg.outputs.channel }}
           RUNTIME: ${{ steps.cfg.outputs.runtime }}
