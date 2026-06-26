@@ -19,7 +19,7 @@ import { requireAdmin } from "@/lib/admin-auth";
  *    • the /admin/ota rollout + version-gate mechanics
  *  Each step is plain data — adding/editing one is a one-line change.
  *
- *  Last reviewed: 2026-06-25
+ *  Last reviewed: 2026-06-26
  * ───────────────────────────────────────────────────────────────────────────
  */
 
@@ -112,25 +112,27 @@ const FLOW: Section[] = [
   {
     emoji: "📱",
     title: "Mobile app — big updates (native, needs the stores)",
-    note: "Use when native code changes (new library, permission, SDK/runtime bump). OTA can’t deliver these — Apple/Google must approve.",
+    note: "Use when native code changes (new library, permission, SDK/runtime bump). On development the build now auto-fires from the native-change check; production stays a deliberate dispatch. Apple/Google still review.",
     lanes: [
       {
         heading: "DEVELOPMENT → TestFlight (iOS) + Play Internal (Android)",
         tone: "dev",
         steps: [
-          { title: "Build the app", desc: "Run fastlane ios beta / android beta (or Xcode/Gradle). Build number is auto-generated.", tags: [{ t: "manual", who: "Developer" }, { t: "auto", engine: "build # script" }] },
-          { title: "Upload", desc: "iOS → TestFlight; Android → Play internal testing.", tags: [{ t: "manual", who: "Developer" }] },
-          { title: "Store processes the file", desc: "Format / safety scans of the binary.", tags: [{ t: "auto", engine: "Apple / Google" }] },
-          { title: "Quick beta review (iOS)", desc: "External testers need a short Apple beta review; internal testers = instant.", tags: [{ t: "manual", who: "Apple reviewer" }] },
-          { title: "Testers install", desc: "Update from TestFlight / Play.", tags: [{ t: "manual", who: "Testers" }] },
+          { title: "Push the native change", desc: "Push a change that touches native code to development.", tags: [{ t: "manual", who: "Developer" }] },
+          { title: "CI detects it's native", desc: "The OTA robot sees the fingerprint differ from the baseline.", tags: [{ t: "auto", engine: "GitHub Actions · ota-publish.yml" }] },
+          { title: "Native build auto-fires", desc: "The robot builds the signed app and uploads it — iOS → TestFlight, Android → Play internal.", tags: [{ t: "auto", engine: "GitHub Actions → TestFlight / Play" }] },
+          { title: "Store processes the build", desc: "Format / safety scans of the binary.", tags: [{ t: "auto", engine: "Apple / Google" }] },
+          { title: "Baseline + version gate updated", desc: "Robot refreshes the OTA baseline (so OTA resumes) and records the new build in the version gate.", tags: [{ t: "auto", engine: "GitHub Actions" }] },
+          { title: "Testers install", desc: "Update from TestFlight / Play. (iOS external testers wait on a quick Apple beta review.)", tags: [{ t: "manual", who: "Testers" }] },
         ],
       },
       {
         heading: "PRODUCTION → App Store + Play production",
         tone: "prod",
         steps: [
-          { title: "Build the app", desc: "Run fastlane ios release / android release.", tags: [{ t: "manual", who: "Developer" }] },
-          { title: "Upload", desc: "To App Store Connect / Play production track.", tags: [{ t: "manual", who: "Developer" }] },
+          { title: "Start the build", desc: "Click Run on the iOS/Android workflow with track = production (a deliberate manual step).", tags: [{ t: "manual", who: "Developer" }] },
+          { title: "Build + upload", desc: "Builds the signed app and uploads to App Store Connect / Play production.", tags: [{ t: "auto", engine: "GitHub Actions" }] },
+          { title: "Baseline + version gate updated", desc: "Robot refreshes the production OTA baseline + version gate.", tags: [{ t: "auto", engine: "GitHub Actions" }] },
           { title: "Submit for review", desc: "Send the build for approval.", tags: [{ t: "manual", who: "Developer" }] },
           { title: "Store review", desc: "Automated checks + a human reviewer approve it (hours to ~2 days).", tags: [{ t: "review", who: "Apple / Google" }] },
           { title: "Release", desc: "Approve & release (optionally phased %).", tags: [{ t: "manual", who: "Developer" }] },
@@ -270,7 +272,7 @@ export default async function ReleaseFlowPage() {
 
       <p className="border-t border-zinc-900 pt-4 text-xs text-zinc-600">
         This page mirrors the live CI/CD pipeline (Vercel deploys, <Code>.github/workflows/ota-publish.yml</Code>, and the
-        fastlane lanes). Keep it in sync when the pipeline changes. Last reviewed 25 Jun 2026.
+        fastlane lanes). Keep it in sync when the pipeline changes. Last reviewed 26 Jun 2026.
       </p>
     </div>
   );
