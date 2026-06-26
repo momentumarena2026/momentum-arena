@@ -1,0 +1,7 @@
+app_identifier("com.momentumarena")
+apple_id("y12.nakul@gmail.com")
+team_id("WHF7M743MW") # Sportive Ventures (Apple Developer team)
+
+for_platform :android do
+  package_name("com.momentumarena")
+end

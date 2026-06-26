@@ -71,6 +71,12 @@ export interface MaterializePaymentRef {
   // PhonePe path
   phonePeMerchantTxnId?: string;
   phonePeTransactionId?: string | null;
+  // Optional overrides — used by the DQR path so the materialised
+  // CafePayment records method UPI_QR + confirmedBy "PHONEPE_DQR"
+  // even though the intent was created with paymentMethod PHONEPE.
+  // Defaults preserve the existing Razorpay/PhonePe-checkout behaviour.
+  method?: PaymentMethod;
+  confirmedBy?: string | null;
 }
 
 export type MaterializeResult =
@@ -252,7 +258,7 @@ export async function materializeOrderFromIntent(
         items: { create: orderItemsData },
         payment: {
           create: {
-            method: intent.paymentMethod,
+            method: paymentRef.method ?? intent.paymentMethod,
             status: "COMPLETED",
             amount: intent.totalAmount,
             razorpayOrderId: paymentRef.razorpayOrderId ?? null,
@@ -260,6 +266,7 @@ export async function materializeOrderFromIntent(
             razorpaySignature: paymentRef.razorpaySignature ?? null,
             phonePeMerchantTxnId: paymentRef.phonePeMerchantTxnId ?? null,
             phonePeTransactionId: paymentRef.phonePeTransactionId ?? null,
+            confirmedBy: paymentRef.confirmedBy ?? null,
             confirmedAt: new Date(),
           },
         },
@@ -360,7 +367,7 @@ async function createCancelledRefundOrder(
         items: { create: orderItemsData },
         payment: {
           create: {
-            method: intent.paymentMethod,
+            method: paymentRef.method ?? intent.paymentMethod,
             status: "COMPLETED",
             amount: intent.totalAmount,
             razorpayOrderId: paymentRef.razorpayOrderId ?? null,
@@ -368,6 +375,7 @@ async function createCancelledRefundOrder(
             razorpaySignature: paymentRef.razorpaySignature ?? null,
             phonePeMerchantTxnId: paymentRef.phonePeMerchantTxnId ?? null,
             phonePeTransactionId: paymentRef.phonePeTransactionId ?? null,
+            confirmedBy: paymentRef.confirmedBy ?? null,
             confirmedAt: new Date(),
             refundReason: "Sold out after payment capture",
           },

@@ -1,0 +1,112 @@
+# fastlane automation for the bare RN app (iOS + Android), wired to the same
+# versioning + OTA-target conventions used everywhere else:
+#   - build number  = unix-epoch-minutes (scripts/next-build-number.js)
+#   - OTA target    = scripts/configure-ota-target.js <development|production>
+#                     (sets the manifest host + channel before archiving)
+#   - iOS auth      = App Store Connect API key (XLBK5M2393)
+#   - Android auth  = Google Play service-account JSON (set GOOGLE_PLAY_JSON_KEY)
+#
+# Usage:
+#   bundle exec fastlane ios beta        # development → TestFlight
+#   bundle exec fastlane ios release     # production  → App Store
+#   bundle exec fastlane android beta    # development → Play internal track
+#   bundle exec fastlane android release # production  → Play production track
+
+# CI can pass BUILD_NUMBER so the same value feeds the build AND the post-release
+# version-gate update; otherwise compute it (unix-epoch-minutes).
+BUILD_NUMBER = (ENV["BUILD_NUMBER"] && !ENV["BUILD_NUMBER"].empty?) ? ENV["BUILD_NUMBER"] : `node #{File.expand_path('../scripts/next-build-number.js', __dir__)}`.strip
+MARKETING_VERSION = "1.0.0"
+TEAM_ID = "WHF7M743MW" # Apple Developer team (Sportive Ventures)
+
+def configure_ota(target)
+  sh("node", File.expand_path("../scripts/configure-ota-target.js", __dir__), target)
+end
+
+ASC_KEY_ID = "XLBK5M2393"
+ASC_ISSUER_ID = "cead394e-4785-4b48-b1cb-e431f9f62b1b"
+ASC_KEY_PATH = File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{ASC_KEY_ID}.p8")
+# gym/build_app has no api_key option, so authenticate xcodebuild's
+# -allowProvisioningUpdates directly via these flags (used on archive + export).
+ASC_AUTH = "-allowProvisioningUpdates -authenticationKeyID #{ASC_KEY_ID} -authenticationKeyIssuerID #{ASC_ISSUER_ID} -authenticationKeyPath #{ASC_KEY_PATH}"
+
+def asc_key
+  app_store_connect_api_key(
+    key_id: ASC_KEY_ID,
+    issuer_id: ASC_ISSUER_ID,
+    key_filepath: ASC_KEY_PATH,
+  )
+end
+
+IOS_PROFILE_NAME = "MomentumArenaAppStoreCI"
+
+# Build the iOS app with MANUAL App Store signing. Automatic signing can't be
+# used on CI here: it archives with an "iOS Development" certificate (team
+# WHF7M743MW) that we don't ship. Instead we fetch/create an App Store
+# distribution profile via the API key and sign with the imported Apple
+# Distribution certificate.
+def build_ios
+  get_provisioning_profile(
+    api_key: asc_key,
+    app_identifier: "com.momentumarena",
+    provisioning_name: IOS_PROFILE_NAME,
+    readonly: false,
+    skip_certificate_verification: true,
+  )
+  build_app(
+    workspace: "ios/MomentumArena.xcworkspace",
+    scheme: "MomentumArena",
+    configuration: "Release",
+    export_method: "app-store",
+    # The project has no Swift Package deps; gym's resolve-packages preflight
+    # just times out on CI, so skip it.
+    skip_package_dependencies_resolution: true,
+    xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=#{IOS_PROFILE_NAME} CODE_SIGN_IDENTITY=\"Apple Distribution\"",
+    export_options: {
+      signingStyle: "manual",
+      teamID: TEAM_ID,
+      provisioningProfiles: { "com.momentumarena" => IOS_PROFILE_NAME },
+    },
+  )
+end
+
+platform :ios do
+  desc "Development build → TestFlight"
+  lane :beta do
+    configure_ota("development")
+    build_ios
+    upload_to_testflight(api_key: asc_key, skip_waiting_for_build_processing: true)
+  end
+
+  desc "Production build → App Store"
+  lane :release do
+    configure_ota("production")
+    build_ios
+    upload_to_app_store(api_key: asc_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
+  end
+end
+
+platform :android do
+  desc "Development build → Play internal track"
+  lane :beta do
+    configure_ota("development")
+    gradle(
+      project_dir: "android",
+      task: "bundle",
+      build_type: "Release",
+      properties: { "versionCode" => BUILD_NUMBER.to_i, "versionName" => MARKETING_VERSION },
+    )
+    upload_to_play_store(track: "internal", json_key: ENV["GOOGLE_PLAY_JSON_KEY"], skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+  end
+
+  desc "Production build → Play production track"
+  lane :release do
+    configure_ota("production")
+    gradle(
+      project_dir: "android",
+      task: "bundle",
+      build_type: "Release",
+      properties: { "versionCode" => BUILD_NUMBER.to_i, "versionName" => MARKETING_VERSION },
+    )
+    upload_to_play_store(track: "production", json_key: ENV["GOOGLE_PLAY_JSON_KEY"], skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+  end
+end

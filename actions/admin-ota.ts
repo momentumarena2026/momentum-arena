@@ -1,0 +1,238 @@
+"use server";
+
+import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
+import { db } from "@/lib/db";
+import { revalidatePath } from "next/cache";
+import type { OtaPlatform, OtaReleaseStatus } from "@prisma/client";
+
+// OTA management is a privileged operational surface (it changes what
+// JS bundle every installed app downloads), so we gate it behind the
+// same MANAGE_PRICING permission the other Settings-group admin pages
+// use. Superadmins bypass per-permission checks in requireAdmin.
+async function requireAdmin() {
+  const user = await requireAdminBase("MANAGE_PRICING");
+  return user.id;
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+/**
+ * Public, serializable shape so the client never sees Prisma-internal
+ * relations. One entry per release; the page groups by (channel, platform).
+ */
+export interface OtaReleaseRow {
+  id: string;
+  channel: string;
+  runtimeVersion: string;
+  platform: OtaPlatform;
+  kind: "UPDATE" | "ROLLBACK";
+  status: OtaReleaseStatus;
+  rolloutPercent: number;
+  sequence: number;
+  changelog: string | null;
+  publishedBy: string | null;
+  assetCount: number;
+  createdAt: Date;
+  activatedAt: Date | null;
+}
+
+export async function listOtaReleases(): Promise<OtaReleaseRow[]> {
+  await requireAdmin();
+
+  const releases = await db.otaRelease.findMany({
+    // Group key first (channel → platform → runtimeVersion), newest
+    // release within each slot first so the active build floats to top.
+    orderBy: [
+      { channel: "asc" },
+      { platform: "asc" },
+      { runtimeVersion: "desc" },
+      { createdAt: "desc" },
+    ],
+    include: {
+      _count: { select: { assets: true } },
+    },
+  });
+
+  return releases.map((r) => ({
+    id: r.id,
+    channel: r.channel,
+    runtimeVersion: r.runtimeVersion,
+    platform: r.platform,
+    kind: r.kind,
+    status: r.status,
+    rolloutPercent: r.rolloutPercent,
+    sequence: r.sequence,
+    changelog: r.changelog,
+    publishedBy: r.publishedBy,
+    assetCount: r._count.assets,
+    createdAt: r.createdAt,
+    activatedAt: r.activatedAt,
+  }));
+}
+
+/**
+ * Publish a release at a given rollout %. Only one PUBLISHED release is
+ * allowed per (channel, platform, runtimeVersion) slot — any other live
+ * one in the same slot is ARCHIVED (kept for history / rollback).
+ */
+export async function rolloutOtaRelease(
+  releaseId: string,
+  rolloutPercent: number
+): Promise<{ success: true } | { error: string }> {
+  const adminId = await requireAdmin();
+
+  if (!releaseId) {
+    return { error: "Release id is required" };
+  }
+
+  const percent = clampPercent(rolloutPercent);
+
+  const release = await db.otaRelease.findUnique({ where: { id: releaseId } });
+  if (!release) {
+    return { error: "Release not found" };
+  }
+  if (release.status === "ARCHIVED") {
+    return { error: "Archived releases can't be rolled out — use Roll back" };
+  }
+
+  // Demote any other currently-PUBLISHED release in the same slot so
+  // only one is live at a time, while keeping its row for history.
+  await db.otaRelease.updateMany({
+    where: {
+      channel: release.channel,
+      platform: release.platform,
+      runtimeVersion: release.runtimeVersion,
+      status: "PUBLISHED",
+      id: { not: release.id },
+    },
+    data: { status: "ARCHIVED" },
+  });
+
+  await db.otaRelease.update({
+    where: { id: release.id },
+    data: {
+      status: "PUBLISHED",
+      rolloutPercent: percent,
+      publishedBy: adminId,
+      // Stamp the first-ever activation only once.
+      activatedAt: release.activatedAt ?? new Date(),
+    },
+  });
+
+  revalidatePath("/admin/ota");
+  return { success: true };
+}
+
+/**
+ * Adjust the rollout % of an already-PUBLISHED release without changing
+ * which release is live.
+ */
+export async function setOtaRolloutPercent(
+  releaseId: string,
+  percent: number
+): Promise<{ success: true } | { error: string }> {
+  await requireAdmin();
+
+  if (!releaseId) {
+    return { error: "Release id is required" };
+  }
+
+  const release = await db.otaRelease.findUnique({ where: { id: releaseId } });
+  if (!release) {
+    return { error: "Release not found" };
+  }
+  if (release.status !== "PUBLISHED") {
+    return { error: "Only a published release can have its rollout adjusted" };
+  }
+
+  await db.otaRelease.update({
+    where: { id: release.id },
+    data: { rolloutPercent: clampPercent(percent) },
+  });
+
+  revalidatePath("/admin/ota");
+  return { success: true };
+}
+
+/**
+ * Roll back a release: ARCHIVE it and re-PUBLISH (at 100%) the most
+ * recent previously-ARCHIVED UPDATE release in the same slot. If there's
+ * no prior release to fall back to, we just archive this one.
+ */
+export async function rollbackOtaRelease(
+  releaseId: string
+): Promise<{ success: true } | { error: string }> {
+  const adminId = await requireAdmin();
+
+  if (!releaseId) {
+    return { error: "Release id is required" };
+  }
+
+  const release = await db.otaRelease.findUnique({ where: { id: releaseId } });
+  if (!release) {
+    return { error: "Release not found" };
+  }
+
+  await db.otaRelease.update({
+    where: { id: release.id },
+    data: { status: "ARCHIVED" },
+  });
+
+  // Most recent previously-archived UPDATE in the same slot becomes the
+  // new live build. ROLLBACK-kind releases are skipped — re-serving a
+  // rollback directive isn't a meaningful "previous good build". We query
+  // AFTER archiving the current release; the `id: { not: ... }` guard
+  // keeps it out of the candidate set regardless.
+  const previous = await db.otaRelease.findFirst({
+    where: {
+      channel: release.channel,
+      platform: release.platform,
+      runtimeVersion: release.runtimeVersion,
+      kind: "UPDATE",
+      status: "ARCHIVED",
+      id: { not: release.id },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (previous) {
+    await db.otaRelease.update({
+      where: { id: previous.id },
+      data: {
+        status: "PUBLISHED",
+        rolloutPercent: 100,
+        publishedBy: adminId,
+        activatedAt: previous.activatedAt ?? new Date(),
+      },
+    });
+  }
+
+  revalidatePath("/admin/ota");
+  return { success: true };
+}
+
+export async function archiveOtaRelease(
+  releaseId: string
+): Promise<{ success: true } | { error: string }> {
+  await requireAdmin();
+
+  if (!releaseId) {
+    return { error: "Release id is required" };
+  }
+
+  const release = await db.otaRelease.findUnique({ where: { id: releaseId } });
+  if (!release) {
+    return { error: "Release not found" };
+  }
+
+  await db.otaRelease.update({
+    where: { id: release.id },
+    data: { status: "ARCHIVED" },
+  });
+
+  revalidatePath("/admin/ota");
+  return { success: true };
+}

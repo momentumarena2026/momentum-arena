@@ -31,13 +31,11 @@ import {
 } from "../../components/booking/RedeemPoints";
 import {
   PaymentMethodTiles,
-  type PaymentMethodType,
+  type AmountMode,
+  type PayMethod,
 } from "../../components/payment/PaymentMethodTiles";
-import {
-  AdvancePaymentPicker,
-  type AdvancePaymentMethod,
-} from "../../components/payment/AdvancePaymentPicker";
 import { UpiQrCheckout } from "../../components/payment/UpiQrCheckout";
+import { DqrCheckout } from "../../components/payment/DqrCheckout";
 import { colors, radius, spacing } from "../../theme";
 import { bookingApi, type PaymentConfig } from "../../lib/booking";
 import { rewardsApi } from "../../lib/rewards";
@@ -89,6 +87,7 @@ const DEFAULT_PAYMENT_CONFIG: PaymentConfig = {
   onlineEnabled: true,
   upiQrEnabled: true,
   advanceEnabled: true,
+  dqrEnabled: false,
 };
 
 export function CheckoutScreen() {
@@ -320,56 +319,24 @@ export function CheckoutScreen() {
   // Pick the first enabled tile so the user never lands on a hidden method.
   // `config` always has a value (either fetched or defaults) so we can seed
   // the initial selection synchronously on first render.
-  const [method, setMethod] = useState<PaymentMethodType>(() => {
-    if (config.onlineEnabled) return "online";
-    if (config.upiQrEnabled) return "upi_qr";
-    return "cash";
-  });
-
-  const [advanceMethod, setAdvanceMethod] =
-    useState<AdvancePaymentMethod>("online");
+  // Two-level: amount mode (full / 50% advance) × method (UPI / gateway).
+  // UPI is pre-selected to steer customers off the fee-bearing gateway.
+  const [amountMode, setAmountMode] = useState<AmountMode>(() =>
+    config.onlineEnabled || config.upiQrEnabled ? "full" : "advance",
+  );
+  const [method, setMethod] = useState<PayMethod>(() =>
+    config.upiQrEnabled ? "upi" : "gateway",
+  );
 
   // UPI QR screen shows inline (same layout as web's `showUpiQr` flag).
   const [showUpiQr, setShowUpiQr] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  // ── Auto-scroll when the advance picker appears ───────────────────────────
-  // When the user taps "Pay 50% Now" the AdvancePaymentPicker renders below
-  // the Payment Method tiles, but on shorter screens both the picker and the
-  // Pay CTA sit below the fold. Capture the picker's Y offset via onLayout,
-  // then scroll to it (with a little header padding) as soon as the method
-  // flips to "cash". Web doesn't need this because CSS grows the page and
-  // the sticky footer stays in view; native must do it manually.
+  // The method toggle now renders inline inside the selected amount card
+  // (PaymentMethodTiles), so the old auto-scroll-to-advance-picker dance is
+  // no longer needed — the ScrollView ref is kept for general use.
   const scrollRef = useRef<ScrollView | null>(null);
-  const advancePickerYRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (method !== "cash") {
-      // Picker is unmounted — forget last offset so the next selection
-      // waits for a fresh onLayout (the picker's Y can shift if the
-      // tiles above it resize).
-      advancePickerYRef.current = null;
-      return;
-    }
-    let cancelled = false;
-    const tryScroll = () => {
-      if (cancelled) return;
-      const y = advancePickerYRef.current;
-      if (y == null) {
-        // Picker hasn't laid out yet — retry on the next frame.
-        requestAnimationFrame(tryScroll);
-        return;
-      }
-      scrollRef.current?.scrollTo({
-        y: Math.max(0, y - 12),
-        animated: true,
-      });
-    };
-    requestAnimationFrame(tryScroll);
-    return () => {
-      cancelled = true;
-    };
-  }, [method]);
 
   // ── Post-payment nav ───────────────────────────────────────────────────────
   // After a successful payment we want the user on Account → BookingDetail
@@ -496,20 +463,12 @@ export function CheckoutScreen() {
     setProcessing(true);
     setPaymentError(null);
     try {
-      if (method === "online") {
-        await handleRazorpayPayment(false);
-      } else if (method === "upi_qr") {
-        // Don't commit yet — show the QR, commit after user taps
-        // "I've Completed the Payment". Hold stays active until either
-        // that commit succeeds or the TTL expires.
+      if (method === "gateway") {
+        await handleRazorpayPayment(amountMode === "advance");
+      } else {
+        // UPI — show the QR (DQR auto-confirm if enabled, else static).
+        // Hold stays active until the booking is created or the TTL expires.
         setShowUpiQr(true);
-      } else if (method === "cash") {
-        if (advanceMethod === "online") {
-          await handleRazorpayPayment(true);
-        } else {
-          // Same UPI-QR flow, but commit flags the booking as 50% advance.
-          setShowUpiQr(true);
-        }
       }
     } catch (err) {
       setPaymentError(
@@ -602,19 +561,47 @@ export function CheckoutScreen() {
 
   // ── UPI QR flow (inline, matches web) ──────────────────────────────────────
   if (showUpiQr) {
-    const isAdvanceFlow = method === "cash";
+    const isAdvanceFlow = amountMode === "advance";
     const upiAmount = isAdvanceFlow ? advanceAmount : payableAmount;
+
+    const qrHeader = (
+      <View style={styles.header}>
+        <Text variant="tiny" color={colors.primary} style={styles.kicker}>
+          UPI QR PAYMENT
+        </Text>
+        <Text variant="title">Scan &amp; pay</Text>
+      </View>
+    );
+
+    // DQR: auto-confirming dynamic QR. Booking is created server-side on
+    // payment; onConfirmed jumps straight to the booking detail.
+    if (config.dqrEnabled) {
+      return (
+        <Screen padded={false}>
+          <DqrCheckout
+            header={qrHeader}
+            holdId={params.holdId}
+            amount={upiAmount}
+            overrideAmount={payableAmount}
+            isAdvance={isAdvanceFlow}
+            advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
+            remainingAmount={isAdvanceFlow ? remainingAmount : undefined}
+            onCancel={() => setShowUpiQr(false)}
+            onConfirmed={(bookingId) => {
+              fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
+              goToBookingDetail(bookingId);
+            }}
+          />
+        </Screen>
+      );
+    }
+
+    // Legacy static QR: booking created PENDING on "I've paid"; verified
+    // later via the WhatsApp screenshot / admin.
     return (
       <Screen padded={false}>
         <UpiQrCheckout
-          header={
-            <View style={styles.header}>
-              <Text variant="tiny" color={colors.primary} style={styles.kicker}>
-                UPI QR PAYMENT
-              </Text>
-              <Text variant="title">Scan &amp; pay</Text>
-            </View>
-          }
+          header={qrHeader}
           amount={payableAmount}
           isAdvance={isAdvanceFlow}
           advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
@@ -659,13 +646,15 @@ export function CheckoutScreen() {
   const { activeGateway: gateway, onlineEnabled, upiQrEnabled, advanceEnabled } =
     config;
 
-  // CTA label matches web: "Pay ₹X" / "Show QR — ₹X" / "Pay Advance ₹Y — Book Now"
+  // CTA label matches web's two-level wording.
   const ctaLabel =
-    method === "upi_qr"
-      ? `Show QR — ${formatRupees(payableAmount)}`
-      : method === "cash"
-      ? `Pay Advance ${formatRupees(advanceAmount)} — Book Now`
-      : `Pay ${formatRupees(payableAmount)}`;
+    method === "gateway"
+      ? amountMode === "advance"
+        ? `Pay Advance ${formatRupees(advanceAmount)}`
+        : `Pay ${formatRupees(payableAmount)}`
+      : amountMode === "advance"
+      ? `Pay Advance ${formatRupees(advanceAmount)} via UPI`
+      : `Pay ${formatRupees(payableAmount)} via UPI`;
 
   return (
     <Screen padded={false}>
@@ -897,41 +886,33 @@ export function CheckoutScreen() {
             Payment Method
           </Text>
           <PaymentMethodTiles
-            selected={method}
-            onSelect={(m) => {
+            amountMode={amountMode}
+            onAmountModeChange={(m) => {
+              setAmountMode(m);
+              if (hold?.id) {
+                bookingApi
+                  .logPaymentMethod({ holdId: hold.id, paymentMethod: `${m}_${method}` })
+                  .catch(() => {});
+              }
+            }}
+            method={method}
+            onMethodChange={(m) => {
               setMethod(m);
               if (hold?.id) {
                 bookingApi
-                  .logPaymentMethod({ holdId: hold.id, paymentMethod: m })
+                  .logPaymentMethod({ holdId: hold.id, paymentMethod: `${amountMode}_${m}` })
                   .catch(() => {});
               }
             }}
             gateway={gateway}
+            fullAmount={payableAmount}
+            advanceAmount={advanceAmount}
+            remainingAmount={remainingAmount}
             onlineEnabled={onlineEnabled}
             upiQrEnabled={upiQrEnabled}
             advanceEnabled={advanceEnabled}
           />
         </View>
-
-        {/* Advance sub-picker — wrapped in a View so we can capture its Y
-            offset on layout and auto-scroll to it when the 50% tile is
-            selected (see `advancePickerYRef` effect above). */}
-        {method === "cash" ? (
-          <View
-            onLayout={(e) => {
-              advancePickerYRef.current = e.nativeEvent.layout.y;
-            }}
-          >
-            <AdvancePaymentPicker
-              totalAmount={payableAmount}
-              advanceAmount={advanceAmount}
-              remainingAmount={remainingAmount}
-              selected={advanceMethod}
-              onSelect={setAdvanceMethod}
-              gateway={gateway}
-            />
-          </View>
-        ) : null}
 
         {paymentError ? (
           <View style={styles.errorBox}>

@@ -34,6 +34,8 @@ import {
   Receipt,
   PieChart,
   Bell,
+  Smartphone,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -62,6 +64,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/users": Users,
   "/admin/admin-users": Shield,
   "/admin/generator": Fuel,
+  "/admin/ota": Smartphone,
+  "/admin/release-flow": Workflow,
   "/admin/faqs": HelpCircle,
   "/admin/payment-settings": CreditCard,
   "/admin/razorpay": CreditCard,

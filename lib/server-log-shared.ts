@@ -37,6 +37,8 @@ export const SERVER_ACTION_LABELS: Record<string, string> = {
   "payment.phonepe.redirect": "PhonePe payment redirect",
   "payment.phonepe.callback": "PhonePe payment callback",
   "payment.upi_qr.commit": "Confirmed UPI QR payment",
+  "payment.dqr.initiate": "Generated UPI QR (DQR)",
+  "payment.dqr.callback": "Confirmed UPI QR payment (DQR)",
   "payment.cash.commit": "Confirmed cash payment",
   "payment.cash.advance_commit": "Confirmed advance UPI payment",
   "payment.select_payment": "Selected payment method",

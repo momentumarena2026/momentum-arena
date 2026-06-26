@@ -77,3 +77,8 @@ src/config/build-config.generated.ts
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Expo
+.expo
+dist/
+web-build/

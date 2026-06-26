@@ -313,6 +313,7 @@ export default async function CheckoutPage({
         onlineEnabled={paymentConfig.onlineEnabled}
         upiQrEnabled={paymentConfig.upiQrEnabled}
         advanceEnabled={paymentConfig.advanceEnabled}
+        dqrEnabled={paymentConfig.dqrEnabled}
         // Rental selection is locked from the slot-selection page;
         // checkout only needs the rupees total to add into the payable.
         // The Booking Summary tile renders the per-item line server-

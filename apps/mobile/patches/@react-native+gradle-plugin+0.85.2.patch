@@ -1,0 +1,14 @@
+diff --git a/node_modules/@react-native/gradle-plugin/gradle.properties b/node_modules/@react-native/gradle-plugin/gradle.properties
+new file mode 100644
+index 0000000..5ffc15c
+--- /dev/null
++++ b/node_modules/@react-native/gradle-plugin/gradle.properties
+@@ -0,0 +1,8 @@
++# Gradle 9 removed JvmVendorSpec.IBM_SEMERU, which the foojay-resolver-convention
++# plugin (registered in this included build's settings.gradle.kts) still references.
++# This build's own modules request a Java 17 toolchain (kotlin { jvmToolchain(17) }),
++# so without a local JDK 17 Gradle falls back to the Foojay resolver and crashes.
++# Point this included build at a local JDK 17 so the toolchain resolves locally and
++# Foojay is never invoked.
++org.gradle.java.installations.auto-download=false
++org.gradle.java.installations.paths=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home

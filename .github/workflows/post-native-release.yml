@@ -1,0 +1,73 @@
+name: Post native release
+
+# Runs after a native build is uploaded to a store. On Ubuntu (same environment
+# as ota-publish, so fingerprints match):
+#   1. Recompute the native fingerprint and commit it as the channel/platform
+#      baseline (with [skip ci]) so OTA resumes for the shipped runtime.
+#   2. Update the AppVersionGate so the version-check API reports the new build
+#      as latest. It never raises minSupportedBuild — forcing an update stays a
+#      deliberate admin action in /admin/ota.
+#
+# Called by native-android.yml / native-ios.yml; also dispatchable for testing.
+
+on:
+  workflow_call:
+    inputs:
+      platform: { required: true, type: string }
+      channel: { required: true, type: string }
+      build: { required: true, type: string }
+      versionName: { required: false, type: string, default: "1.0.0" }
+      storeUrl: { required: true, type: string }
+  workflow_dispatch:
+    inputs:
+      platform: { description: "ios | android", required: true, type: string }
+      channel: { description: "development | production", required: true, type: string }
+      build: { description: "native build number", required: true, type: string }
+      versionName: { description: "marketing version", required: false, type: string, default: "1.0.0" }
+      storeUrl: { description: "store deep link", required: true, type: string }
+
+permissions:
+  contents: write
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: |
+          npm ci
+          cd apps/mobile && npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Recompute + commit fingerprint baseline
+        run: |
+          set -e
+          CUR=$(cd apps/mobile && npx expo-updates fingerprint:generate --platform "${{ inputs.platform }}" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).hash))")
+          FILE="apps/mobile/fingerprints/${{ inputs.channel }}.${{ inputs.platform }}.fingerprint"
+          echo "$CUR" > "$FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          if git diff --cached --quiet; then
+            echo "Baseline already current for ${{ inputs.channel }}/${{ inputs.platform }}."
+          else
+            git commit -m "chore(ota): baseline ${{ inputs.channel }}/${{ inputs.platform }} to shipped native build [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
+
+      - name: Update version gate
+        env:
+          DATABASE_URL: ${{ github.ref_name == 'main' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+        run: |
+          npx tsx scripts/set-version-gate.ts \
+            --platform "${{ inputs.platform }}" --channel "${{ inputs.channel }}" \
+            --build "${{ inputs.build }}" --versionName "${{ inputs.versionName }}" \
+            --storeUrl "${{ inputs.storeUrl }}"

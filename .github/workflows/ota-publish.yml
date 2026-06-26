@@ -1,0 +1,111 @@
+name: OTA publish
+
+# On every push to development/main, decide per platform whether the change is
+# JS-only (fingerprint unchanged vs the last shipped native build) → publish a
+# DRAFT OTA release (admin then rolls it out from /admin/ota), or native
+# (fingerprint changed) → warn that a new store build is required.
+#
+# Required repo secrets:
+#   STAGING_DB_URL         - Neon URL for the development/staging DB
+#   PRODUCTION_DB_URL      - Neon URL for the production DB
+#   BLOB_READ_WRITE_TOKEN  - Vercel Blob token (momentum-arena-OTA store)
+# The manifest is signed server-side, so EXPO_OTA_PRIVATE_KEY is NOT needed here.
+
+on:
+  push:
+    branches: [development, main]
+    # Only run when the mobile app (or the publish script) actually changes.
+    # Web-only pushes don't change the JS bundle, so publishing a DRAFT for them
+    # is wasteful (and needlessly exposes the job to flaky npm/network blips).
+    paths:
+      - "apps/mobile/**"
+      - "scripts/publish-ota.ts"
+  workflow_dispatch: {} # allow manual publish without a mobile change
+
+concurrency:
+  group: ota-${{ github.ref }}
+  cancel-in-progress: true
+
+# actions:write lets a detected native change auto-dispatch the native build
+# workflow (workflow_dispatch via GITHUB_TOKEN is allowed to trigger runs).
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  ota:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Resolve channel + runtimeVersion
+        id: cfg
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "channel=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=development" >> "$GITHUB_OUTPUT"
+          fi
+          RTV=$(node -e "process.stdout.write(require('./apps/mobile/app.json').expo.runtimeVersion)")
+          echo "runtime=$RTV" >> "$GITHUB_OUTPUT"
+
+      - name: Install root deps (prisma + @vercel/blob + tsx)
+        run: npm ci
+
+      - name: Install mobile deps (expo export + fingerprint need node_modules)
+        working-directory: apps/mobile
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Decide + publish per platform
+        env:
+          # Branch-selected DB, read straight from secrets (never via an output).
+          DATABASE_URL: ${{ github.ref == 'refs/heads/main' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          CHANNEL: ${{ steps.cfg.outputs.channel }}
+          RUNTIME: ${{ steps.cfg.outputs.runtime }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          NATIVE_REQUIRED=0
+          for PLATFORM in ios android; do
+            echo "::group::fingerprint $PLATFORM"
+            # Current native fingerprint for this platform.
+            CUR=$(cd apps/mobile && npx expo-updates fingerprint:generate --platform "$PLATFORM" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).hash))")
+            BASELINE_FILE="apps/mobile/fingerprints/${CHANNEL}.${PLATFORM}.fingerprint"
+            BASE=$( [ -f "$BASELINE_FILE" ] && cat "$BASELINE_FILE" || echo "" )
+            echo "current=$CUR baseline=${BASE:-<none>}"
+            echo "::endgroup::"
+
+            if [ -z "$BASE" ]; then
+              echo "::warning::No fingerprint baseline for $CHANNEL/$PLATFORM — skip (commit a baseline when you ship the native build)."
+              continue
+            fi
+            if [ "$CUR" != "$BASE" ]; then
+              echo "::warning::NATIVE change detected for $CHANNEL/$PLATFORM (fingerprint differs) — a new store build is required; not publishing OTA."
+              NATIVE_REQUIRED=1
+              # Auto-trigger a native store build on development (test tracks only —
+              # production store builds stay a deliberate manual dispatch).
+              if [ "$CHANNEL" = "development" ]; then
+                if [ "$PLATFORM" = "ios" ]; then WF=native-ios.yml; TRACK=testflight; else WF=native-android.yml; TRACK=internal; fi
+                echo "↻ Auto-dispatching $WF (track=$TRACK) for the native change…"
+                gh workflow run "$WF" --ref development -f track="$TRACK" || echo "::warning::could not auto-dispatch $WF"
+              fi
+              continue
+            fi
+
+            echo "JS-only change for $CHANNEL/$PLATFORM → publishing DRAFT OTA (runtime $RUNTIME)"
+            npx tsx scripts/publish-ota.ts \
+              --channel "$CHANNEL" --platform "$PLATFORM" --runtime "$RUNTIME" \
+              --changelog "${COMMIT_MSG:0:200}"
+          done
+          if [ "$NATIVE_REQUIRED" = "1" ]; then
+            echo "### ⚠️ Native build required for $CHANNEL — fingerprint changed. Cut a new store build, then update apps/mobile/fingerprints/${CHANNEL}.<platform>.fingerprint." >> "$GITHUB_STEP_SUMMARY"
+          fi

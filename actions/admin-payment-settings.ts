@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
+import { isDqrConfigured } from "@/lib/phonepe-dqr";
 import type { PaymentGateway } from "@prisma/client";
 
 async function requireAdmin() {
@@ -17,6 +18,10 @@ export interface PaymentSettings {
   onlineEnabled: boolean;
   upiQrEnabled: boolean;
   advanceEnabled: boolean;
+  /** Admin toggle for the DQR (dynamic QR) UPI flow. */
+  dqrEnabled: boolean;
+  /** Whether the PHONEPE_DQR_* env creds are present (read-only). */
+  dqrConfigured: boolean;
 }
 
 async function readOrInit(): Promise<PaymentSettings> {
@@ -30,6 +35,10 @@ async function readOrInit(): Promise<PaymentSettings> {
     onlineEnabled: config.onlineEnabled,
     upiQrEnabled: config.upiQrEnabled,
     advanceEnabled: config.advanceEnabled,
+    // Admin view shows the raw toggle; checkout (getCheckoutPaymentConfig)
+    // additionally requires creds to be present.
+    dqrEnabled: config.dqrEnabled,
+    dqrConfigured: isDqrConfigured(),
   };
 }
 
@@ -50,6 +59,25 @@ export async function setActivePaymentGateway(gateway: PaymentGateway) {
     create: { id: "singleton", activeGateway: gateway },
   });
 
+  return { success: true };
+}
+
+/**
+ * Toggle the DQR (dynamic QR) UPI flow. Independent of the per-method
+ * enablement flags — it only swaps the *implementation* behind the
+ * "Pay by UPI" option (dynamic QR + auto-confirm vs legacy static QR).
+ * Has no effect on checkout until the PHONEPE_DQR_* env creds are set
+ * (see getCheckoutPaymentConfig).
+ */
+export async function setDqrEnabled(
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+  await db.paymentGatewayConfig.upsert({
+    where: { id: "singleton" },
+    update: { dqrEnabled: enabled },
+    create: { id: "singleton", activeGateway: "PHONEPE", dqrEnabled: enabled },
+  });
   return { success: true };
 }
 
@@ -116,12 +144,16 @@ export async function getCheckoutPaymentConfig(): Promise<PaymentSettings> {
   const config = await db.paymentGatewayConfig.findUnique({
     where: { id: "singleton" },
   });
+  const dqrConfigured = isDqrConfigured();
   if (!config) {
     return {
       activeGateway: "PHONEPE",
       onlineEnabled: true,
       upiQrEnabled: true,
       advanceEnabled: true,
+      // Fresh DB: DQR off until an admin opts in (and creds exist).
+      dqrEnabled: false,
+      dqrConfigured,
     };
   }
   return {
@@ -129,5 +161,8 @@ export async function getCheckoutPaymentConfig(): Promise<PaymentSettings> {
     onlineEnabled: config.onlineEnabled,
     upiQrEnabled: config.upiQrEnabled,
     advanceEnabled: config.advanceEnabled,
+    // Effective DQR requires BOTH the admin toggle and live creds.
+    dqrEnabled: config.dqrEnabled && dqrConfigured,
+    dqrConfigured,
   };
 }

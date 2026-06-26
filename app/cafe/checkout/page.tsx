@@ -1,13 +1,19 @@
 import { auth } from "@/lib/auth";
-import { getActiveGateway } from "@/actions/admin-payment-settings";
+import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
 import { CafeCheckoutClient } from "@/components/cafe/cafe-checkout-client";
 
 export default async function CafeCheckoutPage() {
-  const [session, activeGateway] = await Promise.all([
+  const [session, paymentConfig] = await Promise.all([
     auth(),
-    getActiveGateway(),
+    getCheckoutPaymentConfig(),
   ]);
   const isLoggedIn = !!session?.user;
 
-  return <CafeCheckoutClient isLoggedIn={isLoggedIn} gateway={activeGateway} />;
+  return (
+    <CafeCheckoutClient
+      isLoggedIn={isLoggedIn}
+      gateway={paymentConfig.activeGateway}
+      dqrEnabled={paymentConfig.dqrEnabled}
+    />
+  );
 }

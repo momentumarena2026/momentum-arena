@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EXUpdatesEnabled</key>
+	<true/>
+	<key>EXUpdatesURL</key>
+	<string>https://development.momentumarena.com/api/updates/manifest</string>
+	<key>EXUpdatesRuntimeVersion</key>
+	<string>2</string>
+	<key>EXUpdatesCheckOnLaunch</key>
+	<string>ALWAYS</string>
+	<key>EXUpdatesLaunchWaitMs</key>
+	<integer>0</integer>
+	<key>EXUpdatesRequestHeaders</key>
+	<dict>
+		<key>expo-channel-name</key>
+		<string>development</string>
+	</dict>
+	<key>EXUpdatesCodeSigningCertificate</key>
+	<string>-----BEGIN CERTIFICATE-----
+MIIC3zCCAcegAwIBAgIJOyIpZ0Xim/e5MA0GCSqGSIb3DQEBCwUAMBkxFzAVBgNV
+BAMTDk1vbWVudHVtIEFyZW5hMB4XDTI2MDYyNDIyMzY1NFoXDTM2MDYyNDIyMzY1
+NFowGTEXMBUGA1UEAxMOTW9tZW50dW0gQXJlbmEwggEiMA0GCSqGSIb3DQEBAQUA
+A4IBDwAwggEKAoIBAQC4SZhjaILm7IG7YYKErHQuPlPcHi6f8/zYgtrlMuC87yZn
+8mvqK/vwsV8k07/Igmd0MDshM5ZmHVcz8CF9u/DxujzXbRo2CzLWvDAkoqZod2hd
+gAnY+WWhF1UOxSLuwbjng0rK/3+Yp8/OfboDUY+yTPoFIKvEiHNn+7QU8O4aOSh8
+R1DZVEoimZwW37l2haHnv7MwTi5LQtMne26vB7zxbnBKiN7eL3SNap7u33Bv4p02
+UY5vMVAIoQbsmBP11tbtrVcgU2iWc1HcaYoKNptJFMgPQ59qsre87pRscg3ZJ8zG
+UXz+0Gs6TVHzmJ8vjPBzL9T2YdD0Sfgm230PWdUVAgMBAAGjKjAoMA4GA1UdDwEB
+/wQEAwIHgDAWBgNVHSUBAf8EDDAKBggrBgEFBQcDAzANBgkqhkiG9w0BAQsFAAOC
+AQEAFPfoVzLPOBrLrYrxYNLPn2PGNM3XxKgVTyxD1FLRJxtp78KAH5YBHD4RxPdq
+SbXBgBHdDLNffa6Ditzm8RgCYMWdP0jUHojk1IF+qkeOlbM0r3aERgBs1GpVyT9B
+QAXpzC1mdrG5w8RQ+F0WSfAg7P/0vudvJoxNu1IjTeUqjt/Nh75h0gZIk2CNShaE
+xk+kJW0DryP4FuDSJpH2gwMRp17OTu8cTGD9SD2dEnSE5CujYovYyzADHIEG/MrC
+bs9u74sUFgK+9EzE25mmLS0t5DadKj6zh8Zrp6M5aviy9XyVX2On6RN2nl8P5lHy
+NNjOh5zIwUS8Mk/G8ReK+h1kyA==
+-----END CERTIFICATE-----</string>
+	<key>EXUpdatesCodeSigningMetadata</key>
+	<dict>
+		<key>keyid</key>
+		<string>main</string>
+		<key>alg</key>
+		<string>rsa-v1_5-sha256</string>
+	</dict>
+</dict>
+</plist>

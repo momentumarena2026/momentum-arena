@@ -71,6 +71,11 @@ model PaymentGatewayConfig {
   onlineEnabled  Boolean        @default(true)
   upiQrEnabled   Boolean        @default(true)
   advanceEnabled Boolean        @default(true)
+  // When on (AND the PHONEPE_DQR_* env creds are present), the "Pay by
+  // UPI" option generates a PhonePe Dynamic QR with auto-confirmation
+  // instead of the legacy static-QR + manual-UTR flow. Defaults off so
+  // it stays dormant until PhonePe onboarding lands the credentials.
+  dqrEnabled     Boolean        @default(false)
   updatedAt      DateTime       @updatedAt
 }
 
@@ -2416,4 +2421,95 @@ model ProductStockMovement {
 
   @@index([productId, createdAt])
   @@index([orderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// OTA updates (self-hosted Expo Updates server). An OtaRelease is one
+// published JS bundle for a (channel, platform, runtimeVersion); the admin
+// "Roll out" button flips status→PUBLISHED + rolloutPercent. The manifest
+// endpoint serves the newest PUBLISHED release the requesting install is
+// bucketed into. See lib/ota/*.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum OtaPlatform {
+  ios
+  android
+}
+
+enum OtaReleaseKind {
+  UPDATE // normal manifest
+  ROLLBACK // emit rollBackToEmbedded directive (revert to the store binary's bundle)
+}
+
+enum OtaReleaseStatus {
+  DRAFT // uploaded, not yet servable
+  PUBLISHED // live, subject to rolloutPercent gating
+  ARCHIVED // retired, never served
+}
+
+model OtaRelease {
+  // Used verbatim as the Expo manifest "id" (must be UUID-shaped).
+  id             String           @id @default(uuid())
+  channel        String // expo-channel-name, e.g. "production" | "development"
+  runtimeVersion String // expo-runtime-version, e.g. "1.0.0" — must match the native build
+  platform       OtaPlatform
+  kind           OtaReleaseKind   @default(UPDATE)
+  status         OtaReleaseStatus @default(DRAFT)
+  rolloutPercent Int              @default(0) // 0..100, sticky per install
+  sequence       Int              @default(0) // OTA build number within (channel, platform, runtimeVersion); stamped into manifest extra.otaBuildNumber
+
+  // Launch asset = the JS bundle.
+  launchAssetKey         String // md5 hex
+  launchAssetHash        String // base64url sha256
+  launchAssetUrl         String // Vercel Blob URL
+  launchAssetContentType String @default("application/javascript")
+
+  metadata   Json      @default("{}") // manifest.metadata
+  extra      Json      @default("{}") // manifest.extra (e.g. { expoClient })
+  commitTime DateTime? // rollBackToEmbedded.parameters.commitTime
+  changelog  String?
+  publishedBy String? // AdminUser.id who rolled it out
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  activatedAt DateTime? // first time it went PUBLISHED
+
+  assets OtaReleaseAsset[]
+
+  @@index([channel, runtimeVersion, platform, status, createdAt])
+}
+
+model OtaReleaseAsset {
+  id            String     @id @default(cuid())
+  release       OtaRelease @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  releaseId     String
+  key           String // md5 hex → manifest asset.key
+  hash          String // base64url sha256 → manifest asset.hash
+  url           String // Vercel Blob URL
+  contentType   String
+  fileExtension String // ".png", etc.
+
+  @@unique([releaseId, key])
+  @@index([releaseId])
+}
+
+// Native-binary version gate, per (platform, channel). Drives /api/app/version-check:
+// the app reports its installed native build number and gets back whether a store
+// update is available and whether it is FORCED (build < minSupportedBuild → blocking
+// "Update Required" screen). latestBuild is bumped when a new store build ships;
+// minSupportedBuild is raised by an admin ONLY after that build is live on the store.
+model AppVersionGate {
+  id                String      @id @default(cuid())
+  platform          OtaPlatform
+  channel           String // "development" | "production"
+  latestBuild       Int // newest native build number available on the store
+  latestVersionName String? // marketing version of the latest build, e.g. "1.0.0"
+  minSupportedBuild Int         @default(0) // installed build < this → forced update
+  storeUrl          String // App Store / Play Store deep link
+  message           String? // optional custom copy for the update prompt
+  updatedBy         String? // AdminUser.id
+  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime    @default(now())
+
+  @@unique([platform, channel])
 }
