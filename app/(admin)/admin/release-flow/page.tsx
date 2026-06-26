@@ -86,8 +86,8 @@ const FLOW: Section[] = [
         tone: "dev",
         steps: [
           { title: "Push code", desc: "Send code to development.", tags: [{ t: "manual", who: "Developer" }] },
-          { title: "Robot wakes up", desc: "A CI job starts automatically on the push.", tags: [{ t: "auto", engine: "GitHub Actions · ota-publish.yml" }] },
-          { title: "“Did native code change?”", desc: "Robot compares a fingerprint to the saved baseline. Native changed → stops & says “store build needed” (next section). Only JS → continues.", tags: [{ t: "auto", engine: "GitHub Actions" }] },
+          { title: "Robot wakes up", desc: "Starts automatically when the app code changes (push to development).", tags: [{ t: "auto", engine: "GitHub Actions · ota-publish.yml" }] },
+          { title: "“Did native code change?”", desc: "Robot compares a fingerprint to the saved baseline. Native changed → it auto-starts the store build (next section). Only JS → continues here.", tags: [{ t: "auto", engine: "GitHub Actions" }] },
           { title: "Package, sign, upload", desc: "Robot bundles the JS, signs it, uploads to storage, saves a DRAFT. Nothing on phones yet.", tags: [{ t: "auto", engine: "GitHub Actions → Vercel Blob" }] },
           { title: "Roll out", desc: "Admin opens OTA Updates and clicks “Roll out” (e.g. 10% → 100%).", tags: [{ t: "manual", who: "Admin" }] },
           { title: "Phone fetches it", desc: "On next open the app downloads it; applies on the following open.", tags: [{ t: "auto", engine: "In the app · Expo" }] },
@@ -99,8 +99,8 @@ const FLOW: Section[] = [
         tone: "prod",
         steps: [
           { title: "Merge to main", desc: "Send code to main.", tags: [{ t: "manual", who: "Developer" }] },
-          { title: "Robot wakes up", desc: "The same CI job runs on the push.", tags: [{ t: "auto", engine: "GitHub Actions · ota-publish.yml" }] },
-          { title: "“Did native code change?”", desc: "The same fingerprint check. Only JS → continues; native → store build needed.", tags: [{ t: "auto", engine: "GitHub Actions" }] },
+          { title: "Robot wakes up", desc: "Runs when the app code changes (push to main).", tags: [{ t: "auto", engine: "GitHub Actions · ota-publish.yml" }] },
+          { title: "“Did native code change?”", desc: "The same fingerprint check. Only JS → continues; native → a store build is needed (started manually for production).", tags: [{ t: "auto", engine: "GitHub Actions" }] },
           { title: "Package, sign, upload", desc: "Builds a DRAFT production release. Nothing on phones yet.", tags: [{ t: "auto", engine: "GitHub Actions → Vercel Blob" }] },
           { title: "Roll out", desc: "Admin rolls out on the production row of OTA Updates.", tags: [{ t: "manual", who: "Admin" }] },
           { title: "Phone fetches it", desc: "Every real user’s app downloads it on next open.", tags: [{ t: "auto", engine: "In the app · Expo" }] },
