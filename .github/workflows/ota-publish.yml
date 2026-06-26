@@ -72,6 +72,9 @@ jobs:
           RUNTIME: ${{ steps.cfg.outputs.runtime }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           GH_TOKEN: ${{ github.token }}
+          # Production OTAs auto-publish at this rollout %; an admin promotes to
+          # 100% from /admin/ota once healthy. Development stays DRAFT (manual).
+          OTA_CANARY_PERCENT: "20"
         run: |
           set -e
           NATIVE_REQUIRED=0
@@ -101,10 +104,20 @@ jobs:
               continue
             fi
 
-            echo "JS-only change for $CHANNEL/$PLATFORM → publishing DRAFT OTA (runtime $RUNTIME)"
-            npx tsx scripts/publish-ota.ts \
-              --channel "$CHANNEL" --platform "$PLATFORM" --runtime "$RUNTIME" \
-              --changelog "${COMMIT_MSG:0:200}"
+            if [ "$CHANNEL" = "production" ]; then
+              # Production: auto-publish as a CANARY (partial rollout). An admin
+              # promotes it to 100% from /admin/ota once it looks healthy.
+              echo "JS-only change for $CHANNEL/$PLATFORM → publishing CANARY OTA @ ${OTA_CANARY_PERCENT}% (runtime $RUNTIME)"
+              npx tsx scripts/publish-ota.ts \
+                --channel "$CHANNEL" --platform "$PLATFORM" --runtime "$RUNTIME" \
+                --changelog "${COMMIT_MSG:0:200}" \
+                --publish --rollout "$OTA_CANARY_PERCENT"
+            else
+              echo "JS-only change for $CHANNEL/$PLATFORM → publishing DRAFT OTA (runtime $RUNTIME)"
+              npx tsx scripts/publish-ota.ts \
+                --channel "$CHANNEL" --platform "$PLATFORM" --runtime "$RUNTIME" \
+                --changelog "${COMMIT_MSG:0:200}"
+            fi
           done
           if [ "$NATIVE_REQUIRED" = "1" ]; then
             echo "### ⚠️ Native build required for $CHANNEL — fingerprint changed. Cut a new store build, then update apps/mobile/fingerprints/${CHANNEL}.<platform>.fingerprint." >> "$GITHUB_STEP_SUMMARY"
