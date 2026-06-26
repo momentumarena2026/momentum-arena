@@ -65,6 +65,13 @@ export async function GET(req: Request) {
 
   return NextResponse.json(
     { native, ota },
-    { headers: { "cache-control": "public, s-maxage=60, stale-while-revalidate=300" } },
+    // Never cache: a force-update / gate change must take effect on the very next
+    // check. Caching here made the CDN + the device's HTTP layer keep replaying a
+    // stale "not forced" answer for minutes after the admin flipped the gate.
+    {
+      headers: {
+        "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+      },
+    },
   );
 }

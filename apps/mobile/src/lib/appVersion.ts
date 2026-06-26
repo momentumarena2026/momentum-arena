@@ -115,6 +115,9 @@ export async function checkAppVersion(): Promise<VersionCheckResult | null> {
     const res = await fetch(url, {
       method: "GET",
       headers: { Accept: "application/json" },
+      // Always hit the network — a gate/force change must apply on the next
+      // check, never a cached "not forced" answer.
+      cache: "no-store",
     });
     if (!res.ok) return null;
 
