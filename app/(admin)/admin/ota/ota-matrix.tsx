@@ -235,13 +235,16 @@ function ReleaseSlotCard({
 interface OtaMatrixProps {
   releases: OtaReleaseRow[];
   gates: AppVersionGateRow[];
+  // Which environment THIS deployment manages — prod domain → "production",
+  // dev domain → "development". Each domain is backed by its own DB, which only
+  // ever holds its own channel's rows, so the UI is locked to it (no tabs).
+  environment: Channel;
 }
 
-export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
-  const [activeChannel, setActiveChannel] = useState<Channel>("development");
+export function OtaMatrix({ releases, gates, environment }: OtaMatrixProps) {
   const [platformFilter, setPlatformFilter] = useState<Platform | "all">("all");
 
-  const visibleChannels: Channel[] = [activeChannel];
+  const visibleChannels: Channel[] = [environment];
   const visiblePlatforms = (
     platformFilter === "all" ? PLATFORMS : [platformFilter]
   ) as Platform[];
@@ -270,41 +273,36 @@ export function OtaMatrix({ releases, gates }: OtaMatrixProps) {
 
   return (
     <div className="space-y-8">
-      {/* Page header */}
+      {/* Page header — this deployment manages exactly one environment
+          (prod admin → production, dev admin → development). */}
       <div>
-        <h1 className="text-2xl font-bold text-white">OTA Updates</h1>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="text-2xl font-bold text-white">OTA Updates</h1>
+          <span
+            className={`rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${
+              environment === "production"
+                ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                : "border-blue-500/30 bg-blue-500/10 text-blue-300"
+            }`}
+          >
+            {environment} environment
+          </span>
+        </div>
         <p className="mt-1 max-w-3xl text-zinc-400">
-          Roll out over-the-air JS bundle updates to the mobile app. Switch
-          between the Development and Production environments with the tabs below.
+          Roll out over-the-air JS bundle updates to the{" "}
+          <span className="capitalize">{environment}</span> mobile app
+          {environment === "production"
+            ? " (live on the stores)."
+            : " (TestFlight / Play internal testing)."}{" "}
+          This admin manages the {environment} environment only.
         </p>
-      </div>
-
-      {/* Environment tabs (channel) — each tab shows only that channel's
-          release slots and version gates. */}
-      <div className="border-b border-zinc-800">
-        <nav className="-mb-px flex gap-6">
-          {CHANNELS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setActiveChannel(c)}
-              className={`border-b-2 px-1 pb-3 text-sm font-medium capitalize transition-colors ${
-                activeChannel === c
-                  ? "border-emerald-500 text-emerald-400"
-                  : "border-transparent text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-        </nav>
       </div>
 
       {/* OTA releases for the active environment */}
       <section className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold capitalize text-white">
-            {activeChannel} · OTA releases
+            {environment} · OTA releases
           </h2>
           {/* Platform filter */}
           <div className="flex items-center gap-2">

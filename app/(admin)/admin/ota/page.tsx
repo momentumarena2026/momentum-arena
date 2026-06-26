@@ -9,5 +9,14 @@ export default async function AdminOtaPage() {
     listAppVersionGates(),
   ]);
 
-  return <OtaMatrix releases={releases} gates={gates} />;
+  // Lock the UI to THIS deployment's environment: the production domain
+  // (VERCEL_ENV=production → prod DB) manages "production"; the dev/preview
+  // deployment (development.momentumarena.com, and local) manages "development".
+  // Each DB only holds its own channel, so there's nothing to show for the other.
+  const environment =
+    process.env.VERCEL_ENV === "production" ? "production" : "development";
+
+  return (
+    <OtaMatrix releases={releases} gates={gates} environment={environment} />
+  );
 }
