@@ -26,6 +26,12 @@ concurrency:
   group: ota-${{ github.ref }}
   cancel-in-progress: true
 
+# actions:write lets a detected native change auto-dispatch the native build
+# workflow (workflow_dispatch via GITHUB_TOKEN is allowed to trigger runs).
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   ota:
     runs-on: ubuntu-latest
@@ -65,6 +71,7 @@ jobs:
           CHANNEL: ${{ steps.cfg.outputs.channel }}
           RUNTIME: ${{ steps.cfg.outputs.runtime }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           NATIVE_REQUIRED=0
@@ -84,6 +91,13 @@ jobs:
             if [ "$CUR" != "$BASE" ]; then
               echo "::warning::NATIVE change detected for $CHANNEL/$PLATFORM (fingerprint differs) — a new store build is required; not publishing OTA."
               NATIVE_REQUIRED=1
+              # Auto-trigger a native store build on development (test tracks only —
+              # production store builds stay a deliberate manual dispatch).
+              if [ "$CHANNEL" = "development" ]; then
+                if [ "$PLATFORM" = "ios" ]; then WF=native-ios.yml; TRACK=testflight; else WF=native-android.yml; TRACK=internal; fi
+                echo "↻ Auto-dispatching $WF (track=$TRACK) for the native change…"
+                gh workflow run "$WF" --ref development -f track="$TRACK" || echo "::warning::could not auto-dispatch $WF"
+              fi
               continue
             fi
 
