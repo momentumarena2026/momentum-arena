@@ -36,12 +36,25 @@ jobs:
     runs-on: macos-26
     env:
       FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
+    outputs:
+      build: ${{ steps.bn.outputs.build }}
+      channel: ${{ steps.bn.outputs.channel }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      - name: Compute build number + channel
+        id: bn
+        run: |
+          echo "build=$(node apps/mobile/scripts/next-build-number.js)" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.track }}" = "appstore" ]; then
+            echo "channel=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=development" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Ruby (fastlane)
         uses: ruby/setup-ruby@v1
@@ -85,6 +98,7 @@ jobs:
         working-directory: apps/mobile
         env:
           LANE: ${{ inputs.track == 'appstore' && 'release' || 'beta' }}
+          BUILD_NUMBER: ${{ steps.bn.outputs.build }}
         run: bundle exec fastlane ios "$LANE"
 
       - name: Dump raw xcodebuild log on failure
@@ -92,3 +106,17 @@ jobs:
         run: |
           echo "===== gym raw build log (tail 200) ====="
           tail -200 ~/Library/Logs/gym/MomentumArena-MomentumArena.log 2>/dev/null || echo "(no gym log found)"
+
+  # After a successful upload: bump the fingerprint baseline + version gate.
+  post_release:
+    needs: build
+    permissions:
+      contents: write
+    uses: ./.github/workflows/post-native-release.yml
+    with:
+      platform: ios
+      channel: ${{ needs.build.outputs.channel }}
+      build: ${{ needs.build.outputs.build }}
+      versionName: "1.0.0"
+      storeUrl: "https://apps.apple.com/app/id6783955158"
+    secrets: inherit

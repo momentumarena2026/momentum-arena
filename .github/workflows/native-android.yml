@@ -32,12 +32,25 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.bn.outputs.build }}
+      channel: ${{ steps.bn.outputs.channel }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      - name: Compute build number + channel
+        id: bn
+        run: |
+          echo "build=$(node apps/mobile/scripts/next-build-number.js)" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.track }}" = "production" ]; then
+            echo "channel=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=development" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -97,6 +110,21 @@ jobs:
         env:
           GOOGLE_PLAY_JSON_KEY: ${{ runner.temp }}/play.json
           LANE: ${{ inputs.track == 'production' && 'release' || 'beta' }}
+          BUILD_NUMBER: ${{ steps.bn.outputs.build }}
         run: |
           export JAVA17_HOME="$JAVA_HOME"
           bundle exec fastlane android "$LANE"
+
+  # After a successful upload: bump the fingerprint baseline + version gate.
+  post_release:
+    needs: build
+    permissions:
+      contents: write
+    uses: ./.github/workflows/post-native-release.yml
+    with:
+      platform: android
+      channel: ${{ needs.build.outputs.channel }}
+      build: ${{ needs.build.outputs.build }}
+      versionName: "1.0.0"
+      storeUrl: "https://play.google.com/store/apps/details?id=com.momentumarena"
+    secrets: inherit
