@@ -47,19 +47,22 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Recompute + commit fingerprint baseline
+      - name: Persist app version + recompute fingerprint baseline
         run: |
           set -e
+          # Persist the marketing version this build shipped (resolved from the
+          # bump input) into the source of truth so the next build starts from it.
+          node apps/mobile/scripts/version.js "${{ inputs.versionName }}"
           CUR=$(cd apps/mobile && npx expo-updates fingerprint:generate --platform "${{ inputs.platform }}" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).hash))")
           FILE="apps/mobile/fingerprints/${{ inputs.channel }}.${{ inputs.platform }}.fingerprint"
           echo "$CUR" > "$FILE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$FILE"
+          git add "$FILE" apps/mobile/version.json
           if git diff --cached --quiet; then
-            echo "Baseline already current for ${{ inputs.channel }}/${{ inputs.platform }}."
+            echo "Baseline + app version already current for ${{ inputs.channel }}/${{ inputs.platform }}."
           else
-            git commit -m "chore(ota): baseline ${{ inputs.channel }}/${{ inputs.platform }} to shipped native build [skip ci]"
+            git commit -m "chore(release): ${{ inputs.channel }}/${{ inputs.platform }} baseline + app version ${{ inputs.versionName }} [skip ci]"
             git push origin "HEAD:${{ github.ref_name }}"
           fi
 

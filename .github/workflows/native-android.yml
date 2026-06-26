@@ -24,6 +24,11 @@ on:
         type: choice
         options: [internal, production]
         default: internal
+      bump:
+        description: "App version bump (semver)"
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
 
 concurrency:
   group: android-native-${{ github.ref }}
@@ -35,6 +40,7 @@ jobs:
     outputs:
       build: ${{ steps.bn.outputs.build }}
       channel: ${{ steps.bn.outputs.channel }}
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +57,10 @@ jobs:
           else
             echo "channel=development" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Resolve app version (optional bump)
+        id: bump
+        run: echo "version=$(node apps/mobile/scripts/version.js '${{ inputs.bump }}')" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -111,6 +121,7 @@ jobs:
           GOOGLE_PLAY_JSON_KEY: ${{ runner.temp }}/play.json
           LANE: ${{ inputs.track == 'production' && 'release' || 'beta' }}
           BUILD_NUMBER: ${{ steps.bn.outputs.build }}
+          MARKETING_VERSION: ${{ steps.bump.outputs.version }}
         run: |
           export JAVA17_HOME="$JAVA_HOME"
           bundle exec fastlane android "$LANE"
@@ -125,6 +136,6 @@ jobs:
       platform: android
       channel: ${{ needs.build.outputs.channel }}
       build: ${{ needs.build.outputs.build }}
-      versionName: "1.0.0"
+      versionName: ${{ needs.build.outputs.version }}
       storeUrl: "https://play.google.com/store/apps/details?id=com.momentumarena"
     secrets: inherit
