@@ -216,6 +216,43 @@ function LaneColumn({ lane }: { lane: Lane }) {
   );
 }
 
+const VERSIONS: {
+  key: string;
+  example: string;
+  auto: boolean;
+  what: string;
+  when: string;
+}[] = [
+  {
+    key: "App version",
+    example: "1.0.0",
+    auto: false,
+    what: "The human-facing version (iOS CFBundleShortVersionString / Android versionName).",
+    when: "You bump it for a meaningful release (1.0.0 → 1.1.0). Constant otherwise.",
+  },
+  {
+    key: "Native build #",
+    example: "29707758",
+    auto: true,
+    what: "Unique ID of the binary on the store — what the Version Gate compares.",
+    when: "Every native build = unix-epoch-minutes, so it's always strictly higher and never collides.",
+  },
+  {
+    key: "OTA #",
+    example: "7",
+    auto: true,
+    what: "Which over-the-air JS bundle the app has loaded.",
+    when: "+1 on every OTA publish, per channel × platform × runtime.",
+  },
+  {
+    key: "Runtime version",
+    example: "2",
+    auto: false,
+    what: "Compatibility key — an OTA only installs on an app whose runtime matches.",
+    when: "Bump only on a native breaking change; it starts a fresh OTA line (old apps then need a store update).",
+  },
+];
+
 export default async function ReleaseFlowPage() {
   // Same gate as OTA Updates — this documents the privileged release pipeline.
   await requireAdmin("MANAGE_PRICING");
@@ -269,6 +306,47 @@ export default async function ReleaseFlowPage() {
           </div>
         </section>
       ))}
+
+      {/* Version system */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">🔢 Version numbers — what each one means</h2>
+          <p className="text-sm text-zinc-500">
+            Every install carries three numbers plus one compatibility key. Some bump automatically, some you set.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {VERSIONS.map((v) => (
+            <div key={v.key} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium text-zinc-100">{v.key}</span>
+                {v.auto ? (
+                  <Pill cls="border-emerald-500/30 bg-emerald-500/15 text-emerald-300">🤖 automatic</Pill>
+                ) : (
+                  <Pill cls="border-amber-500/30 bg-amber-500/15 text-amber-300">✋ manual</Pill>
+                )}
+              </div>
+              <div className="mt-1 font-mono text-lg text-white">{v.example}</div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-400">{v.what}</p>
+              <p className="mt-1.5 text-xs text-zinc-500">
+                <span className="text-zinc-400">Increments:</span> {v.when}
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3.5">
+          <p className="text-sm text-zinc-300">
+            In the app (Account screen) they show together as{" "}
+            <span className="font-mono text-zinc-100">1.0.0 · build 29707758 · OTA 7 · prod</span>.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+            How they interact: the <span className="text-zinc-200">native build #</span> drives the Version Gate (soft /
+            forced update). The <span className="text-zinc-200">OTA #</span> tracks the JS bundle layered on top of that
+            build. The <span className="text-zinc-200">runtime version</span> decides which OTAs an app may receive — bump
+            it on a native breaking change and older apps stop getting new OTAs until they take a store update.
+          </p>
+        </div>
+      </section>
 
       <p className="border-t border-zinc-900 pt-4 text-xs text-zinc-600">
         This page mirrors the live CI/CD pipeline (Vercel deploys, <Code>.github/workflows/ota-publish.yml</Code>, and the
