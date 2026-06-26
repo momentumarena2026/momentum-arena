@@ -3,11 +3,16 @@
  *
  *   tsx scripts/publish-ota.ts \
  *     --channel development --platform ios --runtime 1.0.0 \
- *     --changelog "Fix booking summary" [--rollout 0] [--no-export]
+ *     --changelog "Fix booking summary" [--rollout 0] [--publish] [--no-export]
  *
  * Runs `expo export`, uploads the JS bundle + assets to Vercel Blob
- * (content-addressed, public), then creates a DRAFT OtaRelease. An admin then
- * flips it live from /admin/ota. Requires env: DATABASE_URL, BLOB_READ_WRITE_TOKEN.
+ * (content-addressed, public), then creates an OtaRelease. By default it is a
+ * DRAFT that an admin flips live from /admin/ota. With --publish it is created
+ * live (PUBLISHED) at --rollout % — used by CI to auto-canary production; an
+ * admin promotes it to 100% from /admin/ota. --publish mirrors the admin
+ * rollout invariant (at most one PUBLISHED release per channel/platform/runtime
+ * slot) by archiving the prior live release in the same slot.
+ * Requires env: DATABASE_URL, BLOB_READ_WRITE_TOKEN.
  */
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
@@ -80,7 +85,9 @@ async function main() {
   console.log(`▶ release ${releaseId} — uploading bundle + ${fm.assets?.length ?? 0} assets to Blob…`);
 
   const launch = await uploadFile(releaseId, runtime, channel, path.join(DIST_DIR, fm.bundle));
-  const assets = [];
+  const assets: {
+    key: string; hash: string; url: string; contentType: string; fileExtension: string;
+  }[] = [];
   for (const a of fm.assets ?? []) {
     const up = await uploadFile(releaseId, runtime, channel, path.join(DIST_DIR, a.path));
     assets.push({ ...up, contentType: contentTypeFor(a.ext), fileExtension: `.${a.ext}` });
@@ -100,33 +107,58 @@ async function main() {
     select: { sequence: true },
   });
   const sequence = (last?.sequence ?? 0) + 1;
-  const release = await db.otaRelease.create({
-    data: {
-      id: releaseId,
-      channel, platform, runtimeVersion: runtime,
-      status: "DRAFT",
-      sequence,
-      rolloutPercent: Math.min(100, Math.max(0, rollout)),
-      launchAssetKey: launch.key,
-      launchAssetHash: launch.hash,
-      launchAssetUrl: launch.url,
-      launchAssetContentType: "application/javascript",
-      metadata: {},
-      extra,
-      changelog: changelog || null,
-      assets: {
-        create: assets.map((a) => ({
-          key: a.key, hash: a.hash, url: a.url,
-          contentType: a.contentType, fileExtension: a.fileExtension,
-        })),
-      },
+  const publishNow = hasFlag("publish");
+  const percent = Math.min(100, Math.max(0, rollout));
+
+  const release = await db.$transaction(
+    async (tx) => {
+      // --publish creates the release live. Mirror the admin rollout invariant:
+      // at most one PUBLISHED release per (channel, platform, runtimeVersion)
+      // slot, so archive the prior live one. Installs outside this canary keep
+      // running their currently-installed bundle until an admin promotes it.
+      if (publishNow) {
+        await tx.otaRelease.updateMany({
+          where: { channel, platform, runtimeVersion: runtime, status: "PUBLISHED" },
+          data: { status: "ARCHIVED" },
+        });
+      }
+      return tx.otaRelease.create({
+        data: {
+          id: releaseId,
+          channel, platform, runtimeVersion: runtime,
+          status: publishNow ? "PUBLISHED" : "DRAFT",
+          sequence,
+          rolloutPercent: percent,
+          activatedAt: publishNow ? new Date() : null,
+          launchAssetKey: launch.key,
+          launchAssetHash: launch.hash,
+          launchAssetUrl: launch.url,
+          launchAssetContentType: "application/javascript",
+          metadata: {},
+          extra,
+          changelog: changelog || null,
+          assets: {
+            create: assets.map((a) => ({
+              key: a.key, hash: a.hash, url: a.url,
+              contentType: a.contentType, fileExtension: a.fileExtension,
+            })),
+          },
+        },
+      });
     },
-  });
+    { timeout: 30000 },
+  );
   await db.$disconnect();
 
-  console.log(`\n✓ DRAFT release created: ${release.id}`);
-  console.log(`  channel=${channel} platform=${platform} runtime=${runtime} assets=${assets.length}`);
-  console.log(`  → roll it out from /admin/ota`);
+  if (publishNow) {
+    console.log(`\n✓ PUBLISHED canary release: ${release.id} @ ${percent}%`);
+    console.log(`  channel=${channel} platform=${platform} runtime=${runtime} assets=${assets.length}`);
+    console.log(`  → promote to 100% from /admin/ota once healthy`);
+  } else {
+    console.log(`\n✓ DRAFT release created: ${release.id}`);
+    console.log(`  channel=${channel} platform=${platform} runtime=${runtime} assets=${assets.length}`);
+    console.log(`  → roll it out from /admin/ota`);
+  }
 }
 
 main().catch((e) => {
