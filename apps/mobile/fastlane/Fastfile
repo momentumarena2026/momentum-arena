@@ -15,7 +15,9 @@
 # CI can pass BUILD_NUMBER so the same value feeds the build AND the post-release
 # version-gate update; otherwise compute it (unix-epoch-minutes).
 BUILD_NUMBER = (ENV["BUILD_NUMBER"] && !ENV["BUILD_NUMBER"].empty?) ? ENV["BUILD_NUMBER"] : `node #{File.expand_path('../scripts/next-build-number.js', __dir__)}`.strip
-MARKETING_VERSION = "1.0.0"
+# Marketing (app) version: CI passes MARKETING_VERSION (resolved from the `bump`
+# input); locally it falls back to the source of truth in version.json.
+MARKETING_VERSION = (ENV["MARKETING_VERSION"] && !ENV["MARKETING_VERSION"].empty?) ? ENV["MARKETING_VERSION"] : `node -e "try{process.stdout.write(require('#{File.expand_path('../version.json', __dir__)}').version||'1.0.0')}catch(e){process.stdout.write('1.0.0')}"`.strip
 TEAM_ID = "WHF7M743MW" # Apple Developer team (Sportive Ventures)
 
 def configure_ota(target)

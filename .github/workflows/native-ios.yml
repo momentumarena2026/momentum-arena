@@ -24,6 +24,11 @@ on:
         type: choice
         options: [testflight, appstore]
         default: testflight
+      bump:
+        description: "App version bump (semver)"
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
 
 concurrency:
   group: ios-native-${{ github.ref }}
@@ -39,6 +44,7 @@ jobs:
     outputs:
       build: ${{ steps.bn.outputs.build }}
       channel: ${{ steps.bn.outputs.channel }}
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +61,10 @@ jobs:
           else
             echo "channel=development" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Resolve app version (optional bump)
+        id: bump
+        run: echo "version=$(node apps/mobile/scripts/version.js '${{ inputs.bump }}')" >> "$GITHUB_OUTPUT"
 
       - name: Set up Ruby (fastlane)
         uses: ruby/setup-ruby@v1
@@ -99,6 +109,7 @@ jobs:
         env:
           LANE: ${{ inputs.track == 'appstore' && 'release' || 'beta' }}
           BUILD_NUMBER: ${{ steps.bn.outputs.build }}
+          MARKETING_VERSION: ${{ steps.bump.outputs.version }}
         run: bundle exec fastlane ios "$LANE"
 
       - name: Dump raw xcodebuild log on failure
@@ -117,6 +128,6 @@ jobs:
       platform: ios
       channel: ${{ needs.build.outputs.channel }}
       build: ${{ needs.build.outputs.build }}
-      versionName: "1.0.0"
+      versionName: ${{ needs.build.outputs.version }}
       storeUrl: "https://apps.apple.com/app/id6783955158"
     secrets: inherit
