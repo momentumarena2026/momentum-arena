@@ -100,6 +100,19 @@ export const cafeApi = {
   orderDetail: (id: string) =>
     api.get<{ order: CafeOrderDetail }>(`/api/mobile/cafe/orders/${id}`),
 
+  /** Preview a coupon before ordering. The server recomputes amount +
+   *  categories from the cart items so the preview matches order-time. */
+  validateCoupon: (
+    code: string,
+    items: Array<{ cafeItemId: string; quantity: number }>,
+  ) =>
+    api.post<{
+      valid: boolean;
+      discount?: number;
+      discountId?: string;
+      error?: string;
+    }>("/api/mobile/cafe/validate-coupon", { code, items }),
+
   razorpayCreateOrder: (intentId: string) =>
     api.post<CafeRazorpayCreateOrderResponse>(
       "/api/mobile/cafe/razorpay/create-order",

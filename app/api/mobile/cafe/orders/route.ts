@@ -120,6 +120,7 @@ export async function POST(request: NextRequest) {
       data.discountCode,
       totalAmount,
       categories,
+      user.id,
     );
     if (!couponResult.valid) {
       return NextResponse.json(
