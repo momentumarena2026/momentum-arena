@@ -950,7 +950,13 @@ export async function selectCashPayment(
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
       : 0;
-  const effectiveTotal = hold.totalAmount - appliedDiscount;
+  // Subtract redeemed points too (mirror the mobile select-payment route),
+  // else the venue collects the redeemed value back on the 50% advance flow.
+  const pointsRedeemRupees =
+    hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
+      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+      : 0;
+  const effectiveTotal = hold.totalAmount - appliedDiscount - pointsRedeemRupees;
   const advanceAmount = isAdvance ? amount : undefined;
   const remainingAmount = isAdvance
     ? Math.max(effectiveTotal - amount, 0)

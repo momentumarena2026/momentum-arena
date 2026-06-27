@@ -102,6 +102,34 @@ function getStatusConfig(
           ? `Reason: ${refundReason}`
           : "This booking has been cancelled.",
       };
+    case "COMPLETED":
+      return {
+        Icon: CheckCircle2,
+        iconColor: colors.emerald400,
+        bg: "rgba(16, 185, 129, 0.10)",
+        border: "rgba(16, 185, 129, 0.30)",
+        title: "Session Completed",
+        subtitle: "Thanks for playing — hope you had a great game!",
+      };
+    case "ABSENT":
+      return {
+        Icon: XCircle,
+        iconColor: "#fbbf24", // amber-400
+        bg: "rgba(245, 158, 11, 0.10)",
+        border: "rgba(245, 158, 11, 0.30)",
+        title: "Marked Absent",
+        subtitle: "You were marked as a no-show for this booking.",
+      };
+    default:
+      // Defensive: never crash on an unknown/future status.
+      return {
+        Icon: Clock,
+        iconColor: colors.zinc400,
+        bg: "rgba(113, 113, 122, 0.10)",
+        border: "rgba(113, 113, 122, 0.30)",
+        title: "Booking",
+        subtitle: "",
+      };
   }
 }
 

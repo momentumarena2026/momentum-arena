@@ -4,6 +4,7 @@ import messaging, {
 } from "@react-native-firebase/messaging";
 import { api, ApiError } from "./api";
 import { request as adminApiRequest, AdminApiError } from "./admin-api";
+import { marketingVersion, nativeBuildNumber } from "./appVersion";
 
 /**
  * Mobile-side push notifications wiring.
@@ -104,10 +105,17 @@ async function requestPermission(): Promise<boolean> {
   return false;
 }
 
+// Compact app-version string for the device registry (≤50 chars), so the
+// admin push dashboard can show which build each device is on.
+function deviceAppVersion(): string {
+  return `${marketingVersion()} (${nativeBuildNumber()})`;
+}
+
 async function registerTokenWithBackend(token: string): Promise<void> {
   await api.post(DEVICES_ENDPOINT, {
     token,
     platform: Platform.OS === "ios" ? "ios" : "android",
+    appVersion: deviceAppVersion(),
   });
   cachedToken = token;
 }
@@ -168,6 +176,7 @@ export async function enableAdminPushAfterLogin(): Promise<void> {
         body: {
           token,
           platform: Platform.OS === "ios" ? "ios" : "android",
+          appVersion: deviceAppVersion(),
         },
       });
       cachedAdminToken = token;
@@ -182,6 +191,7 @@ export async function enableAdminPushAfterLogin(): Promise<void> {
             body: {
               token: newToken,
               platform: Platform.OS === "ios" ? "ios" : "android",
+              appVersion: deviceAppVersion(),
             },
           });
           cachedAdminToken = newToken;
