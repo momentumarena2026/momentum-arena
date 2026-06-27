@@ -122,7 +122,7 @@ const TXN_META: Record<string, TxnMeta> = {
   },
   EXPIRED: {
     label: "Expired",
-    desc: "Points expired — past the 12-month window",
+    desc: "Points expired — past their validity window",
     tone: "neutral",
     Icon: Clock,
   },

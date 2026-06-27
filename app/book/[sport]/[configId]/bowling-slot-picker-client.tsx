@@ -247,8 +247,8 @@ export function BowlingSlotPickerClient({
             </div>
           ) : slots.length === 0 ? (
             <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center text-sm text-zinc-500">
-              No bowling slots configured for this day. Admin can enable
-              windows from <span className="text-zinc-300">/admin/sports/bowling-machine</span>.
+              The bowling machine isn&apos;t operating in this window. Please
+              try another date.
             </div>
           ) : (
             // Grid columns + tile classNames below mirror SlotGrid

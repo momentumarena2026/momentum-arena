@@ -148,7 +148,8 @@ export async function sendPhoneOtp(phone: string): Promise<OtpResult> {
     });
 
     const data = await response.json();
-    console.log("MSG91 send OTP response:", JSON.stringify(data));
+    // Log only the status type — the full MSG91 response can echo the phone.
+    console.log("MSG91 send OTP response type:", data?.type ?? "unknown");
 
     if (data.type === "success" || data.type === "otp_sent") {
       return { success: true };
@@ -208,7 +209,7 @@ export async function verifyPhoneOtp(phone: string, otp: string): Promise<Verify
     );
 
     const data = await response.json();
-    console.log("MSG91 verify OTP response:", JSON.stringify(data));
+    console.log("MSG91 verify OTP response type:", data?.type ?? "unknown");
 
     if (data.type === "success") {
       await clearLockout(normalizedPhone);

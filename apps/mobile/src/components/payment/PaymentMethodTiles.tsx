@@ -124,9 +124,12 @@ function MethodToggle({
   const options: { id: PayMethod; label: string; sub: string }[] = [
     { id: "upi", label: "UPI", sub: "Recommended · no extra charge" },
     {
+      // Mobile always processes the gateway method via Razorpay (no PhonePe
+      // SDK on mobile), so keep the label provider-neutral — never claim
+      // "PhonePe" when the charge actually goes through Razorpay.
       id: "gateway",
-      label: gateway === "PHONEPE" ? "PhonePe" : "Card / Netbanking",
-      sub: "Cards, UPI, Netbanking",
+      label: "Pay Online",
+      sub: "Cards, UPI & Netbanking",
     },
   ];
 
