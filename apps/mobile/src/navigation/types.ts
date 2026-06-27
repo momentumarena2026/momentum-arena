@@ -210,6 +210,7 @@ export type AdminMoreStackParamList = {
   AdminRecurringConfig: undefined;
   AdminUtrVerify: undefined;
   AdminDiscounts: undefined;
+  AdminReports: undefined;
 };
 
 export type AdminTabsParamList = {

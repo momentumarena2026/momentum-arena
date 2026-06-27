@@ -76,12 +76,12 @@ export function CafeCartDrawer({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 z-50"
+        className="fixed inset-0 bg-black/60 z-[60]"
         onClick={onClose}
       />
 
       {/* Drawer */}
-      <div className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-zinc-900 border-l border-zinc-800 z-50 flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-zinc-900 border-l border-zinc-800 z-[60] flex flex-col animate-in slide-in-from-right duration-300">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-zinc-800">
           <h2 className="text-lg font-bold text-white">Your Cart</h2>
@@ -187,7 +187,10 @@ export function CafeCartDrawer({
             </div>
 
             {/* Footer */}
-            <div className="border-t border-zinc-800 p-4 space-y-3">
+            <div
+              className="border-t border-zinc-800 p-4 space-y-3"
+              style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+            >
               {/* Coupon */}
               {!appliedCoupon ? (
                 <div>

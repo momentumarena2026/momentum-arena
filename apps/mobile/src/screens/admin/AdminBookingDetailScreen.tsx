@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import { useHeaderHeight } from "@react-navigation/elements";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -161,6 +162,9 @@ export function AdminBookingDetailScreen() {
   // by the collect card's onLayout once it has run the scroll. Using
   // a ref (not state) so toggling it doesn't trigger an extra render.
   const shouldScrollToCollectRef = useRef(false);
+  // Native-stack header height — the keyboard-avoiding offset so the
+  // collect form lifts to exactly above the keyboard, not under the header.
+  const headerHeight = useHeaderHeight();
 
   function openCollectModal(initial: {
     cash: string;
@@ -484,7 +488,11 @@ export function AdminBookingDetailScreen() {
   }
 
   return (
-    <Screen padded={false} avoidKeyboard>
+    <Screen
+      padded={false}
+      avoidKeyboard
+      keyboardVerticalOffset={headerHeight}
+    >
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={styles.scroll}
@@ -1702,7 +1710,9 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: spacing["5"],
     paddingTop: spacing["3"],
-    paddingBottom: spacing["8"],
+    // Generous bottom room so the collect form (last card) can scroll
+    // fully above the keyboard once it's open.
+    paddingBottom: 120,
     gap: spacing["3"],
   },
   center: {

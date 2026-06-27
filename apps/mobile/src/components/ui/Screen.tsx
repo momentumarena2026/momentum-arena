@@ -18,6 +18,10 @@ interface ScreenProps {
   scrollable?: boolean;
   /** Wrap in KeyboardAvoidingView — turn on for screens with text inputs. */
   avoidKeyboard?: boolean;
+  /** KeyboardAvoidingView offset. Pass the native-stack header height
+   *  (useHeaderHeight()) on screens that have a header so inputs lift to
+   *  exactly above the keyboard instead of being left under it. */
+  keyboardVerticalOffset?: number;
   /** Which safe-area edges to respect. Default: top + bottom. */
   edges?: Edges;
   contentStyle?: ViewStyle;
@@ -28,6 +32,7 @@ export function Screen({
   padded = true,
   scrollable = false,
   avoidKeyboard = false,
+  keyboardVerticalOffset,
   edges = ["top", "bottom"],
   contentStyle,
   style,
@@ -62,6 +67,7 @@ export function Screen({
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={keyboardVerticalOffset}
     >
       {body}
     </KeyboardAvoidingView>

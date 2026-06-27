@@ -2,6 +2,7 @@ import { ScrollView, StyleSheet, View, Pressable } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import {
+  Ban,
   BarChart3,
   Bell,
   ChevronRight,
@@ -62,8 +63,13 @@ const GROUPS: Group[] = [
   {
     title: "General",
     rows: [
-      // Reports = async report generator; stays web-only (heavy export flow).
-      { label: "Reports", icon: ic(FileText), perm: "VIEW_ANALYTICS" },
+      {
+        label: "Reports",
+        sub: "Queue + track monthly exports",
+        icon: ic(FileText),
+        perm: "VIEW_ANALYTICS",
+        onPress: (nav) => nav.navigate("AdminReports"),
+      },
     ],
   },
   {
@@ -122,6 +128,13 @@ const GROUPS: Group[] = [
         icon: ic(IndianRupee),
         perm: "MANAGE_PRICING",
         onPress: (nav) => nav.navigate("AdminPricing"),
+      },
+      {
+        label: "Slot blocks",
+        icon: ic(Ban),
+        perm: "MANAGE_SLOTS",
+        onPress: (nav) =>
+          nav.navigate("AdminCalendar", { screen: "AdminSlotBlocks" }),
       },
     ],
   },
