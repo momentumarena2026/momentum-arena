@@ -1,5 +1,7 @@
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +16,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import {
   Calendar,
+  CalendarPlus,
   CheckCircle2,
   Clock,
   MapPin,
@@ -46,6 +49,23 @@ import type {
 
 type Rt = RouteProp<AccountStackParamList, "BookingDetail">;
 type Nav = NativeStackNavigationProp<AccountStackParamList, "BookingDetail">;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/**
+ * Floating-time stamp (YYYYMMDDTHHmmSS) for a Google Calendar template URL,
+ * built from the booking's local date + hour (hour=24 rolls to next day).
+ * Floating (no Z) means the user's device TZ — IST for our audience — which
+ * matches the booking's timezone.
+ */
+function gcalStamp(date: string, hour: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setHours(hour, 0, 0, 0);
+  return `${dt.getFullYear()}${pad2(dt.getMonth() + 1)}${pad2(dt.getDate())}T${pad2(dt.getHours())}${pad2(dt.getMinutes())}00`;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Status header config — mirrors web's `statusConfig` in
@@ -216,6 +236,26 @@ export function BookingDetailScreen() {
     ? "Half Court (40×90)"
     : data.courtConfig.label;
   const sportName = sportLabel(data.courtConfig.sport);
+
+  function addToCalendar() {
+    if (!data) return;
+    const startHours = data.slots.map((s) => s.startHour);
+    const startH = Math.min(...startHours);
+    const endH = Math.max(...startHours) + 1;
+    const dates = `${gcalStamp(data.date, startH)}/${gcalStamp(data.date, endH)}`;
+    const url =
+      "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+      `&text=${encodeURIComponent(`${sportName} at Momentum Arena`)}` +
+      `&dates=${dates}` +
+      `&details=${encodeURIComponent(`Booking ${data.id} · ${courtLabel}`)}` +
+      `&location=${encodeURIComponent("Momentum Arena")}`;
+    void Linking.openURL(url).catch(() => {
+      Alert.alert("Couldn't open calendar", "Please try again.");
+    });
+  }
+
+  const canAddToCalendar =
+    data.status === "PENDING" || data.status === "CONFIRMED";
 
   // Mirror of web's isAwaitingVerification flag.
   const isAwaitingVerification =
@@ -427,6 +467,21 @@ export function BookingDetailScreen() {
                    <Link className="flex-1 rounded-xl border border-zinc-700 ...">My Bookings</Link>
                    <Link className="flex-1 rounded-xl bg-emerald-600 ...">Book Another</Link>
                  </div> */}
+        {canAddToCalendar ? (
+          <Pressable
+            onPress={addToCalendar}
+            style={({ pressed }) => [
+              styles.calendarBtn,
+              pressed && styles.pressed,
+            ]}
+          >
+            <CalendarPlus size={16} color={colors.emerald400} />
+            <Text variant="small" weight="600" color={colors.emerald400}>
+              Add to calendar
+            </Text>
+          </Pressable>
+        ) : null}
+
         <View style={styles.actionsRow}>
           <Pressable
             onPress={goToBookings}
@@ -646,6 +701,18 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: "row",
     gap: spacing["3"],
+  },
+  calendarBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.30)",
+    backgroundColor: colors.emerald500_10,
+    marginBottom: spacing["3"],
   },
   actionBtn: {
     flex: 1,
