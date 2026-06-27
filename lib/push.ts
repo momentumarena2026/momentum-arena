@@ -117,6 +117,49 @@ interface SendResult {
 }
 
 /**
+ * Optional context recorded with each send for the Push Analytics
+ * dashboard. Events (booking/cafe/rewards/...) get sensible defaults;
+ * broadcasts + test pushes pass richer context (audience, who sent it).
+ */
+export interface DispatchMeta {
+  scope?: "customer" | "admin";
+  source?: "event" | "broadcast" | "test";
+  sentByAdminId?: string | null;
+  audience?: string | null;
+}
+
+// Best-effort: record one row per dispatch for analytics. Never throws —
+// a logging failure must not break the (already best-effort) send.
+async function logDispatch(
+  payload: PushPayload,
+  result: SendResult,
+  meta: DispatchMeta,
+): Promise<void> {
+  try {
+    await db.pushDispatch.create({
+      data: {
+        kind: payload.data.kind,
+        scope: meta.scope ?? "customer",
+        source: meta.source ?? "event",
+        audience: meta.audience ?? null,
+        sentByAdminId: meta.sentByAdminId ?? null,
+        title: payload.title.slice(0, 200),
+        body: payload.body.slice(0, 500),
+        attempted: result.attempted,
+        succeeded: result.succeeded,
+        failed: result.failed,
+        cleanedUp: result.cleanedUp,
+      },
+    });
+  } catch (err) {
+    console.warn(
+      "[push] failed to log dispatch:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
  * Send a push to every registered device for `userId`. Quietly no-ops
  * (logs + returns) if FCM credentials are missing — callers shouldn't
  * have to defensively guard, since push is always best-effort.
@@ -124,6 +167,7 @@ interface SendResult {
 export async function sendToUser(
   userId: string,
   payload: PushPayload,
+  meta: DispatchMeta = {},
 ): Promise<SendResult> {
   const devices = await db.pushDevice.findMany({
     where: { userId },
@@ -132,10 +176,11 @@ export async function sendToUser(
   if (devices.length === 0) {
     return { attempted: 0, succeeded: 0, failed: 0, cleanedUp: 0 };
   }
-  return sendToTokens(
-    devices.map((d) => d.token),
-    payload,
-  );
+  return sendToTokens(devices.map((d) => d.token), payload, {
+    scope: "customer",
+    source: "event",
+    ...meta,
+  });
 }
 
 /**
@@ -149,23 +194,28 @@ export async function sendToUser(
  * about the same booking events. If we ever scale to multi-venue or
  * specialized roles, add a `permissionFilter` argument and a join.
  */
-export async function sendToAdmins(payload: PushPayload): Promise<SendResult> {
+export async function sendToAdmins(
+  payload: PushPayload,
+  meta: DispatchMeta = {},
+): Promise<SendResult> {
   const devices = await db.adminPushDevice.findMany({
     select: { token: true },
   });
   if (devices.length === 0) {
     return { attempted: 0, succeeded: 0, failed: 0, cleanedUp: 0 };
   }
-  return sendToTokens(
-    devices.map((d) => d.token),
-    payload,
-  );
+  return sendToTokens(devices.map((d) => d.token), payload, {
+    scope: "admin",
+    source: "event",
+    ...meta,
+  });
 }
 
 /** Lower-level: send to an explicit token list. Used by admin tools / cron. */
 export async function sendToTokens(
   tokens: string[],
   payload: PushPayload,
+  meta: DispatchMeta = {},
 ): Promise<SendResult> {
   if (tokens.length === 0) {
     return { attempted: 0, succeeded: 0, failed: 0, cleanedUp: 0 };
@@ -231,10 +281,12 @@ export async function sendToTokens(
     cleanedUp = customerDel.count + adminDel.count;
   }
 
-  return {
+  const sendResult: SendResult = {
     attempted: tokens.length,
     succeeded: result.successCount,
     failed: result.failureCount,
     cleanedUp,
   };
+  await logDispatch(payload, sendResult, meta);
+  return sendResult;
 }

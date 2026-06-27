@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  BellRing,
   Coffee,
   IndianRupee,
   Layers,
@@ -29,6 +30,7 @@ const TABS: Tab[] = [
   { href: "/admin/analytics/events", label: "Events", Icon: Activity },
   { href: "/admin/analytics/cohorts", label: "Cohorts", Icon: Users },
   { href: "/admin/analytics/demand", label: "Demand", Icon: Layers },
+  { href: "/admin/analytics/push", label: "Push", Icon: BellRing },
 ];
 
 export function AnalyticsTabs() {
