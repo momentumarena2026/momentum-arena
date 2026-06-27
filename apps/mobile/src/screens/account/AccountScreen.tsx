@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
-import * as Updates from "expo-updates";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
@@ -13,7 +12,6 @@ import {
   ChevronRight,
   Clock,
   History,
-  Download,
   LogIn,
   LogOut,
   MessageCircle,
@@ -21,7 +19,6 @@ import {
   Plus,
   RefreshCw,
   Shield,
-  Smartphone,
   Coffee,
   ShoppingBag,
   Sparkles,
@@ -287,9 +284,6 @@ export function AccountScreen() {
           <UpcomingEmpty onBook={goToBook} />
         )}
       </View>
-
-      {/* ─── App version + OTA update check ──────────────────────────── */}
-      <AppVersionCard />
 
       {/* ─── Footer: sign out + version ──────────────────────────────── */}
       <Button
@@ -658,104 +652,6 @@ function Divider() {
 }
 
 /**
- * "App version" card — shows the full version label (marketing version +
- * native build + OTA sequence + channel) and a "Check for updates" button
- * that runs the over-the-air update flow:
- *
- *   checkForUpdateAsync() → (if available) fetchUpdateAsync() → reloadAsync()
- *
- * Status copy walks through Checking… / Up to date / Updating… and reports
- * errors inline. In dev (and any build where `Updates.isEnabled` is false)
- * the OTA pipeline is unavailable, so we surface "Updates disabled in dev"
- * and disable the button rather than throwing.
- */
-type OtaStatus =
-  | "idle"
-  | "checking"
-  | "uptodate"
-  | "updating"
-  | "disabled"
-  | "error";
-
-function AppVersionCard() {
-  const [status, setStatus] = useState<OtaStatus>("idle");
-
-  async function onCheck() {
-    // Dev / non-updates builds: Updates.isEnabled is false. Don't even
-    // try — checkForUpdateAsync throws when updates are disabled.
-    if (!Updates.isEnabled) {
-      setStatus("disabled");
-      return;
-    }
-    try {
-      setStatus("checking");
-      const result = await Updates.checkForUpdateAsync();
-      if (result.isAvailable) {
-        setStatus("updating");
-        await Updates.fetchUpdateAsync();
-        // Reloads the app with the freshly-downloaded bundle. Execution
-        // does not continue past this line on success.
-        await Updates.reloadAsync();
-      } else {
-        setStatus("uptodate");
-      }
-    } catch {
-      setStatus("error");
-    }
-  }
-
-  const statusText: string | null =
-    status === "checking"
-      ? "Checking…"
-      : status === "updating"
-        ? "Updating…"
-        : status === "uptodate"
-          ? "Up to date"
-          : status === "disabled"
-            ? "Updates disabled in dev"
-            : status === "error"
-              ? "Couldn't check — try again"
-              : null;
-
-  const busy = status === "checking" || status === "updating";
-
-  return (
-    <View style={styles.sectionCard}>
-      <Text style={styles.sectionHeader}>App Version</Text>
-      <View style={styles.infoList}>
-        <InfoRow
-          icon={<Smartphone size={16} color={colors.zinc400} />}
-          label="Version"
-          value={versionLabel()}
-        />
-        {statusText ? (
-          <Text
-            style={[
-              styles.otaStatus,
-              status === "error" && { color: colors.destructive },
-              status === "uptodate" && { color: colors.emerald400 },
-            ]}
-          >
-            {statusText}
-          </Text>
-        ) : null}
-      </View>
-      <Button
-        label="Check for updates"
-        variant="secondary"
-        size="sm"
-        onPress={onCheck}
-        loading={busy}
-        leadingIcon={
-          busy ? undefined : <Download size={16} color={colors.foreground} />
-        }
-        fullWidth
-      />
-    </View>
-  );
-}
-
-/**
  * Version footer with a hidden admin entry. 5 taps within 1.5s
  * navigates to the AdminLogin modal — same idea as Android's
  * "tap build number 7 times to enable Developer mode" easter egg.
@@ -795,7 +691,7 @@ function VersionFooter() {
 
   return (
     <Pressable onPress={onTap} hitSlop={8}>
-      <Text style={styles.version}>Momentum Arena · v0.1.0</Text>
+      <Text style={styles.version}>{versionLabel()}</Text>
     </Pressable>
   );
 }

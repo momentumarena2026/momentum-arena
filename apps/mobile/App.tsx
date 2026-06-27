@@ -1,6 +1,8 @@
 import "react-native-gesture-handler";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, Linking, type AppStateStatus } from "react-native";
+import * as Updates from "expo-updates";
+import { useUpdates } from "expo-updates";
 import { AppProviders } from "./src/providers/AppProviders";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { SplashScreen } from "./src/screens/splash/SplashScreen";
@@ -22,6 +24,20 @@ export default function App() {
     // Assign a sticky OTA rollout bucket once, for staged % rollouts.
     ensureOtaRolloutBucket();
   }, []);
+
+  // Auto-apply OTA updates. expo-updates downloads a new bundle in the
+  // background on launch; by default it would only be applied on the NEXT
+  // relaunch (the old "force-close twice" dance). Instead, the moment a
+  // downloaded update is pending, reload straight into it. On the reloaded
+  // launch there's no new update, so isUpdatePending stays false — no loop.
+  const { isUpdatePending } = useUpdates();
+  useEffect(() => {
+    if (isUpdatePending && Updates.isEnabled) {
+      Updates.reloadAsync().catch(() => {
+        /* best-effort — if the reload fails the current bundle keeps running */
+      });
+    }
+  }, [isUpdatePending]);
 
   // Show the animated splash on every cold start. The native
   // LaunchScreen.storyboard is a plain black background, so the JS
