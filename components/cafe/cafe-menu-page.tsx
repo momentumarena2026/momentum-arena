@@ -429,11 +429,16 @@ export function CafeMenuPage({
             <p className="text-zinc-600 text-sm mt-1">Our chef is preparing something special.</p>
           </div>
         )}
+
+        {/* Clearance so the last items aren't hidden behind the floating
+            cart bar (which sits above the bottom nav on mobile). */}
+        {totalItems > 0 && <div aria-hidden className="h-24" />}
       </div>
 
-      {/* Floating cart bar */}
+      {/* Floating cart bar — sits ABOVE the mobile bottom nav (4.5rem +
+          safe-area); on desktop (md+) the nav is hidden so it drops to 0. */}
       {totalItems > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-md border-t border-zinc-800">
+        <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-md border-t border-zinc-800">
           <div className="max-w-5xl mx-auto px-4 sm:px-6">
             <button
               onClick={() => setCartOpen(true)}

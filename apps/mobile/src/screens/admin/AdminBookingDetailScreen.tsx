@@ -484,8 +484,12 @@ export function AdminBookingDetailScreen() {
   }
 
   return (
-    <Screen padded={false}>
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
+    <Screen padded={false} avoidKeyboard>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Status banner */}
         <View
           style={[
@@ -1290,6 +1294,14 @@ export function AdminBookingDetailScreen() {
                   }
                   placeholder="0"
                   placeholderTextColor={colors.zinc600}
+                  // Once the keyboard is up, pull the whole collect card
+                  // above it so the inputs + Confirm button stay visible.
+                  onFocus={() =>
+                    setTimeout(
+                      () => scrollRef.current?.scrollToEnd({ animated: true }),
+                      250,
+                    )
+                  }
                   // Highlight the whole pre-filled value so the user
                   // can either accept it or just type to overwrite.
                   selectTextOnFocus

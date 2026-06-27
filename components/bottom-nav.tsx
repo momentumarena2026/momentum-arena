@@ -7,6 +7,7 @@ import { trackBottomNavClick } from "@/lib/analytics";
 const HIDDEN_PATHS = [
   "/book/checkout",
   "/shop/checkout",
+  "/cafe/checkout",
 ];
 
 function isSlotSelectionPage(pathname: string): boolean {
