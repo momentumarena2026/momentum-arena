@@ -45,6 +45,9 @@ export type PushKind =
   | "slot_available"
   | "rewards_earned"
   | "broadcast"
+  // Broadcast with a chosen in-app destination (data.screen =
+  // home|book|cafe|shop|rewards); routes the tap to that tab.
+  | "open_screen"
   // Admin-bound — only delivered to AdminPushDevice rows server-side.
   | "admin_pending_booking"
   | "admin_booking_confirmed"

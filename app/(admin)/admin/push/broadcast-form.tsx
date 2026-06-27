@@ -19,6 +19,7 @@ import {
   searchUsersForPush,
   sendTestPushToUser,
   type BroadcastAudience,
+  type BroadcastDestination,
 } from "@/actions/admin-push";
 
 type AudienceKind = "all" | "android" | "ios" | "user" | "group";
@@ -47,6 +48,7 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
   const [kind, setKind] = useState<AudienceKind>("all");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [destination, setDestination] = useState<BroadcastDestination | "">("");
   const [userQuery, setUserQuery] = useState("");
   const [userMatches, setUserMatches] = useState<UserMatch[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserMatch | null>(null);
@@ -112,6 +114,7 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
         audience,
         title,
         body,
+        destination: destination || undefined,
         dryRun,
       });
       if (!r.ok) {
@@ -352,6 +355,28 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
           className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-y min-h-[80px]"
         />
         <p className="text-[10px] text-zinc-600 text-right">{body.length}/500</p>
+      </div>
+
+      {/* Tap destination — where the notification sends the user on tap */}
+      <div className="space-y-2">
+        <label className="block text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
+          On tap, open
+        </label>
+        <select
+          value={destination}
+          onChange={(e) => setDestination(e.target.value as BroadcastDestination | "")}
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+        >
+          <option value="">Just open the app (no specific screen)</option>
+          <option value="home">Home</option>
+          <option value="book">Book a slot</option>
+          <option value="cafe">Cafe</option>
+          <option value="shop">Shop</option>
+          <option value="rewards">Momentum Points (Rewards)</option>
+        </select>
+        <p className="text-[10px] text-zinc-600">
+          Where the customer lands when they tap the notification.
+        </p>
       </div>
 
       {/* Result banner */}

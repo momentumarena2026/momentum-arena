@@ -123,6 +123,39 @@ export function RootNavigator() {
             },
           });
           break;
+        case "open_screen": {
+          // Admin broadcast with a chosen destination tab (data.screen).
+          switch (payload.raw.screen) {
+            case "book":
+              navigationRef.navigate("Main", {
+                screen: "Sports",
+                params: { screen: "BookSport" },
+              });
+              break;
+            case "cafe":
+              navigationRef.navigate("Main", {
+                screen: "Cafe",
+                params: { screen: "CafeMenu" },
+              });
+              break;
+            case "shop":
+              navigationRef.navigate("Main", {
+                screen: "Shop",
+                params: { screen: "ShopHome" },
+              });
+              break;
+            case "rewards":
+              navigationRef.navigate("Main", {
+                screen: "Account",
+                params: { screen: "Rewards", initial: false },
+              });
+              break;
+            default:
+              navigationRef.navigate("Main", { screen: "Home" });
+              break;
+          }
+          break;
+        }
         // Admin-bound payloads land here when an admin device taps a
         // notification. We jump straight into the AdminShell tabs —
         // pending routes to the unconfirmed queue (where the floor

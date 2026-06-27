@@ -285,12 +285,18 @@ export type BroadcastAudience =
   // Resolved at send time to all members' devices.
   | { kind: "group"; groupId: string };
 
+// In-app screen a broadcast tap should open. Maps to the customer
+// tabs; the mobile tap handler navigates to the matching tab.
+export type BroadcastDestination = "home" | "book" | "cafe" | "shop" | "rewards";
+
 export interface BroadcastInput {
   audience: BroadcastAudience;
   title: string;
   body: string;
-  // Optional deep-link the mobile tap handler uses to route on tap.
-  // Leave null and the tap just opens the app to its current screen.
+  // Optional tap destination. A screen (BroadcastDestination) opens the
+  // matching tab; deepLinkBookingId/CafeOrderId pin a specific entity.
+  // Leave all unset and the tap just opens the app to its current screen.
+  destination?: BroadcastDestination;
   deepLinkBookingId?: string;
   deepLinkCafeOrderId?: string;
   // When true, the call returns the audience size without actually
@@ -369,6 +375,9 @@ export async function sendBroadcast(input: BroadcastInput) {
   } else if (input.deepLinkCafeOrderId) {
     data.kind = "cafe_order_status";
     data.cafeOrderId = input.deepLinkCafeOrderId;
+  } else if (input.destination) {
+    data.kind = "open_screen";
+    data.screen = input.destination;
   }
 
   const result = await sendToTokens(
