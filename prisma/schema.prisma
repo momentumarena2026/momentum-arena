@@ -1908,6 +1908,32 @@ model AdminPushDevice {
   @@index([lastSeenAt])
 }
 
+/// One row per push DISPATCH — a single send call (to a user's devices,
+/// the admin fleet, or a broadcast token list). Written best-effort by
+/// lib/push.ts after every send; powers the Push Analytics dashboard
+/// (volume, delivery rate, breakdown by kind / source / time). Counts
+/// are per-dispatch, not per-device. Sends made before this log existed
+/// are not captured (analytics build up from first write onward).
+model PushDispatch {
+  id            String   @id @default(cuid())
+  kind          String // PushKind: booking_confirmed | broadcast | open_screen | cafe_order_status | ...
+  scope         String // "customer" | "admin" — which device fleet it targeted
+  source        String // "event" | "broadcast" | "test" — why it was sent
+  audience      String? // broadcast audience descriptor (all | ios | android | group:Name | user)
+  sentByAdminId String? // AdminUser.id for admin-initiated sends (broadcasts / tests)
+  title         String
+  body          String
+  attempted     Int      @default(0)
+  succeeded     Int      @default(0)
+  failed        Int      @default(0)
+  cleanedUp     Int      @default(0) // dead tokens pruned on this send
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([kind, createdAt])
+  @@index([source, createdAt])
+}
+
 // ===========================
 // FIRST-PARTY ANALYTICS
 // ===========================

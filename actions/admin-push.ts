@@ -305,7 +305,7 @@ export interface BroadcastInput {
 }
 
 export async function sendBroadcast(input: BroadcastInput) {
-  await requireAdmin(PERMISSION);
+  const admin = await requireAdmin(PERMISSION);
 
   // Validation. We don't want admins to send empty pushes or accidentally
   // send something with shoddy formatting (the empty-title push shows up
@@ -380,10 +380,16 @@ export async function sendBroadcast(input: BroadcastInput) {
     data.screen = input.destination;
   }
 
-  const result = await sendToTokens(
-    devices.map((d) => d.token),
-    { title, body, data },
-  );
+  const audienceLabel =
+    input.audience.kind === "platform"
+      ? input.audience.platform
+      : input.audience.kind;
+  const result = await sendToTokens(devices.map((d) => d.token), { title, body, data }, {
+    source: "broadcast",
+    scope: "customer",
+    sentByAdminId: admin.id,
+    audience: audienceLabel,
+  });
 
   return { ok: true as const, dryRun: false, ...result };
 }
@@ -392,12 +398,16 @@ export async function sendBroadcast(input: BroadcastInput) {
 // FCM is working end-to-end after a config change without having to
 // trigger a real booking flow.
 export async function sendTestPushToUser(userId: string) {
-  await requireAdmin(PERMISSION);
-  return sendToUser(userId, {
-    title: "Test from Momentum Arena admin",
-    body: "If you see this, push notifications are wired correctly.",
-    data: { kind: "broadcast" },
-  });
+  const admin = await requireAdmin(PERMISSION);
+  return sendToUser(
+    userId,
+    {
+      title: "Test from Momentum Arena admin",
+      body: "If you see this, push notifications are wired correctly.",
+      data: { kind: "broadcast" },
+    },
+    { source: "test", sentByAdminId: admin.id },
+  );
 }
 
 export async function deletePushDeviceById(id: string) {
