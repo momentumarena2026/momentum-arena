@@ -30,6 +30,7 @@ import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
 import { AdminCafeOrdersScreen } from "../screens/admin/AdminCafeOrdersScreen";
 import { AdminCafeMenuScreen } from "../screens/admin/AdminCafeMenuScreen";
 import { AdminCafeCouponsScreen } from "../screens/admin/AdminCafeCouponsScreen";
+import { AdminCafeCreateOrderScreen } from "../screens/admin/AdminCafeCreateOrderScreen";
 import { AdminExpensesListScreen } from "../screens/admin/AdminExpensesListScreen";
 import { AdminExpenseFormScreen } from "../screens/admin/AdminExpenseFormScreen";
 import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyticsScreen";
@@ -170,6 +171,11 @@ function AdminCafeStackNav() {
         name="AdminCafeCoupons"
         component={AdminCafeCouponsScreen}
         options={{ title: "Cafe coupons" }}
+      />
+      <CafeStack.Screen
+        name="AdminCafeCreateOrder"
+        component={AdminCafeCreateOrderScreen}
+        options={{ title: "New cafe order" }}
       />
     </CafeStack.Navigator>
   );

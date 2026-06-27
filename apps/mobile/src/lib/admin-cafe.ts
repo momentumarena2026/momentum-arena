@@ -30,6 +30,8 @@ export interface CafeItem {
   description: string | null;
   category: CafeItemCategory;
   price: number;
+  // Stock counter — null = unlimited / kitchen-prepared, integer = on-hand.
+  quantity: number | null;
   image: string | null;
   isVeg: boolean;
   isAvailable: boolean;
@@ -131,6 +133,22 @@ export const adminCafeApi = {
     return request(`/api/mobile/admin/cafe/orders/${id}/cancel`, {
       method: "POST",
       body: { reason },
+    });
+  },
+
+  /** Admin rings up a walk-in / phone-first order. */
+  createOrder(body: {
+    items: { cafeItemId: string; quantity: number }[];
+    customerPhone?: string;
+    customerName?: string;
+    discountAmount?: number;
+    paymentMethod: "CASH" | "UPI_QR";
+    split?: { cashAmount: number; upiAmount: number };
+    note?: string;
+  }): Promise<{ ok: true; orderId: string; orderNumber: string }> {
+    return request("/api/mobile/admin/cafe/orders/create", {
+      method: "POST",
+      body,
     });
   },
 };
