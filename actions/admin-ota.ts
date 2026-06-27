@@ -98,6 +98,30 @@ export async function rolloutOtaRelease(
     return { error: "Archived releases can't be rolled out — use Roll back" };
   }
 
+  // Guard against rolling out a release OLDER than the one that's currently
+  // live in this slot. The manifest stamps each update with its createdAt,
+  // and expo-updates refuses to load an update older than the running one —
+  // so an older rollout never cleanly reverts (devices already on the newer
+  // build stay put → fragmented fleet). To go back, use Roll back (to the
+  // embedded bundle) or publish a new release. Adjusting the live release's
+  // own % is fine (it's excluded via id-not-self, so `live` is null then).
+  const live = await db.otaRelease.findFirst({
+    where: {
+      channel: release.channel,
+      platform: release.platform,
+      runtimeVersion: release.runtimeVersion,
+      status: "PUBLISHED",
+      id: { not: release.id },
+    },
+    select: { createdAt: true },
+  });
+  if (live && live.createdAt > release.createdAt) {
+    return {
+      error:
+        "This release is older than the current live one — devices won't downgrade. Use Roll back, or publish a new release to go back.",
+    };
+  }
+
   // Demote any other currently-PUBLISHED release in the same slot so
   // only one is live at a time, while keeping its row for history.
   await db.otaRelease.updateMany({

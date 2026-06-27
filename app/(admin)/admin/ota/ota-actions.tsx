@@ -22,9 +22,19 @@ interface OtaActionsProps {
   releaseId: string;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   rolloutPercent: number;
+  // When set, the "Roll out" button is disabled with this as its tooltip —
+  // e.g. the release is older than the currently-live one (rolling it out
+  // wouldn't downgrade devices already on the newer build; matches the
+  // server-side guard in rolloutOtaRelease).
+  disabledReason?: string;
 }
 
-export function OtaActions({ releaseId, status, rolloutPercent }: OtaActionsProps) {
+export function OtaActions({
+  releaseId,
+  status,
+  rolloutPercent,
+  disabledReason,
+}: OtaActionsProps) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -66,13 +76,14 @@ export function OtaActions({ releaseId, status, rolloutPercent }: OtaActionsProp
         {status !== "PUBLISHED" && (
           <button
             type="button"
-            disabled={pending}
+            disabled={pending || !!disabledReason}
+            title={disabledReason}
             onClick={() => {
               setError(null);
               setPct(String(rolloutPercent || 100));
               setEditor(editor === "rollout" ? null : "rollout");
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/10 border border-emerald-500/30 px-2.5 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-40 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/10 border border-emerald-500/30 px-2.5 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <Rocket className="h-3.5 w-3.5" />
             Roll out
