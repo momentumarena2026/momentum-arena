@@ -41,6 +41,7 @@ import { AdminDashboardScreen } from "../screens/admin/AdminDashboardScreen";
 import { AdminMoreScreen } from "../screens/admin/AdminMoreScreen";
 import { AdminSportsScreen } from "../screens/admin/AdminSportsScreen";
 import { AdminEquipmentScreen } from "../screens/admin/AdminEquipmentScreen";
+import { AdminBowlingScreen } from "../screens/admin/AdminBowlingScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
@@ -91,6 +92,11 @@ function AdminMoreStackNav() {
         name="AdminEquipment"
         component={AdminEquipmentScreen}
         options={{ title: "Equipment" }}
+      />
+      <MoreStack.Screen
+        name="AdminBowling"
+        component={AdminBowlingScreen}
+        options={{ title: "Bowling machine" }}
       />
     </MoreStack.Navigator>
   );

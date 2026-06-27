@@ -179,6 +179,7 @@ export type AdminMoreStackParamList = {
   AdminMoreHome: undefined;
   AdminSports: undefined;
   AdminEquipment: undefined;
+  AdminBowling: undefined;
 };
 
 export type AdminTabsParamList = {

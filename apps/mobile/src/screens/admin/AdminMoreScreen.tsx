@@ -18,6 +18,7 @@ import {
   ShoppingBag,
   Sparkles,
   Tag,
+  Target,
   Ticket,
   Users,
 } from "lucide-react-native";
@@ -93,6 +94,12 @@ const GROUPS: Group[] = [
         icon: ic(Package),
         perm: "MANAGE_SPORTS",
         onPress: (nav) => nav.navigate("AdminEquipment"),
+      },
+      {
+        label: "Bowling machine",
+        icon: ic(Target),
+        perm: "MANAGE_SPORTS",
+        onPress: (nav) => nav.navigate("AdminBowling"),
       },
       { label: "Pricing", icon: ic(IndianRupee), perm: "MANAGE_PRICING" },
     ],
