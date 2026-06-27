@@ -177,6 +177,7 @@ export type AdminExpensesStackParamList = {
 // registered here so the hub can push to them.
 export type AdminMoreStackParamList = {
   AdminMoreHome: undefined;
+  AdminSports: undefined;
 };
 
 export type AdminTabsParamList = {

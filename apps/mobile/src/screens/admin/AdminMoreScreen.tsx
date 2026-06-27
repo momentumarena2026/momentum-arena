@@ -82,7 +82,12 @@ const GROUPS: Group[] = [
   {
     title: "Courts & Pricing",
     rows: [
-      { label: "Sports", icon: ic(LayoutGrid), perm: "MANAGE_SPORTS" },
+      {
+        label: "Sports",
+        icon: ic(LayoutGrid),
+        perm: "MANAGE_SPORTS",
+        onPress: (nav) => nav.navigate("AdminSports"),
+      },
       { label: "Equipment", icon: ic(Package), perm: "MANAGE_SPORTS" },
       { label: "Pricing", icon: ic(IndianRupee), perm: "MANAGE_PRICING" },
     ],
