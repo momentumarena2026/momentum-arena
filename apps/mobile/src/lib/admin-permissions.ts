@@ -29,6 +29,43 @@ export const ALL_ADMIN_PERMISSIONS = [
 
 export type AdminPermission = (typeof ALL_ADMIN_PERMISSIONS)[number];
 
+/**
+ * Human-readable labels for each permission, mirroring the web
+ * `lib/permissions.ts` PERMISSION_LABELS map. Used by the admin-account
+ * editor to render permission checkboxes. Keep in sync.
+ */
+export const PERMISSION_LABELS: Record<AdminPermission, string> = {
+  MANAGE_BOOKINGS: "Manage Bookings",
+  MANAGE_PRICING: "Manage Pricing",
+  MANAGE_SLOTS: "Manage Slot Blocks",
+  MANAGE_SPORTS: "Manage Sports",
+  MANAGE_USERS: "Manage Users",
+  MANAGE_DISCOUNTS: "Manage Discounts",
+  MANAGE_FAQS: "Manage FAQs",
+  VIEW_ANALYTICS: "View Analytics",
+  VIEW_RAZORPAY: "View Razorpay Dashboard",
+  MANAGE_ADMIN_USERS: "Manage Admin Users",
+  MANAGE_CAFE_MENU: "Manage Cafe Menu",
+  MANAGE_CAFE_ORDERS: "Manage Cafe Orders",
+  MANAGE_CAFE_DISCOUNTS: "Manage Cafe Coupons",
+  MANAGE_REWARDS: "Manage Reward Points",
+  MANAGE_COUPONS: "Manage Unified Coupons",
+  MANAGE_EXPENSES: "Manage Expenses",
+  MANAGE_PUSH: "Manage Push Notifications",
+  MANAGE_SHOP_CATALOG: "Manage Shop Catalog",
+  MANAGE_SHOP_ORDERS: "Manage Shop Orders",
+};
+
+/**
+ * Permissions only a SUPERADMIN may hold. The admin-account editor hides
+ * these from the checkbox list since a created/edited ADMIN can never be
+ * granted them (the server filters them out too). Mirrors the web
+ * SUPERADMIN_ONLY_PERMISSIONS.
+ */
+export const SUPERADMIN_ONLY_PERMISSIONS: AdminPermission[] = [
+  "MANAGE_ADMIN_USERS",
+];
+
 type AdminLike = Pick<AdminUser, "role" | "permissions"> | null | undefined;
 
 /**

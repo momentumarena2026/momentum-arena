@@ -62,8 +62,8 @@ const GROUPS: Group[] = [
   {
     title: "General",
     rows: [
+      // Reports = async report generator; stays web-only (heavy export flow).
       { label: "Reports", icon: ic(FileText), perm: "VIEW_ANALYTICS" },
-      { label: "Analytics", icon: ic(BarChart3), perm: "VIEW_ANALYTICS" },
     ],
   },
   {
@@ -76,8 +76,24 @@ const GROUPS: Group[] = [
         perm: "MANAGE_BOOKINGS",
         onPress: (t) => t.navigate("AdminCheckin"),
       },
-      { label: "Payment recovery", icon: ic(CreditCard), perm: "MANAGE_BOOKINGS" },
-      { label: "Recurring config", icon: ic(RefreshCw), perm: "MANAGE_PRICING" },
+      {
+        label: "Payment recovery",
+        icon: ic(CreditCard),
+        perm: "MANAGE_BOOKINGS",
+        onPress: (nav) => nav.navigate("AdminRecovery"),
+      },
+      {
+        label: "UTR verify",
+        icon: ic(ScanLine),
+        perm: "MANAGE_BOOKINGS",
+        onPress: (nav) => nav.navigate("AdminUtrVerify"),
+      },
+      {
+        label: "Recurring config",
+        icon: ic(RefreshCw),
+        perm: "MANAGE_PRICING",
+        onPress: (nav) => nav.navigate("AdminRecurringConfig"),
+      },
     ],
   },
   {
@@ -167,6 +183,13 @@ const GROUPS: Group[] = [
         perm: "MANAGE_REWARDS",
         onPress: (t) => t.navigate("AdminRewards"),
       },
+      {
+        label: "Discount codes",
+        sub: "Legacy codes",
+        icon: ic(Tag),
+        perm: "MANAGE_DISCOUNTS",
+        onPress: (nav) => nav.navigate("AdminDiscounts"),
+      },
     ],
   },
   {
@@ -179,6 +202,18 @@ const GROUPS: Group[] = [
         perm: "MANAGE_EXPENSES",
         onPress: (t) => t.navigate("AdminExpenses"),
       },
+    ],
+  },
+  {
+    title: "Analytics",
+    rows: [
+      { label: "Sports analytics", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminSportsAnalytics") },
+      { label: "Cafe analytics", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminCafeAnalytics") },
+      { label: "Push analytics", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminPushAnalytics") },
+      { label: "Demand heatmap", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminDemand") },
+      { label: "Retention cohorts", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminCohorts") },
+      { label: "Funnels", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminFunnels") },
+      { label: "Events & logs", icon: ic(FileText), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminEvents") },
     ],
   },
   {
@@ -231,10 +266,30 @@ const GROUPS: Group[] = [
         perm: "MANAGE_PRICING",
         onPress: (nav) => nav.navigate("AdminGenerator"),
       },
-      { label: "Payment gateway", icon: ic(CreditCard), perm: "VIEW_RAZORPAY" },
-      { label: "Razorpay", icon: ic(IndianRupee), perm: "VIEW_RAZORPAY" },
-      { label: "Admin users", icon: ic(Settings2), perm: "MANAGE_ADMIN_USERS" },
-      { label: "My profile", icon: ic(Gift), perm: null },
+      {
+        label: "Payment gateway",
+        icon: ic(CreditCard),
+        perm: "VIEW_RAZORPAY",
+        onPress: (nav) => nav.navigate("AdminPaymentSettings"),
+      },
+      {
+        label: "Razorpay",
+        icon: ic(IndianRupee),
+        perm: "VIEW_RAZORPAY",
+        onPress: (nav) => nav.navigate("AdminRazorpay"),
+      },
+      {
+        label: "Admin users",
+        icon: ic(Settings2),
+        perm: "MANAGE_ADMIN_USERS",
+        onPress: (nav) => nav.navigate("AdminAdminUsers"),
+      },
+      {
+        label: "My profile",
+        icon: ic(Gift),
+        perm: null,
+        onPress: (nav) => nav.navigate("AdminProfile"),
+      },
     ],
   },
 ];

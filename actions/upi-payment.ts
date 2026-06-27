@@ -144,9 +144,16 @@ export async function submitCafeOrderUtr(
 
 export async function verifyBookingUtr(
   paymentId: string,
-  adminId: string
+  adminId: string,
+  // `skipAuth` lets the mobile-admin API route call this after it has
+  // already authenticated via JWT + checked MANAGE_BOOKINGS. When set,
+  // the supplied `adminId` is trusted as the confirming admin. Web
+  // call sites pass nothing and keep the cookie-based gate.
+  skipAuth?: boolean
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = await requireAdmin("MANAGE_BOOKINGS");
+  const admin = skipAuth
+    ? { id: adminId }
+    : await requireAdmin("MANAGE_BOOKINGS");
 
   const payment = await db.payment.findUnique({
     where: { id: paymentId },
@@ -190,9 +197,14 @@ export async function verifyBookingUtr(
 
 export async function verifyCafeUtr(
   paymentId: string,
-  adminId: string
+  adminId: string,
+  // `skipAuth` — see verifyBookingUtr. Trusts the supplied adminId when
+  // the mobile route has already gated on MANAGE_CAFE_ORDERS.
+  skipAuth?: boolean
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = await requireAdmin("MANAGE_CAFE_ORDERS");
+  const admin = skipAuth
+    ? { id: adminId }
+    : await requireAdmin("MANAGE_CAFE_ORDERS");
 
   const payment = await db.cafePayment.findUnique({
     where: { id: paymentId },
@@ -234,9 +246,12 @@ export async function rejectUtr(
   paymentId: string,
   adminId: string,
   reason: string,
-  type: "booking" | "cafe" = "booking"
+  type: "booking" | "cafe" = "booking",
+  // `skipAuth` — see verifyBookingUtr. Skips the cookie gate once the
+  // mobile route has authenticated via JWT + checked MANAGE_BOOKINGS.
+  skipAuth?: boolean
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = await requireAdmin("MANAGE_BOOKINGS");
+  if (!skipAuth) await requireAdmin("MANAGE_BOOKINGS");
 
   if (type === "cafe") {
     const payment = await db.cafePayment.findUnique({
@@ -277,8 +292,10 @@ export async function rejectUtr(
 
 // ─── Admin: get all pending UTR verifications ───────────────
 
-export async function getPendingUtrPayments() {
-  await requireAdmin("MANAGE_BOOKINGS");
+export async function getPendingUtrPayments(skipAuth?: boolean) {
+  // `skipAuth` lets the mobile-admin API route call this after it has
+  // already authenticated via JWT + checked MANAGE_BOOKINGS.
+  if (!skipAuth) await requireAdmin("MANAGE_BOOKINGS");
 
   // Inline expiry: auto-expire overdue UTR payments before fetching
   await expireUnverifiedUtrs();

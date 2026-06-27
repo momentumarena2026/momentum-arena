@@ -5,7 +5,11 @@ import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { isDqrConfigured } from "@/lib/phonepe-dqr";
 import type { PaymentGateway } from "@prisma/client";
 
-async function requireAdmin() {
+async function requireAdmin(skipAuth = false) {
+  // Mobile admin routes authenticate the bearer token themselves (via
+  // getMobileAdmin) before delegating here, so they pass skipAuth=true to
+  // bypass the cookie-session check that wouldn't apply to a JWT request.
+  if (skipAuth) return null;
   const user = await requireAdminBase("MANAGE_PRICING");
   return user.id;
 }
@@ -46,8 +50,11 @@ export async function getPaymentGatewayConfig(): Promise<PaymentSettings> {
   return readOrInit();
 }
 
-export async function setActivePaymentGateway(gateway: PaymentGateway) {
-  await requireAdmin();
+export async function setActivePaymentGateway(
+  gateway: PaymentGateway,
+  skipAuth = false,
+) {
+  await requireAdmin(skipAuth);
 
   if (gateway !== "PHONEPE" && gateway !== "RAZORPAY") {
     return { success: false, error: "Invalid gateway" };
@@ -71,8 +78,9 @@ export async function setActivePaymentGateway(gateway: PaymentGateway) {
  */
 export async function setDqrEnabled(
   enabled: boolean,
+  skipAuth = false,
 ): Promise<{ success: boolean; error?: string }> {
-  await requireAdmin();
+  await requireAdmin(skipAuth);
   await db.paymentGatewayConfig.upsert({
     where: { id: "singleton" },
     update: { dqrEnabled: enabled },
@@ -85,9 +93,10 @@ export type PaymentMethodFlag = "online" | "upi_qr" | "advance";
 
 export async function setPaymentMethodEnabled(
   method: PaymentMethodFlag,
-  enabled: boolean
+  enabled: boolean,
+  skipAuth = false,
 ): Promise<{ success: boolean; error?: string }> {
-  await requireAdmin();
+  await requireAdmin(skipAuth);
 
   // Safety: never let the admin disable all three, or checkout has no
   // way forward. Re-read current state and reject the toggle if it

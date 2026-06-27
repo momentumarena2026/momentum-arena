@@ -192,6 +192,24 @@ export type AdminMoreStackParamList = {
   AdminUserGroups: undefined;
   AdminFaqs: undefined;
   AdminGenerator: undefined;
+  // Analytics dashboards
+  AdminSportsAnalytics: undefined;
+  AdminCafeAnalytics: undefined;
+  AdminPushAnalytics: undefined;
+  AdminDemand: undefined;
+  AdminCohorts: undefined;
+  AdminFunnels: undefined;
+  AdminEvents: undefined;
+  // Settings (payments/profile)
+  AdminPaymentSettings: undefined;
+  AdminRazorpay: undefined;
+  AdminAdminUsers: undefined;
+  AdminProfile: undefined;
+  // Bookings extras + legacy discounts
+  AdminRecovery: undefined;
+  AdminRecurringConfig: undefined;
+  AdminUtrVerify: undefined;
+  AdminDiscounts: undefined;
 };
 
 export type AdminTabsParamList = {

@@ -594,8 +594,15 @@ export async function getPaymentMethodBreakdown(
 // 7. KPI Stats
 // ===========================
 
-export async function getKPIStats(dateFrom: string, dateTo: string) {
-  await requireAnalyticsAccess();
+export async function getKPIStats(
+  dateFrom: string,
+  dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT (getMobileAdmin +
+  // hasPermission) and pass skipAuth=true so this server action doesn't
+  // re-run the web cookie-session check, which would throw there.
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);

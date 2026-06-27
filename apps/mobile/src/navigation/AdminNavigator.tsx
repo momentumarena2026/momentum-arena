@@ -55,6 +55,21 @@ import { AdminUsersScreen } from "../screens/admin/AdminUsersScreen";
 import { AdminUserGroupsScreen } from "../screens/admin/AdminUserGroupsScreen";
 import { AdminFaqsScreen } from "../screens/admin/AdminFaqsScreen";
 import { AdminGeneratorScreen } from "../screens/admin/AdminGeneratorScreen";
+import { AdminSportsAnalyticsScreen } from "../screens/admin/AdminSportsAnalyticsScreen";
+import { AdminCafeAnalyticsScreen } from "../screens/admin/AdminCafeAnalyticsScreen";
+import { AdminPushAnalyticsScreen } from "../screens/admin/AdminPushAnalyticsScreen";
+import { AdminDemandScreen } from "../screens/admin/AdminDemandScreen";
+import { AdminCohortsScreen } from "../screens/admin/AdminCohortsScreen";
+import { AdminFunnelsScreen } from "../screens/admin/AdminFunnelsScreen";
+import { AdminEventsScreen } from "../screens/admin/AdminEventsScreen";
+import { AdminPaymentSettingsScreen } from "../screens/admin/AdminPaymentSettingsScreen";
+import { AdminRazorpayScreen } from "../screens/admin/AdminRazorpayScreen";
+import { AdminAdminUsersScreen } from "../screens/admin/AdminAdminUsersScreen";
+import { AdminProfileScreen } from "../screens/admin/AdminProfileScreen";
+import { AdminRecoveryScreen } from "../screens/admin/AdminRecoveryScreen";
+import { AdminRecurringConfigScreen } from "../screens/admin/AdminRecurringConfigScreen";
+import { AdminUtrVerifyScreen } from "../screens/admin/AdminUtrVerifyScreen";
+import { AdminDiscountsScreen } from "../screens/admin/AdminDiscountsScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
@@ -171,6 +186,21 @@ function AdminMoreStackNav() {
         component={AdminGeneratorScreen}
         options={{ title: "Generator" }}
       />
+      <MoreStack.Screen name="AdminSportsAnalytics" component={AdminSportsAnalyticsScreen} options={{ title: "Sports analytics" }} />
+      <MoreStack.Screen name="AdminCafeAnalytics" component={AdminCafeAnalyticsScreen} options={{ title: "Cafe analytics" }} />
+      <MoreStack.Screen name="AdminPushAnalytics" component={AdminPushAnalyticsScreen} options={{ title: "Push analytics" }} />
+      <MoreStack.Screen name="AdminDemand" component={AdminDemandScreen} options={{ title: "Demand heatmap" }} />
+      <MoreStack.Screen name="AdminCohorts" component={AdminCohortsScreen} options={{ title: "Retention cohorts" }} />
+      <MoreStack.Screen name="AdminFunnels" component={AdminFunnelsScreen} options={{ title: "Funnels" }} />
+      <MoreStack.Screen name="AdminEvents" component={AdminEventsScreen} options={{ title: "Events & logs" }} />
+      <MoreStack.Screen name="AdminPaymentSettings" component={AdminPaymentSettingsScreen} options={{ title: "Payment gateway" }} />
+      <MoreStack.Screen name="AdminRazorpay" component={AdminRazorpayScreen} options={{ title: "Razorpay" }} />
+      <MoreStack.Screen name="AdminAdminUsers" component={AdminAdminUsersScreen} options={{ title: "Admin users" }} />
+      <MoreStack.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: "My profile" }} />
+      <MoreStack.Screen name="AdminRecovery" component={AdminRecoveryScreen} options={{ title: "Payment recovery" }} />
+      <MoreStack.Screen name="AdminRecurringConfig" component={AdminRecurringConfigScreen} options={{ title: "Recurring config" }} />
+      <MoreStack.Screen name="AdminUtrVerify" component={AdminUtrVerifyScreen} options={{ title: "UTR verify" }} />
+      <MoreStack.Screen name="AdminDiscounts" component={AdminDiscountsScreen} options={{ title: "Discount codes" }} />
     </MoreStack.Navigator>
   );
 }

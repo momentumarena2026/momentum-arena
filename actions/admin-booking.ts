@@ -2974,8 +2974,12 @@ export interface RecoverRazorpayResult {
  */
 export async function recoverRazorpayPayment(
   paymentId: string,
+  // `skipAuth` lets the mobile-admin API route call this after it has
+  // already authenticated via JWT + checked MANAGE_BOOKINGS. Web call
+  // sites pass nothing and keep the cookie-based gate.
+  skipAuth?: boolean,
 ): Promise<RecoverRazorpayResult> {
-  await requireAdminBase("MANAGE_BOOKINGS");
+  if (!skipAuth) await requireAdminBase("MANAGE_BOOKINGS");
 
   const trimmed = paymentId.trim();
   if (!trimmed.startsWith("pay_")) {
