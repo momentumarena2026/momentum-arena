@@ -25,9 +25,16 @@ function PhoneInputForm({ callbackUrl }: { callbackUrl: string }) {
     { step: "input" }
   );
   const [phone, setPhone] = useState("");
+  const [referral, setReferral] = useState("");
 
   if (state.step === "verify" && state.phone) {
-    return <VerifyOtpForm phone={state.phone} callbackUrl={callbackUrl} />;
+    return (
+      <VerifyOtpForm
+        phone={state.phone}
+        callbackUrl={callbackUrl}
+        referralCode={referral}
+      />
+    );
   }
 
   return (
@@ -48,6 +55,23 @@ function PhoneInputForm({ callbackUrl }: { callbackUrl: string }) {
           onChange={setPhone}
           required
           autoFocus
+        />
+      </div>
+      <div className="space-y-3">
+        <label
+          htmlFor="referralCode"
+          className="block text-sm font-medium text-zinc-300"
+        >
+          Referral code <span className="text-zinc-500">(optional)</span>
+        </label>
+        <Input
+          id="referralCode"
+          type="text"
+          placeholder="Enter a friend's code"
+          maxLength={12}
+          value={referral}
+          onChange={(e) => setReferral(e.target.value)}
+          className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
         />
       </div>
       <Button
@@ -112,7 +136,15 @@ function NameForm({ phone, callbackUrl }: { phone: string; callbackUrl: string }
   );
 }
 
-function VerifyOtpForm({ phone, callbackUrl }: { phone: string; callbackUrl: string }) {
+function VerifyOtpForm({
+  phone,
+  callbackUrl,
+  referralCode,
+}: {
+  phone: string;
+  callbackUrl: string;
+  referralCode?: string;
+}) {
   const [state, formAction, isPending] = useActionState<OtpState, FormData>(
     verifyOtpAndLogin,
     { step: "verify", phone }
@@ -239,6 +271,7 @@ function VerifyOtpForm({ phone, callbackUrl }: { phone: string; callbackUrl: str
         <input type="hidden" name="phone" value={phone} />
         <input type="hidden" name="callbackUrl" value={callbackUrl} />
         <input type="hidden" name="code" value={otpValues.join("")} />
+        <input type="hidden" name="referralCode" value={referralCode ?? ""} />
 
         <div className="flex gap-2 justify-center">
           {otpValues.map((digit, index) => (

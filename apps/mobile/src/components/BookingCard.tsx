@@ -100,6 +100,20 @@ const STATUS_TOKEN: Record<
     pillBorder: "rgba(239, 68, 68, 0.30)",
     pillText: "#fca5a5", // red-300
   },
+  COMPLETED: {
+    label: "Completed",
+    icon: CheckCircle2,
+    pillBg: "rgba(16, 185, 129, 0.10)",
+    pillBorder: "rgba(16, 185, 129, 0.30)",
+    pillText: "#6ee7b7", // emerald-300
+  },
+  ABSENT: {
+    label: "Missed",
+    icon: AlertCircle,
+    pillBg: "rgba(245, 158, 11, 0.10)",
+    pillBorder: "rgba(245, 158, 11, 0.30)",
+    pillText: "#fcd34d", // amber-300
+  },
 };
 
 const MONTHS = [

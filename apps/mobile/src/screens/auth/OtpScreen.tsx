@@ -16,6 +16,7 @@ import { useSmsUserConsent } from "@eabdullazyanov/react-native-sms-user-consent
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
+import { Input } from "../../components/ui/Input";
 import { colors, radius, spacing } from "../../theme";
 import { authApi } from "../../lib/auth";
 import { ApiError } from "../../lib/api";
@@ -39,6 +40,15 @@ export function OtpScreen() {
   const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
   const [autoSubmitted, setAutoSubmitted] = useState(false);
   const inputRef = useRef<TextInput>(null);
+
+  // After OTP verify, new users (no name yet) are routed to an inline
+  // name-capture step before they enter the app — matching the web signup,
+  // which requires a name. The accessToken is already persisted by
+  // verifyOtp, so updateName() below is authenticated even pre-signIn.
+  const [step, setStep] = useState<"otp" | "name">("otp");
+  const [nameInput, setNameInput] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   // Android auto-fill via SMS User Consent API. Returns "" on iOS (iOS uses
   // the OS-level QuickType suggestion wired up through textContentType
@@ -91,7 +101,18 @@ export function OtpScreen() {
     setLoading(true);
     setError(null);
     try {
-      const user = await authApi.verifyOtp(params.phone, code);
+      const user = await authApi.verifyOtp(
+        params.phone,
+        code,
+        params.referralCode,
+      );
+      // New users have no name yet — capture it before entering the app
+      // (web signup requires a name too). The token is already persisted by
+      // verifyOtp, so updateName() in the name step is authenticated.
+      if (!user.name || !user.name.trim()) {
+        setStep("name");
+        return;
+      }
       signIn(user);
       // Drop the user back to Main. Phone/Otp live in the root stack with
       // `presentation: "modal"` as a screen option — there's no wrapping
@@ -104,6 +125,27 @@ export function OtpScreen() {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveName() {
+    const trimmed = nameInput.trim();
+    if (trimmed.length < 2) {
+      setNameError("Enter at least 2 characters");
+      return;
+    }
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const user = await authApi.updateName(trimmed);
+      signIn(user);
+      navigation.popToTop();
+    } catch (err) {
+      setNameError(
+        err instanceof ApiError ? err.message : "Couldn't save your name.",
+      );
+    } finally {
+      setSavingName(false);
     }
   }
 
@@ -120,6 +162,44 @@ export function OtpScreen() {
         err instanceof ApiError ? err.message : "Couldn't resend OTP.";
       Alert.alert("Resend failed", message);
     }
+  }
+
+  if (step === "name") {
+    const trimmed = nameInput.trim();
+    return (
+      <Screen avoidKeyboard>
+        <View style={styles.header}>
+          <Text variant="title">Almost there</Text>
+          <Text variant="body" color={colors.mutedForeground}>
+            What should we call you? This shows up on your bookings, orders,
+            and receipts.
+          </Text>
+        </View>
+        <View style={styles.nameForm}>
+          <Input
+            label="Full name"
+            placeholder="Your name"
+            autoCapitalize="words"
+            autoFocus
+            maxLength={80}
+            value={nameInput}
+            onChangeText={(v) => {
+              setNameInput(v);
+              if (nameError) setNameError(null);
+            }}
+            error={nameError}
+          />
+          <Button
+            label="Continue"
+            onPress={handleSaveName}
+            loading={savingName}
+            disabled={trimmed.length < 2}
+            fullWidth
+            size="lg"
+          />
+        </View>
+      </Screen>
+    );
   }
 
   return (
@@ -195,6 +275,10 @@ const styles = StyleSheet.create({
   header: {
     marginTop: spacing["8"],
     gap: spacing["2"],
+  },
+  nameForm: {
+    marginTop: spacing["8"],
+    gap: spacing["5"],
   },
   boxesRow: {
     marginTop: spacing["8"],

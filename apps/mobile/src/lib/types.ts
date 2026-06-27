@@ -21,7 +21,12 @@ export type CourtZone =
   | "LEATHER_2"
   | "SHARED_COURT";
 
-export type BookingStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
+export type BookingStatus =
+  | "PENDING"
+  | "CONFIRMED"
+  | "CANCELLED"
+  | "COMPLETED"
+  | "ABSENT";
 
 export type PaymentMethod =
   | "RAZORPAY"

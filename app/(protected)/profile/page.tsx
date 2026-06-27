@@ -21,6 +21,7 @@ import {
   MdSportsTennis,
 } from "react-icons/md";
 import { SignOutButton } from "@/components/sign-out-button";
+import { DeleteAccountButton } from "@/components/delete-account-button";
 import {
   SPORT_INFO,
   formatHoursAsRanges,
@@ -289,6 +290,9 @@ export default async function ProfilePage() {
 
       {/* Sign Out */}
       <SignOutButton className="w-full flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-500 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all" />
+
+      {/* Delete account (App Store requirement) */}
+      <DeleteAccountButton />
 
       {/* Version footer */}
       <p className="pt-2 text-center text-xs text-zinc-600">

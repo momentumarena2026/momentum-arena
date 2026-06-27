@@ -18,6 +18,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
+import { Input } from "../../components/ui/Input";
 import { colors, radius, spacing } from "../../theme";
 import { useCafeCart } from "../../providers/CafeCartProvider";
 import { useAuth } from "../../providers/AuthProvider";
@@ -75,6 +76,14 @@ export function CafeCheckoutScreen() {
   const [method, setMethod] = useState<CafePaymentMethod>("RAZORPAY");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coupon, setCoupon] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    discount: number;
+  } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [note, setNote] = useState("");
 
   if (cart.lines.length === 0) {
     return (
@@ -88,6 +97,43 @@ export function CafeCheckoutScreen() {
     );
   }
 
+  const discount = appliedCoupon?.discount ?? 0;
+  const total = Math.max(0, cart.subtotal - discount);
+
+  async function handleApplyCoupon() {
+    const code = coupon.trim();
+    if (!code) return;
+    setCouponLoading(true);
+    setCouponError(null);
+    try {
+      const res = await cafeApi.validateCoupon(
+        code,
+        cart.lines.map((l) => ({
+          cafeItemId: l.cafeItemId,
+          quantity: l.quantity,
+        })),
+      );
+      if (res.valid) {
+        setAppliedCoupon({ code, discount: res.discount ?? 0 });
+      } else {
+        setAppliedCoupon(null);
+        setCouponError(res.error ?? "Invalid coupon");
+      }
+    } catch (err) {
+      setCouponError(
+        err instanceof ApiError ? err.message : "Couldn't apply coupon",
+      );
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
+  function removeCoupon() {
+    setAppliedCoupon(null);
+    setCoupon("");
+    setCouponError(null);
+  }
+
   async function handleConfirm() {
     setError(null);
     setProcessing(true);
@@ -98,6 +144,8 @@ export function CafeCheckoutScreen() {
           quantity: l.quantity,
         })),
         paymentMethod: method,
+        discountCode: appliedCoupon?.code,
+        note: note.trim() || undefined,
       });
 
       // In-person path — order is real, navigate straight to detail.
@@ -203,13 +251,88 @@ export function CafeCheckoutScreen() {
               </Text>
             </View>
           ))}
+          {discount > 0 ? (
+            <View style={styles.summaryRow}>
+              <Text variant="small" color={colors.zinc400} style={{ flex: 1 }}>
+                Coupon ({appliedCoupon?.code})
+              </Text>
+              <Text variant="small" color={colors.emerald400}>
+                −{formatRupees(discount)}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.divider} />
           <View style={styles.summaryRow}>
             <Text variant="bodyStrong">Total</Text>
             <Text variant="heading" weight="700" color={colors.emerald400}>
-              {formatRupees(cart.subtotal)}
+              {formatRupees(total)}
             </Text>
           </View>
+        </Card>
+
+        {/* Coupon */}
+        <Card style={styles.sectionCard}>
+          {appliedCoupon ? (
+            <View style={styles.couponApplied}>
+              <Text variant="small" weight="600" color={colors.emerald400}>
+                {appliedCoupon.code} applied
+              </Text>
+              <Pressable onPress={removeCoupon} hitSlop={8}>
+                <Text variant="small" color={colors.zinc400}>
+                  Remove
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.couponRow}>
+              <View style={{ flex: 1 }}>
+                <Input
+                  placeholder="Coupon code"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  value={coupon}
+                  onChangeText={(v) => {
+                    setCoupon(v);
+                    if (couponError) setCouponError(null);
+                  }}
+                />
+              </View>
+              <Button
+                label="Apply"
+                variant="secondary"
+                onPress={handleApplyCoupon}
+                loading={couponLoading}
+                disabled={!coupon.trim()}
+              />
+            </View>
+          )}
+          {couponError ? (
+            <Text
+              variant="tiny"
+              color={colors.destructive}
+              style={{ marginTop: spacing["2"] }}
+            >
+              {couponError}
+            </Text>
+          ) : null}
+        </Card>
+
+        {/* Note */}
+        <Card style={styles.sectionCard}>
+          <Text
+            variant="tiny"
+            color={colors.zinc500}
+            style={styles.sectionLabel}
+          >
+            NOTE (OPTIONAL)
+          </Text>
+          <Input
+            placeholder="Any special instructions?"
+            value={note}
+            onChangeText={setNote}
+            multiline
+            maxLength={500}
+          />
         </Card>
 
         <View style={styles.methods}>
@@ -279,7 +402,7 @@ export function CafeCheckoutScreen() {
         <Button
           label={
             method === "RAZORPAY"
-              ? `Pay ${formatRupees(cart.subtotal)}`
+              ? `Pay ${formatRupees(total)}`
               : method === "UPI_QR"
                 ? "Place order — show QR"
                 : "Place order — pay at counter"
@@ -303,6 +426,17 @@ const styles = StyleSheet.create({
   },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   summary: { padding: spacing["4"], gap: spacing["1.5"] },
+  sectionCard: { padding: spacing["4"], gap: spacing["2"] },
+  couponRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing["2"],
+  },
+  couponApplied: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   summaryRow: {
     flexDirection: "row",
     alignItems: "center",

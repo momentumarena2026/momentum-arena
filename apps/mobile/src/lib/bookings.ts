@@ -36,6 +36,12 @@ export const bookingsApi = {
     );
   },
 
+  cancelRecurring: (recurringBookingId: string) =>
+    api.post<{ success: boolean; error?: string }>(
+      "/api/mobile/recurring/cancel",
+      { recurringBookingId },
+    ),
+
   courts: (sport: Sport) =>
     api.get<CourtConfig[]>(`/api/mobile/courts?sport=${sport}`, {
       auth: false,

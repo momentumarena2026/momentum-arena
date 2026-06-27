@@ -99,10 +99,13 @@ export async function getMobileUser(request: NextRequest) {
       emailVerified: true,
       passwordHash: true,
       image: true,
+      deletedAt: true,
     },
   });
 
-  if (!user) return null;
+  // Reject deleted accounts — their JWT may still be unexpired, but the
+  // account has been anonymized and must not authenticate anymore.
+  if (!user || user.deletedAt) return null;
 
   return {
     id: user.id,

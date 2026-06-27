@@ -17,6 +17,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList, "Phone">;
 export function PhoneScreen() {
   const navigation = useNavigation<Nav>();
   const [phone, setPhone] = useState("");
+  const [referral, setReferral] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -32,7 +33,10 @@ export function PhoneScreen() {
     setLoading(true);
     try {
       await authApi.sendOtp(phoneDigits);
-      navigation.navigate("Otp", { phone: phoneDigits });
+      navigation.navigate("Otp", {
+        phone: phoneDigits,
+        referralCode: referral.trim() || undefined,
+      });
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "Something went wrong. Try again.";
@@ -79,6 +83,15 @@ export function PhoneScreen() {
               +91
             </Text>
           }
+        />
+        <Input
+          label="Referral code (optional)"
+          placeholder="Enter a friend's code"
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={12}
+          value={referral}
+          onChangeText={setReferral}
         />
         <Button
           label="Send OTP"

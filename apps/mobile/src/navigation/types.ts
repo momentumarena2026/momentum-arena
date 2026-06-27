@@ -8,6 +8,7 @@ export type AccountStackParamList = {
   RecurringBookings: undefined;
   BookingDetail: { bookingId: string };
   Waitlist: undefined;
+  Coupons: undefined;
   Rewards: undefined;
   // Graphical "how Momentum Points work" page — every value driven by
   // the live RewardConfig so admin edits flow through with no manual
@@ -109,7 +110,7 @@ export type CafeStackParamList = {
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabsParamList>;
   Phone: undefined;
-  Otp: { phone: string };
+  Otp: { phone: string; referralCode?: string };
   AdminLogin: undefined;
   AdminShell: NavigatorScreenParams<AdminTabsParamList>;
   // Chat was a 5th tab pre-shop; moved here as a presented stack so

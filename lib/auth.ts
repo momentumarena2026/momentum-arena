@@ -4,6 +4,7 @@ import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
 import authConfig from "@/lib/auth.config";
+import { awardSignupBonus } from "@/lib/rewards/earn";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -65,6 +66,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       }
       return true;
+    },
+  },
+  events: {
+    // Fires once when the Prisma adapter creates a new user — i.e. Google
+    // OAuth first sign-in. Phone-OTP signups create the user manually and
+    // award the bonus at that site, so they never reach this hook.
+    async createUser({ user }) {
+      try {
+        if (user.id) await awardSignupBonus(user.id);
+      } catch (err) {
+        console.error("[auth] signup bonus failed:", err);
+      }
     },
   },
   providers: [

@@ -56,6 +56,7 @@ export function DqrCheckout({
   const [phase, setPhase] = useState<Phase>("init");
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const txnRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneRef = useRef(false);
@@ -100,6 +101,7 @@ export function DqrCheckout({
       }
       txnRef.current = res.transactionId;
       setQrImage(res.qrImage);
+      setSecondsLeft(res.expiresIn);
       setPhase("scan");
     } catch {
       setError("Couldn't start UPI payment");
@@ -117,6 +119,25 @@ export function DqrCheckout({
     pollRef.current = setInterval(checkStatus, POLL_MS);
     return stopPolling;
   }, [phase, checkStatus, stopPolling]);
+
+  // QR expiry countdown. PhonePe rejects an expired QR, so when the TTL runs
+  // out we stop polling and surface a regenerate prompt (the error retry
+  // re-initiates with a fresh QR + timer).
+  useEffect(() => {
+    if (phase !== "scan" || secondsLeft == null) return;
+    if (secondsLeft <= 0) {
+      doneRef.current = true;
+      stopPolling();
+      setError("This QR has expired. Generate a new one to continue.");
+      setPhase("error");
+      return;
+    }
+    const id = setTimeout(
+      () => setSecondsLeft((s) => (s == null ? s : s - 1)),
+      1000,
+    );
+    return () => clearTimeout(id);
+  }, [phase, secondsLeft, stopPolling]);
 
   if (phase === "error") {
     return (
@@ -192,6 +213,12 @@ export function DqrCheckout({
               Waiting for payment…
             </Text>
           </View>
+          {secondsLeft != null ? (
+            <Text variant="tiny" color={colors.zinc500} style={styles.amountSub}>
+              Expires in {Math.floor(secondsLeft / 60)}:
+              {String(secondsLeft % 60).padStart(2, "0")}
+            </Text>
+          ) : null}
           <Text variant="tiny" color={colors.zinc600} style={styles.amountSub}>
             Confirms automatically once you pay — no need to send us anything.
           </Text>

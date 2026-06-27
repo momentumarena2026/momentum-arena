@@ -12,10 +12,14 @@ export const authApi = {
     return api.post<SendOtpResponse>("/api/mobile/send-otp", { phone }, { auth: false });
   },
 
-  async verifyOtp(phone: string, otp: string): Promise<CachedUser> {
+  async verifyOtp(
+    phone: string,
+    otp: string,
+    referralCode?: string,
+  ): Promise<CachedUser> {
     const res = await api.post<VerifyOtpResponse>(
       "/api/mobile/verify-otp",
-      { phone, otp },
+      { phone, otp, referralCode },
       { auth: false }
     );
     await tokenStorage.save(res.tokens.accessToken);
@@ -33,6 +37,15 @@ export const authApi = {
     const user = await api.patch<CachedUser>("/api/mobile/me", { name });
     userCache.write(user);
     return user;
+  },
+
+  /**
+   * Permanently delete the signed-in user's account (App Store requirement).
+   * On success the caller should also run the AuthProvider signOut to clear
+   * local state — the token is rejected server-side from here on.
+   */
+  async deleteAccount(): Promise<void> {
+    await api.post("/api/mobile/account/delete", {});
   },
 
   async signOut(): Promise<void> {

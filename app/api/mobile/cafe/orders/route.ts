@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { PaymentMethod } from "@prisma/client";
 import { createCafePaymentIntent } from "@/lib/cafe-intent";
 import { validateCafeCoupon } from "@/actions/cafe-orders";
+import { isCheckoutMethodEnabled } from "@/actions/admin-payment-settings";
 
 /**
  * Mobile cafe order creation. Mirrors the web createCafeOrder
@@ -65,6 +66,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Server-side enforcement of the admin payment-method config — the app
+  // hardcodes the method tiles, so guard here too.
+  if (!(await isCheckoutMethodEnabled(data.paymentMethod))) {
+    return NextResponse.json(
+      { error: "That payment method isn't available right now." },
+      { status: 409 },
+    );
+  }
+
   // Hydrate items + validate availability.
   const cafeItemIds = data.items.map((i) => i.cafeItemId);
   const cafeItems = await db.cafeItem.findMany({
@@ -110,6 +120,7 @@ export async function POST(request: NextRequest) {
       data.discountCode,
       totalAmount,
       categories,
+      user.id,
     );
     if (!couponResult.valid) {
       return NextResponse.json(
