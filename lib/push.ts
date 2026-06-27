@@ -91,6 +91,10 @@ export type PushKind =
   // mobile tap handler treats this as a no-op deep-link — opening
   // the app is enough action.
   | "broadcast"
+  // Admin broadcast targeting an in-app screen (data.screen =
+  // home|book|cafe|shop|rewards); the mobile tap handler routes to
+  // that tab. Set by the broadcast form's "On tap, open" picker.
+  | "open_screen"
   // Admin-bound kinds — sent to AdminPushDevice rows. The mobile
   // admin shell routes taps to the booking detail or unconfirmed
   // queue accordingly.
