@@ -40,6 +40,7 @@ import { AdminRewardsTransactionsScreen } from "../screens/admin/AdminRewardsTra
 import { AdminDashboardScreen } from "../screens/admin/AdminDashboardScreen";
 import { AdminMoreScreen } from "../screens/admin/AdminMoreScreen";
 import { AdminSportsScreen } from "../screens/admin/AdminSportsScreen";
+import { AdminEquipmentScreen } from "../screens/admin/AdminEquipmentScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
@@ -85,6 +86,11 @@ function AdminMoreStackNav() {
         name="AdminSports"
         component={AdminSportsScreen}
         options={{ title: "Sports" }}
+      />
+      <MoreStack.Screen
+        name="AdminEquipment"
+        component={AdminEquipmentScreen}
+        options={{ title: "Equipment" }}
       />
     </MoreStack.Navigator>
   );
