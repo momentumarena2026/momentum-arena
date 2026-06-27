@@ -137,8 +137,18 @@ const GROUPS: Group[] = [
         perm: "MANAGE_SHOP_CATALOG",
         onPress: (nav) => nav.navigate("AdminProducts"),
       },
-      { label: "Shop orders", icon: ic(ShoppingBag), perm: "MANAGE_SHOP_ORDERS" },
-      { label: "Walk-in sale (POS)", icon: ic(CreditCard), perm: "MANAGE_SHOP_ORDERS" },
+      {
+        label: "Shop orders",
+        icon: ic(ShoppingBag),
+        perm: "MANAGE_SHOP_ORDERS",
+        onPress: (nav) => nav.navigate("AdminProductOrders"),
+      },
+      {
+        label: "Walk-in sale (POS)",
+        icon: ic(CreditCard),
+        perm: "MANAGE_SHOP_ORDERS",
+        onPress: (nav) => nav.navigate("AdminPos"),
+      },
     ],
   },
   {
@@ -174,15 +184,53 @@ const GROUPS: Group[] = [
   {
     title: "Engagement",
     rows: [
-      { label: "Push notifications", icon: ic(Bell), perm: "MANAGE_PUSH" },
-      { label: "App updates (OTA)", icon: ic(Megaphone), perm: "MANAGE_PRICING" },
+      {
+        label: "Push notifications",
+        icon: ic(Bell),
+        perm: "MANAGE_PUSH",
+        onPress: (nav) => nav.navigate("AdminPush"),
+      },
+      {
+        label: "App updates (OTA)",
+        icon: ic(Megaphone),
+        perm: "MANAGE_PRICING",
+        onPress: (nav) => nav.navigate("AdminOta"),
+      },
+      {
+        label: "Release flow",
+        icon: ic(FileText),
+        perm: "MANAGE_PRICING",
+        onPress: (nav) => nav.navigate("AdminReleaseFlow"),
+      },
     ],
   },
   {
     title: "Settings",
     rows: [
-      { label: "Users", icon: ic(Users), perm: "MANAGE_USERS" },
-      { label: "FAQs", icon: ic(FileText), perm: "MANAGE_FAQS" },
+      {
+        label: "Users",
+        icon: ic(Users),
+        perm: "MANAGE_USERS",
+        onPress: (nav) => nav.navigate("AdminUsers"),
+      },
+      {
+        label: "User groups",
+        icon: ic(Users),
+        perm: "MANAGE_COUPONS",
+        onPress: (nav) => nav.navigate("AdminUserGroups"),
+      },
+      {
+        label: "FAQs",
+        icon: ic(FileText),
+        perm: "MANAGE_FAQS",
+        onPress: (nav) => nav.navigate("AdminFaqs"),
+      },
+      {
+        label: "Generator",
+        icon: ic(Settings2),
+        perm: "MANAGE_PRICING",
+        onPress: (nav) => nav.navigate("AdminGenerator"),
+      },
       { label: "Payment gateway", icon: ic(CreditCard), perm: "VIEW_RAZORPAY" },
       { label: "Razorpay", icon: ic(IndianRupee), perm: "VIEW_RAZORPAY" },
       { label: "Admin users", icon: ic(Settings2), perm: "MANAGE_ADMIN_USERS" },

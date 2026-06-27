@@ -46,6 +46,15 @@ import { AdminBowlingScreen } from "../screens/admin/AdminBowlingScreen";
 import { AdminPricingScreen } from "../screens/admin/AdminPricingScreen";
 import { AdminCouponsScreen } from "../screens/admin/AdminCouponsScreen";
 import { AdminProductsScreen } from "../screens/admin/AdminProductsScreen";
+import { AdminProductOrdersScreen } from "../screens/admin/AdminProductOrdersScreen";
+import { AdminPosScreen } from "../screens/admin/AdminPosScreen";
+import { AdminPushScreen } from "../screens/admin/AdminPushScreen";
+import { AdminOtaScreen } from "../screens/admin/AdminOtaScreen";
+import { AdminReleaseFlowScreen } from "../screens/admin/AdminReleaseFlowScreen";
+import { AdminUsersScreen } from "../screens/admin/AdminUsersScreen";
+import { AdminUserGroupsScreen } from "../screens/admin/AdminUserGroupsScreen";
+import { AdminFaqsScreen } from "../screens/admin/AdminFaqsScreen";
+import { AdminGeneratorScreen } from "../screens/admin/AdminGeneratorScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
@@ -116,6 +125,51 @@ function AdminMoreStackNav() {
         name="AdminProducts"
         component={AdminProductsScreen}
         options={{ title: "Products" }}
+      />
+      <MoreStack.Screen
+        name="AdminProductOrders"
+        component={AdminProductOrdersScreen}
+        options={{ title: "Shop orders" }}
+      />
+      <MoreStack.Screen
+        name="AdminPos"
+        component={AdminPosScreen}
+        options={{ title: "Walk-in sale" }}
+      />
+      <MoreStack.Screen
+        name="AdminPush"
+        component={AdminPushScreen}
+        options={{ title: "Push notifications" }}
+      />
+      <MoreStack.Screen
+        name="AdminOta"
+        component={AdminOtaScreen}
+        options={{ title: "App updates" }}
+      />
+      <MoreStack.Screen
+        name="AdminReleaseFlow"
+        component={AdminReleaseFlowScreen}
+        options={{ title: "Release flow" }}
+      />
+      <MoreStack.Screen
+        name="AdminUsers"
+        component={AdminUsersScreen}
+        options={{ title: "Users" }}
+      />
+      <MoreStack.Screen
+        name="AdminUserGroups"
+        component={AdminUserGroupsScreen}
+        options={{ title: "User groups" }}
+      />
+      <MoreStack.Screen
+        name="AdminFaqs"
+        component={AdminFaqsScreen}
+        options={{ title: "FAQs" }}
+      />
+      <MoreStack.Screen
+        name="AdminGenerator"
+        component={AdminGeneratorScreen}
+        options={{ title: "Generator" }}
       />
     </MoreStack.Navigator>
   );

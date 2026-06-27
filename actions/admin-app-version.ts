@@ -49,8 +49,19 @@ export interface AppVersionGateRow {
   updatedAt: Date;
 }
 
-export async function listAppVersionGates(): Promise<AppVersionGateRow[]> {
-  await requireAdmin();
+/**
+ * List every native version gate.
+ *
+ * `skipAuth` lets a caller that has already authorized the request reuse this
+ * query without the cookie-session check. The mobile admin route
+ * (app/api/mobile/admin/ota) authenticates via bearer token + MANAGE_PRICING
+ * (getMobileAdmin/hasPermission) and passes `skipAuth: true`, since the
+ * cookie-based requireAdmin() would reject a mobile request with no session.
+ */
+export async function listAppVersionGates({
+  skipAuth = false,
+}: { skipAuth?: boolean } = {}): Promise<AppVersionGateRow[]> {
+  if (!skipAuth) await requireAdmin();
 
   const gates = await db.appVersionGate.findMany({
     orderBy: [{ channel: "asc" }, { platform: "asc" }],
