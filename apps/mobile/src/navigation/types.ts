@@ -159,6 +159,7 @@ export type AdminCalendarStackParamList = {
 export type AdminCafeStackParamList = {
   AdminCafeOrders: undefined;
   AdminCafeMenu: undefined;
+  AdminCafeCoupons: undefined;
 };
 
 // Expenses tab: list (default) + per-row edit + add + analytics.

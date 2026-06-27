@@ -91,7 +91,13 @@ const GROUPS: Group[] = [
     title: "Cafe",
     rows: [
       { label: "Create cafe order", icon: ic(ShoppingBag), perm: "MANAGE_CAFE_ORDERS" },
-      { label: "Cafe coupons", icon: ic(Tag), perm: "MANAGE_CAFE_DISCOUNTS" },
+      {
+        label: "Cafe coupons",
+        icon: ic(Tag),
+        perm: "MANAGE_CAFE_DISCOUNTS",
+        onPress: (nav) =>
+          nav.navigate("AdminCafe", { screen: "AdminCafeCoupons" }),
+      },
     ],
   },
   {
