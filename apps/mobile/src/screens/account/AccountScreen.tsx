@@ -22,6 +22,7 @@ import {
   Coffee,
   ShoppingBag,
   Sparkles,
+  Trash2,
   User as UserIcon,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -33,6 +34,8 @@ import { useAuth } from "../../providers/AuthProvider";
 import { useAdminAuth } from "../../providers/AdminAuthProvider";
 import { bookingsApi } from "../../lib/bookings";
 import { rewardsApi } from "../../lib/rewards";
+import { authApi } from "../../lib/auth";
+import { ApiError } from "../../lib/api";
 import { trackRewardsTileTap } from "../../lib/analytics";
 import { versionLabel } from "../../lib/appVersion";
 import {
@@ -110,6 +113,31 @@ export function AccountScreen() {
           text: "Sign out",
           style: "destructive",
           onPress: () => void signOut(),
+        },
+      ],
+    );
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your account and cancels any upcoming bookings. Your name, phone and email are removed. This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete account",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await authApi.deleteAccount();
+              await signOut();
+            } catch (err) {
+              Alert.alert(
+                "Couldn't delete account",
+                err instanceof ApiError ? err.message : "Please try again.",
+              );
+            }
+          },
         },
       ],
     );
@@ -294,6 +322,16 @@ export function AccountScreen() {
         fullWidth
         style={styles.signOut}
       />
+      <Pressable
+        onPress={confirmDeleteAccount}
+        style={styles.deleteAccount}
+        hitSlop={8}
+      >
+        <Trash2 size={15} color={colors.destructive} />
+        <Text variant="small" weight="600" color={colors.destructive}>
+          Delete account
+        </Text>
+      </Pressable>
       <VersionFooter />
     </Screen>
   );
@@ -1072,6 +1110,14 @@ const styles = StyleSheet.create({
   // ── Footer
   signOut: {
     marginTop: spacing["2"],
+  },
+  deleteAccount: {
+    marginTop: spacing["4"],
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: spacing["2"],
   },
   version: {
     textAlign: "center",

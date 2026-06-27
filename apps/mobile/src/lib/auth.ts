@@ -39,6 +39,15 @@ export const authApi = {
     return user;
   },
 
+  /**
+   * Permanently delete the signed-in user's account (App Store requirement).
+   * On success the caller should also run the AuthProvider signOut to clear
+   * local state — the token is rejected server-side from here on.
+   */
+  async deleteAccount(): Promise<void> {
+    await api.post("/api/mobile/account/delete", {});
+  },
+
   async signOut(): Promise<void> {
     await tokenStorage.clear();
     userCache.clear();
