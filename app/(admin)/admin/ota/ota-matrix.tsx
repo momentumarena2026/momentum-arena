@@ -131,6 +131,14 @@ function ReleaseSlotCard({
               <tbody>
                 {pageRows.map((r) => {
                   const badge = STATUS_BADGE[r.status];
+                  // Rolling out a release older than the live one never cleanly
+                  // reverts (expo-updates won't downgrade) — block it in the UI
+                  // to match the server guard.
+                  const olderThanLive =
+                    !!live &&
+                    r.id !== live.id &&
+                    new Date(r.createdAt).getTime() <
+                      new Date(live.createdAt).getTime();
                   return (
                     <tr
                       key={r.id}
@@ -185,6 +193,11 @@ function ReleaseSlotCard({
                           releaseId={r.id}
                           status={r.status}
                           rolloutPercent={r.rolloutPercent}
+                          disabledReason={
+                            olderThanLive
+                              ? "Older than the live release — devices won't downgrade. Use Roll back or publish a new release."
+                              : undefined
+                          }
                         />
                       </td>
                     </tr>
