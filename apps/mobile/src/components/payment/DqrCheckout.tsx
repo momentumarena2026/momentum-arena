@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,9 +9,8 @@ import {
 } from "react-native";
 import {
   AlertCircle,
-  CheckCircle2,
   RefreshCw,
-  Smartphone,
+  ScanLine,
 } from "lucide-react-native";
 import { Text } from "../ui/Text";
 import { colors, radius, spacing } from "../../theme";
@@ -59,7 +56,6 @@ export function DqrCheckout({
   const [phase, setPhase] = useState<Phase>("init");
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const qrStringRef = useRef<string | null>(null);
   const txnRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneRef = useRef(false);
@@ -102,7 +98,6 @@ export function DqrCheckout({
         setPhase("error");
         return;
       }
-      qrStringRef.current = res.qrString;
       txnRef.current = res.transactionId;
       setQrImage(res.qrImage);
       setPhase("scan");
@@ -122,19 +117,6 @@ export function DqrCheckout({
     pollRef.current = setInterval(checkStatus, POLL_MS);
     return stopPolling;
   }, [phase, checkStatus, stopPolling]);
-
-  async function openUpiApp() {
-    const link = qrStringRef.current;
-    if (!link) return;
-    try {
-      await Linking.openURL(link);
-    } catch {
-      Alert.alert(
-        "No UPI app found",
-        "Couldn't open a UPI app. Please scan the QR with PhonePe, Google Pay, Paytm or any UPI app.",
-      );
-    }
-  }
 
   if (phase === "error") {
     return (
@@ -211,7 +193,28 @@ export function DqrCheckout({
             </Text>
           </View>
           <Text variant="tiny" color={colors.zinc600} style={styles.amountSub}>
-            Confirms automatically once you pay — no screenshot needed.
+            Confirms automatically once you pay — no need to send us anything.
+          </Text>
+        </View>
+
+        <View style={styles.howCard}>
+          <View style={styles.howHeader}>
+            <ScanLine size={16} color={colors.emerald400} />
+            <Text variant="small" weight="600">
+              Scan &amp; pay with any UPI app
+            </Text>
+          </View>
+          <Text variant="tiny" color={colors.zinc400}>
+            Open GPay, PhonePe, Paytm, BHIM — or any UPI app — and scan the QR
+            above.
+          </Text>
+          <View style={styles.howDivider} />
+          <Text variant="tiny" weight="600">
+            Paying on this phone?
+          </Text>
+          <Text variant="tiny" color={colors.zinc400}>
+            Screenshot this screen, then in your UPI app tap Scan → Gallery and
+            pick the screenshot.
           </Text>
         </View>
 
@@ -228,15 +231,6 @@ export function DqrCheckout({
       </ScrollView>
 
       <View style={styles.actionFooter}>
-        <Pressable
-          onPress={openUpiApp}
-          style={({ pressed }) => [styles.upiAppBtn, pressed && { opacity: 0.9 }]}
-        >
-          <Smartphone size={20} color="#fff" />
-          <Text variant="body" weight="700" color="#fff">
-            Pay with UPI App
-          </Text>
-        </Pressable>
         <Pressable onPress={onCancel} style={styles.cancelBtn}>
           <Text variant="small" align="center" color={colors.zinc500}>
             ← Go back
@@ -290,6 +284,25 @@ const styles = StyleSheet.create({
     gap: spacing["2"],
     marginTop: spacing["2"],
   },
+  howCard: {
+    gap: spacing["2"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: "rgba(24, 24, 27, 0.6)",
+    paddingHorizontal: spacing["4"],
+    paddingVertical: spacing["3"],
+  },
+  howHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+  },
+  howDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.zinc800,
+    marginVertical: spacing["1"],
+  },
   notice: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -329,16 +342,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing["5"],
     backgroundColor: colors.background,
     gap: spacing["3"],
-  },
-  upiAppBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing["3"],
-    paddingVertical: 14,
-    paddingHorizontal: spacing["4"],
-    borderRadius: radius.lg,
-    backgroundColor: "#059669",
   },
   cancelBtn: { paddingVertical: spacing["2"] },
 });
