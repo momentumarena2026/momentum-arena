@@ -37,6 +37,7 @@ import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyt
 import { AdminRewardsScreen } from "../screens/admin/AdminRewardsScreen";
 import { AdminRewardsDistributeScreen } from "../screens/admin/AdminRewardsDistributeScreen";
 import { AdminRewardsTransactionsScreen } from "../screens/admin/AdminRewardsTransactionsScreen";
+import { AdminRewardsConfigScreen } from "../screens/admin/AdminRewardsConfigScreen";
 import { AdminDashboardScreen } from "../screens/admin/AdminDashboardScreen";
 import { AdminMoreScreen } from "../screens/admin/AdminMoreScreen";
 import { AdminSportsScreen } from "../screens/admin/AdminSportsScreen";
@@ -139,6 +140,11 @@ function AdminRewardsStackNav() {
         name="AdminRewardsTransactions"
         component={AdminRewardsTransactionsScreen}
         options={{ title: "Transactions ledger" }}
+      />
+      <RewardsStack.Screen
+        name="AdminRewardsConfig"
+        component={AdminRewardsConfigScreen}
+        options={{ title: "Reward settings" }}
       />
     </RewardsStack.Navigator>
   );

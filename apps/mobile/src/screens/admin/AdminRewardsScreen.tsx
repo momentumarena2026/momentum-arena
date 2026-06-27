@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Clock,
   ListOrdered,
+  SlidersHorizontal,
   Sparkles,
   Users,
   X,
@@ -179,6 +180,25 @@ export function AdminRewardsScreen() {
                 <Text style={styles.ctaTitle}>Transactions ledger</Text>
                 <Text style={styles.ctaSub}>
                   Every earn + redeem, filter by user / date / type
+                </Text>
+              </View>
+              <ChevronRight size={18} color={colors.emerald400} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => navigation.navigate("AdminRewardsConfig")}
+              style={({ pressed }) => [
+                styles.cta,
+                pressed && styles.ctaPressed,
+              ]}
+            >
+              <View style={styles.ctaIcon}>
+                <SlidersHorizontal size={18} color={colors.emerald400} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.ctaTitle}>Reward settings</Text>
+                <Text style={styles.ctaSub}>
+                  Earn rates, redemption rules, signup + referral bonuses
                 </Text>
               </View>
               <ChevronRight size={18} color={colors.emerald400} />

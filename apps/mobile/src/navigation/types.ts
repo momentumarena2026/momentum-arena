@@ -211,4 +211,5 @@ export type AdminRewardsStackParamList = {
   AdminRewardsHome: undefined;
   AdminRewardsDistribute: undefined;
   AdminRewardsTransactions: undefined;
+  AdminRewardsConfig: undefined;
 };

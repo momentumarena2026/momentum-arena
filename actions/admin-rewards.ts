@@ -127,8 +127,8 @@ export async function getAdminRewardsOverview(): Promise<AdminRewardsOverview> {
 
 // ─── Config (full read for the edit form) ────────────────────────
 
-export async function getAdminRewardConfigFull() {
-  await requireAdmin();
+export async function getAdminRewardConfigFull(skipAuth = false) {
+  if (!skipAuth) await requireAdmin();
   const cfg = await getRewardConfig();
   return {
     enabled: cfg.enabled,
@@ -185,8 +185,11 @@ const configSchema = z.object({
 
 export type AdminRewardConfigInput = z.infer<typeof configSchema>;
 
-export async function updateAdminRewardConfig(input: AdminRewardConfigInput) {
-  await requireAdmin();
+export async function updateAdminRewardConfig(
+  input: AdminRewardConfigInput,
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAdmin();
   const parsed = configSchema.parse(input);
   await db.rewardConfig.upsert({
     where: { id: "singleton" },

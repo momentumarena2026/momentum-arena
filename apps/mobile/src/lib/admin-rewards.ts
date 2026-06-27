@@ -176,4 +176,34 @@ export const adminRewardsApi = {
       { method: "GET" },
     );
   },
+
+  config: () =>
+    request<{ config: AdminRewardConfig }>("/api/mobile/admin/rewards/config", {
+      method: "GET",
+    }),
+  saveConfig: (config: AdminRewardConfig) =>
+    request<{ ok: true }>("/api/mobile/admin/rewards/config", {
+      method: "POST",
+      body: config,
+    }),
 };
+
+export interface AdminRewardConfig {
+  enabled: boolean;
+  cafeEarnEnabled: boolean;
+  earnRateBookingBps: number;
+  earnRateCafeBps: number;
+  pointValuePaise: number;
+  minPointsToRedeem: number;
+  maxRedemptionPctOfBill: number;
+  maxRedemptionPaisePerTxn: number;
+  pointExpiryMonths: number;
+  earnToRedeemMinHours: number;
+  signupBonusPoints: number;
+  referralEarnerPoints: number;
+  referralReferredPoints: number;
+  birthdayBonusPoints: number;
+  highVelocityEarnDailyThreshold: number;
+  bulkRedemptionPaiseThreshold: number;
+  enabledSports: ("CRICKET" | "FOOTBALL" | "PICKLEBALL")[];
+}
