@@ -8,11 +8,10 @@ import {
   CalendarCheck,
   CalendarRange,
   Coffee,
-  IndianRupee,
+  LayoutDashboard,
   LogOut,
-  ScanLine,
+  Menu,
   ShieldCheck,
-  Sparkles,
   UserSquare2,
 } from "lucide-react-native";
 import { Text } from "../components/ui/Text";
@@ -36,11 +35,14 @@ import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyt
 import { AdminRewardsScreen } from "../screens/admin/AdminRewardsScreen";
 import { AdminRewardsDistributeScreen } from "../screens/admin/AdminRewardsDistributeScreen";
 import { AdminRewardsTransactionsScreen } from "../screens/admin/AdminRewardsTransactionsScreen";
+import { AdminDashboardScreen } from "../screens/admin/AdminDashboardScreen";
+import { AdminMoreScreen } from "../screens/admin/AdminMoreScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
   AdminCalendarStackParamList,
   AdminExpensesStackParamList,
+  AdminMoreStackParamList,
   AdminRewardsStackParamList,
   AdminTabsParamList,
   RootStackParamList,
@@ -53,7 +55,32 @@ const CafeStack = createNativeStackNavigator<AdminCafeStackParamList>();
 const ExpensesStack =
   createNativeStackNavigator<AdminExpensesStackParamList>();
 const RewardsStack = createNativeStackNavigator<AdminRewardsStackParamList>();
+const MoreStack = createNativeStackNavigator<AdminMoreStackParamList>();
 const Tabs = createBottomTabNavigator<AdminTabsParamList>();
+
+/**
+ * "More" hub stack. Root is the grouped, permission-gated menu; Phase 1+
+ * secondary admin screens register here so the hub can push to them.
+ */
+function AdminMoreStackNav() {
+  return (
+    <MoreStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
+        headerTintColor: colors.primary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <MoreStack.Screen
+        name="AdminMoreHome"
+        component={AdminMoreScreen}
+        options={{ headerShown: false }}
+      />
+    </MoreStack.Navigator>
+  );
+}
 
 function AdminRewardsStackNav() {
   return (
@@ -256,31 +283,32 @@ export function AdminNavigator() {
         tabBarIcon: ({ color, size }) => {
           const props = { color, size: size ?? 20, strokeWidth: 2 } as const;
           switch (route.name) {
+            case "AdminHome":
+              return <LayoutDashboard {...props} />;
             case "AdminBookings":
               return <CalendarCheck {...props} />;
-            case "AdminCheckin":
-              return <ScanLine {...props} />;
             case "AdminCalendar":
               return <CalendarRange {...props} />;
             case "AdminCafe":
               return <Coffee {...props} />;
-            case "AdminExpenses":
-              return <IndianRupee {...props} />;
-            case "AdminRewards":
-              return <Sparkles {...props} />;
+            case "AdminMore":
+              return <Menu {...props} />;
+            // Hidden tabs (Checkin/Expenses/Rewards) render no bar icon.
+            default:
+              return null;
           }
         },
       })}
     >
       <Tabs.Screen
+        name="AdminHome"
+        component={AdminDashboardScreen}
+        options={{ tabBarLabel: "Home" }}
+      />
+      <Tabs.Screen
         name="AdminBookings"
         component={AdminBookingsStack}
         options={{ tabBarLabel: "Bookings" }}
-      />
-      <Tabs.Screen
-        name="AdminCheckin"
-        component={AdminCheckinScreen}
-        options={{ tabBarLabel: "Check-in" }}
       />
       <Tabs.Screen
         name="AdminCalendar"
@@ -293,14 +321,35 @@ export function AdminNavigator() {
         options={{ tabBarLabel: "Cafe" }}
       />
       <Tabs.Screen
+        name="AdminMore"
+        component={AdminMoreStackNav}
+        options={{ tabBarLabel: "More" }}
+      />
+      {/* Secondary tabs — reachable from the dashboard quick-actions and the
+          More hub, but hidden from the bottom bar to keep it to five. */}
+      <Tabs.Screen
+        name="AdminCheckin"
+        component={AdminCheckinScreen}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: "none" },
+        }}
+      />
+      <Tabs.Screen
         name="AdminExpenses"
         component={AdminExpensesStackNav}
-        options={{ tabBarLabel: "Expenses" }}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: "none" },
+        }}
       />
       <Tabs.Screen
         name="AdminRewards"
         component={AdminRewardsStackNav}
-        options={{ tabBarLabel: "Rewards" }}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: "none" },
+        }}
       />
     </Tabs.Navigator>
   );
@@ -308,6 +357,8 @@ export function AdminNavigator() {
 
 function titleFor(name: keyof AdminTabsParamList): string {
   switch (name) {
+    case "AdminHome":
+      return "Dashboard";
     case "AdminBookings":
       return "Bookings";
     case "AdminCheckin":
@@ -320,6 +371,8 @@ function titleFor(name: keyof AdminTabsParamList): string {
       return "Expenses";
     case "AdminRewards":
       return "Rewards";
+    case "AdminMore":
+      return "More";
   }
 }
 
