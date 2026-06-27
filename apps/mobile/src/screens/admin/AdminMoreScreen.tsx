@@ -101,7 +101,12 @@ const GROUPS: Group[] = [
         perm: "MANAGE_SPORTS",
         onPress: (nav) => nav.navigate("AdminBowling"),
       },
-      { label: "Pricing", icon: ic(IndianRupee), perm: "MANAGE_PRICING" },
+      {
+        label: "Pricing",
+        icon: ic(IndianRupee),
+        perm: "MANAGE_PRICING",
+        onPress: (nav) => nav.navigate("AdminPricing"),
+      },
     ],
   },
   {
