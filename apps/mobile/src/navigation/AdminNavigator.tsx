@@ -70,6 +70,7 @@ import { AdminRecoveryScreen } from "../screens/admin/AdminRecoveryScreen";
 import { AdminRecurringConfigScreen } from "../screens/admin/AdminRecurringConfigScreen";
 import { AdminUtrVerifyScreen } from "../screens/admin/AdminUtrVerifyScreen";
 import { AdminDiscountsScreen } from "../screens/admin/AdminDiscountsScreen";
+import { AdminReportsScreen } from "../screens/admin/AdminReportsScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
@@ -201,6 +202,7 @@ function AdminMoreStackNav() {
       <MoreStack.Screen name="AdminRecurringConfig" component={AdminRecurringConfigScreen} options={{ title: "Recurring config" }} />
       <MoreStack.Screen name="AdminUtrVerify" component={AdminUtrVerifyScreen} options={{ title: "UTR verify" }} />
       <MoreStack.Screen name="AdminDiscounts" component={AdminDiscountsScreen} options={{ title: "Discount codes" }} />
+      <MoreStack.Screen name="AdminReports" component={AdminReportsScreen} options={{ title: "Reports" }} />
     </MoreStack.Navigator>
   );
 }
