@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   NavigationContainer,
@@ -7,12 +7,18 @@ import {
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../providers/AuthProvider";
-import { installPushTapHandlers } from "../lib/push";
+import {
+  installForegroundMessageHandler,
+  installPushTapHandlers,
+  type ForegroundPush,
+  type PushTapPayload,
+} from "../lib/push";
 import {
   trackPageView,
   trackWaitlistNotificationTapped,
 } from "../lib/analytics";
 import { NavLoader } from "../components/NavLoader";
+import { InAppNotificationBanner } from "../components/InAppNotificationBanner";
 import { colors } from "../theme";
 import { MainNavigator } from "./MainNavigator";
 import { PhoneScreen } from "../screens/auth/PhoneScreen";
@@ -41,30 +47,15 @@ export function RootNavigator() {
   const { state } = useAuth();
   const navigationRef = useNavigationContainerRef<RootStackParamList>();
 
-  // Push-tap routing. Wires both cold-start (`getInitialNotification`)
-  // and background-tap (`onNotificationOpenedApp`). Lives here so it
-  // has direct access to the navigation ref; `installPushTapHandlers`
-  // is otherwise side-effect-free, so running it once on mount is fine.
-  useEffect(() => {
-    const unsub = installPushTapHandlers((payload) => {
-      // Wait until navigation is ready — cold-start payload may arrive
-      // before the container has mounted.
-      if (!navigationRef.isReady()) {
-        const id = setInterval(() => {
-          if (!navigationRef.isReady()) return;
-          clearInterval(id);
-          dispatchPushTap(payload);
-        }, 100);
-        // Defensive cap: stop polling after 5s if navigation never
-        // becomes ready (bug somewhere). Otherwise this would leak.
-        setTimeout(() => clearInterval(id), 5000);
-        return;
-      }
-      dispatchPushTap(payload);
-    });
-    return unsub;
+  const [banner, setBanner] = useState<(ForegroundPush & { id: number }) | null>(
+    null,
+  );
+  const bannerId = useRef(0);
 
-    function dispatchPushTap(payload: Parameters<Parameters<typeof installPushTapHandlers>[0]>[0]) {
+  // Shared push routing — used by both a notification tap and a tap on
+  // the in-app foreground banner.
+  const dispatchPushTap = useCallback(
+    (payload: PushTapPayload) => {
       switch (payload.kind) {
         case "booking_confirmed":
         case "booking_reminder_24h":
@@ -164,8 +155,38 @@ export function RootNavigator() {
           }
           break;
       }
-    }
-  }, [navigationRef]);
+    },
+    [navigationRef],
+  );
+
+  // Tap routing — cold-start (`getInitialNotification`) + background-tap
+  // (`onNotificationOpenedApp`). Side-effect-free, so once on mount is fine.
+  useEffect(() => {
+    const unsub = installPushTapHandlers((payload) => {
+      // Cold-start payload may arrive before the container has mounted.
+      if (!navigationRef.isReady()) {
+        const id = setInterval(() => {
+          if (!navigationRef.isReady()) return;
+          clearInterval(id);
+          dispatchPushTap(payload);
+        }, 100);
+        setTimeout(() => clearInterval(id), 5000);
+        return;
+      }
+      dispatchPushTap(payload);
+    });
+    return unsub;
+  }, [navigationRef, dispatchPushTap]);
+
+  // Foreground messages — iOS shows no system banner while the app is
+  // open, so surface them as an in-app banner. Keyed by an incrementing
+  // id so each push remounts the banner (fresh slide-in + auto-dismiss).
+  useEffect(() => {
+    return installForegroundMessageHandler((msg) => {
+      bannerId.current += 1;
+      setBanner({ ...msg, id: bannerId.current });
+    });
+  }, []);
 
   if (state.status === "loading") {
     return (
@@ -259,6 +280,17 @@ export function RootNavigator() {
         sits above every screen, customer + admin alike. Driven by
         TanStack Query in-flight state. */}
     <NavLoader />
+    {banner && (
+      <InAppNotificationBanner
+        key={banner.id}
+        title={banner.title}
+        body={banner.body}
+        onPress={() => {
+          if (banner.tap) dispatchPushTap(banner.tap);
+        }}
+        onDismiss={() => setBanner(null)}
+      />
+    )}
     </>
   );
 }

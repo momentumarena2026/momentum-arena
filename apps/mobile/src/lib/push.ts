@@ -284,3 +284,28 @@ export function installPushTapHandlers(
     if (parsed) onTap(parsed);
   });
 }
+
+export interface ForegroundPush {
+  title: string;
+  body: string;
+  /** Routing payload for a tap on the in-app banner; null if untyped. */
+  tap: PushTapPayload | null;
+}
+
+/**
+ * Wire the FOREGROUND message handler. While the app is open, iOS does
+ * not show a system banner — FCM delivers the message to onMessage
+ * instead — so we surface it as an in-app banner (see RootNavigator +
+ * InAppNotificationBanner). Call once. Returns an unsubscribe.
+ */
+export function installForegroundMessageHandler(
+  onForeground: (msg: ForegroundPush) => void,
+): () => void {
+  return messaging().onMessage((msg) => {
+    const data = (msg.data ?? {}) as Record<string, string>;
+    const title = msg.notification?.title ?? data.title ?? "";
+    const body = msg.notification?.body ?? data.body ?? "";
+    if (!title && !body) return; // silent data-only message — nothing to show
+    onForeground({ title, body, tap: parseTapPayload(msg) });
+  });
+}
