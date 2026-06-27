@@ -5,19 +5,18 @@
 	<!--
 	  APNs environment for the Push Notifications capability.
 
-	  Xcode normally rewrites this between "development" (debug builds
-	  on a development-provisioned signing identity) and "production"
-	  (release builds / TestFlight / App Store) automatically when you
-	  toggle the capability via the Signing & Capabilities pane. If you
-	  build a release IPA without the right APNs entitlement, FCM will
-	  fail to register tokens silently — `messaging().getToken()`
-	  resolves but pushes from APNs are dropped.
-
-	  Set to `development` here so the dev/Debug builds work out of the
-	  box. Xcode + the App Store automatic signing flow will swap it to
-	  `production` for release archives.
+	  MUST be "production" for us. Our CI signs with MANUAL App Store
+	  signing (see fastlane/Fastfile), so Xcode's automatic-signing flow
+	  that would otherwise swap development→production for release archives
+	  never runs — the value in this file is what ships. TestFlight and the
+	  App Store both use the PRODUCTION APNs environment, so a build with
+	  "development" here registers FCM tokens fine (getToken resolves) but
+	  APNs silently drops every push. This file is shared by Debug + Release
+	  configs; since every distributed build is a CI App Store archive,
+	  "production" is correct. (Local on-device Debug push, if ever needed,
+	  would want a per-config $(APS_ENVIRONMENT) split — not used today.)
 	-->
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>production</string>
 </dict>
 </plist>
