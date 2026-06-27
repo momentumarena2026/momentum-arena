@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
+  Alert,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -22,6 +23,7 @@ import {
   Clock,
   RefreshCw,
   Sparkles,
+  Trash2,
   Trophy,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -29,6 +31,7 @@ import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
+import { ApiError } from "../../lib/api";
 import {
   formatDate,
   formatHourCompact,
@@ -132,6 +135,43 @@ export function RecurringBookingsScreen() {
   const onRefresh = useCallback(() => {
     void refetch();
   }, [refetch]);
+
+  // Cancel an entire recurring series — confirms, then cancels all upcoming
+  // sessions server-side (past sessions untouched) and refreshes the list,
+  // which drops the now-CANCELLED series. Mirrors the web cancel action.
+  const handleCancel = useCallback(
+    (series: RecurringSeries) => {
+      Alert.alert(
+        "Cancel this series?",
+        `This cancels all upcoming ${sportLabel(
+          series.courtConfig.sport,
+        )} sessions in this series. Past sessions stay as they are. This can't be undone.`,
+        [
+          { text: "Keep series", style: "cancel" },
+          {
+            text: "Cancel series",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                const res = await bookingsApi.cancelRecurring(series.id);
+                if (res.success) {
+                  void refetch();
+                } else {
+                  Alert.alert("Couldn't cancel", res.error || "Try again.");
+                }
+              } catch (err) {
+                Alert.alert(
+                  "Couldn't cancel",
+                  err instanceof ApiError ? err.message : "Network error.",
+                );
+              }
+            },
+          },
+        ],
+      );
+    },
+    [refetch],
+  );
 
   // Fires `fetchNextPage` as the user nears the bottom of the scroll
   // view. ScrollView doesn't have native `onEndReached`, so we compute
@@ -280,6 +320,7 @@ export function RecurringBookingsScreen() {
                 key={series.id}
                 series={series}
                 onOpenBooking={goToBookingDetail}
+                onCancel={handleCancel}
               />
             ))}
 
@@ -315,9 +356,10 @@ export function RecurringBookingsScreen() {
 interface RecurringCardProps {
   series: RecurringSeries;
   onOpenBooking: (bookingId: string) => void;
+  onCancel: (series: RecurringSeries) => void;
 }
 
-function RecurringCard({ series, onOpenBooking }: RecurringCardProps) {
+function RecurringCard({ series, onOpenBooking, onCancel }: RecurringCardProps) {
   const theme = SPORT_THEME[series.courtConfig.sport];
   const isActive = series.status === "ACTIVE";
   const dayLabel = DAY_NAMES[series.dayOfWeek] ?? "?";
@@ -421,6 +463,19 @@ function RecurringCard({ series, onOpenBooking }: RecurringCardProps) {
           </View>
         </View>
       )}
+
+      {/* Cancel the entire series — cancels all upcoming sessions. */}
+      <Pressable
+        onPress={() => onCancel(series)}
+        style={({ pressed }) => [
+          cardStyles.cancelBtn,
+          pressed && cardStyles.chipPressed,
+        ]}
+        hitSlop={8}
+      >
+        <Trash2 size={13} color="#fca5a5" />
+        <Text style={cardStyles.cancelText}>Cancel series</Text>
+      </Pressable>
     </View>
   );
 }
@@ -799,6 +854,23 @@ const cardStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
     color: "#d4d4d8",
+  },
+  cancelBtn: {
+    marginTop: spacing["4"],
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: spacing["2"],
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.25)",
+    backgroundColor: "rgba(239, 68, 68, 0.06)",
+  },
+  cancelText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#fca5a5",
   },
 });
 
