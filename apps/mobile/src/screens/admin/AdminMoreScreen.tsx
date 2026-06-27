@@ -131,7 +131,12 @@ const GROUPS: Group[] = [
   {
     title: "Shop",
     rows: [
-      { label: "Products", icon: ic(Package), perm: "MANAGE_SHOP_CATALOG" },
+      {
+        label: "Products",
+        icon: ic(Package),
+        perm: "MANAGE_SHOP_CATALOG",
+        onPress: (nav) => nav.navigate("AdminProducts"),
+      },
       { label: "Shop orders", icon: ic(ShoppingBag), perm: "MANAGE_SHOP_ORDERS" },
       { label: "Walk-in sale (POS)", icon: ic(CreditCard), perm: "MANAGE_SHOP_ORDERS" },
     ],

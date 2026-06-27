@@ -182,6 +182,7 @@ export type AdminMoreStackParamList = {
   AdminBowling: undefined;
   AdminPricing: undefined;
   AdminCoupons: undefined;
+  AdminProducts: undefined;
 };
 
 export type AdminTabsParamList = {
