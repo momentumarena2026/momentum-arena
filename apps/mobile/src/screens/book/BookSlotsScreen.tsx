@@ -538,6 +538,14 @@ export function BookSlotsScreen() {
         sport={params.sport}
         date={selectedDate}
         hour={waitlistHour ?? 0}
+        lockDate={
+          slots.find((s) => s.hour === waitlistHour)?.lockDate ?? selectedDate
+        }
+        lockHour={
+          slots.find((s) => s.hour === waitlistHour)?.lockHour ??
+          waitlistHour ??
+          0
+        }
         signedIn={signedIn}
         onRequireSignIn={() => {
           const rootNav = navigation.getParent<RootNavType<RootStackParamList>>();
@@ -1078,6 +1086,8 @@ function WaitlistSheet({
   sport,
   date,
   hour,
+  lockDate,
+  lockHour,
   signedIn,
   onRequireSignIn,
 }: {
@@ -1088,6 +1098,10 @@ function WaitlistSheet({
   sport: string;
   date: string;
   hour: number;
+  // Storage coords for the join API (the 12am–1am tile stores on the prior
+  // date / hour 24); date/hour stay display-only (label + analytics).
+  lockDate?: string;
+  lockHour?: number;
   signedIn: boolean;
   onRequireSignIn: () => void;
 }) {
@@ -1111,11 +1125,15 @@ function WaitlistSheet({
     if (joining) return;
     setJoining(true);
     try {
+      // Storage coords so the row matches what the freed-slot notifier
+      // queries (the 12am–1am tile stores on the prior date / hour 24).
+      const wlDate = lockDate ?? date;
+      const wlHour = lockHour ?? hour;
       const res = await waitlistApi.join({
         courtConfigId,
-        date,
-        startHour: hour,
-        endHour: hour + 1,
+        date: wlDate,
+        startHour: wlHour,
+        endHour: wlHour + 1,
       });
       if (res.success) {
         setJoined(true);

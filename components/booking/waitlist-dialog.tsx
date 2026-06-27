@@ -25,8 +25,12 @@ interface WaitlistDialogProps {
   courtConfigId: string;
   courtLabel: string;
   sport: string;
-  date: string; // YYYY-MM-DD
-  hour: number;
+  date: string; // YYYY-MM-DD — DISPLAY date (label + analytics)
+  hour: number; // DISPLAY hour
+  /** Storage coords used for the joinWaitlist call (the 12am–1am tile stores
+   *  on the prior date / hour 24). Default to date/hour for ordinary slots. */
+  lockDate?: string;
+  lockHour?: number;
 }
 
 export function WaitlistDialog({
@@ -37,6 +41,8 @@ export function WaitlistDialog({
   sport,
   date,
   hour,
+  lockDate,
+  lockHour,
 }: WaitlistDialogProps) {
   const { data: session, status: sessionStatus } = useSession();
   const [showLogin, setShowLogin] = useState(false);
@@ -77,11 +83,15 @@ export function WaitlistDialog({
 
   const handleNotifyMe = () => {
     startTransition(async () => {
+      // Storage coords so the row matches what the freed-slot notifier
+      // queries (the 12am–1am tile stores on the prior date / hour 24).
+      const wlDate = lockDate ?? date;
+      const wlHour = lockHour ?? hour;
       const res = await joinWaitlist({
         courtConfigId,
-        date,
-        startHour: hour,
-        endHour: hour + 1,
+        date: wlDate,
+        startHour: wlHour,
+        endHour: wlHour + 1,
       });
       if (res.success) {
         setJoined(true);

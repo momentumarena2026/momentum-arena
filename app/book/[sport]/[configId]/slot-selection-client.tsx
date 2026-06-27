@@ -344,10 +344,14 @@ export function SlotSelectionClient({
         if (!mediumMode && isRecurring && selectedHours.length > 0) {
           params.set("recurring", "1");
           params.set("mode", recurringMode);
-          params.set("dayOfWeek", String(effectiveRecurringDay));
-          params.set("startDate", selectedDate);
-          params.set("startHour", String(Math.min(...selectedHours)));
-          params.set("endHour", String(Math.max(...selectedHours) + 1));
+          // Use the STORAGE coords (resolvedLockDate / resolvedLockHours), not
+          // the display date/hours — else a recurring series seeded off the
+          // 12am–1am tile recurs on the wrong day-of-week and mis-dates every
+          // occurrence (the tile displays on date D but stores on D-1 / hour 24).
+          params.set("dayOfWeek", String(new Date(resolvedLockDate).getDay()));
+          params.set("startDate", resolvedLockDate);
+          params.set("startHour", String(Math.min(...resolvedLockHours)));
+          params.set("endHour", String(Math.max(...resolvedLockHours) + 1));
           params.set("courtConfigId", configId);
           if (recurringMode === "weekly") {
             params.set("weeksCount", String(weeksCount));
@@ -848,6 +852,14 @@ export function SlotSelectionClient({
         sport={sport}
         date={selectedDate}
         hour={waitlistHour ?? 0}
+        lockDate={
+          slots.find((s) => s.hour === waitlistHour)?.lockDate ?? selectedDate
+        }
+        lockHour={
+          slots.find((s) => s.hour === waitlistHour)?.lockHour ??
+          waitlistHour ??
+          0
+        }
       />
 
       {/* Soft-block alternatives sheet — opens when the user taps an
