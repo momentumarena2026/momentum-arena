@@ -59,6 +59,7 @@ export function DqrCheckout({
   const [phase, setPhase] = useState<Phase>("init");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const txnRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneRef = useRef(false);
@@ -126,6 +127,7 @@ export function DqrCheckout({
       }
       txnRef.current = data.transactionId;
       setQrDataUrl(data.qrImage);
+      setSecondsLeft(typeof data.expiresIn === "number" ? data.expiresIn : null);
       setPhase("scan");
     } catch {
       setError("Couldn't start UPI payment");
@@ -146,6 +148,24 @@ export function DqrCheckout({
     pollRef.current = setInterval(checkStatus, POLL_MS);
     return stopPolling;
   }, [phase, checkStatus, stopPolling]);
+
+  // QR expiry countdown — PhonePe rejects an expired QR. When the TTL runs
+  // out, stop polling and prompt a regenerate (the error retry re-initiates).
+  useEffect(() => {
+    if (phase !== "scan" || secondsLeft == null) return;
+    if (secondsLeft <= 0) {
+      doneRef.current = true;
+      stopPolling();
+      setError("This QR has expired. Generate a new one to continue.");
+      setPhase("error");
+      return;
+    }
+    const id = setTimeout(
+      () => setSecondsLeft((s) => (s == null ? s : s - 1)),
+      1000,
+    );
+    return () => clearTimeout(id);
+  }, [phase, secondsLeft, stopPolling]);
 
   if (phase === "confirmed") {
     return (
@@ -222,6 +242,12 @@ export function DqrCheckout({
         <p className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for payment…
         </p>
+        {secondsLeft != null && (
+          <p className="mt-1 text-xs text-zinc-500">
+            Expires in {Math.floor(secondsLeft / 60)}:
+            {String(secondsLeft % 60).padStart(2, "0")}
+          </p>
+        )}
         <p className="mt-1 text-xs text-zinc-600">
           Confirms automatically the moment you pay — nothing to send us.
         </p>
