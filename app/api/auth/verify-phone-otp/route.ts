@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { verifyPhoneOtp, normalizePhone } from "@/lib/otp";
 import { db } from "@/lib/db";
+import { awardSignupBonus } from "@/lib/rewards/earn";
+import { applyReferralForNewUser } from "@/actions/referral";
 
 export async function POST(request: NextRequest) {
   try {
-    const { phone, otp } = await request.json();
+    const { phone, otp, referralCode } = await request.json();
 
     if (!phone || !otp) {
       return NextResponse.json({ error: "Phone and OTP are required" }, { status: 400 });
@@ -28,6 +30,11 @@ export async function POST(request: NextRequest) {
           phone: normalizedPhone,
           phoneVerified: new Date(),
         },
+      });
+      const newUserId = user.id;
+      after(() => {
+        void awardSignupBonus(newUserId).catch(() => {});
+        void applyReferralForNewUser(newUserId, referralCode).catch(() => {});
       });
     } else if (!user.phoneVerified) {
       await db.user.update({

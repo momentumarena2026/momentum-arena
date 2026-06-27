@@ -109,7 +109,7 @@ export type CafeStackParamList = {
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabsParamList>;
   Phone: undefined;
-  Otp: { phone: string };
+  Otp: { phone: string; referralCode?: string };
   AdminLogin: undefined;
   AdminShell: NavigatorScreenParams<AdminTabsParamList>;
   // Chat was a 5th tab pre-shop; moved here as a presented stack so

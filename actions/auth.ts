@@ -1,9 +1,12 @@
 "use server";
 
+import { after } from "next/server";
 import { z } from "zod";
 import { AuthError } from "next-auth";
 import { signIn } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { awardSignupBonus } from "@/lib/rewards/earn";
+import { applyReferralForNewUser } from "@/actions/referral";
 import {
   sendPhoneOtp,
   verifyPhoneOtp,
@@ -80,6 +83,7 @@ export async function verifyOtpAndLogin(
 ): Promise<OtpState> {
   const phone = formData.get("phone") as string;
   const code = formData.get("code") as string;
+  const referralCode = (formData.get("referralCode") as string) || null;
 
   const validated = OtpSchema.safeParse({ code });
   if (!validated.success) {
@@ -110,6 +114,13 @@ export async function verifyOtpAndLogin(
         phone: normalizedPhone,
         phoneVerified: new Date(),
       },
+    });
+    // One-time signup reward + optional referral attribution (both no-ops
+    // when the admin has the respective points at 0 / disabled).
+    const newUserId = user.id;
+    after(() => {
+      void awardSignupBonus(newUserId).catch(() => {});
+      void applyReferralForNewUser(newUserId, referralCode).catch(() => {});
     });
   } else if (!user.phoneVerified) {
     await db.user.update({

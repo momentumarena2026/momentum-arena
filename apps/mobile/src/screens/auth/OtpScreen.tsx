@@ -101,7 +101,11 @@ export function OtpScreen() {
     setLoading(true);
     setError(null);
     try {
-      const user = await authApi.verifyOtp(params.phone, code);
+      const user = await authApi.verifyOtp(
+        params.phone,
+        code,
+        params.referralCode,
+      );
       // New users have no name yet — capture it before entering the app
       // (web signup requires a name too). The token is already persisted by
       // verifyOtp, so updateName() in the name step is authenticated.

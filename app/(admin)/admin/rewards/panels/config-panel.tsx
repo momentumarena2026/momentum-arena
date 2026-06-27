@@ -185,11 +185,9 @@ export function RewardsConfigPanel({ config }: Props) {
           value={form.signupBonusPoints}
           onChange={(v) => update("signupBonusPoints", v)}
         />
-        <NumberField
-          label="Birthday bonus"
-          value={form.birthdayBonusPoints}
-          onChange={(v) => update("birthdayBonusPoints", v)}
-        />
+        {/* Birthday bonus intentionally not exposed — we don't collect
+            birthdates, and nothing awards it. Field kept in the save payload
+            (unchanged) so historical config values are preserved. */}
         <NumberField
           label="Referral — earner"
           value={form.referralEarnerPoints}

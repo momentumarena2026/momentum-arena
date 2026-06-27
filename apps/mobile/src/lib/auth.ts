@@ -12,10 +12,14 @@ export const authApi = {
     return api.post<SendOtpResponse>("/api/mobile/send-otp", { phone }, { auth: false });
   },
 
-  async verifyOtp(phone: string, otp: string): Promise<CachedUser> {
+  async verifyOtp(
+    phone: string,
+    otp: string,
+    referralCode?: string,
+  ): Promise<CachedUser> {
     const res = await api.post<VerifyOtpResponse>(
       "/api/mobile/verify-otp",
-      { phone, otp },
+      { phone, otp, referralCode },
       { auth: false }
     );
     await tokenStorage.save(res.tokens.accessToken);
