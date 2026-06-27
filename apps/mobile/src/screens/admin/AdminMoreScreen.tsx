@@ -139,7 +139,12 @@ const GROUPS: Group[] = [
   {
     title: "Promotions",
     rows: [
-      { label: "Coupons", icon: ic(Ticket), perm: "MANAGE_COUPONS" },
+      {
+        label: "Coupons",
+        icon: ic(Ticket),
+        perm: "MANAGE_COUPONS",
+        onPress: (nav) => nav.navigate("AdminCoupons"),
+      },
       {
         label: "Rewards",
         sub: "Points overview, alerts, grant",
