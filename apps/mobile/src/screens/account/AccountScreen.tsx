@@ -22,6 +22,7 @@ import {
   Coffee,
   ShoppingBag,
   Sparkles,
+  Ticket,
   Trash2,
   User as UserIcon,
 } from "lucide-react-native";
@@ -267,6 +268,12 @@ export function AccountScreen() {
           title="My Waitlist"
           subtitle="Get notified when slots open"
           onPress={() => navigation.navigate("Waitlist")}
+        />
+        <ActionTile
+          icon={<Ticket size={20} color={colors.emerald400} />}
+          title="Coupons & Offers"
+          subtitle="Browse available discount codes"
+          onPress={() => navigation.navigate("Coupons")}
         />
         {/* Arena Assistant — Chat moved out of the bottom-nav tab
             row into the Account screen, sitting alongside the

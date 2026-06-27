@@ -8,6 +8,7 @@ export type AccountStackParamList = {
   RecurringBookings: undefined;
   BookingDetail: { bookingId: string };
   Waitlist: undefined;
+  Coupons: undefined;
   Rewards: undefined;
   // Graphical "how Momentum Points work" page — every value driven by
   // the live RewardConfig so admin edits flow through with no manual
