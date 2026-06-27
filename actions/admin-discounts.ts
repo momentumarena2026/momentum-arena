@@ -23,19 +23,26 @@ const discountSchema = z.object({
   isSystemCode: z.boolean().default(false),
 });
 
-export async function createDiscountCode(data: {
-  code: string;
-  type: DiscountType;
-  value: number;
-  maxUses?: number;
-  maxUsesPerUser?: number;
-  minBookingAmount?: number;
-  sportFilter?: Sport[];
-  validFrom: string;
-  validUntil: string;
-  isSystemCode?: boolean;
-}) {
-  const adminId = await requireAdmin();
+export async function createDiscountCode(
+  data: {
+    code: string;
+    type: DiscountType;
+    value: number;
+    maxUses?: number;
+    maxUsesPerUser?: number;
+    minBookingAmount?: number;
+    sportFilter?: Sport[];
+    validFrom: string;
+    validUntil: string;
+    isSystemCode?: boolean;
+  },
+  // `adminIdOverride` lets the mobile-admin API route call this after it
+  // has already authenticated via JWT + checked MANAGE_DISCOUNTS; the
+  // supplied id is stamped as `createdBy`. Web call sites pass nothing
+  // and keep the cookie-based gate.
+  adminIdOverride?: string,
+) {
+  const adminId = adminIdOverride ?? (await requireAdmin());
 
   const parsed = discountSchema.safeParse(data);
   if (!parsed.success) {
@@ -83,9 +90,12 @@ export async function updateDiscountCode(
     validFrom: string;
     validUntil: string;
     isActive: boolean;
-  }>
+  }>,
+  // `skipAuth` — see createDiscountCode. Skips the cookie gate once the
+  // mobile route has authenticated via JWT + checked MANAGE_DISCOUNTS.
+  skipAuth?: boolean,
 ) {
-  await requireAdmin();
+  if (!skipAuth) await requireAdmin();
 
   const updateData: Record<string, unknown> = {};
   if (data.value !== undefined) updateData.value = data.value;
@@ -101,8 +111,9 @@ export async function updateDiscountCode(
   return { success: true };
 }
 
-export async function deleteDiscountCode(id: string) {
-  await requireAdmin();
+export async function deleteDiscountCode(id: string, skipAuth?: boolean) {
+  // `skipAuth` — see createDiscountCode.
+  if (!skipAuth) await requireAdmin();
 
   const code = await db.discountCode.findUnique({ where: { id } });
   if (!code) return { success: false, error: "Code not found" };
@@ -112,11 +123,15 @@ export async function deleteDiscountCode(id: string) {
   return { success: true };
 }
 
-export async function getDiscountCodes(filters?: {
-  page?: number;
-  showInactive?: boolean;
-}) {
-  await requireAdmin();
+export async function getDiscountCodes(
+  filters?: {
+    page?: number;
+    showInactive?: boolean;
+  },
+  // `skipAuth` — see createDiscountCode.
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireAdmin();
 
   const page = filters?.page ?? 1;
   const limit = 20;

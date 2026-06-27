@@ -320,7 +320,16 @@ export async function cancelOrder(
 
 // ─── Admin: confirm payment / mark fulfilled / cancel ────────────────
 
-async function requireOrdersAdmin() {
+/**
+ * Resolve the acting admin id. The web surface authenticates via
+ * NextAuth (requireAdminBase); the mobile-admin routes authenticate
+ * via a bearer JWT and pass the already-verified admin identity
+ * through `adminOverride` so the full action logic is shared rather
+ * than re-implemented. Mirrors the adminOverride pattern in
+ * actions/admin-cafe-orders.ts.
+ */
+async function requireOrdersAdmin(adminOverride?: { id: string; username: string }) {
+  if (adminOverride) return adminOverride.id;
   const user = await requireAdminBase("MANAGE_SHOP_ORDERS");
   return user.id;
 }
@@ -333,8 +342,8 @@ async function requireOrdersAdmin() {
 export async function adminConfirmOrderPayment(args: {
   orderId: string;
   utrNumber?: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const adminId = await requireOrdersAdmin();
+}, adminOverride?: { id: string; username: string }): Promise<{ success: boolean; error?: string }> {
+  const adminId = await requireOrdersAdmin(adminOverride);
   const order = await db.productOrder.findUnique({
     where: { id: args.orderId },
     include: { payment: true },
@@ -369,8 +378,9 @@ export async function adminConfirmOrderPayment(args: {
 
 export async function adminMarkFulfilled(
   orderId: string,
+  adminOverride?: { id: string; username: string },
 ): Promise<{ success: boolean; error?: string }> {
-  const adminId = await requireOrdersAdmin();
+  const adminId = await requireOrdersAdmin(adminOverride);
   const order = await db.productOrder.findUnique({ where: { id: orderId } });
   if (!order) return { success: false, error: "Order not found" };
   if (order.status !== "CONFIRMED") {
@@ -392,8 +402,9 @@ export async function adminMarkFulfilled(
 export async function adminCancelOrder(
   orderId: string,
   reason: string,
+  adminOverride?: { id: string; username: string },
 ): Promise<{ success: boolean; error?: string }> {
-  const adminId = await requireOrdersAdmin();
+  const adminId = await requireOrdersAdmin(adminOverride);
   const order = await db.productOrder.findUnique({
     where: { id: orderId },
     include: { items: true },
@@ -448,8 +459,8 @@ export async function placeAdminOrder(args: {
   method: PaymentMethod;
   markPaid?: boolean;
   utrNumber?: string;
-}): Promise<OrderResult> {
-  const adminId = await requireOrdersAdmin();
+}, adminOverride?: { id: string; username: string }): Promise<OrderResult> {
+  const adminId = await requireOrdersAdmin(adminOverride);
   if (args.items.length === 0) {
     return { success: false, error: "Add at least one item" };
   }
@@ -594,8 +605,8 @@ export async function listOrdersForAdmin(filters?: {
   status?: ProductOrderStatus;
   search?: string;
   page?: number;
-}) {
-  await requireOrdersAdmin();
+}, adminOverride?: { id: string; username: string }) {
+  await requireOrdersAdmin(adminOverride);
   const page = filters?.page ?? 1;
   const limit = 50;
   const where: Prisma.ProductOrderWhereInput = {};
@@ -654,8 +665,10 @@ export interface ShopAnalyticsSummary {
   };
 }
 
-export async function getShopAnalyticsSummary(): Promise<ShopAnalyticsSummary> {
-  await requireOrdersAdmin();
+export async function getShopAnalyticsSummary(
+  adminOverride?: { id: string; username: string },
+): Promise<ShopAnalyticsSummary> {
+  await requireOrdersAdmin(adminOverride);
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);

@@ -316,8 +316,10 @@ export async function adminCreateCafeOrder(data: {
   // (post-discount), and at least one of them must be > 0.
   split?: { cashAmount: number; upiAmount: number };
   note?: string;
-}) {
-  const admin = await requireCafeAdminWithDetails();
+}, adminOverride?: { id: string; username: string }) {
+  // adminOverride lets the mobile admin route (bearer auth, no NextAuth
+  // session) reuse this action — same pattern as cancelCafeOrder below.
+  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
 
   try {
     if (!data.items || data.items.length === 0) {

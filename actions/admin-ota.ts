@@ -39,8 +39,20 @@ export interface OtaReleaseRow {
   activatedAt: Date | null;
 }
 
-export async function listOtaReleases(): Promise<OtaReleaseRow[]> {
-  await requireAdmin();
+/**
+ * List every OTA release (newest-first per slot).
+ *
+ * `skipAuth` lets a call-site that has ALREADY authorized the request via a
+ * different mechanism reuse this query without the cookie-session check. The
+ * mobile admin route (app/api/mobile/admin/ota) authenticates with a bearer
+ * token + MANAGE_PRICING via getMobileAdmin/hasPermission, so it passes
+ * `skipAuth: true` — the cookie-based requireAdmin() would otherwise reject a
+ * mobile request that has no admin session cookie.
+ */
+export async function listOtaReleases({
+  skipAuth = false,
+}: { skipAuth?: boolean } = {}): Promise<OtaReleaseRow[]> {
+  if (!skipAuth) await requireAdmin();
 
   const releases = await db.otaRelease.findMany({
     // Group key first (channel → platform → runtimeVersion), newest

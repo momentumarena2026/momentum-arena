@@ -159,6 +159,8 @@ export type AdminCalendarStackParamList = {
 export type AdminCafeStackParamList = {
   AdminCafeOrders: undefined;
   AdminCafeMenu: undefined;
+  AdminCafeCoupons: undefined;
+  AdminCafeCreateOrder: undefined;
 };
 
 // Expenses tab: list (default) + per-row edit + add + analytics.
@@ -170,7 +172,49 @@ export type AdminExpensesStackParamList = {
   AdminExpenseAnalytics: undefined;
 };
 
+// "More" hub stack: the grouped, permission-gated menu (root) plus every
+// secondary admin screen that isn't on a primary tab. Phase 1+ screens are
+// registered here so the hub can push to them.
+export type AdminMoreStackParamList = {
+  AdminMoreHome: undefined;
+  AdminSports: undefined;
+  AdminEquipment: undefined;
+  AdminBowling: undefined;
+  AdminPricing: undefined;
+  AdminCoupons: undefined;
+  AdminProducts: undefined;
+  AdminProductOrders: undefined;
+  AdminPos: undefined;
+  AdminPush: undefined;
+  AdminOta: undefined;
+  AdminReleaseFlow: undefined;
+  AdminUsers: undefined;
+  AdminUserGroups: undefined;
+  AdminFaqs: undefined;
+  AdminGenerator: undefined;
+  // Analytics dashboards
+  AdminSportsAnalytics: undefined;
+  AdminCafeAnalytics: undefined;
+  AdminPushAnalytics: undefined;
+  AdminDemand: undefined;
+  AdminCohorts: undefined;
+  AdminFunnels: undefined;
+  AdminEvents: undefined;
+  // Settings (payments/profile)
+  AdminPaymentSettings: undefined;
+  AdminRazorpay: undefined;
+  AdminAdminUsers: undefined;
+  AdminProfile: undefined;
+  // Bookings extras + legacy discounts
+  AdminRecovery: undefined;
+  AdminRecurringConfig: undefined;
+  AdminUtrVerify: undefined;
+  AdminDiscounts: undefined;
+};
+
 export type AdminTabsParamList = {
+  // Dashboard / Home — KPI cards + quick actions.
+  AdminHome: undefined;
   AdminBookings: NavigatorScreenParams<AdminBookingsStackParamList>;
   // Check-in: today's confirmed bookings list with manual-entry +
   // QR-token paste fallbacks. Mirrors the web /admin/checkin page,
@@ -187,10 +231,13 @@ export type AdminTabsParamList = {
   // /admin/rewards Overview/Alerts/Distribute surface; the full
   // 5-tab admin remains on web only.
   AdminRewards: NavigatorScreenParams<AdminRewardsStackParamList>;
+  // "More" hub tab — hosts the grouped menu + secondary admin screens.
+  AdminMore: NavigatorScreenParams<AdminMoreStackParamList>;
 };
 
 export type AdminRewardsStackParamList = {
   AdminRewardsHome: undefined;
   AdminRewardsDistribute: undefined;
   AdminRewardsTransactions: undefined;
+  AdminRewardsConfig: undefined;
 };

@@ -302,10 +302,19 @@ export interface BroadcastInput {
   // When true, the call returns the audience size without actually
   // sending — used by the form's "Send to N devices" preview.
   dryRun?: boolean;
+  // Mobile-admin override. The web form relies on the NextAuth admin
+  // session via requireAdmin(); the mobile admin route authenticates
+  // with a bearer JWT (getMobileAdmin) and has no web session, so it
+  // passes the already-verified AdminUser.id here to skip requireAdmin
+  // while still attributing the send. The mobile route MUST guard
+  // MANAGE_PUSH itself before calling with this set.
+  adminOverride?: { id: string };
 }
 
 export async function sendBroadcast(input: BroadcastInput) {
-  const admin = await requireAdmin(PERMISSION);
+  const admin = input.adminOverride
+    ? input.adminOverride
+    : await requireAdmin(PERMISSION);
 
   // Validation. We don't want admins to send empty pushes or accidentally
   // send something with shoddy formatting (the empty-title push shows up

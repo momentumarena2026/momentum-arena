@@ -8,11 +8,10 @@ import {
   CalendarCheck,
   CalendarRange,
   Coffee,
-  IndianRupee,
+  LayoutDashboard,
   LogOut,
-  ScanLine,
+  Menu,
   ShieldCheck,
-  Sparkles,
   UserSquare2,
 } from "lucide-react-native";
 import { Text } from "../components/ui/Text";
@@ -30,17 +29,53 @@ import { AdminCalendarScreen } from "../screens/admin/AdminCalendarScreen";
 import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
 import { AdminCafeOrdersScreen } from "../screens/admin/AdminCafeOrdersScreen";
 import { AdminCafeMenuScreen } from "../screens/admin/AdminCafeMenuScreen";
+import { AdminCafeCouponsScreen } from "../screens/admin/AdminCafeCouponsScreen";
+import { AdminCafeCreateOrderScreen } from "../screens/admin/AdminCafeCreateOrderScreen";
 import { AdminExpensesListScreen } from "../screens/admin/AdminExpensesListScreen";
 import { AdminExpenseFormScreen } from "../screens/admin/AdminExpenseFormScreen";
 import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyticsScreen";
 import { AdminRewardsScreen } from "../screens/admin/AdminRewardsScreen";
 import { AdminRewardsDistributeScreen } from "../screens/admin/AdminRewardsDistributeScreen";
 import { AdminRewardsTransactionsScreen } from "../screens/admin/AdminRewardsTransactionsScreen";
+import { AdminRewardsConfigScreen } from "../screens/admin/AdminRewardsConfigScreen";
+import { AdminDashboardScreen } from "../screens/admin/AdminDashboardScreen";
+import { AdminMoreScreen } from "../screens/admin/AdminMoreScreen";
+import { AdminSportsScreen } from "../screens/admin/AdminSportsScreen";
+import { AdminEquipmentScreen } from "../screens/admin/AdminEquipmentScreen";
+import { AdminBowlingScreen } from "../screens/admin/AdminBowlingScreen";
+import { AdminPricingScreen } from "../screens/admin/AdminPricingScreen";
+import { AdminCouponsScreen } from "../screens/admin/AdminCouponsScreen";
+import { AdminProductsScreen } from "../screens/admin/AdminProductsScreen";
+import { AdminProductOrdersScreen } from "../screens/admin/AdminProductOrdersScreen";
+import { AdminPosScreen } from "../screens/admin/AdminPosScreen";
+import { AdminPushScreen } from "../screens/admin/AdminPushScreen";
+import { AdminOtaScreen } from "../screens/admin/AdminOtaScreen";
+import { AdminReleaseFlowScreen } from "../screens/admin/AdminReleaseFlowScreen";
+import { AdminUsersScreen } from "../screens/admin/AdminUsersScreen";
+import { AdminUserGroupsScreen } from "../screens/admin/AdminUserGroupsScreen";
+import { AdminFaqsScreen } from "../screens/admin/AdminFaqsScreen";
+import { AdminGeneratorScreen } from "../screens/admin/AdminGeneratorScreen";
+import { AdminSportsAnalyticsScreen } from "../screens/admin/AdminSportsAnalyticsScreen";
+import { AdminCafeAnalyticsScreen } from "../screens/admin/AdminCafeAnalyticsScreen";
+import { AdminPushAnalyticsScreen } from "../screens/admin/AdminPushAnalyticsScreen";
+import { AdminDemandScreen } from "../screens/admin/AdminDemandScreen";
+import { AdminCohortsScreen } from "../screens/admin/AdminCohortsScreen";
+import { AdminFunnelsScreen } from "../screens/admin/AdminFunnelsScreen";
+import { AdminEventsScreen } from "../screens/admin/AdminEventsScreen";
+import { AdminPaymentSettingsScreen } from "../screens/admin/AdminPaymentSettingsScreen";
+import { AdminRazorpayScreen } from "../screens/admin/AdminRazorpayScreen";
+import { AdminAdminUsersScreen } from "../screens/admin/AdminAdminUsersScreen";
+import { AdminProfileScreen } from "../screens/admin/AdminProfileScreen";
+import { AdminRecoveryScreen } from "../screens/admin/AdminRecoveryScreen";
+import { AdminRecurringConfigScreen } from "../screens/admin/AdminRecurringConfigScreen";
+import { AdminUtrVerifyScreen } from "../screens/admin/AdminUtrVerifyScreen";
+import { AdminDiscountsScreen } from "../screens/admin/AdminDiscountsScreen";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
   AdminCalendarStackParamList,
   AdminExpensesStackParamList,
+  AdminMoreStackParamList,
   AdminRewardsStackParamList,
   AdminTabsParamList,
   RootStackParamList,
@@ -53,7 +88,122 @@ const CafeStack = createNativeStackNavigator<AdminCafeStackParamList>();
 const ExpensesStack =
   createNativeStackNavigator<AdminExpensesStackParamList>();
 const RewardsStack = createNativeStackNavigator<AdminRewardsStackParamList>();
+const MoreStack = createNativeStackNavigator<AdminMoreStackParamList>();
 const Tabs = createBottomTabNavigator<AdminTabsParamList>();
+
+/**
+ * "More" hub stack. Root is the grouped, permission-gated menu; Phase 1+
+ * secondary admin screens register here so the hub can push to them.
+ */
+function AdminMoreStackNav() {
+  return (
+    <MoreStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
+        headerTintColor: colors.primary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <MoreStack.Screen
+        name="AdminMoreHome"
+        component={AdminMoreScreen}
+        options={{ headerShown: false }}
+      />
+      <MoreStack.Screen
+        name="AdminSports"
+        component={AdminSportsScreen}
+        options={{ title: "Sports" }}
+      />
+      <MoreStack.Screen
+        name="AdminEquipment"
+        component={AdminEquipmentScreen}
+        options={{ title: "Equipment" }}
+      />
+      <MoreStack.Screen
+        name="AdminBowling"
+        component={AdminBowlingScreen}
+        options={{ title: "Bowling machine" }}
+      />
+      <MoreStack.Screen
+        name="AdminPricing"
+        component={AdminPricingScreen}
+        options={{ title: "Pricing" }}
+      />
+      <MoreStack.Screen
+        name="AdminCoupons"
+        component={AdminCouponsScreen}
+        options={{ title: "Coupons" }}
+      />
+      <MoreStack.Screen
+        name="AdminProducts"
+        component={AdminProductsScreen}
+        options={{ title: "Products" }}
+      />
+      <MoreStack.Screen
+        name="AdminProductOrders"
+        component={AdminProductOrdersScreen}
+        options={{ title: "Shop orders" }}
+      />
+      <MoreStack.Screen
+        name="AdminPos"
+        component={AdminPosScreen}
+        options={{ title: "Walk-in sale" }}
+      />
+      <MoreStack.Screen
+        name="AdminPush"
+        component={AdminPushScreen}
+        options={{ title: "Push notifications" }}
+      />
+      <MoreStack.Screen
+        name="AdminOta"
+        component={AdminOtaScreen}
+        options={{ title: "App updates" }}
+      />
+      <MoreStack.Screen
+        name="AdminReleaseFlow"
+        component={AdminReleaseFlowScreen}
+        options={{ title: "Release flow" }}
+      />
+      <MoreStack.Screen
+        name="AdminUsers"
+        component={AdminUsersScreen}
+        options={{ title: "Users" }}
+      />
+      <MoreStack.Screen
+        name="AdminUserGroups"
+        component={AdminUserGroupsScreen}
+        options={{ title: "User groups" }}
+      />
+      <MoreStack.Screen
+        name="AdminFaqs"
+        component={AdminFaqsScreen}
+        options={{ title: "FAQs" }}
+      />
+      <MoreStack.Screen
+        name="AdminGenerator"
+        component={AdminGeneratorScreen}
+        options={{ title: "Generator" }}
+      />
+      <MoreStack.Screen name="AdminSportsAnalytics" component={AdminSportsAnalyticsScreen} options={{ title: "Sports analytics" }} />
+      <MoreStack.Screen name="AdminCafeAnalytics" component={AdminCafeAnalyticsScreen} options={{ title: "Cafe analytics" }} />
+      <MoreStack.Screen name="AdminPushAnalytics" component={AdminPushAnalyticsScreen} options={{ title: "Push analytics" }} />
+      <MoreStack.Screen name="AdminDemand" component={AdminDemandScreen} options={{ title: "Demand heatmap" }} />
+      <MoreStack.Screen name="AdminCohorts" component={AdminCohortsScreen} options={{ title: "Retention cohorts" }} />
+      <MoreStack.Screen name="AdminFunnels" component={AdminFunnelsScreen} options={{ title: "Funnels" }} />
+      <MoreStack.Screen name="AdminEvents" component={AdminEventsScreen} options={{ title: "Events & logs" }} />
+      <MoreStack.Screen name="AdminPaymentSettings" component={AdminPaymentSettingsScreen} options={{ title: "Payment gateway" }} />
+      <MoreStack.Screen name="AdminRazorpay" component={AdminRazorpayScreen} options={{ title: "Razorpay" }} />
+      <MoreStack.Screen name="AdminAdminUsers" component={AdminAdminUsersScreen} options={{ title: "Admin users" }} />
+      <MoreStack.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: "My profile" }} />
+      <MoreStack.Screen name="AdminRecovery" component={AdminRecoveryScreen} options={{ title: "Payment recovery" }} />
+      <MoreStack.Screen name="AdminRecurringConfig" component={AdminRecurringConfigScreen} options={{ title: "Recurring config" }} />
+      <MoreStack.Screen name="AdminUtrVerify" component={AdminUtrVerifyScreen} options={{ title: "UTR verify" }} />
+      <MoreStack.Screen name="AdminDiscounts" component={AdminDiscountsScreen} options={{ title: "Discount codes" }} />
+    </MoreStack.Navigator>
+  );
+}
 
 function AdminRewardsStackNav() {
   return (
@@ -80,6 +230,11 @@ function AdminRewardsStackNav() {
         name="AdminRewardsTransactions"
         component={AdminRewardsTransactionsScreen}
         options={{ title: "Transactions ledger" }}
+      />
+      <RewardsStack.Screen
+        name="AdminRewardsConfig"
+        component={AdminRewardsConfigScreen}
+        options={{ title: "Reward settings" }}
       />
     </RewardsStack.Navigator>
   );
@@ -137,6 +292,16 @@ function AdminCafeStackNav() {
         name="AdminCafeMenu"
         component={AdminCafeMenuScreen}
         options={{ title: "Menu" }}
+      />
+      <CafeStack.Screen
+        name="AdminCafeCoupons"
+        component={AdminCafeCouponsScreen}
+        options={{ title: "Cafe coupons" }}
+      />
+      <CafeStack.Screen
+        name="AdminCafeCreateOrder"
+        component={AdminCafeCreateOrderScreen}
+        options={{ title: "New cafe order" }}
       />
     </CafeStack.Navigator>
   );
@@ -256,31 +421,32 @@ export function AdminNavigator() {
         tabBarIcon: ({ color, size }) => {
           const props = { color, size: size ?? 20, strokeWidth: 2 } as const;
           switch (route.name) {
+            case "AdminHome":
+              return <LayoutDashboard {...props} />;
             case "AdminBookings":
               return <CalendarCheck {...props} />;
-            case "AdminCheckin":
-              return <ScanLine {...props} />;
             case "AdminCalendar":
               return <CalendarRange {...props} />;
             case "AdminCafe":
               return <Coffee {...props} />;
-            case "AdminExpenses":
-              return <IndianRupee {...props} />;
-            case "AdminRewards":
-              return <Sparkles {...props} />;
+            case "AdminMore":
+              return <Menu {...props} />;
+            // Hidden tabs (Checkin/Expenses/Rewards) render no bar icon.
+            default:
+              return null;
           }
         },
       })}
     >
       <Tabs.Screen
+        name="AdminHome"
+        component={AdminDashboardScreen}
+        options={{ tabBarLabel: "Home" }}
+      />
+      <Tabs.Screen
         name="AdminBookings"
         component={AdminBookingsStack}
         options={{ tabBarLabel: "Bookings" }}
-      />
-      <Tabs.Screen
-        name="AdminCheckin"
-        component={AdminCheckinScreen}
-        options={{ tabBarLabel: "Check-in" }}
       />
       <Tabs.Screen
         name="AdminCalendar"
@@ -293,14 +459,35 @@ export function AdminNavigator() {
         options={{ tabBarLabel: "Cafe" }}
       />
       <Tabs.Screen
+        name="AdminMore"
+        component={AdminMoreStackNav}
+        options={{ tabBarLabel: "More" }}
+      />
+      {/* Secondary tabs — reachable from the dashboard quick-actions and the
+          More hub, but hidden from the bottom bar to keep it to five. */}
+      <Tabs.Screen
+        name="AdminCheckin"
+        component={AdminCheckinScreen}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: "none" },
+        }}
+      />
+      <Tabs.Screen
         name="AdminExpenses"
         component={AdminExpensesStackNav}
-        options={{ tabBarLabel: "Expenses" }}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: "none" },
+        }}
       />
       <Tabs.Screen
         name="AdminRewards"
         component={AdminRewardsStackNav}
-        options={{ tabBarLabel: "Rewards" }}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: "none" },
+        }}
       />
     </Tabs.Navigator>
   );
@@ -308,6 +495,8 @@ export function AdminNavigator() {
 
 function titleFor(name: keyof AdminTabsParamList): string {
   switch (name) {
+    case "AdminHome":
+      return "Dashboard";
     case "AdminBookings":
       return "Bookings";
     case "AdminCheckin":
@@ -320,6 +509,8 @@ function titleFor(name: keyof AdminTabsParamList): string {
       return "Expenses";
     case "AdminRewards":
       return "Rewards";
+    case "AdminMore":
+      return "More";
   }
 }
 

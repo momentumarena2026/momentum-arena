@@ -107,8 +107,9 @@ export async function createProduct(data: {
   imageUrl?: string | null;
   categoryId?: string | null;
   displayOrder?: number;
-}) {
-  const adminId = await requireCatalogAdmin();
+}, adminIdOverride?: string) {
+  // adminIdOverride lets the mobile route (bearer auth) reuse this action.
+  const adminId = adminIdOverride ?? (await requireCatalogAdmin());
   if (!data.name.trim()) {
     return { success: false, error: "Product name is required" };
   }
@@ -172,8 +173,9 @@ export async function updateProduct(
     isActive: boolean;
     displayOrder: number;
   }>,
+  adminIdOverride?: string,
 ) {
-  await requireCatalogAdmin();
+  if (!adminIdOverride) await requireCatalogAdmin();
   const existing = await db.product.findUnique({ where: { id } });
   if (!existing) return { success: false, error: "Product not found" };
 
@@ -221,8 +223,8 @@ export async function updateProduct(
   return { success: true, product };
 }
 
-export async function deleteProduct(id: string) {
-  await requireCatalogAdmin();
+export async function deleteProduct(id: string, adminIdOverride?: string) {
+  if (!adminIdOverride) await requireCatalogAdmin();
   const existing = await db.product.findUnique({
     where: { id },
     include: { _count: { select: { orderItems: true } } },
@@ -258,8 +260,8 @@ export async function adjustProductStock(args: {
   productId: string;
   delta: number;
   note: string;
-}) {
-  const adminId = await requireCatalogAdmin();
+}, adminIdOverride?: string) {
+  const adminId = adminIdOverride ?? (await requireCatalogAdmin());
   if (!Number.isInteger(args.delta) || args.delta === 0) {
     return { success: false, error: "Delta must be a non-zero integer" };
   }

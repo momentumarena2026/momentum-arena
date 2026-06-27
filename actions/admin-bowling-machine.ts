@@ -120,8 +120,8 @@ async function ensureBowlingMachineConfig() {
  * (recreates from defaults) so the admin page never lands on a
  * dead-end error message.
  */
-export async function getBowlingMachineSettings() {
-  await requireAdmin();
+export async function getBowlingMachineSettings(skipAuth = false) {
+  if (!skipAuth) await requireAdmin();
 
   await ensureBowlingMachineConfig();
 
@@ -168,8 +168,11 @@ export async function getBowlingMachineSettings() {
  * `listConfigsForSport` query already filters on isActive). Admin
  * pages still show the row so staff can flip it back on.
  */
-export async function setBowlingMachineEnabled(enabled: boolean) {
-  await requireAdmin();
+export async function setBowlingMachineEnabled(
+  enabled: boolean,
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAdmin();
 
   const config = await db.courtConfig.findFirst({
     where: { category: "BOWLING_MACHINE" },
@@ -200,8 +203,11 @@ export async function setBowlingMachineEnabled(enabled: boolean) {
  * place; the existing zone-overlap logic in the booking grid then
  * blocks the new half + the full field automatically.
  */
-export async function setBowlingMachineHalf(half: BowlingHalf) {
-  await requireAdmin();
+export async function setBowlingMachineHalf(
+  half: BowlingHalf,
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAdmin();
 
   const config = await db.courtConfig.findFirst({
     where: { category: "BOWLING_MACHINE" },
@@ -246,8 +252,11 @@ export interface WindowInput {
   endMinute: number;
 }
 
-export async function updateBowlingMachineWindows(windows: WindowInput[]) {
-  await requireAdmin();
+export async function updateBowlingMachineWindows(
+  windows: WindowInput[],
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAdmin();
 
   const config = await db.courtConfig.findFirst({
     where: { category: "BOWLING_MACHINE" },

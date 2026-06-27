@@ -26,9 +26,14 @@ export interface RazorpayOverview {
   error?: string;
 }
 
-export async function getRazorpayOverview(): Promise<RazorpayOverview> {
+export async function getRazorpayOverview(
+  skipAuth = false,
+): Promise<RazorpayOverview> {
   try {
-    await requireRazorpayAccess();
+    // Mobile admin routes pre-authenticate the bearer token (getMobileAdmin +
+    // VIEW_RAZORPAY) before delegating here, so they pass skipAuth=true to skip
+    // the cookie-session check.
+    if (!skipAuth) await requireRazorpayAccess();
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);

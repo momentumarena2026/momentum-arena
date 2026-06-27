@@ -45,9 +45,12 @@ export interface CafeKPI {
 export async function getCafeKPIStats(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true
+  // so we don't re-run the web cookie-session check here.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: CafeKPI; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     // Pull live items so we can join their costPrice for profit.

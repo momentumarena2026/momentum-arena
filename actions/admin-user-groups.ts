@@ -30,8 +30,14 @@ const groupSchema = z.object({
 
 // ─── Group CRUD ──────────────────────────────────────────────────
 
-export async function listUserGroups(filters?: { search?: string }) {
-  await requireAdmin();
+// Mobile admin routes pre-authenticate via JWT (getMobileAdmin) and
+// pass `skipAuth: true` to the group CRUD actions — the cookie-based
+// requireAdmin would otherwise reject bearer-token callers.
+export async function listUserGroups(
+  filters?: { search?: string },
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireAdmin();
 
   const where: Record<string, unknown> = { deletedAt: null };
   if (filters?.search) {
@@ -94,12 +100,19 @@ export async function getUserGroupWithMembers(groupId: string) {
   };
 }
 
-export async function createUserGroup(data: {
-  name: string;
-  description?: string;
-  initialUserIds?: string[];
-}) {
-  const adminId = await requireAdmin();
+export async function createUserGroup(
+  data: {
+    name: string;
+    description?: string;
+    initialUserIds?: string[];
+  },
+  // When called from a mobile route the JWT admin id is passed in and
+  // auth is skipped; otherwise we derive it from the cookie session.
+  opts?: { skipAuth?: boolean; adminId?: string },
+) {
+  const adminId = opts?.skipAuth
+    ? (opts.adminId ?? null)
+    : await requireAdmin();
 
   const parsed = groupSchema.safeParse(data);
   if (!parsed.success) {
@@ -141,8 +154,9 @@ export async function createUserGroup(data: {
 export async function updateUserGroup(
   groupId: string,
   data: { name?: string; description?: string | null },
+  skipAuth?: boolean,
 ) {
-  await requireAdmin();
+  if (!skipAuth) await requireAdmin();
 
   const updateData: Record<string, unknown> = {};
   if (data.name !== undefined) {
@@ -168,8 +182,8 @@ export async function updateUserGroup(
   }
 }
 
-export async function deleteUserGroup(groupId: string) {
-  await requireAdmin();
+export async function deleteUserGroup(groupId: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireAdmin();
 
   try {
     // Soft delete — coupons that target this group will continue to

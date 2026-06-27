@@ -10,14 +10,20 @@ async function requireAdmin() {
   return user.id;
 }
 
-export async function getAdminUsers(filters?: {
-  search?: string;
-  role?: string;
-  page?: number;
-  limit?: number;
-  showDeleted?: boolean;
-}) {
-  await requireAdmin();
+export async function getAdminUsers(
+  filters?: {
+    search?: string;
+    role?: string;
+    page?: number;
+    limit?: number;
+    showDeleted?: boolean;
+  },
+  // Mobile admin routes pre-authenticate via JWT (getMobileAdmin) and
+  // pass `skipAuth: true` — the cookie-based requireAdmin below would
+  // otherwise reject bearer-token callers.
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireAdmin();
 
   const page = filters?.page ?? 1;
   const limit = filters?.limit ?? 20;

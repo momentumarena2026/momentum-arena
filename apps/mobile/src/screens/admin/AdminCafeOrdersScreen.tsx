@@ -17,6 +17,7 @@ import {
   Coffee,
   Flame,
   PackageCheck,
+  Plus,
   TrendingUp,
   Utensils,
   XCircle,
@@ -181,7 +182,19 @@ export function AdminCafeOrdersScreen() {
           />
         </View>
 
-        {/* Menu shortcut */}
+        {/* Shortcuts */}
+        <Pressable
+          onPress={() => navigation.navigate("AdminCafeCreateOrder")}
+          style={({ pressed }) => [
+            styles.menuBtn,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Plus size={14} color={colors.emerald400} />
+          <Text variant="small" color={colors.emerald400} weight="600">
+            New order
+          </Text>
+        </Pressable>
         <Pressable
           onPress={() => navigation.navigate("AdminCafeMenu")}
           style={({ pressed }) => [

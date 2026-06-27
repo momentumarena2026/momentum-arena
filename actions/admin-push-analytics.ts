@@ -104,8 +104,11 @@ function day(d: Date): string {
 
 export async function getPushAnalytics(
   filters: PushAnalyticsFilters,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true
+  // so we don't re-run the web cookie-session check here.
+  skipAuth = false,
 ): Promise<PushAnalytics> {
-  await requireAdmin(PERMISSION);
+  if (!skipAuth) await requireAdmin(PERMISSION);
 
   const from = new Date(`${filters.dateFrom}T00:00:00.000Z`);
   const to = new Date(`${filters.dateTo}T23:59:59.999Z`);
@@ -277,8 +280,8 @@ export async function getPushAnalytics(
 }
 
 /** Distinct kinds that have ever been dispatched — populates the filter. */
-export async function getDispatchedKinds(): Promise<string[]> {
-  await requireAdmin(PERMISSION);
+export async function getDispatchedKinds(skipAuth = false): Promise<string[]> {
+  if (!skipAuth) await requireAdmin(PERMISSION);
   const rows = await db.pushDispatch.groupBy({ by: ["kind"] });
   return rows.map((r) => r.kind).sort();
 }
