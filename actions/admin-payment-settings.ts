@@ -166,3 +166,27 @@ export async function getCheckoutPaymentConfig(): Promise<PaymentSettings> {
     dqrConfigured,
   };
 }
+
+/**
+ * Server-side guard: is a given checkout payment method currently enabled by
+ * the admin payment config? Mirrors the client-side gating so a method an
+ * admin has disabled can't be ordered by hitting the API directly. CASH
+ * (pay at venue / counter) has no toggle and is always allowed.
+ */
+export async function isCheckoutMethodEnabled(method: string): Promise<boolean> {
+  const cfg = await getCheckoutPaymentConfig();
+  switch (method) {
+    case "RAZORPAY":
+    case "PHONEPE":
+      return cfg.onlineEnabled;
+    case "UPI_QR":
+      return cfg.upiQrEnabled;
+    case "UPI_NOW":
+    case "DQR":
+      return cfg.dqrEnabled;
+    case "CASH":
+      return true;
+    default:
+      return false;
+  }
+}

@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { createCafePaymentIntent } from "@/lib/cafe-intent";
+import { isCheckoutMethodEnabled } from "@/actions/admin-payment-settings";
 
 async function getOptionalCustomerId(): Promise<string | null> {
   try {
@@ -52,6 +53,14 @@ export async function createCafeOrder(data: {
         success: false,
         error:
           "The cafe is currently closed and not accepting online orders. Please try again later.",
+      };
+    }
+
+    // Server-side enforcement of the admin payment-method config.
+    if (!(await isCheckoutMethodEnabled(data.paymentMethod))) {
+      return {
+        success: false,
+        error: "That payment method isn't available right now.",
       };
     }
 

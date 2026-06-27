@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { buildOrderNumber, decrementStock, incrementStock, recordStockMovement } from "@/lib/product";
 import { getCartForUser } from "@/lib/cart";
+import { isCheckoutMethodEnabled } from "@/actions/admin-payment-settings";
 import { Prisma, type PaymentMethod, type ProductOrderStatus } from "@prisma/client";
 
 /**
@@ -66,6 +67,15 @@ export async function placeCustomerOrder(
   }
   if (!userId) {
     return { success: false, error: "Please sign in to place an order." };
+  }
+
+  // Server-side enforcement of the admin payment-method config — the client
+  // hides disabled methods, but never trust the client.
+  if (!(await isCheckoutMethodEnabled(method))) {
+    return {
+      success: false,
+      error: "That payment method isn't available right now.",
+    };
   }
 
   const cart = await getCartForUser(userId);
