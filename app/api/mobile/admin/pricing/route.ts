@@ -1,32 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { getMobileAdmin } from "@/lib/mobile-auth";
-import { hasPermission } from "@/lib/permissions";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { getArenaSettings } from "@/actions/admin-arena-settings";
 import type { DayType, TimeType } from "@prisma/client";
 
 /**
- * Mobile admin pricing. GET mirrors getAllPricingData (3 reads) + arena hours;
- * POST upserts price rules (mirrors updatePricingRule/bulkUpdatePricing) and
- * arena hours (mirrors updateArenaSettings bounds) under MANAGE_PRICING.
- * Time-classification (PEAK/OFF_PEAK band) editing stays on web for now —
- * bands are returned read-only here.
+ * Mobile admin pricing — full parity with the web /admin/pricing editor.
+ *
+ * GET mirrors getAllPricingData (configs + rules + classifications) + arena
+ * hours. POST is action-dispatched:
+ *   - "prices":      per-slot price upserts     (mirrors updatePricingRule)
+ *   - "arena":       open/close window          (mirrors updateArenaSettings)
+ *   - "band-save":   PEAK/OFF_PEAK band upsert  (mirrors updateTimeClassification)
+ *   - "band-delete": drop a band               (mirrors deleteTimeClassification)
+ *
+ * Authorization: requireMobileAdmin(MANAGE_PRICING) — the SAME permission the
+ * web actions enforce. The web server actions guard via a cookie-session
+ * requireAdmin() that a mobile bearer caller can't satisfy and they expose no
+ * skipAuth flag, so this route inlines the equivalent DB writes (and replicates
+ * the band overlap / hour-ordering checks verbatim) with the route as the
+ * authorization boundary.
+ *
+ * UNITS: pricePerSlot is WHOLE RUPEES (the unit PricingRule stores). Band hours
+ * are half-open [startHour, endHour); 0..29 where ≥24 = next day.
  */
-async function guard(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  if (
-    admin.role !== "SUPERADMIN" &&
-    !hasPermission(admin.permissions ?? [], "MANAGE_PRICING")
-  ) {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
-  }
-  return { admin };
-}
-
 export async function GET(request: NextRequest) {
-  const g = await guard(request);
-  if ("error" in g) return g.error;
+  const gate = await requireMobileAdmin(request, "MANAGE_PRICING");
+  if ("error" in gate) return gate.error;
 
   const [configs, rules, classifications, arena] = await Promise.all([
     db.courtConfig.findMany({
@@ -42,14 +43,15 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const g = await guard(request);
-  if ("error" in g) return g.error;
+  const gate = await requireMobileAdmin(request, "MANAGE_PRICING");
+  if ("error" in gate) return gate.error;
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body.action !== "string") {
     return NextResponse.json({ error: "action is required" }, { status: 400 });
   }
 
+  // --- Per-slot prices (WHOLE RUPEES) ---
   if (body.action === "prices") {
     const updates = Array.isArray(body.updates) ? body.updates : [];
     for (const u of updates) {
@@ -82,6 +84,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // --- Arena open/close window ---
   if (body.action === "arena") {
     const open = Math.trunc(Number(body.openHour));
     const close = Math.trunc(Number(body.closeHour));
@@ -103,8 +106,94 @@ export async function POST(request: NextRequest) {
     } else {
       await db.arenaSettings.create({ data: { openHour: open, closeHour: close } });
     }
+    revalidateArena();
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- PEAK / OFF_PEAK band upsert (create + edit) ---
+  // The (startHour, dayType) pair is the @@unique key: an upsert on an existing
+  // startHour edits that band; a new startHour creates one. Mirrors the web
+  // updateTimeClassification action — same bounds, ordering, and overlap guard.
+  if (body.action === "band-save") {
+    const startHour = Math.trunc(Number(body.startHour));
+    const endHour = Math.trunc(Number(body.endHour));
+    if (!Number.isFinite(startHour) || startHour < 0 || startHour > 28) {
+      return NextResponse.json({ error: "Start hour must be 0–28." }, { status: 400 });
+    }
+    if (!Number.isFinite(endHour) || endHour < 1 || endHour > 29) {
+      return NextResponse.json({ error: "End hour must be 1–29." }, { status: 400 });
+    }
+    if (!["WEEKDAY", "WEEKEND"].includes(body.dayType)) {
+      return NextResponse.json({ error: "Invalid day type" }, { status: 400 });
+    }
+    if (!["PEAK", "OFF_PEAK"].includes(body.timeType)) {
+      return NextResponse.json({ error: "Invalid time type" }, { status: 400 });
+    }
+    if (endHour <= startHour) {
+      return NextResponse.json({ error: "End hour must be after start hour" }, { status: 400 });
+    }
+    const dayType = body.dayType as DayType;
+    const timeType = body.timeType as TimeType;
+
+    // Refuse to upsert a row whose hour range overlaps another band on the same
+    // dayType — pricing lookup picks the first match by startHour ASC, so
+    // overlaps silently mask each other. Exclude the row we'd overwrite at this
+    // exact startHour (that's an update, not a conflict).
+    const overlapping = await db.timeClassification.findFirst({
+      where: {
+        dayType,
+        NOT: { startHour },
+        AND: [{ startHour: { lt: endHour } }, { endHour: { gt: startHour } }],
+      },
+      select: { startHour: true, endHour: true, timeType: true },
+    });
+    if (overlapping) {
+      return NextResponse.json(
+        {
+          error: `Range ${startHour}–${endHour} overlaps an existing ${dayType} band (${overlapping.startHour}–${overlapping.endHour} ${overlapping.timeType}). Delete that row first or adjust the hours.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    await db.timeClassification.upsert({
+      where: { startHour_dayType: { startHour, dayType } },
+      update: { endHour, timeType },
+      create: { startHour, endHour, dayType, timeType },
+    });
+    revalidateArena();
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- Drop a band ---
+  // Hours falling outside any band still book; they resolve to OFF_PEAK by
+  // default (see lib/pricing.ts), so deletion widens off-peak coverage.
+  if (body.action === "band-delete") {
+    if (!body.id || typeof body.id !== "string") {
+      return NextResponse.json({ error: "Band id is required" }, { status: 400 });
+    }
+    try {
+      await db.timeClassification.delete({ where: { id: body.id } });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Failed to delete band" },
+        { status: 400 },
+      );
+    }
+    revalidateArena();
     return NextResponse.json({ ok: true });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+}
+
+/** Best-effort revalidation of every surface that reads pricing/hours. */
+function revalidateArena() {
+  try {
+    revalidatePath("/admin/pricing");
+    revalidatePath("/admin/calendar");
+    revalidatePath("/book");
+  } catch {
+    // write already landed; revalidation is best-effort
+  }
 }

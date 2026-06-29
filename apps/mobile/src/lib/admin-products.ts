@@ -3,6 +3,27 @@ import { request } from "./admin-api";
 export interface AdminProductCategory {
   id: string;
   name: string;
+  displayOrder?: number;
+  isActive?: boolean;
+  _count?: { products: number };
+}
+
+export interface CreateCategoryInput {
+  name: string;
+  displayOrder?: number;
+}
+
+export interface UpdateCategoryInput {
+  name?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export interface AdjustStockInput {
+  /** Signed delta — positive adds, negative removes. */
+  stockDelta: number;
+  /** Required audit note recorded on the ProductStockMovement. */
+  stockNote: string;
 }
 
 export interface AdminProduct {
@@ -60,6 +81,34 @@ export const adminProductsApi = {
     }),
   remove: (id: string) =>
     request<{ ok: true }>(`/api/mobile/admin/products/${id}`, {
+      method: "DELETE",
+    }),
+  /** Audited stock adjustment with a required note (mirrors web's stock dialog). */
+  adjustStock: (id: string, body: AdjustStockInput) =>
+    request<{ ok: true }>(`/api/mobile/admin/products/${id}`, {
+      method: "PATCH",
+      body,
+    }),
+};
+
+export const adminProductCategoriesApi = {
+  list: () =>
+    request<{ categories: AdminProductCategory[] }>(
+      "/api/mobile/admin/products/categories",
+      { method: "GET" },
+    ),
+  create: (body: CreateCategoryInput) =>
+    request<{ ok: true }>("/api/mobile/admin/products/categories", {
+      method: "POST",
+      body,
+    }),
+  update: (id: string, body: UpdateCategoryInput) =>
+    request<{ ok: true }>(`/api/mobile/admin/products/categories/${id}`, {
+      method: "PATCH",
+      body,
+    }),
+  remove: (id: string) =>
+    request<{ ok: true }>(`/api/mobile/admin/products/categories/${id}`, {
       method: "DELETE",
     }),
 };

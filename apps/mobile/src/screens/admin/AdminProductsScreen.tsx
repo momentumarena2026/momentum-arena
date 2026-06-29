@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, Plus, Trash2, X } from "lucide-react-native";
+import { Package, Plus, Tags, Trash2, X, Zap } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -20,7 +20,9 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import {
   adminProductsApi,
+  adminProductCategoriesApi,
   type AdminProduct,
+  type AdminProductCategory,
 } from "../../lib/admin-products";
 import { formatRupees } from "../../lib/format";
 import { AdminApiError } from "../../lib/admin-api";
@@ -43,6 +45,15 @@ export function AdminProductsScreen() {
   const [lowStock, setLowStock] = useState("3");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Dedicated stock-adjust dialog (delta + required audit note).
+  const [stockTarget, setStockTarget] = useState<AdminProduct | null>(null);
+  const [stockDelta, setStockDelta] = useState("");
+  const [stockNote, setStockNote] = useState("");
+  const [stockErr, setStockErr] = useState<string | null>(null);
+
+  // Category manager sheet.
+  const [catOpen, setCatOpen] = useState(false);
 
   const categories = list.data?.categories ?? [];
   const products = list.data?.products ?? [];
@@ -82,6 +93,8 @@ export function AdminProductsScreen() {
       const stockNum = Math.max(0, Math.trunc(Number(stock) || 0));
       const lowNum = Math.max(0, Math.trunc(Number(lowStock) || 0));
       if (editing) {
+        // Stock is NOT edited here — it goes through the audited
+        // stock-adjust dialog so every change records a note.
         await adminProductsApi.update(editing.id, {
           name: name.trim(),
           description: desc.trim() || null,
@@ -89,7 +102,6 @@ export function AdminProductsScreen() {
           costPaise,
           lowStockThreshold: lowNum,
           categoryId,
-          stockDelta: stockNum - editing.stockQuantity,
         });
       } else {
         await adminProductsApi.create({
@@ -120,6 +132,36 @@ export function AdminProductsScreen() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["admin", "products"] }),
   });
 
+  function openStock(p: AdminProduct) {
+    setStockTarget(p);
+    setStockDelta("");
+    setStockNote("");
+    setStockErr(null);
+  }
+
+  const adjustStock = useMutation({
+    mutationFn: async () => {
+      if (!stockTarget) return;
+      const delta = parseInt(stockDelta, 10);
+      if (!Number.isFinite(delta) || delta === 0) {
+        throw new Error("Enter a non-zero delta (+ to add, - to remove)");
+      }
+      if (!stockNote.trim()) {
+        throw new Error("Add a short note for the audit trail");
+      }
+      await adminProductsApi.adjustStock(stockTarget.id, {
+        stockDelta: delta,
+        stockNote: stockNote.trim(),
+      });
+    },
+    onSuccess: () => {
+      setStockTarget(null);
+      void qc.invalidateQueries({ queryKey: ["admin", "products"] });
+    },
+    onError: (e) =>
+      setStockErr(e instanceof AdminApiError || e instanceof Error ? e.message : "Failed"),
+  });
+
   return (
     <Screen padded={false}>
       <ScrollView
@@ -138,11 +180,19 @@ export function AdminProductsScreen() {
               {showInactive ? "Showing all" : "Active only"}
             </Text>
           </Pressable>
-          <Button
-            label="New"
-            onPress={openCreate}
-            leadingIcon={<Plus size={16} color={colors.primaryForeground} />}
-          />
+          <View style={styles.topActions}>
+            <Pressable onPress={() => setCatOpen(true)} style={styles.iconBtn} hitSlop={6}>
+              <Tags size={16} color={colors.zinc300} />
+              <Text variant="small" color={colors.zinc300}>
+                Categories
+              </Text>
+            </Pressable>
+            <Button
+              label="New"
+              onPress={openCreate}
+              leadingIcon={<Plus size={16} color={colors.primaryForeground} />}
+            />
+          </View>
         </View>
 
         {list.isLoading ? (
@@ -177,6 +227,9 @@ export function AdminProductsScreen() {
                     </Text>
                   </Pressable>
                   <View style={styles.actions}>
+                    <Pressable hitSlop={8} onPress={() => openStock(p)}>
+                      <Zap size={16} color={colors.zinc400} />
+                    </Pressable>
                     <Switch
                       value={p.isActive}
                       onValueChange={() => toggle.mutate(p)}
@@ -226,7 +279,13 @@ export function AdminProductsScreen() {
               </View>
               <View style={styles.twoCol}>
                 <View style={{ flex: 1 }}>
-                  <Input label="Stock" keyboardType="numeric" value={stock} onChangeText={setStock} />
+                  <Input
+                    label={editing ? "Stock (use ⚡ to adjust)" : "Initial stock"}
+                    keyboardType="numeric"
+                    value={stock}
+                    onChangeText={setStock}
+                    editable={!editing}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Input label="Low-stock at" keyboardType="numeric" value={lowStock} onChangeText={setLowStock} />
@@ -280,7 +339,205 @@ export function AdminProductsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Stock adjust — signed delta + required audit note. */}
+      <Modal
+        visible={!!stockTarget}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setStockTarget(null)}
+      >
+        <View style={styles.backdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text variant="title" weight="700">
+                Adjust stock
+              </Text>
+              <Pressable onPress={() => setStockTarget(null)} hitSlop={8}>
+                <X size={22} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.modalBody}>
+              {stockTarget ? (
+                <Text variant="small" color={colors.zinc400}>
+                  {stockTarget.name} · currently {stockTarget.stockQuantity} in stock
+                </Text>
+              ) : null}
+              <Input
+                label="Delta (+ to add, - to remove)"
+                keyboardType="numbers-and-punctuation"
+                placeholder="e.g. 5 or -2"
+                value={stockDelta}
+                onChangeText={setStockDelta}
+              />
+              <Input
+                label="Reason / note"
+                placeholder="e.g. monthly restock, damaged unit removed"
+                value={stockNote}
+                onChangeText={setStockNote}
+                multiline
+              />
+              {stockErr ? (
+                <Text variant="small" color={colors.destructive} style={{ marginTop: spacing["2"] }}>
+                  {stockErr}
+                </Text>
+              ) : null}
+            </ScrollView>
+            <View style={styles.modalFooter}>
+              <Button
+                label="Apply adjustment"
+                onPress={() => adjustStock.mutate()}
+                loading={adjustStock.isPending}
+                fullWidth
+                size="lg"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Category manager — list / create / rename / delete. */}
+      <Modal
+        visible={catOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setCatOpen(false)}
+      >
+        <View style={styles.backdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text variant="title" weight="700">
+                Categories
+              </Text>
+              <Pressable onPress={() => setCatOpen(false)} hitSlop={8}>
+                <X size={22} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            <CategoryManager categories={categories} />
+          </View>
+        </View>
+      </Modal>
     </Screen>
+  );
+}
+
+// ─── Category manager ────────────────────────────────────────────────
+
+function CategoryManager({ categories }: { categories: AdminProductCategory[] }) {
+  const qc = useQueryClient();
+  const [newName, setNewName] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["admin", "products"] });
+  };
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const name = newName.trim();
+      if (!name) throw new Error("Category name is required");
+      await adminProductCategoriesApi.create({ name });
+    },
+    onSuccess: () => {
+      setNewName("");
+      setErr(null);
+      invalidate();
+    },
+    onError: (e) =>
+      setErr(e instanceof AdminApiError || e instanceof Error ? e.message : "Failed"),
+  });
+
+  const rename = useMutation({
+    mutationFn: (args: { id: string; name: string }) =>
+      adminProductCategoriesApi.update(args.id, { name: args.name }),
+    onSuccess: () => {
+      setErr(null);
+      invalidate();
+    },
+    onError: (e) =>
+      setErr(e instanceof AdminApiError || e instanceof Error ? e.message : "Failed"),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => adminProductCategoriesApi.remove(id),
+    onSuccess: () => {
+      setErr(null);
+      invalidate();
+    },
+    onError: (e) =>
+      setErr(e instanceof AdminApiError || e instanceof Error ? e.message : "Failed"),
+  });
+
+  return (
+    <ScrollView contentContainerStyle={styles.modalBody}>
+      {categories.length === 0 ? (
+        <Text variant="small" color={colors.zinc500}>
+          No categories yet — products work fine without one, but a category
+          groups them on the customer shop.
+        </Text>
+      ) : (
+        categories.map((c) => {
+          const draft = drafts[c.id] ?? c.name;
+          return (
+            <View key={c.id} style={styles.catManageRow}>
+              <View style={{ flex: 1 }}>
+                <Input
+                  value={draft}
+                  onChangeText={(v) => setDrafts((d) => ({ ...d, [c.id]: v }))}
+                  onBlur={() => {
+                    const next = draft.trim();
+                    if (next && next !== c.name) rename.mutate({ id: c.id, name: next });
+                  }}
+                />
+                {typeof c._count?.products === "number" ? (
+                  <Text variant="tiny" color={colors.zinc500}>
+                    {c._count.products} product{c._count.products === 1 ? "" : "s"}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                hitSlop={8}
+                onPress={() =>
+                  Alert.alert(
+                    "Delete category?",
+                    `Products in "${c.name}" will become uncategorised.`,
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Delete", style: "destructive", onPress: () => remove.mutate(c.id) },
+                    ],
+                  )
+                }
+              >
+                <Trash2 size={16} color={colors.destructive} />
+              </Pressable>
+            </View>
+          );
+        })
+      )}
+
+      <View style={styles.catAddRow}>
+        <View style={{ flex: 1 }}>
+          <Input
+            placeholder="New category name"
+            value={newName}
+            onChangeText={setNewName}
+          />
+        </View>
+        <Button
+          label="Add"
+          onPress={() => create.mutate()}
+          loading={create.isPending}
+          leadingIcon={<Plus size={16} color={colors.primaryForeground} />}
+        />
+      </View>
+
+      {err ? (
+        <Text variant="small" color={colors.destructive} style={{ marginTop: spacing["2"] }}>
+          {err}
+        </Text>
+      ) : null}
+    </ScrollView>
   );
 }
 
@@ -292,6 +549,19 @@ const styles = StyleSheet.create({
     gap: spacing["4"],
   },
   topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  topActions: { flexDirection: "row", alignItems: "center", gap: spacing["3"] },
+  iconBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["1"],
+    paddingVertical: spacing["2"],
+    paddingHorizontal: spacing["3"],
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.zinc700,
+  },
+  catManageRow: { flexDirection: "row", alignItems: "center", gap: spacing["3"] },
+  catAddRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing["3"], marginTop: spacing["2"] },
   inactiveToggle: {
     paddingVertical: spacing["2"],
     paddingHorizontal: spacing["3"],

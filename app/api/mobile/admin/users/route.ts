@@ -1,41 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
-import { hasPermission } from "@/lib/permissions";
-import { getAdminUsers } from "@/actions/admin-users";
+import { z } from "zod";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
+import { getAdminUsers, createUser } from "@/actions/admin-users";
+import type { UserRole } from "@prisma/client";
 
 /**
- * GET /api/mobile/admin/users?search=&role=&page=
+ * GET /api/mobile/admin/users?search=&role=&page=&showDeleted=
+ * POST /api/mobile/admin/users
  *
- * Thin wrapper over the web `getAdminUsers` server action so the RN
- * admin can render the same read-only user directory the web
- * /admin/users page does (search by name/email/phone + role filter +
- * pagination). `skipAuth: true` is safe — the JWT admin is verified
- * here, and the action's own cookie-based requireAdmin would otherwise
- * reject bearer-token callers.
+ * Thin wrapper over the web `getAdminUsers` / `createUser` server actions so the
+ * RN admin reaches parity with the web /admin/users page: search by
+ * name/email/phone, role filter, pagination, show soft-deleted, and create.
+ * Both actions are called with `skipAuth: true` — the JWT admin is verified by
+ * the gate below (the real authZ), and the actions' own cookie-based
+ * requireAdmin would otherwise reject bearer-token callers. `createUser`
+ * mirrors the web exactly: it creates a bare User row (no password, no invite
+ * email).
  *
- * Permission: MANAGE_USERS (SUPERADMIN bypass).
+ * Permission: MANAGE_USERS (SUPERADMIN bypass) — the same key the web action
+ * enforces.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (
-    admin.role !== "SUPERADMIN" &&
-    !hasPermission(admin.permissions ?? [], "MANAGE_USERS")
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_USERS");
+  if ("error" in gate) return gate.error;
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search")?.trim() || undefined;
   const role = searchParams.get("role")?.trim() || undefined;
+  const showDeleted = searchParams.get("showDeleted") === "1";
   const pageRaw = parseInt(searchParams.get("page") || "1", 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
 
   try {
     const result = await getAdminUsers(
-      { search, role, page, limit: 20 },
+      { search, role, page, limit: 20, showDeleted },
       true,
     );
 
@@ -47,6 +45,7 @@ export async function GET(request: NextRequest) {
         phone: u.phone,
         role: u.role,
         bookingCount: u._count.bookings,
+        deletedAt: u.deletedAt ? u.deletedAt.toISOString() : null,
         createdAt: u.createdAt.toISOString(),
       })),
       total: result.total,
@@ -59,4 +58,45 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+const createSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().optional(),
+  phone: z.string().optional(),
+  role: z.enum(["CUSTOMER", "ADMIN"]),
+});
+
+export async function POST(request: NextRequest) {
+  const gate = await requireMobileAdmin(request, "MANAGE_USERS");
+  if ("error" in gate) return gate.error;
+
+  const parsed = createSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid data" },
+      { status: 400 },
+    );
+  }
+
+  // createUser re-validates (incl. "email or phone required") and uniqueness,
+  // and returns { success, error? } rather than throwing. skipAuth: this route
+  // already authorized via the JWT gate above.
+  const result = await createUser(
+    {
+      name: parsed.data.name,
+      email: parsed.data.email,
+      phone: parsed.data.phone,
+      role: parsed.data.role as UserRole,
+    },
+    true,
+  );
+
+  if (!result.success) {
+    return NextResponse.json(
+      { error: result.error ?? "Failed to create user" },
+      { status: 400 },
+    );
+  }
+  return NextResponse.json({ ok: true });
 }

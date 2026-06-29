@@ -159,17 +159,20 @@ export interface PushDeviceRow {
   userPhone: string | null;
 }
 
-export async function getPushDevices(filters?: {
-  platform?: string;
-  page?: number;
-  limit?: number;
-}): Promise<{
+export async function getPushDevices(
+  filters?: {
+    platform?: string;
+    page?: number;
+    limit?: number;
+  },
+  skipAuth = false,
+): Promise<{
   devices: PushDeviceRow[];
   total: number;
   page: number;
   totalPages: number;
 }> {
-  await requireAdmin(PERMISSION);
+  if (!skipAuth) await requireAdmin(PERMISSION);
 
   const page = filters?.page ?? 1;
   const limit = filters?.limit ?? 50;
@@ -208,8 +211,12 @@ export async function getPushDevices(filters?: {
 // User-group dropdown for the broadcast form. Returns each active group
 // with its member count and how many of those members have a registered
 // push device — so admins know the actual reach before they hit Send.
-export async function getActiveUserGroupsForPush() {
-  await requireAdmin(PERMISSION);
+//
+// skipAuth: mobile admin routes pre-authenticate via JWT + re-enforce
+// MANAGE_PUSH in requireMobileAdmin, so they pass skipAuth=true to skip
+// the web cookie-session check here (mirrors actions/admin-push-analytics.ts).
+export async function getActiveUserGroupsForPush(skipAuth = false) {
+  if (!skipAuth) await requireAdmin(PERMISSION);
 
   const groups = await db.userGroup.findMany({
     where: { deletedAt: null },
@@ -245,8 +252,8 @@ export async function getActiveUserGroupsForPush() {
 // User search for the broadcast form's "specific user" audience. Restricted
 // to phone / name match — admins searching for "amazon" shouldn't enumerate
 // every user in the DB by typing a single character.
-export async function searchUsersForPush(query: string) {
-  await requireAdmin(PERMISSION);
+export async function searchUsersForPush(query: string, skipAuth = false) {
+  if (!skipAuth) await requireAdmin(PERMISSION);
   const q = query.trim();
   if (q.length < 2) return [];
 
@@ -419,8 +426,54 @@ export async function sendTestPushToUser(userId: string) {
   );
 }
 
-export async function deletePushDeviceById(id: string) {
-  await requireAdmin(PERMISSION);
+// Test-push to the calling ADMIN's own registered device(s). Distinct
+// from sendTestPushToUser (which targets a customer's PushDevice rows):
+// this targets the admin's AdminPushDevice rows so an on-the-go admin can
+// fire a self-test from the mobile app and confirm — on the very device
+// in their hand — that FCM is wired end-to-end, WITHOUT spamming any
+// customer. It also lets the admin preview exactly how their composed
+// broadcast will look on a lock screen before sending it for real.
+//
+// adminId is the AdminUser.id; the mobile route passes its JWT-verified
+// admin.id here after guarding MANAGE_PUSH. No requireAdmin() session
+// check — there is no web caller for this (the web dashboard tests
+// against a customer, not the admin's own phone).
+export async function sendTestPushToAdmin(
+  adminId: string,
+  override?: { title?: string; body?: string },
+) {
+  const devices = await db.adminPushDevice.findMany({
+    where: { adminId },
+    select: { token: true },
+  });
+  if (devices.length === 0) {
+    return {
+      ok: false as const,
+      error:
+        "No admin device registered for your account. Make sure push is enabled on this device and you're signed in to the admin app.",
+    };
+  }
+
+  const title = override?.title?.trim() || "Test from Momentum Arena admin";
+  const body =
+    override?.body?.trim() ||
+    "If you see this on your lock screen, push notifications are wired correctly.";
+
+  const result = await sendToTokens(
+    devices.map((d) => d.token),
+    { title, body, data: { kind: "broadcast" } },
+    {
+      source: "test",
+      scope: "admin",
+      sentByAdminId: adminId,
+      audience: "self",
+    },
+  );
+  return { ok: true as const, ...result };
+}
+
+export async function deletePushDeviceById(id: string, skipAuth = false) {
+  if (!skipAuth) await requireAdmin(PERMISSION);
   await db.pushDevice.delete({ where: { id } });
   return { ok: true as const };
 }
@@ -429,8 +482,8 @@ export async function deletePushDeviceById(id: string) {
 // runs after each send only catches tokens FCM explicitly rejects;
 // devices that simply stopped checking in (uninstall, sign-out from
 // another device) are caught here.
-export async function pruneStalePushDevices(olderThanDays = 90) {
-  await requireAdmin(PERMISSION);
+export async function pruneStalePushDevices(olderThanDays = 90, skipAuth = false) {
+  if (!skipAuth) await requireAdmin(PERMISSION);
   const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
   const result = await db.pushDevice.deleteMany({
     where: { lastSeenAt: { lt: cutoff } },

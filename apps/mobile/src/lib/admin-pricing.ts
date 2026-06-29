@@ -41,6 +41,13 @@ export interface PriceUpdate {
   pricePerSlot: number;
 }
 
+export interface BandInput {
+  startHour: number;
+  endHour: number;
+  dayType: PricingDayType;
+  timeType: PricingTimeType;
+}
+
 export const adminPricingApi = {
   get: () =>
     request<PricingData>("/api/mobile/admin/pricing", { method: "GET" }),
@@ -53,5 +60,18 @@ export const adminPricingApi = {
     request<{ ok: true }>("/api/mobile/admin/pricing", {
       method: "POST",
       body: { action: "arena", openHour, closeHour },
+    }),
+  // Create / edit a PEAK/OFF_PEAK band. (startHour, dayType) is the unique key,
+  // so reusing an existing startHour edits that band. Hours are half-open
+  // [startHour, endHour); 0..29 where ≥24 = next day.
+  saveBand: (band: BandInput) =>
+    request<{ ok: true }>("/api/mobile/admin/pricing", {
+      method: "POST",
+      body: { action: "band-save", ...band },
+    }),
+  deleteBand: (id: string) =>
+    request<{ ok: true }>("/api/mobile/admin/pricing", {
+      method: "POST",
+      body: { action: "band-delete", id },
     }),
 };

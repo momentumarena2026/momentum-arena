@@ -27,6 +27,7 @@ export function AdminProfileScreen() {
   const [email, setEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,7 +39,16 @@ export function AdminProfileScreen() {
 
   const save = useMutation({
     mutationFn: async (): Promise<AdminProfile> => {
-      const wantsPasswordChange = !!(currentPassword || newPassword);
+      const wantsPasswordChange = !!(
+        currentPassword ||
+        newPassword ||
+        confirmPassword
+      );
+      // Mirror web's confirm-password check: validate the match client-side
+      // before hitting the server (the server never sees the confirm field).
+      if (wantsPasswordChange && newPassword !== confirmPassword) {
+        throw new Error("New passwords do not match");
+      }
       const res = await adminProfileApi.update({
         username: username.trim(),
         email: email.trim(),
@@ -50,6 +60,7 @@ export function AdminProfileScreen() {
     onSuccess: (next) => {
       setCurrentPassword("");
       setNewPassword("");
+      setConfirmPassword("");
       setErr(null);
       // Keep the local auth session (nav header, More hub) in sync with the
       // edited username/email.
@@ -143,8 +154,22 @@ export function AdminProfileScreen() {
                 value={newPassword}
                 onChangeText={setNewPassword}
               />
+              <Input
+                label="Confirm new password"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="Re-enter the new password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                error={
+                  confirmPassword && newPassword !== confirmPassword
+                    ? "Passwords do not match"
+                    : null
+                }
+              />
               <Text variant="tiny" color={colors.zinc600}>
-                Leave both blank to keep your current password.
+                Leave all blank to keep your current password.
               </Text>
             </Card>
 

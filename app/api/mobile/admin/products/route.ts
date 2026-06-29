@@ -40,7 +40,10 @@ export async function GET(request: NextRequest) {
         { createdAt: "desc" },
       ],
     }),
-    db.productCategory.findMany({ orderBy: { displayOrder: "asc" } }),
+    db.productCategory.findMany({
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
+      include: { _count: { select: { products: true } } },
+    }),
   ]);
   return NextResponse.json({ products, categories });
 }
