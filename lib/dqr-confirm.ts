@@ -8,6 +8,7 @@ import {
 import { awardBookingPoints } from "@/lib/rewards/earn";
 import { materializeOrderFromIntent } from "@/lib/cafe-intent";
 import { DQR_CONFIRMED_BY } from "@/lib/phonepe-dqr";
+import { recordOrphanPayment } from "@/lib/payment-orphan";
 
 /**
  * Shared "DQR payment settled → materialise the order" commit step,
@@ -42,7 +43,18 @@ export async function confirmDqrBooking(
   const hold = await db.slotHold.findUnique({
     where: { phonePeMerchantTxnId: transactionId },
   });
-  if (!hold) return { bookingId: null, alreadyDone: false };
+  if (!hold) {
+    // This commit step only runs once PhonePe reports the DQR payment
+    // COMPLETED, so money is captured. A missing hold means the blueprint
+    // was swept (past the 24h grace) with no booking — an orphan. Record it
+    // for admin recovery/refund instead of silently returning null.
+    recordOrphanPayment({
+      gateway: "PHONEPE_DQR",
+      reason: "no-hold",
+      phonePeMerchantTxnId: transactionId,
+    });
+    return { bookingId: null, alreadyDone: false };
+  }
 
   // Amount math identical to phonepe/callback + redirect: hold amounts
   // are rupees; advance is flagged by paymentMethod === "CASH"; the

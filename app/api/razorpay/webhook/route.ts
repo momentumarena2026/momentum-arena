@@ -7,6 +7,7 @@ import {
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
 import { awardBookingPoints } from "@/lib/rewards/earn";
+import { recordOrphanPayment } from "@/lib/payment-orphan";
 
 /**
  * Razorpay server-to-server webhook.
@@ -124,6 +125,18 @@ export async function POST(request: NextRequest) {
       payment.order_id,
       "— falls back to admin recovery tool",
     );
+    // This is the payment.captured event → money is settled, but the hold
+    // blueprint is gone (swept past the 24h grace, or never existed). Record
+    // an orphan so an admin honours/refunds it rather than it living only in
+    // a console.warn that no one reads.
+    recordOrphanPayment({
+      gateway: "RAZORPAY",
+      reason: "no-hold",
+      amountRupees: Math.round(payment.amount / 100),
+      razorpayOrderId: payment.order_id,
+      razorpayPaymentId: payment.id,
+      path: request.nextUrl.pathname,
+    });
     return NextResponse.json({
       ok: true,
       reason: "no-hold",

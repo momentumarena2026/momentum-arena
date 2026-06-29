@@ -9,6 +9,7 @@ import {
 import { createBookingFromHold } from "@/actions/booking";
 import { awardBookingPoints } from "@/lib/rewards/earn";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
+import { recordOrphanPayment } from "@/lib/payment-orphan";
 
 // POST /api/mobile/razorpay/verify — native equivalent of the web verify
 // route. Validates the Razorpay signature, enforces idempotency, and turns
@@ -94,6 +95,19 @@ export async function POST(request: NextRequest) {
   }
 
   if (!hold) {
+    // Signature already verified → Razorpay captured real money but the hold
+    // blueprint is gone. Orphaned payment: record it for admin recovery/refund
+    // and don't invite a second charge (no "try again").
+    recordOrphanPayment({
+      gateway: "RAZORPAY",
+      reason: "no-hold",
+      userId: user.id,
+      razorpayOrderId,
+      razorpayPaymentId,
+      holdId,
+      path: request.nextUrl.pathname,
+      platform: resolveRequestPlatform(request),
+    });
     logServerAction({
       userId: user.id,
       category: AnalyticsCategory.PAYMENT,
@@ -102,11 +116,15 @@ export async function POST(request: NextRequest) {
       path: request.nextUrl.pathname,
       method: "POST",
       platform: resolveRequestPlatform(request),
-      metadata: { holdId, razorpayOrderId },
-      error: "Hold expired",
+      metadata: { holdId, razorpayOrderId, razorpayPaymentId, orphan: true },
+      error: "Hold expired (payment captured — orphaned)",
     });
     return NextResponse.json(
-      { error: "Hold expired — please try again" },
+      {
+        error:
+          "Payment received, but your slot reservation had expired. Please do NOT pay again — our team will confirm your booking or refund you shortly.",
+        paymentReceived: true,
+      },
       { status: 410 }
     );
   }

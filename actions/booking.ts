@@ -23,6 +23,7 @@ import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
 import { snapshotEquipmentForHold } from "@/lib/equipment";
+import { recordOrphanPayment, type OrphanGateway } from "@/lib/payment-orphan";
 import { Prisma, BookingCategory, CourtZone } from "@prisma/client";
 
 const lockSlotsSchema = z.object({
@@ -1141,7 +1142,16 @@ export async function createBookingFromHold(
   // accessor has its own 1-minute cache so this is essentially free.
   const rewardCfg = pointsToRedeem > 0 ? await getRewardConfig() : null;
 
-  const result = await db.$transaction(
+  let result:
+    | {
+        id: string;
+        redemptionMeta:
+          | { txnId: string; discountPaise: number; bulkRedemption: boolean }
+          | null;
+      }
+    | null;
+  try {
+    result = await db.$transaction(
     async (tx) => {
     // Re-fetch inside transaction and lock via delete (deleted row implies someone else consumed it)
     const deleted = await tx.slotHold.deleteMany({
@@ -1191,6 +1201,39 @@ export async function createBookingFromHold(
             ) {
               throw new Error("BOWLING_SLOT_CONFLICT");
             }
+          }
+        }
+      }
+    } else {
+      // Non-bowling: re-verify the slot is still free at commit time.
+      // This USED to be guaranteed by the (non-expired) hold, but holds
+      // are now retained past expiry as a booking blueprint for late-payment
+      // recovery (see lib/slot-hold cleanupExpiredHolds), so the slot could
+      // have been re-booked by someone else while this payment was in
+      // flight. Without this check a late payment would silently
+      // DOUBLE-BOOK the slot. Throwing rolls the transaction back, which
+      // restores the hold (the deleteMany above is undone) so the captured
+      // payment can still be recovered/refunded by an admin instead of
+      // producing a duplicate booking.
+      const config = await tx.courtConfig.findUnique({
+        where: { id: hold.courtConfigId },
+      });
+      if (!config) throw new Error("Court config not found");
+      const conflictingBookings = await tx.booking.findMany({
+        where: {
+          date: hold.date,
+          status: { in: ["CONFIRMED", "PENDING"] },
+          courtConfig: {
+            zones: { hasSome: config.zones as CourtZone[] },
+          },
+        },
+        include: { slots: true },
+      });
+      const requestedHours = new Set(hold.hours);
+      for (const b of conflictingBookings) {
+        for (const s of b.slots) {
+          if (requestedHours.has(s.startHour)) {
+            throw new Error("SLOT_CONFLICT");
           }
         }
       }
@@ -1317,7 +1360,38 @@ export async function createBookingFromHold(
     // lookup inside the transaction could silently roll back a successful
     // payment, leaving an orphaned Razorpay charge with no booking row.
     { timeout: 15000 }
-  );
+    );
+  } catch (err) {
+    // A slot-conflict throw (bowling or standard) means the slot was taken
+    // by someone else between hold-expiry and this (late) payment. The
+    // transaction rolled back, restoring the hold. If real gateway money
+    // was captured, record an orphan so an admin refunds it instead of the
+    // customer silently losing both the slot and the money. Then return
+    // null so callers treat it as "couldn't create" — never a double-book.
+    if (err instanceof Error && err.message.includes("SLOT_CONFLICT")) {
+      const gateway: OrphanGateway | null = payment.razorpayPaymentId
+        ? "RAZORPAY"
+        : payment.method === "PHONEPE"
+          ? "PHONEPE"
+          : payment.phonePeMerchantTxnId
+            ? "PHONEPE_DQR"
+            : null;
+      if (gateway) {
+        recordOrphanPayment({
+          gateway,
+          reason: "slot-taken",
+          userId: hold.userId,
+          amountRupees: payment.amount,
+          razorpayOrderId: payment.razorpayOrderId ?? null,
+          razorpayPaymentId: payment.razorpayPaymentId ?? null,
+          phonePeMerchantTxnId: payment.phonePeMerchantTxnId ?? null,
+          holdId,
+        });
+      }
+      return null;
+    }
+    throw err;
+  }
 
   if (!result) return null;
 
