@@ -159,7 +159,6 @@ export type AdminCalendarStackParamList = {
 export type AdminCafeStackParamList = {
   AdminCafeOrders: undefined;
   AdminCafeMenu: undefined;
-  AdminCafeCoupons: undefined;
   AdminCafeCreateOrder: undefined;
 };
 

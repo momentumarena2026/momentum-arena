@@ -2,10 +2,12 @@ import { ScrollView, StyleSheet, View, Pressable } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import {
+  Activity,
   Ban,
   BarChart3,
   Bell,
   ChevronRight,
+  Coffee,
   CreditCard,
   FileText,
   Gift,
@@ -142,18 +144,25 @@ const GROUPS: Group[] = [
     title: "Cafe",
     rows: [
       {
+        label: "Cafe menu",
+        icon: ic(Coffee),
+        perm: "MANAGE_CAFE_MENU",
+        onPress: (nav) =>
+          nav.navigate("AdminCafe", { screen: "AdminCafeMenu" }),
+      },
+      {
+        label: "Live orders",
+        icon: ic(Activity),
+        perm: "MANAGE_CAFE_ORDERS",
+        onPress: (nav) =>
+          nav.navigate("AdminCafe", { screen: "AdminCafeOrders" }),
+      },
+      {
         label: "Create cafe order",
         icon: ic(ShoppingBag),
         perm: "MANAGE_CAFE_ORDERS",
         onPress: (nav) =>
           nav.navigate("AdminCafe", { screen: "AdminCafeCreateOrder" }),
-      },
-      {
-        label: "Cafe coupons",
-        icon: ic(Tag),
-        perm: "MANAGE_CAFE_DISCOUNTS",
-        onPress: (nav) =>
-          nav.navigate("AdminCafe", { screen: "AdminCafeCoupons" }),
       },
     ],
   },
