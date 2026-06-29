@@ -17,6 +17,7 @@ import {
 import { Text } from "../components/ui/Text";
 import { colors, spacing } from "../theme";
 import { useAdminAuth } from "../providers/AdminAuthProvider";
+import { adminCan } from "../lib/admin-permissions";
 import { AdminBookingsListScreen } from "../screens/admin/AdminBookingsListScreen";
 import { AdminUnconfirmedBookingsListScreen } from "../screens/admin/AdminUnconfirmedBookingsListScreen";
 import { AdminBookingDetailScreen } from "../screens/admin/AdminBookingDetailScreen";
@@ -405,6 +406,15 @@ function AdminBookingsStack() {
  *   - Sign-out → clears the admin token and returns to customer view.
  */
 export function AdminNavigator() {
+  const { state } = useAdminAuth();
+  const admin = state.status === "signedIn" ? state.admin : null;
+  // Hide a tab from the bottom bar when the admin lacks its permission
+  // (mirrors the web sidebar's per-section gating). The screen stays
+  // registered so deep-links / quick-actions still resolve.
+  const hiddenTab = {
+    tabBarButton: () => null,
+    tabBarItemStyle: { display: "none" as const },
+  };
   return (
     <Tabs.Navigator
       screenOptions={({ route }) => ({
@@ -448,17 +458,29 @@ export function AdminNavigator() {
       <Tabs.Screen
         name="AdminBookings"
         component={AdminBookingsStack}
-        options={{ tabBarLabel: "Bookings" }}
+        options={
+          adminCan(admin, "MANAGE_BOOKINGS")
+            ? { tabBarLabel: "Bookings" }
+            : hiddenTab
+        }
       />
       <Tabs.Screen
         name="AdminCalendar"
         component={AdminCalendarStackNav}
-        options={{ tabBarLabel: "Calendar" }}
+        options={
+          adminCan(admin, "MANAGE_BOOKINGS")
+            ? { tabBarLabel: "Calendar" }
+            : hiddenTab
+        }
       />
       <Tabs.Screen
         name="AdminCafe"
         component={AdminCafeStackNav}
-        options={{ tabBarLabel: "Cafe" }}
+        options={
+          adminCan(admin, "MANAGE_CAFE_ORDERS")
+            ? { tabBarLabel: "Cafe" }
+            : hiddenTab
+        }
       />
       <Tabs.Screen
         name="AdminMore"
