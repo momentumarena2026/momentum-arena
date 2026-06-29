@@ -1,10 +1,8 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
 import authConfig from "@/lib/auth.config";
-import { awardSignupBonus } from "@/lib/rewards/earn";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -47,55 +45,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return session;
     },
-    async signIn({ user, account }) {
-      // For Google sign-in, mark email as verified
-      if (account?.provider === "google" && user.email) {
-        try {
-          const dbUser = await db.user.findUnique({
-            where: { email: user.email },
-            select: { id: true, emailVerified: true },
-          });
-          if (dbUser && !dbUser.emailVerified) {
-            await db.user.update({
-              where: { id: dbUser.id },
-              data: { emailVerified: new Date() },
-            });
-          }
-        } catch {
-          // DB error shouldn't block sign-in
-        }
-      }
+    async signIn() {
       return true;
     },
   },
-  events: {
-    // Fires once when the Prisma adapter creates a new user — i.e. Google
-    // OAuth first sign-in. Phone-OTP signups create the user manually and
-    // award the bonus at that site, so they never reach this hook.
-    async createUser({ user }) {
-      try {
-        if (user.id) await awardSignupBonus(user.id);
-      } catch (err) {
-        console.error("[auth] signup bonus failed:", err);
-      }
-    },
-  },
   providers: [
-    // Google OAuth for customers
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      profile(profile) {
-        return {
-          id: profile.sub,
-          name: profile.name,
-          email: profile.email,
-          image: profile.picture,
-        };
-      },
-    }),
-
-    // Phone OTP login
+    // Phone OTP login (Google sign-in was removed — unused).
     Credentials({
       id: "otp",
       name: "OTP",
