@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import {
   getExpenseById,
   updateExpense,
@@ -24,10 +24,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
+  if ("error" in gate) return gate.error;
 
   const { id } = await params;
   const expense = await getExpenseById(id, true);
@@ -65,10 +63,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
+  if ("error" in gate) return gate.error;
+  const admin = gate.admin;
 
   const parsed = PatchBody.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -94,10 +91,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
+  if ("error" in gate) return gate.error;
   const { id } = await params;
   const result = await deleteExpense(id, true);
   if (!result.success) {

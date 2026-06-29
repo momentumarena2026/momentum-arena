@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { getCalendarData } from "@/actions/admin-calendar";
 
 /**
@@ -15,10 +15,8 @@ import { getCalendarData } from "@/actions/admin-calendar";
  * would otherwise fail for mobile callers.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
+  if ("error" in gate) return gate.error;
 
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date");

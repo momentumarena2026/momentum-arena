@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { getTodayIST } from "@/lib/ist-date";
 
 /**
@@ -15,10 +15,8 @@ import { getTodayIST } from "@/lib/ist-date";
  * normalised to midnight UTC the way bookings are stored.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
+  if ("error" in gate) return gate.error;
 
   const today = getTodayIST();
   const dateOnly = new Date(today + "T00:00:00Z");

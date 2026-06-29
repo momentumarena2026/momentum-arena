@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { getLiveCafeOrders } from "@/actions/admin-cafe-orders";
 
 /**
@@ -11,10 +11,8 @@ import { getLiveCafeOrders } from "@/actions/admin-cafe-orders";
  * don't pay JSON-cost on every poll.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_CAFE_ORDERS");
+  if ("error" in gate) return gate.error;
 
   const grouped = await getLiveCafeOrders(true);
 

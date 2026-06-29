@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { getAvailableBowlingSlots } from "@/actions/admin-booking";
 
 /**
@@ -14,10 +14,8 @@ import { getAvailableBowlingSlots } from "@/actions/admin-booking";
  * enforced.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
+  if ("error" in gate) return gate.error;
 
   const { searchParams } = new URL(request.url);
   const courtConfigId = searchParams.get("courtConfigId");
