@@ -36,10 +36,12 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 function discountLabel(c: AdminCoupon): string {
-  // value: PERCENTAGE = bps, FLAT = paise.
+  // PERCENTAGE: value = basis points (÷100 → percent). FLAT: value = whole
+  // RUPEES (canonical — matches the web admin + the coupon validator).
+  // maxDiscount is also whole rupees.
   return c.type === "PERCENTAGE"
-    ? `${c.value / 100}% OFF${c.maxDiscount ? ` ≤ ${formatRupees(c.maxDiscount / 100)}` : ""}`
-    : `${formatRupees(c.value / 100)} OFF`;
+    ? `${c.value / 100}% OFF${c.maxDiscount ? ` ≤ ${formatRupees(c.maxDiscount)}` : ""}`
+    : `${formatRupees(c.value)} OFF`;
 }
 
 export function AdminCouponsScreen() {
@@ -95,8 +97,8 @@ export function AdminCouponsScreen() {
     setDesc(c.description ?? "");
     setScope(c.scope);
     setType(c.type);
-    setValue(String(c.type === "PERCENTAGE" ? c.value / 100 : c.value / 100));
-    setMaxDisc(c.maxDiscount != null ? String(c.maxDiscount / 100) : "");
+    setValue(String(c.type === "PERCENTAGE" ? c.value / 100 : c.value));
+    setMaxDisc(c.maxDiscount != null ? String(c.maxDiscount) : "");
     setMinAmt(c.minAmount != null ? String(c.minAmount) : "");
     setMaxUses(c.maxUses != null ? String(c.maxUses) : "");
     setPerUser(String(c.maxUsesPerUser));
@@ -111,14 +113,17 @@ export function AdminCouponsScreen() {
     mutationFn: async () => {
       const num = Number(value);
       if (!num || num <= 0) throw new Error("Enter a valid discount value");
-      // PERCENTAGE → bps (×100); FLAT → paise (×100).
-      const storedValue = Math.round(num * 100);
-      const maxDiscPaise = maxDisc ? Math.round(Number(maxDisc) * 100) : undefined;
+      // PERCENTAGE → basis points (×100). FLAT → whole RUPEES (raw — the
+      // canonical unit the web admin + coupon validator use; storing paise
+      // here would 100x the discount). maxDiscount (% cap) is whole rupees.
+      const storedValue =
+        type === "PERCENTAGE" ? Math.round(num * 100) : Math.round(num);
+      const maxDiscRupees = maxDisc ? Math.round(Number(maxDisc)) : undefined;
       const common = {
         description: desc.trim() || undefined,
         scope,
         value: storedValue,
-        maxDiscount: type === "PERCENTAGE" ? maxDiscPaise ?? null : null,
+        maxDiscount: type === "PERCENTAGE" ? maxDiscRupees ?? null : null,
         maxUses: maxUses ? Number(maxUses) : null,
         maxUsesPerUser: perUser ? Number(perUser) : 1,
         minAmount: minAmt ? Number(minAmt) : null,

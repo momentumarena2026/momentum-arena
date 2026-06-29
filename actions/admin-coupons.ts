@@ -15,7 +15,9 @@ import {
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
 async function requireAdmin() {
-  const user = await requireAdminBase("MANAGE_DISCOUNTS");
+  // MANAGE_COUPONS — matches the admin sidebar gate for /admin/coupons (was
+  // MANAGE_DISCOUNTS, which the sidebar never grants here → see-but-can't-use).
+  const user = await requireAdminBase("MANAGE_COUPONS");
   return user.id;
 }
 

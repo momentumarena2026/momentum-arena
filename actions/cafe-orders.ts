@@ -260,6 +260,18 @@ export async function createCafeOrder(data: {
       });
     }
 
+    // Parity with the admin status-transition path (admin-cafe-orders.ts):
+    // an order that lands DIRECTLY in COMPLETED (all items ready, no kitchen
+    // step) still earns cafe reward points. The transition path only fires
+    // when an order is *moved* to COMPLETED, so without this an all-ready
+    // order would never earn. Idempotent + fire-and-forget at the lib layer.
+    if (orderStatus === "COMPLETED" && userId) {
+      const { awardCafePoints } = await import("@/lib/rewards/earn");
+      void awardCafePoints(order.id).catch((err) =>
+        console.error("[rewards] cafe award failed for", order.id, err),
+      );
+    }
+
     return {
       success: true,
       orderId: order.id,
