@@ -42,6 +42,7 @@ export const SERVER_ACTION_LABELS: Record<string, string> = {
   "payment.cash.commit": "Confirmed cash payment",
   "payment.cash.advance_commit": "Confirmed advance UPI payment",
   "payment.select_payment": "Selected payment method",
+  "payment.orphan": "⚠ Orphaned payment — needs recovery/refund",
 };
 
 /** Friendly labels for payment methods stored in log metadata. */

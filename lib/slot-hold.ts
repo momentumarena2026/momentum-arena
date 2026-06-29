@@ -585,12 +585,56 @@ export async function releaseSlotHold(
 }
 
 /**
- * Cron: delete all expired SlotHolds.
- * Runs periodically. Bookings are never touched by this cron.
+ * How long, after a payment was initiated against a hold, we keep the
+ * (expired) hold row around purely as a booking-reconstruction blueprint.
+ *
+ * A hold has two jobs: (1) reserve the slot during checkout, (2) carry the
+ * court/time/amount/coupon/points data needed to build the Booking once the
+ * gateway confirms payment. Job (1) ends at `expiresAt` (15 min) — slot
+ * availability is gated on `expiresAt > now`, so an expired-but-undeleted
+ * hold does NOT keep blocking the slot. But job (2) must outlive job (1):
+ * a customer can complete a Razorpay/PhonePe payment AFTER our 15-min hold
+ * expired (the gateway's payment window is independent of our TTL). If we
+ * delete the row at expiry, the verify/webhook/recovery paths have nothing
+ * to rebuild from and the captured payment is orphaned (paid, no booking).
+ *
+ * So: holds with a payment attempt are retained for this window after the
+ * attempt, giving the late-payment + webhook + admin-recovery paths time to
+ * reconstruct the booking. createBookingFromHold re-checks slot conflicts,
+ * so a retained hold can never double-book a slot that got re-taken.
+ */
+const PAYMENT_GRACE_HOURS = 24;
+
+/**
+ * Cron: delete expired SlotHolds.
+ *
+ * Holds with NO payment attempt are deleted as soon as they expire (frees
+ * the table promptly). Holds that DID start a payment are kept for
+ * PAYMENT_GRACE_HOURS after the attempt so a late payment / webhook / admin
+ * recovery can still rebuild the booking from them (see the constant above).
+ * Bookings are never touched by this cron.
  */
 export async function cleanupExpiredHolds(): Promise<number> {
+  const now = new Date();
+  const graceCutoff = new Date(now.getTime() - PAYMENT_GRACE_HOURS * 60 * 60 * 1000);
   const result = await db.slotHold.deleteMany({
-    where: { expiresAt: { lt: new Date() } },
+    where: {
+      expiresAt: { lt: now },
+      OR: [
+        // No payment was ever attempted → delete immediately at expiry.
+        {
+          paymentInitiatedAt: null,
+          razorpayOrderId: null,
+          phonePeMerchantTxnId: null,
+        },
+        // Payment attempted (paymentInitiatedAt stamped) but the grace
+        // window has elapsed → recovery window is over.
+        { paymentInitiatedAt: { lt: graceCutoff } },
+        // Defensive: a payment ref exists but paymentInitiatedAt wasn't
+        // stamped on this path — fall back to row activity (updatedAt).
+        { paymentInitiatedAt: null, updatedAt: { lt: graceCutoff } },
+      ],
+    },
   });
   return result.count;
 }

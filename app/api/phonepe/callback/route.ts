@@ -12,6 +12,7 @@ import {
 import { createBookingFromHold } from "@/actions/booking";
 import { awardBookingPoints } from "@/lib/rewards/earn";
 import { AnalyticsCategory, logServerAction } from "@/lib/server-log";
+import { recordOrphanPayment } from "@/lib/payment-orphan";
 
 /**
  * PhonePe v2 server-to-server webhook for booking payments.
@@ -101,14 +102,26 @@ export async function POST(request: NextRequest) {
       where: { phonePeMerchantTxnId: merchantOrderId },
     });
     if (!hold) {
+      // We already confirmed status.success (capture certain) AND found no
+      // existing Payment above. So this is NOT a benign "redirect won the
+      // race" case — the hold blueprint is genuinely gone (swept past the
+      // 24h grace) and no booking exists. That's an orphaned captured
+      // payment; record it so an admin honours/refunds it.
+      recordOrphanPayment({
+        gateway: "PHONEPE",
+        reason: "no-hold",
+        phonePeMerchantTxnId: merchantOrderId,
+        path: request.nextUrl.pathname,
+      });
       logServerAction({
         category: AnalyticsCategory.PAYMENT,
         action: "payment.phonepe.callback",
-        outcome: "success",
+        outcome: "error",
         path: request.nextUrl.pathname,
         method: "POST",
         platform: "web",
-        metadata: { merchantOrderId, holdAlreadyConsumed: true },
+        metadata: { merchantOrderId, orphan: true },
+        error: "Hold gone (payment captured — orphaned)",
       });
       return NextResponse.json({ success: true });
     }
