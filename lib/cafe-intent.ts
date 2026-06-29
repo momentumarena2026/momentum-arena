@@ -297,6 +297,17 @@ export async function materializeOrderFromIntent(
     return created;
   });
 
+  // Parity with the admin status-transition path (admin-cafe-orders.ts): an
+  // order that materializes DIRECTLY into COMPLETED (all items ready, no
+  // kitchen step) still earns cafe reward points. PENDING orders earn later
+  // when an admin flips them to COMPLETED. Idempotent + fire-and-forget.
+  if (nextStatus === "COMPLETED" && intent.userId) {
+    const { awardCafePoints } = await import("@/lib/rewards/earn");
+    void awardCafePoints(order.id).catch((err) =>
+      console.error("[rewards] cafe award failed for", order.id, err),
+    );
+  }
+
   return {
     ok: true,
     orderId: order.id,

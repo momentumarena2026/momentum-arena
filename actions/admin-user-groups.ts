@@ -14,12 +14,13 @@ import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
  * validation OR's all eligibility paths together — if any one
  * matches the user is allowed, otherwise blocked.
  *
- * Permission model: `MANAGE_DISCOUNTS` is the same admin scope used
- * by the existing coupon CRUD, so anyone who can edit a coupon can
- * also manage the groups that target it.
+ * Permission model: `MANAGE_COUPONS` — the same scope the admin sidebar
+ * uses for both /admin/coupons and /admin/users/groups, so an admin who can
+ * SEE the page can also use it (the action previously required MANAGE_DISCOUNTS,
+ * which the sidebar never grants for these pages → see-but-can't-use bug).
  */
 async function requireAdmin() {
-  const user = await requireAdminBase("MANAGE_DISCOUNTS");
+  const user = await requireAdminBase("MANAGE_COUPONS");
   return user.id;
 }
 

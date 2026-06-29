@@ -324,7 +324,11 @@ export async function validateCoupon(
       };
     }
 
-    // 10. Calculate discount
+    // 10. Calculate discount. `context.amount`, `value` (FLAT) and
+    // `maxDiscount` are all in RUPEES here — PERCENTAGE `value` is basis
+    // points. (The schema comment says "paise" but the web admin, this
+    // validator, and auto-apply-promo all treat FLAT value/maxDiscount as
+    // whole rupees; that's the canonical unit across existing coupon data.)
     let discountAmount: number;
     if (coupon.type === "PERCENTAGE") {
       discountAmount = Math.floor((context.amount * coupon.value) / 10000);

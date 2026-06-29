@@ -21,7 +21,6 @@ import {
 } from "../../lib/admin-recurring";
 import { AdminApiError } from "../../lib/admin-api";
 
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
  * Mirrors web /admin/recurring. Editable recurring-booking config:
@@ -63,17 +62,6 @@ export function AdminRecurringConfigScreen() {
           c ? { ...c, [key]: Number(t.replace(/[^0-9]/g, "")) || 0 } : c,
         ),
     };
-  }
-
-  function toggleDay(day: number) {
-    setCfg((c) => {
-      if (!c) return c;
-      const has = c.allowedDays.includes(day);
-      const allowedDays = has
-        ? c.allowedDays.filter((d) => d !== day)
-        : [...c.allowedDays, day].sort((a, b) => a - b);
-      return { ...c, allowedDays };
-    });
   }
 
   function updateTier(i: number, patch: Partial<RecurringConfig["tiers"][0]>) {
@@ -127,7 +115,11 @@ export function AdminRecurringConfigScreen() {
     setBusy(true);
     setErr(null);
     try {
-      const { id: _id, ...input } = cfg;
+      const { id: _id, ...rest } = cfg;
+      // Day is auto-derived from the booking date — recurring config is never
+      // day-restricted (matches the web admin, which always saves all 7). Force
+      // all-7 so the value can't drift; the per-day picker was removed.
+      const input = { ...rest, allowedDays: [0, 1, 2, 3, 4, 5, 6] };
       await adminRecurringApi.save(input);
       Alert.alert("Saved", "Recurring config updated.");
       void query.refetch();
@@ -161,31 +153,6 @@ export function AdminRecurringConfigScreen() {
             />
           </View>
         </Card>
-
-        {/* Allowed days */}
-        <Text variant="tiny" color={colors.zinc500} style={styles.section}>
-          ALLOWED DAYS
-        </Text>
-        <View style={styles.dayRow}>
-          {DAY_LABELS.map((label, day) => {
-            const on = cfg.allowedDays.includes(day);
-            return (
-              <Pressable
-                key={day}
-                onPress={() => toggleDay(day)}
-                style={[styles.dayChip, on && styles.dayChipActive]}
-              >
-                <Text
-                  variant="tiny"
-                  weight="600"
-                  color={on ? colors.emerald400 : colors.zinc400}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
 
         {/* Weekly tiers */}
         <View style={styles.sectionRow}>
