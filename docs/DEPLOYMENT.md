@@ -182,13 +182,57 @@ gh workflow run native-android.yml --ref main -f track=internal # or: -f track=p
 ```
 - `testflight`/`internal` → OTA channel **development**; `appstore`/`production`
   → channel **production**.
-- iOS uses an **App Store Connect API key** + `-allowProvisioningUpdates` (no
-  profile checked in). Build/version numbers auto-increment in the workflow.
-- **After a native release ships,** update the fingerprint baseline so future
-  JS-only changes resume OTA-ing:
-  `apps/mobile/fingerprints/<channel>.<platform>.fingerprint` (the
-  `post-native-release.yml` workflow helps with this). If the baseline is stale,
-  `ota-publish` keeps warning "native build required".
+- Builds run on GitHub-hosted runners via **fastlane** (lane `beta` for
+  test tracks, `release` for store tracks). Build number = unix-epoch-minutes
+  (auto); marketing version from `apps/mobile/scripts/version.js` (optional
+  `-f bump=patch|minor|major`). No EAS — it's bare fastlane + Xcode/Gradle.
+- App identity (both platforms): **`com.momentumarena`**.
+
+### 8a. Credentials checklist (the part that lives outside the repo)
+
+These are **GitHub repo secrets** (Settings → Secrets and variables → Actions).
+The workflows decode them at build time; nothing sensitive is committed.
+
+**iOS** (`native-ios.yml`) — needs an **Apple Developer Program** membership +
+**App Store Connect** access for `com.momentumarena`:
+| Secret | What it is | Where to get / regenerate |
+|---|---|---|
+| `ASC_API_KEY_P8_BASE64` | base64 of the App Store Connect API key `AuthKey_XLBK5M2393.p8` (key id **XLBK5M2393**) | App Store Connect → *Users and Access → Integrations → App Store Connect API* → create a key (Admin/App Manager). You also need its **Issuer ID** + **Key ID** wired into the iOS fastlane config |
+| `IOS_DIST_CERT_BASE64` | base64 of the **Apple Distribution** certificate exported as `.p12` | Apple Developer → *Certificates* → create "Apple Distribution" → export from Keychain as `.p12` → `base64 -i cert.p12` |
+| `IOS_DIST_CERT_PASSWORD` | the password you set when exporting the `.p12` | you choose it at export time |
+
+Provisioning profiles are **not** checked in — the API key + `-allowProvisioningUpdates`
+let Xcode manage them. So the moving parts are just: the ASC API key + the
+distribution cert.
+
+**Android** (`native-android.yml`) — needs a **Google Play Console** account for
+`com.momentumarena` + a Play **service account** with release permissions:
+| Secret | What it is | Where to get / regenerate |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64` | base64 of the **upload keystore** `upload-keystore.jks` | the keystore you generated for this app (`keytool -genkeypair …`) → `base64 -i upload-keystore.jks`. **Back this file up offline** — losing it blocks updates unless you've enrolled in Play App Signing key reset |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore store password | set at keystore creation |
+| `ANDROID_KEY_ALIAS` | the key alias inside the keystore | set at keystore creation |
+| `ANDROID_KEY_PASSWORD` | the key password | set at keystore creation |
+| `GOOGLE_PLAY_JSON_KEY` | the **entire** Play service-account JSON (file contents) | Google Play Console → *Setup → API access* → create/link a Google Cloud service account → grant "Release" → download the JSON key |
+
+> ⚠️ The Apple distribution cert + the Android upload keystore are the two
+> irreplaceable-if-lost artifacts. Keep encrypted off-repo backups of both
+> (and the `.p12` / `.jks` passwords).
+
+### 8b. After a native release ships — refresh the OTA baseline
+
+A new store binary changes the native fingerprint, so OTA must learn the new
+baseline or it'll keep warning "native build required". Run:
+
+```bash
+gh workflow run post-native-release.yml --ref main \
+  -f platform=ios -f channel=production -f build=<buildNumber> \
+  -f versionName=1.0.1 -f storeUrl="https://apps.apple.com/app/idXXXXXXXX"
+```
+This recomputes + commits `apps/mobile/fingerprints/<channel>.<platform>.fingerprint`
+(with `[skip ci]`) and updates the in-DB **version gate** (min-supported build).
+Do it per platform. After it lands, JS-only changes resume OTA-publishing
+normally (§7).
 
 See also the App Store / TestFlight specifics in project memory
 (`testflight_appstore.md`) and the OTA architecture (`ota_self_hosted.md`).
@@ -212,8 +256,10 @@ See also the App Store / TestFlight specifics in project memory
 **GitHub repo secrets** (Settings → Secrets → Actions) — used by workflows:
 - `STAGING_DB_URL`, `PRODUCTION_DB_URL` — Neon connection strings
 - `BLOB_READ_WRITE_TOKEN` — Vercel Blob (the OTA bundle store)
-- iOS/Android signing: Apple distribution cert + ASC API key; Android keystore +
-  Play service-account JSON (consumed by the native build workflows)
+- **iOS native build:** `ASC_API_KEY_P8_BASE64`, `IOS_DIST_CERT_BASE64`,
+  `IOS_DIST_CERT_PASSWORD` (see §8a for what each is + where to get it)
+- **Android native build:** `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `GOOGLE_PLAY_JSON_KEY` (see §8a)
 
 **Vercel environment variables** (Project → Settings → Environment Variables) —
 used by the running app; the canonical list is `.env.example`. Key ones:
