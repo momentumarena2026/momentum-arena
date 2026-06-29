@@ -1,31 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { getMobileAdmin } from "@/lib/mobile-auth";
-import { hasPermission } from "@/lib/permissions";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 
 /**
- * Mobile admin generator tracking. Mirrors the main read + log flows
+ * Mobile admin generator tracking. Mirrors the read + log + CRUD flows
  * from actions/generator.ts (getGenerators, getGeneratorDashboard,
- * addFuelLog, addOilChange, addManualRunLog) with bearer auth + the
- * MANAGE_PRICING permission (SUPERADMIN bypass — matches the web
- * sidebar gating for /admin/generator).
+ * addFuelLog, addOilChange, addManualRunLog, createGenerator,
+ * deleteGenerator) with bearer auth + the MANAGE_PRICING permission
+ * (SUPERADMIN bypass — matches the web sidebar gating for
+ * /admin/generator: layout.tsx → permission: "MANAGE_PRICING").
+ *
+ * The web server actions only call `requireAdmin()` (session only, no
+ * permission arg) so they cannot be reused via skipAuth — the route
+ * re-implements the same DB logic and enforces MANAGE_PRICING itself
+ * via requireMobileAdmin.
  *
  * Money is stored in PAISE. Per-litre prices are accepted in RUPEES
  * over the wire and converted to paise here (matching the web form
  * which does `Math.round(rupees * 100)`).
  */
-async function guard(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  if (
-    admin.role !== "SUPERADMIN" &&
-    !hasPermission(admin.permissions ?? [], "MANAGE_PRICING")
-  ) {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
-  }
-  return { admin };
-}
 
 /**
  * Oil-change schedule (mirror of getNextOilChangeHours in
@@ -125,8 +119,8 @@ async function buildDashboard(generatorId: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await guard(request);
-  if ("error" in auth) return auth.error;
+  const g = await requireMobileAdmin(request, "MANAGE_PRICING");
+  if ("error" in g) return g.error;
 
   const generators = await db.generator.findMany({
     where: { isActive: true },
@@ -167,8 +161,8 @@ const logSchema = z.discriminatedUnion("type", [
 ]);
 
 export async function POST(request: NextRequest) {
-  const auth = await guard(request);
-  if ("error" in auth) return auth.error;
+  const g = await requireMobileAdmin(request, "MANAGE_PRICING");
+  if ("error" in g) return g.error;
 
   const parsed = logSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -253,4 +247,60 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+// ─── Create generator (mirror createGenerator) ───────────────
+const createSchema = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+});
+
+export async function PUT(request: NextRequest) {
+  const g = await requireMobileAdmin(request, "MANAGE_PRICING");
+  if ("error" in g) return g.error;
+
+  const parsed = createSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid data" },
+      { status: 400 },
+    );
+  }
+  const id = parsed.data.id.trim();
+  const name = parsed.data.name.trim();
+
+  // Same validation as actions/generator.ts createGenerator
+  if (id.length < 2) {
+    return NextResponse.json(
+      { error: "Generator ID must be at least 2 characters" },
+      { status: 400 },
+    );
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    return NextResponse.json(
+      {
+        error:
+          "Generator ID can only contain letters, numbers, hyphens and underscores",
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const existing = await db.generator.findUnique({ where: { id } });
+    if (existing) {
+      return NextResponse.json(
+        { error: "A generator with this ID already exists" },
+        { status: 409 },
+      );
+    }
+    const gen = await db.generator.create({ data: { id, name } });
+    return NextResponse.json({ ok: true, id: gen.id });
+  } catch (e) {
+    console.error("createGenerator error:", e);
+    return NextResponse.json(
+      { error: "Failed to create generator" },
+      { status: 500 },
+    );
+  }
 }

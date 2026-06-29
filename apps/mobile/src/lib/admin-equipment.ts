@@ -18,9 +18,13 @@ export interface AdminEquipment {
 export interface CreateEquipmentInput {
   name: string;
   sport?: string | null;
+  /** Sub-category, only meaningful inside CRICKET (BOX_CRICKET | BOWLING_MACHINE). */
+  category?: string | null;
   pricePerHour: number;
   totalUnits: number;
   isCustomerSelectable?: boolean;
+  /** Sort key in the checkout list — lower renders first. */
+  displayOrder?: number;
 }
 
 export type UpdateEquipmentInput = Partial<

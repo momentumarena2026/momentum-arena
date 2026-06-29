@@ -77,13 +77,18 @@ const createUserSchema = z.object({
   role: z.enum(["CUSTOMER", "ADMIN"]),
 });
 
-export async function createUser(data: {
-  name: string;
-  email?: string;
-  phone?: string;
-  role: UserRole;
-}) {
-  await requireAdmin();
+export async function createUser(
+  data: {
+    name: string;
+    email?: string;
+    phone?: string;
+    role: UserRole;
+  },
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth — the
+  // cookie-based requireAdmin would otherwise reject bearer-token callers.
+  skipAuth?: boolean,
+) {
+  if (!skipAuth) await requireAdmin();
 
   const parsed = createUserSchema.safeParse(data);
   if (!parsed.success) {
@@ -120,9 +125,10 @@ export async function createUser(data: {
 
 export async function updateUser(
   userId: string,
-  data: { name?: string; email?: string; phone?: string; role?: UserRole }
+  data: { name?: string; email?: string; phone?: string; role?: UserRole },
+  skipAuth?: boolean,
 ) {
-  await requireAdmin();
+  if (!skipAuth) await requireAdmin();
 
   // Check uniqueness for email/phone changes
   if (data.email) {
@@ -151,10 +157,17 @@ export async function updateUser(
   return { success: true };
 }
 
-export async function deleteUser(userId: string) {
-  const adminId = await requireAdmin();
+export async function deleteUser(
+  userId: string,
+  // Mobile passes skipAuth + the JWT admin's id so the self-deletion guard
+  // still works without a cookie session.
+  opts?: { skipAuth?: boolean; adminId?: string },
+) {
+  const adminId = opts?.skipAuth
+    ? opts.adminId
+    : await requireAdmin();
 
-  if (userId === adminId) {
+  if (adminId && userId === adminId) {
     return { success: false, error: "Cannot delete yourself" };
   }
 
@@ -181,8 +194,8 @@ export async function deleteUser(userId: string) {
   return { success: true };
 }
 
-export async function restoreUser(userId: string) {
-  await requireAdmin();
+export async function restoreUser(userId: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireAdmin();
 
   await db.user.update({
     where: { id: userId },

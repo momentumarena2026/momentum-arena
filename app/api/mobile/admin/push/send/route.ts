@@ -1,39 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMobileAdmin } from "@/lib/mobile-auth";
-import { hasPermission } from "@/lib/permissions";
-import { sendBroadcast } from "@/actions/admin-push";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
+import { sendBroadcast, type BroadcastAudience } from "@/actions/admin-push";
 
 /**
  * Mobile admin push send. Reuses actions/admin-push.ts `sendBroadcast`
  * — the same code path the web /admin/push form uses — but since the
- * mobile client authenticates with a bearer JWT (getMobileAdmin) and
- * has no NextAuth web session, we guard MANAGE_PUSH here and pass the
- * verified AdminUser.id via `adminOverride` so sendBroadcast skips its
- * own requireAdmin() session check while still attributing the send.
+ * mobile client authenticates with a bearer JWT (requireMobileAdmin)
+ * and has no NextAuth web session, we guard MANAGE_PUSH here and pass
+ * the verified AdminUser.id via `adminOverride` so sendBroadcast skips
+ * its own requireAdmin() session check while still attributing the send.
  *
- * Body: { title, body, screen? } where screen ∈ home|book|cafe|shop|
- * rewards. Audience is always "all devices" on mobile (the web form's
- * group/user targeting needs richer pickers; broadcast-to-all covers
- * the on-the-go use case).
+ * Audience targeting now matches the web broadcast form:
+ *   - { kind: "all" }                    → every registered device
+ *   - { kind: "platform", platform }     → android | ios only
+ *   - { kind: "group", groupId }         → a UserGroup cohort's devices
+ *   - { kind: "user", userId }           → one customer's device(s)
+ *
+ * dryRun=true returns the recipient COUNT for the chosen audience
+ * without sending — powers the composer's "Preview reach" button.
  */
+const audienceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("all") }),
+  z.object({
+    kind: z.literal("platform"),
+    platform: z.enum(["android", "ios"]),
+  }),
+  z.object({ kind: z.literal("group"), groupId: z.string().min(1) }),
+  z.object({ kind: z.literal("user"), userId: z.string().min(1) }),
+]);
+
 const sendSchema = z.object({
+  // Default to all-devices so older app builds (which only sent
+  // title/body/screen) keep working unchanged.
+  audience: audienceSchema.default({ kind: "all" }),
   title: z.string().min(1).max(100),
   body: z.string().min(1).max(500),
   screen: z.enum(["home", "book", "cafe", "shop", "rewards"]).optional(),
+  dryRun: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (
-    admin.role !== "SUPERADMIN" &&
-    !hasPermission(admin.permissions ?? [], "MANAGE_PUSH")
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_PUSH");
+  if ("error" in gate) return gate.error;
 
   const parsed = sendSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -44,11 +53,12 @@ export async function POST(request: NextRequest) {
   }
 
   const result = await sendBroadcast({
-    audience: { kind: "all" },
+    audience: parsed.data.audience as BroadcastAudience,
     title: parsed.data.title,
     body: parsed.data.body,
     destination: parsed.data.screen,
-    adminOverride: { id: admin.id },
+    dryRun: parsed.data.dryRun,
+    adminOverride: { id: gate.admin.id },
   });
 
   if (!result.ok) {
@@ -57,6 +67,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    dryRun: result.dryRun,
     attempted: result.attempted,
     succeeded: result.succeeded,
     failed: result.failed,

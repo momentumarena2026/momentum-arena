@@ -32,6 +32,13 @@ const SPORTS: Array<{ value: string | null; label: string }> = [
   { value: "PICKLEBALL", label: "Pickleball" },
 ];
 
+// Sub-category narrowing within CRICKET. null = all cricket flows.
+const CRICKET_CATEGORIES: Array<{ value: string | null; label: string }> = [
+  { value: null, label: "All cricket" },
+  { value: "BOX_CRICKET", label: "Box Cricket" },
+  { value: "BOWLING_MACHINE", label: "Bowling Machine" },
+];
+
 export function AdminEquipmentScreen() {
   const qc = useQueryClient();
   const [showInactive, setShowInactive] = useState(false);
@@ -44,8 +51,10 @@ export function AdminEquipmentScreen() {
   const [editing, setEditing] = useState<AdminEquipment | null>(null);
   const [name, setName] = useState("");
   const [sport, setSport] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [price, setPrice] = useState("");
   const [units, setUnits] = useState("");
+  const [displayOrder, setDisplayOrder] = useState("0");
   const [selectable, setSelectable] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -53,8 +62,10 @@ export function AdminEquipmentScreen() {
     setEditing(null);
     setName("");
     setSport(null);
+    setCategory(null);
     setPrice("");
     setUnits("");
+    setDisplayOrder("0");
     setSelectable(true);
     setErr(null);
     setOpen(true);
@@ -63,8 +74,10 @@ export function AdminEquipmentScreen() {
     setEditing(e);
     setName(e.name);
     setSport(e.sport);
+    setCategory(e.category);
     setPrice(String(e.pricePerHour));
     setUnits(String(e.totalUnits));
+    setDisplayOrder(String(e.displayOrder));
     setSelectable(e.isCustomerSelectable);
     setErr(null);
     setOpen(true);
@@ -80,8 +93,12 @@ export function AdminEquipmentScreen() {
       const body = {
         name: name.trim(),
         sport,
+        // Sub-category only meaningful for CRICKET; force null otherwise
+        // so switching a Football item won't retain a cricket sub-type.
+        category: sport === "CRICKET" ? category : null,
         pricePerHour: priceNum,
         totalUnits: unitsNum,
+        displayOrder: Math.trunc(Number(displayOrder) || 0),
         isCustomerSelectable: selectable,
       };
       if (editing) await adminEquipmentApi.update(editing.id, body);
@@ -160,6 +177,9 @@ export function AdminEquipmentScreen() {
                     {formatRupees(e.pricePerHour)}/hr · {e.availableUnits}/
                     {e.totalUnits} units
                     {e.sport ? ` · ${sportLabel(e.sport)}` : " · All sports"}
+                    {e.category === "BOWLING_MACHINE" ? " · Bowling Machine" : ""}
+                    {e.category === "BOX_CRICKET" ? " · Box Cricket" : ""}
+                    {` · order #${e.displayOrder}`}
                     {!e.isCustomerSelectable ? " · staff-only" : ""}
                   </Text>
                 </Pressable>
@@ -225,6 +245,30 @@ export function AdminEquipmentScreen() {
                   </Pressable>
                 ))}
               </View>
+              {sport === "CRICKET" ? (
+                <>
+                  <Text variant="tiny" color={colors.zinc500} style={styles.fieldLabel}>
+                    CRICKET TYPE
+                  </Text>
+                  <View style={styles.sportRow}>
+                    {CRICKET_CATEGORIES.map((c) => (
+                      <Pressable
+                        key={c.label}
+                        onPress={() => setCategory(c.value)}
+                        style={[styles.sportChip, category === c.value && styles.sportChipActive]}
+                      >
+                        <Text
+                          variant="tiny"
+                          weight="600"
+                          color={category === c.value ? colors.emerald400 : colors.zinc400}
+                        >
+                          {c.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
+              ) : null}
               <View style={styles.twoCol}>
                 <View style={{ flex: 1 }}>
                   <Input label="Price/hr ₹" keyboardType="numeric" value={price} onChangeText={setPrice} />
@@ -233,6 +277,12 @@ export function AdminEquipmentScreen() {
                   <Input label="Total units" keyboardType="numeric" value={units} onChangeText={setUnits} />
                 </View>
               </View>
+              <Input
+                label="Display order (lower = first)"
+                keyboardType="numeric"
+                value={displayOrder}
+                onChangeText={setDisplayOrder}
+              />
               <View style={styles.selectableRow}>
                 <View style={{ flex: 1 }}>
                   <Text variant="small" weight="500" color={colors.foreground}>
