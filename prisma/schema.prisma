@@ -153,6 +153,10 @@ enum CouponConditionType {
   TIME_WINDOW
   BIRTHDAY
   REFERRAL
+  // Valid only on the customer's FIRST booking made via the mobile app
+  // (zero prior app bookings). Distinct from FIRST_PURCHASE, which keys on
+  // prior coupon usage. Self-enforces app platform in the validator.
+  FIRST_APP_BOOKING
 }
 
 enum UserGroupType {
@@ -1065,6 +1069,9 @@ model CafeDiscount {
   // CafeOrder.totalAmount's new Float-rupee unit.
   minOrderAmount Float?
   categoryFilter CafeItemCategory[]
+  // Platform restriction (same semantics as Coupon.validPlatforms): empty =
+  // all platforms; otherwise the redeeming platform must be in this list.
+  validPlatforms String[]           @default([])
   validFrom      DateTime
   validUntil     DateTime
   isActive       Boolean            @default(true)
@@ -1143,6 +1150,14 @@ model Coupon {
   // DEFAULT '{}' so `prisma db push` doesn't recreate the column
   // without a default.
   categoryExclude BookingCategory[]  @default([])
+
+  // Platform restriction. Empty = valid on every platform (default,
+  // backward-compatible). Otherwise the REDEEMING platform must be in this
+  // list. Values: "web" | "android" | "ios" (mirrors Booking.platform).
+  // App-only = ["android","ios"], Web-only = ["web"], iOS-only = ["ios"], etc.
+  // Enforced in actions/coupon-validation.ts and filtered out of the
+  // customer "available coupons" lists on the wrong platform.
+  validPlatforms String[] @default([])
 
   // Behavior
   isStackable  Boolean @default(false)

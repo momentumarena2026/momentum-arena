@@ -48,6 +48,9 @@ const createSchema = z.object({
   categoryFilter: z
     .array(z.enum(["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"]))
     .default([]),
+  // Platform restriction. Empty = all platforms; "App-only" =
+  // ["android","ios"]. Mirrors CafeDiscount.validPlatforms.
+  validPlatforms: z.array(z.enum(["web", "android", "ios"])).default([]),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
 });
@@ -85,6 +88,7 @@ export async function POST(request: NextRequest) {
       maxUsesPerUser: parsed.data.maxUsesPerUser,
       minOrderAmount: parsed.data.minOrderAmount ?? null,
       categoryFilter: parsed.data.categoryFilter,
+      validPlatforms: parsed.data.validPlatforms,
       validFrom: new Date(parsed.data.validFrom),
       validUntil: new Date(parsed.data.validUntil),
       createdBy: auth.admin.id,

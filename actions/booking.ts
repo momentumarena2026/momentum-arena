@@ -232,7 +232,11 @@ export async function cancelHold(holdId: string): Promise<HoldState> {
 // Returns the discount amount that was persisted, or null on failure.
 export async function applyCouponToHold(
   holdId: string,
-  code: string
+  code: string,
+  // Platform the coupon is being redeemed from — drives Coupon.validPlatforms
+  // and the FIRST_APP_BOOKING condition. Web callers omit it (defaults "web");
+  // the mobile apply-coupon route passes the device platform.
+  platform: BookingPlatform = "web"
 ): Promise<{ success: boolean; discountAmount?: number; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -268,6 +272,7 @@ export async function applyCouponToHold(
     // has BOWLING_MACHINE in its categoryExclude list — the
     // new-user welcome discount is pre-seeded that way.
     bookingCategory: hold.courtConfig.category,
+    platform,
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {

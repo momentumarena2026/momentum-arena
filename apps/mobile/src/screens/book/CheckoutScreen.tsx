@@ -67,6 +67,15 @@ type Rt = RouteProp<BookStackParamList, "Checkout">;
 // promote it to a shared package.
 const FALLBACK_CODE = "FLAT100";
 
+// First-ever app-booking auto-discount. The server enforces eligibility:
+// this code validates ONLY for a customer's first booking made on the app
+// (an App-only coupon with a FIRST_APP_BOOKING condition) and silently
+// rejects everyone else — so auto-attempting it is always safe.
+//
+// Kept in sync MANUALLY with web/lib/auto-apply-promo.ts:APP_FIRST_BOOKING_CODE
+// for the same reason as FALLBACK_CODE above (no path alias to the web /lib).
+const APP_FIRST_BOOKING_CODE = "APPFIRST";
+
 function fallbackCodeFor(sport: string | null | undefined): string {
   return sport === "PICKLEBALL" ? "PICKLEBALL25" : FALLBACK_CODE;
 }
@@ -178,11 +187,15 @@ export function CheckoutScreen() {
   const remainingAmount = payableAmount - advanceAmount;
 
   // ── Auto-apply coupons on mount ────────────────────────────────────────────
-  // Mirrors web's CheckoutClient:
-  //   1. If the user is a new-user (newUserDiscount query returns one), apply it
-  //      → newUserApplied=true → emerald "Sparkles" pill.
-  //   2. Else fall back to FLAT100.
-  //   3. Else continue at full price.
+  // Mirrors web's CheckoutClient, with the app-only APPFIRST attempt first:
+  //   1. Attempt APPFIRST — the server only validates it for a customer's
+  //      first-ever app booking and silently rejects everyone else, so the
+  //      attempt is always safe. On success → newUserApplied=true → emerald
+  //      "Sparkles" pill, and we STOP (no new-user / fallback attempts).
+  //   2. Else if the user is a new-user (newUserDiscount query returns one),
+  //      apply it → newUserApplied=true → emerald "Sparkles" pill.
+  //   3. Else fall back to FLAT100.
+  //   4. Else continue at full price.
   const autoApplyRanRef = useRef(false);
   const [newUserApplied, setNewUserApplied] = useState(false);
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
@@ -220,6 +233,23 @@ export function CheckoutScreen() {
     autoApplyRanRef.current = true;
 
     (async () => {
+      // 0. First-ever app booking: attempt APPFIRST. The server validates
+      //    eligibility (first app booking only) and silently rejects everyone
+      //    else, so attempting it unconditionally is safe. On success, surface
+      //    it the same way the new-user discount does (emerald Sparkles pill).
+      try {
+        const res = await applyCouponMutation.mutateAsync(
+          APP_FIRST_BOOKING_CODE,
+        );
+        if (res.success) {
+          setNewUserApplied(true);
+          setDiscountLabel("First app booking discount");
+          return;
+        }
+      } catch {
+        // not eligible / coupon not configured — fall through to the
+        // existing new-user → fallback chain unchanged.
+      }
       if (nuDiscount?.code) {
         try {
           const res = await applyCouponMutation.mutateAsync(nuDiscount.code);

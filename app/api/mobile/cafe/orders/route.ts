@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMobileUser } from "@/lib/mobile-auth";
+import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
 import { PaymentMethod } from "@prisma/client";
 import { createCafePaymentIntent } from "@/lib/cafe-intent";
@@ -121,6 +121,7 @@ export async function POST(request: NextRequest) {
       totalAmount,
       categories,
       user.id,
+      getMobilePlatform(request),
     );
     if (!couponResult.valid) {
       return NextResponse.json(

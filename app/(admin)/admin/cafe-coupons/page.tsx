@@ -25,6 +25,7 @@ export default async function AdminCafeCouponsPage() {
           maxUsesPerUser: c.maxUsesPerUser,
           minOrderAmount: c.minOrderAmount,
           categoryFilter: c.categoryFilter,
+          validPlatforms: c.validPlatforms as ("web" | "android" | "ios")[],
           validFrom: c.validFrom.toISOString().split("T")[0],
           validUntil: c.validUntil.toISOString().split("T")[0],
           isActive: c.isActive,

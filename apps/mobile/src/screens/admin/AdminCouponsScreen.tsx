@@ -25,6 +25,7 @@ import {
   type CafeItemCategory,
   type CouponCondition,
   type CouponConditionType,
+  type CouponPlatform,
   type CouponScope,
   type CouponType,
   type EligibleUserSummary,
@@ -64,7 +65,58 @@ const CONDITION_TYPES: { value: CouponConditionType; label: string }[] = [
   { value: "MIN_AMOUNT", label: "Minimum Amount" },
   { value: "FIRST_PURCHASE", label: "First Purchase" },
   { value: "TIME_WINDOW", label: "Time Window" },
+  { value: "FIRST_APP_BOOKING", label: "First app booking only" },
 ];
+
+// Platform restriction presets. Each maps to the stored validPlatforms
+// array (empty = all platforms). "App only" = both mobile platforms.
+type PlatformPreset = "ALL" | "APP" | "WEB" | "IOS" | "ANDROID";
+const PLATFORM_PRESETS: { value: PlatformPreset; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "APP", label: "App only" },
+  { value: "WEB", label: "Web only" },
+  { value: "IOS", label: "iOS only" },
+  { value: "ANDROID", label: "Android only" },
+];
+function presetToPlatforms(p: PlatformPreset): CouponPlatform[] {
+  switch (p) {
+    case "APP":
+      return ["android", "ios"];
+    case "WEB":
+      return ["web"];
+    case "IOS":
+      return ["ios"];
+    case "ANDROID":
+      return ["android"];
+    default:
+      return [];
+  }
+}
+// Derive the selected preset from a stored validPlatforms array.
+function platformsToPreset(list: CouponPlatform[]): PlatformPreset {
+  if (list.length === 0) return "ALL";
+  const set = new Set(list);
+  if (set.size === 1 && set.has("web")) return "WEB";
+  if (set.size === 1 && set.has("ios")) return "IOS";
+  if (set.size === 1 && set.has("android")) return "ANDROID";
+  // android + ios (no web) → app-only; anything else falls back to app.
+  return "APP";
+}
+// Short tag label shown on a coupon row for its platform restriction.
+function platformTag(list: CouponPlatform[]): string | null {
+  switch (platformsToPreset(list)) {
+    case "ALL":
+      return null;
+    case "APP":
+      return "App only";
+    case "WEB":
+      return "Web only";
+    case "IOS":
+      return "iOS only";
+    case "ANDROID":
+      return "Android only";
+  }
+}
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -131,6 +183,7 @@ export function AdminCouponsScreen() {
   const [categoryFilter, setCategoryFilter] = useState<CafeItemCategory[]>([]);
   const [categoryExclude, setCategoryExclude] = useState<BookingCategory[]>([]);
   const [userGroupFilter, setUserGroupFilter] = useState<UserGroupType[]>([]);
+  const [platformPreset, setPlatformPreset] = useState<PlatformPreset>("ALL");
   const [eligibleUsers, setEligibleUsers] = useState<EligibleUserSummary[]>([]);
   const [eligibleGroupIds, setEligibleGroupIds] = useState<string[]>([]);
   const [conditions, setConditions] = useState<CouponCondition[]>([]);
@@ -175,6 +228,7 @@ export function AdminCouponsScreen() {
     setCategoryFilter([]);
     setCategoryExclude([]);
     setUserGroupFilter([]);
+    setPlatformPreset("ALL");
     setEligibleUsers([]);
     setEligibleGroupIds([]);
     setConditions([]);
@@ -209,6 +263,7 @@ export function AdminCouponsScreen() {
     setCategoryFilter([...c.categoryFilter]);
     setCategoryExclude([...c.categoryExclude]);
     setUserGroupFilter([...c.userGroupFilter]);
+    setPlatformPreset(platformsToPreset(c.validPlatforms ?? []));
     setEligibleUsers(c.eligibleUsers.map((u) => ({ ...u })));
     setEligibleGroupIds(c.eligibleGroups.map((g) => g.id));
     setConditions(c.conditions.map((cond) => ({ ...cond })));
@@ -245,6 +300,7 @@ export function AdminCouponsScreen() {
         categoryFilter: showCategories ? categoryFilter : [],
         categoryExclude: showSports ? categoryExclude : [],
         userGroupFilter,
+        validPlatforms: presetToPlatforms(platformPreset),
         eligibleUserIds: eligibleUsers.map((u) => u.id),
         eligibleGroupIds,
         conditions,
@@ -366,6 +422,8 @@ export function AdminCouponsScreen() {
           <View style={styles.list}>
             {coupons.map((c) => {
               const tags: string[] = [];
+              const platTag = platformTag(c.validPlatforms ?? []);
+              if (platTag) tags.push(platTag);
               if (c.isSystemCode) tags.push("System");
               if (!c.isPublic) tags.push("Hidden");
               if (c.isStackable) tags.push("Stackable");
@@ -864,6 +922,37 @@ export function AdminCouponsScreen() {
                 </View>
               </View>
 
+              {/* Platform restriction — single-select preset row. */}
+              <View style={{ gap: spacing["2"] }}>
+                <Text
+                  variant="tiny"
+                  color={colors.zinc500}
+                  style={styles.fieldLabel}
+                >
+                  VALID ON
+                </Text>
+                <View style={styles.wrapRow}>
+                  {PLATFORM_PRESETS.map((p) => {
+                    const on = platformPreset === p.value;
+                    return (
+                      <Pressable
+                        key={p.value}
+                        onPress={() => setPlatformPreset(p.value)}
+                        style={[styles.tagChip, on && styles.tagChipActive]}
+                      >
+                        <Text
+                          variant="tiny"
+                          weight="600"
+                          color={on ? colors.emerald400 : colors.zinc400}
+                        >
+                          {p.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
               {/* Conditions builder */}
               <View style={{ gap: spacing["2"] }}>
                 <View style={styles.condHead}>
@@ -974,6 +1063,11 @@ export function AdminCouponsScreen() {
                       {cond.conditionType === "FIRST_PURCHASE" ? (
                         <Text variant="tiny" color={colors.zinc500}>
                           User must have no prior coupon usage
+                        </Text>
+                      ) : null}
+                      {cond.conditionType === "FIRST_APP_BOOKING" ? (
+                        <Text variant="tiny" color={colors.zinc500}>
+                          User must have no prior booking made in the app
                         </Text>
                       ) : null}
                     </View>

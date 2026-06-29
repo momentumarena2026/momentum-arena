@@ -29,6 +29,7 @@ const patchSchema = z.object({
   categoryFilter: z
     .array(z.enum(["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"]))
     .optional(),
+  validPlatforms: z.array(z.enum(["web", "android", "ios"])).optional(),
   validFrom: z.string().min(1).optional(),
   validUntil: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
@@ -56,6 +57,7 @@ export async function PATCH(
   if (d.maxUsesPerUser !== undefined) data.maxUsesPerUser = d.maxUsesPerUser;
   if (d.minOrderAmount !== undefined) data.minOrderAmount = d.minOrderAmount;
   if (d.categoryFilter !== undefined) data.categoryFilter = d.categoryFilter;
+  if (d.validPlatforms !== undefined) data.validPlatforms = d.validPlatforms;
   if (d.validFrom !== undefined) data.validFrom = new Date(d.validFrom);
   if (d.validUntil !== undefined) data.validUntil = new Date(d.validUntil);
   if (d.isActive !== undefined) data.isActive = d.isActive;

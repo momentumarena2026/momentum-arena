@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { validateCoupon } from "@/actions/coupon-validation";
+import { resolveRequestPlatform } from "@/lib/server-log";
 import type { BookingCategory, Sport } from "@prisma/client";
 
 // POST /api/mobile/coupons/validate — HTTP wrapper around validateCoupon.
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
     sport,
     categories,
     bookingCategory: bookingCategory ?? null,
+    platform: resolveRequestPlatform(request),
   });
 
   return NextResponse.json(result);

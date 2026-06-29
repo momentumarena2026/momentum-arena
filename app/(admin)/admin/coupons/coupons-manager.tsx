@@ -33,6 +33,7 @@ import {
   EyeOff,
   Users,
   UserCheck,
+  Smartphone,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 // UserPicker lives next to the UserGroupsManager (single source of
@@ -86,6 +87,10 @@ export interface CouponRow {
   stackGroup: string | null;
   isPublic: boolean;
   isSystemCode: boolean;
+  // Platform restriction. Empty = all platforms; values are a subset
+  // of "web" | "android" | "ios". Mapped to/from a single-select
+  // preset in the form (see PLATFORM_PRESETS / platformsToPreset).
+  validPlatforms: Platform[];
   validFrom: string;
   validUntil: string;
   isActive: boolean;
@@ -141,7 +146,48 @@ const CONDITION_TYPES: { value: CouponConditionType; label: string }[] = [
   { value: "MIN_AMOUNT", label: "Minimum Amount" },
   { value: "FIRST_PURCHASE", label: "First Purchase" },
   { value: "TIME_WINDOW", label: "Time Window" },
+  // App-only by nature — the validator self-enforces an app platform,
+  // but we nudge the admin toward "App only" in the platform picker.
+  { value: "FIRST_APP_BOOKING", label: "First app booking only" },
 ];
+
+// Platform restriction is edited as a single-select preset that maps
+// onto the stored `validPlatforms` string[]. Empty = all platforms.
+type Platform = "web" | "android" | "ios";
+type PlatformPreset = "ALL" | "APP" | "WEB" | "IOS" | "ANDROID";
+const PLATFORM_PRESETS: {
+  value: PlatformPreset;
+  label: string;
+  platforms: Platform[];
+}[] = [
+  { value: "ALL", label: "All", platforms: [] },
+  { value: "APP", label: "App only", platforms: ["android", "ios"] },
+  { value: "WEB", label: "Web only", platforms: ["web"] },
+  { value: "IOS", label: "iOS only", platforms: ["ios"] },
+  { value: "ANDROID", label: "Android only", platforms: ["android"] },
+];
+
+// Derive the selected preset from a stored validPlatforms array.
+// [] → All; ["web"] → Web only; ["ios"] → iOS only; ["android"] →
+// Android only; has both android+ios and not web → App only;
+// anything else falls back to App only.
+function platformsToPreset(platforms: Platform[]): PlatformPreset {
+  if (platforms.length === 0) return "ALL";
+  const has = (p: Platform) => platforms.includes(p);
+  if (platforms.length === 1) {
+    if (has("web")) return "WEB";
+    if (has("ios")) return "IOS";
+    if (has("android")) return "ANDROID";
+  }
+  if (has("android") && has("ios") && !has("web")) return "APP";
+  return "APP";
+}
+
+function presetToPlatforms(preset: PlatformPreset): Platform[] {
+  return (
+    PLATFORM_PRESETS.find((p) => p.value === preset)?.platforms ?? []
+  );
+}
 
 const SCOPE_COLORS: Record<string, string> = {
   SPORTS: "bg-blue-500/10 border-blue-500/30 text-blue-400",
@@ -168,6 +214,7 @@ function emptyForm() {
     stackGroup: "",
     isPublic: true,
     isSystemCode: false,
+    platformPreset: "ALL" as PlatformPreset,
     validFrom: new Date().toISOString().split("T")[0],
     validUntil: new Date(Date.now() + 30 * 86400000)
       .toISOString()
@@ -240,6 +287,7 @@ export function CouponsManager({
       stackGroup: coupon.stackGroup || "",
       isPublic: coupon.isPublic,
       isSystemCode: coupon.isSystemCode,
+      platformPreset: platformsToPreset(coupon.validPlatforms),
       validFrom: coupon.validFrom,
       validUntil: coupon.validUntil,
       conditions: coupon.conditions.map((c) => ({
@@ -282,6 +330,7 @@ export function CouponsManager({
       stackGroup: form.stackGroup || null,
       isPublic: form.isPublic,
       isSystemCode: form.isSystemCode,
+      validPlatforms: presetToPlatforms(form.platformPreset),
       validFrom: form.validFrom,
       validUntil: form.validUntil,
       conditions: form.conditions,
@@ -393,9 +442,22 @@ export function CouponsManager({
   ) => {
     setForm((p) => ({
       ...p,
-      conditions: p.conditions.map((c, i) =>
-        i === index ? { ...c, [field]: value } : c
-      ),
+      conditions: p.conditions.map((c, i) => {
+        if (i !== index) return c;
+        // Switching to a parameter-less condition (FIRST_PURCHASE /
+        // FIRST_APP_BOOKING) must drop any stale param JSON left over
+        // from the previous type, so we always emit "{}".
+        if (
+          field === "conditionType" &&
+          (value === "FIRST_PURCHASE" || value === "FIRST_APP_BOOKING")
+        ) {
+          return {
+            conditionType: value as CouponConditionType,
+            conditionValue: "{}",
+          };
+        }
+        return { ...c, [field]: value };
+      }),
     }));
   };
 
@@ -406,6 +468,12 @@ export function CouponsManager({
 
   const showSports = form.scope === "SPORTS" || form.scope === "BOTH";
   const showCategories = form.scope === "CAFE" || form.scope === "BOTH";
+  // True once the admin adds a "First app booking only" condition.
+  // Drives a soft nudge toward the App-only platform preset (the
+  // validator still self-enforces an app platform regardless).
+  const hasFirstAppBooking = form.conditions.some(
+    (c) => c.conditionType === "FIRST_APP_BOOKING"
+  );
 
   return (
     <div className="space-y-4">
@@ -493,6 +561,18 @@ export function CouponsManager({
                       {coupon.isStackable && (
                         <span className="rounded-full bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 text-[10px] text-cyan-400">
                           Stackable
+                        </span>
+                      )}
+                      {coupon.validPlatforms.length > 0 && (
+                        <span className="flex items-center gap-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 px-2 py-0.5 text-[10px] text-indigo-400">
+                          <Smartphone className="h-2.5 w-2.5" />
+                          {
+                            PLATFORM_PRESETS.find(
+                              (p) =>
+                                p.value ===
+                                platformsToPreset(coupon.validPlatforms)
+                            )?.label
+                          }
                         </span>
                       )}
                       <span className="text-sm font-medium text-emerald-400">
@@ -723,6 +803,36 @@ export function CouponsManager({
                       }`}
                     >
                       {s.charAt(0) + s.slice(1).toLowerCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Platform restriction — single-select preset mapped onto
+                  validPlatforms. Empty (All) = no restriction. */}
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">
+                  Valid on{" "}
+                  <span className="text-zinc-600">(which platforms)</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {PLATFORM_PRESETS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() =>
+                        setForm((p) => ({
+                          ...p,
+                          platformPreset: preset.value,
+                        }))
+                      }
+                      className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                        form.platformPreset === preset.value
+                          ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
+                          : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      {preset.label}
                     </button>
                   ))}
                 </div>
@@ -1205,6 +1315,12 @@ export function CouponsManager({
                             User must have no prior coupon usage
                           </p>
                         )}
+                        {cond.conditionType === "FIRST_APP_BOOKING" && (
+                          <p className="p-2 text-xs text-zinc-500">
+                            Valid only on the customer&apos;s first booking
+                            placed from the mobile app
+                          </p>
+                        )}
                       </div>
                       <button
                         onClick={() => removeCondition(i)}
@@ -1215,6 +1331,29 @@ export function CouponsManager({
                     </div>
                   ))}
                 </div>
+                {/* Nudge toward App-only when a first-app-booking
+                    condition is in play. The validator self-enforces
+                    an app platform, so this is advisory — one click
+                    sets the platform preset for clarity. */}
+                {hasFirstAppBooking && form.platformPreset !== "APP" && (
+                  <div className="mt-2 flex items-start gap-2 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-2.5 text-[11px] text-indigo-300">
+                    <Smartphone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <p>
+                      &quot;First app booking only&quot; applies to app
+                      bookings. Consider setting{" "}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm((p) => ({ ...p, platformPreset: "APP" }))
+                        }
+                        className="font-medium text-indigo-200 underline underline-offset-2 hover:text-white"
+                      >
+                        Valid on → App only
+                      </button>
+                      .
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Toggles */}

@@ -1,6 +1,8 @@
 import { request } from "./admin-api";
 
 export type CafeCouponType = "PERCENTAGE" | "FLAT";
+/** Booking.platform values. Empty validPlatforms = all platforms. */
+export type CafeCouponPlatform = "web" | "android" | "ios";
 export type CafeCategory =
   | "SNACKS"
   | "BEVERAGES"
@@ -18,6 +20,8 @@ export interface AdminCafeCoupon {
   maxUsesPerUser: number;
   minOrderAmount: number | null;
   categoryFilter: CafeCategory[];
+  /** Empty = all platforms; ["android","ios"] = app-only; etc. */
+  validPlatforms: CafeCouponPlatform[];
   validFrom: string;
   validUntil: string;
   isActive: boolean;
@@ -33,6 +37,7 @@ export interface CreateCafeCouponInput {
   maxUsesPerUser?: number;
   minOrderAmount?: number;
   categoryFilter?: CafeCategory[];
+  validPlatforms?: CafeCouponPlatform[];
   validFrom: string;
   validUntil: string;
 }

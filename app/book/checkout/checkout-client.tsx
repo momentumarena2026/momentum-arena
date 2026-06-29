@@ -256,6 +256,7 @@ export function CheckoutClient({
         scope: "SPORTS",
         amount,
         sport,
+        platform: "web",
       }).then(async (result) => {
         if (result.valid && result.couponId && result.discountAmount) {
           const persisted = await applyCouponToHold(holdId, newUserDiscount.code);

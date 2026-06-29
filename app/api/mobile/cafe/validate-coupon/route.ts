@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMobileUser } from "@/lib/mobile-auth";
+import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
 import { validateCafeCoupon } from "@/actions/cafe-orders";
 
@@ -51,6 +51,12 @@ export async function POST(request: NextRequest) {
   }
   const categories = cafeItems.map((i) => i.category);
 
-  const result = await validateCafeCoupon(code, amount, categories, user.id);
+  const result = await validateCafeCoupon(
+    code,
+    amount,
+    categories,
+    user.id,
+    getMobilePlatform(request),
+  );
   return NextResponse.json(result);
 }

@@ -22,6 +22,7 @@ import {
   adminCafeCouponsApi,
   type AdminCafeCoupon,
   type CafeCategory,
+  type CafeCouponPlatform,
   type CafeCouponType,
 } from "../../lib/admin-cafe-coupons";
 import { formatRupees } from "../../lib/format";
@@ -34,6 +35,53 @@ const CATEGORIES: CafeCategory[] = [
   "DESSERTS",
   "COMBOS",
 ];
+
+// Platform restriction presets. Each maps to the stored validPlatforms
+// array (empty = all platforms). "App only" = both mobile platforms.
+type PlatformPreset = "ALL" | "APP" | "WEB" | "IOS" | "ANDROID";
+const PLATFORM_PRESETS: { value: PlatformPreset; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "APP", label: "App only" },
+  { value: "WEB", label: "Web only" },
+  { value: "IOS", label: "iOS only" },
+  { value: "ANDROID", label: "Android only" },
+];
+function presetToPlatforms(p: PlatformPreset): CafeCouponPlatform[] {
+  switch (p) {
+    case "APP":
+      return ["android", "ios"];
+    case "WEB":
+      return ["web"];
+    case "IOS":
+      return ["ios"];
+    case "ANDROID":
+      return ["android"];
+    default:
+      return [];
+  }
+}
+function platformsToPreset(list: CafeCouponPlatform[]): PlatformPreset {
+  if (list.length === 0) return "ALL";
+  const set = new Set(list);
+  if (set.size === 1 && set.has("web")) return "WEB";
+  if (set.size === 1 && set.has("ios")) return "IOS";
+  if (set.size === 1 && set.has("android")) return "ANDROID";
+  return "APP";
+}
+function platformTag(list: CafeCouponPlatform[]): string | null {
+  switch (platformsToPreset(list)) {
+    case "ALL":
+      return null;
+    case "APP":
+      return "App only";
+    case "WEB":
+      return "Web only";
+    case "IOS":
+      return "iOS only";
+    case "ANDROID":
+      return "Android only";
+  }
+}
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
@@ -64,6 +112,7 @@ export function AdminCafeCouponsScreen() {
   const [perUser, setPerUser] = useState("1");
   const [minOrder, setMinOrder] = useState("");
   const [cats, setCats] = useState<Set<CafeCategory>>(new Set());
+  const [platformPreset, setPlatformPreset] = useState<PlatformPreset>("ALL");
   const [from, setFrom] = useState(isoDate(new Date()));
   const [until, setUntil] = useState(() => {
     const d = new Date();
@@ -81,6 +130,7 @@ export function AdminCafeCouponsScreen() {
     setPerUser("1");
     setMinOrder("");
     setCats(new Set());
+    setPlatformPreset("ALL");
     setFrom(isoDate(new Date()));
     const d = new Date();
     d.setDate(d.getDate() + 30);
@@ -98,6 +148,7 @@ export function AdminCafeCouponsScreen() {
     setPerUser(String(c.maxUsesPerUser));
     setMinOrder(c.minOrderAmount != null ? String(c.minOrderAmount) : "");
     setCats(new Set(c.categoryFilter));
+    setPlatformPreset(platformsToPreset(c.validPlatforms ?? []));
     setFrom(c.validFrom.slice(0, 10));
     setUntil(c.validUntil.slice(0, 10));
     setErr(null);
@@ -116,6 +167,7 @@ export function AdminCafeCouponsScreen() {
         maxUsesPerUser: perUser ? Number(perUser) : 1,
         minOrderAmount: minOrder ? Number(minOrder) : undefined,
         categoryFilter: Array.from(cats),
+        validPlatforms: presetToPlatforms(platformPreset),
         validFrom: from,
         validUntil: until,
       };
@@ -220,6 +272,15 @@ export function AdminCafeCouponsScreen() {
                       <Text variant="tiny" color={colors.zinc600} style={{ marginTop: 1 }}>
                         {c.categoryFilter.join(", ")}
                       </Text>
+                    ) : null}
+                    {platformTag(c.validPlatforms ?? []) ? (
+                      <View style={styles.tagRow}>
+                        <View style={styles.tag}>
+                          <Text variant="tiny" color={colors.zinc400}>
+                            {platformTag(c.validPlatforms ?? [])}
+                          </Text>
+                        </View>
+                      </View>
                     ) : null}
                   </Pressable>
                   <View style={styles.couponActions}>
@@ -376,6 +437,30 @@ export function AdminCafeCouponsScreen() {
                 })}
               </View>
 
+              <Text variant="tiny" color={colors.zinc500} style={styles.catLabel}>
+                VALID ON
+              </Text>
+              <View style={styles.catRow}>
+                {PLATFORM_PRESETS.map((p) => {
+                  const on = platformPreset === p.value;
+                  return (
+                    <Pressable
+                      key={p.value}
+                      onPress={() => setPlatformPreset(p.value)}
+                      style={[styles.catChip, on && styles.catChipActive]}
+                    >
+                      <Text
+                        variant="tiny"
+                        weight="600"
+                        color={on ? colors.emerald400 : colors.zinc400}
+                      >
+                        {p.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               {err ? (
                 <Text variant="small" color={colors.destructive} style={{ marginTop: spacing["2"] }}>
                   {err}
@@ -428,6 +513,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.emerald500_10,
   },
   couponActions: { alignItems: "center", gap: spacing["2"] },
+  tagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing["1"],
+    marginTop: spacing["1.5"],
+  },
+  tag: {
+    paddingHorizontal: spacing["2"],
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: colors.zinc800,
+  },
   skeleton: {
     padding: spacing["4"],
     borderRadius: radius.lg,
