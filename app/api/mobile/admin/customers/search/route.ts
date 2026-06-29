@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { searchCustomers } from "@/actions/admin-booking";
 
 /**
@@ -10,10 +10,8 @@ import { searchCustomers } from "@/actions/admin-booking";
  * to a new booking before falling back to the create-customer path.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
+  if ("error" in gate) return gate.error;
 
   const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
   if (q.length < 2) {

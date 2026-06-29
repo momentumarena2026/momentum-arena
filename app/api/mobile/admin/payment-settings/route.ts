@@ -18,13 +18,16 @@ import type { PaymentGateway } from "@prisma/client";
  * here. Permission: VIEW_RAZORPAY (mirrors the web /admin/payment-settings
  * sidebar gate; superadmin always passes).
  */
-async function guard(request: NextRequest) {
+async function guard(
+  request: NextRequest,
+  permission: "VIEW_RAZORPAY" | "MANAGE_PRICING",
+) {
   const admin = await getMobileAdmin(request);
   if (!admin)
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   if (
     admin.role !== "SUPERADMIN" &&
-    !hasPermission(admin.permissions ?? [], "VIEW_RAZORPAY")
+    !hasPermission(admin.permissions ?? [], permission)
   ) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
@@ -32,14 +35,18 @@ async function guard(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const g = await guard(request);
+  // Read = VIEW_RAZORPAY (matches the web sidebar gate).
+  const g = await guard(request, "VIEW_RAZORPAY");
   if ("error" in g) return g.error;
   const config = await getPaymentGatewayConfig();
   return NextResponse.json({ config });
 }
 
 export async function POST(request: NextRequest) {
-  const g = await guard(request);
+  // Mutations switch the live payment gateway / toggle methods — the web
+  // action requires MANAGE_PRICING, so a read-tier VIEW_RAZORPAY admin must
+  // NOT be able to change them here.
+  const g = await guard(request, "MANAGE_PRICING");
   if ("error" in g) return g.error;
 
   const body = (await request.json().catch(() => null)) as {

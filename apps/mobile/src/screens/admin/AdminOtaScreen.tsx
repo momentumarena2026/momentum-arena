@@ -129,7 +129,10 @@ function SlotCard({
 }
 
 function GateCard({ gate }: { gate: AppVersionGateRow }) {
-  const forcing = gate.minSupportedBuild > 0;
+  // Match web: a gate only "forces" when the minimum supported build has
+  // caught up to the latest build (min >= latest), not merely when min > 0.
+  const forcing =
+    gate.latestBuild > 0 && gate.minSupportedBuild >= gate.latestBuild;
   return (
     <Card style={styles.slotCard}>
       <View style={styles.slotHead}>

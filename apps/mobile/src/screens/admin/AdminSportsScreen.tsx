@@ -66,7 +66,9 @@ export function AdminSportsScreen() {
         ) : (
           <View style={styles.list}>
             {grouped.map(([sport, configs]) => {
-              const allOn = configs.every((c) => c.isActive);
+              // A sport reads "on" when ANY of its courts is active (matches
+              // web's `someActive`); a mixed sport must not show as disabled.
+              const allOn = configs.some((c) => c.isActive);
               return (
                 <Card key={sport} style={styles.sportCard}>
                   <View style={styles.sportHead}>

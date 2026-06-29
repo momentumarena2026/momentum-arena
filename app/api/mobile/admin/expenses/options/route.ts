@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { listActiveExpenseOptionsByField } from "@/actions/admin-expenses";
 
 /**
@@ -11,10 +11,8 @@ import { listActiveExpenseOptionsByField } from "@/actions/admin-expenses";
  * admin uses without sending a giant Expense table down the wire.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
+  if ("error" in gate) return gate.error;
 
   const grouped = await listActiveExpenseOptionsByField(true);
   return NextResponse.json({ options: grouped });

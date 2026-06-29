@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 
 /**
  * GET /api/mobile/admin/courts
@@ -11,10 +11,8 @@ import { getMobileAdmin } from "@/lib/mobile-auth";
  * tiles without a second request.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
+  if ("error" in gate) return gate.error;
 
   const courts = await db.courtConfig.findMany({
     where: { isActive: true },

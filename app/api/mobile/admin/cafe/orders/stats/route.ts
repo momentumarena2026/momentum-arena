@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { getCafeOrderStats } from "@/actions/admin-cafe-orders";
 
 /**
@@ -10,10 +10,8 @@ import { getCafeOrderStats } from "@/actions/admin-cafe-orders";
  * web /admin/cafe-orders page shows above its kanban.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_CAFE_ORDERS");
+  if ("error" in gate) return gate.error;
 
   const stats = await getCafeOrderStats(true);
   return NextResponse.json(stats);

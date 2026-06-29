@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { getCafeItems } from "@/actions/admin-cafe";
 import type { CafeItemCategory } from "@prisma/client";
 
@@ -13,10 +13,8 @@ import type { CafeItemCategory } from "@prisma/client";
  * web admin client passes a checkbox.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_CAFE_MENU");
+  if ("error" in gate) return gate.error;
 
   const { searchParams } = new URL(request.url);
   const category = searchParams.get("category") || undefined;

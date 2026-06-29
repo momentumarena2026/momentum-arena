@@ -22,12 +22,15 @@ import {
  * Amounts from the action are already in the model's native unit
  * (Payment.amount = rupees). Gated on MANAGE_BOOKINGS.
  */
-async function guard(request: NextRequest) {
+async function guard(
+  request: NextRequest,
+  permission: "MANAGE_BOOKINGS" | "MANAGE_CAFE_ORDERS",
+) {
   const admin = await getMobileAdmin(request);
   if (!admin) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   if (
     admin.role !== "SUPERADMIN" &&
-    !hasPermission(admin.permissions ?? [], "MANAGE_BOOKINGS")
+    !hasPermission(admin.permissions ?? [], permission)
   ) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
@@ -35,7 +38,7 @@ async function guard(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const g = await guard(request);
+  const g = await guard(request, "MANAGE_BOOKINGS");
   if ("error" in g) return g.error;
 
   const data = await getPendingUtrPayments(true);
@@ -50,9 +53,6 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const g = await guard(request);
-  if ("error" in g) return g.error;
-
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(
@@ -61,6 +61,14 @@ export async function POST(request: NextRequest) {
     );
   }
   const { paymentId, action, type, reason } = parsed.data;
+
+  // Cafe UTRs are gated MANAGE_CAFE_ORDERS (matches the web cafe action);
+  // booking UTRs MANAGE_BOOKINGS. Auth AFTER parsing so we know the type.
+  const g = await guard(
+    request,
+    type === "cafe" ? "MANAGE_CAFE_ORDERS" : "MANAGE_BOOKINGS",
+  );
+  if ("error" in g) return g.error;
 
   let result: { success: boolean; error?: string };
   if (action === "verify") {

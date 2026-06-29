@@ -28,6 +28,37 @@ export async function POST(request: Request) {
     const googleUser = await googleRes.json();
     const { email, name, picture, sub: googleId } = googleUser;
 
+    // SECURITY: tokeninfo only proves the token is a valid, unexpired
+    // Google-signed token — NOT that it was minted for THIS app. Without an
+    // audience check, an ID token issued for any other Google OAuth app the
+    // victim used could be replayed here to mint a session for their account
+    // (account takeover). Validate `aud` against our allow-listed client IDs.
+    const allowedAudiences = [
+      process.env.GOOGLE_CLIENT_ID,
+      ...(process.env.GOOGLE_OAUTH_AUDIENCES?.split(",").map((s) => s.trim()) ??
+        []),
+    ].filter(Boolean) as string[];
+    if (allowedAudiences.length === 0) {
+      // Fail closed rather than accept any audience when misconfigured.
+      return NextResponse.json(
+        { error: "Google login is not configured" },
+        { status: 500 }
+      );
+    }
+    if (!googleUser.aud || !allowedAudiences.includes(googleUser.aud)) {
+      return NextResponse.json({ error: "Invalid Google token" }, { status: 401 });
+    }
+    // Reject unverified-email tokens (tokeninfo returns the string "true").
+    if (
+      googleUser.email_verified !== "true" &&
+      googleUser.email_verified !== true
+    ) {
+      return NextResponse.json(
+        { error: "Google email not verified" },
+        { status: 401 }
+      );
+    }
+
     if (!email) {
       return NextResponse.json(
         { error: "Email not provided by Google" },

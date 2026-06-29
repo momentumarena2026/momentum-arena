@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMobileAdmin } from "@/lib/mobile-auth";
+import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { listExpenses, createExpense } from "@/actions/admin-expenses";
 
 /**
@@ -16,10 +16,8 @@ import { listExpenses, createExpense } from "@/actions/admin-expenses";
  *   Creates a new expense row + an audit-log entry.
  */
 export async function GET(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
+  if ("error" in gate) return gate.error;
 
   const sp = new URL(request.url).searchParams;
   const filters = {
@@ -63,10 +61,9 @@ const Body = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const admin = await getMobileAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
+  if ("error" in gate) return gate.error;
+  const admin = gate.admin;
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
