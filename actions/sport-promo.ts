@@ -19,6 +19,7 @@ import {
   type ActiveSportPromo,
   getAutoApplyCodeForSport,
 } from "@/lib/auto-apply-promo";
+import { isPlatformAllowed, type CouponPlatform } from "@/lib/coupon-platform";
 
 /**
  * Returns the auto-apply promo for `sport` if it's currently live AND
@@ -30,10 +31,17 @@ import {
  * Caller passes `bookingCategory` for sports with sub-flows (today only
  * CRICKET has BOX_CRICKET / BOWLING_MACHINE). Lets us hide the promo on
  * bowling-machine slots when the coupon has `categoryExclude` set.
+ *
+ * `platform` ("web" | "android" | "ios", default "web") gates the promo on
+ * the coupon's `validPlatforms`: an App-only coupon returns null on web, so
+ * the slot-price strike-throughs AND the launch banner disappear from the
+ * website automatically the moment a coupon is switched to App-only — with
+ * no separate banner/slot toggle to maintain.
  */
 export async function getActiveSportPromo(
   sport: Sport,
   bookingCategory?: BookingCategory | null,
+  platform: CouponPlatform = "web",
 ): Promise<ActiveSportPromo | null> {
   const code = getAutoApplyCodeForSport(sport);
   const coupon = await db.coupon.findUnique({
@@ -43,6 +51,10 @@ export async function getActiveSportPromo(
     },
   });
   if (!coupon || !coupon.isActive) return null;
+
+  // Platform restriction — hide the promo (and therefore the banner +
+  // slot decoration) on platforms the coupon doesn't allow.
+  if (!isPlatformAllowed(coupon.validPlatforms, platform)) return null;
 
   const now = new Date();
   if (coupon.validFrom > now || coupon.validUntil < now) return null;

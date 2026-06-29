@@ -1,0 +1,54 @@
+name: Seed APPFIRST Coupon
+
+# Manually-triggered one-shot to create the APPFIRST "first app booking"
+# welcome coupon in the chosen environment. CREATE-IF-ABSENT — safe to
+# re-run; an existing APPFIRST row is left untouched.
+#
+# Trigger from the GitHub UI (Actions tab → "Run workflow") or via
+# `gh workflow run seed-app-first-booking-coupon.yml -f environment=production`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which DB to write to"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  seed-coupon:
+    name: Seed APPFIRST coupon
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ inputs.environment == 'production' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty for environment=${{ inputs.environment }}"
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars) for ${{ inputs.environment }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Seed APPFIRST coupon
+        run: npx tsx scripts/seed-app-first-booking-coupon.ts

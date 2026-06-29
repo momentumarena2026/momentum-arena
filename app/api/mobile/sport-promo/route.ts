@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { BookingCategory, Sport } from "@prisma/client";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { getAuthUserId } from "@/lib/auth-unified";
+import { getMobilePlatform } from "@/lib/mobile-auth";
 import { logBookingRequest } from "@/lib/server-log";
 
 // Returns the active auto-apply promo for `sport` (and optional
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
   const promo = await getActiveSportPromo(
     sport as Sport,
     (bookingCategory as BookingCategory | null) || undefined,
+    getMobilePlatform(request),
   );
 
   logBookingRequest(request, "booking.view_sport_promo", "success", {
