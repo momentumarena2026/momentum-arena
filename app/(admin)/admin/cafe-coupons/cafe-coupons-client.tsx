@@ -15,6 +15,7 @@ import {
   Ticket,
   Percent,
   IndianRupee,
+  Smartphone,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 
@@ -28,6 +29,9 @@ interface CafeCouponRow {
   maxUsesPerUser: number;
   minOrderAmount: number | null;
   categoryFilter: CafeItemCategory[];
+  // Platform restriction. Empty = all platforms; values are a subset
+  // of "web" | "android" | "ios". Surfaced as a preset badge on the row.
+  validPlatforms: Platform[];
   validFrom: string;
   validUntil: string;
   isActive: boolean;
@@ -41,6 +45,43 @@ const CATEGORIES: CafeItemCategory[] = [
   "DESSERTS",
   "COMBOS",
 ];
+
+// Platform restriction is edited as a single-select preset that maps
+// onto the stored `validPlatforms` string[]. Empty = all platforms.
+type Platform = "web" | "android" | "ios";
+type PlatformPreset = "ALL" | "APP" | "WEB" | "IOS" | "ANDROID";
+const PLATFORM_PRESETS: {
+  value: PlatformPreset;
+  label: string;
+  platforms: Platform[];
+}[] = [
+  { value: "ALL", label: "All", platforms: [] },
+  { value: "APP", label: "App only", platforms: ["android", "ios"] },
+  { value: "WEB", label: "Web only", platforms: ["web"] },
+  { value: "IOS", label: "iOS only", platforms: ["ios"] },
+  { value: "ANDROID", label: "Android only", platforms: ["android"] },
+];
+
+// Derive the selected preset from a stored validPlatforms array.
+// [] → All; ["web"] → Web only; ["ios"] → iOS only; ["android"] →
+// Android only; has both android+ios and not web → App only;
+// anything else falls back to App only.
+function platformsToPreset(platforms: Platform[]): PlatformPreset {
+  if (platforms.length === 0) return "ALL";
+  const has = (p: Platform) => platforms.includes(p);
+  if (platforms.length === 1) {
+    if (has("web")) return "WEB";
+    if (has("ios")) return "IOS";
+    if (has("android")) return "ANDROID";
+  }
+  return "APP";
+}
+
+function presetToPlatforms(preset: PlatformPreset): Platform[] {
+  return (
+    PLATFORM_PRESETS.find((p) => p.value === preset)?.platforms ?? []
+  );
+}
 
 export function CafeCouponsClient({
   coupons,
@@ -61,6 +102,7 @@ export function CafeCouponsClient({
     maxUsesPerUser: "1",
     minOrderAmount: "",
     categoryFilter: [] as CafeItemCategory[],
+    platformPreset: "ALL" as PlatformPreset,
     validFrom: new Date().toISOString().split("T")[0],
     validUntil: new Date(Date.now() + 30 * 86400000)
       .toISOString()
@@ -93,6 +135,7 @@ export function CafeCouponsClient({
         : undefined,
       categoryFilter:
         form.categoryFilter.length > 0 ? form.categoryFilter : undefined,
+      validPlatforms: presetToPlatforms(form.platformPreset),
       validFrom: form.validFrom,
       validUntil: form.validUntil,
     });
@@ -107,6 +150,7 @@ export function CafeCouponsClient({
         maxUsesPerUser: "1",
         minOrderAmount: "",
         categoryFilter: [],
+        platformPreset: "ALL",
         validFrom: form.validFrom,
         validUntil: form.validUntil,
       });
@@ -285,6 +329,32 @@ export function CafeCouponsClient({
             </div>
           </div>
 
+          {/* Platform restriction — single-select preset mapped onto
+              validPlatforms. Empty (All) = no restriction. */}
+          <div>
+            <p className="text-xs text-zinc-500 mb-2">
+              Valid on (which platforms)
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              {PLATFORM_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() =>
+                    setForm((p) => ({ ...p, platformPreset: preset.value }))
+                  }
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    form.platformPreset === preset.value
+                      ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30"
+                      : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {error && <p className="text-sm text-red-400">{error}</p>}
 
           <button
@@ -327,13 +397,25 @@ export function CafeCouponsClient({
                   )}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono font-bold text-white">
                       {coupon.code}
                     </span>
                     <span className="text-sm font-medium text-emerald-400">
                       {formatValue(coupon.type, coupon.value)} off
                     </span>
+                    {coupon.validPlatforms.length > 0 && (
+                      <span className="flex items-center gap-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 px-2 py-0.5 text-[10px] text-indigo-400">
+                        <Smartphone className="h-2.5 w-2.5" />
+                        {
+                          PLATFORM_PRESETS.find(
+                            (p) =>
+                              p.value ===
+                              platformsToPreset(coupon.validPlatforms)
+                          )?.label
+                        }
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-zinc-500">
                     {coupon.usedCount}/{coupon.maxUses ?? "\u221E"} used

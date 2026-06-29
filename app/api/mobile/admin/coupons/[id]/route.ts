@@ -50,6 +50,7 @@ const conditionSchema = z.object({
     "TIME_WINDOW",
     "BIRTHDAY",
     "REFERRAL",
+    "FIRST_APP_BOOKING",
   ]),
   conditionValue: z.string(),
 });
@@ -67,6 +68,7 @@ const patchSchema = z.object({
   categoryFilter: z.array(z.enum(CAFE_CATEGORIES)).optional(),
   categoryExclude: z.array(z.enum(BOOKING_CATEGORIES)).optional(),
   userGroupFilter: z.array(z.enum(USER_GROUPS)).optional(),
+  validPlatforms: z.array(z.enum(["web", "android", "ios"])).optional(),
   isStackable: z.boolean().optional(),
   stackGroup: z.string().nullish(),
   isPublic: z.boolean().optional(),
@@ -116,6 +118,7 @@ export async function PATCH(
   if (d.categoryFilter !== undefined) data.categoryFilter = d.categoryFilter;
   if (d.categoryExclude !== undefined) data.categoryExclude = d.categoryExclude;
   if (d.userGroupFilter !== undefined) data.userGroupFilter = d.userGroupFilter;
+  if (d.validPlatforms !== undefined) data.validPlatforms = d.validPlatforms;
   if (d.isStackable !== undefined) data.isStackable = d.isStackable;
   if (d.stackGroup !== undefined) data.stackGroup = d.stackGroup?.trim() || null;
   if (d.isPublic !== undefined) data.isPublic = d.isPublic;

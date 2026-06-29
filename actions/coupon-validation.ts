@@ -3,6 +3,10 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { CouponScope } from "@prisma/client";
+import {
+  isPlatformAllowed,
+  platformRestrictionMessage,
+} from "@/lib/coupon-platform";
 
 export interface CouponValidationResult {
   valid: boolean;
@@ -17,6 +21,13 @@ interface ValidateCouponContext {
   userId?: string;
   sport?: string;
   categories?: string[];
+  /**
+   * The platform the coupon is being redeemed from: "web" | "android" | "ios".
+   * Drives the coupon's `validPlatforms` restriction and the FIRST_APP_BOOKING
+   * condition. Defaults to undefined (treated as "not app") when a caller
+   * doesn't supply it — every real call site passes it.
+   */
+  platform?: "web" | "android" | "ios";
   /**
    * Sub-category of the booking being validated against (BOX_CRICKET
    * or BOWLING_MACHINE). When a coupon's `categoryExclude` contains
@@ -75,6 +86,15 @@ export async function validateCoupon(
       return {
         valid: false,
         error: `This coupon is only valid for ${coupon.scope.toLowerCase()}`,
+      };
+    }
+
+    // 3b. Platform restriction. Empty validPlatforms = valid on every
+    // platform (default). Otherwise the redeeming platform must be listed.
+    if (!isPlatformAllowed(coupon.validPlatforms, context.platform)) {
+      return {
+        valid: false,
+        error: platformRestrictionMessage(coupon.validPlatforms),
       };
     }
 
@@ -305,6 +325,37 @@ export async function validateCoupon(
           });
           if (priorUsage > 0) {
             return { valid: false, error: "This coupon is only valid for first-time purchases" };
+          }
+          break;
+        }
+        case "FIRST_APP_BOOKING": {
+          if (!context.userId) {
+            return { valid: false, error: "You must be logged in to use this coupon" };
+          }
+          // A "first app booking" can only happen ON the app — reject on web.
+          if (context.platform !== "android" && context.platform !== "ios") {
+            return {
+              valid: false,
+              error: "This coupon is only valid on your first app booking",
+            };
+          }
+          // Disqualify if the user already made a real booking via the app.
+          // Cancelled bookings don't count; admin-created bookings don't burn
+          // eligibility; web bookings don't count (so a long-time web user can
+          // still claim their first APP booking — the point is app adoption).
+          const priorAppBookings = await db.booking.count({
+            where: {
+              userId: context.userId,
+              platform: { in: ["android", "ios"] },
+              status: { in: ["CONFIRMED", "COMPLETED", "ABSENT"] },
+              createdByAdminId: null,
+            },
+          });
+          if (priorAppBookings > 0) {
+            return {
+              valid: false,
+              error: "This coupon is only valid on your first app booking",
+            };
           }
           break;
         }

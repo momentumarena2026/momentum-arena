@@ -38,6 +38,20 @@ export function getAutoApplyCodeForSport(
   return sport === "PICKLEBALL" ? "PICKLEBALL25" : "FLAT100";
 }
 
+/**
+ * Coupon code the MOBILE app checkout auto-attempts FIRST, for a customer's
+ * very first app booking. The coupon must be created by an admin with this
+ * code, configured App-only (validPlatforms ["android","ios"]) and a
+ * FIRST_APP_BOOKING condition. validateCoupon enforces eligibility, so the
+ * checkout can attempt it unconditionally — it silently no-ops for users who
+ * aren't on their first app booking. Tried ahead of the new-user / sport
+ * fallback codes so the app-adoption promo wins when both could apply.
+ *
+ * The mobile CheckoutScreen mirrors this constant locally (it can't import
+ * the web package); keep the two in sync.
+ */
+export const APP_FIRST_BOOKING_CODE = "APPFIRST";
+
 export type ActiveSportPromo = {
   code: string;
   type: DiscountType;

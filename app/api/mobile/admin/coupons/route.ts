@@ -51,6 +51,7 @@ const conditionSchema = z.object({
     "TIME_WINDOW",
     "BIRTHDAY",
     "REFERRAL",
+    "FIRST_APP_BOOKING",
   ]),
   conditionValue: z.string(), // JSON string
 });
@@ -69,6 +70,9 @@ const createSchema = z.object({
   categoryFilter: z.array(z.enum(CAFE_CATEGORIES)).default([]),
   categoryExclude: z.array(z.enum(BOOKING_CATEGORIES)).default([]),
   userGroupFilter: z.array(z.enum(USER_GROUPS)).default([]),
+  // Platform restriction. Empty = all platforms; "App-only" =
+  // ["android","ios"]. Mirrors Coupon.validPlatforms / the web action.
+  validPlatforms: z.array(z.enum(["web", "android", "ios"])).default([]),
   isStackable: z.boolean().default(false),
   stackGroup: z.string().nullish(),
   isPublic: z.boolean().default(true),
@@ -107,6 +111,7 @@ export async function GET(request: NextRequest) {
       categoryFilter: true,
       categoryExclude: true,
       userGroupFilter: true,
+      validPlatforms: true,
       isStackable: true,
       stackGroup: true,
       isPublic: true,
@@ -195,6 +200,7 @@ export async function POST(request: NextRequest) {
       categoryFilter: d.categoryFilter,
       categoryExclude: d.categoryExclude,
       userGroupFilter: d.userGroupFilter,
+      validPlatforms: d.validPlatforms,
       isStackable: d.isStackable,
       stackGroup: d.stackGroup?.trim() || null,
       isPublic: d.isPublic,

@@ -31,6 +31,7 @@ const conditionSchema = z.object({
     "TIME_WINDOW",
     "BIRTHDAY",
     "REFERRAL",
+    "FIRST_APP_BOOKING",
   ]),
   conditionValue: z.string(), // JSON string
 });
@@ -67,6 +68,11 @@ const couponSchema = z.object({
         "CUSTOM",
       ])
     )
+    .default([]),
+  // Platform restriction. Empty = all platforms. Values mirror
+  // Booking.platform; "App-only" = ["android","ios"].
+  validPlatforms: z
+    .array(z.enum(["web", "android", "ios"]))
     .default([]),
   isStackable: z.boolean().default(false),
   stackGroup: z.string().nullable().optional(),
@@ -145,6 +151,7 @@ export async function createCoupon(data: {
   categoryFilter?: CafeItemCategory[];
   categoryExclude?: BookingCategory[];
   userGroupFilter?: UserGroupType[];
+  validPlatforms?: ("web" | "android" | "ios")[];
   isStackable?: boolean;
   stackGroup?: string | null;
   isPublic?: boolean;
@@ -198,6 +205,7 @@ export async function createCoupon(data: {
         categoryFilter: parsed.data.categoryFilter,
         categoryExclude: parsed.data.categoryExclude,
         userGroupFilter: parsed.data.userGroupFilter,
+        validPlatforms: parsed.data.validPlatforms,
         isStackable: parsed.data.isStackable,
         stackGroup: parsed.data.stackGroup ?? null,
         isPublic: parsed.data.isPublic,
@@ -256,6 +264,7 @@ export async function updateCoupon(
     categoryFilter?: CafeItemCategory[];
     categoryExclude?: BookingCategory[];
     userGroupFilter?: UserGroupType[];
+    validPlatforms?: ("web" | "android" | "ios")[];
     isStackable?: boolean;
     stackGroup?: string | null;
     isPublic?: boolean;
@@ -285,6 +294,7 @@ export async function updateCoupon(
     if (data.categoryFilter !== undefined) updateData.categoryFilter = data.categoryFilter;
     if (data.categoryExclude !== undefined) updateData.categoryExclude = data.categoryExclude;
     if (data.userGroupFilter !== undefined) updateData.userGroupFilter = data.userGroupFilter;
+    if (data.validPlatforms !== undefined) updateData.validPlatforms = data.validPlatforms;
     if (data.isStackable !== undefined) updateData.isStackable = data.isStackable;
     if (data.stackGroup !== undefined) updateData.stackGroup = data.stackGroup;
     if (data.isPublic !== undefined) updateData.isPublic = data.isPublic;

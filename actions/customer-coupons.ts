@@ -17,9 +17,22 @@ interface PublicCoupon {
   minAmount: number | null;
   sportFilter: string[];
   categoryFilter: string[];
+  validPlatforms: string[];
   validFrom: string;
   validUntil: string;
   conditions: { type: string; value: string }[];
+}
+
+/**
+ * Prisma where-fragment that keeps a coupon visible only on platforms it
+ * allows: empty validPlatforms = every platform, otherwise the list must
+ * contain the viewing platform. Combine with AND when the query already
+ * has its own OR (see targetedCouponsRaw).
+ */
+function platformWhere(platform: string) {
+  return {
+    OR: [{ validPlatforms: { isEmpty: true } }, { validPlatforms: { has: platform } }],
+  };
 }
 
 function formatCouponForPublic(coupon: CouponWithConditions): PublicCoupon {
@@ -34,6 +47,7 @@ function formatCouponForPublic(coupon: CouponWithConditions): PublicCoupon {
     minAmount: coupon.minAmount,
     sportFilter: coupon.sportFilter,
     categoryFilter: coupon.categoryFilter,
+    validPlatforms: coupon.validPlatforms,
     validFrom: coupon.validFrom.toISOString(),
     validUntil: coupon.validUntil.toISOString(),
     conditions: coupon.conditions.map((c) => ({
@@ -44,7 +58,11 @@ function formatCouponForPublic(coupon: CouponWithConditions): PublicCoupon {
 }
 
 export async function getAvailableCoupons(
-  scope: "SPORTS" | "CAFE" | "BOTH"
+  scope: "SPORTS" | "CAFE" | "BOTH",
+  // Platform the list is being viewed from. App-only coupons are hidden on
+  // web and vice-versa, so customers never see codes they can't redeem.
+  // Defaults "web" so existing web callers keep working unchanged.
+  platform: string = "web"
 ): Promise<PublicCoupon[]> {
   const now = new Date();
 
@@ -61,6 +79,7 @@ export async function getAvailableCoupons(
       validFrom: { lte: now },
       validUntil: { gte: now },
       scope: { in: scopeFilter },
+      ...platformWhere(platform),
       // Hide admin-curated targeted coupons from the public list —
       // those are private to the listed users / group members and
       // surface only via getPersonalizedCoupons. Auto buckets
@@ -103,14 +122,18 @@ const EMPTY_PERSONALIZED: PersonalizedCouponsResult = {
  * resolved via `getMobileUser` (NextAuth doesn't recognise the
  * mobile JWT).
  */
-export async function getPersonalizedCoupons(): Promise<PersonalizedCouponsResult> {
+export async function getPersonalizedCoupons(
+  platform: string = "web",
+): Promise<PersonalizedCouponsResult> {
   const session = await auth();
   if (!session?.user?.id) return EMPTY_PERSONALIZED;
-  return getPersonalizedCouponsForUser(session.user.id);
+  return getPersonalizedCouponsForUser(session.user.id, platform);
 }
 
 export async function getPersonalizedCouponsForUser(
   userId: string,
+  // Hide coupons not valid on the viewing platform (app-only on web, etc.).
+  platform: string = "web",
 ): Promise<PersonalizedCouponsResult> {
   const now = new Date();
 
@@ -138,6 +161,7 @@ export async function getPersonalizedCouponsForUser(
       validFrom: { lte: now },
       validUntil: { gte: now },
       userGroupFilter: { isEmpty: false },
+      ...platformWhere(platform),
     },
     include: { conditions: true },
   });
@@ -247,11 +271,18 @@ export async function getPersonalizedCouponsForUser(
       isActive: true,
       validFrom: { lte: now },
       validUntil: { gte: now },
-      OR: [
-        { eligibleUsers: { some: { userId } } },
-        ...(userGroupIds.length > 0
-          ? [{ eligibleGroups: { some: { groupId: { in: userGroupIds } } } }]
-          : []),
+      // This query already uses OR for the eligibility paths, so the
+      // platform restriction (itself an OR) must be AND'd alongside it.
+      AND: [
+        platformWhere(platform),
+        {
+          OR: [
+            { eligibleUsers: { some: { userId } } },
+            ...(userGroupIds.length > 0
+              ? [{ eligibleGroups: { some: { groupId: { in: userGroupIds } } } }]
+              : []),
+          ],
+        },
       ],
     },
     include: { conditions: true },

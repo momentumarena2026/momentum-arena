@@ -6,6 +6,11 @@ import { PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { createCafePaymentIntent } from "@/lib/cafe-intent";
 import { isCheckoutMethodEnabled } from "@/actions/admin-payment-settings";
+import {
+  isPlatformAllowed,
+  platformRestrictionMessage,
+  type CouponPlatform,
+} from "@/lib/coupon-platform";
 
 async function getOptionalCustomerId(): Promise<string | null> {
   try {
@@ -287,7 +292,11 @@ export async function validateCafeCoupon(
   code: string,
   amount: number,
   itemCategories: string[],
-  explicitUserId?: string
+  explicitUserId?: string,
+  // Platform the coupon is being redeemed from. Web callers omit it
+  // (defaults "web"); mobile cafe routes pass the device platform. Drives
+  // CafeDiscount.validPlatforms (app-only / web-only cafe coupons).
+  platform: CouponPlatform = "web"
 ) {
   // Web callers rely on the NextAuth session; mobile routes (no session)
   // pass the bearer user's id explicitly so the per-user usage check still
@@ -310,6 +319,11 @@ export async function validateCafeCoupon(
     const now = new Date();
     if (now < discount.validFrom || now > discount.validUntil) {
       return { valid: false, error: "Coupon has expired or is not yet valid" };
+    }
+
+    // Platform restriction (app-only / web-only cafe coupons). Empty = all.
+    if (!isPlatformAllowed(discount.validPlatforms, platform)) {
+      return { valid: false, error: platformRestrictionMessage(discount.validPlatforms) };
     }
 
     // Check max uses

@@ -2,6 +2,8 @@ import { request } from "./admin-api";
 
 export type CouponScope = "BOTH" | "SPORTS" | "CAFE";
 export type CouponType = "PERCENTAGE" | "FLAT";
+/** Booking.platform values. Empty validPlatforms = all platforms. */
+export type CouponPlatform = "web" | "android" | "ios";
 
 export type Sport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
 export type CafeItemCategory =
@@ -25,7 +27,8 @@ export type CouponConditionType =
   | "CATEGORY_SPECIFIC"
   | "TIME_WINDOW"
   | "BIRTHDAY"
-  | "REFERRAL";
+  | "REFERRAL"
+  | "FIRST_APP_BOOKING";
 
 export interface CouponCondition {
   conditionType: CouponConditionType;
@@ -62,6 +65,8 @@ export interface AdminCoupon {
   categoryFilter: CafeItemCategory[];
   categoryExclude: BookingCategory[];
   userGroupFilter: UserGroupType[];
+  /** Empty = all platforms; ["android","ios"] = app-only; etc. */
+  validPlatforms: CouponPlatform[];
   isStackable: boolean;
   stackGroup: string | null;
   isPublic: boolean;
@@ -90,6 +95,7 @@ export interface CreateCouponInput {
   categoryFilter?: CafeItemCategory[];
   categoryExclude?: BookingCategory[];
   userGroupFilter?: UserGroupType[];
+  validPlatforms?: CouponPlatform[];
   isStackable?: boolean;
   stackGroup?: string | null;
   isPublic?: boolean;

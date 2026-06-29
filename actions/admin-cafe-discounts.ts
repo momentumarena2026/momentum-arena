@@ -25,6 +25,8 @@ const cafeCouponSchema = z.object({
   categoryFilter: z
     .array(z.enum(["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"]))
     .default([]),
+  // Platform restriction. Empty = all platforms; "App-only" = ["android","ios"].
+  validPlatforms: z.array(z.enum(["web", "android", "ios"])).default([]),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
 });
@@ -37,6 +39,7 @@ export async function createCafeCoupon(data: {
   maxUsesPerUser?: number;
   minOrderAmount?: number;
   categoryFilter?: CafeItemCategory[];
+  validPlatforms?: ("web" | "android" | "ios")[];
   validFrom: string;
   validUntil: string;
 }) {
@@ -71,6 +74,7 @@ export async function createCafeCoupon(data: {
         maxUsesPerUser: parsed.data.maxUsesPerUser,
         minOrderAmount: parsed.data.minOrderAmount || null,
         categoryFilter: parsed.data.categoryFilter,
+        validPlatforms: parsed.data.validPlatforms,
         validFrom: new Date(parsed.data.validFrom),
         validUntil: new Date(parsed.data.validUntil),
         createdBy: adminId,
@@ -92,6 +96,7 @@ export async function updateCafeCoupon(
     maxUsesPerUser: number;
     minOrderAmount: number;
     categoryFilter: CafeItemCategory[];
+    validPlatforms: ("web" | "android" | "ios")[];
     validFrom: string;
     validUntil: string;
     isActive: boolean;
@@ -109,6 +114,8 @@ export async function updateCafeCoupon(
       updateData.minOrderAmount = data.minOrderAmount;
     if (data.categoryFilter !== undefined)
       updateData.categoryFilter = data.categoryFilter;
+    if (data.validPlatforms !== undefined)
+      updateData.validPlatforms = data.validPlatforms;
     if (data.validFrom !== undefined)
       updateData.validFrom = new Date(data.validFrom);
     if (data.validUntil !== undefined)

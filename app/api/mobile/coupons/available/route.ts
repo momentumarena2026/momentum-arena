@@ -3,7 +3,7 @@ import {
   getAvailableCoupons,
   getPersonalizedCouponsForUser,
 } from "@/actions/customer-coupons";
-import { getMobileUser } from "@/lib/mobile-auth";
+import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 
 // GET /api/mobile/coupons/available?scope=SPORTS|CAFE|BOTH
 //
@@ -26,10 +26,11 @@ export async function GET(request: NextRequest) {
     scopeParam === "CAFE" || scopeParam === "BOTH" ? scopeParam : "SPORTS";
 
   const user = await getMobileUser(request);
+  const platform = getMobilePlatform(request);
 
   const [publicCoupons, personalized] = await Promise.all([
-    getAvailableCoupons(scope),
-    user ? getPersonalizedCouponsForUser(user.id) : null,
+    getAvailableCoupons(scope, platform),
+    user ? getPersonalizedCouponsForUser(user.id, platform) : null,
   ]);
 
   if (!personalized) {
