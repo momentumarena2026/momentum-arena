@@ -3,7 +3,9 @@ import { getMobileAdmin } from "@/lib/mobile-auth";
 import { hasPermission } from "@/lib/permissions";
 import {
   listAnalyticsEvents,
+  listEventNames,
   listServerActionLogs,
+  listServerActionNames,
 } from "@/actions/admin-insights";
 import { AnalyticsCategory } from "@prisma/client";
 
@@ -14,9 +16,18 @@ import { AnalyticsCategory } from "@prisma/client";
  *  - tab=client → AnalyticsEvent rows (client-emitted events)
  *  - tab=server → ServerActionLog rows (server action audit log)
  *
- * Shared filters: name/action, category, before (cursor), limit.
+ * Shared filters: name/action, category, outcome (server only),
+ * userId, sessionId (client only), before (cursor), limit.
+ *
+ * With `names=1`, returns the distinct name list used to populate the
+ * filter dropdown instead of a page of rows:
+ *  - tab=client → distinct AnalyticsEvent names (last 30 days)
+ *  - tab=server → distinct ServerActionLog action names (all time)
+ * shaped as { names: string[] }.
+ *
  * Returns the matching list result ({ rows, hasMore, nextCursor }).
- * Requires VIEW_ANALYTICS (or SUPERADMIN).
+ * Requires VIEW_ANALYTICS (or SUPERADMIN). This route auth-checks, so
+ * the underlying actions are called with skipAuth=true.
  */
 export async function GET(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -32,6 +43,16 @@ export async function GET(request: NextRequest) {
 
   const sp = new URL(request.url).searchParams;
   const tab = sp.get("tab") === "server" ? "server" : "client";
+
+  // Distinct-name list mode — powers the Event name / Action filter.
+  if (sp.get("names") === "1") {
+    const names =
+      tab === "server"
+        ? await listServerActionNames(true)
+        : await listEventNames(true);
+    return NextResponse.json({ names });
+  }
+
   const before = sp.get("before") || undefined;
   const limitRaw = sp.get("limit");
   const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;

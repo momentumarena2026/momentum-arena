@@ -166,6 +166,14 @@ function Body({
     return { dow, hour, val: best.val };
   }, [grid]);
 
+  // Top 5 (day, hour, sport) cells — the "go fix this" list. Sport is
+  // part of the cell because the same slot can be hot for one sport and
+  // dead for another. Mirrors the web "Top 5 unmet-demand slots" panel.
+  const topCells = useMemo(
+    () => [...filtered].sort((a, b) => b.intensity - a.intensity).slice(0, 5),
+    [filtered],
+  );
+
   return (
     <>
       <View style={styles.tileRow}>
@@ -231,7 +239,7 @@ function Body({
                 {hours.map((h) => (
                   <View key={h} style={styles.cell}>
                     <Text variant="tiny" color={colors.zinc600}>
-                      {h}
+                      {fmtHour(h)}
                     </Text>
                   </View>
                 ))}
@@ -290,6 +298,40 @@ function Body({
           </Text>
         </View>
       </View>
+
+      {/* Top 5 unmet-demand slots — mirrors the web panel. */}
+      {topCells.length > 0 ? (
+        <View style={styles.section}>
+          <Text variant="bodyStrong">Top 5 unmet-demand slots</Text>
+          <Text variant="tiny" color={colors.zinc500}>
+            Where you're losing the most bookings to capacity. Add slots /
+            surge price these first.
+          </Text>
+          <View style={{ gap: spacing["2"] }}>
+            {topCells.map((c, i) => (
+              <View
+                key={`${c.dayOfWeek}-${c.hour}-${c.sport}`}
+                style={styles.topRow}
+              >
+                <Text variant="tiny" color={colors.zinc300} style={{ flex: 1 }}>
+                  <Text variant="tiny" color={colors.zinc500}>
+                    #{i + 1}{" "}
+                  </Text>
+                  <Text variant="tiny" color={colors.foreground} weight="600">
+                    {DAYS[c.dayOfWeek]} {fmtHour(c.hour)}
+                  </Text>
+                  {c.sport && c.sport !== "_"
+                    ? `  ·  ${prettySport(c.sport)}`
+                    : ""}
+                </Text>
+                <Text variant="tiny" color={colors.yellow400} weight="600">
+                  {c.intensity} signals
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
     </>
   );
 }
@@ -452,6 +494,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing["2"],
+    borderRadius: radius.md,
+    backgroundColor: "rgba(9, 9, 11, 0.60)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2"],
   },
   legendSwatch: {
     width: 18,

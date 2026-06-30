@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   ArrowDownToLine,
   ArrowUpFromLine,
+  BarChart3,
   Check,
   ChevronRight,
   Clock,
@@ -111,7 +112,7 @@ export function AdminRewardsScreen() {
       >
         <Text style={styles.heading}>Momentum Rewards</Text>
         <Text style={styles.subhead}>
-          Live monitoring + bulk grant. Full config + analytics on web.
+          Live monitoring, analytics + bulk grant.
         </Text>
 
         {loading ? (
@@ -146,6 +147,25 @@ export function AdminRewardsScreen() {
                 sub="REDEEMED rows"
               />
             </View>
+
+            <Pressable
+              onPress={() => navigation.navigate("AdminRewardsAnalytics")}
+              style={({ pressed }) => [
+                styles.cta,
+                pressed && styles.ctaPressed,
+              ]}
+            >
+              <View style={styles.ctaIcon}>
+                <BarChart3 size={18} color={colors.emerald400} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.ctaTitle}>Analytics</Text>
+                <Text style={styles.ctaSub}>
+                  Daily earn + redeem (30d), top earners
+                </Text>
+              </View>
+              <ChevronRight size={18} color={colors.emerald400} />
+            </Pressable>
 
             <Pressable
               onPress={() => navigation.navigate("AdminRewardsDistribute")}

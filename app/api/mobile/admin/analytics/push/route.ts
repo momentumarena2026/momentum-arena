@@ -8,17 +8,21 @@ import {
 } from "@/actions/admin-push-analytics";
 
 /**
- * GET /api/mobile/admin/analytics/push?from=&to=
+ * GET /api/mobile/admin/analytics/push?from=&to=&kinds=&sources=&scope=
  *
  * Push KPI dashboard backing AdminPushAnalyticsScreen. Mirrors the web
  * /admin/analytics/push page: default range is "earliest dispatch →
  * today" so lifetime send totals match out of the box; falls back to the
  * last 30 days before the dispatch log has any rows. Pass ?from / ?to
- * (YYYY-MM-DD) to narrow the window.
+ * (YYYY-MM-DD) to narrow the window, plus the same dispatch filters the
+ * web dashboard exposes:
+ *   - kinds   : comma-separated dispatch kinds (omit for all)
+ *   - sources : comma-separated of event | broadcast | test (omit for all)
+ *   - scope   : customer | admin (omit / "all" for both)
  *
  * Returns { analytics: PushAnalytics, kinds: string[] }. Send metrics
- * (totals, byKind, bySource, timeSeries) build up from the dispatch
- * log's first write; fleet metrics are full history.
+ * (totals, byKind, bySource, timeSeries, recent) build up from the
+ * dispatch log's first write; fleet metrics are full history.
  */
 export async function GET(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -51,8 +55,32 @@ export async function GET(request: NextRequest) {
           .split("T")[0];
   }
 
+  // Optional dispatch filters — comma-separated lists for kinds/sources,
+  // a single value for scope. Mirrors the web dashboard's filter chips.
+  const csv = (key: string): string[] | undefined => {
+    const raw = sp.get(key);
+    if (!raw) return undefined;
+    const parts = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts.length ? parts : undefined;
+  };
+  const scopeRaw = sp.get("scope");
+  const scope =
+    scopeRaw === "customer" || scopeRaw === "admin" ? scopeRaw : undefined;
+
   const [analytics, kinds] = await Promise.all([
-    getPushAnalytics({ dateFrom, dateTo }, true),
+    getPushAnalytics(
+      {
+        dateFrom,
+        dateTo,
+        kinds: csv("kinds"),
+        sources: csv("sources"),
+        scope,
+      },
+      true,
+    ),
     getDispatchedKinds(true),
   ]);
 

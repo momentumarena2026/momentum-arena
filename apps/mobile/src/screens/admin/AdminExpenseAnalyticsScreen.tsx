@@ -10,30 +10,47 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  BarChart3,
   CalendarDays,
   IndianRupee,
+  Layers,
+  Receipt,
   TrendingUp,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
+import {
+  BarChart,
+  ChartCard,
+  CHART_COLORS,
+  DonutChart,
+  LineChart,
+} from "../../components/charts";
 import { colors, radius, spacing } from "../../theme";
+import { formatRupees } from "../../lib/format";
 import {
   adminExpensesApi,
   type AdminExpenseAnalytics,
 } from "../../lib/admin-expenses";
 
 /**
- * Mirrors the web /admin/expenses/analytics page on a single mobile
- * scroll view. Range chips at top (this month / last month / YTD /
- * all time), summary tiles, monthly bar list, and four breakdown
- * tables (spent type, vendor, paid to, payment type).
+ * Mobile mirror of the web /admin/expenses/analytics dashboard. Full
+ * parity: every KPI tile and every chart the web page renders, re-drawn
+ * with the RN chart kit (react-native-svg).
  *
- * Charts on the web use recharts; on mobile we render compact
- * horizontal bars built from `View`s — keeps the bundle size down
- * (no extra chart lib) and renders fine for the 5–15 row breakdowns
- * the venue actually has.
+ * Web sections, mapped 1:1:
+ *   - 3 KPI cards: Total Spent / Entries / Categories
+ *   - "Monthly Spend" recharts LineChart      → LineChart
+ *   - "By Spent Type" recharts Pie + a table  → DonutChart + CategoryTable
+ *   - "Who Spent" recharts Bar                → BarChart
+ *   - "Payment Mix" recharts Pie             → DonutChart
+ *   - "Top Vendors" / "Top Recipients" tables → CategoryTable
+ * Plus three mobile-only secondary tiles (avg/entry, months, top type)
+ * that surface the same numbers the venue glances at most.
+ *
+ * Range chips at top (this month / last month / YTD / all time / custom)
+ * drive one /api/mobile/admin/expenses/analytics fetch returning the full
+ * payload. All expense money is RUPEES already → formatRupees.
  */
 export function AdminExpenseAnalyticsScreen() {
   const [range, setRange] = useState<RangeKey>("THIS_MONTH");
@@ -119,11 +136,15 @@ export function AdminExpenseAnalyticsScreen() {
           </View>
         ) : null}
 
-        {/* Summary tiles */}
+        {/* Summary tiles + charts */}
         {query.isLoading ? (
-          <View style={styles.tileRow}>
-            <Skeleton width="48%" height={64} rounded="md" />
-            <Skeleton width="48%" height={64} rounded="md" />
+          <View style={{ gap: spacing["3"] }}>
+            <View style={styles.tileRow}>
+              <Skeleton width="48%" height={64} rounded="md" />
+              <Skeleton width="48%" height={64} rounded="md" />
+            </View>
+            <Skeleton width="100%" height={220} rounded="lg" />
+            <Skeleton width="100%" height={220} rounded="lg" />
           </View>
         ) : query.isError ? (
           <Pressable
@@ -150,84 +171,160 @@ export function AdminExpenseAnalyticsScreen() {
 function Body({ data }: { data: AdminExpenseAnalytics }) {
   const avg =
     data.totalCount > 0 ? Math.round(data.totalAmount / data.totalCount) : 0;
+  const topType = data.bySpentType[0];
+
+  // ── Monthly spend → single line ──
+  const monthlyLine = useMemo(
+    () =>
+      data.monthlySeries.map((m) => ({
+        x: prettyMonth(m.month),
+        y: m.amount,
+      })),
+    [data.monthlySeries],
+  );
+
+  // ── By spent type → donut (amount share) ──
+  const spentTypeDonut = useMemo(
+    () =>
+      data.bySpentType.map((r, i) => ({
+        label: r.label,
+        value: r.amount,
+        color: pickColor(i),
+      })),
+    [data.bySpentType],
+  );
+
+  // ── Who spent → vertical bars (amount) ──
+  const whoSpentBars = useMemo(
+    () =>
+      data.byDoneBy.map((r) => ({
+        label: r.label,
+        value: r.amount,
+        color: CHART_COLORS[2],
+      })),
+    [data.byDoneBy],
+  );
+
+  // ── Payment mix → donut (amount share) ──
+  const paymentDonut = useMemo(
+    () =>
+      data.byPaymentType.map((r, i) => ({
+        label: r.label,
+        value: r.amount,
+        color: PAYMENT_COLORS[r.label] ?? pickColor(i + 2),
+      })),
+    [data.byPaymentType],
+  );
 
   return (
-    <>
+    <View style={{ gap: spacing["3"] }}>
+      {/* ───── KPI tiles ───── */}
       <View style={styles.tileRow}>
         <Tile
           icon={<IndianRupee size={14} color={colors.yellow400} />}
           label="Total spent"
-          value={formatINR(data.totalAmount)}
+          value={formatRupees(data.totalAmount)}
         />
         <Tile
-          icon={<Activity size={14} color={colors.emerald400} />}
+          icon={<Receipt size={14} color={colors.emerald400} />}
           label="Entries"
-          value={data.totalCount.toString()}
+          value={data.totalCount.toLocaleString("en-IN")}
         />
       </View>
       <View style={styles.tileRow}>
         <Tile
-          icon={<TrendingUp size={14} color={"#fb923c"} />}
-          label="Average / entry"
-          value={formatINR(avg)}
+          icon={<Layers size={14} color={"#fb923c"} />}
+          label="Categories"
+          value={data.bySpentType.length.toLocaleString("en-IN")}
         />
         <Tile
-          icon={<CalendarDays size={14} color={colors.zinc300} />}
+          icon={<Activity size={14} color={colors.zinc300} />}
+          label="Average / entry"
+          value={formatRupees(avg)}
+        />
+      </View>
+      <View style={styles.tileRow}>
+        <Tile
+          icon={<CalendarDays size={14} color={"#a78bfa"} />}
           label="Months covered"
-          value={data.monthlySeries.length.toString()}
+          value={data.monthlySeries.length.toLocaleString("en-IN")}
+        />
+        <Tile
+          icon={<TrendingUp size={14} color={colors.yellow400} />}
+          label="Top category"
+          value={topType ? formatRupees(topType.amount) : "—"}
+          sub={topType?.label}
         />
       </View>
 
-      {/* Monthly bar list */}
-      <Section title="MONTHLY">
-        {data.monthlySeries.length === 0 ? (
-          <Text variant="tiny" color={colors.zinc600}>
-            Nothing in this range.
-          </Text>
+      {/* ───── Monthly spend (line) ───── */}
+      <ChartCard title="Monthly Spend" subtitle="Total spent per month">
+        {monthlyLine.length === 0 ? (
+          <EmptyChart />
         ) : (
-          (() => {
-            const max = Math.max(...data.monthlySeries.map((m) => m.amount));
-            return data.monthlySeries.map((m) => (
-              <BarRow
-                key={m.month}
-                label={prettyMonth(m.month)}
-                amount={m.amount}
-                max={max}
-                color={colors.yellow400}
-              />
-            ));
-          })()
+          <LineChart
+            data={monthlyLine}
+            height={220}
+            color={colors.emerald400}
+            formatY={compactRupees}
+          />
         )}
-      </Section>
+      </ChartCard>
 
-      {/* Breakdowns — surfaced in the same priority order as the web
-          page (spentType → vendor → paid to → payment type). */}
-      <BreakdownSection
-        title="BY SPENT TYPE"
-        rows={data.bySpentType}
-        color={colors.emerald400}
-      />
-      <BreakdownSection
-        title="BY VENDOR"
-        rows={data.byVendor}
-        color={colors.yellow400}
-      />
-      <BreakdownSection
-        title="BY PAID TO"
-        rows={data.byToName}
-        color={"#fb923c"}
-      />
-      <BreakdownSection
-        title="BY PAYMENT TYPE"
-        rows={data.byPaymentType}
-        color={colors.zinc300}
-      />
-      <BreakdownSection
-        title="BY DONE BY"
-        rows={data.byDoneBy}
-        color={"#a78bfa"}
-      />
-    </>
+      {/* ───── By spent type (donut) ───── */}
+      <ChartCard title="By Spent Type" subtitle="Spend share by category">
+        {spentTypeDonut.length === 0 ? (
+          <EmptyChart />
+        ) : (
+          <DonutChart
+            data={spentTypeDonut}
+            centerLabel="Spent"
+            centerValue={compactRupees(
+              spentTypeDonut.reduce((s, d) => s + d.value, 0),
+            )}
+          />
+        )}
+      </ChartCard>
+
+      {/* ───── Spent type — details (table) ───── */}
+      <ChartCard title="Spent Type — Details">
+        <CategoryTable rows={data.bySpentType} />
+      </ChartCard>
+
+      {/* ───── Who spent (bars) ───── */}
+      <ChartCard title="Who Spent" subtitle="Spend by person">
+        {whoSpentBars.length === 0 ? (
+          <EmptyChart />
+        ) : (
+          <BarChart data={whoSpentBars} height={200} formatValue={compactRupees} />
+        )}
+      </ChartCard>
+
+      {/* ───── Payment mix (donut) ───── */}
+      <ChartCard title="Payment Mix" subtitle="Spend by payment rail">
+        {paymentDonut.length === 0 ? (
+          <EmptyChart />
+        ) : (
+          <DonutChart
+            data={paymentDonut}
+            centerLabel="Spent"
+            centerValue={compactRupees(
+              paymentDonut.reduce((s, d) => s + d.value, 0),
+            )}
+          />
+        )}
+      </ChartCard>
+
+      {/* ───── Top vendors (table) ───── */}
+      <ChartCard title="Top Vendors">
+        <CategoryTable rows={data.byVendor} />
+      </ChartCard>
+
+      {/* ───── Top recipients (table) ───── */}
+      <ChartCard title="Top Recipients (By)">
+        <CategoryTable rows={data.byToName} />
+      </ChartCard>
+    </View>
   );
 }
 
@@ -235,10 +332,12 @@ function Tile({
   icon,
   label,
   value,
+  sub,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  sub?: string;
 }) {
   return (
     <View style={styles.tile}>
@@ -249,94 +348,77 @@ function Tile({
         </Text>
       </View>
       <Text variant="bodyStrong">{value}</Text>
-    </View>
-  );
-}
-
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={styles.section}>
-      <View style={styles.sectionHead}>
-        <BarChart3 size={12} color={colors.zinc500} />
-        <Text variant="tiny" color={colors.zinc500} style={styles.sectionTitle}>
-          {title}
-        </Text>
-      </View>
-      <View style={{ gap: spacing["1.5"] }}>{children}</View>
-    </View>
-  );
-}
-
-function BreakdownSection({
-  title,
-  rows,
-  color,
-}: {
-  title: string;
-  rows: { label: string; amount: number; count: number }[];
-  color: string;
-}) {
-  if (rows.length === 0) return null;
-  const max = Math.max(...rows.map((r) => r.amount));
-  return (
-    <Section title={title}>
-      {rows.slice(0, 12).map((r) => (
-        <BarRow
-          key={r.label}
-          label={r.label}
-          amount={r.amount}
-          subtext={`${r.count} entr${r.count === 1 ? "y" : "ies"}`}
-          max={max}
-          color={color}
-        />
-      ))}
-    </Section>
-  );
-}
-
-function BarRow({
-  label,
-  amount,
-  subtext,
-  max,
-  color,
-}: {
-  label: string;
-  amount: number;
-  subtext?: string;
-  max: number;
-  color: string;
-}) {
-  const widthPct = max > 0 ? (amount / max) * 100 : 0;
-  return (
-    <View style={styles.barRow}>
-      <View style={styles.barHead}>
-        <Text variant="tiny" color={colors.zinc300} numberOfLines={1} style={{ flex: 1 }}>
-          {label}
-        </Text>
-        <Text variant="tiny" color={colors.foreground} weight="600">
-          {formatINR(amount)}
-        </Text>
-      </View>
-      <View style={styles.barTrack}>
-        <View
-          style={[
-            styles.barFill,
-            { width: `${widthPct}%`, backgroundColor: color, opacity: 0.45 },
-          ]}
-        />
-      </View>
-      {subtext ? (
-        <Text variant="tiny" color={colors.zinc600}>
-          {subtext}
+      {sub ? (
+        <Text variant="tiny" color={colors.zinc600} numberOfLines={1}>
+          {sub}
         </Text>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Mirrors the web CategoryTable: Name / Amount / % of total / # entries.
+ */
+function CategoryTable({
+  rows,
+}: {
+  rows: { label: string; amount: number; count: number }[];
+}) {
+  if (rows.length === 0) return <EmptyChart label="No data for this period" />;
+  const total = rows.reduce((sum, r) => sum + r.amount, 0);
+  return (
+    <View style={{ gap: spacing["1"] }}>
+      <View style={[styles.catRow, styles.catHeadRow]}>
+        <Text variant="tiny" color={colors.zinc500} style={styles.catName}>
+          Name
+        </Text>
+        <Text variant="tiny" color={colors.zinc500} style={styles.catAmount}>
+          Amount
+        </Text>
+        <Text variant="tiny" color={colors.zinc500} style={styles.catPct}>
+          %
+        </Text>
+        <Text variant="tiny" color={colors.zinc500} style={styles.catCount}>
+          #
+        </Text>
+      </View>
+      {rows.map((r) => (
+        <View key={r.label} style={styles.catRow}>
+          <Text
+            variant="small"
+            color={colors.zinc300}
+            numberOfLines={1}
+            style={styles.catName}
+          >
+            {r.label}
+          </Text>
+          <Text
+            variant="small"
+            color={colors.foreground}
+            weight="600"
+            style={styles.catAmount}
+          >
+            {formatRupees(r.amount)}
+          </Text>
+          <Text variant="tiny" color={colors.zinc400} style={styles.catPct}>
+            {total > 0 ? ((r.amount / total) * 100).toFixed(1) : "0"}%
+          </Text>
+          <Text variant="tiny" color={colors.zinc400} style={styles.catCount}>
+            {r.count}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function EmptyChart({ label = "No data for this period" }: { label?: string }) {
+  return (
+    <View style={styles.emptyChart}>
+      <Text variant="tiny" color={colors.zinc600}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -389,30 +471,46 @@ function ymd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** "2026-04" → "Apr '26" — terse so the line-chart x axis stays readable. */
 function prettyMonth(yyyymm: string): string {
-  // "2026-04" → "Apr 2026"
   const [y, m] = yyyymm.split("-");
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  return `${months[Number(m) - 1] ?? m} ${y}`;
+  const label = MONTHS[Number(m) - 1] ?? m;
+  return `${label} '${y.slice(2)}`;
 }
 
-function formatINR(n: number): string {
-  if (Number.isInteger(n)) return `₹${n.toLocaleString("en-IN")}`;
-  return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+/** ₹1.2k / ₹3.4L style compaction for chart axes — keeps labels short. */
+function compactRupees(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e7) return `₹${(n / 1e7).toFixed(1)}Cr`;
+  if (abs >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`;
+  if (abs >= 1e3) return `₹${(n / 1e3).toFixed(1)}k`;
+  return `₹${Math.round(n)}`;
 }
+
+function pickColor(i: number): string {
+  return CHART_COLORS[i % CHART_COLORS.length];
+}
+
+// Mirror the web's hand-picked payment colors (Cash=amber, Online=blue).
+const PAYMENT_COLORS: Record<string, string> = {
+  Cash: "#f59e0b",
+  Online: "#3b82f6",
+};
 
 const styles = StyleSheet.create({
   scroll: {
@@ -472,36 +570,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  section: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.zinc800,
-    backgroundColor: colors.zinc900,
-    padding: spacing["4"],
-    gap: spacing["2"],
+  emptyChart: {
+    height: 120,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sectionHead: {
+  catRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing["1.5"],
+    paddingVertical: spacing["1.5"],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.zinc800,
   },
-  sectionTitle: { letterSpacing: 1.5, fontWeight: "700" },
-  barRow: { gap: 4 },
-  barHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["2"],
-  },
-  barTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.zinc800,
-    overflow: "hidden",
-  },
-  barFill: {
-    height: 6,
-    borderRadius: 3,
-  },
+  catHeadRow: { borderBottomColor: colors.zinc700 },
+  catName: { flex: 1, paddingRight: spacing["2"] },
+  catAmount: { width: 84, textAlign: "right" },
+  catPct: { width: 48, textAlign: "right" },
+  catCount: { width: 32, textAlign: "right" },
   errorBlock: {
     padding: spacing["4"],
     borderRadius: radius.lg,
