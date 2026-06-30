@@ -35,6 +35,7 @@ import { AdminExpensesListScreen } from "../screens/admin/AdminExpensesListScree
 import { AdminExpenseFormScreen } from "../screens/admin/AdminExpenseFormScreen";
 import { AdminExpenseAnalyticsScreen } from "../screens/admin/AdminExpenseAnalyticsScreen";
 import { AdminRewardsScreen } from "../screens/admin/AdminRewardsScreen";
+import { AdminRewardsAnalyticsScreen } from "../screens/admin/AdminRewardsAnalyticsScreen";
 import { AdminRewardsDistributeScreen } from "../screens/admin/AdminRewardsDistributeScreen";
 import { AdminRewardsTransactionsScreen } from "../screens/admin/AdminRewardsTransactionsScreen";
 import { AdminRewardsConfigScreen } from "../screens/admin/AdminRewardsConfigScreen";
@@ -222,6 +223,11 @@ function AdminRewardsStackNav() {
         name="AdminRewardsHome"
         component={AdminRewardsScreen}
         options={{ headerShown: false }}
+      />
+      <RewardsStack.Screen
+        name="AdminRewardsAnalytics"
+        component={AdminRewardsAnalyticsScreen}
+        options={{ title: "Rewards analytics" }}
       />
       <RewardsStack.Screen
         name="AdminRewardsDistribute"

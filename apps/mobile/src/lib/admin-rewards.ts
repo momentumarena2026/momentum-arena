@@ -35,6 +35,19 @@ export interface AdminUserSearchRow {
   pointsAvailable: number;
 }
 
+/** Mirrors the web rewards Analytics panel payload
+ *  (`AdminRewardsAnalytics` in actions/admin-rewards.ts). 30-day daily
+ *  earn/redeem strips + the top-10 earners over the same window. */
+export interface AdminRewardsAnalytics {
+  dailyEarnLast30d: { date: string; points: number }[];
+  dailyRedeemLast30d: { date: string; points: number }[];
+  topEarners30d: {
+    userId: string;
+    name: string | null;
+    points: number;
+  }[];
+}
+
 /** Same enum order as the web ledger panel so the type-pill filter
  *  reads identically on both surfaces. */
 export const REWARD_TXN_TYPES = [
@@ -108,6 +121,15 @@ export const adminRewardsApi = {
   overview: () =>
     request<{ overview: AdminRewardsOverview }>(
       "/api/mobile/admin/rewards/overview",
+      { method: "GET" },
+    ),
+
+  /** Rewards analytics — mobile mirror of the web rewards Analytics
+   *  panel. Same metrics/charts: daily earn (30d), daily redeem (30d),
+   *  top earners (30d). */
+  analytics: () =>
+    request<{ analytics: AdminRewardsAnalytics }>(
+      "/api/mobile/admin/rewards/analytics",
       { method: "GET" },
     ),
 

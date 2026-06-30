@@ -159,6 +159,20 @@ export interface PushAnalytics {
     succeeded: number;
     failed: number;
   }[];
+  recent: {
+    id: string;
+    kind: string;
+    scope: string;
+    source: string;
+    audience: string | null;
+    title: string;
+    body: string;
+    attempted: number;
+    succeeded: number;
+    failed: number;
+    cleanedUp: number;
+    createdAt: string;
+  }[];
   fleet: {
     totalDevices: number;
     iosDevices: number;
@@ -177,10 +191,33 @@ export interface PushAnalyticsResponse {
   kinds: string[];
 }
 
+/** Filters accepted by the push analytics endpoint. */
+export interface PushAnalyticsFilters {
+  from?: string;
+  to?: string;
+  /** Restrict to these dispatch kinds (empty = all). */
+  kinds?: string[];
+  /** Restrict to these sources: event | broadcast | test (empty = all). */
+  sources?: string[];
+  /** Audience scope. Defaults to "all" server-side. */
+  scope?: "all" | "customer" | "admin";
+}
+
 function rangeQuery(filters: { from?: string; to?: string }): string {
   const sp = new URLSearchParams();
   if (filters.from) sp.set("from", filters.from);
   if (filters.to) sp.set("to", filters.to);
+  const qs = sp.toString();
+  return qs ? `?${qs}` : "";
+}
+
+function pushQuery(filters: PushAnalyticsFilters): string {
+  const sp = new URLSearchParams();
+  if (filters.from) sp.set("from", filters.from);
+  if (filters.to) sp.set("to", filters.to);
+  if (filters.kinds?.length) sp.set("kinds", filters.kinds.join(","));
+  if (filters.sources?.length) sp.set("sources", filters.sources.join(","));
+  if (filters.scope && filters.scope !== "all") sp.set("scope", filters.scope);
   const qs = sp.toString();
   return qs ? `?${qs}` : "";
 }
@@ -231,11 +268,9 @@ export const adminAnalyticsApi = {
     );
   },
 
-  push(
-    filters: { from?: string; to?: string } = {},
-  ): Promise<PushAnalyticsResponse> {
+  push(filters: PushAnalyticsFilters = {}): Promise<PushAnalyticsResponse> {
     return request(
-      `/api/mobile/admin/analytics/push${rangeQuery(filters)}`,
+      `/api/mobile/admin/analytics/push${pushQuery(filters)}`,
       { method: "GET" },
     );
   },

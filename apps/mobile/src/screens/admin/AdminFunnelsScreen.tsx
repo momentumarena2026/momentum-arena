@@ -7,7 +7,7 @@ import {
   View,
 } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Filter, TrendingDown, Users } from "lucide-react-native";
+import { Filter } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -20,13 +20,21 @@ import {
 } from "../../lib/admin-insights";
 
 /**
- * Funnels — mirrors web /admin/analytics/funnels. Pick a predefined
- * funnel; each step is a stacked row with a width-scaled bar, the
- * session count, the conversion % off step 0, and the drop-off from
- * the previous step. Overview KPIs sit on top.
+ * Funnels — full parity with web /admin/analytics/funnels.
  *
- * No chart lib: bars are plain Views, same idiom as the expense
- * analytics screen.
+ * Renders the same surface the web dashboard does:
+ *   - funnel picker (every FUNNELS key) + date-range controls
+ *   - six overview KPI tiles (sessions, signed-in users, bookings
+ *     confirmed, waitlist joined, unmet-demand taps, waitlist conv.)
+ *   - a per-step bar chart where each bar is colour-graded by its
+ *     drop-off severity (emerald → yellow → orange → red), same
+ *     `colorFor` thresholds as the web Recharts cells
+ *   - a per-step table with every column the web shows: sessions,
+ *     users, % of step 1, drop-off
+ *
+ * No external chart lib needed: bars are width-scaled Views, same
+ * idiom as the expense analytics screen. Sessions, not users — anon
+ * visitors count until they sign in (matches the web copy).
  */
 export function AdminFunnelsScreen() {
   const [funnelKey, setFunnelKey] = useState<FunnelKey>("booking");
@@ -106,8 +114,8 @@ export function AdminFunnelsScreen() {
 
         {query.isLoading ? (
           <View style={{ gap: spacing["3"] }}>
-            <Skeleton width="100%" height={64} rounded="md" />
-            <Skeleton width="100%" height={220} rounded="md" />
+            <Skeleton width="100%" height={88} rounded="md" />
+            <Skeleton width="100%" height={240} rounded="md" />
           </View>
         ) : query.isError ? (
           <Pressable
@@ -124,59 +132,100 @@ export function AdminFunnelsScreen() {
             </Text>
           </Pressable>
         ) : query.data ? (
-          <Body data={query.data} />
+          <Body data={query.data} range={{ from, to }} />
         ) : null}
       </ScrollView>
     </Screen>
   );
 }
 
-function Body({ data }: { data: FunnelScreenResult }) {
+/**
+ * Drop-off severity → bar colour. Mirrors the web `colorFor`: the entry
+ * step is emerald, then graduates to red as the step-over-step drop
+ * grows, so the worst-bleeding step jumps out at a glance.
+ */
+function colorFor(dropOffPct: number): string {
+  if (dropOffPct === 0) return colors.emerald500; // entry / no drop
+  if (dropOffPct < 25) return colors.emerald400; // small drop
+  if (dropOffPct < 50) return colors.yellow400; // moderate
+  if (dropOffPct < 75) return "#fb923c"; // heavy (orange-400)
+  return colors.destructive; // bleeding (red)
+}
+
+/** Drop-off severity → text colour for the table cell, matching web. */
+function dropOffColor(dropOffPct: number): string {
+  if (dropOffPct === 0) return colors.zinc500;
+  if (dropOffPct < 25) return colors.emerald400;
+  if (dropOffPct < 50) return colors.yellow400;
+  if (dropOffPct < 75) return "#fb923c";
+  return colors.destructive_300;
+}
+
+function Body({
+  data,
+  range,
+}: {
+  data: FunnelScreenResult;
+  range: { from: string; to: string };
+}) {
   const { funnel, overview } = data;
   const rows = funnel.rows;
   const top = rows[0]?.count ?? 0;
-  const last = rows[rows.length - 1];
-  const overall = last ? last.ratePct : 0;
+  const empty = rows.every((r) => r.count === 0);
 
   return (
     <>
-      <View style={styles.tileRow}>
+      {/* Overview KPI tiles — same six the web shows */}
+      <View style={styles.tileGrid}>
+        <Tile label="Sessions" value={overview.sessions.toLocaleString("en-IN")} />
         <Tile
-          icon={<Users size={14} color={colors.emerald400} />}
-          label="Sessions"
-          value={overview.sessions.toLocaleString("en-IN")}
-        />
-        <Tile
-          icon={<Activity size={14} color={colors.yellow400} />}
-          label="Signed in"
+          label="Signed-in users"
           value={overview.signedInUsers.toLocaleString("en-IN")}
         />
         <Tile
-          icon={<TrendingDown size={14} color={"#fb923c"} />}
-          label="Overall conv."
-          value={`${overall}%`}
+          label="Bookings confirmed"
+          value={overview.bookingsConfirmed.toLocaleString("en-IN")}
+        />
+        <Tile
+          label="Waitlist joined"
+          value={overview.waitlistJoined.toLocaleString("en-IN")}
+        />
+        <Tile
+          label="Unmet-demand taps"
+          value={overview.unmetDemandTaps.toLocaleString("en-IN")}
+        />
+        <Tile
+          label="Waitlist conv."
+          value={`${overview.waitlistConversionPct}%`}
         />
       </View>
 
+      {/* Funnel bar chart */}
       <View style={styles.section}>
         <View style={styles.sectionHead}>
           <Filter size={12} color={colors.zinc500} />
           <Text
             variant="tiny"
-            color={colors.zinc500}
+            color={colors.zinc300}
             style={styles.sectionTitle}
           >
             {funnel.label.toUpperCase()} FUNNEL
           </Text>
         </View>
-        {rows.length === 0 ? (
-          <Text variant="tiny" color={colors.zinc600}>
-            No events for this funnel in range.
+        <Text variant="tiny" color={colors.zinc500}>
+          {range.from} → {range.to}
+        </Text>
+
+        {empty ? (
+          <Text variant="tiny" color={colors.zinc600} style={{ marginTop: spacing["3"] }}>
+            No events in this window yet. Either nobody hit step 1 or the
+            funnel hasn't been instrumented.
           </Text>
         ) : (
-          <View style={{ gap: spacing["3"] }}>
+          <View style={{ gap: spacing["3"], marginTop: spacing["1"] }}>
             {rows.map((r, idx) => {
               const widthPct = top > 0 ? (r.count / top) * 100 : 0;
+              const fill = colorFor(r.dropOffPct);
               return (
                 <View key={r.step} style={styles.stepRow}>
                   <View style={styles.stepHead}>
@@ -198,23 +247,10 @@ function Body({ data }: { data: FunnelScreenResult }) {
                         styles.barFill,
                         {
                           width: `${Math.max(widthPct, r.count > 0 ? 2 : 0)}%`,
+                          backgroundColor: fill,
                         },
                       ]}
                     />
-                  </View>
-                  <View style={styles.stepFoot}>
-                    <Text variant="tiny" color={colors.emerald400}>
-                      {r.ratePct}% of start
-                    </Text>
-                    {idx > 0 && r.dropOffPct > 0 ? (
-                      <Text variant="tiny" color={colors.destructive_300}>
-                        −{r.dropOffPct}% drop-off
-                      </Text>
-                    ) : (
-                      <Text variant="tiny" color={colors.zinc600}>
-                        {r.uniqueUsers.toLocaleString("en-IN")} users
-                      </Text>
-                    )}
                   </View>
                 </View>
               );
@@ -222,27 +258,74 @@ function Body({ data }: { data: FunnelScreenResult }) {
           </View>
         )}
       </View>
+
+      {/* Per-step table — every column the web table has */}
+      <View style={styles.tableCard}>
+        <View style={[styles.tableRow, styles.tableHead]}>
+          <Text variant="tiny" color={colors.zinc500} style={styles.colStep}>
+            STEP
+          </Text>
+          <Text variant="tiny" color={colors.zinc500} style={styles.colNum}>
+            SESS.
+          </Text>
+          <Text variant="tiny" color={colors.zinc500} style={styles.colNum}>
+            USERS
+          </Text>
+          <Text variant="tiny" color={colors.zinc500} style={styles.colNum}>
+            % S1
+          </Text>
+          <Text variant="tiny" color={colors.zinc500} style={styles.colNum}>
+            DROP
+          </Text>
+        </View>
+        {rows.map((r, idx) => (
+          <View
+            key={r.step}
+            style={[
+              styles.tableRow,
+              idx < rows.length - 1 && styles.tableRowBorder,
+            ]}
+          >
+            <View style={styles.colStep}>
+              <Text variant="tiny" color={colors.zinc300} numberOfLines={1}>
+                <Text variant="tiny" color={colors.zinc500}>
+                  {idx + 1}.{" "}
+                </Text>
+                {prettyStep(r.step)}
+              </Text>
+            </View>
+            <Text variant="tiny" color={colors.foreground} style={styles.colNum}>
+              {r.count.toLocaleString("en-IN")}
+            </Text>
+            <Text variant="tiny" color={colors.zinc400} style={styles.colNum}>
+              {r.uniqueUsers.toLocaleString("en-IN")}
+            </Text>
+            <Text variant="tiny" color={colors.zinc300} style={styles.colNum}>
+              {r.ratePct}%
+            </Text>
+            <Text
+              variant="tiny"
+              color={dropOffColor(r.dropOffPct)}
+              weight="600"
+              style={styles.colNum}
+            >
+              {r.dropOffPct === 0 ? "—" : `-${r.dropOffPct}%`}
+            </Text>
+          </View>
+        ))}
+      </View>
     </>
   );
 }
 
-function Tile({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
+function Tile({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.tile}>
-      <View style={styles.tileHead}>{icon}</View>
-      <Text variant="bodyStrong" numberOfLines={1}>
-        {value}
-      </Text>
       <Text variant="tiny" color={colors.zinc500} numberOfLines={1}>
         {label}
+      </Text>
+      <Text variant="bodyStrong" numberOfLines={1}>
+        {value}
       </Text>
     </View>
   );
@@ -310,22 +393,22 @@ const styles = StyleSheet.create({
     borderColor: "rgba(250, 204, 21, 0.40)",
     backgroundColor: "rgba(250, 204, 21, 0.10)",
   },
-  tileRow: {
+  // 2-column tile grid → 6 tiles, matching the web KPI strip content.
+  tileGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing["2"],
   },
   tile: {
-    flex: 1,
+    // two per row, accounting for the gap
+    flexBasis: "48%",
+    flexGrow: 1,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.zinc800,
     backgroundColor: colors.zinc900,
     padding: spacing["3"],
-    gap: 6,
-  },
-  tileHead: {
-    flexDirection: "row",
-    alignItems: "center",
+    gap: 4,
   },
   section: {
     borderRadius: radius.xl,
@@ -333,7 +416,7 @@ const styles = StyleSheet.create({
     borderColor: colors.zinc800,
     backgroundColor: colors.zinc900,
     padding: spacing["4"],
-    gap: spacing["3"],
+    gap: spacing["1.5"],
   },
   sectionHead: {
     flexDirection: "row",
@@ -347,10 +430,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["2"],
   },
-  stepFoot: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
   barTrack: {
     height: 10,
     borderRadius: 5,
@@ -360,8 +439,34 @@ const styles = StyleSheet.create({
   barFill: {
     height: 10,
     borderRadius: 5,
-    backgroundColor: colors.emerald500,
-    opacity: 0.55,
+  },
+  // Table
+  tableCard: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    overflow: "hidden",
+  },
+  tableRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+    gap: spacing["1"],
+  },
+  tableHead: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.zinc800,
+  },
+  tableRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(39, 39, 42, 0.50)",
+  },
+  colStep: { flex: 1, minWidth: 0 },
+  colNum: {
+    width: 44,
+    textAlign: "right",
   },
   errorBlock: {
     padding: spacing["4"],
