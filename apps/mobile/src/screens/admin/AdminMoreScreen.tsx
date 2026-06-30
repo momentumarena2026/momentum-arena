@@ -135,8 +135,7 @@ const GROUPS: Group[] = [
         label: "Slot blocks",
         icon: ic(Ban),
         perm: "MANAGE_SLOTS",
-        onPress: (nav) =>
-          nav.navigate("AdminCalendar", { screen: "AdminSlotBlocks" }),
+        onPress: (nav) => nav.navigate("AdminSlotBlocks"),
       },
     ],
   },

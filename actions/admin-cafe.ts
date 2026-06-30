@@ -71,8 +71,8 @@ export async function createCafeItem(data: {
   image?: string;
   isVeg: boolean;
   tags?: string[];
-}) {
-  await requireCafeMenuAdmin();
+}, skipAuth?: boolean) {
+  if (!skipAuth) await requireCafeMenuAdmin();
 
   try {
     if (!data.name || !data.category || !data.price) {
@@ -149,9 +149,10 @@ export async function updateCafeItem(
     image: string | null;
     isVeg: boolean;
     tags: string[];
-  }>
+  }>,
+  skipAuth?: boolean,
 ) {
-  await requireCafeMenuAdmin();
+  if (!skipAuth) await requireCafeMenuAdmin();
 
   try {
     const existing = await db.cafeItem.findUnique({ where: { id } });
@@ -196,8 +197,8 @@ export async function updateCafeItem(
   }
 }
 
-export async function deleteCafeItem(id: string) {
-  await requireCafeMenuAdmin();
+export async function deleteCafeItem(id: string, skipAuth?: boolean) {
+  if (!skipAuth) await requireCafeMenuAdmin();
 
   try {
     const existing = await db.cafeItem.findUnique({ where: { id } });

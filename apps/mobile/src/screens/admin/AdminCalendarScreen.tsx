@@ -18,7 +18,6 @@ import {
   Lock,
   Plus,
   RotateCcw,
-  Settings2,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -64,10 +63,10 @@ const SPORT_STYLE: Record<
   },
 };
 
-// Calendar lives inside its own stack inside the bottom tabs. From
-// here we navigate sideways to AdminSlotBlocks (within stack) and
-// cross-tab to AdminBookings → AdminBookingDetail when a booking chip
-// is tapped.
+// Calendar lives inside its own (calendar-only) stack inside the bottom
+// tabs. From here we cross-tab to AdminBookings → AdminBookingDetail when
+// a booking chip is tapped, and → AdminCreateBooking (prefilled) from an
+// empty cell's "+ Add". Slot Blocks is a separate feature in the More hub.
 type Nav = CompositeNavigationProp<
   NativeStackNavigationProp<AdminCalendarStackParamList, "AdminCalendar">,
   CompositeNavigationProp<
@@ -93,8 +92,8 @@ const SPORT_FILTERS: { value: AdminCalendarSport | ""; label: string }[] = [
  * glance which hours are still free.
  *
  * Tap a chip to deep-link into AdminBookingDetail (cross-tab into
- * the Bookings stack). Tap "Manage slot blocks" to push the
- * SlotBlocks editor within this same Calendar tab.
+ * the Bookings stack); tap an empty cell's "+ Add" to create a booking
+ * prefilled for that slot.
  *
  * The data shape coming back from /api/mobile/admin/calendar is
  * `configId → hour → CellData` (a per-court grid). We pivot it here
@@ -193,20 +192,6 @@ export function AdminCalendarScreen() {
             <ChevronRight size={16} color={colors.zinc300} />
           </Pressable>
         </View>
-
-        {/* Manage slot blocks shortcut — same Calendar tab stack. */}
-        <Pressable
-          onPress={() => navigation.navigate("AdminSlotBlocks")}
-          style={({ pressed }) => [
-            styles.manageBlocksBtn,
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Settings2 size={14} color={colors.zinc300} />
-          <Text variant="small" color={colors.zinc300} weight="600">
-            Manage slot blocks
-          </Text>
-        </Pressable>
 
         {/* Sport filter chips */}
         <ScrollView
@@ -544,17 +529,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.zinc800,
-  },
-  manageBlocksBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing["1.5"],
-    paddingVertical: spacing["2.5"],
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.zinc800,
-    backgroundColor: colors.zinc900,
   },
   chipRow: {
     flexDirection: "row",

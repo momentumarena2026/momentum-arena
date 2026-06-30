@@ -30,7 +30,10 @@ export interface CafeItem {
   description: string | null;
   category: CafeItemCategory;
   price: number;
-  // Stock counter — null = unlimited / kitchen-prepared, integer = on-hand.
+  // Cost-of-goods in rupees — null = "unknown margin" (not zero).
+  costPrice: number | null;
+  // Stock counter — null = unlimited / kitchen-prepared (PREP),
+  // integer = on-hand count for ready-to-serve (READY) items.
   quantity: number | null;
   image: string | null;
   isVeg: boolean;
@@ -39,6 +42,23 @@ export interface CafeItem {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Payload for create/update. Mirrors the web add/edit form fields.
+ * `quantity` doubles as the PREP vs READY switch: null = kitchen-
+ * prepared (PREP, no stock tracking), an integer = ready-to-serve
+ * (READY, stock-tracked). `costPrice: null` clears a set cost.
+ */
+export interface CafeItemInput {
+  name: string;
+  description?: string | null;
+  category: CafeItemCategory;
+  price: number;
+  costPrice?: number | null;
+  quantity?: number | null;
+  isVeg: boolean;
+  tags?: string[];
 }
 
 export interface CafeOrderLine {
@@ -108,6 +128,40 @@ export const adminCafeApi = {
   ): Promise<{ ok: true; isAvailable: boolean }> {
     return request(`/api/mobile/admin/cafe/items/${id}/availability`, {
       method: "POST",
+    });
+  },
+
+  /** Create a new menu item. */
+  createItem(body: CafeItemInput): Promise<{ ok: true; item: CafeItem }> {
+    return request("/api/mobile/admin/cafe/items", { method: "POST", body });
+  },
+
+  /** Edit an existing menu item. Send only the fields that changed. */
+  updateItem(
+    id: string,
+    body: Partial<CafeItemInput>,
+  ): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/cafe/items/${id}`, {
+      method: "PATCH",
+      body,
+    });
+  },
+
+  /** Soft-delete (mark unavailable) a menu item. */
+  removeItem(id: string): Promise<{ ok: true }> {
+    return request(`/api/mobile/admin/cafe/items/${id}`, { method: "DELETE" });
+  },
+
+  /** Read the master CafeSettings.isOpen flag. */
+  getOpen(): Promise<{ isOpen: boolean }> {
+    return request("/api/mobile/admin/cafe/open", { method: "GET" });
+  },
+
+  /** Flip the master CafeSettings.isOpen flag. */
+  setOpen(isOpen: boolean): Promise<{ ok: true; isOpen: boolean }> {
+    return request("/api/mobile/admin/cafe/open", {
+      method: "POST",
+      body: { isOpen },
     });
   },
 

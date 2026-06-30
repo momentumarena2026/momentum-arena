@@ -68,18 +68,28 @@ export type SetCafeOpenResult =
  * the page itself sits behind, so anyone who can SEE the toggle
  * can also flip it.
  */
-export async function setCafeOpen(isOpen: boolean): Promise<SetCafeOpenResult> {
+export async function setCafeOpen(
+  isOpen: boolean,
+  skipAuth?: boolean,
+): Promise<SetCafeOpenResult> {
   // Auth — same surface as every other cafe-menu admin action. If
   // the call would throw (no session / no permission) we catch it
   // and convert into a failure result rather than letting it bubble
   // across the server-action boundary as a digest error.
-  try {
-    await requireAdmin("MANAGE_CAFE_MENU");
-  } catch {
-    return {
-      ok: false,
-      error: "You don't have permission to change the cafe state.",
-    };
+  //
+  // Mobile admin routes pre-authenticate via JWT + re-enforce the
+  // MANAGE_CAFE_MENU permission in `requireMobileAdmin`, then pass
+  // `skipAuth: true` to bypass the NextAuth web-cookie gate — the
+  // same convention actions/admin-cafe.ts uses.
+  if (!skipAuth) {
+    try {
+      await requireAdmin("MANAGE_CAFE_MENU");
+    } catch {
+      return {
+        ok: false,
+        error: "You don't have permission to change the cafe state.",
+      };
+    }
   }
 
   // DB write — findFirst by id only, so the read succeeds even if a
