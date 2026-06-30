@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Alert,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -8,7 +9,11 @@ import {
   View,
 } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText } from "lucide-react-native";
+import { Download, FileText } from "lucide-react-native";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
+import { env } from "../../config/env";
+import { adminTokenStorage } from "../../lib/storage";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -55,6 +60,57 @@ export function AdminReportsScreen() {
   const [year, setYear] = useState(String(now.getFullYear()));
   const [month, setMonth] = useState(String(now.getMonth() + 1));
   const [err, setErr] = useState<string | null>(null);
+  // Per-row "preparing…" flag while a report is fetched to the cache + the
+  // OS share / "open with" sheet is opened.
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Download a READY report to the app cache (bearer-authed), then hand it
+  // to the native share / "open with" sheet so the admin chooses where to
+  // save or share it. Nothing is auto-persisted — the cache file is
+  // ephemeral; the OS sheet drives any save/share.
+  async function downloadAndShare(r: AdminReport) {
+    if (busyId) return;
+    setBusyId(r.id);
+    try {
+      const token = await adminTokenStorage.read();
+      if (!token) throw new Error("Not signed in as admin");
+      const filename = r.filename ?? `report-${r.id}.xlsx`;
+      const result = await FileSystem.downloadAsync(
+        `${env.apiUrl}/api/mobile/admin/reports/${r.id}/download`,
+        `${FileSystem.cacheDirectory}${filename}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-Platform": Platform.OS === "ios" ? "ios" : "android",
+          },
+        },
+      );
+      if (result.status !== 200) {
+        throw new Error(
+          result.status === 410
+            ? "This report has expired (>90 days). Re-generate it."
+            : `Download failed (HTTP ${result.status}).`,
+        );
+      }
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert("Downloaded", `Saved to app storage as ${filename}.`);
+        return;
+      }
+      await Sharing.shareAsync(result.uri, {
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        dialogTitle: `Share ${filename}`,
+        UTI: "org.openxmlformats.spreadsheetml.sheet",
+      });
+    } catch (e) {
+      Alert.alert(
+        "Couldn't download report",
+        e instanceof Error ? e.message : "Unknown error",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const list = useQuery({
     queryKey: ["admin", "reports"],
@@ -179,9 +235,19 @@ export function AdminReportsScreen() {
                     </Text>
                   ) : null}
                   {r.status === "READY" ? (
-                    <Text variant="tiny" color={colors.zinc600}>
-                      Download from web admin
-                    </Text>
+                    <Pressable
+                      onPress={() => void downloadAndShare(r)}
+                      disabled={busyId === r.id}
+                      style={({ pressed }) => [
+                        styles.dlBtn,
+                        (pressed || busyId === r.id) && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Download size={13} color={colors.emerald400} />
+                      <Text variant="tiny" weight="700" color={colors.emerald400}>
+                        {busyId === r.id ? "Preparing…" : "Download & share"}
+                      </Text>
+                    </Pressable>
                   ) : null}
                 </View>
                 <View style={[styles.statusPill, { borderColor: STATUS_TONE[r.status] }]}>
@@ -219,6 +285,19 @@ const styles = StyleSheet.create({
   typeChipActive: { borderColor: colors.emerald400, backgroundColor: colors.emerald500_10 },
   twoCol: { flexDirection: "row", gap: spacing["3"] },
   list: { gap: spacing["2"] },
+  dlBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 4,
+    marginTop: 4,
+    paddingHorizontal: spacing["2"],
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.40)",
+    backgroundColor: "rgba(16, 185, 129, 0.10)",
+  },
   reportRow: {
     flexDirection: "row",
     alignItems: "center",
