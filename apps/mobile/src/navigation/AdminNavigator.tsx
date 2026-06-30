@@ -65,6 +65,7 @@ import { AdminFunnelsScreen } from "../screens/admin/AdminFunnelsScreen";
 import { AdminEventsScreen } from "../screens/admin/AdminEventsScreen";
 import { AdminPaymentSettingsScreen } from "../screens/admin/AdminPaymentSettingsScreen";
 import { AdminRazorpayScreen } from "../screens/admin/AdminRazorpayScreen";
+import { AdminPhonePeScreen } from "../screens/admin/AdminPhonePeScreen";
 import { AdminAdminUsersScreen } from "../screens/admin/AdminAdminUsersScreen";
 import { AdminProfileScreen } from "../screens/admin/AdminProfileScreen";
 import { AdminRecoveryScreen } from "../screens/admin/AdminRecoveryScreen";
@@ -201,6 +202,7 @@ function AdminMoreStackNav() {
       <MoreStack.Screen name="AdminEvents" component={AdminEventsScreen} options={{ title: "Events & logs" }} />
       <MoreStack.Screen name="AdminPaymentSettings" component={AdminPaymentSettingsScreen} options={{ title: "Payment gateway" }} />
       <MoreStack.Screen name="AdminRazorpay" component={AdminRazorpayScreen} options={{ title: "Razorpay" }} />
+      <MoreStack.Screen name="AdminPhonePe" component={AdminPhonePeScreen} options={{ title: "PhonePe" }} />
       <MoreStack.Screen name="AdminAdminUsers" component={AdminAdminUsersScreen} options={{ title: "Admin users" }} />
       <MoreStack.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: "My profile" }} />
       <MoreStack.Screen name="AdminRecovery" component={AdminRecoveryScreen} options={{ title: "Payment recovery" }} />
