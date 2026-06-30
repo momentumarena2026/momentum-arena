@@ -140,6 +140,7 @@ export function AdminCalendarScreen() {
   return (
     <Screen padded={false}>
       <ScrollView
+        style={styles.scrollFlex}
         contentContainerStyle={styles.scroll}
         refreshControl={
           <RefreshControl
@@ -149,50 +150,6 @@ export function AdminCalendarScreen() {
           />
         }
       >
-        {/* Header — replaces "January 2015" with the chosen date.
-            Centered over the prev/next steppers like the reference
-            calendar's month title. */}
-        <View style={styles.dateBar}>
-          <Pressable
-            onPress={() => shiftDay(-1)}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.dateBtn,
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <ChevronLeft size={16} color={colors.zinc300} />
-          </Pressable>
-          <View style={styles.dateLabel}>
-            <CalendarDays size={16} color={colors.yellow400} />
-            <Text variant="title" style={styles.dateTitle}>
-              {prettyDate(date)}
-            </Text>
-            {date !== today ? (
-              <Pressable
-                onPress={() => setDate(today)}
-                hitSlop={8}
-                style={styles.todayBtn}
-              >
-                <RotateCcw size={11} color={colors.zinc400} />
-                <Text variant="tiny" color={colors.zinc400}>
-                  Today
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <Pressable
-            onPress={() => shiftDay(1)}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.dateBtn,
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <ChevronRight size={16} color={colors.zinc300} />
-          </Pressable>
-        </View>
-
         {/* Sport filter chips */}
         <ScrollView
           horizontal
@@ -278,6 +235,45 @@ export function AdminCalendarScreen() {
           />
         )}
       </ScrollView>
+
+      {/* Sticky day switcher — pinned at the bottom, above the bottom
+          tab bar. Kept OUT of the ScrollView (a sibling) so it stays put
+          while the slot grid scrolls; the grid ends just above it so all
+          tiles are fully visible when scrolled to the end. */}
+      <View style={styles.stickyDateBar}>
+        <Pressable
+          onPress={() => shiftDay(-1)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.dateBtn, pressed && { opacity: 0.6 }]}
+        >
+          <ChevronLeft size={16} color={colors.zinc300} />
+        </Pressable>
+        <View style={styles.dateLabel}>
+          <CalendarDays size={16} color={colors.yellow400} />
+          <Text variant="title" style={styles.dateTitle}>
+            {prettyDate(date)}
+          </Text>
+          {date !== today ? (
+            <Pressable
+              onPress={() => setDate(today)}
+              hitSlop={8}
+              style={styles.todayBtn}
+            >
+              <RotateCcw size={11} color={colors.zinc400} />
+              <Text variant="tiny" color={colors.zinc400}>
+                Today
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <Pressable
+          onPress={() => shiftDay(1)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.dateBtn, pressed && { opacity: 0.6 }]}
+        >
+          <ChevronRight size={16} color={colors.zinc300} />
+        </Pressable>
+      </View>
     </Screen>
   );
 }
@@ -484,21 +480,27 @@ function prettyDate(dateStr: string): string {
 }
 
 const styles = StyleSheet.create({
+  // The scroll view fills the space above the sticky day-switcher footer.
+  scrollFlex: { flex: 1 },
   scroll: {
     paddingHorizontal: spacing["3"],
     paddingTop: spacing["3"],
-    paddingBottom: spacing["8"],
+    // Small gap so the last row of tiles clears the sticky footer.
+    paddingBottom: spacing["4"],
     gap: spacing["3"],
   },
-  dateBar: {
+  // Sticky day switcher pinned at the bottom (sibling of the ScrollView,
+  // above the bottom tab bar). Top border + solid bg so the scrolling grid
+  // reads as passing underneath it.
+  stickyDateBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: spacing["3"],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.zinc800,
-    backgroundColor: colors.zinc900,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.card,
   },
   dateBtn: {
     width: 36,
