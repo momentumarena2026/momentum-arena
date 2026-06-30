@@ -22,13 +22,19 @@ function paiseToRupees(paise: number): number {
 // 1. Revenue Over Time
 // ===========================
 
-export async function getRevenueOverTime(filters: {
-  dateFrom: string;
-  dateTo: string;
-  scope: "all" | "sports" | "cafe";
-  groupBy: "day" | "week" | "month";
-}) {
-  await requireAnalyticsAccess();
+export async function getRevenueOverTime(
+  filters: {
+    dateFrom: string;
+    dateTo: string;
+    scope: "all" | "sports" | "cafe";
+    groupBy: "day" | "week" | "month";
+  },
+  // Mobile admin routes pre-authenticate via JWT (getMobileAdmin +
+  // hasPermission) and pass skipAuth=true so this server action doesn't
+  // re-run the web cookie-session check, which would throw there.
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     const { dateFrom, dateTo, scope, groupBy } = filters;
@@ -125,9 +131,11 @@ export async function getRevenueOverTime(filters: {
 
 export async function getSportRevenueBreakdown(
   dateFrom: string,
-  dateTo: string
+  dateTo: string,
+  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
+  skipAuth = false,
 ) {
-  await requireAnalyticsAccess();
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -200,8 +208,10 @@ export async function getSportRevenueBreakdown(
 export async function getSportRevenueByMonth(
   dateFrom: string,
   dateTo: string,
+  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
+  skipAuth = false,
 ) {
-  await requireAnalyticsAccess();
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -366,8 +376,13 @@ export async function getCafeCategoryBreakdown(
 // 4. Peak Hour Analysis
 // ===========================
 
-export async function getPeakHourAnalysis(dateFrom: string, dateTo: string) {
-  await requireAnalyticsAccess();
+export async function getPeakHourAnalysis(
+  dateFrom: string,
+  dateTo: string,
+  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -410,9 +425,11 @@ export async function getPeakHourAnalysis(dateFrom: string, dateTo: string) {
 export async function getTopCustomers(
   dateFrom: string,
   dateTo: string,
-  limit: number = 10
+  limit: number = 10,
+  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
+  skipAuth = false,
 ) {
-  await requireAnalyticsAccess();
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -523,9 +540,11 @@ export async function getTopCustomers(
 
 export async function getPaymentMethodBreakdown(
   dateFrom: string,
-  dateTo: string
+  dateTo: string,
+  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
+  skipAuth = false,
 ) {
-  await requireAnalyticsAccess();
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -759,9 +778,11 @@ export async function getKPIStats(
 // zero-earning days explicitly so the chart has a stable x-axis.
 export async function getDailyEarningsForMonth(
   year: number,
-  month: number // 1-12
+  month: number, // 1-12
+  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
+  skipAuth = false,
 ) {
-  await requireAnalyticsAccess();
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     if (
@@ -828,8 +849,12 @@ export async function getDailyEarningsForMonth(
 // Booking.date and sum post-discount Booking.totalAmount so the year
 // total matches the KPI Sports Revenue tile. Returns 12 rows, one per
 // month, padding months with no bookings to zero.
-export async function getMonthlyEarningsForYear(year: number) {
-  await requireAnalyticsAccess();
+export async function getMonthlyEarningsForYear(
+  year: number,
+  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
+  skipAuth = false,
+) {
+  if (!skipAuth) await requireAnalyticsAccess();
 
   try {
     if (!Number.isInteger(year)) {
