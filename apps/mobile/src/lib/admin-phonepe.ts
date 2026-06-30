@@ -49,15 +49,30 @@ export interface PhonePeTxnPage {
   totalPages: number;
 }
 
+/**
+ * One PhonePe store (single merchantId, many stores). Returned by the
+ * endpoint already in tab order: Online, Offline, Gym, Yoga, Cafe.
+ */
+export interface PhonePeStore {
+  key: string;
+  label: string;
+}
+
 export interface PhonePeDashboard {
+  stores: PhonePeStore[];
+  defaultStore: string | null; // = first store (Online)
+  configured: boolean;
   overview: PhonePeOverview;
   transactions: PhonePeTxnPage;
 }
 
 export const adminPhonePeApi = {
-  // Overview + a page of transactions in one fetch. `from`/`to` are
-  // YYYY-MM-DD; `status` is a PhonePeStatus; `channel` is STATIC | DQR.
+  // Overview + a page of transactions in one fetch. `store` selects which
+  // store to query (server falls back to defaultStore when omitted).
+  // `from`/`to` are YYYY-MM-DD; `status` is a PhonePeStatus; `channel` is
+  // STATIC | DQR.
   dashboard: (params: {
+    store?: string;
     page?: number;
     from?: string;
     to?: string;
@@ -65,6 +80,7 @@ export const adminPhonePeApi = {
     channel?: PhonePeChannel;
   }) => {
     const qs = new URLSearchParams();
+    if (params.store) qs.set("store", params.store);
     if (params.page) qs.set("page", String(params.page));
     if (params.from) qs.set("from", params.from);
     if (params.to) qs.set("to", params.to);

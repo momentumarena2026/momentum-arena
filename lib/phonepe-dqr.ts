@@ -439,6 +439,43 @@ export interface QrTransactionListResult {
   transactions: QrListTransaction[];
 }
 
+// ─── DQR stores ─────────────────────────────────────────────────────────────
+//
+// The merchant runs ONE merchantId across FIVE stores (online bookings, the
+// offline counter, gym, yoga, cafe), each with its own storeId env var. The
+// transaction-list API is keyed on merchantId + storeId, so reporting queries
+// ONE store at a time — the admin dashboard renders these as tabs. Order here
+// is the tab order: Online first (default), Offline second, then the rest.
+export interface DqrStore {
+  key: string;
+  label: string;
+  storeId: string;
+}
+
+const DQR_STORE_DEFS: Array<{ key: string; label: string; env: string }> = [
+  { key: "ONLINE", label: "Online", env: "PHONEPE_DQR_STORE_ID_ONLINE" },
+  { key: "OFFLINE", label: "Offline", env: "PHONEPE_DQR_STORE_ID_OFFLINE" },
+  { key: "GYM", label: "Gym", env: "PHONEPE_DQR_STORE_ID_GYM" },
+  { key: "YOGA", label: "Yoga", env: "PHONEPE_DQR_STORE_ID_YOGA" },
+  { key: "CAFE", label: "Cafe", env: "PHONEPE_DQR_STORE_ID_CAFE" },
+];
+
+/** The configured stores, in tab order (only those whose env var is set). */
+export function getDqrStores(): DqrStore[] {
+  return DQR_STORE_DEFS.map((d) => ({
+    key: d.key,
+    label: d.label,
+    storeId: process.env[d.env] ?? "",
+  })).filter((s): s is DqrStore => s.storeId.length > 0);
+}
+
+/** Resolve a store key (e.g. "ONLINE") to its configured storeId, if any. */
+export function getDqrStoreId(key: string): string | undefined {
+  const def = DQR_STORE_DEFS.find((d) => d.key === key);
+  const id = def ? process.env[def.env] : undefined;
+  return id && id.length > 0 ? id : undefined;
+}
+
 /**
  * Fetch the merchant's QR transactions (static + DQR) from PhonePe.
  *
@@ -448,6 +485,8 @@ export interface QrTransactionListResult {
  * non-2xx / unsuccessful response (the dashboard surfaces a friendly error).
  */
 export async function qrTransactionList(params: {
+  /** Which store to query (keyed per merchantId + storeId by the API). */
+  storeId: string;
   /** Max rows to return (the API's only volume control). */
   size: number;
   /** Window start, epoch ms. */
@@ -457,12 +496,20 @@ export async function qrTransactionList(params: {
   qrCodeId?: string;
   terminalId?: string;
 }): Promise<QrTransactionListResult> {
-  const merchantId = requireMerchantId();
+  // Reporting only needs merchantId + saltKey + the per-store id passed in — it
+  // is decoupled from the checkout `isDqrConfigured()` (which gates on the
+  // singular PHONEPE_DQR_STORE_ID used by qrInit).
+  if (!DQR_MERCHANT_ID || !DQR_SALT_KEY) {
+    throw new Error(
+      "PhonePe QR reporting not configured — set PHONEPE_DQR_MERCHANT_ID + PHONEPE_DQR_SALT_KEY",
+    );
+  }
+  const merchantId = DQR_MERCHANT_ID;
 
   const payload = {
     size: params.size,
     merchantId,
-    storeId: DQR_STORE_ID,
+    storeId: params.storeId,
     startTimestamp: params.startTimestamp,
     ...(params.amountPaise != null ? { amount: params.amountPaise } : {}),
     ...(params.last4Digits ? { last4Digits: params.last4Digits } : {}),
@@ -552,7 +599,12 @@ export async function qrTransactionList(params: {
   };
 }
 
-/** Whether the QR transaction-list reporting is usable (same creds as DQR). */
+/**
+ * Whether QR transaction-list reporting is usable: merchantId + salt key + at
+ * least one configured store. Independent of checkout's `isDqrConfigured()`
+ * (which requires the singular PHONEPE_DQR_STORE_ID) — reporting works off the
+ * per-store PHONEPE_DQR_STORE_ID_* vars.
+ */
 export function isQrReportingConfigured(): boolean {
-  return isDqrConfigured();
+  return Boolean(DQR_MERCHANT_ID && DQR_SALT_KEY && getDqrStores().length > 0);
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -129,6 +129,12 @@ const KPIS: {
 ];
 
 export function AdminPhonePeScreen() {
+  // The PhonePe merchant has one merchantId but several stores. Until the
+  // first response arrives `selectedStore` is undefined → the server uses
+  // its defaultStore; we then initialize state to that default (once).
+  const [selectedStore, setSelectedStore] = useState<string | undefined>(
+    undefined,
+  );
   const [rangeKey, setRangeKey] = useState("90d");
   const [statusKey, setStatusKey] = useState("all");
   const [channelKey, setChannelKey] = useState("all");
@@ -143,6 +149,7 @@ export function AdminPhonePeScreen() {
     queryKey: [
       "admin",
       "phonepe",
+      selectedStore ?? "default",
       rangeKey,
       statusFilter?.status ?? "all",
       channelFilter?.channel ?? "all",
@@ -150,6 +157,7 @@ export function AdminPhonePeScreen() {
     ],
     queryFn: () =>
       adminPhonePeApi.dashboard({
+        store: selectedStore,
         from,
         status: statusFilter?.status,
         channel: channelFilter?.channel,
@@ -157,10 +165,23 @@ export function AdminPhonePeScreen() {
       }),
   });
 
+  const stores = query.data?.stores ?? [];
+  const defaultStore = query.data?.defaultStore ?? null;
+
+  // Once the first response lands, adopt its defaultStore (only if unset, so
+  // we don't loop or override the user's manual selection).
+  useEffect(() => {
+    if (selectedStore === undefined && defaultStore) {
+      setSelectedStore(defaultStore);
+    }
+  }, [selectedStore, defaultStore]);
+
   const overview = query.data?.overview;
   const txnPage = query.data?.transactions;
   const items = txnPage?.items ?? [];
   const notConfigured = overview ? overview.configured === false : false;
+  // The store the tabs reflect: explicit selection, else the server default.
+  const activeStore = selectedStore ?? defaultStore ?? undefined;
 
   function resetPageAnd(fn: () => void) {
     setPage(1);
@@ -183,6 +204,19 @@ export function AdminPhonePeScreen() {
           Live from PhonePe — static + Dynamic QR transactions.
           Standard-checkout payments not included.
         </Text>
+
+        {/* Store tabs — one merchantId, many stores (Online, Offline, …) */}
+        {stores.length > 0 ? (
+          <ChipRow
+            options={stores.map((s) => ({ key: s.key, label: s.label }))}
+            active={activeStore ?? ""}
+            onSelect={(k) =>
+              resetPageAnd(() => {
+                if (k !== activeStore) setSelectedStore(k);
+              })
+            }
+          />
+        ) : null}
 
         {/* Date range chips */}
         <ChipRow

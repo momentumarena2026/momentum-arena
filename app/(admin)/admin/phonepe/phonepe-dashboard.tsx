@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useTransition } from "react";
 import {
+  getPhonePeOverview,
   getPhonePeTransactions,
   type PhonePeChannel,
   type PhonePeStatus,
   type PhonePeOverview,
+  type PhonePeStore,
   type PhonePeTxn,
   type PhonePeTxnPage,
 } from "@/actions/admin-phonepe";
@@ -290,8 +292,10 @@ function SplitBar({
 // --- Transactions table ---
 
 function TransactionsTable({
+  store,
   initialRange,
 }: {
+  store: string;
   initialRange: { from: string; to: string };
 }) {
   const [data, setData] = useState<PhonePeTxnPage | null>(null);
@@ -305,6 +309,7 @@ function TransactionsTable({
   const load = (p: number) => {
     startTransition(async () => {
       const result = await getPhonePeTransactions({
+        store,
         page: p,
         from: from || undefined,
         to: to || undefined,
@@ -316,9 +321,11 @@ function TransactionsTable({
     });
   };
 
+  // Refetch page 1 on mount AND whenever the selected store changes; the
+  // date/status/channel filters and pagination operate within that store.
   useEffect(() => {
     load(1);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtered fetch can report the creds went away — surface the same notice.
   if (data && !data.configured) {
@@ -461,17 +468,78 @@ function TransactionsTable({
 
 // --- Main Dashboard ---
 
+// --- Store tab selector (horizontal pill row) ---
+
+function StoreTabs({
+  stores,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  stores: PhonePeStore[];
+  selected: string | null;
+  onSelect: (key: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 overflow-x-auto">
+      {stores.map((s) => (
+        <button
+          key={s.key}
+          onClick={() => onSelect(s.key)}
+          disabled={disabled}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap disabled:cursor-not-allowed ${
+            selected === s.key
+              ? "bg-emerald-600 text-white"
+              : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 disabled:opacity-60"
+          }`}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function PhonePeDashboard({
+  stores,
+  defaultStore,
   initialOverview,
 }: {
+  stores: PhonePeStore[];
+  defaultStore: string | null;
   initialOverview: PhonePeOverview;
 }) {
-  if (!initialOverview.configured) {
+  // No stores configured → no tabs, just the setup notice.
+  if (stores.length === 0 || !defaultStore) {
     return <NotConfiguredNotice />;
   }
 
+  const [selectedStore, setSelectedStore] = useState<string>(defaultStore);
+  const [overview, setOverview] = useState<PhonePeOverview>(initialOverview);
+  const [isSwitching, startSwitch] = useTransition();
+
+  const selectStore = (store: string) => {
+    if (store === selectedStore) return;
+    setSelectedStore(store);
+    startSwitch(async () => {
+      // Refetch the overview for the newly selected store. The transactions
+      // table refetches itself off the `store` prop change (page resets to 1).
+      const next = await getPhonePeOverview({ store });
+      setOverview(next);
+    });
+  };
+
   return (
     <div className="space-y-6">
+      {/* Store tabs — pick which PhonePe store to view (one merchant, 5 stores) */}
+      <StoreTabs
+        stores={stores}
+        selected={selectedStore}
+        onSelect={selectStore}
+        disabled={isSwitching}
+      />
+
       {/* Header note — live from PhonePe's QR transaction list */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
         Live from PhonePe — static + Dynamic QR transactions as PhonePe records
@@ -479,11 +547,21 @@ export function PhonePeDashboard({
         standard-checkout payments aren&apos;t included.
       </div>
 
-      {initialOverview.truncated && <TruncatedBanner />}
+      {!overview.configured ? (
+        <NotConfiguredNotice />
+      ) : (
+        <>
+          {overview.truncated && <TruncatedBanner />}
 
-      <OverviewCards overview={initialOverview} />
+          <OverviewCards overview={overview} />
 
-      <TransactionsTable initialRange={initialOverview.range} />
+          <TransactionsTable
+            key={selectedStore}
+            store={selectedStore}
+            initialRange={overview.range}
+          />
+        </>
+      )}
     </div>
   );
 }

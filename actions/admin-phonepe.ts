@@ -4,6 +4,8 @@ import { requireAdmin } from "@/lib/admin-auth";
 import {
   qrTransactionList,
   isQrReportingConfigured,
+  getDqrStores,
+  getDqrStoreId,
   type QrListTransaction,
 } from "@/lib/phonepe-dqr";
 
@@ -111,12 +113,31 @@ function mapTxn(t: QrListTransaction): PhonePeTxn & { _ms: number } {
   };
 }
 
+export interface PhonePeStore {
+  key: string;
+  label: string;
+}
+
+/** The configured stores, in tab order (Online, Offline, Gym, Yoga, Cafe). */
+export async function getPhonePeStores(
+  skipAuth = false,
+): Promise<{ configured: boolean; stores: PhonePeStore[]; defaultStore: string | null }> {
+  if (!skipAuth) await requireGatewayAccess();
+  const stores = getDqrStores().map((s) => ({ key: s.key, label: s.label }));
+  return {
+    configured: isQrReportingConfigured(),
+    stores,
+    defaultStore: stores[0]?.key ?? null,
+  };
+}
+
 /**
- * Fetch + map PhonePe's QR transactions for a date window. Returns rows
- * sorted newest-first plus a `truncated` flag (the API hit the size cap, so
- * older rows in the window may be missing).
+ * Fetch + map PhonePe's QR transactions for one store + date window. Returns
+ * rows sorted newest-first plus a `truncated` flag (the API hit the size cap,
+ * so older rows in the window may be missing).
  */
 async function fetchWindow(
+  store: string,
   from?: string,
   to?: string,
 ): Promise<{
@@ -128,11 +149,13 @@ async function fetchWindow(
   const { startMs, endMs } = defaultRange(from, to);
   const range = { from: isoDate(startMs), to: isoDate(endMs) };
 
-  if (!isQrReportingConfigured()) {
+  const storeId = getDqrStoreId(store);
+  if (!isQrReportingConfigured() || !storeId) {
     return { rows: [], truncated: false, configured: false, range };
   }
 
   const res = await qrTransactionList({
+    storeId,
     size: MAX_LIST_SIZE,
     startTimestamp: startMs,
   });
@@ -163,13 +186,18 @@ export interface PhonePeOverview {
   range: { from: string; to: string };
 }
 
-export async function getPhonePeOverview(
-  from?: string,
-  to?: string,
-  skipAuth = false,
-): Promise<PhonePeOverview> {
-  if (!skipAuth) await requireGatewayAccess();
-  const { rows, truncated, configured, range } = await fetchWindow(from, to);
+export async function getPhonePeOverview(params: {
+  store: string;
+  from?: string;
+  to?: string;
+  skipAuth?: boolean;
+}): Promise<PhonePeOverview> {
+  if (!params.skipAuth) await requireGatewayAccess();
+  const { rows, truncated, configured, range } = await fetchWindow(
+    params.store,
+    params.from,
+    params.to,
+  );
 
   const ov: PhonePeOverview = {
     configured,
@@ -207,6 +235,7 @@ export interface PhonePeTxnPage {
 }
 
 export async function getPhonePeTransactions(params: {
+  store: string;
   from?: string;
   to?: string;
   status?: PhonePeStatus; // optional filter
@@ -216,6 +245,7 @@ export async function getPhonePeTransactions(params: {
 }): Promise<PhonePeTxnPage> {
   if (!params.skipAuth) await requireGatewayAccess();
   const { rows, truncated, configured } = await fetchWindow(
+    params.store,
     params.from,
     params.to,
   );
