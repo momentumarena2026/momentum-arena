@@ -1,64 +1,52 @@
 import { request } from "./admin-api";
 
 /**
- * Mobile admin PhonePe dashboard client (DB-backed, read-only).
+ * Mobile admin PhonePe dashboard client (LIVE PhonePe API, read-only).
  *
- * PhonePe has no list/settlement/dispute API — this reads our own PhonePe
- * Payment / CafePayment rows via the web action, plus the one live merchant
- * call: per-transaction status refresh. All monetary fields are in RUPEES
- * (no paise conversion — unlike the Razorpay client).
+ * Reads static + Dynamic QR transactions straight from PhonePe via the web
+ * action behind `/api/mobile/admin/phonepe`. Standard-checkout payments are
+ * not included. All monetary fields are in RUPEES already (no paise
+ * conversion — unlike the Razorpay client).
  *
- * Mirrors the shapes returned by actions/admin-phonepe.ts.
+ * Mirrors the shapes returned by the mobile GET endpoint.
  */
 
-export type PhonePeTxnType = "booking" | "cafe";
-export type PhonePeChannel = "CHECKOUT" | "DQR";
+export type PhonePeChannel = "STATIC" | "DQR";
+export type PhonePeStatus = "COMPLETED" | "PENDING" | "FAILED";
 
 export interface PhonePeTxn {
   id: string;
-  type: PhonePeTxnType;
   channel: PhonePeChannel;
   merchantTxnId: string | null;
-  phonePeTransactionId: string | null;
-  amount: number; // rupees
-  status: string;
+  providerReferenceId: string | null;
+  amount: number; // rupees (no /100)
+  status: PhonePeStatus;
   customerName: string | null;
-  customerPhone: string | null;
-  bookingId: string | null;
-  cafeOrderId: string | null;
-  refundedAt: string | null;
-  refundReason: string | null;
-  createdAt: string;
+  customerPhone: string | null; // masked
+  utr: string | null;
+  terminalId: string | null;
+  createdAt: string | null; // ISO or null
 }
 
 export interface PhonePeOverview {
+  configured: boolean;
+  truncated: boolean;
   totalCount: number;
   completedCount: number;
   pendingCount: number;
   failedCount: number;
-  totalVolume: number; // rupees
-  refundedCount: number;
-  refundedAmount: number; // rupees
-  byChannel: { CHECKOUT: number; DQR: number };
-  byType: { booking: number; cafe: number };
+  totalVolume: number; // rupees, completed
+  byChannel: { STATIC: number; DQR: number };
   range: { from: string; to: string };
 }
 
 export interface PhonePeTxnPage {
+  configured: boolean;
+  truncated: boolean;
   items: PhonePeTxn[];
   total: number;
   page: number;
   totalPages: number;
-}
-
-/** Live PhonePe status for a single merchant txn (the one merchant API). */
-export interface PhonePeStatusResult {
-  ok: boolean;
-  state?: string;
-  success?: boolean;
-  phonePeTransactionId?: string;
-  amount?: number; // paise, as returned by PhonePe
-  error?: string;
 }
 
 export interface PhonePeDashboard {
@@ -68,30 +56,24 @@ export interface PhonePeDashboard {
 
 export const adminPhonePeApi = {
   // Overview + a page of transactions in one fetch. `from`/`to` are
-  // YYYY-MM-DD; `status` is a PaymentStatus; `type` is booking | cafe.
+  // YYYY-MM-DD; `status` is a PhonePeStatus; `channel` is STATIC | DQR.
   dashboard: (params: {
     page?: number;
     from?: string;
     to?: string;
-    status?: string;
-    type?: PhonePeTxnType;
+    status?: PhonePeStatus;
+    channel?: PhonePeChannel;
   }) => {
     const qs = new URLSearchParams();
     if (params.page) qs.set("page", String(params.page));
     if (params.from) qs.set("from", params.from);
     if (params.to) qs.set("to", params.to);
     if (params.status) qs.set("status", params.status);
-    if (params.type) qs.set("type", params.type);
+    if (params.channel) qs.set("channel", params.channel);
     const q = qs.toString();
     return request<PhonePeDashboard>(
       `/api/mobile/admin/phonepe${q ? `?${q}` : ""}`,
       { method: "GET" },
     );
   },
-  // Live per-transaction status from PhonePe (read-only).
-  refreshStatus: (merchantTxnId: string) =>
-    request<{ status: PhonePeStatusResult }>("/api/mobile/admin/phonepe", {
-      method: "POST",
-      body: { merchantTxnId },
-    }),
 };

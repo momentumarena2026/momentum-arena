@@ -9,7 +9,7 @@ export default async function AdminPhonePePage() {
       <div>
         <h1 className="text-2xl font-bold text-white">PhonePe Dashboard</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Our recorded PhonePe transactions (checkout + dynamic-QR)
+          Live PhonePe QR transactions (static + dynamic QR)
         </p>
       </div>
       <PhonePeDashboard initialOverview={overview} />

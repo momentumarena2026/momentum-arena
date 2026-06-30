@@ -3,7 +3,8 @@
 import { useState, useEffect, useTransition } from "react";
 import {
   getPhonePeTransactions,
-  refreshPhonePeStatus,
+  type PhonePeChannel,
+  type PhonePeStatus,
   type PhonePeOverview,
   type PhonePeTxn,
   type PhonePeTxnPage,
@@ -15,8 +16,7 @@ import {
   Clock,
   XCircle,
   Hash,
-  ArrowDownLeft,
-  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 
 // admin-phonepe returns every monetary field in rupees already, so we can use
@@ -27,23 +27,20 @@ const STATUS_OPTIONS = [
   { value: "COMPLETED", label: "Completed" },
   { value: "PENDING", label: "Pending" },
   { value: "FAILED", label: "Failed" },
-  { value: "REFUNDED", label: "Refunded" },
 ] as const;
 
-const TYPE_OPTIONS = [
-  { value: "", label: "All types" },
-  { value: "booking", label: "Booking" },
-  { value: "cafe", label: "Cafe" },
+const CHANNEL_OPTIONS = [
+  { value: "", label: "All channels" },
+  { value: "STATIC", label: "Static QR" },
+  { value: "DQR", label: "DQR" },
 ] as const;
 
-// --- Status badge (PaymentStatus enum values) ---
+// --- Status badge (PhonePeStatus values) ---
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     COMPLETED: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
     PENDING: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-    PROCESSING: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-    REFUNDED: "bg-purple-500/20 text-purple-400 border-purple-500/30",
     FAILED: "bg-red-500/20 text-red-400 border-red-500/30",
   };
   const c =
@@ -55,34 +52,25 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function TypeBadge({ type }: { type: PhonePeTxn["type"] }) {
-  const c =
-    type === "booking"
-      ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/30"
-      : "bg-orange-500/20 text-orange-400 border-orange-500/30";
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full border ${c}`}>
-      {type === "booking" ? "Booking" : "Cafe"}
-    </span>
-  );
-}
-
 function ChannelBadge({ channel }: { channel: PhonePeTxn["channel"] }) {
   const c =
-    channel === "CHECKOUT"
+    channel === "STATIC"
       ? "bg-sky-500/20 text-sky-400 border-sky-500/30"
       : "bg-teal-500/20 text-teal-400 border-teal-500/30";
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full border ${c}`}>
-      {channel === "CHECKOUT" ? "Checkout" : "DQR"}
+      {channel === "STATIC" ? "Static QR" : "DQR"}
     </span>
   );
 }
 
 // --- Date formatter (ISO strings from the server) ---
 
-function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString("en-IN", {
+function formatDateTime(iso: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-IN", {
     day: "numeric",
     month: "short",
     hour: "2-digit",
@@ -125,7 +113,7 @@ function Pagination({
   );
 }
 
-// --- Error / empty / loading ---
+// --- Error / empty / loading / notices ---
 
 function ErrorBanner({ message }: { message: string }) {
   return (
@@ -151,7 +139,37 @@ function LoadingState() {
   );
 }
 
-// --- Overview KPI cards + splits ---
+function NotConfiguredNotice() {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6 text-sm text-zinc-300">
+      <p className="font-medium text-white mb-1">
+        PhonePe QR reporting isn&apos;t configured
+      </p>
+      <p className="text-zinc-400">
+        Set{" "}
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_MERCHANT_ID</span>
+        , <span className="font-mono text-zinc-200">PHONEPE_DQR_SALT_KEY</span>{" "}
+        and{" "}
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_STORE_ID</span>{" "}
+        (live DQR creds) to pull transactions.
+      </p>
+    </div>
+  );
+}
+
+function TruncatedBanner() {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-400">
+      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+      <span>
+        Showing the most recent transactions only (API page cap). Narrow the
+        date range to see older ones.
+      </span>
+    </div>
+  );
+}
+
+// --- Overview KPI cards + channel split ---
 
 function OverviewCards({ overview }: { overview: PhonePeOverview }) {
   const stats = [
@@ -185,17 +203,9 @@ function OverviewCards({ overview }: { overview: PhonePeOverview }) {
       icon: IndianRupee,
       color: "text-emerald-400 bg-emerald-500/20",
     },
-    {
-      label: `Refunded (${overview.refundedCount})`,
-      value: formatPrice(overview.refundedAmount),
-      icon: ArrowDownLeft,
-      color: "text-purple-400 bg-purple-500/20",
-    },
   ];
 
-  const channelTotal =
-    overview.byChannel.CHECKOUT + overview.byChannel.DQR || 1;
-  const typeTotal = overview.byType.booking + overview.byType.cafe || 1;
+  const channelTotal = overview.byChannel.STATIC + overview.byChannel.DQR || 1;
 
   return (
     <div className="space-y-6">
@@ -219,49 +229,27 @@ function OverviewCards({ overview }: { overview: PhonePeOverview }) {
         })}
       </div>
 
-      {/* Channel & Type splits (completed volume) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Channel split (completed volume) */}
+      <div className="grid grid-cols-1 gap-4">
         <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6">
           <h3 className="text-lg font-semibold text-white mb-1">Channel</h3>
           <p className="text-xs text-zinc-500 mb-4">
-            Completed volume — Checkout vs Dynamic-QR
+            Completed volume — Static QR vs Dynamic QR
           </p>
           <SplitBar
             rows={[
               {
-                label: "Checkout",
-                amount: overview.byChannel.CHECKOUT,
+                label: "Static QR",
+                amount: overview.byChannel.STATIC,
                 color: "bg-sky-500",
               },
               {
-                label: "Dynamic-QR",
+                label: "Dynamic QR",
                 amount: overview.byChannel.DQR,
                 color: "bg-teal-500",
               },
             ]}
             total={channelTotal}
-          />
-        </div>
-
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6">
-          <h3 className="text-lg font-semibold text-white mb-1">Type</h3>
-          <p className="text-xs text-zinc-500 mb-4">
-            Completed volume — Booking vs Cafe
-          </p>
-          <SplitBar
-            rows={[
-              {
-                label: "Booking",
-                amount: overview.byType.booking,
-                color: "bg-indigo-500",
-              },
-              {
-                label: "Cafe",
-                amount: overview.byType.cafe,
-                color: "bg-orange-500",
-              },
-            ]}
-            total={typeTotal}
           />
         </div>
       </div>
@@ -299,74 +287,19 @@ function SplitBar({
   );
 }
 
-// --- Live status cell ---
-
-type LiveStatus =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "ok"; state?: string; success?: boolean }
-  | { kind: "error"; message: string };
-
-function LiveStatusButton({ merchantTxnId }: { merchantTxnId: string | null }) {
-  const [status, setStatus] = useState<LiveStatus>({ kind: "idle" });
-  const [isPending, startTransition] = useTransition();
-
-  const check = () => {
-    if (!merchantTxnId) return;
-    setStatus({ kind: "loading" });
-    startTransition(async () => {
-      const r = await refreshPhonePeStatus(merchantTxnId);
-      if (r.ok) {
-        setStatus({ kind: "ok", state: r.state, success: r.success });
-      } else {
-        setStatus({ kind: "error", message: r.error || "Failed" });
-      }
-    });
-  };
-
-  if (!merchantTxnId) {
-    return <span className="text-xs text-zinc-600">—</span>;
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={check}
-        disabled={isPending}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
-      >
-        <RefreshCw className={`h-3 w-3 ${isPending ? "animate-spin" : ""}`} />
-        Check live status
-      </button>
-      {status.kind === "ok" && (
-        <span
-          className={`text-xs ${
-            status.success ? "text-emerald-400" : "text-yellow-400"
-          }`}
-        >
-          {status.state || (status.success ? "SUCCESS" : "PENDING")}
-        </span>
-      )}
-      {status.kind === "error" && (
-        <span className="text-xs text-red-400" title={status.message}>
-          {status.message.length > 32
-            ? status.message.slice(0, 32) + "…"
-            : status.message}
-        </span>
-      )}
-    </div>
-  );
-}
-
 // --- Transactions table ---
 
-function TransactionsTable({ initialRange }: { initialRange: { from: string; to: string } }) {
+function TransactionsTable({
+  initialRange,
+}: {
+  initialRange: { from: string; to: string };
+}) {
   const [data, setData] = useState<PhonePeTxnPage | null>(null);
   const [page, setPage] = useState(1);
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
   const [status, setStatus] = useState("");
-  const [type, setType] = useState("");
+  const [channel, setChannel] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const load = (p: number) => {
@@ -375,8 +308,8 @@ function TransactionsTable({ initialRange }: { initialRange: { from: string; to:
         page: p,
         from: from || undefined,
         to: to || undefined,
-        status: status || undefined,
-        type: (type || undefined) as "booking" | "cafe" | undefined,
+        status: (status || undefined) as PhonePeStatus | undefined,
+        channel: (channel || undefined) as PhonePeChannel | undefined,
       });
       setData(result);
       setPage(p);
@@ -387,8 +320,15 @@ function TransactionsTable({ initialRange }: { initialRange: { from: string; to:
     load(1);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Filtered fetch can report the creds went away — surface the same notice.
+  if (data && !data.configured) {
+    return <NotConfiguredNotice />;
+  }
+
   return (
     <div className="space-y-4">
+      {data?.truncated && <TruncatedBanner />}
+
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end">
         <div>
@@ -424,13 +364,13 @@ function TransactionsTable({ initialRange }: { initialRange: { from: string; to:
           </select>
         </div>
         <div>
-          <label className="text-xs text-zinc-500 block mb-1">Type</label>
+          <label className="text-xs text-zinc-500 block mb-1">Channel</label>
           <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
+            value={channel}
+            onChange={(e) => setChannel(e.target.value)}
             className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-white"
           >
-            {TYPE_OPTIONS.map((o) => (
+            {CHANNEL_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -458,12 +398,11 @@ function TransactionsTable({ initialRange }: { initialRange: { from: string; to:
                 <tr className="border-b border-zinc-800 bg-zinc-900/50">
                   <th className="text-left p-3 text-zinc-400 font-medium">Date</th>
                   <th className="text-left p-3 text-zinc-400 font-medium">Customer</th>
-                  <th className="text-left p-3 text-zinc-400 font-medium">Type</th>
                   <th className="text-left p-3 text-zinc-400 font-medium">Channel</th>
                   <th className="text-left p-3 text-zinc-400 font-medium">Amount</th>
                   <th className="text-left p-3 text-zinc-400 font-medium">Status</th>
-                  <th className="text-left p-3 text-zinc-400 font-medium">PhonePe txn</th>
-                  <th className="text-left p-3 text-zinc-400 font-medium">Live status</th>
+                  <th className="text-left p-3 text-zinc-400 font-medium">UTR</th>
+                  <th className="text-left p-3 text-zinc-400 font-medium">Txn id</th>
                 </tr>
               </thead>
               <tbody>
@@ -486,9 +425,6 @@ function TransactionsTable({ initialRange }: { initialRange: { from: string; to:
                       )}
                     </td>
                     <td className="p-3">
-                      <TypeBadge type={row.type} />
-                    </td>
-                    <td className="p-3">
                       <ChannelBadge channel={row.channel} />
                     </td>
                     <td className="p-3 text-white whitespace-nowrap">
@@ -497,18 +433,18 @@ function TransactionsTable({ initialRange }: { initialRange: { from: string; to:
                     <td className="p-3">
                       <StatusBadge status={row.status} />
                     </td>
-                    <td className="p-3">
-                      <div className="text-zinc-300 font-mono text-xs">
-                        {row.phonePeTransactionId || "—"}
-                      </div>
-                      {row.merchantTxnId && (
-                        <div className="text-xs text-zinc-600 font-mono">
-                          {row.merchantTxnId}
-                        </div>
-                      )}
+                    <td className="p-3 text-zinc-400 font-mono text-xs">
+                      {row.utr || "—"}
                     </td>
                     <td className="p-3">
-                      <LiveStatusButton merchantTxnId={row.merchantTxnId} />
+                      <div className="text-zinc-300 font-mono text-xs">
+                        {row.merchantTxnId || "—"}
+                      </div>
+                      {row.providerReferenceId && (
+                        <div className="text-xs text-zinc-600 font-mono">
+                          {row.providerReferenceId}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -530,15 +466,20 @@ export function PhonePeDashboard({
 }: {
   initialOverview: PhonePeOverview;
 }) {
+  if (!initialOverview.configured) {
+    return <NotConfiguredNotice />;
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header note — PhonePe has no list/settlement/dispute API */}
+      {/* Header note — live from PhonePe's QR transaction list */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-        PhonePe has no merchant settlement/dispute/list API — this view is our
-        recorded PhonePe transactions; tap{" "}
-        <span className="text-zinc-200 font-medium">&ldquo;Check live status&rdquo;</span>{" "}
-        for PhonePe&apos;s live state per transaction.
+        Live from PhonePe — static + Dynamic QR transactions as PhonePe records
+        them (includes payments whose callback we may have missed). PhonePe
+        standard-checkout payments aren&apos;t included.
       </div>
+
+      {initialOverview.truncated && <TruncatedBanner />}
 
       <OverviewCards overview={initialOverview} />
 

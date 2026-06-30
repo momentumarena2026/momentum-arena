@@ -57,6 +57,7 @@ const DQR_BASE = isProd
 // appended to DQR_BASE for the actual request URL.
 const QR_INIT_PATH = "/v3/qr/init";
 const INTENT_INIT_PATH = "/v1/intent/init";
+const QR_TXN_LIST_PATH = "/v3/qr/transaction/list";
 const txnStatusPath = (merchantId: string, transactionId: string) =>
   `/v3/transaction/${encodeURIComponent(merchantId)}/${encodeURIComponent(
     transactionId,
@@ -384,4 +385,174 @@ export function decodeDqrCallback(base64Response: string): DqrCallbackData {
   return JSON.parse(
     Buffer.from(base64Response, "base64").toString("utf-8"),
   ) as DqrCallbackData;
+}
+
+// ─── QR Transaction List API (admin reporting) ──────────────────────────────
+//
+// `POST /v3/qr/transaction/list` is the PhonePe "Integrated Static QR"
+// reporting endpoint. Keyed on merchantId + storeId, it returns the
+// transactions PhonePe recorded for our merchant QR codes — and because our
+// Dynamic QR (qrInit) generates QRs under the SAME merchant + store, ONE call
+// returns BOTH static-QR and DQR transactions (PhonePe's own truth). This is
+// the source of truth for the admin PhonePe dashboard (`actions/admin-phonepe`),
+// replacing the previous DB-derived view.
+//
+// Same V1 X-VERIFY + mercury host + `{ request: base64 }` body as qrInit, so it
+// reuses this module's creds. Gated by `isDqrConfigured()` like everything else.
+//
+// ⚠️ Confirm at activation against the PhonePe sandbox: the exact per-transaction
+// field names (esp. how the terminal status is reported — the docs say to read a
+// per-txn `code`/`payResponseCode` rather than `paymentState`) and whether the
+// list truly spans both products under one merchant+store, vs needing a separate
+// static-QR merchantId.
+
+/** One transaction row from the QR Transaction List API. */
+export interface QrListTransaction {
+  /** Our merchant transaction id (DQR ids are prefixed "DQR…"). */
+  transactionId: string;
+  /** PhonePe-side reference id. */
+  providerReferenceId: string | null;
+  /** Amount in paise. */
+  amount: number;
+  /** Terminal status. Docs flag `paymentState` as informational — prefer
+   *  `payResponseCode` / top-level `code` when present. */
+  paymentState: string | null;
+  payResponseCode: string | null;
+  /** PhonePe's transaction timestamp (string; format per their response). */
+  transactionDate: string | null;
+  /** Customer name + masked phone, when PhonePe returns them. */
+  name: string | null;
+  mobileNumber: string | null;
+  paymentModes: Array<{ type?: string; mode?: string; amount?: number; utr?: string }>;
+  transactionContext: {
+    qrCodeId?: string;
+    posDeviceId?: string;
+    storeId?: string;
+    terminalId?: string;
+  } | null;
+}
+
+export interface QrTransactionListResult {
+  resultCount: number;
+  startTimestamp: number | null;
+  endTimestamp: number | null;
+  transactions: QrListTransaction[];
+}
+
+/**
+ * Fetch the merchant's QR transactions (static + DQR) from PhonePe.
+ *
+ * The API filters by `startTimestamp` (ms) + `size` only — there is NO
+ * end-timestamp and NO offset/cursor pagination — so callers fetch a window
+ * from a start time and slice/window client-side. Throws on misconfig or a
+ * non-2xx / unsuccessful response (the dashboard surfaces a friendly error).
+ */
+export async function qrTransactionList(params: {
+  /** Max rows to return (the API's only volume control). */
+  size: number;
+  /** Window start, epoch ms. */
+  startTimestamp: number;
+  amountPaise?: number;
+  last4Digits?: string;
+  qrCodeId?: string;
+  terminalId?: string;
+}): Promise<QrTransactionListResult> {
+  const merchantId = requireMerchantId();
+
+  const payload = {
+    size: params.size,
+    merchantId,
+    storeId: DQR_STORE_ID,
+    startTimestamp: params.startTimestamp,
+    ...(params.amountPaise != null ? { amount: params.amountPaise } : {}),
+    ...(params.last4Digits ? { last4Digits: params.last4Digits } : {}),
+    ...(params.qrCodeId ? { qrCodeId: params.qrCodeId } : {}),
+    ...(params.terminalId
+      ? { terminalId: params.terminalId }
+      : DQR_TERMINAL_ID
+        ? { terminalId: DQR_TERMINAL_ID }
+        : {}),
+  };
+
+  const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  const endpoint = `${DQR_BASE}${QR_TXN_LIST_PATH}`;
+  // Sign the logical path (no /enterprise-sandbox prefix), per the docs.
+  const checksum = xVerify(base64 + QR_TXN_LIST_PATH);
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    signal: AbortSignal.timeout(15000),
+    headers: {
+      "Content-Type": "application/json",
+      "X-VERIFY": checksum,
+    },
+    body: JSON.stringify({ request: base64 }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(
+      `[dqr] txn-list failed env=${DQR_ENV} host=${DQR_BASE} status=${res.status} body=${text.slice(0, 300)}`,
+    );
+    throw new Error(
+      `PhonePe QR transaction list failed [env=${DQR_ENV} host=${DQR_BASE}]: ${res.status} ${text.slice(0, 400)}`,
+    );
+  }
+
+  const json = (await res.json()) as {
+    success?: boolean;
+    code?: string;
+    data?: {
+      resultCount?: number;
+      startTimestamp?: number;
+      endTimestamp?: number;
+      transactions?: Array<Record<string, unknown>>;
+    };
+  };
+
+  if (!json.success) {
+    throw new Error(
+      `PhonePe QR transaction list unsuccessful: code=${json.code ?? "?"}`,
+    );
+  }
+
+  const raw = json.data?.transactions ?? [];
+  const transactions: QrListTransaction[] = raw.map((t) => {
+    const ctx = (t.transactionContext ?? null) as QrListTransaction["transactionContext"];
+    const modes = Array.isArray(t.paymentModes)
+      ? (t.paymentModes as QrListTransaction["paymentModes"])
+      : [];
+    return {
+      transactionId: String(t.transactionId ?? ""),
+      providerReferenceId:
+        t.providerReferenceId != null ? String(t.providerReferenceId) : null,
+      amount: typeof t.amount === "number" ? t.amount : Number(t.amount ?? 0),
+      paymentState: t.paymentState != null ? String(t.paymentState) : null,
+      payResponseCode:
+        t.payResponseCode != null ? String(t.payResponseCode) : null,
+      transactionDate:
+        t.transactionDate != null ? String(t.transactionDate) : null,
+      name: t.name != null ? String(t.name) : null,
+      mobileNumber:
+        t.mobileNumber != null
+          ? String(t.mobileNumber)
+          : t.phoneNumber != null
+            ? String(t.phoneNumber)
+            : null,
+      paymentModes: modes,
+      transactionContext: ctx,
+    };
+  });
+
+  return {
+    resultCount: json.data?.resultCount ?? transactions.length,
+    startTimestamp: json.data?.startTimestamp ?? null,
+    endTimestamp: json.data?.endTimestamp ?? null,
+    transactions,
+  };
+}
+
+/** Whether the QR transaction-list reporting is usable (same creds as DQR). */
+export function isQrReportingConfigured(): boolean {
+  return isDqrConfigured();
 }

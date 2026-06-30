@@ -1,87 +1,165 @@
 "use server";
 
 import { requireAdmin } from "@/lib/admin-auth";
-import { db } from "@/lib/db";
-import { checkPhonePeStatus } from "@/lib/phonepe";
-import { DQR_CONFIRMED_BY } from "@/lib/phonepe-dqr";
+import {
+  qrTransactionList,
+  isQrReportingConfigured,
+  type QrListTransaction,
+} from "@/lib/phonepe-dqr";
 
 /**
- * PhonePe transactions dashboard — DB-backed.
+ * PhonePe transactions dashboard — sourced LIVE from PhonePe.
  *
- * Unlike Razorpay (which exposes merchant-wide list/settlement/refund/dispute
- * REST APIs we proxy in lib/razorpay-api), PhonePe's PG product offers only a
- * PER-ORDER status call + per-payment refund — there is NO "list all
- * transactions" / settlement / dispute API. So this dashboard reads our OWN
- * records (the source of truth for our PhonePe txns): booking `Payment` rows
- * and cafe `CafePayment` rows that went through PhonePe (gateway checkout OR
- * Dynamic-QR). The one live PhonePe action we expose is per-transaction status
- * refresh (`refreshPhonePeStatus` → checkPhonePeStatus), read-only.
+ * PhonePe's PG product has no merchant-wide list/settlement/dispute API, but
+ * its offline "Integrated Static QR" product DOES expose a transaction-list
+ * endpoint (`POST /v3/qr/transaction/list`, keyed merchantId + storeId). Our
+ * static QR codes AND our Dynamic QR (DQR) run under the same merchant + store,
+ * so a single call returns BOTH — PhonePe's own record of every QR payment.
  *
- * Gated on VIEW_RAZORPAY (the existing "view payment-gateway data" permission)
- * so it shares the same access as the Razorpay dashboard. Mobile admin routes
- * pre-authenticate the bearer token and pass skipAuth=true.
+ * This dashboard therefore reads straight from PhonePe (via
+ * `lib/phonepe-dqr.ts` `qrTransactionList`), NOT from our DB — so it reflects
+ * PhonePe's truth including payments whose S2S callback we may have missed.
+ *
+ * Scope note: this covers QR payments (static + DQR). It does NOT include
+ * PhonePe Standard-Checkout (`/checkout/v2`, method PHONEPE) payments — those
+ * are a different product with no list API; they only exist if PhonePe is set
+ * as the card gateway (Razorpay is the default), and are out of scope here.
+ *
+ * Gated on VIEW_RAZORPAY (the existing "view payment-gateway data" permission).
+ * Mobile admin routes pre-authenticate the bearer token and pass skipAuth=true.
  */
 
 const PAGE_SIZE = 20;
+// The API's only volume control is `size` (no end-timestamp, no offset/cursor),
+// so we fetch a generous window from the start time and window client-side.
+const MAX_LIST_SIZE = 250;
 
 async function requireGatewayAccess() {
   return requireAdmin("VIEW_RAZORPAY");
 }
 
-// A PhonePe payment is either a gateway-checkout payment (method PHONEPE) or a
-// Dynamic-QR payment (method UPI_QR confirmedBy PHONEPE_DQR) — both stamp
-// phonePeMerchantTxnId. This OR captures both and excludes static-UTR QR.
-const PHONEPE_WHERE = {
-  OR: [
-    { method: "PHONEPE" as const },
-    { phonePeMerchantTxnId: { not: null } },
-  ],
-};
-
-export type PhonePeTxnType = "booking" | "cafe";
-export type PhonePeChannel = "CHECKOUT" | "DQR";
+export type PhonePeChannel = "STATIC" | "DQR";
+export type PhonePeStatus = "COMPLETED" | "PENDING" | "FAILED";
 
 export interface PhonePeTxn {
   id: string;
-  type: PhonePeTxnType;
   channel: PhonePeChannel;
+  /** Our merchant transaction id. */
   merchantTxnId: string | null;
-  phonePeTransactionId: string | null;
+  /** PhonePe-side reference id. */
+  providerReferenceId: string | null;
   amount: number; // rupees
-  status: string; // PaymentStatus
+  status: PhonePeStatus;
   customerName: string | null;
-  customerPhone: string | null;
-  bookingId: string | null;
-  cafeOrderId: string | null;
-  refundedAt: string | null;
-  refundReason: string | null;
-  createdAt: string;
-}
-
-function channelOf(method: string, confirmedBy: string | null | undefined): PhonePeChannel {
-  if (confirmedBy === DQR_CONFIRMED_BY) return "DQR";
-  return method === "PHONEPE" ? "CHECKOUT" : "DQR";
+  customerPhone: string | null; // masked by PhonePe
+  utr: string | null;
+  terminalId: string | null;
+  createdAt: string | null; // ISO, or raw PhonePe value if unparseable
 }
 
 function defaultRange(from?: string, to?: string) {
-  const now = new Date();
-  const dateTo = to ? new Date(to + "T23:59:59.999Z") : now;
-  const dateFrom = from
-    ? new Date(from + "T00:00:00.000Z")
-    : new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // default 90d
-  return { dateFrom, dateTo };
+  const now = Date.now();
+  const startMs = from
+    ? new Date(from + "T00:00:00.000Z").getTime()
+    : now - 90 * 24 * 60 * 60 * 1000; // default 90d
+  const endMs = to ? new Date(to + "T23:59:59.999Z").getTime() : now;
+  return { startMs, endMs };
+}
+
+function isoDate(ms: number) {
+  return new Date(ms).toISOString().split("T")[0];
+}
+
+function channelOf(transactionId: string): PhonePeChannel {
+  return transactionId.toUpperCase().startsWith("DQR") ? "DQR" : "STATIC";
+}
+
+function statusOf(paymentState: string | null): PhonePeStatus {
+  const s = (paymentState ?? "").toUpperCase();
+  if (s === "COMPLETED" || s === "SUCCESS") return "COMPLETED";
+  if (s === "FAILED" || s === "EXPIRED" || s === "DECLINED" || s === "CANCELLED")
+    return "FAILED";
+  return "PENDING";
+}
+
+/** Parse PhonePe's transactionDate (epoch ms or a date string) → {iso, ms}. */
+function parseTxnDate(value: string | null): { iso: string | null; ms: number } {
+  if (!value) return { iso: null, ms: 0 };
+  const trimmed = value.trim();
+  const d = /^\d+$/.test(trimmed) ? new Date(Number(trimmed)) : new Date(trimmed);
+  const ms = d.getTime();
+  if (Number.isNaN(ms)) return { iso: value, ms: 0 };
+  return { iso: d.toISOString(), ms };
+}
+
+function mapTxn(t: QrListTransaction): PhonePeTxn & { _ms: number } {
+  const { iso, ms } = parseTxnDate(t.transactionDate);
+  const utr = t.paymentModes.find((m) => m.utr)?.utr ?? null;
+  return {
+    id: t.transactionId,
+    channel: channelOf(t.transactionId),
+    merchantTxnId: t.transactionId || null,
+    providerReferenceId: t.providerReferenceId,
+    amount: (t.amount ?? 0) / 100, // paise → rupees
+    status: statusOf(t.paymentState),
+    customerName: t.name,
+    customerPhone: t.mobileNumber,
+    utr,
+    terminalId: t.transactionContext?.terminalId ?? null,
+    createdAt: iso,
+    _ms: ms,
+  };
+}
+
+/**
+ * Fetch + map PhonePe's QR transactions for a date window. Returns rows
+ * sorted newest-first plus a `truncated` flag (the API hit the size cap, so
+ * older rows in the window may be missing).
+ */
+async function fetchWindow(
+  from?: string,
+  to?: string,
+): Promise<{
+  rows: Array<PhonePeTxn & { _ms: number }>;
+  truncated: boolean;
+  configured: boolean;
+  range: { from: string; to: string };
+}> {
+  const { startMs, endMs } = defaultRange(from, to);
+  const range = { from: isoDate(startMs), to: isoDate(endMs) };
+
+  if (!isQrReportingConfigured()) {
+    return { rows: [], truncated: false, configured: false, range };
+  }
+
+  const res = await qrTransactionList({
+    size: MAX_LIST_SIZE,
+    startTimestamp: startMs,
+  });
+
+  const rows = res.transactions
+    .map(mapTxn)
+    // API filters by start only; enforce the end of the window ourselves.
+    .filter((r) => r._ms === 0 || r._ms <= endMs)
+    .sort((a, b) => b._ms - a._ms);
+
+  return {
+    rows,
+    truncated: res.resultCount >= MAX_LIST_SIZE,
+    configured: true,
+    range,
+  };
 }
 
 export interface PhonePeOverview {
+  configured: boolean; // false → creds not set; UI shows a setup notice
+  truncated: boolean; // hit the API size cap → older rows may be missing
   totalCount: number;
   completedCount: number;
   pendingCount: number;
   failedCount: number;
   totalVolume: number; // sum of COMPLETED amounts, rupees
-  refundedCount: number;
-  refundedAmount: number;
-  byChannel: { CHECKOUT: number; DQR: number }; // completed volume per channel
-  byType: { booking: number; cafe: number }; // completed volume per type
+  byChannel: { STATIC: number; DQR: number }; // completed volume per channel
   range: { from: string; to: string };
 }
 
@@ -91,60 +169,37 @@ export async function getPhonePeOverview(
   skipAuth = false,
 ): Promise<PhonePeOverview> {
   if (!skipAuth) await requireGatewayAccess();
-  const { dateFrom, dateTo } = defaultRange(from, to);
-
-  const [payments, cafe] = await Promise.all([
-    db.payment.findMany({
-      where: { ...PHONEPE_WHERE, createdAt: { gte: dateFrom, lte: dateTo } },
-      select: { amount: true, status: true, method: true, confirmedBy: true, refundedAt: true },
-    }),
-    db.cafePayment.findMany({
-      where: { ...PHONEPE_WHERE, createdAt: { gte: dateFrom, lte: dateTo } },
-      select: { amount: true, status: true, method: true, confirmedBy: true, refundedAt: true },
-    }),
-  ]);
-
-  const all = [
-    ...payments.map((p) => ({ ...p, type: "booking" as const })),
-    ...cafe.map((p) => ({ ...p, type: "cafe" as const })),
-  ];
+  const { rows, truncated, configured, range } = await fetchWindow(from, to);
 
   const ov: PhonePeOverview = {
-    totalCount: all.length,
+    configured,
+    truncated,
+    totalCount: rows.length,
     completedCount: 0,
     pendingCount: 0,
     failedCount: 0,
     totalVolume: 0,
-    refundedCount: 0,
-    refundedAmount: 0,
-    byChannel: { CHECKOUT: 0, DQR: 0 },
-    byType: { booking: 0, cafe: 0 },
-    range: {
-      from: dateFrom.toISOString().split("T")[0],
-      to: dateTo.toISOString().split("T")[0],
-    },
+    byChannel: { STATIC: 0, DQR: 0 },
+    range,
   };
 
-  for (const p of all) {
-    if (p.status === "COMPLETED") {
+  for (const r of rows) {
+    if (r.status === "COMPLETED") {
       ov.completedCount++;
-      ov.totalVolume += p.amount;
-      ov.byChannel[channelOf(p.method, p.confirmedBy)] += p.amount;
-      ov.byType[p.type] += p.amount;
-    } else if (p.status === "FAILED") {
+      ov.totalVolume += r.amount;
+      ov.byChannel[r.channel] += r.amount;
+    } else if (r.status === "FAILED") {
       ov.failedCount++;
     } else {
       ov.pendingCount++;
-    }
-    if (p.refundedAt) {
-      ov.refundedCount++;
-      ov.refundedAmount += p.amount;
     }
   }
   return ov;
 }
 
 export interface PhonePeTxnPage {
+  configured: boolean;
+  truncated: boolean;
   items: PhonePeTxn[];
   total: number;
   page: number;
@@ -154,144 +209,37 @@ export interface PhonePeTxnPage {
 export async function getPhonePeTransactions(params: {
   from?: string;
   to?: string;
-  status?: string; // PaymentStatus filter, optional
-  type?: PhonePeTxnType; // booking | cafe, optional
+  status?: PhonePeStatus; // optional filter
+  channel?: PhonePeChannel; // STATIC | DQR, optional filter
   page?: number;
   skipAuth?: boolean;
 }): Promise<PhonePeTxnPage> {
   if (!params.skipAuth) await requireGatewayAccess();
-  const { dateFrom, dateTo } = defaultRange(params.from, params.to);
+  const { rows, truncated, configured } = await fetchWindow(
+    params.from,
+    params.to,
+  );
   const page = Math.max(params.page ?? 1, 1);
 
-  const statusWhere = params.status ? { status: params.status as never } : {};
-  const dateWhere = { createdAt: { gte: dateFrom, lte: dateTo } };
+  const filtered = rows.filter(
+    (r) =>
+      (!params.status || r.status === params.status) &&
+      (!params.channel || r.channel === params.channel),
+  );
 
-  const wantBooking = !params.type || params.type === "booking";
-  const wantCafe = !params.type || params.type === "cafe";
-
-  const [payments, cafe] = await Promise.all([
-    wantBooking
-      ? db.payment.findMany({
-          where: { ...PHONEPE_WHERE, ...dateWhere, ...statusWhere },
-          select: {
-            id: true,
-            amount: true,
-            status: true,
-            method: true,
-            confirmedBy: true,
-            phonePeMerchantTxnId: true,
-            phonePeTransactionId: true,
-            bookingId: true,
-            refundedAt: true,
-            refundReason: true,
-            createdAt: true,
-            booking: { select: { user: { select: { name: true, phone: true } } } },
-          },
-        })
-      : Promise.resolve([]),
-    wantCafe
-      ? db.cafePayment.findMany({
-          where: { ...PHONEPE_WHERE, ...dateWhere, ...statusWhere },
-          select: {
-            id: true,
-            amount: true,
-            status: true,
-            method: true,
-            confirmedBy: true,
-            phonePeMerchantTxnId: true,
-            phonePeTransactionId: true,
-            orderId: true,
-            refundedAt: true,
-            refundReason: true,
-            createdAt: true,
-            order: {
-              select: {
-                guestName: true,
-                guestPhone: true,
-                user: { select: { name: true, phone: true } },
-              },
-            },
-          },
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const rows: PhonePeTxn[] = [
-    ...payments.map((p): PhonePeTxn => ({
-      id: p.id,
-      type: "booking",
-      channel: channelOf(p.method, p.confirmedBy),
-      merchantTxnId: p.phonePeMerchantTxnId,
-      phonePeTransactionId: p.phonePeTransactionId,
-      amount: p.amount,
-      status: p.status,
-      customerName: p.booking?.user?.name ?? null,
-      customerPhone: p.booking?.user?.phone ?? null,
-      bookingId: p.bookingId,
-      cafeOrderId: null,
-      refundedAt: p.refundedAt?.toISOString() ?? null,
-      refundReason: p.refundReason,
-      createdAt: p.createdAt.toISOString(),
-    })),
-    ...cafe.map((p): PhonePeTxn => ({
-      id: p.id,
-      type: "cafe",
-      channel: channelOf(p.method, p.confirmedBy),
-      merchantTxnId: p.phonePeMerchantTxnId,
-      phonePeTransactionId: p.phonePeTransactionId,
-      amount: p.amount,
-      status: p.status,
-      customerName: p.order?.user?.name ?? p.order?.guestName ?? null,
-      customerPhone: p.order?.user?.phone ?? p.order?.guestPhone ?? null,
-      bookingId: null,
-      cafeOrderId: p.orderId,
-      refundedAt: p.refundedAt?.toISOString() ?? null,
-      refundReason: p.refundReason,
-      createdAt: p.createdAt.toISOString(),
-    })),
-  ];
-
-  rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const total = rows.length;
+  const total = filtered.length;
   const start = (page - 1) * PAGE_SIZE;
+  const items = filtered
+    .slice(start, start + PAGE_SIZE)
+    // strip the internal sort key
+    .map(({ _ms, ...txn }) => txn);
+
   return {
-    items: rows.slice(start, start + PAGE_SIZE),
+    configured,
+    truncated,
+    items,
     total,
     page,
     totalPages: Math.max(Math.ceil(total / PAGE_SIZE), 1),
   };
-}
-
-export interface PhonePeStatusResult {
-  ok: boolean;
-  state?: string;
-  success?: boolean;
-  phonePeTransactionId?: string;
-  amount?: number; // paise as returned by PhonePe
-  error?: string;
-}
-
-/**
- * Live per-transaction status from PhonePe (the one merchant API available).
- * READ-ONLY — surfaces PhonePe's truth for the admin; does not mutate our DB
- * (reconciling a captured-but-unbooked payment is the orphan-recovery flow).
- */
-export async function refreshPhonePeStatus(
-  merchantTxnId: string,
-  skipAuth = false,
-): Promise<PhonePeStatusResult> {
-  if (!skipAuth) await requireGatewayAccess();
-  if (!merchantTxnId) return { ok: false, error: "No PhonePe merchant txn id on this payment" };
-  try {
-    const s = await checkPhonePeStatus(merchantTxnId);
-    return {
-      ok: true,
-      state: s.state,
-      success: s.success,
-      phonePeTransactionId: s.transactionId,
-      amount: s.amount,
-    };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Status check failed" };
-  }
 }
