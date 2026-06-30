@@ -10,6 +10,7 @@ import { PhonePeDashboard } from "./phonepe-dashboard";
 function notConfiguredOverview(): PhonePeOverview {
   return {
     configured: false,
+    error: null,
     truncated: false,
     totalCount: 0,
     completedCount: 0,

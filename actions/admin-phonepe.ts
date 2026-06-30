@@ -144,6 +144,7 @@ async function fetchWindow(
   rows: Array<PhonePeTxn & { _ms: number }>;
   truncated: boolean;
   configured: boolean;
+  error: string | null;
   range: { from: string; to: string };
 }> {
   const { startMs, endMs } = defaultRange(from, to);
@@ -151,31 +152,42 @@ async function fetchWindow(
 
   const storeId = getDqrStoreId(store);
   if (!isQrReportingConfigured() || !storeId) {
-    return { rows: [], truncated: false, configured: false, range };
+    return { rows: [], truncated: false, configured: false, error: null, range };
   }
 
-  const res = await qrTransactionList({
-    storeId,
-    size: MAX_LIST_SIZE,
-    startTimestamp: startMs,
-  });
+  // The PhonePe call can fail (bad creds, store not enabled for the list API,
+  // response-shape mismatch). NEVER let that throw out of here — it would crash
+  // the admin page's server render. Surface it as an inline error instead.
+  try {
+    const res = await qrTransactionList({
+      storeId,
+      size: MAX_LIST_SIZE,
+      startTimestamp: startMs,
+    });
 
-  const rows = res.transactions
-    .map(mapTxn)
-    // API filters by start only; enforce the end of the window ourselves.
-    .filter((r) => r._ms === 0 || r._ms <= endMs)
-    .sort((a, b) => b._ms - a._ms);
+    const rows = res.transactions
+      .map(mapTxn)
+      // API filters by start only; enforce the end of the window ourselves.
+      .filter((r) => r._ms === 0 || r._ms <= endMs)
+      .sort((a, b) => b._ms - a._ms);
 
-  return {
-    rows,
-    truncated: res.resultCount >= MAX_LIST_SIZE,
-    configured: true,
-    range,
-  };
+    return {
+      rows,
+      truncated: res.resultCount >= MAX_LIST_SIZE,
+      configured: true,
+      error: null,
+      range,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "PhonePe request failed";
+    console.error(`[admin-phonepe] store=${store} fetch failed:`, message);
+    return { rows: [], truncated: false, configured: true, error: message, range };
+  }
 }
 
 export interface PhonePeOverview {
   configured: boolean; // false → creds not set; UI shows a setup notice
+  error: string | null; // non-null → the live PhonePe call failed; show inline
   truncated: boolean; // hit the API size cap → older rows may be missing
   totalCount: number;
   completedCount: number;
@@ -193,7 +205,7 @@ export async function getPhonePeOverview(params: {
   skipAuth?: boolean;
 }): Promise<PhonePeOverview> {
   if (!params.skipAuth) await requireGatewayAccess();
-  const { rows, truncated, configured, range } = await fetchWindow(
+  const { rows, truncated, configured, error, range } = await fetchWindow(
     params.store,
     params.from,
     params.to,
@@ -201,6 +213,7 @@ export async function getPhonePeOverview(params: {
 
   const ov: PhonePeOverview = {
     configured,
+    error,
     truncated,
     totalCount: rows.length,
     completedCount: 0,
@@ -227,6 +240,7 @@ export async function getPhonePeOverview(params: {
 
 export interface PhonePeTxnPage {
   configured: boolean;
+  error: string | null;
   truncated: boolean;
   items: PhonePeTxn[];
   total: number;
@@ -244,7 +258,7 @@ export async function getPhonePeTransactions(params: {
   skipAuth?: boolean;
 }): Promise<PhonePeTxnPage> {
   if (!params.skipAuth) await requireGatewayAccess();
-  const { rows, truncated, configured } = await fetchWindow(
+  const { rows, truncated, configured, error } = await fetchWindow(
     params.store,
     params.from,
     params.to,
@@ -266,6 +280,7 @@ export async function getPhonePeTransactions(params: {
 
   return {
     configured,
+    error,
     truncated,
     items,
     total,

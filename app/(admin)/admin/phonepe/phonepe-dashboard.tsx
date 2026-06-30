@@ -334,6 +334,11 @@ function TransactionsTable({
 
   return (
     <div className="space-y-4">
+      {data?.error && (
+        <ErrorBanner
+          message={`PhonePe request failed for this store: ${data.error}`}
+        />
+      )}
       {data?.truncated && <TruncatedBanner />}
 
       {/* Filters */}
@@ -549,6 +554,10 @@ export function PhonePeDashboard({
 
       {!overview.configured ? (
         <NotConfiguredNotice />
+      ) : overview.error ? (
+        <ErrorBanner
+          message={`PhonePe request failed for this store: ${overview.error}`}
+        />
       ) : (
         <>
           {overview.truncated && <TruncatedBanner />}

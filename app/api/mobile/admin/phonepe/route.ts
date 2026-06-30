@@ -35,6 +35,7 @@ import {
 function notConfiguredOverview(): PhonePeOverview {
   return {
     configured: false,
+    error: null,
     truncated: false,
     totalCount: 0,
     completedCount: 0,
@@ -49,6 +50,7 @@ function notConfiguredOverview(): PhonePeOverview {
 function notConfiguredTransactions(): PhonePeTxnPage {
   return {
     configured: false,
+    error: null,
     truncated: false,
     items: [],
     total: 0,
