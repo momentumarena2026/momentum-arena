@@ -42,6 +42,12 @@ const DQR_SALT_KEY = process.env.PHONEPE_DQR_SALT_KEY;
 const DQR_SALT_INDEX = process.env.PHONEPE_DQR_SALT_INDEX || "1";
 const DQR_STORE_ID = process.env.PHONEPE_DQR_STORE_ID;
 const DQR_TERMINAL_ID = process.env.PHONEPE_DQR_TERMINAL_ID;
+// Provider id for the OFFLINE reconciliation "transaction list" API only. That
+// endpoint is provider-scoped: it requires an X-PROVIDER-ID header whose value
+// is a PhonePe-assigned providerId mapped to the merchant (the merchant/store
+// ids are rejected with INVALID_PROVIDER_MAPPING). Issued by PhonePe; unused by
+// checkout (qrInit/qrStatus, which only need merchant+store).
+const DQR_PROVIDER_ID = process.env.PHONEPE_DQR_PROVIDER_ID;
 
 // Mercury host. The UAT host carries an `/enterprise-sandbox` prefix
 // that production drops. IMPORTANT: that prefix is part of the request
@@ -57,6 +63,7 @@ const DQR_BASE = isProd
 // appended to DQR_BASE for the actual request URL.
 const QR_INIT_PATH = "/v3/qr/init";
 const INTENT_INIT_PATH = "/v1/intent/init";
+const QR_TXN_LIST_PATH = "/v3/qr/transaction/list";
 const txnStatusPath = (merchantId: string, transactionId: string) =>
   `/v3/transaction/${encodeURIComponent(merchantId)}/${encodeURIComponent(
     transactionId,
@@ -384,4 +391,233 @@ export function decodeDqrCallback(base64Response: string): DqrCallbackData {
   return JSON.parse(
     Buffer.from(base64Response, "base64").toString("utf-8"),
   ) as DqrCallbackData;
+}
+
+// ─── QR Transaction List API (admin reporting) ──────────────────────────────
+//
+// `POST /v3/qr/transaction/list` is the PhonePe "Integrated Static QR"
+// reporting endpoint. Keyed on merchantId + storeId, it returns the
+// transactions PhonePe recorded for our merchant QR codes — and because our
+// Dynamic QR (qrInit) generates QRs under the SAME merchant + store, ONE call
+// returns BOTH static-QR and DQR transactions (PhonePe's own truth). This is
+// the source of truth for the admin PhonePe dashboard (`actions/admin-phonepe`),
+// replacing the previous DB-derived view.
+//
+// Same V1 X-VERIFY + mercury host + `{ request: base64 }` body as qrInit, so it
+// reuses this module's creds. Gated by `isDqrConfigured()` like everything else.
+//
+// ⚠️ Confirm at activation against the PhonePe sandbox: the exact per-transaction
+// field names (esp. how the terminal status is reported — the docs say to read a
+// per-txn `code`/`payResponseCode` rather than `paymentState`) and whether the
+// list truly spans both products under one merchant+store, vs needing a separate
+// static-QR merchantId.
+
+/** One transaction row from the QR Transaction List API. */
+export interface QrListTransaction {
+  /** Our merchant transaction id (DQR ids are prefixed "DQR…"). */
+  transactionId: string;
+  /** PhonePe-side reference id. */
+  providerReferenceId: string | null;
+  /** Amount in paise. */
+  amount: number;
+  /** Terminal status. Docs flag `paymentState` as informational — prefer
+   *  `payResponseCode` / top-level `code` when present. */
+  paymentState: string | null;
+  payResponseCode: string | null;
+  /** PhonePe's transaction timestamp (string; format per their response). */
+  transactionDate: string | null;
+  /** Customer name + masked phone, when PhonePe returns them. */
+  name: string | null;
+  mobileNumber: string | null;
+  paymentModes: Array<{ type?: string; mode?: string; amount?: number; utr?: string }>;
+  transactionContext: {
+    qrCodeId?: string;
+    posDeviceId?: string;
+    storeId?: string;
+    terminalId?: string;
+  } | null;
+}
+
+export interface QrTransactionListResult {
+  resultCount: number;
+  startTimestamp: number | null;
+  endTimestamp: number | null;
+  transactions: QrListTransaction[];
+}
+
+// ─── DQR stores ─────────────────────────────────────────────────────────────
+//
+// The merchant runs ONE merchantId across FIVE stores (online bookings, the
+// offline counter, gym, yoga, cafe), each with its own storeId env var. The
+// transaction-list API is keyed on merchantId + storeId, so reporting queries
+// ONE store at a time — the admin dashboard renders these as tabs. Order here
+// is the tab order: Online first (default), Offline second, then the rest.
+export interface DqrStore {
+  key: string;
+  label: string;
+  storeId: string;
+}
+
+const DQR_STORE_DEFS: Array<{ key: string; label: string; env: string }> = [
+  { key: "ONLINE", label: "Online", env: "PHONEPE_DQR_STORE_ID_ONLINE" },
+  { key: "OFFLINE", label: "Offline", env: "PHONEPE_DQR_STORE_ID_OFFLINE" },
+  { key: "GYM", label: "Gym", env: "PHONEPE_DQR_STORE_ID_GYM" },
+  { key: "YOGA", label: "Yoga", env: "PHONEPE_DQR_STORE_ID_YOGA" },
+  { key: "CAFE", label: "Cafe", env: "PHONEPE_DQR_STORE_ID_CAFE" },
+];
+
+/** The configured stores, in tab order (only those whose env var is set). */
+export function getDqrStores(): DqrStore[] {
+  return DQR_STORE_DEFS.map((d) => ({
+    key: d.key,
+    label: d.label,
+    storeId: process.env[d.env] ?? "",
+  })).filter((s): s is DqrStore => s.storeId.length > 0);
+}
+
+/** Resolve a store key (e.g. "ONLINE") to its configured storeId, if any. */
+export function getDqrStoreId(key: string): string | undefined {
+  const def = DQR_STORE_DEFS.find((d) => d.key === key);
+  const id = def ? process.env[def.env] : undefined;
+  return id && id.length > 0 ? id : undefined;
+}
+
+/**
+ * Fetch the merchant's QR transactions (static + DQR) from PhonePe.
+ *
+ * The API filters by `startTimestamp` (ms) + `size` only — there is NO
+ * end-timestamp and NO offset/cursor pagination — so callers fetch a window
+ * from a start time and slice/window client-side. Throws on misconfig or a
+ * non-2xx / unsuccessful response (the dashboard surfaces a friendly error).
+ */
+export async function qrTransactionList(params: {
+  /** Which store to query (keyed per merchantId + storeId by the API). */
+  storeId: string;
+  /** Max rows to return (the API's only volume control). */
+  size: number;
+  /** Window start, epoch ms. */
+  startTimestamp: number;
+  amountPaise?: number;
+  last4Digits?: string;
+  qrCodeId?: string;
+  terminalId?: string;
+}): Promise<QrTransactionListResult> {
+  // Reporting only needs merchantId + saltKey + the per-store id passed in — it
+  // is decoupled from the checkout `isDqrConfigured()` (which gates on the
+  // singular PHONEPE_DQR_STORE_ID used by qrInit).
+  if (!DQR_MERCHANT_ID || !DQR_SALT_KEY) {
+    throw new Error(
+      "PhonePe QR reporting not configured — set PHONEPE_DQR_MERCHANT_ID + PHONEPE_DQR_SALT_KEY",
+    );
+  }
+  const merchantId = DQR_MERCHANT_ID;
+
+  const payload = {
+    size: params.size,
+    merchantId,
+    storeId: params.storeId,
+    startTimestamp: params.startTimestamp,
+    ...(params.amountPaise != null ? { amount: params.amountPaise } : {}),
+    ...(params.last4Digits ? { last4Digits: params.last4Digits } : {}),
+    ...(params.qrCodeId ? { qrCodeId: params.qrCodeId } : {}),
+    ...(params.terminalId
+      ? { terminalId: params.terminalId }
+      : DQR_TERMINAL_ID
+        ? { terminalId: DQR_TERMINAL_ID }
+        : {}),
+  };
+
+  const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  const endpoint = `${DQR_BASE}${QR_TXN_LIST_PATH}`;
+  // Sign the logical path (no /enterprise-sandbox prefix), per the docs.
+  const checksum = xVerify(base64 + QR_TXN_LIST_PATH);
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    signal: AbortSignal.timeout(15000),
+    headers: {
+      "Content-Type": "application/json",
+      "X-VERIFY": checksum,
+      // Required by this provider-scoped endpoint (issued by PhonePe).
+      ...(DQR_PROVIDER_ID ? { "X-PROVIDER-ID": DQR_PROVIDER_ID } : {}),
+    },
+    body: JSON.stringify({ request: base64 }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(
+      `[dqr] txn-list failed env=${DQR_ENV} host=${DQR_BASE} status=${res.status} body=${text.slice(0, 300)}`,
+    );
+    throw new Error(
+      `PhonePe QR transaction list failed [env=${DQR_ENV} host=${DQR_BASE}]: ${res.status} ${text.slice(0, 400)}`,
+    );
+  }
+
+  const json = (await res.json()) as {
+    success?: boolean;
+    code?: string;
+    data?: {
+      resultCount?: number;
+      startTimestamp?: number;
+      endTimestamp?: number;
+      transactions?: Array<Record<string, unknown>>;
+    };
+  };
+
+  if (!json.success) {
+    throw new Error(
+      `PhonePe QR transaction list unsuccessful: code=${json.code ?? "?"}`,
+    );
+  }
+
+  const raw = json.data?.transactions ?? [];
+  const transactions: QrListTransaction[] = raw.map((t) => {
+    const ctx = (t.transactionContext ?? null) as QrListTransaction["transactionContext"];
+    const modes = Array.isArray(t.paymentModes)
+      ? (t.paymentModes as QrListTransaction["paymentModes"])
+      : [];
+    return {
+      transactionId: String(t.transactionId ?? ""),
+      providerReferenceId:
+        t.providerReferenceId != null ? String(t.providerReferenceId) : null,
+      amount: typeof t.amount === "number" ? t.amount : Number(t.amount ?? 0),
+      paymentState: t.paymentState != null ? String(t.paymentState) : null,
+      payResponseCode:
+        t.payResponseCode != null ? String(t.payResponseCode) : null,
+      transactionDate:
+        t.transactionDate != null ? String(t.transactionDate) : null,
+      name: t.name != null ? String(t.name) : null,
+      mobileNumber:
+        t.mobileNumber != null
+          ? String(t.mobileNumber)
+          : t.phoneNumber != null
+            ? String(t.phoneNumber)
+            : null,
+      paymentModes: modes,
+      transactionContext: ctx,
+    };
+  });
+
+  return {
+    resultCount: json.data?.resultCount ?? transactions.length,
+    startTimestamp: json.data?.startTimestamp ?? null,
+    endTimestamp: json.data?.endTimestamp ?? null,
+    transactions,
+  };
+}
+
+/**
+ * Whether QR transaction-list reporting is usable: merchantId + salt key + at
+ * least one configured store. Independent of checkout's `isDqrConfigured()`
+ * (which requires the singular PHONEPE_DQR_STORE_ID) — reporting works off the
+ * per-store PHONEPE_DQR_STORE_ID_* vars.
+ */
+export function isQrReportingConfigured(): boolean {
+  // X-PROVIDER-ID / PHONEPE_DQR_PROVIDER_ID is NOT required here: this merchant
+  // has ONE merchant id with multiple stores (provider-id only applies to
+  // multi-merchant-id setups). Reporting needs merchant + salt + >=1 store; if
+  // PhonePe hasn't yet enabled the transaction-list product for the merchant,
+  // the call surfaces an inline error (HTTP 500) rather than being hidden here.
+  return Boolean(DQR_MERCHANT_ID && DQR_SALT_KEY && getDqrStores().length > 0);
 }
