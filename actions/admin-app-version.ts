@@ -32,6 +32,28 @@ function isChannel(value: string): value is (typeof CHANNELS)[number] {
 }
 
 /**
+ * Auth options for the mutating actions below.
+ *
+ * Web call-sites omit this → `skipAuth` is false → the action runs the
+ * cookie-based `requireAdmin()` exactly as before. The mobile admin route
+ * (app/api/mobile/admin/ota) has ALREADY authorized the request via bearer
+ * token + MANAGE_PRICING (getMobileAdmin/hasPermission), so it passes
+ * `{ skipAuth: true, adminId: admin.id }` — mirroring the `skipAuth` option
+ * the read action `listAppVersionGates` already exposes. The resolved adminId
+ * is stamped onto the gate's `updatedBy` so skipAuth callers attribute the
+ * edit correctly.
+ */
+interface AdminAuthOpts {
+  skipAuth?: boolean;
+  adminId?: string;
+}
+
+async function resolveAdminId(opts: AdminAuthOpts): Promise<string> {
+  if (opts.skipAuth) return opts.adminId!;
+  return requireAdmin();
+}
+
+/**
  * Public, serializable shape so the client never sees Prisma-internal
  * fields. One entry per existing AppVersionGate row; the page renders an
  * editor (or a "create" prompt) for every (platform × channel) slot.
@@ -86,15 +108,18 @@ export async function listAppVersionGates({
  * "latest store build" metadata never changes minSupportedBuild — forcing
  * is a separate, deliberate action (forceUpdateToLatest / setMinSupportedBuild).
  */
-export async function upsertAppVersionGate(input: {
-  platform: string;
-  channel: string;
-  latestBuild: number;
-  latestVersionName: string;
-  storeUrl: string;
-  message: string;
-}): Promise<{ success: true } | { error: string }> {
-  const adminId = await requireAdmin();
+export async function upsertAppVersionGate(
+  input: {
+    platform: string;
+    channel: string;
+    latestBuild: number;
+    latestVersionName: string;
+    storeUrl: string;
+    message: string;
+  },
+  opts: AdminAuthOpts = {}
+): Promise<{ success: true } | { error: string }> {
+  const adminId = await resolveAdminId(opts);
 
   if (!isPlatform(input.platform)) {
     return { error: "Invalid platform" };
@@ -148,9 +173,10 @@ export async function upsertAppVersionGate(input: {
 export async function setMinSupportedBuild(
   platform: string,
   channel: string,
-  minSupportedBuild: number
+  minSupportedBuild: number,
+  opts: AdminAuthOpts = {}
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await requireAdmin();
+  const adminId = await resolveAdminId(opts);
 
   if (!isPlatform(platform)) {
     return { error: "Invalid platform" };
@@ -190,9 +216,10 @@ export async function setMinSupportedBuild(
  */
 export async function forceUpdateToLatest(
   platform: string,
-  channel: string
+  channel: string,
+  opts: AdminAuthOpts = {}
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await requireAdmin();
+  const adminId = await resolveAdminId(opts);
 
   if (!isPlatform(platform)) {
     return { error: "Invalid platform" };

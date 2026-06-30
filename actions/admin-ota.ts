@@ -20,6 +20,28 @@ function clampPercent(value: number): number {
 }
 
 /**
+ * Auth options for the mutating actions below.
+ *
+ * Web call-sites omit this → `skipAuth` is false → the action runs the
+ * cookie-based `requireAdmin()` exactly as before. The mobile admin route
+ * (app/api/mobile/admin/ota) has ALREADY authorized the request via bearer
+ * token + MANAGE_PRICING (getMobileAdmin/hasPermission), so it passes
+ * `{ skipAuth: true, adminId: admin.id }` — mirroring the `skipAuth` option
+ * the read action `listOtaReleases` already exposes. The resolved adminId is
+ * used wherever a release row stamps `publishedBy`, so skipAuth callers still
+ * attribute the rollout/rollback correctly.
+ */
+interface AdminAuthOpts {
+  skipAuth?: boolean;
+  adminId?: string;
+}
+
+async function resolveAdminId(opts: AdminAuthOpts): Promise<string> {
+  if (opts.skipAuth) return opts.adminId!;
+  return requireAdmin();
+}
+
+/**
  * Public, serializable shape so the client never sees Prisma-internal
  * relations. One entry per release; the page groups by (channel, platform).
  */
@@ -92,9 +114,10 @@ export async function listOtaReleases({
  */
 export async function rolloutOtaRelease(
   releaseId: string,
-  rolloutPercent: number
+  rolloutPercent: number,
+  opts: AdminAuthOpts = {}
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await requireAdmin();
+  const adminId = await resolveAdminId(opts);
 
   if (!releaseId) {
     return { error: "Release id is required" };
@@ -168,9 +191,10 @@ export async function rolloutOtaRelease(
  */
 export async function setOtaRolloutPercent(
   releaseId: string,
-  percent: number
+  percent: number,
+  opts: AdminAuthOpts = {}
 ): Promise<{ success: true } | { error: string }> {
-  await requireAdmin();
+  await resolveAdminId(opts);
 
   if (!releaseId) {
     return { error: "Release id is required" };
@@ -199,9 +223,10 @@ export async function setOtaRolloutPercent(
  * no prior release to fall back to, we just archive this one.
  */
 export async function rollbackOtaRelease(
-  releaseId: string
+  releaseId: string,
+  opts: AdminAuthOpts = {}
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await requireAdmin();
+  const adminId = await resolveAdminId(opts);
 
   if (!releaseId) {
     return { error: "Release id is required" };
@@ -251,9 +276,10 @@ export async function rollbackOtaRelease(
 }
 
 export async function archiveOtaRelease(
-  releaseId: string
+  releaseId: string,
+  opts: AdminAuthOpts = {}
 ): Promise<{ success: true } | { error: string }> {
-  await requireAdmin();
+  await resolveAdminId(opts);
 
   if (!releaseId) {
     return { error: "Release id is required" };
