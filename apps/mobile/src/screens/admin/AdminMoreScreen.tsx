@@ -66,6 +66,13 @@ const GROUPS: Group[] = [
     title: "General",
     rows: [
       {
+        label: "Dashboard",
+        sub: "KPI overview + quick actions",
+        icon: ic(LayoutGrid),
+        perm: null,
+        onPress: (nav) => nav.navigate("AdminHome"),
+      },
+      {
         label: "Reports",
         sub: "Queue + track monthly exports",
         icon: ic(FileText),
@@ -228,7 +235,6 @@ const GROUPS: Group[] = [
   {
     title: "Analytics",
     rows: [
-      { label: "Sports analytics", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminSportsAnalytics") },
       { label: "Cafe analytics", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminCafeAnalytics") },
       { label: "Push analytics", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminPushAnalytics") },
       { label: "Demand heatmap", icon: ic(BarChart3), perm: "VIEW_ANALYTICS", onPress: (nav) => nav.navigate("AdminDemand") },

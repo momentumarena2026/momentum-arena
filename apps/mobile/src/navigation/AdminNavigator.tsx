@@ -5,10 +5,10 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import {
+  BarChart3,
   CalendarCheck,
   CalendarRange,
   Coffee,
-  LayoutDashboard,
   LogOut,
   Menu,
   ShieldCheck,
@@ -193,7 +193,6 @@ function AdminMoreStackNav() {
         component={AdminGeneratorScreen}
         options={{ title: "Generator" }}
       />
-      <MoreStack.Screen name="AdminSportsAnalytics" component={AdminSportsAnalyticsScreen} options={{ title: "Sports analytics" }} />
       <MoreStack.Screen name="AdminCafeAnalytics" component={AdminCafeAnalyticsScreen} options={{ title: "Cafe analytics" }} />
       <MoreStack.Screen name="AdminPushAnalytics" component={AdminPushAnalyticsScreen} options={{ title: "Push analytics" }} />
       <MoreStack.Screen name="AdminDemand" component={AdminDemandScreen} options={{ title: "Demand heatmap" }} />
@@ -417,6 +416,8 @@ export function AdminNavigator() {
   };
   return (
     <Tabs.Navigator
+      // Calendar is the admin landing screen on login (not the dashboard).
+      initialRouteName="AdminCalendar"
       screenOptions={({ route }) => ({
         header: () => <AdminHeader title={titleFor(route.name)} />,
         tabBarStyle: {
@@ -433,8 +434,8 @@ export function AdminNavigator() {
         tabBarIcon: ({ color, size }) => {
           const props = { color, size: size ?? 20, strokeWidth: 2 } as const;
           switch (route.name) {
-            case "AdminHome":
-              return <LayoutDashboard {...props} />;
+            case "AdminSportsAnalytics":
+              return <BarChart3 {...props} />;
             case "AdminBookings":
               return <CalendarCheck {...props} />;
             case "AdminCalendar":
@@ -451,9 +452,13 @@ export function AdminNavigator() {
       })}
     >
       <Tabs.Screen
-        name="AdminHome"
-        component={AdminDashboardScreen}
-        options={{ tabBarLabel: "Home" }}
+        name="AdminSportsAnalytics"
+        component={AdminSportsAnalyticsScreen}
+        options={
+          adminCan(admin, "VIEW_ANALYTICS")
+            ? { tabBarLabel: "Analytics" }
+            : hiddenTab
+        }
       />
       <Tabs.Screen
         name="AdminBookings"
@@ -489,6 +494,17 @@ export function AdminNavigator() {
       />
       {/* Secondary tabs — reachable from the dashboard quick-actions and the
           More hub, but hidden from the bottom bar to keep it to five. */}
+      {/* Dashboard is no longer a bottom tab (Analytics took its slot); it
+          stays registered (hidden) so quick-action deep-links + the More-hub
+          "Dashboard" row still resolve. */}
+      <Tabs.Screen
+        name="AdminHome"
+        component={AdminDashboardScreen}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: "none" },
+        }}
+      />
       <Tabs.Screen
         name="AdminCheckin"
         component={AdminCheckinScreen}
@@ -519,6 +535,8 @@ export function AdminNavigator() {
 
 function titleFor(name: keyof AdminTabsParamList): string {
   switch (name) {
+    case "AdminSportsAnalytics":
+      return "Sports Analytics";
     case "AdminHome":
       return "Dashboard";
     case "AdminBookings":

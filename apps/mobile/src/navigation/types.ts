@@ -193,8 +193,7 @@ export type AdminMoreStackParamList = {
   // Slot Blocks (web /admin/slots) — a Courts & Pricing feature, reached
   // from the More hub, NOT the Calendar tab.
   AdminSlotBlocks: undefined;
-  // Analytics dashboards
-  AdminSportsAnalytics: undefined;
+  // Analytics dashboards (Sports analytics is a bottom TAB, not here)
   AdminCafeAnalytics: undefined;
   AdminPushAnalytics: undefined;
   AdminDemand: undefined;
@@ -215,7 +214,11 @@ export type AdminMoreStackParamList = {
 };
 
 export type AdminTabsParamList = {
-  // Dashboard / Home — KPI cards + quick actions.
+  // Sports analytics — the first bottom tab (replaced the Dashboard/Home tab).
+  AdminSportsAnalytics: undefined;
+  // Dashboard / Home — KPI cards + quick actions. No longer a bottom tab
+  // (hidden); still registered so quick-action deep-links + the More-hub
+  // "Dashboard" row resolve.
   AdminHome: undefined;
   AdminBookings: NavigatorScreenParams<AdminBookingsStackParamList>;
   // Check-in: today's confirmed bookings list with manual-entry +
