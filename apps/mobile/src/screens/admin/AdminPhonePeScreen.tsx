@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -6,11 +6,14 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  ArrowDownLeft,
   CheckCircle2,
   Clock,
+  IndianRupee,
   Layers,
+  RefreshCw,
   TrendingUp,
   XCircle,
 } from "lucide-react-native";
@@ -23,10 +26,10 @@ import { colors, radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 import {
   adminPhonePeApi,
-  type PhonePeChannel,
   type PhonePeOverview,
-  type PhonePeStatus,
+  type PhonePeStatusResult,
   type PhonePeTxn,
+  type PhonePeTxnType,
 } from "../../lib/admin-phonepe";
 
 /** PhonePe amounts arrive in RUPEES already — no paise conversion. */
@@ -57,25 +60,17 @@ const RANGES: { key: string; label: string; days: number | null }[] = [
   { key: "all", label: "All", days: null },
 ];
 
-const STATUS_FILTERS: {
-  key: string;
-  label: string;
-  status?: PhonePeStatus;
-}[] = [
+const STATUS_FILTERS: { key: string; label: string; status?: string }[] = [
   { key: "all", label: "All", status: undefined },
   { key: "COMPLETED", label: "Completed", status: "COMPLETED" },
   { key: "PENDING", label: "Pending", status: "PENDING" },
   { key: "FAILED", label: "Failed", status: "FAILED" },
 ];
 
-const CHANNEL_FILTERS: {
-  key: string;
-  label: string;
-  channel?: PhonePeChannel;
-}[] = [
-  { key: "all", label: "All", channel: undefined },
-  { key: "STATIC", label: "Static QR", channel: "STATIC" },
-  { key: "DQR", label: "Dynamic QR", channel: "DQR" },
+const TYPE_FILTERS: { key: string; label: string; type?: PhonePeTxnType }[] = [
+  { key: "all", label: "All", type: undefined },
+  { key: "booking", label: "Booking", type: "booking" },
+  { key: "cafe", label: "Cafe", type: "cafe" },
 ];
 
 // --- status badge ---
@@ -84,6 +79,7 @@ const STATUS_COLOR: Record<string, { fg: string; bg: string }> = {
   COMPLETED: { fg: colors.emerald400, bg: colors.emerald500_20 },
   PENDING: { fg: colors.yellow400, bg: colors.yellow500_10 },
   FAILED: { fg: colors.destructive, bg: colors.destructive_10 },
+  REFUNDED: { fg: colors.destructive_300, bg: colors.destructive_10 },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -107,10 +103,6 @@ function TagBadge({ label, fg }: { label: string; fg: string }) {
   );
 }
 
-function channelLabel(channel: PhonePeChannel): string {
-  return channel === "DQR" ? "Dynamic QR" : "Static QR";
-}
-
 // --- KPI grid config ---
 
 const KPIS: {
@@ -129,59 +121,50 @@ const KPIS: {
 ];
 
 export function AdminPhonePeScreen() {
-  // The PhonePe merchant has one merchantId but several stores. Until the
-  // first response arrives `selectedStore` is undefined → the server uses
-  // its defaultStore; we then initialize state to that default (once).
-  const [selectedStore, setSelectedStore] = useState<string | undefined>(
-    undefined,
-  );
   const [rangeKey, setRangeKey] = useState("90d");
   const [statusKey, setStatusKey] = useState("all");
-  const [channelKey, setChannelKey] = useState("all");
+  const [typeKey, setTypeKey] = useState("all");
   const [page, setPage] = useState(1);
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2];
   const statusFilter = STATUS_FILTERS.find((s) => s.key === statusKey);
-  const channelFilter = CHANNEL_FILTERS.find((c) => c.key === channelKey);
+  const typeFilter = TYPE_FILTERS.find((t) => t.key === typeKey);
   const from = range.days != null ? isoDaysAgo(range.days) : undefined;
+
+  // Live per-txn status results, keyed by merchantTxnId, shown inline.
+  const [liveStatus, setLiveStatus] = useState<
+    Record<string, PhonePeStatusResult>
+  >({});
 
   const query = useQuery({
     queryKey: [
       "admin",
       "phonepe",
-      selectedStore ?? "default",
       rangeKey,
       statusFilter?.status ?? "all",
-      channelFilter?.channel ?? "all",
+      typeFilter?.type ?? "all",
       page,
     ],
     queryFn: () =>
       adminPhonePeApi.dashboard({
-        store: selectedStore,
         from,
         status: statusFilter?.status,
-        channel: channelFilter?.channel,
+        type: typeFilter?.type,
         page,
       }),
   });
 
-  const stores = query.data?.stores ?? [];
-  const defaultStore = query.data?.defaultStore ?? null;
-
-  // Once the first response lands, adopt its defaultStore (only if unset, so
-  // we don't loop or override the user's manual selection).
-  useEffect(() => {
-    if (selectedStore === undefined && defaultStore) {
-      setSelectedStore(defaultStore);
-    }
-  }, [selectedStore, defaultStore]);
+  const refreshMutation = useMutation({
+    mutationFn: (merchantTxnId: string) =>
+      adminPhonePeApi.refreshStatus(merchantTxnId),
+    onSuccess: (res, merchantTxnId) => {
+      setLiveStatus((prev) => ({ ...prev, [merchantTxnId]: res.status }));
+    },
+  });
 
   const overview = query.data?.overview;
   const txnPage = query.data?.transactions;
   const items = txnPage?.items ?? [];
-  const notConfigured = overview ? overview.configured === false : false;
-  // The store the tabs reflect: explicit selection, else the server default.
-  const activeStore = selectedStore ?? defaultStore ?? undefined;
 
   function resetPageAnd(fn: () => void) {
     setPage(1);
@@ -201,22 +184,9 @@ export function AdminPhonePeScreen() {
         }
       >
         <Text variant="tiny" color={colors.zinc500} style={styles.caption}>
-          Live from PhonePe — static + Dynamic QR transactions.
-          Standard-checkout payments not included.
+          PhonePe has no settlement or dispute API — this is a DB-backed view of
+          your PhonePe payments with live per-transaction status.
         </Text>
-
-        {/* Store tabs — one merchantId, many stores (Online, Offline, …) */}
-        {stores.length > 0 ? (
-          <ChipRow
-            options={stores.map((s) => ({ key: s.key, label: s.label }))}
-            active={activeStore ?? ""}
-            onSelect={(k) =>
-              resetPageAnd(() => {
-                if (k !== activeStore) setSelectedStore(k);
-              })
-            }
-          />
-        ) : null}
 
         {/* Date range chips */}
         <ChipRow
@@ -244,12 +214,6 @@ export function AdminPhonePeScreen() {
                 : "Couldn't load the PhonePe dashboard."}
             </Text>
           </Card>
-        ) : notConfigured ? (
-          <Card style={styles.card}>
-            <Text variant="small" color={colors.zinc400}>
-              PhonePe QR reporting isn't configured (needs live DQR creds).
-            </Text>
-          </Card>
         ) : overview ? (
           <>
             <View style={styles.kpiGrid}>
@@ -269,7 +233,7 @@ export function AdminPhonePeScreen() {
               })}
             </View>
 
-            {/* Completed volume */}
+            {/* Volume + refunds */}
             <View style={styles.kpiGrid}>
               <Card style={styles.kpiCard}>
                 <TrendingUp size={20} color={colors.emerald400} />
@@ -280,94 +244,105 @@ export function AdminPhonePeScreen() {
                   Completed Volume
                 </Text>
               </Card>
+              <Card style={styles.kpiCard}>
+                <ArrowDownLeft size={20} color={colors.destructive} />
+                <Text variant="title" weight="700" color={colors.foreground}>
+                  {formatRupees(overview.refundedAmount)}
+                </Text>
+                <Text variant="tiny" color={colors.zinc500}>
+                  Refunded ({overview.refundedCount})
+                </Text>
+              </Card>
             </View>
 
-            {/* Channel split */}
+            {/* Channel + type splits */}
             <Text variant="tiny" color={colors.zinc500} style={styles.section}>
               VOLUME BY CHANNEL
             </Text>
             <Card style={styles.card}>
-              <SplitRow label="Static QR" value={overview.byChannel.STATIC} />
+              <SplitRow label="Checkout" value={overview.byChannel.CHECKOUT} />
               <SplitRow label="Dynamic QR" value={overview.byChannel.DQR} />
             </Card>
 
-            {overview.truncated ? (
-              <Text variant="tiny" color={colors.zinc500} style={styles.note}>
-                Most recent transactions only — narrow the date range for older
-                ones.
-              </Text>
-            ) : null}
+            <Text variant="tiny" color={colors.zinc500} style={styles.section}>
+              VOLUME BY TYPE
+            </Text>
+            <Card style={styles.card}>
+              <SplitRow label="Bookings" value={overview.byType.booking} />
+              <SplitRow label="Cafe" value={overview.byType.cafe} />
+            </Card>
           </>
         ) : null}
 
         {/* Transactions */}
-        {notConfigured ? null : (
-          <>
-            <Text variant="tiny" color={colors.zinc500} style={styles.section}>
-              TRANSACTIONS
+        <Text variant="tiny" color={colors.zinc500} style={styles.section}>
+          TRANSACTIONS
+        </Text>
+
+        <ChipRow
+          options={STATUS_FILTERS.map((s) => ({ key: s.key, label: s.label }))}
+          active={statusKey}
+          onSelect={(k) => resetPageAnd(() => setStatusKey(k))}
+        />
+        <ChipRow
+          options={TYPE_FILTERS.map((t) => ({ key: t.key, label: t.label }))}
+          active={typeKey}
+          onSelect={(k) => resetPageAnd(() => setTypeKey(k))}
+        />
+
+        {query.isLoading ? (
+          <View style={{ gap: spacing["3"] }}>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} width="100%" height={96} />
+            ))}
+          </View>
+        ) : items.length === 0 && !query.isError ? (
+          <Card style={styles.card}>
+            <Text variant="small" color={colors.zinc500}>
+              No PhonePe transactions in this window.
             </Text>
-
-            <ChipRow
-              options={STATUS_FILTERS.map((s) => ({
-                key: s.key,
-                label: s.label,
-              }))}
-              active={statusKey}
-              onSelect={(k) => resetPageAnd(() => setStatusKey(k))}
-            />
-            <ChipRow
-              options={CHANNEL_FILTERS.map((c) => ({
-                key: c.key,
-                label: c.label,
-              }))}
-              active={channelKey}
-              onSelect={(k) => resetPageAnd(() => setChannelKey(k))}
-            />
-
-            {query.isLoading ? (
-              <View style={{ gap: spacing["3"] }}>
-                {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} width="100%" height={96} />
-                ))}
-              </View>
-            ) : items.length === 0 && !query.isError ? (
-              <Card style={styles.card}>
-                <Text variant="small" color={colors.zinc500}>
-                  No PhonePe transactions in this window.
-                </Text>
-              </Card>
-            ) : (
-              <View style={{ gap: spacing["3"] }}>
-                {items.map((txn) => (
-                  <TxnCard key={txn.id} txn={txn} />
-                ))}
-              </View>
-            )}
-
-            {/* Pagination */}
-            {txnPage && txnPage.totalPages > 1 ? (
-              <View style={styles.pager}>
-                <Button
-                  label="Prev"
-                  variant="secondary"
-                  size="sm"
-                  disabled={page <= 1 || query.isFetching}
-                  onPress={() => setPage((p) => Math.max(1, p - 1))}
-                />
-                <Text variant="small" color={colors.zinc400}>
-                  Page {txnPage.page} of {txnPage.totalPages}
-                </Text>
-                <Button
-                  label="Next"
-                  variant="secondary"
-                  size="sm"
-                  disabled={page >= txnPage.totalPages || query.isFetching}
-                  onPress={() => setPage((p) => p + 1)}
-                />
-              </View>
-            ) : null}
-          </>
+          </Card>
+        ) : (
+          <View style={{ gap: spacing["3"] }}>
+            {items.map((txn) => (
+              <TxnCard
+                key={txn.id}
+                txn={txn}
+                live={txn.merchantTxnId ? liveStatus[txn.merchantTxnId] : undefined}
+                refreshing={
+                  refreshMutation.isPending &&
+                  refreshMutation.variables === txn.merchantTxnId
+                }
+                onRefresh={() => {
+                  if (txn.merchantTxnId) refreshMutation.mutate(txn.merchantTxnId);
+                }}
+              />
+            ))}
+          </View>
         )}
+
+        {/* Pagination */}
+        {txnPage && txnPage.totalPages > 1 ? (
+          <View style={styles.pager}>
+            <Button
+              label="Prev"
+              variant="secondary"
+              size="sm"
+              disabled={page <= 1 || query.isFetching}
+              onPress={() => setPage((p) => Math.max(1, p - 1))}
+            />
+            <Text variant="small" color={colors.zinc400}>
+              Page {txnPage.page} of {txnPage.totalPages}
+            </Text>
+            <Button
+              label="Next"
+              variant="secondary"
+              size="sm"
+              disabled={page >= txnPage.totalPages || query.isFetching}
+              onPress={() => setPage((p) => p + 1)}
+            />
+          </View>
+        ) : null}
       </ScrollView>
     </Screen>
   );
@@ -425,7 +400,17 @@ function SplitRow({ label, value }: { label: string; value: number }) {
   );
 }
 
-function TxnCard({ txn }: { txn: PhonePeTxn }) {
+function TxnCard({
+  txn,
+  live,
+  refreshing,
+  onRefresh,
+}: {
+  txn: PhonePeTxn;
+  live: PhonePeStatusResult | undefined;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
   return (
     <Card style={styles.txnCard}>
       <View style={styles.txnHead}>
@@ -448,27 +433,61 @@ function TxnCard({ txn }: { txn: PhonePeTxn }) {
       </View>
 
       <View style={styles.txnMeta}>
-        <TagBadge label={channelLabel(txn.channel)} fg={colors.zinc400} />
+        <TagBadge
+          label={txn.type === "cafe" ? "Cafe" : "Booking"}
+          fg={txn.type === "cafe" ? colors.yellow400 : colors.emerald400}
+        />
+        <TagBadge
+          label={txn.channel === "DQR" ? "Dynamic QR" : "Checkout"}
+          fg={colors.zinc400}
+        />
         <Text variant="tiny" color={colors.zinc500}>
           {fmtDateTime(txn.createdAt)}
         </Text>
       </View>
 
+      {txn.refundedAt ? (
+        <Text variant="tiny" color={colors.destructive_300}>
+          Refunded {fmtDateTime(txn.refundedAt)}
+          {txn.refundReason ? ` · ${txn.refundReason}` : ""}
+        </Text>
+      ) : null}
+
+      {/* Live status row */}
       {txn.merchantTxnId ? (
+        <View style={styles.liveRow}>
+          <Button
+            label={refreshing ? "Checking…" : "Check live status"}
+            variant="secondary"
+            size="sm"
+            loading={refreshing}
+            leadingIcon={<RefreshCw size={14} color={colors.foreground} />}
+            onPress={onRefresh}
+          />
+          {live ? (
+            live.ok ? (
+              <Text variant="tiny" color={colors.zinc300} style={styles.liveText}>
+                PhonePe: {live.state ?? "—"}
+                {live.success != null
+                  ? ` (${live.success ? "success" : "not paid"})`
+                  : ""}
+              </Text>
+            ) : (
+              <Text
+                variant="tiny"
+                color={colors.destructive}
+                style={styles.liveText}
+              >
+                {live.error ?? "Status check failed"}
+              </Text>
+            )
+          ) : null}
+        </View>
+      ) : (
         <Text variant="tiny" color={colors.zinc600}>
-          Txn: {txn.merchantTxnId}
+          No PhonePe merchant txn id on this payment.
         </Text>
-      ) : null}
-      {txn.providerReferenceId ? (
-        <Text variant="tiny" color={colors.zinc600}>
-          Ref: {txn.providerReferenceId}
-        </Text>
-      ) : null}
-      {txn.utr ? (
-        <Text variant="tiny" color={colors.zinc600}>
-          UTR: {txn.utr}
-        </Text>
-      ) : null}
+      )}
     </Card>
   );
 }
@@ -481,7 +500,6 @@ const styles = StyleSheet.create({
     gap: spacing["2"],
   },
   caption: { marginBottom: spacing["2"], lineHeight: 16 },
-  note: { marginTop: spacing["1"], lineHeight: 16 },
   card: { padding: spacing["4"], gap: spacing["3"] },
   section: { letterSpacing: 1.2, fontWeight: "700", marginTop: spacing["3"] },
   kpiGrid: {
@@ -541,6 +559,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  liveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: spacing["2"],
+  },
+  liveText: { flexShrink: 1 },
   pager: {
     flexDirection: "row",
     alignItems: "center",
