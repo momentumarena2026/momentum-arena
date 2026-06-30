@@ -149,11 +149,14 @@ function NotConfiguredNotice() {
       </p>
       <p className="text-zinc-400">
         Set{" "}
-        <span className="font-mono text-zinc-200">PHONEPE_DQR_MERCHANT_ID</span>
-        , <span className="font-mono text-zinc-200">PHONEPE_DQR_SALT_KEY</span>{" "}
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_MERCHANT_ID</span>,{" "}
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_SALT_KEY</span>, at
+        least one{" "}
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_STORE_ID_*</span>,
         and{" "}
-        <span className="font-mono text-zinc-200">PHONEPE_DQR_STORE_ID</span>{" "}
-        (live DQR creds) to pull transactions.
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_PROVIDER_ID</span>{" "}
+        to pull transactions. The transaction-list API is provider-scoped — ask
+        PhonePe for the providerId mapped to this merchant.
       </p>
     </div>
   );

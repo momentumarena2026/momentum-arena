@@ -42,6 +42,12 @@ const DQR_SALT_KEY = process.env.PHONEPE_DQR_SALT_KEY;
 const DQR_SALT_INDEX = process.env.PHONEPE_DQR_SALT_INDEX || "1";
 const DQR_STORE_ID = process.env.PHONEPE_DQR_STORE_ID;
 const DQR_TERMINAL_ID = process.env.PHONEPE_DQR_TERMINAL_ID;
+// Provider id for the OFFLINE reconciliation "transaction list" API only. That
+// endpoint is provider-scoped: it requires an X-PROVIDER-ID header whose value
+// is a PhonePe-assigned providerId mapped to the merchant (the merchant/store
+// ids are rejected with INVALID_PROVIDER_MAPPING). Issued by PhonePe; unused by
+// checkout (qrInit/qrStatus, which only need merchant+store).
+const DQR_PROVIDER_ID = process.env.PHONEPE_DQR_PROVIDER_ID;
 
 // Mercury host. The UAT host carries an `/enterprise-sandbox` prefix
 // that production drops. IMPORTANT: that prefix is part of the request
@@ -532,6 +538,8 @@ export async function qrTransactionList(params: {
     headers: {
       "Content-Type": "application/json",
       "X-VERIFY": checksum,
+      // Required by this provider-scoped endpoint (issued by PhonePe).
+      ...(DQR_PROVIDER_ID ? { "X-PROVIDER-ID": DQR_PROVIDER_ID } : {}),
     },
     body: JSON.stringify({ request: base64 }),
   });
@@ -606,5 +614,10 @@ export async function qrTransactionList(params: {
  * per-store PHONEPE_DQR_STORE_ID_* vars.
  */
 export function isQrReportingConfigured(): boolean {
-  return Boolean(DQR_MERCHANT_ID && DQR_SALT_KEY && getDqrStores().length > 0);
+  return Boolean(
+    DQR_MERCHANT_ID &&
+      DQR_SALT_KEY &&
+      DQR_PROVIDER_ID &&
+      getDqrStores().length > 0,
+  );
 }
