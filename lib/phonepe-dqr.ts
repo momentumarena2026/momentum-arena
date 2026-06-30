@@ -614,10 +614,10 @@ export async function qrTransactionList(params: {
  * per-store PHONEPE_DQR_STORE_ID_* vars.
  */
 export function isQrReportingConfigured(): boolean {
-  return Boolean(
-    DQR_MERCHANT_ID &&
-      DQR_SALT_KEY &&
-      DQR_PROVIDER_ID &&
-      getDqrStores().length > 0,
-  );
+  // X-PROVIDER-ID / PHONEPE_DQR_PROVIDER_ID is NOT required here: this merchant
+  // has ONE merchant id with multiple stores (provider-id only applies to
+  // multi-merchant-id setups). Reporting needs merchant + salt + >=1 store; if
+  // PhonePe hasn't yet enabled the transaction-list product for the merchant,
+  // the call surfaces an inline error (HTTP 500) rather than being hidden here.
+  return Boolean(DQR_MERCHANT_ID && DQR_SALT_KEY && getDqrStores().length > 0);
 }

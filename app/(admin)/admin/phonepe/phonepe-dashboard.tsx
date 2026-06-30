@@ -125,6 +125,23 @@ function ErrorBanner({ message }: { message: string }) {
   );
 }
 
+// PhonePe returns a generic 500 INTERNAL_SERVER_ERROR when the merchant isn't
+// provisioned for the transaction-list (offline reconciliation) product, even
+// though the request is well-formed and authenticated. Translate that into an
+// actionable hint; pass other errors through verbatim.
+function reportingErrorMessage(error: string): string {
+  if (/INTERNAL_SERVER_ERROR|\b500\b/.test(error)) {
+    return (
+      "PhonePe returned 500 for the transaction-list API. The request, signing " +
+      "and credentials are valid (QR status works), so this means the " +
+      "Transaction-List / Reconciliation API isn't enabled for this merchant " +
+      "yet — ask PhonePe to provision it for SPORTIVEVENTURES. Raw: " +
+      error
+    );
+  }
+  return `PhonePe request failed for this store: ${error}`;
+}
+
 function EmptyState({ label }: { label: string }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-12 text-center text-zinc-500">
@@ -150,13 +167,10 @@ function NotConfiguredNotice() {
       <p className="text-zinc-400">
         Set{" "}
         <span className="font-mono text-zinc-200">PHONEPE_DQR_MERCHANT_ID</span>,{" "}
-        <span className="font-mono text-zinc-200">PHONEPE_DQR_SALT_KEY</span>, at
-        least one{" "}
-        <span className="font-mono text-zinc-200">PHONEPE_DQR_STORE_ID_*</span>,
-        and{" "}
-        <span className="font-mono text-zinc-200">PHONEPE_DQR_PROVIDER_ID</span>{" "}
-        to pull transactions. The transaction-list API is provider-scoped — ask
-        PhonePe for the providerId mapped to this merchant.
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_SALT_KEY</span> and
+        at least one{" "}
+        <span className="font-mono text-zinc-200">PHONEPE_DQR_STORE_ID_*</span>{" "}
+        to pull transactions.
       </p>
     </div>
   );
@@ -337,11 +351,7 @@ function TransactionsTable({
 
   return (
     <div className="space-y-4">
-      {data?.error && (
-        <ErrorBanner
-          message={`PhonePe request failed for this store: ${data.error}`}
-        />
-      )}
+      {data?.error && <ErrorBanner message={reportingErrorMessage(data.error)} />}
       {data?.truncated && <TruncatedBanner />}
 
       {/* Filters */}
@@ -558,9 +568,7 @@ export function PhonePeDashboard({
       {!overview.configured ? (
         <NotConfiguredNotice />
       ) : overview.error ? (
-        <ErrorBanner
-          message={`PhonePe request failed for this store: ${overview.error}`}
-        />
+        <ErrorBanner message={reportingErrorMessage(overview.error)} />
       ) : (
         <>
           {overview.truncated && <TruncatedBanner />}
