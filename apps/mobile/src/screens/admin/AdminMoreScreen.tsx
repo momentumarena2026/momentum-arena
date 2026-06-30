@@ -24,6 +24,7 @@ import {
   Target,
   Ticket,
   Users,
+  Wallet,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -304,6 +305,13 @@ const GROUPS: Group[] = [
         icon: ic(IndianRupee),
         perm: "VIEW_RAZORPAY",
         onPress: (nav) => nav.navigate("AdminRazorpay"),
+      },
+      {
+        label: "PhonePe",
+        sub: "Transactions + live status",
+        icon: ic(Wallet),
+        perm: "VIEW_RAZORPAY",
+        onPress: (nav) => nav.navigate("AdminPhonePe"),
       },
       {
         label: "Admin users",

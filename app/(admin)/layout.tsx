@@ -47,6 +47,7 @@ const allNavItems = [
   { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },
   { href: "/admin/payment-settings", label: "Payment Gateway", group: "Settings", permission: "VIEW_RAZORPAY" },
   { href: "/admin/razorpay", label: "Razorpay", group: "Settings", permission: "VIEW_RAZORPAY" },
+  { href: "/admin/phonepe", label: "PhonePe", group: "Settings", permission: "VIEW_RAZORPAY" },
 ];
 
 const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Operations", "Mobile Apps", "Settings"];
