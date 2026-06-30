@@ -190,9 +190,11 @@ export async function getCafeRevenueOverTime(
   dateFrom: string,
   dateTo: string,
   groupBy: CafeGroupBy = "day",
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: CafeTimeBucket[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
@@ -256,9 +258,11 @@ export interface CafeCategoryRow {
 export async function getCafeCategoryBreakdown(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: CafeCategoryRow[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
@@ -336,9 +340,11 @@ export async function getCafeTopItems(
   dateFrom: string,
   dateTo: string,
   limit = 10,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: CafeTopItem[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const lines = await db.cafeOrderItem.findMany({
@@ -399,13 +405,15 @@ export interface CafePaymentMethodRow {
 export async function getCafePaymentMethodBreakdown(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{
   success: boolean;
   data?: CafePaymentMethodRow[];
   error?: string;
 }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const payments = await db.cafePayment.findMany({
@@ -448,9 +456,11 @@ export interface CafeHourBucket {
 export async function getCafePeakHours(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: CafeHourBucket[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
@@ -490,9 +500,11 @@ export interface CafeStatusRow {
 export async function getCafeStatusBreakdown(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: CafeStatusRow[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
@@ -535,9 +547,11 @@ export interface VegRow {
 export async function getCafeVegBreakdown(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: VegRow[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const lines = await db.cafeOrderItem.findMany({
@@ -581,13 +595,15 @@ export interface FulfilmentRow {
 export async function getCafeFulfilmentBreakdown(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{
   success: boolean;
   data?: FulfilmentRow[];
   error?: string;
 }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const lines = await db.cafeOrderItem.findMany({
@@ -634,9 +650,11 @@ export async function getCafeTopCustomers(
   dateFrom: string,
   dateTo: string,
   limit = 10,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: CafeTopCustomer[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
@@ -699,9 +717,11 @@ const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export async function getCafeDayOfWeekBreakdown(
   dateFrom: string,
   dateTo: string,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{ success: boolean; data?: DayOfWeekRow[]; error?: string }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
@@ -782,13 +802,15 @@ export async function getCafeItemInventoryTable(
   dateTo: string,
   page = 1,
   pageSize = 20,
+  // Mobile admin routes pre-authenticate via JWT and pass skipAuth=true.
+  skipAuth = false,
 ): Promise<{
   success: boolean;
   data?: CafeItemInventoryPage;
   error?: string;
 }> {
   try {
-    await requireAdmin("VIEW_ANALYTICS");
+    if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
     const { from, to } = rangeBounds(dateFrom, dateTo);
     const safePage = Math.max(1, Math.trunc(page));
     const safeSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
