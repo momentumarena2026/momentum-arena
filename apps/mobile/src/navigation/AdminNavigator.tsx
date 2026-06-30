@@ -134,6 +134,11 @@ function AdminMoreStackNav() {
         options={{ title: "Pricing" }}
       />
       <MoreStack.Screen
+        name="AdminSlotBlocks"
+        component={AdminSlotBlocksScreen}
+        options={{ title: "Slot blocks" }}
+      />
+      <MoreStack.Screen
         name="AdminCoupons"
         component={AdminCouponsScreen}
         options={{ title: "Coupons" }}
@@ -325,11 +330,6 @@ function AdminCalendarStackNav() {
         name="AdminCalendar"
         component={AdminCalendarScreen}
         options={{ headerShown: false }}
-      />
-      <CalendarStack.Screen
-        name="AdminSlotBlocks"
-        component={AdminSlotBlocksScreen}
-        options={{ title: "Slot blocks" }}
       />
     </CalendarStack.Navigator>
   );

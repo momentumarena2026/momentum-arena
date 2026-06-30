@@ -145,13 +145,12 @@ export type AdminBookingsStackParamList = {
     | undefined;
 };
 
-// Calendar tab is a tiny stack so it can host both the day grid and
-// the slot-blocks editor. Web has these as two separate pages
-// (/admin/calendar, /admin/slots); we collapse them into one tab
-// because they share the date context.
+// Calendar tab = the day grid ONLY. Slot Blocks is a separate feature
+// (web: /admin/slots, a Courts & Pricing sidebar page) and now lives in
+// the More stack — keeping it out of the Calendar tab prevents the tab
+// from getting "stuck" on Slot Blocks after a cross-nav from the More hub.
 export type AdminCalendarStackParamList = {
   AdminCalendar: undefined;
-  AdminSlotBlocks: undefined;
 };
 
 // Cafe tab: orders kanban (default) + menu (availability toggle).
@@ -191,6 +190,9 @@ export type AdminMoreStackParamList = {
   AdminUserGroups: undefined;
   AdminFaqs: undefined;
   AdminGenerator: undefined;
+  // Slot Blocks (web /admin/slots) — a Courts & Pricing feature, reached
+  // from the More hub, NOT the Calendar tab.
+  AdminSlotBlocks: undefined;
   // Analytics dashboards
   AdminSportsAnalytics: undefined;
   AdminCafeAnalytics: undefined;
