@@ -20,6 +20,9 @@
         "keyid": "main",
         "alg": "rsa-v1_5-sha256"
       }
-    }
+    },
+    "plugins": [
+      "expo-sharing"
+    ]
   }
 }
