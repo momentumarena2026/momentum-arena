@@ -1,11 +1,30 @@
-import { useMemo } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
-import { Package, Smartphone, ShieldAlert } from "lucide-react-native";
+import { useMemo, useState } from "react";
+import {
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Package,
+  Smartphone,
+  ShieldAlert,
+  Rocket,
+  Percent,
+  Undo2,
+  Archive,
+  ShieldOff,
+  Save,
+  Pencil,
+} from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Input } from "../../components/ui/Input";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { formatDate } from "../../lib/format";
@@ -53,7 +72,101 @@ function RolloutBar({ percent }: { percent: number }) {
   );
 }
 
+/**
+ * One OTA release card with its actions:
+ *  - DRAFT/ARCHIVED → "Roll out" reveals a % input (default 100) → publishes.
+ *  - PUBLISHED      → "Set %" reveals a % input → adjusts rollout; plus
+ *                     "Roll back" and "Archive" (confirmed via Alert).
+ * Mutations invalidate the ["admin","ota"] query on success.
+ */
 function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
+  const queryClient = useQueryClient();
+  // Which inline % editor is open for this release.
+  const [editor, setEditor] = useState<"rollout" | "setpct" | null>(null);
+  const [pct, setPct] = useState(String(r.rolloutPercent || 100));
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["admin", "ota"] });
+
+  const onMutationError = (verb: string) => (err: unknown) =>
+    Alert.alert(
+      `Couldn't ${verb}`,
+      err instanceof AdminApiError || err instanceof Error
+        ? err.message
+        : "Try again.",
+    );
+
+  const rolloutM = useMutation({
+    mutationFn: (percent: number) => adminOtaApi.rollout(r.id, percent),
+    onSuccess: () => {
+      setEditor(null);
+      void invalidate();
+    },
+    onError: onMutationError("roll out"),
+  });
+  const setPctM = useMutation({
+    mutationFn: (percent: number) => adminOtaApi.setPercent(r.id, percent),
+    onSuccess: () => {
+      setEditor(null);
+      void invalidate();
+    },
+    onError: onMutationError("set rollout %"),
+  });
+  const rollbackM = useMutation({
+    mutationFn: () => adminOtaApi.rollback(r.id),
+    onSuccess: () => void invalidate(),
+    onError: onMutationError("roll back"),
+  });
+  const archiveM = useMutation({
+    mutationFn: () => adminOtaApi.archive(r.id),
+    onSuccess: () => void invalidate(),
+    onError: onMutationError("archive"),
+  });
+
+  const pending =
+    rolloutM.isPending ||
+    setPctM.isPending ||
+    rollbackM.isPending ||
+    archiveM.isPending;
+
+  const submitPercent = () => {
+    const value = parseInt(pct, 10);
+    if (isNaN(value) || value < 0 || value > 100) {
+      Alert.alert("Invalid rollout", "Enter a percent between 0 and 100.");
+      return;
+    }
+    if (editor === "rollout") rolloutM.mutate(value);
+    else setPctM.mutate(value);
+  };
+
+  const confirmRollback = () =>
+    Alert.alert(
+      "Roll back this release?",
+      "It will be archived and the previous build re-published at 100%.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Roll back",
+          style: "destructive",
+          onPress: () => rollbackM.mutate(),
+        },
+      ],
+    );
+
+  const confirmArchive = () =>
+    Alert.alert(
+      "Archive this release?",
+      "It will no longer be served.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          style: "destructive",
+          onPress: () => archiveM.mutate(),
+        },
+      ],
+    );
+
   return (
     <View style={styles.release}>
       <View style={styles.releaseHead}>
@@ -72,6 +185,82 @@ function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
         <Text variant="tiny" color={colors.zinc400} numberOfLines={3}>
           {r.changelog}
         </Text>
+      ) : null}
+
+      {/* Actions */}
+      <View style={styles.actionRow}>
+        {r.status !== "PUBLISHED" ? (
+          <Button
+            label="Roll out"
+            size="sm"
+            variant="primary"
+            disabled={pending}
+            leadingIcon={<Rocket size={14} color="#032016" />}
+            onPress={() => {
+              setPct(String(r.rolloutPercent || 100));
+              setEditor(editor === "rollout" ? null : "rollout");
+            }}
+          />
+        ) : null}
+        {r.status === "PUBLISHED" ? (
+          <>
+            <Button
+              label="Set %"
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              leadingIcon={<Percent size={14} color={colors.foreground} />}
+              onPress={() => {
+                setPct(String(r.rolloutPercent));
+                setEditor(editor === "setpct" ? null : "setpct");
+              }}
+            />
+            <Button
+              label="Roll back"
+              size="sm"
+              variant="secondary"
+              loading={rollbackM.isPending}
+              disabled={pending}
+              leadingIcon={<Undo2 size={14} color={colors.warning} />}
+              onPress={confirmRollback}
+            />
+          </>
+        ) : null}
+        {r.status !== "ARCHIVED" ? (
+          <Button
+            label="Archive"
+            size="sm"
+            variant="secondary"
+            loading={archiveM.isPending}
+            disabled={pending}
+            leadingIcon={<Archive size={14} color={colors.zinc400} />}
+            onPress={confirmArchive}
+          />
+        ) : null}
+      </View>
+
+      {/* Inline % editor for Roll out / Set % */}
+      {editor ? (
+        <View style={styles.pctEditor}>
+          <View style={{ flex: 1 }}>
+            <Input
+              keyboardType="number-pad"
+              value={pct}
+              onChangeText={setPct}
+              placeholder="0-100"
+              label={editor === "rollout" ? "Publish at %" : "Rollout %"}
+            />
+          </View>
+          <Button
+            label={editor === "rollout" ? "Publish" : "Save"}
+            size="sm"
+            variant="primary"
+            loading={rolloutM.isPending || setPctM.isPending}
+            disabled={pending}
+            onPress={submitPercent}
+            style={styles.pctSubmit}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -128,38 +317,254 @@ function SlotCard({
   );
 }
 
-function GateCard({ gate }: { gate: AppVersionGateRow }) {
+/**
+ * One native version-gate card. Keeps the read summary, and adds an editable
+ * form (latest build / version name / message / min supported build) saved via
+ * `saveGate`, plus a Force-update / Un-force control mirroring the web editor.
+ */
+function GateCard({
+  gate,
+  platform,
+  channel,
+}: {
+  gate: AppVersionGateRow | null;
+  platform: OtaPlatform;
+  channel: string;
+}) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+
+  const [latestBuild, setLatestBuild] = useState(String(gate?.latestBuild ?? ""));
+  const [latestVersionName, setLatestVersionName] = useState(
+    gate?.latestVersionName ?? "",
+  );
+  const [message, setMessage] = useState(gate?.message ?? "");
+  const [minBuild, setMinBuild] = useState(String(gate?.minSupportedBuild ?? ""));
+
   // Match web: a gate only "forces" when the minimum supported build has
   // caught up to the latest build (min >= latest), not merely when min > 0.
   const forcing =
-    gate.latestBuild > 0 && gate.minSupportedBuild >= gate.latestBuild;
+    !!gate && gate.latestBuild > 0 && gate.minSupportedBuild >= gate.latestBuild;
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["admin", "ota"] });
+
+  const onMutationError = (verb: string) => (err: unknown) =>
+    Alert.alert(
+      `Couldn't ${verb}`,
+      err instanceof AdminApiError || err instanceof Error
+        ? err.message
+        : "Try again.",
+    );
+
+  const saveM = useMutation({
+    mutationFn: (input: {
+      latestBuild: number;
+      latestVersionName: string;
+      message: string;
+      minSupportedBuild: number;
+    }) =>
+      adminOtaApi.saveGate({
+        platform,
+        channel,
+        latestBuild: input.latestBuild,
+        latestVersionName: input.latestVersionName,
+        // The upsert action requires a store URL; reuse the gate's existing
+        // one (the store link is managed from the web admin).
+        storeUrl: gate?.storeUrl ?? "",
+        message: input.message,
+        minSupportedBuild: input.minSupportedBuild,
+      }),
+    onSuccess: () => {
+      setEditing(false);
+      void invalidate();
+    },
+    onError: onMutationError("save gate"),
+  });
+  const forceM = useMutation({
+    mutationFn: () => adminOtaApi.forceUpdate(platform, channel),
+    onSuccess: () => void invalidate(),
+    onError: onMutationError("force update"),
+  });
+  const unforceM = useMutation({
+    mutationFn: () => adminOtaApi.unforce(platform, channel),
+    onSuccess: () => void invalidate(),
+    onError: onMutationError("un-force"),
+  });
+
+  const pending = saveM.isPending || forceM.isPending || unforceM.isPending;
+
+  const submit = () => {
+    const build = parseInt(latestBuild, 10);
+    if (isNaN(build) || build < 0) {
+      Alert.alert("Invalid build", "Enter a valid latest build number.");
+      return;
+    }
+    const min = minBuild.trim() === "" ? 0 : parseInt(minBuild, 10);
+    if (isNaN(min) || min < 0) {
+      Alert.alert("Invalid minimum", "Enter a valid minimum supported build.");
+      return;
+    }
+    saveM.mutate({
+      latestBuild: build,
+      latestVersionName,
+      message,
+      minSupportedBuild: min,
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setLatestBuild(String(gate?.latestBuild ?? ""));
+    setLatestVersionName(gate?.latestVersionName ?? "");
+    setMessage(gate?.message ?? "");
+    setMinBuild(String(gate?.minSupportedBuild ?? ""));
+  };
+
+  const onForce = () =>
+    Alert.alert(
+      "Force update — set minimum = latest?",
+      "Only do this AFTER the new build is live on the App Store / Play Store, or you'll lock users out.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Force update",
+          style: "destructive",
+          onPress: () => forceM.mutate(),
+        },
+      ],
+    );
+
+  const onUnforce = () =>
+    Alert.alert(
+      "Un-force update?",
+      "Existing installs will no longer be blocked from using the app.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Un-force", onPress: () => unforceM.mutate() },
+      ],
+    );
+
   return (
     <Card style={styles.slotCard}>
       <View style={styles.slotHead}>
         <ShieldAlert size={16} color={colors.zinc400} />
         <Text variant="bodyStrong" color={colors.foreground}>
-          {platformLabel(gate.platform)}
+          {platformLabel(platform)}
         </Text>
-        <Badge label={gate.channel} tone="primary" />
+        <Badge label={channel} tone="primary" />
         <Badge
           label={forcing ? "Forcing update" : "Not forcing"}
           tone={forcing ? "warning" : "neutral"}
           style={{ marginLeft: "auto" }}
         />
       </View>
-      <Text variant="tiny" color={colors.zinc400}>
-        Latest build {gate.latestBuild}
-        {gate.latestVersionName ? ` (${gate.latestVersionName})` : ""} · min
-        supported {gate.minSupportedBuild}
-      </Text>
-      {gate.message ? (
-        <Text variant="tiny" color={colors.zinc500} numberOfLines={2}>
-          “{gate.message}”
+
+      {!gate ? (
+        <Text variant="tiny" color={colors.zinc600}>
+          No version gate configured yet. Create one below.
         </Text>
+      ) : !editing ? (
+        <>
+          <Text variant="tiny" color={colors.zinc400}>
+            Latest build {gate.latestBuild}
+            {gate.latestVersionName ? ` (${gate.latestVersionName})` : ""} · min
+            supported {gate.minSupportedBuild}
+          </Text>
+          {gate.message ? (
+            <Text variant="tiny" color={colors.zinc500} numberOfLines={2}>
+              “{gate.message}”
+            </Text>
+          ) : null}
+          <Text variant="tiny" color={colors.zinc600}>
+            Updated {formatDate(gate.updatedAt)}
+          </Text>
+        </>
       ) : null}
-      <Text variant="tiny" color={colors.zinc600}>
-        Updated {formatDate(gate.updatedAt)}
-      </Text>
+
+      {/* Edit / create form */}
+      {editing ? (
+        <View style={styles.gateForm}>
+          <Input
+            label="Latest build (number)"
+            keyboardType="number-pad"
+            value={latestBuild}
+            onChangeText={setLatestBuild}
+            placeholder="e.g. 12"
+          />
+          <Input
+            label="Latest version name"
+            value={latestVersionName}
+            onChangeText={setLatestVersionName}
+            placeholder="e.g. 1.0.0"
+          />
+          <Input
+            label="Min supported build"
+            keyboardType="number-pad"
+            value={minBuild}
+            onChangeText={setMinBuild}
+            placeholder="0 = nobody blocked"
+          />
+          <Input
+            label="Message (optional)"
+            value={message}
+            onChangeText={setMessage}
+            placeholder="Custom copy for the update prompt"
+            multiline
+          />
+          <View style={styles.actionRow}>
+            <Button
+              label={gate ? "Save changes" : "Create gate"}
+              size="sm"
+              variant="primary"
+              loading={saveM.isPending}
+              disabled={pending}
+              leadingIcon={<Save size={14} color="#032016" />}
+              onPress={submit}
+            />
+            <Button
+              label="Cancel"
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onPress={cancelEdit}
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.actionRow}>
+          <Button
+            label={gate ? "Edit" : "Create gate"}
+            size="sm"
+            variant="secondary"
+            disabled={pending}
+            leadingIcon={<Pencil size={14} color={colors.foreground} />}
+            onPress={() => setEditing(true)}
+          />
+          {gate && !forcing ? (
+            <Button
+              label="Force update — set minimum = latest"
+              size="sm"
+              variant="destructive"
+              loading={forceM.isPending}
+              disabled={pending || gate.latestBuild <= 0}
+              leadingIcon={<ShieldAlert size={14} color="#fff" />}
+              onPress={onForce}
+            />
+          ) : null}
+          {gate && forcing ? (
+            <Button
+              label="Un-force (lower minimum to 0)"
+              size="sm"
+              variant="secondary"
+              loading={unforceM.isPending}
+              disabled={pending}
+              leadingIcon={<ShieldOff size={14} color={colors.foreground} />}
+              onPress={onUnforce}
+            />
+          ) : null}
+        </View>
+      )}
     </Card>
   );
 }
@@ -197,6 +602,7 @@ export function AdminOtaScreen() {
     <Screen padded={false}>
       <ScrollView
         contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={q.isRefetching && !q.isLoading}
@@ -215,8 +621,8 @@ export function AdminOtaScreen() {
           />
         </View>
         <Text variant="small" color={colors.zinc400}>
-          Read-only status of over-the-air JS bundle releases for the{" "}
-          {environment} mobile app. Roll outs are managed from the web admin.
+          Manage over-the-air JS bundle rollouts and the native version gate for
+          the {environment} mobile app.
         </Text>
 
         {q.isLoading ? (
@@ -264,25 +670,14 @@ export function AdminOtaScreen() {
               NATIVE VERSION GATE
             </Text>
             <View style={styles.list}>
-              {PLATFORMS.map((p) => {
-                const gate = gateSlots.get(p);
-                return gate ? (
-                  <GateCard key={p} gate={gate} />
-                ) : (
-                  <Card key={p} style={styles.slotCard}>
-                    <View style={styles.slotHead}>
-                      <ShieldAlert size={16} color={colors.zinc400} />
-                      <Text variant="bodyStrong" color={colors.foreground}>
-                        {platformLabel(p)}
-                      </Text>
-                      <Badge label={environment} tone="primary" />
-                    </View>
-                    <Text variant="tiny" color={colors.zinc600}>
-                      No version gate configured. Set one from the web admin.
-                    </Text>
-                  </Card>
-                );
-              })}
+              {PLATFORMS.map((p) => (
+                <GateCard
+                  key={p}
+                  gate={gateSlots.get(p) ?? null}
+                  platform={p}
+                  channel={environment}
+                />
+              ))}
             </View>
           </>
         )}
@@ -330,6 +725,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
     gap: spacing["2"],
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: spacing["2"],
+    marginTop: spacing["1"],
+  },
+  pctEditor: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: spacing["2"],
+    marginTop: spacing["1"],
+  },
+  pctSubmit: {
+    marginBottom: 2,
+  },
+  gateForm: {
+    gap: spacing["2"],
+    marginTop: spacing["1"],
   },
   rolloutRow: {
     flexDirection: "row",
