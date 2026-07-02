@@ -230,7 +230,9 @@ export async function sendAdminPasswordResetEmail(
         ],
         from: EMAIL_FROM,
         domain: EMAIL_DOMAIN,
-        template_id: "admin_password_reset",
+        // MSG91 auto-suffixed the slug on creation ("admin_password_reset"
+        // was sluged to _5) — this must match the account's template list.
+        template_id: "admin_password_reset_5",
       }),
     });
 
