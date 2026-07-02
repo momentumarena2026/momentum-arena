@@ -17,7 +17,7 @@ import {
 
 /**
  * Authorize a mobile admin request for the OTA surface: a valid bearer token
- * (getMobileAdmin) holding MANAGE_PRICING (or SUPERADMIN, which bypasses
+ * (getMobileAdmin) holding MANAGE_APP_RELEASES (or SUPERADMIN, which bypasses
  * per-permission checks). Returns the admin on success or a 401/403 response
  * to short-circuit on failure.
  */
@@ -28,7 +28,7 @@ async function authorize(request: NextRequest) {
   }
   if (
     admin.role !== "SUPERADMIN" &&
-    !hasPermission(admin.permissions ?? [], "MANAGE_PRICING")
+    !hasPermission(admin.permissions ?? [], "MANAGE_APP_RELEASES")
   ) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
@@ -43,7 +43,7 @@ async function authorize(request: NextRequest) {
  * and the environment THIS deployment manages (prod domain → "production",
  * dev/preview/local → "development").
  *
- * Gated behind MANAGE_PRICING, the same permission the web OTA actions use.
+ * Gated behind MANAGE_APP_RELEASES, the same permission the web OTA actions use.
  * The web actions auth via the cookie session (requireAdmin); a mobile bearer
  * request has no such cookie, so we authorize here with getMobileAdmin +
  * hasPermission and call the list actions with `skipAuth: true`.
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
  *
  * Dispatches on the request body's `action` field to the matching web action,
  * mirroring the web /admin/ota controls (rollout management + version gates).
- * We authorize ONCE here (bearer + MANAGE_PRICING) then call each action with
+ * We authorize ONCE here (bearer + MANAGE_APP_RELEASES) then call each action with
  * `{ skipAuth: true, adminId: admin.id }` so the cookie-based requireAdmin()
  * is bypassed while createdBy/updatedBy attribution stays correct.
  *

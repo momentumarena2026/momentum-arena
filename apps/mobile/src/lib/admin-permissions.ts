@@ -25,6 +25,8 @@ export const ALL_ADMIN_PERMISSIONS = [
   "MANAGE_PUSH",
   "MANAGE_SHOP_CATALOG",
   "MANAGE_SHOP_ORDERS",
+  "MANAGE_APP_RELEASES",
+  "MANAGE_PAYMENT_SETTINGS",
 ] as const;
 
 export type AdminPermission = (typeof ALL_ADMIN_PERMISSIONS)[number];
@@ -43,7 +45,7 @@ export const PERMISSION_LABELS: Record<AdminPermission, string> = {
   MANAGE_DISCOUNTS: "Manage Discounts",
   MANAGE_FAQS: "Manage FAQs",
   VIEW_ANALYTICS: "View Analytics",
-  VIEW_RAZORPAY: "View Razorpay Dashboard",
+  VIEW_RAZORPAY: "View Payment Gateways (Razorpay/PhonePe)",
   MANAGE_ADMIN_USERS: "Manage Admin Users",
   MANAGE_CAFE_MENU: "Manage Cafe Menu",
   MANAGE_CAFE_ORDERS: "Manage Cafe Orders",
@@ -54,6 +56,8 @@ export const PERMISSION_LABELS: Record<AdminPermission, string> = {
   MANAGE_PUSH: "Manage Push Notifications",
   MANAGE_SHOP_CATALOG: "Manage Shop Catalog",
   MANAGE_SHOP_ORDERS: "Manage Shop Orders",
+  MANAGE_APP_RELEASES: "Manage App Releases (OTA)",
+  MANAGE_PAYMENT_SETTINGS: "Manage Payment Settings",
 };
 
 /**

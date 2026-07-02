@@ -256,13 +256,13 @@ const GROUPS: Group[] = [
       {
         label: "App updates (OTA)",
         icon: ic(Megaphone),
-        perm: "MANAGE_PRICING",
+        perm: "MANAGE_APP_RELEASES",
         onPress: (nav) => nav.navigate("AdminOta"),
       },
       {
         label: "Release flow",
         icon: ic(FileText),
-        perm: "MANAGE_PRICING",
+        perm: "MANAGE_APP_RELEASES",
         onPress: (nav) => nav.navigate("AdminReleaseFlow"),
       },
     ],
@@ -297,7 +297,7 @@ const GROUPS: Group[] = [
       {
         label: "Payment gateway",
         icon: ic(CreditCard),
-        perm: "VIEW_RAZORPAY",
+        perm: "MANAGE_PAYMENT_SETTINGS",
         onPress: (nav) => nav.navigate("AdminPaymentSettings"),
       },
       {

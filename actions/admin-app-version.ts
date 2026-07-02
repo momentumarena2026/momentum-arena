@@ -7,11 +7,11 @@ import type { OtaPlatform } from "@prisma/client";
 
 // The native version gate lives on the same operational surface as OTA
 // (it can hard-block every installed app behind an "Update Required"
-// screen), so it's gated behind the same MANAGE_PRICING permission the
+// screen), so it's gated behind the same MANAGE_APP_RELEASES permission the
 // OTA actions use. Superadmins bypass per-permission checks in
 // requireAdmin.
 async function requireAdmin() {
-  const user = await requireAdminBase("MANAGE_PRICING");
+  const user = await requireAdminBase("MANAGE_APP_RELEASES");
   return user.id;
 }
 
@@ -37,7 +37,7 @@ function isChannel(value: string): value is (typeof CHANNELS)[number] {
  * Web call-sites omit this → `skipAuth` is false → the action runs the
  * cookie-based `requireAdmin()` exactly as before. The mobile admin route
  * (app/api/mobile/admin/ota) has ALREADY authorized the request via bearer
- * token + MANAGE_PRICING (getMobileAdmin/hasPermission), so it passes
+ * token + MANAGE_APP_RELEASES (getMobileAdmin/hasPermission), so it passes
  * `{ skipAuth: true, adminId: admin.id }` — mirroring the `skipAuth` option
  * the read action `listAppVersionGates` already exposes. The resolved adminId
  * is stamped onto the gate's `updatedBy` so skipAuth callers attribute the
@@ -76,7 +76,7 @@ export interface AppVersionGateRow {
  *
  * `skipAuth` lets a caller that has already authorized the request reuse this
  * query without the cookie-session check. The mobile admin route
- * (app/api/mobile/admin/ota) authenticates via bearer token + MANAGE_PRICING
+ * (app/api/mobile/admin/ota) authenticates via bearer token + MANAGE_APP_RELEASES
  * (getMobileAdmin/hasPermission) and passes `skipAuth: true`, since the
  * cookie-based requireAdmin() would reject a mobile request with no session.
  */
