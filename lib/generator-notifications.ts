@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { EMAIL_DOMAIN, EMAIL_FROM } from "@/lib/email";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_EMAIL_API = "https://control.msg91.com/api/v5/email/send";
@@ -69,8 +70,8 @@ export async function sendOilChangeReminder(data: {
             },
           },
         ],
-        from: { email: "noreply@momentumarena.com", name: "Momentum Arena" },
-        domain: "momentumarena.com",
+        from: EMAIL_FROM,
+        domain: EMAIL_DOMAIN,
         template_id: config.oilChangeTemplateId,
       }),
     });
@@ -148,8 +149,8 @@ export async function sendMonthlySummary(data: {
             },
           },
         ],
-        from: { email: "noreply@momentumarena.com", name: "Momentum Arena" },
-        domain: "momentumarena.com",
+        from: EMAIL_FROM,
+        domain: EMAIL_DOMAIN,
         template_id: config.monthlyTemplateId,
       }),
     });
@@ -205,8 +206,8 @@ export async function sendPinChangedEmail(data: {
             },
           },
         ],
-        from: { email: "noreply@momentumarena.com", name: "Momentum Arena" },
-        domain: "momentumarena.com",
+        from: EMAIL_FROM,
+        domain: EMAIL_DOMAIN,
         template_id: config.pinChangeTemplateId,
       }),
     });
