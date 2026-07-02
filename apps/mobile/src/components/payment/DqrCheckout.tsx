@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type ImageSourcePropType,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -46,15 +47,23 @@ type Phase = "init" | "apps" | "qr" | "waiting" | "confirmed" | "error";
 
 const POLL_MS = 3000;
 
-// Razorpay-style LIGHT sheet palette — deliberate contrast with the app's
-// dark theme so the checkout reads as a familiar payment surface.
-const INK = "#18181b";
-const INK_MUTED = "#71717a";
-const INK_FAINT = "#a1a1aa";
-const HAIRLINE = "#e4e4e7";
-const TILE_BG = "#f4f4f5";
+// Dark zinc/emerald sheet palette — matches the app's theme (see
+// src/theme/colors.ts) so the checkout reads as part of the app.
+const SHEET_BG = "#18181b"; // zinc-900
+const INK = "#fafafa"; // primary text
+const INK_MUTED = "#a1a1aa"; // zinc-400 secondary text
+const INK_FAINT = "#71717a"; // zinc-500 tertiary text / countdown
+const HAIRLINE = "#27272a"; // zinc-800 dividers + pressed rows
+const ROW_TEXT = "#f4f4f5"; // zinc-100 app-row names
+const CHEVRON = "#52525b"; // zinc-600
 const EMERALD = "#10b981";
-const RED = "#dc2626";
+const EMERALD_LIGHT = "#34d399"; // emerald-400 accents on dark
+const RED = "#f87171"; // red-400 reads on dark
+const AMBER_TEXT = "#fde68a"; // amber-200 notice body
+const AMBER_STRIP_TEXT = "#fcd34d"; // amber-300 advance strip
+
+const MOMENTUM_LOGO: ImageSourcePropType = require("../../assets/momentum-icon.png");
+const UPI_GENERIC_ICON: ImageSourcePropType = require("../../assets/upi/upi.webp");
 
 /**
  * UPI intent deep-link prefixes for the big four apps. The query string is
@@ -65,15 +74,12 @@ const UPI_APPS: {
   key: string;
   name: string;
   prefix: string;
-  tileBg: string;
-  tileBordered?: boolean;
-  glyph: string;
-  glyphColor: string;
+  icon: ImageSourcePropType;
 }[] = [
-  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", tileBg: "#5F259F", glyph: "पे", glyphColor: "#fff" },
-  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", tileBg: "#fff", tileBordered: true, glyph: "G", glyphColor: "#4285F4" },
-  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", tileBg: "#00BAF2", glyph: "P", glyphColor: "#fff" },
-  { key: "bhim", name: "BHIM", prefix: "upi://pay", tileBg: "#ED752E", glyph: "B", glyphColor: "#fff" },
+  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", icon: require("../../assets/upi/phonepe.webp") },
+  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", icon: require("../../assets/upi/gpay.jpg") },
+  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", icon: require("../../assets/upi/paytm.webp") },
+  { key: "bhim", name: "BHIM", prefix: "upi://pay", icon: UPI_GENERIC_ICON },
 ];
 
 /**
@@ -267,19 +273,24 @@ export function DqrCheckout({
         >
           {/* ── Header ─────────────────────────────────────────────────── */}
           <View style={styles.sheetHeader}>
+            <Image
+              source={MOMENTUM_LOGO}
+              style={styles.headerLogo}
+              resizeMode="contain"
+            />
             <View style={styles.headerLeft}>
               <Text style={styles.merchant}>Momentum Arena</Text>
               <Text style={styles.headerSub}>UPI payment</Text>
             </View>
             <Text style={styles.headerAmount}>{formatRupees(displayAmount)}</Text>
             <Pressable onPress={dismiss} hitSlop={8} style={styles.closeBtn}>
-              <X size={20} color={INK_MUTED} />
+              <X size={20} color={INK_FAINT} />
             </Pressable>
           </View>
           <View style={styles.headerDivider} />
           {isAdvance && advanceAmount != null ? (
             <View style={styles.advanceStrip}>
-              <Text variant="tiny" color="#92400e">
+              <Text variant="tiny" color={AMBER_STRIP_TEXT}>
                 Advance {formatRupees(advanceAmount)} · Remaining at venue{" "}
                 {formatRupees(
                   remainingAmount ?? Math.max(0, amount - advanceAmount),
@@ -321,13 +332,7 @@ export function DqrCheckout({
                     <AppRow
                       name={app.name}
                       onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
-                      tile={
-                        <Tile bg={app.tileBg} bordered={app.tileBordered}>
-                          <Text style={[styles.tileGlyph, { color: app.glyphColor }]}>
-                            {app.glyph}
-                          </Text>
-                        </Tile>
-                      }
+                      tile={<AppIconTile source={app.icon} />}
                     />
                   </View>
                 ))}
@@ -336,8 +341,8 @@ export function DqrCheckout({
                   name="Scan QR code"
                   onPress={() => setPhase("qr")}
                   tile={
-                    <Tile bg={TILE_BG}>
-                      <QrCode size={18} color={INK} />
+                    <Tile dark>
+                      <QrCode size={18} color="#d4d4d8" />
                     </Tile>
                   }
                 />
@@ -345,11 +350,7 @@ export function DqrCheckout({
                 <AppRow
                   name="Other UPI apps"
                   onPress={() => openUpiApp("your UPI app", `upi://pay?${q}`)}
-                  tile={
-                    <Tile bg={TILE_BG}>
-                      <Text style={[styles.tileGlyph, { color: INK }]}>₹</Text>
-                    </Tile>
-                  }
+                  tile={<AppIconTile source={UPI_GENERIC_ICON} />}
                 />
               </View>
             ) : null}
@@ -392,9 +393,9 @@ export function DqrCheckout({
                   Scan with any UPI app — confirms automatically once you pay.
                 </Text>
                 <View style={styles.bankNotice}>
-                  <AlertCircle size={14} color="#b45309" style={styles.noticeIcon} />
-                  <Text variant="tiny" color="#92400e" style={styles.noticeBody}>
-                    <Text variant="tiny" weight="600" color="#92400e">
+                  <AlertCircle size={14} color={AMBER_STRIP_TEXT} style={styles.noticeIcon} />
+                  <Text variant="tiny" color={AMBER_TEXT} style={styles.noticeBody}>
+                    <Text variant="tiny" weight="600" color={AMBER_TEXT}>
                       Pay from your bank-linked UPI
                     </Text>{" "}
                     (savings/current). Wallet balance, credit-card-on-UPI, and
@@ -429,11 +430,11 @@ export function DqrCheckout({
                     });
                   }}
                   style={({ pressed }) => [
-                    styles.primaryBtn,
+                    styles.outlineBtn,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <Text variant="body" weight="600" color="#fff">
+                  <Text variant="body" weight="600" color={EMERALD_LIGHT}>
                     Open {waitingApp?.name ?? "your UPI app"} again
                   </Text>
                 </Pressable>
@@ -514,26 +515,21 @@ export function DqrCheckout({
 
 // ── Sheet building blocks ─────────────────────────────────────────────────────
 
-/** 36px rounded app-icon tile — pure View+Text/icon, no image assets. */
-function Tile({
-  bg,
-  bordered,
-  children,
-}: {
-  bg: string;
-  bordered?: boolean;
-  children: ReactNode;
-}) {
+/** Uniform 36px rounded tile — white by default so every provider logo
+ *  (gpay.jpg's white background included) reads identically on the dark
+ *  sheet; `dark` variant backs the QR-scan icon. */
+function Tile({ dark, children }: { dark?: boolean; children: ReactNode }) {
   return (
-    <View
-      style={[
-        styles.tile,
-        { backgroundColor: bg },
-        bordered && styles.tileBordered,
-      ]}
-    >
-      {children}
-    </View>
+    <View style={[styles.tile, dark && styles.tileDark]}>{children}</View>
+  );
+}
+
+/** Provider logo on a white tile. */
+function AppIconTile({ source }: { source: ImageSourcePropType }) {
+  return (
+    <Tile>
+      <Image source={source} style={styles.tileIcon} resizeMode="contain" />
+    </Tile>
   );
 }
 
@@ -554,7 +550,7 @@ function AppRow({
     >
       {tile}
       <Text style={styles.appName}>{name}</Text>
-      <ChevronRight size={18} color={INK_FAINT} />
+      <ChevronRight size={18} color={CHEVRON} />
     </Pressable>
   );
 }
@@ -566,9 +562,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)",
   },
   sheet: {
-    backgroundColor: "#fff",
+    backgroundColor: SHEET_BG,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: HAIRLINE,
     maxHeight: "85%",
   },
 
@@ -581,6 +579,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing["4"],
     paddingBottom: spacing["3"],
   },
+  headerLogo: { width: 32, height: 32, borderRadius: 8 },
   headerLeft: { flex: 1 },
   merchant: { fontSize: 15, fontWeight: "600", color: INK },
   headerSub: { fontSize: 12, color: INK_MUTED, marginTop: 1 },
@@ -601,7 +600,7 @@ const styles = StyleSheet.create({
     backgroundColor: HAIRLINE,
   },
   advanceStrip: {
-    backgroundColor: "#fef3c7",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
     paddingHorizontal: spacing["5"],
     paddingVertical: spacing["1.5"],
   },
@@ -627,8 +626,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingVertical: spacing["2"],
   },
-  appRowPressed: { backgroundColor: "#fafafa" },
-  appName: { flex: 1, fontSize: 15, color: INK },
+  appRowPressed: { backgroundColor: HAIRLINE },
+  appName: { flex: 1, fontSize: 15, color: ROW_TEXT },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: HAIRLINE,
@@ -640,18 +639,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#fff",
   },
-  tileBordered: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#d4d4d8",
-  },
-  tileGlyph: { fontSize: 14, fontWeight: "700" },
+  tileDark: { backgroundColor: HAIRLINE },
+  tileIcon: { width: 28, height: 28 },
   openErrorBox: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing["2"],
     borderRadius: radius.md,
-    backgroundColor: "rgba(220, 38, 38, 0.06)",
+    backgroundColor: "rgba(248, 113, 113, 0.1)",
     paddingHorizontal: spacing["3"],
     paddingVertical: spacing["2"],
     marginBottom: spacing["2"],
@@ -660,11 +657,10 @@ const styles = StyleSheet.create({
   // ── QR phase ────────────────────────────────────────────────────────────
   qrBlock: { alignItems: "center", gap: spacing["2"] },
   backLink: { alignSelf: "flex-start", paddingVertical: spacing["1"] },
+  // QR stays on a WHITE card — scanners need the light quiet zone.
   qrFrame: {
-    padding: spacing["2.5"],
+    padding: spacing["3"],
     borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: HAIRLINE,
     backgroundColor: "#fff",
   },
   qrImage: { width: 220, height: 220, borderRadius: radius.md },
@@ -678,7 +674,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 26,
     fontWeight: "700",
-    color: INK,
+    color: EMERALD_LIGHT,
     marginTop: spacing["1"],
   },
   waitingRow: {
@@ -692,8 +688,8 @@ const styles = StyleSheet.create({
     gap: spacing["2"],
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#fcd34d",
-    backgroundColor: "#fffbeb",
+    borderColor: "rgba(245, 158, 11, 0.3)",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
     paddingHorizontal: spacing["3"],
     paddingVertical: spacing["2.5"],
     marginTop: spacing["2"],
@@ -713,6 +709,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#059669",
     marginTop: spacing["2"],
   },
+  outlineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    alignSelf: "stretch",
+    paddingVertical: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.4)",
+    marginTop: spacing["2"],
+  },
   ghostBtn: { paddingVertical: spacing["2"] },
   errorCard: {
     alignItems: "center",
@@ -720,8 +728,8 @@ const styles = StyleSheet.create({
     gap: spacing["3"],
     borderRadius: radius.xl,
     borderWidth: 1,
-    borderColor: "rgba(220, 38, 38, 0.30)",
-    backgroundColor: "rgba(220, 38, 38, 0.05)",
+    borderColor: "rgba(248, 113, 113, 0.3)",
+    backgroundColor: "rgba(248, 113, 113, 0.08)",
     padding: spacing["6"],
   },
   successCircle: {

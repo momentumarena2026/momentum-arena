@@ -12,7 +12,6 @@ import {
   AlertCircle,
   ChevronRight,
   Download,
-  IndianRupee,
   Loader2,
   QrCode,
   RefreshCw,
@@ -71,8 +70,8 @@ const SHEET_KEYFRAMES = `
 `;
 
 /**
- * Dynamic-QR checkout, rendered as a Razorpay-style bottom sheet (light
- * theme) that overlays the checkout page. Generates a PhonePe DQR for this
+ * Dynamic-QR checkout, rendered as a Razorpay-style bottom sheet (dark
+ * zinc/emerald theme, matching the site) that overlays the checkout page. Generates a PhonePe DQR for this
  * hold/intent and polls the status endpoint until PhonePe confirms — at
  * which point the booking/order is auto-created server-side. No "I've paid"
  * trust step and no manual UTR/screenshot-to-us: confirmation is
@@ -272,48 +271,40 @@ export function DqrCheckout({
   const appsAvailable = mode === "intent" && !!payString && isMobile;
 
   const tileBase =
-    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg";
+    "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg";
+  // Uniform white tiles so the jpg's white background and the webp
+  // transparency render identically against the dark sheet.
+  const appTile = (src: string, alt: string) => (
+    <span className={`${tileBase} bg-white`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={alt} className="h-7 w-7 object-contain" />
+    </span>
+  );
   const appRows: { name: string; link: string; tile: ReactNode }[] = [
     {
       name: "PhonePe",
       link: `phonepe://pay?${q}`,
-      tile: (
-        <span className={`${tileBase} bg-[#5F259F]`}>
-          <span className="text-[14px] font-bold text-white">पे</span>
-        </span>
-      ),
+      tile: appTile("/upi/phonepe.webp", "PhonePe"),
     },
     {
       name: "Google Pay",
       link: `tez://upi/pay?${q}`,
-      tile: (
-        <span className={`${tileBase} border border-zinc-200 bg-white`}>
-          <span className="text-[15px] font-bold text-[#4285F4]">G</span>
-        </span>
-      ),
+      tile: appTile("/upi/gpay.jpg", "Google Pay"),
     },
     {
       name: "Paytm",
       link: `paytmmp://pay?${q}`,
-      tile: (
-        <span className={`${tileBase} bg-[#00BAF2]`}>
-          <span className="text-[14px] font-bold text-white">P</span>
-        </span>
-      ),
+      tile: appTile("/upi/paytm.webp", "Paytm"),
     },
     {
       name: "BHIM",
       link: `upi://pay?${q}`,
-      tile: (
-        <span className={`${tileBase} bg-[#ED752E]`}>
-          <span className="text-[14px] font-bold text-white">B</span>
-        </span>
-      ),
+      tile: appTile("/upi/upi.webp", "BHIM UPI"),
     },
   ];
 
   const rowClass =
-    "flex min-h-[48px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-50 active:bg-zinc-100";
+    "flex min-h-[48px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-800/60 active:bg-zinc-800";
 
   const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
     // Payment already went through — don't let a stray tap cancel out of
@@ -328,24 +319,32 @@ export function DqrCheckout({
       onClick={handleBackdropClick}
     >
       <style>{SHEET_KEYFRAMES}</style>
-      <div className="dqr-sheet max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl bg-white text-zinc-900 sm:max-w-[400px] sm:rounded-2xl">
+      <div className="dqr-sheet max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl border border-zinc-800 bg-zinc-900 text-zinc-100 sm:max-w-[400px] sm:rounded-2xl">
         {/* Header — merchant + amount, Razorpay style */}
-        <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[15px] font-semibold leading-tight">
-              Momentum Arena
-            </p>
-            <p className="text-xs text-zinc-500">UPI payment</p>
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/icon.png"
+              alt="Momentum Arena"
+              className="h-8 w-8 shrink-0 rounded-md"
+            />
+            <div className="min-w-0">
+              <p className="text-[15px] font-semibold leading-tight text-white">
+                Momentum Arena
+              </p>
+              <p className="text-xs text-zinc-400">UPI payment</p>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="text-[15px] font-semibold">
+            <span className="text-[15px] font-semibold text-white">
               {formatPrice(displayAmount)}
             </span>
             {phase !== "confirmed" && onCancel && (
               <button
                 onClick={onCancel}
                 aria-label="Close"
-                className="rounded-full p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600"
+                className="rounded-full p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -354,7 +353,7 @@ export function DqrCheckout({
         </div>
 
         {isAdvance && advanceAmount != null && (
-          <div className="border-b border-amber-100 bg-amber-50 px-4 py-1.5 text-center text-xs text-amber-800">
+          <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-1.5 text-center text-xs text-amber-300">
             Advance {formatPrice(advanceAmount)} · Remaining at venue{" "}
             {formatPrice(
               remainingAmount ?? Math.max(0, amount - advanceAmount),
@@ -364,8 +363,8 @@ export function DqrCheckout({
 
         {phase === "init" && (
           <div className="flex flex-col items-center gap-3 px-6 py-14">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-            <p className="text-sm text-zinc-500">Setting up UPI payment…</p>
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+            <p className="text-sm text-zinc-400">Setting up UPI payment…</p>
           </div>
         )}
 
@@ -374,7 +373,7 @@ export function DqrCheckout({
             <p className="px-4 pb-1 pt-4 text-[12px] font-medium uppercase tracking-wider text-zinc-500">
               Pay using UPI app
             </p>
-            <div className="divide-y divide-zinc-100">
+            <div className="divide-y divide-zinc-800">
               {appRows.map((app) => (
                 <button
                   key={app.name}
@@ -382,32 +381,30 @@ export function DqrCheckout({
                   className={rowClass}
                 >
                   {app.tile}
-                  <span className="flex-1 text-[15px] font-medium">
+                  <span className="flex-1 text-[15px] font-medium text-zinc-100">
                     {app.name}
                   </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-zinc-300" />
+                  <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
                 </button>
               ))}
               <button onClick={() => setPhase("qr")} className={rowClass}>
-                <span className={`${tileBase} bg-zinc-100`}>
-                  <QrCode className="h-5 w-5 text-zinc-700" />
+                <span className={`${tileBase} bg-zinc-800`}>
+                  <QrCode className="h-5 w-5 text-zinc-300" />
                 </span>
-                <span className="flex-1 text-[15px] font-medium">
+                <span className="flex-1 text-[15px] font-medium text-zinc-100">
                   Scan QR code
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-300" />
+                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
               </button>
               <button
                 onClick={() => launchApp("your UPI app", `upi://pay?${q}`)}
                 className={rowClass}
               >
-                <span className={`${tileBase} bg-zinc-100`}>
-                  <IndianRupee className="h-5 w-5 text-zinc-700" />
-                </span>
-                <span className="flex-1 text-[15px] font-medium">
+                {appTile("/upi/upi.webp", "UPI")}
+                <span className="flex-1 text-[15px] font-medium text-zinc-100">
                   Other UPI apps
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-300" />
+                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
               </button>
             </div>
           </div>
@@ -416,7 +413,9 @@ export function DqrCheckout({
         {phase === "qr" && (
           <div className="flex flex-col items-center px-5 py-6">
             {qrDataUrl ? (
-              <div className="rounded-xl border border-zinc-200 p-3">
+              // QR stays on a white card so scanners read it against the
+              // dark sheet.
+              <div className="rounded-xl bg-white p-3">
                 {/* Plain <img> on a ready data URL so it decodes immediately
                     — iOS Safari skips next/image lazy-load. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -430,19 +429,19 @@ export function DqrCheckout({
               </div>
             ) : (
               <div className="flex h-[240px] w-[240px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+                <Loader2 className="h-8 w-8 animate-spin text-zinc-500" />
               </div>
             )}
 
-            <p className="mt-4 text-2xl font-bold text-zinc-900">
+            <p className="mt-4 text-2xl font-bold text-emerald-400">
               Pay {formatPrice(displayAmount)}
             </p>
-            <p className="mt-2 flex items-center gap-2 text-sm text-zinc-500">
+            <p className="mt-2 flex items-center gap-2 text-sm text-zinc-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for
               payment…
             </p>
             {countdown && (
-              <p className="mt-1 text-xs text-zinc-400">
+              <p className="mt-1 text-xs text-zinc-500">
                 Expires in {countdown}
               </p>
             )}
@@ -453,16 +452,16 @@ export function DqrCheckout({
               <a
                 href={qrDataUrl}
                 download="momentum-arena-upi-qr.png"
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-zinc-800"
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-400 underline underline-offset-2 hover:text-zinc-200"
               >
                 <Download className="h-3.5 w-3.5" /> Save QR, then scan it from
                 gallery in your UPI app
               </a>
             )}
 
-            <div className="mt-4 flex w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-xs leading-relaxed text-amber-800">
+            <div className="mt-4 flex w-full items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+              <p className="text-xs leading-relaxed text-amber-200/90">
                 Pay from your{" "}
                 <span className="font-semibold">bank-linked UPI</span>{" "}
                 (savings/current). Wallets and credit-card-on-UPI will fail.
@@ -472,7 +471,7 @@ export function DqrCheckout({
             {appsAvailable && (
               <button
                 onClick={() => setPhase("apps")}
-                className="mt-3 py-1 text-sm font-medium text-emerald-700 hover:text-emerald-800"
+                className="mt-3 py-1 text-sm font-medium text-emerald-400 hover:text-emerald-300"
               >
                 ← Choose UPI app instead
               </button>
@@ -482,16 +481,16 @@ export function DqrCheckout({
 
         {phase === "waiting" && (
           <div className="flex flex-col items-center px-6 py-10 text-center">
-            <Loader2 className="h-9 w-9 animate-spin text-emerald-600" />
-            <p className="mt-4 text-base font-medium text-zinc-900">
+            <Loader2 className="h-9 w-9 animate-spin text-emerald-500" />
+            <p className="mt-4 text-base font-medium text-white">
               Complete payment in {launchedApp?.name ?? "your UPI app"}
             </p>
-            <p className="mt-1 text-[13px] text-zinc-500">
+            <p className="mt-1 text-[13px] text-zinc-400">
               This confirms automatically the moment you pay — nothing to send
               us.
             </p>
             {countdown && (
-              <p className="mt-2 text-xs text-zinc-400">
+              <p className="mt-2 text-xs text-zinc-500">
                 Expires in {countdown}
               </p>
             )}
@@ -499,13 +498,13 @@ export function DqrCheckout({
               onClick={() =>
                 launchedApp && launchApp(launchedApp.name, launchedApp.link)
               }
-              className="mt-6 w-full rounded-xl border border-emerald-600 px-4 py-3 text-[15px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+              className="mt-6 w-full rounded-xl border border-emerald-500/40 px-4 py-3 text-[15px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10"
             >
               Open {launchedApp?.name ?? "your UPI app"} again
             </button>
             <button
               onClick={() => setPhase("apps")}
-              className="mt-2 w-full py-2 text-sm text-zinc-500 hover:text-zinc-700"
+              className="mt-2 w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
             >
               Choose another app
             </button>
@@ -542,10 +541,10 @@ export function DqrCheckout({
               </svg>
             </div>
             <div style={{ animation: "dqr-fade-in 300ms ease-out 450ms both" }}>
-              <p className="mt-5 text-[17px] font-semibold text-zinc-900">
+              <p className="mt-5 text-[17px] font-semibold text-white">
                 Payment successful
               </p>
-              <p className="mt-1 text-[13px] text-zinc-500">
+              <p className="mt-1 text-[13px] text-zinc-400">
                 {surface === "cafe"
                   ? "Your order is confirmed"
                   : "Your booking is confirmed"}
@@ -556,9 +555,9 @@ export function DqrCheckout({
 
         {phase === "error" && (
           <div className="space-y-4 px-5 py-6">
-            <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-center">
-              <AlertCircle className="mx-auto h-9 w-9 text-red-500" />
-              <p className="mt-3 text-sm text-red-600">{error}</p>
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-center">
+              <AlertCircle className="mx-auto h-9 w-9 text-red-400" />
+              <p className="mt-3 text-sm text-red-300">{error}</p>
             </div>
             <button
               onClick={() => {
@@ -573,7 +572,7 @@ export function DqrCheckout({
             {onCancel && (
               <button
                 onClick={onCancel}
-                className="w-full py-2 text-sm text-zinc-500 hover:text-zinc-700"
+                className="w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
               >
                 ← Go back
               </button>
