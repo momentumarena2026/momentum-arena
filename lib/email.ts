@@ -39,6 +39,13 @@ interface SendEmailOptions {
   from?: { email: string; name?: string };
 }
 
+/**
+ * ⚠️ Raw-body send — currently UNUSABLE on this MSG91 account: every send
+ * without a template_id is rejected with 422 "The template id field is
+ * required" (verified live 2026-07-02). All senders use MSG91 templates
+ * instead (recipients + variables + template_id). Kept only in case the
+ * account is later upgraded to allow raw-body sends.
+ */
 export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   if (isDev && !MSG91_AUTH_KEY) {
     console.log(`\n📧 [DEV] Email to ${options.to.map((t) => t.email).join(", ")}:`);
@@ -136,24 +143,50 @@ export async function sendSuperadminPasswordNotification(
   _newPassword?: string
 ): Promise<boolean> {
   void _newPassword; // Password is NOT included in email for security
-  const results = await Promise.allSettled(
-    SUPERADMIN_RECOVERY_EMAILS.map((email) =>
-      sendEmail({
-        to: [{ email }],
-        subject: "Momentum Arena - Superadmin Password Changed",
-        body: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #ef4444;">⚠️ Superadmin Password Changed</h2>
-            <p>The superadmin (<strong>gamelord</strong>) password was changed at <strong>${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</strong>.</p>
-            <p>If you did not make this change, please contact the admin team immediately and reset the password via the admin dashboard.</p>
-            <p style="color: #666; font-size: 14px;">This is an automated security notification sent to all recovery addresses.</p>
-          </div>
-        `,
-      })
-    )
-  );
+  const changedAt = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+  });
 
-  return results.some((r) => r.status === "fulfilled" && r.value);
+  if (isDev && !MSG91_AUTH_KEY) {
+    console.log(
+      `\n📧 [DEV] Superadmin password-changed alert to ${SUPERADMIN_RECOVERY_EMAILS.join(", ")} (changed at ${changedAt})\n`
+    );
+    return true;
+  }
+
+  if (!MSG91_AUTH_KEY) {
+    console.error("MSG91_AUTH_KEY not set, cannot send superadmin alert");
+    return false;
+  }
+
+  // Template send — this MSG91 account rejects raw-body emails (422
+  // "template id field is required"), so the alert uses the
+  // superadmin_password_alert template with a CHANGED_AT variable.
+  try {
+    const response = await fetch(MSG91_EMAIL_API, {
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+      headers: {
+        "Content-Type": "application/json",
+        authkey: MSG91_AUTH_KEY,
+      },
+      body: JSON.stringify({
+        recipients: SUPERADMIN_RECOVERY_EMAILS.map((email) => ({
+          to: [{ email }],
+          variables: { CHANGED_AT: changedAt },
+        })),
+        from: EMAIL_FROM,
+        domain: EMAIL_DOMAIN,
+        template_id: "superadmin_password_alert",
+      }),
+    });
+
+    const data = await response.json();
+    return response.ok || data.status === "success";
+  } catch (error) {
+    console.error("Superadmin alert email send error:", error);
+    return false;
+  }
 }
 
 export async function sendAdminPasswordResetEmail(
@@ -163,21 +196,48 @@ export async function sendAdminPasswordResetEmail(
 ): Promise<boolean> {
   const resetUrl = `${APP_URL}/godmode/setup-password?token=${resetToken}`;
 
-  return sendEmail({
-    to: [{ email, name: username }],
-    subject: "Momentum Arena Admin - Password Reset",
-    body: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #f59e0b;">Password Reset Request</h2>
-        <p>Hi ${username},</p>
-        <p>Click the link below to reset your admin password:</p>
-        <p style="margin: 24px 0;">
-          <a href="${resetUrl}" style="background: #f59e0b; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-            Reset Password
-          </a>
-        </p>
-        <p style="color: #666; font-size: 14px;">This link expires in 1 hour. If you didn't request this, please ignore it.</p>
-      </div>
-    `,
-  });
+  if (isDev && !MSG91_AUTH_KEY) {
+    console.log(`\n📧 [DEV] Admin password-reset email to ${email}:`);
+    console.log(`   Reset URL: ${resetUrl}\n`);
+    return true;
+  }
+
+  if (!MSG91_AUTH_KEY) {
+    console.error("MSG91_AUTH_KEY not set, cannot send password reset email");
+    return false;
+  }
+
+  // Template send — this MSG91 account rejects raw-body emails (422
+  // "template id field is required"), so the reset mail uses the
+  // admin_password_reset template with USERNAME + RESET_LINK variables.
+  try {
+    const response = await fetch(MSG91_EMAIL_API, {
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+      headers: {
+        "Content-Type": "application/json",
+        authkey: MSG91_AUTH_KEY,
+      },
+      body: JSON.stringify({
+        recipients: [
+          {
+            to: [{ email, name: username }],
+            variables: {
+              USERNAME: username,
+              RESET_LINK: resetUrl,
+            },
+          },
+        ],
+        from: EMAIL_FROM,
+        domain: EMAIL_DOMAIN,
+        template_id: "admin_password_reset",
+      }),
+    });
+
+    const data = await response.json();
+    return response.ok || data.status === "success";
+  } catch (error) {
+    console.error("Admin password reset email send error:", error);
+    return false;
+  }
 }
