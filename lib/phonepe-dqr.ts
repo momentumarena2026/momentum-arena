@@ -40,7 +40,13 @@ const isProd = DQR_ENV === "PRODUCTION";
 const DQR_MERCHANT_ID = process.env.PHONEPE_DQR_MERCHANT_ID;
 const DQR_SALT_KEY = process.env.PHONEPE_DQR_SALT_KEY;
 const DQR_SALT_INDEX = process.env.PHONEPE_DQR_SALT_INDEX || "1";
-const DQR_STORE_ID = process.env.PHONEPE_DQR_STORE_ID;
+// Checkout store id. The singular override wins if set; otherwise fall back
+// to the ONLINE store id (one of the five per-store reporting vars) — online
+// checkout QRs are generated under the merchant's "Online" PhonePe store.
+// This fallback matters: prod Vercel defines only the per-store vars, and
+// without it isDqrConfigured() silently failed checkout back to static QR.
+const DQR_STORE_ID =
+  process.env.PHONEPE_DQR_STORE_ID || process.env.PHONEPE_DQR_STORE_ID_ONLINE;
 const DQR_TERMINAL_ID = process.env.PHONEPE_DQR_TERMINAL_ID;
 // Provider id for the OFFLINE reconciliation "transaction list" API only. That
 // endpoint is provider-scoped: it requires an X-PROVIDER-ID header whose value
@@ -96,7 +102,7 @@ export function isDqrConfigured(): boolean {
 function requireMerchantId(): string {
   if (!isDqrConfigured() || !DQR_MERCHANT_ID) {
     throw new Error(
-      "PhonePe DQR not configured — set PHONEPE_DQR_MERCHANT_ID, PHONEPE_DQR_SALT_KEY, PHONEPE_DQR_STORE_ID",
+      "PhonePe DQR not configured — set PHONEPE_DQR_MERCHANT_ID, PHONEPE_DQR_SALT_KEY and a store id (PHONEPE_DQR_STORE_ID or PHONEPE_DQR_STORE_ID_ONLINE)",
     );
   }
   return DQR_MERCHANT_ID;
