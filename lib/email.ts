@@ -1,6 +1,19 @@
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_EMAIL_API = "https://control.msg91.com/api/v5/email/send";
 
+// MSG91 verified SENDING domain. Deliberately a subdomain, NOT the apex:
+// the org mailboxes live on momentumarena.com (MX -> secureserver.net), and
+// MSG91 refuses to verify a sending domain without pointing its MX records at
+// mailer91 — which on the apex would hijack all inbound org mail. The
+// subdomain has no mailboxes, so MSG91's MX can live there safely. DMARC uses
+// relaxed alignment, so DKIM d=mail.momentumarena.com still aligns.
+export const EMAIL_DOMAIN =
+  process.env.MSG91_EMAIL_DOMAIN || "mail.momentumarena.com";
+export const EMAIL_FROM = {
+  email: `noreply@${EMAIL_DOMAIN}`,
+  name: "Momentum Arena",
+};
+
 const isDev = process.env.NODE_ENV === "development";
 
 // Base URL for links embedded in emails. Matches the convention used in
@@ -49,10 +62,8 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
       },
       body: JSON.stringify({
         to: options.to,
-        from: options.from || {
-          email: "noreply@momentumarena.com",
-          name: "Momentum Arena",
-        },
+        from: options.from || EMAIL_FROM,
+        domain: EMAIL_DOMAIN,
         subject: options.subject,
         body: options.body,
       }),
@@ -105,8 +116,8 @@ export async function sendAdminInviteEmail(
             },
           },
         ],
-        from: { email: "noreply@momentumarena.com", name: "Momentum Arena" },
-        domain: "momentumarena.com",
+        from: EMAIL_FROM,
+        domain: EMAIL_DOMAIN,
         template_id: "admin_password_3",
       }),
     });
