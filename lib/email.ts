@@ -65,7 +65,9 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
         from: options.from || EMAIL_FROM,
         domain: EMAIL_DOMAIN,
         subject: options.subject,
-        body: options.body,
+        // MSG91 v5 requires body as {type,data} when no template_id is used —
+        // a plain string is rejected with 422 "body.data field is required".
+        body: { type: "text/html", data: options.body },
       }),
     });
 
