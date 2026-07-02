@@ -122,6 +122,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       qrString: result.qrString,
       qrImage: result.qrImage,
+      // "intent" -> qrString is a TAPPABLE upi:// link (Open Intent product);
+      // the client shows a "Pay with UPI app" button on mobile browsers.
+      // "qr" -> scan-only string; the client renders the QR alone.
+      mode: isOpenIntentMode() ? "intent" : "qr",
       transactionId,
       expiresIn: DQR_TTL_MINUTES * 60,
       amount: orderAmount,

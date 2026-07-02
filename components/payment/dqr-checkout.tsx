@@ -8,8 +8,10 @@ import {
   Loader2,
   RefreshCw,
   ScanLine,
+  Smartphone,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
+import { trackUpiAppLaunched } from "@/lib/analytics";
 
 interface DqrCheckoutProps {
   holdId: string;
@@ -34,16 +36,30 @@ type Phase = "init" | "scan" | "confirmed" | "error";
 const POLL_MS = 3000;
 
 /**
+ * Crude UA sniff — `upi://` deep links do nothing on desktop browsers (no
+ * UPI app to hand off to), so the tap-to-pay button is mobile-only. Runs
+ * client-side only; SSR returns false so hydration matches.
+ */
+function isMobileBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+/**
  * Dynamic-QR checkout (SCAN flow). Generates a PhonePe DQR for this
  * hold/intent, renders it as a QR the customer scans with ANY UPI app, and
  * polls the status endpoint until PhonePe confirms — at which point the
  * booking/order is auto-created server-side. No "I've paid" trust step and
  * no manual UTR/screenshot-to-us: confirmation is gateway-driven.
  *
- * Why scan-only (no tap-to-pay link): UPI blocks tappable intent/link
- * payments for our merchant VPA, so the customer must scan. On the same
- * phone they screenshot/save the QR and use their UPI app's "scan from
- * gallery"; on desktop they scan with their phone.
+ * Two modes, decided server-side by PHONEPE_DQR_MODE (the initiate response
+ * echoes it as `mode`):
+ * - "qr" (default): scan-only string. Same-phone users save the QR and use
+ *   their UPI app's "scan from gallery"; desktop users scan with their phone.
+ * - "intent": the string is a TAPPABLE upi:// Open Intent link — on mobile
+ *   browsers we show a "Pay with UPI app" button (one tap, amount pre-filled)
+ *   with the QR kept below as a fallback. Requires PhonePe to have enabled
+ *   intent acceptance on the merchant VPA (done 2026-07-02).
  */
 export function DqrCheckout({
   holdId,
@@ -58,6 +74,9 @@ export function DqrCheckout({
 }: DqrCheckoutProps) {
   const [phase, setPhase] = useState<Phase>("init");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [payString, setPayString] = useState<string | null>(null);
+  const [mode, setMode] = useState<"qr" | "intent">("qr");
+  const [isMobile, setIsMobile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const txnRef = useRef<string | null>(null);
@@ -127,6 +146,8 @@ export function DqrCheckout({
       }
       txnRef.current = data.transactionId;
       setQrDataUrl(data.qrImage);
+      setPayString(typeof data.qrString === "string" ? data.qrString : null);
+      setMode(data.mode === "intent" ? "intent" : "qr");
       setSecondsLeft(typeof data.expiresIn === "number" ? data.expiresIn : null);
       setPhase("scan");
     } catch {
@@ -141,6 +162,13 @@ export function DqrCheckout({
     initiate();
     return stopPolling;
   }, [initiate, stopPolling]);
+
+  // Resolve the UA sniff after mount so SSR markup (isMobile=false) and the
+  // hydrated client agree on first paint, then update.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsMobile(isMobileBrowser());
+  }, []);
 
   // Start polling once the QR is showing.
   useEffect(() => {
@@ -208,8 +236,29 @@ export function DqrCheckout({
     );
   }
 
+  const showTapButton = mode === "intent" && !!payString && isMobile;
+
   return (
     <div className="space-y-5">
+      {/* Intent mode, mobile browser: one-tap pay — the OS hands the upi://
+          link to the customer's UPI app with payee + amount pre-filled.
+          Confirmation stays identical (status poll + S2S callback). */}
+      {showTapButton && (
+        <a
+          href={payString!}
+          onClick={() => trackUpiAppLaunched(displayAmount)}
+          className="flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 active:bg-emerald-700"
+        >
+          <Smartphone className="h-5 w-5" />
+          <div className="flex flex-col items-start leading-tight">
+            <span className="text-base">Pay with UPI App</span>
+            <span className="text-[11px] font-normal text-emerald-50/85">
+              Opens PhonePe, GPay, Paytm, BHIM…
+            </span>
+          </div>
+        </a>
+      )}
+
       {/* QR + amount + auto-confirm status. Plain <img> on a ready data URL
           so it decodes immediately — iOS Safari skips next/image lazy-load. */}
       <div className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
@@ -253,36 +302,42 @@ export function DqrCheckout({
         </p>
       </div>
 
-      {/* How to pay — scan instructions (replaces the old tap-to-pay app
-          chooser, which UPI blocks for this merchant). */}
+      {/* How to pay. Intent mode on mobile: the tap button above is the
+          primary path, so the scan block reads as the fallback and the
+          save-to-gallery workaround is dropped. Scan mode (or desktop):
+          the full scan instructions, unchanged. */}
       <div className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3.5">
         <p className="flex items-center gap-2 text-sm font-medium text-white">
           <ScanLine className="h-4 w-4 text-emerald-400" />
-          Scan &amp; pay with any UPI app
+          {showTapButton
+            ? "Or scan & pay with any UPI app"
+            : "Scan & pay with any UPI app"}
         </p>
         <p className="text-xs text-zinc-400">
           Open GPay, PhonePe, Paytm, BHIM — or any UPI app — and scan the QR
           above.
         </p>
-        <div className="space-y-2 border-t border-zinc-800 pt-3">
-          <p className="text-xs font-medium text-zinc-300">
-            Paying on this phone?
-          </p>
-          <p className="text-xs text-zinc-400">
-            Save the QR, then in your UPI app tap{" "}
-            <span className="text-zinc-200">Scan</span> →{" "}
-            <span className="text-zinc-200">Gallery / Upload</span> and pick it.
-          </p>
-          {qrDataUrl && (
-            <a
-              href={qrDataUrl}
-              download="momentum-arena-upi-qr.png"
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
-            >
-              <Download className="h-3.5 w-3.5" /> Save QR
-            </a>
-          )}
-        </div>
+        {!showTapButton && (
+          <div className="space-y-2 border-t border-zinc-800 pt-3">
+            <p className="text-xs font-medium text-zinc-300">
+              Paying on this phone?
+            </p>
+            <p className="text-xs text-zinc-400">
+              Save the QR, then in your UPI app tap{" "}
+              <span className="text-zinc-200">Scan</span> →{" "}
+              <span className="text-zinc-200">Gallery / Upload</span> and pick it.
+            </p>
+            {qrDataUrl && (
+              <a
+                href={qrDataUrl}
+                download="momentum-arena-upi-qr.png"
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+              >
+                <Download className="h-3.5 w-3.5" /> Save QR
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
