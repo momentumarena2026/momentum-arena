@@ -24,6 +24,8 @@ export interface PaymentSettings {
   advanceEnabled: boolean;
   /** Admin toggle for the DQR (dynamic QR) UPI flow. */
   dqrEnabled: boolean;
+  /** Nested under DQR: tap-to-pay UPI app picker (PhonePe Open Intent). */
+  intentEnabled: boolean;
   /** Whether the PHONEPE_DQR_* env creds are present (read-only). */
   dqrConfigured: boolean;
 }
@@ -42,6 +44,7 @@ async function readOrInit(): Promise<PaymentSettings> {
     // Admin view shows the raw toggle; checkout (getCheckoutPaymentConfig)
     // additionally requires creds to be present.
     dqrEnabled: config.dqrEnabled,
+    intentEnabled: config.intentEnabled,
     dqrConfigured: isDqrConfigured(),
   };
 }
@@ -85,6 +88,82 @@ export async function setDqrEnabled(
     where: { id: "singleton" },
     update: { dqrEnabled: enabled },
     create: { id: "singleton", activeGateway: "PHONEPE", dqrEnabled: enabled },
+  });
+  return { success: true };
+}
+
+export type UpiQrMode = "STATIC" | "DQR" | "OFF";
+
+/**
+ * Atomically set which implementation backs the "Pay by UPI" option.
+ * Static QR and DQR are mutually exclusive in the admin UI:
+ *   STATIC → UPI shown, legacy static QR + manual UTR
+ *   DQR    → UPI shown, dynamic QR / intent with auto-confirm
+ *   OFF    → UPI hidden from checkout entirely
+ * The at-least-one-method guard applies to OFF.
+ */
+export async function setUpiQrMode(
+  mode: UpiQrMode,
+  skipAuth = false,
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin(skipAuth);
+
+  if (mode !== "STATIC" && mode !== "DQR" && mode !== "OFF") {
+    return { success: false, error: "Invalid UPI mode" };
+  }
+
+  if (mode === "OFF") {
+    const current = await readOrInit();
+    if (!current.onlineEnabled && !current.advanceEnabled) {
+      return {
+        success: false,
+        error:
+          "At least one payment method must stay enabled. Enable another before turning UPI off.",
+      };
+    }
+  }
+
+  if (mode === "DQR" && !isDqrConfigured()) {
+    return {
+      success: false,
+      error:
+        "PhonePe DQR credentials are not configured — set the PHONEPE_DQR_* env vars first.",
+    };
+  }
+
+  const data =
+    mode === "OFF"
+      ? { upiQrEnabled: false, dqrEnabled: false }
+      : { upiQrEnabled: true, dqrEnabled: mode === "DQR" };
+
+  await db.paymentGatewayConfig.upsert({
+    where: { id: "singleton" },
+    update: data,
+    create: { id: "singleton", activeGateway: "PHONEPE", ...data },
+  });
+
+  return { success: true };
+}
+
+/**
+ * Nested under DQR: tap-to-pay UPI app picker (PhonePe Open Intent) vs a
+ * scan-only QR shown directly in the payment sheet. Admin-controlled in the
+ * DB (replaces the PHONEPE_DQR_MODE env var) so flipping it needs no
+ * redeploy. Only takes effect while DQR is the active UPI mode.
+ */
+export async function setIntentEnabled(
+  enabled: boolean,
+  skipAuth = false,
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin(skipAuth);
+  await db.paymentGatewayConfig.upsert({
+    where: { id: "singleton" },
+    update: { intentEnabled: enabled },
+    create: {
+      id: "singleton",
+      activeGateway: "PHONEPE",
+      intentEnabled: enabled,
+    },
   });
   return { success: true };
 }
@@ -162,6 +241,7 @@ export async function getCheckoutPaymentConfig(): Promise<PaymentSettings> {
       advanceEnabled: true,
       // Fresh DB: DQR off until an admin opts in (and creds exist).
       dqrEnabled: false,
+      intentEnabled: false,
       dqrConfigured,
     };
   }
@@ -172,6 +252,7 @@ export async function getCheckoutPaymentConfig(): Promise<PaymentSettings> {
     advanceEnabled: config.advanceEnabled,
     // Effective DQR requires BOTH the admin toggle and live creds.
     dqrEnabled: config.dqrEnabled && dqrConfigured,
+    intentEnabled: config.intentEnabled,
     dqrConfigured,
   };
 }

@@ -532,61 +532,12 @@ export function CheckoutClient({
     if (!isAdvance) handleRecurringAfterPayment().catch(() => {});
   };
 
-  if (showUpiQr && !dqrEnabled) {
-    const isAdvance = amountMode === "advance";
-    const upiAmount = isAdvance ? advanceAmount : payableAmount;
-
-    const advanceNote = isAdvance ? (
-      <p className="text-center text-xs text-yellow-400">
-        Paying advance: {formatPrice(advanceAmount)} • Remaining at venue:{" "}
-        {formatPrice(remainingAmount)}
-      </p>
-    ) : null;
-
-    // Legacy static QR: booking created PENDING when the user taps
-    // "I've completed the payment"; verified later via UTR / admin.
-    return (
-      <div className="space-y-4">
-        <UpiQrCheckout
-          amount={upiAmount}
-          bookingId={holdId}
-          isAdvance={isAdvance}
-          advanceAmount={isAdvance ? advanceAmount : undefined}
-          onPaymentInitiated={async () => {
-            // Mark paymentCompleted so the hold isn't released by unload/unmount.
-            paymentCompletedRef.current = true;
-            // For the 50% advance flow, the customer paid only the advance
-            // via UPI QR — record that (not the full price) so the Payment
-            // leaves a remainingAmount to collect at the venue.
-            const commit = isAdvance
-              ? await selectCashPayment(holdId, advanceAmount, { isAdvance: true })
-              : await selectUpiPayment(holdId, payableAmount);
-
-            if (commit.success && commit.bookingId) {
-              fireRewardsAndRecurring(isAdvance);
-              // Don't router.push — UpiQrCheckout stays on its "paid" step
-              // so the user can share the payment screenshot on WhatsApp.
-              return { bookingId: commit.bookingId };
-            }
-
-            paymentCompletedRef.current = false;
-            return { error: commit.error || "Failed to create booking" };
-          }}
-          onCancel={() => {
-            releaseLock();
-            router.back();
-          }}
-        />
-        {advanceNote}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      {/* Countdown. Unmounted while the DQR sheet is up — before the sheet
-          refactor the DQR step replaced this whole tree, so the hold-expiry
-          redirect never fired mid-payment; keep that behavior. */}
+      {/* Countdown. Unmounted while a UPI sheet (DQR or static QR) is up —
+          before the sheet refactor those steps replaced this whole tree, so
+          the hold-expiry redirect never fired mid-payment; keep that
+          behavior. */}
       {!showUpiQr && (
         <CountdownTimer expiresAt={new Date(expiresAt)} onExpired={handleExpired} />
       )}
@@ -758,6 +709,51 @@ export function CheckoutClient({
             paymentCompletedRef.current = true;
             fireRewardsAndRecurring(amountMode === "advance");
             router.push(`/book/confirmation?id=${bookingId}`);
+          }}
+          onCancel={() => {
+            setShowUpiQr(false);
+            releaseLock();
+            router.back();
+          }}
+        />
+      )}
+
+      {/* Legacy static QR: same Razorpay-style bottom sheet OVER the
+          checkout (page stays mounted and dimmed, countdown paused —
+          identical overlay pattern to the DQR branch above). Booking is
+          created PENDING when the user taps "I've completed the payment";
+          verified later via WhatsApp screenshot / admin. */}
+      {showUpiQr && !dqrEnabled && (
+        <UpiQrCheckout
+          amount={amountMode === "advance" ? advanceAmount : payableAmount}
+          bookingId={holdId}
+          isAdvance={amountMode === "advance"}
+          advanceAmount={
+            amountMode === "advance" ? advanceAmount : undefined
+          }
+          remainingAmount={
+            amountMode === "advance" ? remainingAmount : undefined
+          }
+          onPaymentInitiated={async () => {
+            const isAdvance = amountMode === "advance";
+            // Mark paymentCompleted so the hold isn't released by unload/unmount.
+            paymentCompletedRef.current = true;
+            // For the 50% advance flow, the customer paid only the advance
+            // via UPI QR — record that (not the full price) so the Payment
+            // leaves a remainingAmount to collect at the venue.
+            const commit = isAdvance
+              ? await selectCashPayment(holdId, advanceAmount, { isAdvance: true })
+              : await selectUpiPayment(holdId, payableAmount);
+
+            if (commit.success && commit.bookingId) {
+              fireRewardsAndRecurring(isAdvance);
+              // Don't router.push — UpiQrCheckout stays on its "paid" step
+              // so the user can share the payment screenshot on WhatsApp.
+              return { bookingId: commit.bookingId };
+            }
+
+            paymentCompletedRef.current = false;
+            return { error: commit.error || "Failed to create booking" };
           }}
           onCancel={() => {
             setShowUpiQr(false);

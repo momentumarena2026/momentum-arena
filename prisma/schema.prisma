@@ -75,7 +75,15 @@ model PaymentGatewayConfig {
   // UPI" option generates a PhonePe Dynamic QR with auto-confirmation
   // instead of the legacy static-QR + manual-UTR flow. Defaults off so
   // it stays dormant until PhonePe onboarding lands the credentials.
+  // Static vs DQR are mutually exclusive in the admin UI: upiQrEnabled
+  // gates whether UPI shows at checkout at all; dqrEnabled picks which
+  // implementation backs it (false = static QR + manual UTR).
   dqrEnabled     Boolean        @default(false)
+  // Nested under DQR: when on, the customer gets the tap-to-pay UPI app
+  // picker (PhonePe Open Intent) instead of a scan-only QR in the payment
+  // sheet. Replaces the PHONEPE_DQR_MODE env var so admins control it
+  // without a redeploy.
+  intentEnabled  Boolean        @default(false)
   updatedAt      DateTime       @updatedAt
 }
 

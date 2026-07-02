@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { CreditCard, QrCode, Wallet } from "lucide-react";
+import { CreditCard, Wallet } from "lucide-react";
 import {
   setPaymentMethodEnabled,
   type PaymentMethodFlag,
@@ -9,11 +9,12 @@ import {
 
 interface Props {
   onlineEnabled: boolean;
-  upiQrEnabled: boolean;
   advanceEnabled: boolean;
 }
 
-type ToggleKey = "online" | "upi_qr" | "advance";
+// UPI moved to its own section (UpiModeToggles) — it's a mode picker
+// (Static vs Dynamic QR), not a simple on/off method row.
+type ToggleKey = "online" | "advance";
 
 interface Row {
   key: ToggleKey;
@@ -30,12 +31,6 @@ const ROWS: Row[] = [
     Icon: CreditCard,
   },
   {
-    key: "upi_qr",
-    label: "UPI QR Code",
-    description: "Customer scans a QR and enters the UTR manually",
-    Icon: QrCode,
-  },
-  {
     key: "advance",
     label: "Pay 50% Now, 50% at Venue",
     description: "Customer pays a 50% advance online; staff collects the rest on arrival",
@@ -43,14 +38,9 @@ const ROWS: Row[] = [
   },
 ];
 
-export function PaymentMethodToggles({
-  onlineEnabled,
-  upiQrEnabled,
-  advanceEnabled,
-}: Props) {
+export function PaymentMethodToggles({ onlineEnabled, advanceEnabled }: Props) {
   const [state, setState] = useState({
     online: onlineEnabled,
-    upi_qr: upiQrEnabled,
     advance: advanceEnabled,
   });
   const [isPending, startTransition] = useTransition();

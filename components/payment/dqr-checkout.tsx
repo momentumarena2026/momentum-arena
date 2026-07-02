@@ -77,8 +77,8 @@ const SHEET_KEYFRAMES = `
  * trust step and no manual UTR/screenshot-to-us: confirmation is
  * gateway-driven.
  *
- * Two modes, decided server-side by PHONEPE_DQR_MODE (the initiate response
- * echoes it as `mode`):
+ * Two modes, decided server-side by the admin "UPI Intent" toggle (the
+ * initiate response echoes it as `mode`):
  * - "qr" (default): scan-only string. The sheet shows the QR; same-phone
  *   users save it and use their UPI app's "scan from gallery"; desktop
  *   users scan with their phone.

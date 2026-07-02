@@ -1,25 +1,28 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
+  type ImageSourcePropType,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AlertCircle,
-  CheckCircle2,
+  Check,
   CircleCheck,
   MessageCircle,
   Smartphone,
-  ShieldCheck,
+  X,
 } from "lucide-react-native";
 import { Text } from "../ui/Text";
-import { Card } from "../ui/Card";
-import { colors, radius, spacing } from "../../theme";
+import { radius, spacing } from "../../theme";
 import { env } from "../../config/env";
 import { formatRupees } from "../../lib/format";
 
@@ -36,10 +39,26 @@ interface Props {
   onDone: (bookingId: string) => void;
   /** Venue balance after the advance UPI payment (50% now flow). */
   remainingAmount?: number;
-  /** Optional content rendered above the QR inside the scroll area
-   *  (e.g. the "Scan & pay" screen title from CheckoutScreen). */
+  /** Legacy inline-header slot — unused now that the checkout presents as a
+   *  bottom sheet with its own header; kept so existing callers type-check. */
   header?: ReactNode;
 }
+
+// Dark zinc/emerald sheet palette — identical to DqrCheckout so both UPI
+// flows (auto-confirming DQR + this manual static-QR fallback) read as one
+// consistent Razorpay-style checkout sheet.
+const SHEET_BG = "#18181b"; // zinc-900
+const INK = "#fafafa"; // primary text
+const INK_MUTED = "#a1a1aa"; // zinc-400 secondary text
+const INK_FAINT = "#71717a"; // zinc-500 tertiary text
+const HAIRLINE = "#27272a"; // zinc-800 dividers
+const EMERALD = "#10b981";
+const EMERALD_LIGHT = "#34d399"; // emerald-400 accents on dark
+const RED = "#f87171"; // red-400 reads on dark
+const AMBER_TEXT = "#fde68a"; // amber-200 notice body
+const AMBER_STRIP_TEXT = "#fcd34d"; // amber-300 advance strip
+
+const MOMENTUM_LOGO: ImageSourcePropType = require("../../assets/momentum-icon.png");
 
 // Absolute image URLs so RN's Image loader can fetch them from the same
 // backend that serves the web app's /public folder. Mirrors web's
@@ -66,13 +85,17 @@ const WHATSAPP_NUMBER = "916396177261";
 type Step = "scan" | "paid";
 
 /**
- * Mirrors `components/payment/upi-qr-checkout.tsx` on web.
+ * Legacy static-QR UPI checkout, presented as a Razorpay-style bottom sheet
+ * (same chrome as DqrCheckout so all UPI payments share one UI).
  *
- *   Step 1 (scan): QR + amount + "I've Completed the Payment" button. Calling
- *     onPaymentInitiated is expected to create the Booking(PENDING) server-
- *     side and return its id — we stash that id for the WhatsApp deep-link.
- *   Step 2 (paid): "Slot Reserved" confirmation + WhatsApp-screenshot CTA +
- *     "View Booking Details" (which calls onDone with the bookingId).
+ *   Step 1 (scan): printed-terminal QR on a white card + amount +
+ *     "Pay with UPI App" deep link + "I've completed the payment" CTA.
+ *     Calling onPaymentInitiated is expected to create the Booking(PENDING)
+ *     server-side and return its id — we stash that id for the WhatsApp
+ *     deep-link.
+ *   Step 2 (paid): animated success check ("Booking received" — payment is
+ *     verified manually) + WhatsApp-screenshot CTA + "View Booking Details"
+ *     (which calls onDone with the bookingId).
  */
 export function UpiQrCheckout({
   amount,
@@ -82,12 +105,19 @@ export function UpiQrCheckout({
   onCancel,
   onDone,
   remainingAmount,
-  header,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<Step>("scan");
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [bookingId, setBookingId] = useState<string | null>(null);
+
+  // Success-animation drivers (built-in Animated — no extra deps). Same
+  // spring-in circle + check pattern as DqrCheckout's confirmed phase.
+  const circleScale = useRef(new Animated.Value(0)).current;
+  const checkOpacity = useRef(new Animated.Value(0)).current;
+  const checkScale = useRef(new Animated.Value(0.4)).current;
+  const textOpacity = useRef(new Animated.Value(0)).current;
 
   // Lock in one terminal QR per mount so the UI doesn't shuffle on re-render.
   const selectedQr = useMemo(
@@ -175,366 +205,424 @@ export function UpiQrCheckout({
     if (ok) void Linking.openURL(whatsappUrl);
   }
 
-  if (step === "paid") {
-    return (
-      <View style={styles.stack}>
-        <View style={styles.reservedCard}>
-          <CheckCircle2 size={56} color={colors.emerald400} />
-          <Text variant="heading" weight="700" align="center">
-            Your Slot is Reserved!
-          </Text>
-          <Text
-            variant="small"
-            align="center"
-            color={colors.zinc400}
-            style={styles.reservedSub}
-          >
-            Please allow us 30 minutes to verify your payment and confirm your
-            booking.
-          </Text>
-        </View>
+  // X / backdrop / Android back. Ignore dismissal once the booking is
+  // committed — the post-commit step owns navigation (mirror of DQR's
+  // confirmed-phase guard) — and mid-commit, matching the old flow's
+  // disabled cancel button.
+  const dismiss = useCallback(() => {
+    if (step === "paid" || committing) return;
+    onCancel();
+  }, [step, committing, onCancel]);
 
-        <Card style={styles.screenshotCard}>
-          <View style={styles.screenshotHeader}>
-            <ShieldCheck size={20} color="#fbbf24" />
-            <View style={styles.screenshotBody}>
-              <Text variant="body" weight="600">
-                Send Payment Screenshot
-              </Text>
-              <Text variant="small" color={colors.zinc400}>
-                Please share a screenshot of your payment on WhatsApp so our
-                team can verify and confirm your booking quickly.
+  // Razorpay-style success: emerald circle springs in with overshoot, the
+  // check + copy follow ~200ms later. Depends ONLY on `step` — the parent
+  // (CheckoutScreen) re-renders every second for the hold countdown, so
+  // anything with inline-prop deps would restart each render (see the
+  // matching note in DqrCheckout). No parent-callback timer here: the
+  // handoff (onDone) is user-triggered by the "View Booking Details" button.
+  useEffect(() => {
+    if (step !== "paid") return;
+    Animated.spring(circleScale, {
+      toValue: 1,
+      friction: 5,
+      tension: 120,
+      useNativeDriver: true,
+    }).start();
+    Animated.sequence([
+      Animated.delay(200),
+      Animated.parallel([
+        Animated.timing(checkOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.spring(checkScale, { toValue: 1, friction: 6, useNativeDriver: true }),
+        Animated.timing(textOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      ]),
+    ]).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- animated values are stable refs
+  }, [step]);
+
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={dismiss}>
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={dismiss} />
+
+        <View
+          style={[
+            styles.sheet,
+            { paddingBottom: Math.max(insets.bottom, spacing["4"]) },
+          ]}
+        >
+          {/* ── Header ─────────────────────────────────────────────────── */}
+          <View style={styles.sheetHeader}>
+            <Image
+              source={MOMENTUM_LOGO}
+              style={styles.headerLogo}
+              resizeMode="contain"
+            />
+            <View style={styles.headerLeft}>
+              <Text style={styles.merchant}>Momentum Arena</Text>
+              <Text style={styles.headerSub}>UPI payment</Text>
+            </View>
+            <Text style={styles.headerAmount}>{formatRupees(displayAmount)}</Text>
+            <Pressable onPress={dismiss} hitSlop={8} style={styles.closeBtn}>
+              <X size={20} color={INK_FAINT} />
+            </Pressable>
+          </View>
+          <View style={styles.headerDivider} />
+          {isAdvance && advanceAmount != null ? (
+            <View style={styles.advanceStrip}>
+              <Text variant="tiny" color={AMBER_STRIP_TEXT}>
+                Advance {formatRupees(advanceAmount)} · Remaining at venue{" "}
+                {formatRupees(
+                  remainingAmount ?? Math.max(0, amount - advanceAmount),
+                )}
               </Text>
             </View>
-          </View>
+          ) : null}
 
-          <Pressable
-            onPress={openWhatsapp}
-            style={({ pressed }) => [
-              styles.whatsappBtn,
-              pressed && { opacity: 0.9 },
-            ]}
+          <ScrollView
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.bodyContent}
           >
-            <MessageCircle size={20} color="#fff" />
-            <Text variant="body" weight="600" color="#fff">
-              Share Screenshot on WhatsApp
-            </Text>
-          </Pressable>
+            {step === "scan" ? (
+              <View style={styles.qrBlock}>
+                {/* QR stays on a WHITE card — scanners need the light
+                    quiet zone. */}
+                <View style={styles.qrFrame}>
+                  <Image
+                    source={{ uri: selectedQr.image }}
+                    style={styles.qrImage}
+                    resizeMode="contain"
+                  />
+                </View>
+                <Text style={styles.qrAmount}>Pay {formatRupees(displayAmount)}</Text>
+                <Text variant="small" color={INK_MUTED}>
+                  Scan &amp; pay using any UPI app
+                </Text>
+                <Text variant="tiny" color={INK_FAINT}>
+                  Sportive Ventures · {selectedQr.label}
+                </Text>
 
-          <Pressable
-            onPress={() => bookingId && onDone(bookingId)}
-            disabled={!bookingId}
-            style={({ pressed }) => [
-              styles.viewBookingBtn,
-              !bookingId && { opacity: 0.5 },
-              pressed && bookingId ? { opacity: 0.85 } : null,
-            ]}
-          >
-            <Text variant="body" weight="600" color={colors.foreground}>
-              {bookingId ? "View Booking Details" : "My Bookings"}
-            </Text>
-          </Pressable>
-        </Card>
+                {/* Heads-up about the merchant's UPI account restriction. Our
+                    PhonePe Business account accepts only bank-linked UPI
+                    (savings/current). Wallet balance, credit-card-on-UPI, and
+                    overdraft accounts are rejected with a confusing "Payment
+                    Failed" inside the UPI app. Surfacing this upfront saves the
+                    customer from a failed attempt + frantic WhatsApp follow-up.
+                    Mirror of the web upi-qr-checkout warning. */}
+                <View style={styles.bankNotice}>
+                  <AlertCircle size={14} color={AMBER_STRIP_TEXT} style={styles.noticeIcon} />
+                  <Text variant="tiny" color={AMBER_TEXT} style={styles.noticeBody}>
+                    <Text variant="tiny" weight="600" color={AMBER_TEXT}>
+                      Pay from your bank-linked UPI
+                    </Text>
+                    {" "}(savings/current). Wallet balance, credit-card-on-UPI, and
+                    overdraft accounts aren&apos;t accepted by this merchant and
+                    will fail with a &quot;Payment Failed&quot; screen.
+                  </Text>
+                </View>
 
-        <Text variant="tiny" align="center" color={colors.zinc500}>
-          You'll receive a confirmation message once verified.
-        </Text>
-      </View>
-    );
-  }
+                {commitError ? (
+                  <View style={styles.errorBox}>
+                    <AlertCircle size={14} color={RED} style={styles.noticeIcon} />
+                    <Text variant="tiny" color={RED} style={styles.noticeBody}>
+                      {commitError}
+                    </Text>
+                  </View>
+                ) : null}
 
-  // Step 1 — scan. Scrollable QR + warning; action buttons pin to the
-  // bottom footer like the main checkout Pay CTA.
-  return (
-    <View style={styles.screen}>
-      <ScrollView
-        style={styles.flex}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {header}
+                {/* Same-device deep link — opens the user's UPI app with the
+                    amount + terminal VPA pre-filled. */}
+                <Pressable
+                  onPress={openUpiApp}
+                  disabled={committing}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    pressed && !committing && styles.pressed,
+                  ]}
+                >
+                  <Smartphone size={20} color="#fff" />
+                  <View style={styles.upiAppBtnText}>
+                    <Text variant="body" weight="700" color="#fff">
+                      Pay with UPI App
+                    </Text>
+                    <Text variant="tiny" color="rgba(255,255,255,0.85)">
+                      Opens PhonePe, GPay, Paytm, BHIM…
+                    </Text>
+                  </View>
+                </Pressable>
 
-        {/* QR-first layout. Most users scan from a second device, so the
-            QR is the primary surface. The "Pay with UPI App" CTA sits
-            in the sticky footer right above the "Completed" button. */}
-        <View style={styles.qrCard}>
-        <View style={styles.qrWrap}>
-          <Image
-            source={{ uri: selectedQr.image }}
-            style={styles.qrImage}
-            resizeMode="contain"
-          />
+                <Pressable
+                  onPress={handleDone}
+                  disabled={committing}
+                  style={({ pressed }) => [
+                    styles.outlineBtn,
+                    pressed && !committing && styles.pressed,
+                    committing && { opacity: 0.7 },
+                  ]}
+                >
+                  {committing ? (
+                    <>
+                      <ActivityIndicator color={EMERALD_LIGHT} />
+                      <Text variant="body" weight="600" color={EMERALD_LIGHT}>
+                        Reserving your slot…
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <CircleCheck size={20} color={EMERALD_LIGHT} />
+                      <Text variant="body" weight="600" color={EMERALD_LIGHT}>
+                        I've completed the payment
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+
+                <Text variant="tiny" align="center" color={INK_FAINT}>
+                  Tap above after you've paid via UPI. This payment is verified
+                  manually — our team confirms your booking after checking it.
+                </Text>
+              </View>
+            ) : null}
+
+            {step === "paid" ? (
+              <View style={styles.paidBlock}>
+                <View style={styles.centerBlock}>
+                  <Animated.View
+                    style={[
+                      styles.successCircle,
+                      { transform: [{ scale: circleScale }] },
+                    ]}
+                  >
+                    <Animated.View
+                      style={{
+                        opacity: checkOpacity,
+                        transform: [{ scale: checkScale }],
+                      }}
+                    >
+                      <Check size={36} color="#fff" strokeWidth={3} />
+                    </Animated.View>
+                  </Animated.View>
+                  <Animated.View style={[styles.successCopy, { opacity: textOpacity }]}>
+                    <Text variant="heading" color={INK} align="center">
+                      Booking received
+                    </Text>
+                    <Text variant="small" color={INK_MUTED} align="center">
+                      We'll verify your payment shortly
+                    </Text>
+                  </Animated.View>
+                </View>
+
+                <Text variant="small" color={INK_MUTED} align="center">
+                  Please share a screenshot of your payment on WhatsApp so our
+                  team can verify and confirm your booking quickly.
+                </Text>
+
+                <Pressable
+                  onPress={openWhatsapp}
+                  style={({ pressed }) => [
+                    styles.whatsappBtn,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <MessageCircle size={20} color="#fff" />
+                  <Text variant="body" weight="600" color="#fff">
+                    Share Screenshot on WhatsApp
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => bookingId && onDone(bookingId)}
+                  disabled={!bookingId}
+                  style={({ pressed }) => [
+                    styles.viewBookingBtn,
+                    !bookingId && { opacity: 0.5 },
+                    pressed && bookingId ? { opacity: 0.85 } : null,
+                  ]}
+                >
+                  <Text variant="body" weight="600" color={INK}>
+                    {bookingId ? "View Booking Details" : "My Bookings"}
+                  </Text>
+                </Pressable>
+
+                <Text variant="tiny" align="center" color={INK_FAINT}>
+                  You'll receive a confirmation message once verified.
+                </Text>
+              </View>
+            ) : null}
+          </ScrollView>
         </View>
-        <Text
-          variant="heading"
-          weight="700"
-          color={colors.emerald400}
-          style={styles.amount}
-        >
-          Pay {formatRupees(displayAmount)}
-        </Text>
-        {isAdvance && advanceAmount != null ? (
-          <Text variant="tiny" color="#facc15" style={styles.amountSub}>
-            Paying advance: {formatRupees(advanceAmount)} • Remaining at venue:{" "}
-            {formatRupees(
-              remainingAmount ?? Math.max(0, amount - advanceAmount),
-            )}
-          </Text>
-        ) : null}
-        <Text variant="small" color={colors.zinc400} style={styles.amountSub}>
-          Scan &amp; pay using any UPI app
-        </Text>
-        <Text variant="tiny" color={colors.zinc600}>
-          Sportive Ventures · {selectedQr.label}
-        </Text>
       </View>
-
-      {/* Heads-up about the merchant's UPI account restriction. Our
-          PhonePe Business account accepts only bank-linked UPI
-          (savings/current). Wallet balance, credit-card-on-UPI, and
-          overdraft accounts are rejected with a confusing "Payment
-          Failed" inside the UPI app. Surfacing this upfront saves the
-          customer from a failed attempt + frantic WhatsApp follow-up.
-          Mirror of the web upi-qr-checkout warning. */}
-      <View style={styles.notice}>
-        <AlertCircle size={14} color="#fbbf24" style={styles.noticeIcon} />
-        <Text variant="tiny" color="#fde68a" style={styles.noticeText}>
-          <Text variant="tiny" weight="600" color="#fcd34d">
-            Pay from your bank-linked UPI
-          </Text>
-          {" "}(savings/current). Wallet balance, credit-card-on-UPI, and
-          overdraft accounts aren&apos;t accepted by this merchant and
-          will fail with a &quot;Payment Failed&quot; screen.
-        </Text>
-      </View>
-
-      {commitError ? (
-        <View style={styles.errorBox}>
-          <Text variant="small" align="center" color={colors.destructive}>
-            {commitError}
-          </Text>
-        </View>
-      ) : null}
-
-      </ScrollView>
-
-      <View style={styles.actionFooter}>
-        <Pressable
-          onPress={openUpiApp}
-          disabled={committing}
-          style={({ pressed }) => [
-            styles.upiAppBtn,
-            pressed && !committing && { opacity: 0.9 },
-          ]}
-        >
-          <Smartphone size={20} color="#fff" />
-          <View style={styles.upiAppBtnText}>
-            <Text variant="body" weight="700" color="#fff">
-              Pay with UPI App
-            </Text>
-            <Text variant="tiny" color="rgba(255,255,255,0.85)">
-              Opens PhonePe, GPay, Paytm, BHIM…
-            </Text>
-          </View>
-        </Pressable>
-
-        <Pressable
-          onPress={handleDone}
-          disabled={committing}
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            pressed && !committing && { opacity: 0.9 },
-            committing && { opacity: 0.7 },
-          ]}
-        >
-          {committing ? (
-            <>
-              <ActivityIndicator color={colors.emerald400} />
-              <Text variant="body" weight="600" color={colors.emerald400}>
-                Reserving your slot…
-              </Text>
-            </>
-          ) : (
-            <>
-              <CircleCheck size={20} color={colors.emerald400} />
-              <Text variant="body" weight="600" color={colors.emerald400}>
-                I've Completed the Payment
-              </Text>
-            </>
-          )}
-        </Pressable>
-
-        <Text variant="tiny" align="center" color={colors.zinc600}>
-          Click above after you've successfully paid via UPI to confirm your
-          slot
-        </Text>
-
-        <Pressable
-          onPress={onCancel}
-          disabled={committing}
-          style={({ pressed }) => [
-            styles.cancelBtn,
-            pressed && !committing && { opacity: 0.7 },
-          ]}
-        >
-          <Text variant="small" align="center" color={colors.zinc500}>
-            ← Go back
-          </Text>
-        </Pressable>
-      </View>
-    </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.6)",
   },
-  flex: {
-    flex: 1,
+  sheet: {
+    backgroundColor: SHEET_BG,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: HAIRLINE,
+    maxHeight: "85%",
   },
-  scrollContent: {
-    paddingHorizontal: spacing["6"],
-    paddingTop: spacing["3"],
-    paddingBottom: spacing["6"],
-    gap: spacing["5"],
-  },
-  stack: {
-    gap: spacing["5"],
-  },
-  // Same-device "Pay with UPI App" CTA. Solid emerald, sits between
-  // the QR card (primary path) and the "Completed" confirmation
-  // button — visible to users who can't or don't want to scan.
-  upiAppBtn: {
+
+  // ── Header ──────────────────────────────────────────────────────────────
+  sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: spacing["3"],
-    paddingVertical: 14,
-    paddingHorizontal: spacing["4"],
-    borderRadius: radius.lg,
-    backgroundColor: "#059669", // emerald-600
+    paddingHorizontal: spacing["5"],
+    paddingTop: spacing["4"],
+    paddingBottom: spacing["3"],
   },
-  upiAppBtnText: {
-    alignItems: "flex-start",
-    gap: 2,
+  headerLogo: { width: 32, height: 32, borderRadius: 8 },
+  headerLeft: { flex: 1 },
+  merchant: { fontSize: 15, fontWeight: "600", color: INK },
+  headerSub: { fontSize: 12, color: INK_MUTED, marginTop: 1 },
+  headerAmount: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: INK,
+    textAlign: "right",
   },
-  qrCard: {
+  closeBtn: {
+    width: 28,
+    height: 28,
     alignItems: "center",
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.zinc800,
-    backgroundColor: colors.zinc900,
-    padding: spacing["6"],
+    justifyContent: "center",
   },
-  qrWrap: {
+  headerDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: HAIRLINE,
+  },
+  advanceStrip: {
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    paddingHorizontal: spacing["5"],
+    paddingVertical: spacing["1.5"],
+  },
+
+  bodyContent: {
+    paddingHorizontal: spacing["5"],
+    paddingTop: spacing["3"],
+    paddingBottom: spacing["4"],
+  },
+  pressed: { opacity: 0.9 },
+
+  // ── Scan step ───────────────────────────────────────────────────────────
+  qrBlock: { alignItems: "center", gap: spacing["2"] },
+  // QR stays on a WHITE card — scanners need the light quiet zone.
+  qrFrame: {
     padding: spacing["3"],
-    backgroundColor: "#fff",
     borderRadius: radius.lg,
+    backgroundColor: "#fff",
   },
-  qrImage: {
-    width: 240,
-    height: 240,
-    borderRadius: radius.md,
-  },
-  amount: {
-    marginTop: spacing["5"],
-    fontSize: 28,
-    lineHeight: 32,
-  },
-  amountSub: {
+  qrImage: { width: 220, height: 220, borderRadius: radius.md },
+  qrAmount: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "700",
+    color: EMERALD_LIGHT,
     marginTop: spacing["1"],
   },
-  // Amber notice card warning the user to pay from bank-linked UPI
-  // only (the merchant rejects wallet / credit-card-on-UPI / overdraft).
-  notice: {
+  bankNotice: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing["2"],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.30)",
-    backgroundColor: "rgba(245, 158, 11, 0.05)",
-    paddingHorizontal: spacing["3"],
-    paddingVertical: spacing["3"],
-  },
-  noticeIcon: {
-    marginTop: 1,
-  },
-  noticeText: {
-    flex: 1,
-    lineHeight: 16,
-  },
-  errorBox: {
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.30)",
-    backgroundColor: "rgba(239, 68, 68, 0.10)",
-    padding: spacing["3"],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(245, 158, 11, 0.3)",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+    marginTop: spacing["2"],
   },
+  noticeIcon: { marginTop: 1 },
+  noticeBody: { flex: 1, lineHeight: 16 },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing["2"],
+    alignSelf: "stretch",
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(248, 113, 113, 0.3)",
+    backgroundColor: "rgba(248, 113, 113, 0.1)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2"],
+    marginTop: spacing["2"],
+  },
+
+  // ── Buttons (same shapes as the DQR sheet) ──────────────────────────────
   primaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing["2"],
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: colors.emerald500_30,
-    backgroundColor: colors.emerald500_10,
+    alignSelf: "stretch",
     paddingVertical: 14,
+    borderRadius: radius.lg,
+    backgroundColor: "#059669",
+    marginTop: spacing["2"],
   },
-  cancelBtn: {
-    paddingVertical: spacing["2"],
+  upiAppBtnText: {
+    alignItems: "flex-start",
+    gap: 2,
   },
-  actionFooter: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    paddingHorizontal: spacing["6"],
-    paddingTop: spacing["2.5"],
-    paddingBottom: spacing["5"],
-    backgroundColor: colors.background,
-    gap: spacing["3"],
+  outlineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    alignSelf: "stretch",
+    paddingVertical: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.4)",
+    marginTop: spacing["2"],
   },
-  reservedCard: {
+
+  // ── Paid step ───────────────────────────────────────────────────────────
+  paidBlock: { gap: spacing["3"] },
+  // Same success layout as DQR's centerBlock, with the bottom padding
+  // trimmed because the WhatsApp + booking buttons follow inside the sheet.
+  centerBlock: {
     alignItems: "center",
     gap: spacing["3"],
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.emerald500_30,
-    backgroundColor: colors.emerald500_05,
-    padding: spacing["8"],
+    paddingTop: spacing["6"],
+    paddingBottom: spacing["2"],
   },
-  reservedSub: {
-    maxWidth: 280,
+  successCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: EMERALD,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  screenshotCard: {
-    gap: spacing["4"],
-  },
-  screenshotHeader: {
-    flexDirection: "row",
-    gap: spacing["3"],
-  },
-  screenshotBody: {
-    flex: 1,
-    gap: spacing["1"],
-  },
+  successCopy: { alignItems: "center", gap: spacing["1"] },
   whatsappBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing["2"],
-    backgroundColor: "#16a34a", // green-600
+    alignSelf: "stretch",
     paddingVertical: 14,
     borderRadius: radius.lg,
+    backgroundColor: "#16a34a", // green-600
   },
   viewBookingBtn: {
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "stretch",
     paddingVertical: 14,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.zinc700,
-    backgroundColor: colors.zinc800,
+    borderColor: "#3f3f46", // zinc-700
+    backgroundColor: HAIRLINE, // zinc-800
   },
 });
