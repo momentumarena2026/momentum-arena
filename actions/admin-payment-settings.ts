@@ -10,7 +10,7 @@ async function requireAdmin(skipAuth = false) {
   // getMobileAdmin) before delegating here, so they pass skipAuth=true to
   // bypass the cookie-session check that wouldn't apply to a JWT request.
   if (skipAuth) return null;
-  const user = await requireAdminBase("MANAGE_PRICING");
+  const user = await requireAdminBase("MANAGE_PAYMENT_SETTINGS");
   return user.id;
 }
 

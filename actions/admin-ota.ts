@@ -6,11 +6,12 @@ import { revalidatePath } from "next/cache";
 import type { OtaPlatform, OtaReleaseStatus } from "@prisma/client";
 
 // OTA management is a privileged operational surface (it changes what
-// JS bundle every installed app downloads), so we gate it behind the
-// same MANAGE_PRICING permission the other Settings-group admin pages
-// use. Superadmins bypass per-permission checks in requireAdmin.
+// JS bundle every installed app downloads), so it has its own dedicated
+// MANAGE_APP_RELEASES permission (shared with the release-flow dashboard
+// and app-version gates). Superadmins bypass per-permission checks in
+// requireAdmin.
 async function requireAdmin() {
-  const user = await requireAdminBase("MANAGE_PRICING");
+  const user = await requireAdminBase("MANAGE_APP_RELEASES");
   return user.id;
 }
 
@@ -25,7 +26,7 @@ function clampPercent(value: number): number {
  * Web call-sites omit this → `skipAuth` is false → the action runs the
  * cookie-based `requireAdmin()` exactly as before. The mobile admin route
  * (app/api/mobile/admin/ota) has ALREADY authorized the request via bearer
- * token + MANAGE_PRICING (getMobileAdmin/hasPermission), so it passes
+ * token + MANAGE_APP_RELEASES (getMobileAdmin/hasPermission), so it passes
  * `{ skipAuth: true, adminId: admin.id }` — mirroring the `skipAuth` option
  * the read action `listOtaReleases` already exposes. The resolved adminId is
  * used wherever a release row stamps `publishedBy`, so skipAuth callers still
@@ -67,7 +68,7 @@ export interface OtaReleaseRow {
  * `skipAuth` lets a call-site that has ALREADY authorized the request via a
  * different mechanism reuse this query without the cookie-session check. The
  * mobile admin route (app/api/mobile/admin/ota) authenticates with a bearer
- * token + MANAGE_PRICING via getMobileAdmin/hasPermission, so it passes
+ * token + MANAGE_APP_RELEASES via getMobileAdmin/hasPermission, so it passes
  * `skipAuth: true` — the cookie-based requireAdmin() would otherwise reject a
  * mobile request that has no admin session cookie.
  */

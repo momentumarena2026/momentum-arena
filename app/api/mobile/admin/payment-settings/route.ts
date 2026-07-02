@@ -15,12 +15,12 @@ import type { PaymentGateway } from "@prisma/client";
  * shape; POST applies one change at a time (active gateway, DQR toggle, or a
  * per-method enablement flag) and returns the refreshed config. The underlying
  * actions are reused with skipAuth=true since the bearer token is validated
- * here. Permission: VIEW_RAZORPAY (mirrors the web /admin/payment-settings
+ * here. Permission: MANAGE_PAYMENT_SETTINGS (mirrors the web /admin/payment-settings
  * sidebar gate; superadmin always passes).
  */
 async function guard(
   request: NextRequest,
-  permission: "VIEW_RAZORPAY" | "MANAGE_PRICING",
+  permission: "MANAGE_PAYMENT_SETTINGS",
 ) {
   const admin = await getMobileAdmin(request);
   if (!admin)
@@ -35,18 +35,14 @@ async function guard(
 }
 
 export async function GET(request: NextRequest) {
-  // Read = VIEW_RAZORPAY (matches the web sidebar gate).
-  const g = await guard(request, "VIEW_RAZORPAY");
+  const g = await guard(request, "MANAGE_PAYMENT_SETTINGS");
   if ("error" in g) return g.error;
   const config = await getPaymentGatewayConfig();
   return NextResponse.json({ config });
 }
 
 export async function POST(request: NextRequest) {
-  // Mutations switch the live payment gateway / toggle methods — the web
-  // action requires MANAGE_PRICING, so a read-tier VIEW_RAZORPAY admin must
-  // NOT be able to change them here.
-  const g = await guard(request, "MANAGE_PRICING");
+  const g = await guard(request, "MANAGE_PAYMENT_SETTINGS");
   if ("error" in g) return g.error;
 
   const body = (await request.json().catch(() => null)) as {

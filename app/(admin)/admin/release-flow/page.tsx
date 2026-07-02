@@ -255,7 +255,7 @@ const VERSIONS: {
 
 export default async function ReleaseFlowPage() {
   // Same gate as OTA Updates — this documents the privileged release pipeline.
-  await requireAdmin("MANAGE_PRICING");
+  await requireAdmin("MANAGE_APP_RELEASES");
 
   return (
     <div className="space-y-8">
