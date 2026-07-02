@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   Image,
   Linking,
   Modal,
@@ -207,8 +208,27 @@ export function DqrCheckout({
     return () => clearTimeout(id);
   }, [awaitingPayment, secondsLeft, stopPolling]);
 
+  // Returning from the UPI app: JS timers were suspended in the background,
+  // so poll immediately on foreground instead of waiting out the interval.
+  useEffect(() => {
+    if (!awaitingPayment) return;
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") void checkStatus();
+    });
+    return () => sub.remove();
+  }, [awaitingPayment, checkStatus]);
+
   // Razorpay-style success: emerald circle springs in with overshoot, the
   // check + copy follow ~200ms later, hold ~1.4s, then hand off to the parent.
+  //
+  // onConfirmed goes through a ref and the effect depends ONLY on `phase`.
+  // With onConfirmed (an inline arrow in CheckoutScreen) in the deps, every
+  // parent re-render cleared + restarted the 1400ms handoff — and the parent
+  // re-renders EVERY SECOND (hold countdown), so the handoff never fired and
+  // the sheet hung on the success screen. Fire-once guard for safety.
+  const onConfirmedRef = useRef(onConfirmed);
+  onConfirmedRef.current = onConfirmed;
+  const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
     Animated.spring(circleScale, {
@@ -226,10 +246,14 @@ export function DqrCheckout({
       ]),
     ]).start();
     const id = setTimeout(() => {
-      if (bookingIdRef.current) onConfirmed(bookingIdRef.current);
+      if (!firedRef.current && bookingIdRef.current) {
+        firedRef.current = true;
+        onConfirmedRef.current(bookingIdRef.current);
+      }
     }, 1400);
     return () => clearTimeout(id);
-  }, [phase, circleScale, checkOpacity, checkScale, textOpacity, onConfirmed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- animated values are stable refs; onConfirmed via ref
+  }, [phase]);
 
   // Intentionally NOT Linking.canOpenURL: on iOS that requires each scheme in
   // LSApplicationQueriesSchemes (a native build), while plain openURL + catch

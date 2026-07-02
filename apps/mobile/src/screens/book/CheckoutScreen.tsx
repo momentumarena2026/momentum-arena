@@ -965,7 +965,9 @@ export function CheckoutScreen() {
           onConfirmed={(bookingId) => {
             setShowUpiQr(false);
             fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
-            goToBookingDetail(bookingId);
+            // Navigating while the native Modal is still dismissing gets
+            // swallowed on iOS — let the dismissal finish first.
+            setTimeout(() => goToBookingDetail(bookingId), 400);
           }}
         />
       ) : null}

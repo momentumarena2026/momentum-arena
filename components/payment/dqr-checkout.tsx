@@ -242,13 +242,25 @@ export function DqrCheckout({
 
   // Success handoff: let the tick animation land, hold a beat, then hand
   // the settled id to the parent (which navigates to the confirmation).
+  // onConfirmed goes through a ref and the effect depends ONLY on `phase`:
+  // with onConfirmed (an inline arrow in the callers) in the deps, any
+  // parent re-render during the hold window would clear + restart this
+  // timeout — if the parent re-renders faster than CONFIRM_HOLD_MS (e.g. a
+  // ticking countdown), the handoff NEVER fires and the sheet hangs on the
+  // success screen. That exact hang shipped on mobile; guard both surfaces.
+  const onConfirmedRef = useRef(onConfirmed);
+  onConfirmedRef.current = onConfirmed;
+  const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
     const id = setTimeout(() => {
-      if (settledIdRef.current) onConfirmed(settledIdRef.current);
+      if (!firedRef.current && settledIdRef.current) {
+        firedRef.current = true;
+        onConfirmedRef.current(settledIdRef.current);
+      }
     }, CONFIRM_HOLD_MS);
     return () => clearTimeout(id);
-  }, [phase, onConfirmed]);
+  }, [phase]);
 
   const launchApp = useCallback(
     (name: string, link: string) => {
