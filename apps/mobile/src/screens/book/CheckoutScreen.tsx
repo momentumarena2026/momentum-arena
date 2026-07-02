@@ -589,8 +589,11 @@ export function CheckoutScreen() {
     );
   }
 
-  // ── UPI QR flow (inline, matches web) ──────────────────────────────────────
-  if (showUpiQr) {
+  // ── Legacy static UPI QR flow (inline, matches web) ─────────────────────────
+  // Only when DQR is off. The DQR flow no longer early-returns here — it
+  // presents as a bottom-sheet Modal rendered inside the main return below,
+  // so the checkout screen stays mounted behind it (Razorpay-style).
+  if (showUpiQr && !config.dqrEnabled) {
     const isAdvanceFlow = amountMode === "advance";
     const upiAmount = isAdvanceFlow ? advanceAmount : payableAmount;
 
@@ -602,29 +605,6 @@ export function CheckoutScreen() {
         <Text variant="title">Scan &amp; pay</Text>
       </View>
     );
-
-    // DQR: auto-confirming dynamic QR. Booking is created server-side on
-    // payment; onConfirmed jumps straight to the booking detail.
-    if (config.dqrEnabled) {
-      return (
-        <Screen padded={false}>
-          <DqrCheckout
-            header={qrHeader}
-            holdId={params.holdId}
-            amount={upiAmount}
-            overrideAmount={payableAmount}
-            isAdvance={isAdvanceFlow}
-            advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
-            remainingAmount={isAdvanceFlow ? remainingAmount : undefined}
-            onCancel={() => setShowUpiQr(false)}
-            onConfirmed={(bookingId) => {
-              fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
-              goToBookingDetail(bookingId);
-            }}
-          />
-        </Screen>
-      );
-    }
 
     // Legacy static QR: booking created PENDING on "I've paid"; verified
     // later via the WhatsApp screenshot / admin.
@@ -965,6 +945,30 @@ export function CheckoutScreen() {
           fullWidth
         />
       </View>
+
+      {/* DQR: auto-confirming UPI checkout in a Razorpay-style bottom sheet.
+          Rendered as a Modal overlay so this screen stays mounted (and the
+          hold countdown keeps ticking) behind the dimmed backdrop. Booking
+          is created server-side on payment; onConfirmed jumps straight to
+          the booking detail. */}
+      {showUpiQr && config.dqrEnabled ? (
+        <DqrCheckout
+          holdId={params.holdId}
+          amount={amountMode === "advance" ? advanceAmount : payableAmount}
+          overrideAmount={payableAmount}
+          isAdvance={amountMode === "advance"}
+          advanceAmount={amountMode === "advance" ? advanceAmount : undefined}
+          remainingAmount={
+            amountMode === "advance" ? remainingAmount : undefined
+          }
+          onCancel={() => setShowUpiQr(false)}
+          onConfirmed={(bookingId) => {
+            setShowUpiQr(false);
+            fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
+            goToBookingDetail(bookingId);
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }

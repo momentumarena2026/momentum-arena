@@ -256,6 +256,13 @@ export interface PaymentConfig {
 export interface DqrInitResult {
   qrString: string;
   qrImage: string;
+  /**
+   * "intent" → qrString is a tappable `upi://pay?...` link (PhonePe Open
+   * Intent product); the client shows the pick-a-UPI-app sheet.
+   * "qr" → scan-only string; the client renders the QR alone.
+   * Optional so older server deploys (no mode field) fall back to "qr".
+   */
+  mode?: "intent" | "qr";
   transactionId: string;
   expiresIn: number;
   amount: number;

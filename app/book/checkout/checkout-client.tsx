@@ -514,25 +514,27 @@ export function CheckoutClient({
     }
   };
 
-  if (showUpiQr) {
+  // Shared post-confirmation side effects: fire the rewards-redeem
+  // funnel step and kick off the recurring series (non-advance only).
+  // Component-scope because both the legacy static-QR branch and the
+  // DQR sheet overlay (rendered inside the main tree below) use it.
+  const fireRewardsAndRecurring = (isAdvance: boolean) => {
+    if (pointsRedeemed > 0) {
+      window.dispatchEvent(
+        new CustomEvent("rewards:redeem-completed", {
+          detail: {
+            points: pointsRedeemed,
+            paiseSaved: pointsRedeemPaiseSaved,
+          },
+        }),
+      );
+    }
+    if (!isAdvance) handleRecurringAfterPayment().catch(() => {});
+  };
+
+  if (showUpiQr && !dqrEnabled) {
     const isAdvance = amountMode === "advance";
     const upiAmount = isAdvance ? advanceAmount : payableAmount;
-
-    // Shared post-confirmation side effects: fire the rewards-redeem
-    // funnel step and kick off the recurring series (non-advance only).
-    const fireRewardsAndRecurring = () => {
-      if (pointsRedeemed > 0) {
-        window.dispatchEvent(
-          new CustomEvent("rewards:redeem-completed", {
-            detail: {
-              points: pointsRedeemed,
-              paiseSaved: pointsRedeemPaiseSaved,
-            },
-          }),
-        );
-      }
-      if (!isAdvance) handleRecurringAfterPayment().catch(() => {});
-    };
 
     const advanceNote = isAdvance ? (
       <p className="text-center text-xs text-yellow-400">
@@ -540,33 +542,6 @@ export function CheckoutClient({
         {formatPrice(remainingAmount)}
       </p>
     ) : null;
-
-    // DQR: auto-confirming dynamic QR. The booking is created server-side
-    // on payment; onConfirmed navigates straight to the confirmation.
-    if (dqrEnabled) {
-      return (
-        <div className="space-y-4">
-          <DqrCheckout
-            holdId={holdId}
-            amount={upiAmount}
-            overrideAmount={payableAmount}
-            isAdvance={isAdvance}
-            advanceAmount={isAdvance ? advanceAmount : undefined}
-            remainingAmount={isAdvance ? remainingAmount : undefined}
-            onConfirmed={(bookingId) => {
-              paymentCompletedRef.current = true;
-              fireRewardsAndRecurring();
-              router.push(`/book/confirmation?id=${bookingId}`);
-            }}
-            onCancel={() => {
-              releaseLock();
-              router.back();
-            }}
-          />
-          {advanceNote}
-        </div>
-      );
-    }
 
     // Legacy static QR: booking created PENDING when the user taps
     // "I've completed the payment"; verified later via UTR / admin.
@@ -588,7 +563,7 @@ export function CheckoutClient({
               : await selectUpiPayment(holdId, payableAmount);
 
             if (commit.success && commit.bookingId) {
-              fireRewardsAndRecurring();
+              fireRewardsAndRecurring(isAdvance);
               // Don't router.push — UpiQrCheckout stays on its "paid" step
               // so the user can share the payment screenshot on WhatsApp.
               return { bookingId: commit.bookingId };
@@ -609,8 +584,12 @@ export function CheckoutClient({
 
   return (
     <div className="space-y-6">
-      {/* Countdown */}
-      <CountdownTimer expiresAt={new Date(expiresAt)} onExpired={handleExpired} />
+      {/* Countdown. Unmounted while the DQR sheet is up — before the sheet
+          refactor the DQR step replaced this whole tree, so the hold-expiry
+          redirect never fired mid-payment; keep that behavior. */}
+      {!showUpiQr && (
+        <CountdownTimer expiresAt={new Date(expiresAt)} onExpired={handleExpired} />
+      )}
 
       {/* Recurring booking notice */}
       {recurringEnabled && recurringCount && perSessionAmount && (
@@ -761,6 +740,32 @@ export function CheckoutClient({
         )}
       </button>
 
+      {/* DQR: auto-confirming dynamic QR, shown as a Razorpay-style bottom
+          sheet OVER the checkout (the page above stays mounted and dimmed).
+          The booking is created server-side on payment; onConfirmed
+          navigates straight to the confirmation. */}
+      {showUpiQr && dqrEnabled && (
+        <DqrCheckout
+          holdId={holdId}
+          amount={amountMode === "advance" ? advanceAmount : payableAmount}
+          overrideAmount={payableAmount}
+          isAdvance={amountMode === "advance"}
+          advanceAmount={amountMode === "advance" ? advanceAmount : undefined}
+          remainingAmount={
+            amountMode === "advance" ? remainingAmount : undefined
+          }
+          onConfirmed={(bookingId) => {
+            paymentCompletedRef.current = true;
+            fireRewardsAndRecurring(amountMode === "advance");
+            router.push(`/book/confirmation?id=${bookingId}`);
+          }}
+          onCancel={() => {
+            setShowUpiQr(false);
+            releaseLock();
+            router.back();
+          }}
+        />
+      )}
     </div>
   );
 }
