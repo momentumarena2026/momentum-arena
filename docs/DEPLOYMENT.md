@@ -244,7 +244,9 @@ gh workflow run post-native-release.yml --ref main \
   -f versionName=1.0.1 -f storeUrl="https://apps.apple.com/app/idXXXXXXXX"
 ```
 This recomputes + commits `apps/mobile/fingerprints/<channel>.<platform>.fingerprint`
-(with `[skip ci]`) and updates the in-DB **version gate** (min-supported build).
+(the auto-commit carries `[skip ci]` — the one legitimate remaining use of the
+token: machine-generated commits that must not re-trigger ota-publish) and
+updates the in-DB **version gate** (min-supported build).
 Do it per platform. After it lands, JS-only changes resume OTA-publishing
 normally (§7).
 
@@ -299,9 +301,11 @@ FCM/push credentials. Set the **same keys** in Vercel's *Production* and
 
 ## 12. Common gotchas
 
-- **Forgot to drop `[skip ci]` on a schema change** → prod code references a
-  missing column/enum and 500s. Fix: re-run `seed-production` (Actions →
-  Re-run), or push an empty no-`[skip ci]` commit to `main`.
+- **Prod code references a missing column/enum (P2022) after a deploy** →
+  shouldn't happen anymore (the Vercel build syncs schema before code goes
+  live), but if it does: run the `seed-production` workflow manually
+  (Actions → *Seed Production DB* → Run workflow) or redeploy from the
+  Vercel dashboard — the rebuild re-runs `prisma db push`.
 - **OTA keeps saying "native build required"** → the fingerprint baseline is
   stale; cut the native build and update `apps/mobile/fingerprints/*`.
 - **Vercel didn't build** → check the branch (only `main`/`development` deploy)
