@@ -14,6 +14,10 @@ export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
   if ("error" in gate) return gate.error;
 
-  const grouped = await listActiveExpenseOptionsByField(true);
+  const sp = new URL(request.url).searchParams;
+  const grouped = await listActiveExpenseOptionsByField(
+    true,
+    sp.get("module") === "RUNNING" ? "RUNNING" : "GENERAL",
+  );
   return NextResponse.json({ options: grouped });
 }

@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -274,13 +274,24 @@ function AdminExpensesStackNav() {
         name="AdminExpenseForm"
         component={AdminExpenseFormScreen}
         options={({ route }) => ({
-          title: route.params?.expenseId ? "Edit expense" : "Add expense",
+          title: route.params?.expenseId
+            ? route.params?.module === "RUNNING"
+              ? "Edit running expense"
+              : "Edit expense"
+            : route.params?.module === "RUNNING"
+              ? "Add running expense"
+              : "Add expense",
         })}
       />
       <ExpensesStack.Screen
         name="AdminExpenseAnalytics"
         component={AdminExpenseAnalyticsScreen}
-        options={{ title: "Analytics" }}
+        options={({ route }) => ({
+          title:
+            route.params?.module === "RUNNING"
+              ? "Running Expense Analytics"
+              : "Analytics",
+        })}
       />
     </ExpensesStack.Navigator>
   );
@@ -421,7 +432,7 @@ export function AdminNavigator() {
       // Calendar is the admin landing screen on login (not the dashboard).
       initialRouteName="AdminCalendar"
       screenOptions={({ route }) => ({
-        header: () => <AdminHeader title={titleFor(route.name)} />,
+        header: () => <AdminHeader title={titleFor(route)} />,
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
@@ -535,8 +546,10 @@ export function AdminNavigator() {
   );
 }
 
-function titleFor(name: keyof AdminTabsParamList): string {
-  switch (name) {
+type AdminTabRoute = RouteProp<AdminTabsParamList, keyof AdminTabsParamList>;
+
+function titleFor(route: AdminTabRoute): string {
+  switch (route.name) {
     case "AdminSportsAnalytics":
       return "Sports Analytics";
     case "AdminHome":
@@ -550,12 +563,34 @@ function titleFor(name: keyof AdminTabsParamList): string {
     case "AdminCafe":
       return "Cafe";
     case "AdminExpenses":
-      return "Expenses";
+      return expensesTabIsRunning(route) ? "Running Expenses" : "Expenses";
     case "AdminRewards":
       return "Rewards";
     case "AdminMore":
       return "More";
   }
+}
+
+/**
+ * The Expenses tab hosts two flavors of the same nested stack — the
+ * classic GENERAL log and the RUNNING (month-wise) ledger — switched
+ * by the `module` param on the focused nested route. The tab-level
+ * header has to peek into the nested navigator state for it; before
+ * the nested navigator has mounted, the pending `{ screen, params }`
+ * payload sits on the tab route's own params instead. Neither shape
+ * is on the RouteProp type, hence the local cast.
+ */
+function expensesTabIsRunning(route: AdminTabRoute): boolean {
+  const r = route as unknown as {
+    state?: {
+      index?: number;
+      routes?: Array<{ params?: { module?: string } }>;
+    };
+    params?: { params?: { module?: string } };
+  };
+  const focused = r.state?.routes?.[r.state?.index ?? 0]?.params;
+  const pending = r.params?.params;
+  return (focused ?? pending)?.module === "RUNNING";
 }
 
 function AdminHeader({ title }: { title: string }) {

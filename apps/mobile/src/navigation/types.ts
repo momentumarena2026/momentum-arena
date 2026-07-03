@@ -164,10 +164,17 @@ export type AdminCafeStackParamList = {
 // Expenses tab: list (default) + per-row edit + add + analytics.
 // Add and edit share one form screen — the param `expenseId` is the
 // editing flag (undefined ⇒ creating).
+//
+// The same three screens serve TWO modules parameterized by the
+// optional `module` route param: absent ⇒ GENERAL (the original
+// expense log, flat list), "RUNNING" ⇒ Running Expenses (month-wise
+// recurring costs, month-collapsible list). The More hub navigates
+// here with explicit params so the two flavors never bleed into each
+// other's screens or react-query caches.
 export type AdminExpensesStackParamList = {
-  AdminExpensesList: undefined;
-  AdminExpenseForm: { expenseId?: string };
-  AdminExpenseAnalytics: undefined;
+  AdminExpensesList: { module?: "RUNNING" } | undefined;
+  AdminExpenseForm: { expenseId?: string; module?: "RUNNING" };
+  AdminExpenseAnalytics: { module?: "RUNNING" } | undefined;
 };
 
 // "More" hub stack: the grouped, permission-gated menu (root) plus every

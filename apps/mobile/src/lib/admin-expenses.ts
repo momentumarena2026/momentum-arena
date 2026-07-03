@@ -14,6 +14,15 @@ export type ExpenseOptionField =
   | "SPENT_TYPE"
   | "TO_NAME";
 
+/**
+ * Expense module. GENERAL is the original day-to-day expense log;
+ * RUNNING is the month-wise recurring-costs ledger (rent, salaries,
+ * utilities). Every read/write is scoped server-side by this flag —
+ * omitting it everywhere keeps the legacy GENERAL behavior, so all
+ * pre-existing callers are unchanged.
+ */
+export type ExpenseModule = "GENERAL" | "RUNNING";
+
 export interface AdminExpense {
   id: string;
   date: string;
@@ -83,6 +92,7 @@ export const adminExpensesApi = {
       search?: string;
       page?: number;
       pageSize?: number;
+      module?: ExpenseModule;
     } = {},
   ): Promise<AdminExpenseList> {
     const sp = new URLSearchParams();
@@ -91,6 +101,7 @@ export const adminExpensesApi = {
     if (filters.search) sp.set("search", filters.search);
     if (filters.page) sp.set("page", String(filters.page));
     if (filters.pageSize) sp.set("pageSize", String(filters.pageSize));
+    if (filters.module) sp.set("module", filters.module);
     const qs = sp.toString();
     return request(
       `/api/mobile/admin/expenses${qs ? `?${qs}` : ""}`,
@@ -102,7 +113,9 @@ export const adminExpensesApi = {
     return request(`/api/mobile/admin/expenses/${id}`, { method: "GET" });
   },
 
-  create(body: AdminExpenseInput): Promise<{ ok: true; id: string }> {
+  create(
+    body: AdminExpenseInput & { module?: ExpenseModule },
+  ): Promise<{ ok: true; id: string }> {
     return request("/api/mobile/admin/expenses", {
       method: "POST",
       body,
@@ -125,19 +138,24 @@ export const adminExpensesApi = {
     });
   },
 
-  options(): Promise<{
+  options(module?: ExpenseModule): Promise<{
     options: Record<ExpenseOptionField, string[]>;
   }> {
-    return request("/api/mobile/admin/expenses/options", { method: "GET" });
+    const qs = module ? `?module=${module}` : "";
+    return request(`/api/mobile/admin/expenses/options${qs}`, {
+      method: "GET",
+    });
   },
 
   analytics(filters: {
     from?: string;
     to?: string;
+    module?: ExpenseModule;
   } = {}): Promise<AdminExpenseAnalytics> {
     const sp = new URLSearchParams();
     if (filters.from) sp.set("from", filters.from);
     if (filters.to) sp.set("to", filters.to);
+    if (filters.module) sp.set("module", filters.module);
     const qs = sp.toString();
     return request(
       `/api/mobile/admin/expenses/analytics${qs ? `?${qs}` : ""}`,

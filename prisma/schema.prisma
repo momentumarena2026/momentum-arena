@@ -1788,8 +1788,17 @@ model CachedDocument {
 // Booking.totalAmount — not paise.
 // ===========================
 
+// Which expenses tab a row belongs to. GENERAL = the original Expenses
+// module; RUNNING = the "Running Expenses" clone (same columns, its own
+// blank-by-default dropdown options, month-collapsed table UI).
+enum ExpenseModule {
+  GENERAL
+  RUNNING
+}
+
 model Expense {
   id          String   @id @default(cuid())
+  module      ExpenseModule @default(GENERAL)
   // Calendar date of the expense (what would be typed into the sheet),
   // independent of createdAt which tracks row entry time.
   date        DateTime @db.Date
@@ -1812,6 +1821,7 @@ model Expense {
 
   editHistory ExpenseEditHistory[]
 
+  @@index([module, date])
   @@index([date])
   @@index([spentType])
   @@index([doneBy])
@@ -1853,6 +1863,7 @@ enum ExpenseOptionField {
 
 model ExpenseOption {
   id        String             @id @default(cuid())
+  module    ExpenseModule      @default(GENERAL)
   field     ExpenseOptionField
   // Displayed + stored form of the option (e.g. "Cash"). Uniqueness
   // scoped to field so "Cash" for PAYMENT_TYPE doesn't collide with
@@ -1866,8 +1877,8 @@ model ExpenseOption {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([field, label])
-  @@index([field, isActive])
+  @@unique([module, field, label])
+  @@index([module, field, isActive])
 }
 
 // ===========================

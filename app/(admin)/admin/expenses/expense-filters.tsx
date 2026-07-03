@@ -21,12 +21,18 @@ interface Props {
     SPENT_TYPE: string[];
     TO_NAME: string[];
   };
+  /** List-page route the filters push to; defaults to the GENERAL tab. */
+  basePath?: string;
 }
 
 // URL-driven filter bar. Each control pushes the new searchParams as a
-// client-side navigation; the server component at /admin/expenses
+// client-side navigation; the server component at `basePath`
 // re-reads them on next render.
-export function ExpenseFilters({ initial, options }: Props) {
+export function ExpenseFilters({
+  initial,
+  options,
+  basePath = "/admin/expenses",
+}: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [form, setForm] = useState(initial);
@@ -38,7 +44,7 @@ export function ExpenseFilters({ initial, options }: Props) {
     }
     qs.set("page", "1");
     startTransition(() => {
-      router.push(`/admin/expenses?${qs.toString()}`);
+      router.push(`${basePath}?${qs.toString()}`);
     });
   }
 

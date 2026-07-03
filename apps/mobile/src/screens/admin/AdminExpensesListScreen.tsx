@@ -8,11 +8,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import {
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  ChevronDown,
   ChevronRight,
   IndianRupee,
   Plus,
@@ -36,6 +41,7 @@ type Nav = NativeStackNavigationProp<
   AdminExpensesStackParamList,
   "AdminExpensesList"
 >;
+type Rt = RouteProp<AdminExpensesStackParamList, "AdminExpensesList">;
 
 /**
  * Mirrors the web /admin/expenses page list view. Filters collapsed
@@ -43,18 +49,29 @@ type Nav = NativeStackNavigationProp<
  * expense and edit / delete", not deep slicing. Power filters
  * (paymentType, doneBy, etc.) live on the analytics screen instead,
  * because that's where slicing actually pays off.
+ *
+ * The `module` route param flips this same screen into the Running
+ * Expenses ledger: every data call is scoped server-side, react-query
+ * keys fork so GENERAL/RUNNING never share caches, and the flat list
+ * becomes month-collapsible groups (recurring costs are reviewed
+ * month-by-month, not entry-by-entry).
  */
 export function AdminExpensesListScreen() {
   const navigation = useNavigation<Nav>();
+  const route = useRoute<Rt>();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
 
+  const moduleParam = route.params?.module;
+  const isRunning = moduleParam === "RUNNING";
+
   const list = useQuery({
-    queryKey: ["admin-expenses", search.trim()],
+    queryKey: ["admin-expenses", moduleParam ?? "GENERAL", search.trim()],
     queryFn: () =>
       adminExpensesApi.list({
         search: search.trim() || undefined,
         pageSize: 50,
+        module: moduleParam,
       }),
     refetchOnWindowFocus: false,
   });
@@ -81,6 +98,33 @@ export function AdminExpensesListScreen() {
     [list.data],
   );
 
+  // ── RUNNING module: month-collapsible grouping ──
+  // Rows arrive date-desc from the server, so the first group is the
+  // most recent month. Only that one starts expanded; taps override.
+  const monthGroups = useMemo<MonthGroup[]>(() => {
+    if (!isRunning || !list.data) return [];
+    const groups: MonthGroup[] = [];
+    const byLabel = new Map<string, MonthGroup>();
+    for (const e of list.data.rows) {
+      const label = monthLabel(e.date);
+      let g = byLabel.get(label);
+      if (!g) {
+        g = { label, total: 0, rows: [] };
+        byLabel.set(label, g);
+        groups.push(g);
+      }
+      g.total += e.amount;
+      g.rows.push(e);
+    }
+    return groups;
+  }, [isRunning, list.data]);
+
+  // Sparse override map — a month absent here falls back to its
+  // default (index 0 expanded, the rest collapsed).
+  const [monthOverrides, setMonthOverrides] = useState<
+    Record<string, boolean>
+  >({});
+
   return (
     <Screen padded={false}>
       <ScrollView
@@ -100,7 +144,9 @@ export function AdminExpensesListScreen() {
             <Receipt size={20} color={colors.yellow400} />
           </View>
           <View style={styles.heroBody}>
-            <Text variant="bodyStrong">Expenses</Text>
+            <Text variant="bodyStrong">
+              {isRunning ? "Running Expenses" : "Expenses"}
+            </Text>
             <Text variant="small" color={colors.zinc500}>
               {totalLabel}
             </Text>
@@ -110,7 +156,11 @@ export function AdminExpensesListScreen() {
         {/* Quick actions */}
         <View style={styles.actionRow}>
           <Pressable
-            onPress={() => navigation.navigate("AdminExpenseForm", {})}
+            onPress={() =>
+              navigation.navigate("AdminExpenseForm", {
+                module: moduleParam,
+              })
+            }
             style={({ pressed }) => [
               styles.actionBtn,
               styles.actionPrimary,
@@ -123,7 +173,11 @@ export function AdminExpensesListScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => navigation.navigate("AdminExpenseAnalytics")}
+            onPress={() =>
+              navigation.navigate("AdminExpenseAnalytics", {
+                module: moduleParam,
+              })
+            }
             style={({ pressed }) => [
               styles.actionBtn,
               styles.actionNeutral,
@@ -169,11 +223,70 @@ export function AdminExpensesListScreen() {
           <View style={styles.empty}>
             <IndianRupee size={28} color={colors.zinc500} />
             <Text variant="bodyStrong" color={colors.zinc300}>
-              No expenses
+              {isRunning ? "No running expenses" : "No expenses"}
             </Text>
             <Text variant="tiny" color={colors.zinc500} align="center">
               Tap "Add expense" above to record one.
             </Text>
+          </View>
+        ) : isRunning ? (
+          // RUNNING: month-collapsible groups (most recent expanded).
+          <View style={{ gap: spacing["2"] }}>
+            {monthGroups.map((g, idx) => {
+              const expanded = monthOverrides[g.label] ?? idx === 0;
+              return (
+                <View key={g.label} style={{ gap: spacing["2"] }}>
+                  <Pressable
+                    onPress={() =>
+                      setMonthOverrides((prev) => ({
+                        ...prev,
+                        [g.label]: !expanded,
+                      }))
+                    }
+                    style={({ pressed }) => [
+                      styles.monthHeader,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text variant="bodyStrong">{g.label}</Text>
+                      <Text variant="tiny" color={colors.zinc500}>
+                        {g.rows.length}{" "}
+                        {g.rows.length === 1 ? "entry" : "entries"}
+                      </Text>
+                    </View>
+                    <Text variant="bodyStrong" color={colors.emerald400}>
+                      {formatRupees(g.total)}
+                    </Text>
+                    {expanded ? (
+                      <ChevronDown size={16} color={colors.zinc500} />
+                    ) : (
+                      <ChevronRight size={16} color={colors.zinc500} />
+                    )}
+                  </Pressable>
+                  {expanded
+                    ? g.rows.map((e) => (
+                        <ExpenseRow
+                          key={e.id}
+                          expense={e}
+                          onPress={() =>
+                            navigation.navigate("AdminExpenseForm", {
+                              expenseId: e.id,
+                              module: moduleParam,
+                            })
+                          }
+                          onDelete={() =>
+                            confirmDelete(e, () => remove.mutate(e.id))
+                          }
+                          isDeleting={
+                            remove.isPending && remove.variables === e.id
+                          }
+                        />
+                      ))
+                    : null}
+                </View>
+              );
+            })}
           </View>
         ) : (
           <View style={{ gap: spacing["2"] }}>
@@ -187,18 +300,7 @@ export function AdminExpensesListScreen() {
                   })
                 }
                 onDelete={() =>
-                  Alert.alert(
-                    "Delete expense?",
-                    `${e.description} (${formatRupees(e.amount)}) will be removed permanently.`,
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Delete",
-                        style: "destructive",
-                        onPress: () => remove.mutate(e.id),
-                      },
-                    ],
-                  )
+                  confirmDelete(e, () => remove.mutate(e.id))
                 }
                 isDeleting={
                   remove.isPending && remove.variables === e.id
@@ -297,6 +399,34 @@ function prettyDate(dateStr: string): string {
     year: "numeric",
     timeZone: "Asia/Kolkata",
   });
+}
+
+interface MonthGroup {
+  /** "July 2026" — unique per month-year, doubles as the group key. */
+  label: string;
+  total: number;
+  rows: AdminExpense[];
+}
+
+/** Calendar-month bucket label, IST — matches how prettyDate renders. */
+function monthLabel(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
+/** Shared delete confirm — used by both the flat and grouped lists. */
+function confirmDelete(e: AdminExpense, onConfirm: () => void) {
+  Alert.alert(
+    "Delete expense?",
+    `${e.description} (${formatRupees(e.amount)}) will be removed permanently.`,
+    [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: onConfirm },
+    ],
+  );
 }
 
 const styles = StyleSheet.create({
@@ -400,6 +530,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(239, 68, 68, 0.30)",
     backgroundColor: "rgba(239, 68, 68, 0.10)",
+  },
+  // Month group header (RUNNING module). Emerald-tinted so the
+  // pressable "section" rows read differently from expense rows.
+  monthHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    padding: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.25)",
+    backgroundColor: "rgba(52, 211, 153, 0.06)",
   },
   empty: {
     alignItems: "center",

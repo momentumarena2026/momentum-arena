@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -32,6 +33,9 @@ import {
   adminExpensesApi,
   type AdminExpenseAnalytics,
 } from "../../lib/admin-expenses";
+import type { AdminExpensesStackParamList } from "../../navigation/types";
+
+type Rt = RouteProp<AdminExpensesStackParamList, "AdminExpenseAnalytics">;
 
 /**
  * Mobile mirror of the web /admin/expenses/analytics dashboard. Full
@@ -53,6 +57,11 @@ import {
  * payload. All expense money is RUPEES already → formatRupees.
  */
 export function AdminExpenseAnalyticsScreen() {
+  const route = useRoute<Rt>();
+  // RUNNING ⇒ Running Expense Analytics — same dashboard, server-scoped
+  // to the running-costs module. Module in the query key keeps the two
+  // dashboards' caches apart.
+  const moduleParam = route.params?.module;
   const [range, setRange] = useState<RangeKey>("THIS_MONTH");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -64,11 +73,17 @@ export function AdminExpenseAnalyticsScreen() {
   ]);
 
   const query = useQuery({
-    queryKey: ["admin-expense-analytics", from ?? "ALL", to ?? "ALL"],
+    queryKey: [
+      "admin-expense-analytics",
+      moduleParam ?? "GENERAL",
+      from ?? "ALL",
+      to ?? "ALL",
+    ],
     queryFn: () =>
       adminExpensesApi.analytics({
         from: from ?? undefined,
         to: to ?? undefined,
+        module: moduleParam,
       }),
     refetchOnWindowFocus: false,
   });

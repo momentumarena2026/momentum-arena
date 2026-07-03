@@ -23,12 +23,23 @@ interface Props {
   expenseId?: string;
   initial: ExpenseInput;
   options: Options;
+  /** Which expenses tab the row is saved under; defaults to GENERAL. */
+  module?: "GENERAL" | "RUNNING";
+  /** List-page route used for cancel / post-save navigation. */
+  basePath?: string;
 }
 
 // Create + edit share one form. On save we route back to the list page
 // (create) or stay on the edit page with router.refresh() so the edit
 // history list below re-renders.
-export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
+export function ExpenseForm({
+  mode,
+  expenseId,
+  initial,
+  options,
+  module = "GENERAL",
+  basePath = "/admin/expenses",
+}: Props) {
   const router = useRouter();
   // Plain loading flag instead of useTransition — when a server action is
   // followed by router.push(), wrapping both in a transition makes the
@@ -52,6 +63,7 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
 
     const payload: ExpenseInput = {
       ...form,
+      module,
       amount: Number(form.amount),
       note: form.note?.trim() ? form.note : null,
     };
@@ -63,7 +75,7 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
           setError(res.error);
           return;
         }
-        router.push("/admin/expenses");
+        router.push(basePath);
         router.refresh();
       } else if (mode === "edit" && expenseId) {
         const res = await updateExpense(expenseId, payload, note);
@@ -99,7 +111,7 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
         setError(res.error);
         return;
       }
-      router.push("/admin/expenses");
+      router.push(basePath);
       router.refresh();
     } catch (err) {
       console.error(err);
@@ -243,7 +255,7 @@ export function ExpenseForm({ mode, expenseId, initial, options }: Props) {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => router.push("/admin/expenses")}
+            onClick={() => router.push(basePath)}
             className="rounded-md border border-zinc-800 bg-zinc-950 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-700"
           >
             Cancel

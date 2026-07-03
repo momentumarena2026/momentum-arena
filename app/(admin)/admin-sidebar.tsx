@@ -32,6 +32,7 @@ import {
   Store,
   Fuel,
   Receipt,
+  Repeat,
   PieChart,
   Bell,
   Smartphone,
@@ -71,6 +72,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/razorpay": CreditCard,
   "/admin/expenses": Receipt,
   "/admin/expenses/analytics": PieChart,
+  "/admin/running-expenses": Repeat,
+  "/admin/running-expenses/analytics": PieChart,
   "/admin/push": Bell,
 };
 

@@ -16,6 +16,9 @@ export async function GET(request: NextRequest) {
   const sp = new URL(request.url).searchParams;
   const data = await getExpenseAnalytics(
     {
+      module: (sp.get("module") === "RUNNING" ? "RUNNING" : "GENERAL") as
+        | "GENERAL"
+        | "RUNNING",
       from: sp.get("from") || undefined,
       to: sp.get("to") || undefined,
     },
