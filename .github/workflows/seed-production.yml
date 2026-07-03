@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - main
+    # Path-filtered: only schema/seed/cleanup changes need a DB sync. This
+    # replaces the retired "[skip ci]" convention (footgun: GitHub matches
+    # the token ANYWHERE in the message - see 2026-07-02 incident). The
+    # Vercel build also runs db push (scripts/vercel-build.sh), so this
+    # workflow is belt-and-suspenders for the DB + owns seeding.
+    paths:
+      - "prisma/**"
+  # Manual recovery hatch (never required in the normal flow).
+  workflow_dispatch: {}
 
 jobs:
   seed:
