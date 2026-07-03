@@ -23,6 +23,8 @@ interface Props {
   };
   /** List-page route the filters push to; defaults to the GENERAL tab. */
   basePath?: string;
+  /** Hide the Vendor dropdown (RUNNING rows have no vendor). */
+  showVendor?: boolean;
 }
 
 // URL-driven filter bar. Each control pushes the new searchParams as a
@@ -32,6 +34,7 @@ export function ExpenseFilters({
   initial,
   options,
   basePath = "/admin/expenses",
+  showVendor = true,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -92,7 +95,11 @@ export function ExpenseFilters({
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div
+        className={`grid grid-cols-2 md:grid-cols-4 gap-3 ${
+          showVendor ? "lg:grid-cols-7" : "lg:grid-cols-6"
+        }`}
+      >
         <label className="flex flex-col gap-1">
           <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
             From
@@ -135,12 +142,14 @@ export function ExpenseFilters({
           onChange={(v) => set("paymentType", v)}
           options={options.PAYMENT_TYPE}
         />
-        <FilterSelect
-          label="Vendor"
-          value={form.vendor}
-          onChange={(v) => set("vendor", v)}
-          options={options.VENDOR}
-        />
+        {showVendor && (
+          <FilterSelect
+            label="Vendor"
+            value={form.vendor}
+            onChange={(v) => set("vendor", v)}
+            options={options.VENDOR}
+          />
+        )}
 
         <label className="flex flex-col gap-1 col-span-2 md:col-span-4 lg:col-span-1">
           <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">

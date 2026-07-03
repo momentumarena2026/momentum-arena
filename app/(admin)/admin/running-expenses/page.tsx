@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  Plus,
   BarChart3,
   Sliders,
   IndianRupee,
@@ -14,6 +13,7 @@ import {
 import { formatExpenseAmount } from "@/lib/expenses";
 import { ExpenseFilters } from "../expenses/expense-filters";
 import { RunningExpenseTable } from "./running-expense-table";
+import { NewRunningExpenseButton } from "./new-running-expense-button";
 
 // Admin list page for RUNNING expenses — a structural clone of the
 // GENERAL expenses list, but the table groups rows by calendar month
@@ -96,13 +96,7 @@ export default async function AdminRunningExpensesPage({
             <Sliders className="h-4 w-4" />
             Dropdowns
           </Link>
-          <Link
-            href="/admin/running-expenses/new"
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-          >
-            <Plus className="h-4 w-4" />
-            New Expense
-          </Link>
+          <NewRunningExpenseButton options={options} />
         </div>
       </div>
 
@@ -152,6 +146,7 @@ export default async function AdminRunningExpensesPage({
         }}
         options={options}
         basePath="/admin/running-expenses"
+        showVendor={false}
       />
 
       {/* Table — month-collapsible */}
@@ -163,7 +158,6 @@ export default async function AdminRunningExpensesPage({
           note: r.note,
           spentType: r.spentType,
           toName: r.toName,
-          vendor: r.vendor,
           paymentType: r.paymentType,
           doneBy: r.doneBy,
           amount: r.amount,

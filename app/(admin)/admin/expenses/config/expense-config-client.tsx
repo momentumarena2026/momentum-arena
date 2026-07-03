@@ -40,6 +40,8 @@ interface Props {
   }[];
   /** Which expenses tab new options are created under; defaults to GENERAL. */
   module?: "GENERAL" | "RUNNING";
+  /** Field tabs to hide entirely (e.g. VENDOR for RUNNING — no vendor there). */
+  hideFields?: ExpenseOptionFieldKey[];
 }
 
 // Tabbed editor — one tab per dropdown, with add / rename / toggle /
@@ -50,10 +52,14 @@ export function ExpenseConfigClient({
   grouped,
   fieldTabs,
   module = "GENERAL",
+  hideFields,
 }: Props) {
   const router = useRouter();
+  const visibleTabs = hideFields?.length
+    ? fieldTabs.filter((t) => !hideFields.includes(t.field))
+    : fieldTabs;
   const [activeTab, setActiveTab] = useState<ExpenseOptionFieldKey>(
-    fieldTabs[0]?.field ?? "PAYMENT_TYPE"
+    visibleTabs[0]?.field ?? "PAYMENT_TYPE"
   );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -158,7 +164,7 @@ export function ExpenseConfigClient({
     <div className="space-y-4">
       {/* Tabs */}
       <div className="flex flex-wrap gap-2">
-        {fieldTabs.map((t) => {
+        {visibleTabs.map((t) => {
           const active = t.field === activeTab;
           return (
             <button

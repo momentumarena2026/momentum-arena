@@ -176,14 +176,21 @@ export function AdminExpenseAnalyticsScreen() {
             </Text>
           </Pressable>
         ) : query.data ? (
-          <Body data={query.data} />
+          <Body data={query.data} showVendor={moduleParam !== "RUNNING"} />
         ) : null}
       </ScrollView>
     </Screen>
   );
 }
 
-function Body({ data }: { data: AdminExpenseAnalytics }) {
+function Body({
+  data,
+  showVendor,
+}: {
+  data: AdminExpenseAnalytics;
+  /** RUNNING rows carry no vendor, so its breakdown table is hidden there. */
+  showVendor: boolean;
+}) {
   const avg =
     data.totalCount > 0 ? Math.round(data.totalAmount / data.totalCount) : 0;
   const topType = data.bySpentType[0];
@@ -330,10 +337,12 @@ function Body({ data }: { data: AdminExpenseAnalytics }) {
         )}
       </ChartCard>
 
-      {/* ───── Top vendors (table) ───── */}
-      <ChartCard title="Top Vendors">
-        <CategoryTable rows={data.byVendor} />
-      </ChartCard>
+      {/* ───── Top vendors (table) — GENERAL only, RUNNING has no vendor ───── */}
+      {showVendor ? (
+        <ChartCard title="Top Vendors">
+          <CategoryTable rows={data.byVendor} />
+        </ChartCard>
+      ) : null}
 
       {/* ───── Top recipients (table) ───── */}
       <ChartCard title="Top Recipients (By)">

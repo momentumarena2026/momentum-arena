@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,6 +16,7 @@ import {
 } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BarChart3,
   ChevronDown,
@@ -24,10 +26,12 @@ import {
   Receipt,
   Search,
   Trash2,
+  X,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { ExpenseFormBody } from "../../components/admin/ExpenseFormBody";
 import { colors, radius, spacing } from "../../theme";
 import {
   adminExpensesApi,
@@ -60,7 +64,12 @@ export function AdminExpensesListScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Rt>();
   const qc = useQueryClient();
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState("");
+  // RUNNING-only: the add (+) flow opens an in-place bottom sheet
+  // instead of pushing the form screen. Mounted on demand so the form
+  // starts fresh every time (mirrors the DqrCheckout sheet pattern).
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const moduleParam = route.params?.module;
   const isRunning = moduleParam === "RUNNING";
@@ -157,9 +166,11 @@ export function AdminExpensesListScreen() {
         <View style={styles.actionRow}>
           <Pressable
             onPress={() =>
-              navigation.navigate("AdminExpenseForm", {
-                module: moduleParam,
-              })
+              isRunning
+                ? setSheetOpen(true)
+                : navigation.navigate("AdminExpenseForm", {
+                    module: moduleParam,
+                  })
             }
             style={({ pressed }) => [
               styles.actionBtn,
@@ -197,7 +208,12 @@ export function AdminExpensesListScreen() {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search description, vendor, note"
+            placeholder={
+              // RUNNING rows carry no vendor, so don't advertise it.
+              isRunning
+                ? "Search description, note"
+                : "Search description, vendor, note"
+            }
             placeholderTextColor={colors.zinc600}
             style={styles.searchInput}
           />
@@ -310,6 +326,55 @@ export function AdminExpensesListScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* RUNNING create → bottom sheet (chrome mirrors DqrCheckout).
+          Mounted only while open so each add starts with a blank form;
+          onRequestClose covers the Android back button. */}
+      {isRunning && sheetOpen ? (
+        <Modal
+          transparent
+          animationType="slide"
+          visible
+          onRequestClose={() => setSheetOpen(false)}
+        >
+          <View style={styles.sheetOverlay}>
+            <Pressable
+              style={styles.sheetBackdrop}
+              onPress={() => setSheetOpen(false)}
+            />
+            <View
+              style={[
+                styles.sheet,
+                { paddingBottom: Math.max(insets.bottom, spacing["4"]) },
+              ]}
+            >
+              <View style={styles.sheetHeader}>
+                <Text variant="bodyStrong" style={styles.sheetTitle}>
+                  New running expense
+                </Text>
+                <Pressable
+                  onPress={() => setSheetOpen(false)}
+                  hitSlop={8}
+                  style={styles.sheetClose}
+                >
+                  <X size={20} color={colors.zinc500} />
+                </Pressable>
+              </View>
+              <View style={styles.sheetDivider} />
+              <ExpenseFormBody
+                module="RUNNING"
+                showVendor={false}
+                showTitle={false}
+                onSaved={() => {
+                  setSheetOpen(false);
+                  void list.refetch();
+                }}
+                onCancel={() => setSheetOpen(false)}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </Screen>
   );
 }
@@ -559,5 +624,38 @@ const styles = StyleSheet.create({
     borderColor: "rgba(239, 68, 68, 0.30)",
     backgroundColor: "rgba(239, 68, 68, 0.10)",
     gap: spacing["1"],
+  },
+  // ── RUNNING add sheet — same chrome as the DqrCheckout bottom sheet ──
+  sheetOverlay: { flex: 1, justifyContent: "flex-end" },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  sheet: {
+    backgroundColor: "#18181b", // zinc-900 sheet surface
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.zinc800,
+    maxHeight: "85%",
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    paddingHorizontal: spacing["5"],
+    paddingTop: spacing["4"],
+    paddingBottom: spacing["3"],
+  },
+  sheetTitle: { flex: 1 },
+  sheetClose: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.zinc800,
   },
 });

@@ -65,7 +65,12 @@ export default async function RunningExpenseConfigPage() {
         </p>
       </div>
 
-      <ExpenseConfigClient grouped={grouped} fieldTabs={fieldTabs} module="RUNNING" />
+      <ExpenseConfigClient
+        grouped={grouped}
+        fieldTabs={fieldTabs}
+        module="RUNNING"
+        hideFields={["VENDOR"]}
+      />
     </div>
   );
 }

@@ -27,6 +27,15 @@ interface Props {
   module?: "GENERAL" | "RUNNING";
   /** List-page route used for cancel / post-save navigation. */
   basePath?: string;
+  /** Hide the Vendor field and submit `vendor: ""` (RUNNING rows have no vendor). */
+  showVendor?: boolean;
+  /**
+   * When provided, a successful create calls this INSTEAD of navigating
+   * to `basePath` — lets a modal host close itself and refresh in place.
+   */
+  onSaved?: () => void;
+  /** When provided, the Cancel button calls this instead of navigating. */
+  onCancel?: () => void;
 }
 
 // Create + edit share one form. On save we route back to the list page
@@ -39,6 +48,9 @@ export function ExpenseForm({
   options,
   module = "GENERAL",
   basePath = "/admin/expenses",
+  showVendor = true,
+  onSaved,
+  onCancel,
 }: Props) {
   const router = useRouter();
   // Plain loading flag instead of useTransition — when a server action is
@@ -66,6 +78,7 @@ export function ExpenseForm({
       module,
       amount: Number(form.amount),
       note: form.note?.trim() ? form.note : null,
+      ...(showVendor ? {} : { vendor: "" }),
     };
 
     try {
@@ -75,8 +88,12 @@ export function ExpenseForm({
           setError(res.error);
           return;
         }
-        router.push(basePath);
-        router.refresh();
+        if (onSaved) {
+          onSaved();
+        } else {
+          router.push(basePath);
+          router.refresh();
+        }
       } else if (mode === "edit" && expenseId) {
         const res = await updateExpense(expenseId, payload, note);
         if (!res.success) {
@@ -207,13 +224,15 @@ export function ExpenseForm({
           />
         </Field>
 
-        <Field label="Vendor" required>
-          <OptionSelect
-            value={form.vendor}
-            onChange={(v) => setField("vendor", v)}
-            options={options.VENDOR}
-          />
-        </Field>
+        {showVendor && (
+          <Field label="Vendor" required>
+            <OptionSelect
+              value={form.vendor ?? ""}
+              onChange={(v) => setField("vendor", v)}
+              options={options.VENDOR}
+            />
+          </Field>
+        )}
       </div>
 
       <Field label="Note (optional)">
@@ -255,7 +274,7 @@ export function ExpenseForm({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => router.push(basePath)}
+            onClick={() => (onCancel ? onCancel() : router.push(basePath))}
             className="rounded-md border border-zinc-800 bg-zinc-950 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-700"
           >
             Cancel

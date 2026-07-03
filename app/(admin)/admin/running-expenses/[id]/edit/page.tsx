@@ -61,6 +61,7 @@ export default async function EditRunningExpensePage({
         mode="edit"
         module="RUNNING"
         basePath="/admin/running-expenses"
+        showVendor={false}
         expenseId={expense.id}
         initial={{
           date: toISODateOnly(expense.date),

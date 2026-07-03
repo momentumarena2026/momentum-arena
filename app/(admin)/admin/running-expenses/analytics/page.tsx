@@ -38,6 +38,7 @@ export default async function RunningExpenseAnalyticsPage({
         initialTo={params.to || ""}
         data={data}
         basePath="/admin/running-expenses/analytics"
+        showVendor={false}
       />
     </div>
   );

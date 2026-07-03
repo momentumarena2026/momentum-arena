@@ -43,20 +43,32 @@ const amountSchema = z
   .positive()
   .max(10_00_00_000); // ₹10cr hard cap — a typo guard, not a business rule
 
-const expenseInputSchema = z.object({
-  // Which expenses tab the row belongs to. Optional so every existing
-  // caller (web GENERAL pages, mobile) keeps working unchanged.
-  module: z.enum(["GENERAL", "RUNNING"]).optional().default("GENERAL"),
-  date: z.string().min(1), // YYYY-MM-DD
-  description: z.string().min(1).max(500),
-  amount: amountSchema,
-  paymentType: z.string().min(1).max(100),
-  doneBy: z.string().min(1).max(100),
-  toName: z.string().min(1).max(200),
-  vendor: z.string().min(1).max(100),
-  spentType: z.string().min(1).max(100),
-  note: z.string().max(1000).optional().nullable(),
-});
+const expenseInputSchema = z
+  .object({
+    // Which expenses tab the row belongs to. Optional so every existing
+    // caller (web GENERAL pages, mobile) keeps working unchanged.
+    module: z.enum(["GENERAL", "RUNNING"]).optional().default("GENERAL"),
+    date: z.string().min(1), // YYYY-MM-DD
+    description: z.string().min(1).max(500),
+    amount: amountSchema,
+    paymentType: z.string().min(1).max(100),
+    doneBy: z.string().min(1).max(100),
+    toName: z.string().min(1).max(200),
+    // Required for GENERAL (enforced below); RUNNING has no vendor column
+    // in its UI and stores "" — the shared DB column is NOT NULL.
+    vendor: z.string().max(100).optional().default(""),
+    spentType: z.string().min(1).max(100),
+    note: z.string().max(1000).optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.module === "GENERAL" && data.vendor.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["vendor"],
+        message: "Vendor is required",
+      });
+    }
+  });
 
 // z.input (not z.infer): `module` has a zod default, so callers may omit it
 // - the parse fills in GENERAL. z.infer would make it required at the type
