@@ -229,6 +229,16 @@ export async function createExpense(
   }
   const data = parsed.data;
 
+  // The original Expenses module is READ-ONLY (2026-07-03, user policy):
+  // historical records stay viewable but no new GENERAL rows are accepted.
+  // New entries belong to Running Expenses.
+  if (data.module === "GENERAL") {
+    return {
+      success: false as const,
+      error: "Expenses is read-only - add new entries under Running Expenses.",
+    };
+  }
+
   try {
     const created = await db.$transaction(async (tx) => {
       const expense = await tx.expense.create({
@@ -290,6 +300,19 @@ export async function updateExpense(
     };
   }
   const data = parsed.data;
+
+  // READ-ONLY guard: GENERAL (the original Expenses tab) accepts no edits.
+  const target = await db.expense.findUnique({
+    where: { id },
+    select: { module: true },
+  });
+  if (!target) return { success: false as const, error: "Expense not found" };
+  if (target.module === "GENERAL") {
+    return {
+      success: false as const,
+      error: "Expenses is read-only - historical entries can no longer be edited.",
+    };
+  }
 
   try {
     await db.$transaction(async (tx) => {
@@ -360,6 +383,20 @@ export async function updateExpense(
 
 export async function deleteExpense(id: string, skipAuth?: boolean) {
   if (!skipAuth) await requireExpenseAdmin();
+
+  // READ-ONLY guard: GENERAL (the original Expenses tab) accepts no deletes.
+  const target = await db.expense.findUnique({
+    where: { id },
+    select: { module: true },
+  });
+  if (!target) return { success: false as const, error: "Expense not found" };
+  if (target.module === "GENERAL") {
+    return {
+      success: false as const,
+      error: "Expenses is read-only - historical entries can no longer be deleted.",
+    };
+  }
+
   try {
     // Cascade-deletes the ExpenseEditHistory rows via the FK.
     await db.expense.delete({ where: { id } });
