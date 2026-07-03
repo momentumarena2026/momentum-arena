@@ -37,6 +37,8 @@ interface Props {
   data: AnalyticsData;
   /** Analytics route the date-range filter pushes to; defaults to GENERAL. */
   basePath?: string;
+  /** Hide the vendor breakdown (RUNNING rows have no vendor). */
+  showVendor?: boolean;
 }
 
 // Sane hand-picked palette — matches the rest of admin analytics.
@@ -85,6 +87,7 @@ export function ExpenseAnalyticsClient({
   initialTo,
   data,
   basePath = "/admin/expenses/analytics",
+  showVendor = true,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -338,9 +341,11 @@ export function ExpenseAnalyticsClient({
 
       {/* Top vendors + top recipients */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Top Vendors">
-          <CategoryTable rows={data.byVendor} />
-        </ChartCard>
+        {showVendor && (
+          <ChartCard title="Top Vendors">
+            <CategoryTable rows={data.byVendor} />
+          </ChartCard>
+        )}
         <ChartCard title="Top Recipients (By)">
           <CategoryTable rows={data.byToName} />
         </ChartCard>

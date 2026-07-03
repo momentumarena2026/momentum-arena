@@ -53,9 +53,13 @@ const PatchBody = z.object({
   paymentType: z.string().min(1).max(100),
   doneBy: z.string().min(1).max(100),
   toName: z.string().min(1).max(200),
-  vendor: z.string().min(1).max(100),
+  // Required for GENERAL (action-level refine); RUNNING has no vendor field
+  // and submits "". module rides along so updateExpense skips the vendor
+  // requirement for RUNNING rows (it is parsed for validation, never written).
+  vendor: z.string().max(100).optional().default(""),
   spentType: z.string().min(1).max(100),
   note: z.string().max(1000).optional().nullable(),
+  module: z.enum(["GENERAL", "RUNNING"]).optional(),
   editNote: z.string().max(1000).optional(),
 });
 

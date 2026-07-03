@@ -34,6 +34,7 @@ export default async function NewRunningExpensePage() {
         mode="create"
         module="RUNNING"
         basePath="/admin/running-expenses"
+        showVendor={false}
         initial={{
           date: todayISO(),
           description: "",

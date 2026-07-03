@@ -5,8 +5,9 @@ import { useState } from "react";
 import { Calendar, ChevronDown, ChevronRight } from "lucide-react";
 import { formatExpenseAmount, formatExpenseDate } from "@/lib/expenses";
 
-// Month-collapsible table for the Running Expenses list. Same columns
-// and cell styling as the GENERAL expenses table, but the fetched page
+// Month-collapsible table for the Running Expenses list. Same cell
+// styling as the GENERAL expenses table (minus the Vendor column —
+// RUNNING rows have no vendor), but the fetched page
 // of rows is grouped client-side by calendar month of `date`. Each
 // month gets a clickable header row (label + entry count + total +
 // chevron); the most recent month starts expanded, older months start
@@ -20,7 +21,6 @@ export interface RunningExpenseRow {
   note: string | null;
   spentType: string;
   toName: string;
-  vendor: string;
   paymentType: string;
   doneBy: string;
   amount: number;
@@ -83,7 +83,6 @@ export function RunningExpenseTable({
               <th className="px-4 py-3 font-medium">Description</th>
               <th className="px-4 py-3 font-medium">Spent Type</th>
               <th className="px-4 py-3 font-medium">To</th>
-              <th className="px-4 py-3 font-medium">Vendor</th>
               <th className="px-4 py-3 font-medium">Payment</th>
               <th className="px-4 py-3 font-medium">Done By</th>
               <th className="px-4 py-3 font-medium text-right">Amount</th>
@@ -93,7 +92,7 @@ export function RunningExpenseTable({
             {groups.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={7}
                   className="px-4 py-12 text-center text-zinc-500"
                 >
                   No expenses match these filters.
@@ -108,7 +107,7 @@ export function RunningExpenseTable({
                     onClick={() => toggle(g.key)}
                     className="cursor-pointer bg-zinc-900/70 hover:bg-zinc-900 select-none"
                   >
-                    <td colSpan={7} className="px-4 py-2.5">
+                    <td colSpan={6} className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-2 text-sm font-medium text-zinc-200">
                         {expanded ? (
                           <ChevronDown className="h-4 w-4 text-zinc-500" />
@@ -158,9 +157,6 @@ export function RunningExpenseTable({
                           </td>
                           <td className="px-4 py-3 text-zinc-400 whitespace-nowrap">
                             {r.toName}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-400 whitespace-nowrap">
-                            {r.vendor}
                           </td>
                           <td className="px-4 py-3">
                             <span
