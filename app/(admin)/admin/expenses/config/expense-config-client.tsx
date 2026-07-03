@@ -38,13 +38,19 @@ interface Props {
     count: number;
     activeCount: number;
   }[];
+  /** Which expenses tab new options are created under; defaults to GENERAL. */
+  module?: "GENERAL" | "RUNNING";
 }
 
 // Tabbed editor — one tab per dropdown, with add / rename / toggle /
 // reorder / delete actions. Everything writes through server actions
 // and triggers router.refresh() so the server-rendered group stays in
 // sync.
-export function ExpenseConfigClient({ grouped, fieldTabs }: Props) {
+export function ExpenseConfigClient({
+  grouped,
+  fieldTabs,
+  module = "GENERAL",
+}: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ExpenseOptionFieldKey>(
     fieldTabs[0]?.field ?? "PAYMENT_TYPE"
@@ -71,7 +77,7 @@ export function ExpenseConfigClient({ grouped, fieldTabs }: Props) {
     const label = newLabel.trim();
     if (!label) return;
     startTransition(async () => {
-      const res = await createExpenseOption({ field: activeTab, label });
+      const res = await createExpenseOption({ field: activeTab, label, module });
       if (!res.success) {
         setError(res.error);
         return;

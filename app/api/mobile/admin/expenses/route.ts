@@ -21,6 +21,9 @@ export async function GET(request: NextRequest) {
 
   const sp = new URL(request.url).searchParams;
   const filters = {
+    module: (sp.get("module") === "RUNNING" ? "RUNNING" : "GENERAL") as
+      | "GENERAL"
+      | "RUNNING",
     from: sp.get("from") || undefined,
     to: sp.get("to") || undefined,
     spentType: sp.get("spentType") || undefined,
@@ -58,6 +61,7 @@ const Body = z.object({
   vendor: z.string().min(1).max(100),
   spentType: z.string().min(1).max(100),
   note: z.string().max(1000).optional().nullable(),
+  module: z.enum(["GENERAL", "RUNNING"]).optional(),
 });
 
 export async function POST(request: NextRequest) {

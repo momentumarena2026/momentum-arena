@@ -44,6 +44,9 @@ const amountSchema = z
   .max(10_00_00_000); // ₹10cr hard cap — a typo guard, not a business rule
 
 const expenseInputSchema = z.object({
+  // Which expenses tab the row belongs to. Optional so every existing
+  // caller (web GENERAL pages, mobile) keeps working unchanged.
+  module: z.enum(["GENERAL", "RUNNING"]).optional().default("GENERAL"),
   date: z.string().min(1), // YYYY-MM-DD
   description: z.string().min(1).max(500),
   amount: amountSchema,
@@ -55,7 +58,10 @@ const expenseInputSchema = z.object({
   note: z.string().max(1000).optional().nullable(),
 });
 
-export type ExpenseInput = z.infer<typeof expenseInputSchema>;
+// z.input (not z.infer): `module` has a zod default, so callers may omit it
+// - the parse fills in GENERAL. z.infer would make it required at the type
+// level and break every existing call site.
+export type ExpenseInput = z.input<typeof expenseInputSchema>;
 
 // ---------------------------------------------------------------------
 // Helpers
@@ -119,6 +125,8 @@ function parseDateOnly(yyyyMmDd: string): Date {
 // ---------------------------------------------------------------------
 
 export interface ListExpensesFilters {
+  /** Expenses tab; defaults to GENERAL so existing callers are unchanged. */
+  module?: "GENERAL" | "RUNNING";
   from?: string;
   to?: string;
   spentType?: string;
@@ -140,7 +148,7 @@ export async function listExpenses(
   const pageSize = Math.min(200, Math.max(10, filters.pageSize ?? 50));
   const skip = (page - 1) * pageSize;
 
-  const where: Prisma.ExpenseWhereInput = {};
+  const where: Prisma.ExpenseWhereInput = { module: filters.module ?? "GENERAL" };
   if (filters.from || filters.to) {
     where.date = {};
     if (filters.from) (where.date as Prisma.DateTimeFilter).gte = parseDateOnly(filters.from);
@@ -213,6 +221,7 @@ export async function createExpense(
     const created = await db.$transaction(async (tx) => {
       const expense = await tx.expense.create({
         data: {
+          module: data.module,
           date: parseDateOnly(data.date),
           description: data.description.trim(),
           amount: Math.floor(data.amount),
@@ -244,6 +253,8 @@ export async function createExpense(
 
     revalidatePath("/admin/expenses");
     revalidatePath("/admin/expenses/analytics");
+    revalidatePath("/admin/running-expenses");
+    revalidatePath("/admin/running-expenses/analytics");
     return { success: true as const, id: created.id };
   } catch (error) {
     console.error("Failed to create expense:", error);
@@ -354,6 +365,8 @@ export async function deleteExpense(id: string, skipAuth?: boolean) {
 // ---------------------------------------------------------------------
 
 export interface AnalyticsFilters {
+  /** Expenses tab; defaults to GENERAL so existing callers are unchanged. */
+  module?: "GENERAL" | "RUNNING";
   from?: string;
   to?: string;
 }
@@ -364,7 +377,7 @@ export async function getExpenseAnalytics(
 ) {
   if (!skipAuth) await requireExpenseAdmin();
 
-  const where: Prisma.ExpenseWhereInput = {};
+  const where: Prisma.ExpenseWhereInput = { module: filters.module ?? "GENERAL" };
   if (filters.from || filters.to) {
     where.date = {};
     if (filters.from) (where.date as Prisma.DateTimeFilter).gte = parseDateOnly(filters.from);
@@ -437,18 +450,24 @@ export async function getExpenseAnalytics(
 // Options / dropdown config
 // ---------------------------------------------------------------------
 
-export async function listExpenseOptions() {
+export async function listExpenseOptions(
+  module: "GENERAL" | "RUNNING" = "GENERAL",
+) {
   await requireExpenseAdmin();
   const rows = await db.expenseOption.findMany({
+    where: { module },
     orderBy: [{ field: "asc" }, { sortOrder: "asc" }, { label: "asc" }],
   });
   return rows;
 }
 
-export async function listActiveExpenseOptionsByField(skipAuth?: boolean) {
+export async function listActiveExpenseOptionsByField(
+  skipAuth?: boolean,
+  module: "GENERAL" | "RUNNING" = "GENERAL",
+) {
   if (!skipAuth) await requireExpenseAdmin();
   const rows = await db.expenseOption.findMany({
-    where: { isActive: true },
+    where: { isActive: true, module },
     orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
   });
   const grouped: Record<ExpenseOptionField, string[]> = {
@@ -465,11 +484,16 @@ export async function listActiveExpenseOptionsByField(skipAuth?: boolean) {
 const optionInputSchema = z.object({
   field: z.enum(["PAYMENT_TYPE", "DONE_BY", "VENDOR", "SPENT_TYPE", "TO_NAME"]),
   label: z.string().min(1).max(100),
+  // Which expenses tab the option belongs to; each tab has its own set
+  // (RUNNING starts blank by design). Optional so existing callers stay
+  // GENERAL unchanged.
+  module: z.enum(["GENERAL", "RUNNING"]).optional().default("GENERAL"),
 });
 
 export async function createExpenseOption(input: {
   field: ExpenseOptionField;
   label: string;
+  module?: "GENERAL" | "RUNNING";
 }) {
   await requireExpenseAdmin();
   const parsed = optionInputSchema.safeParse(input);
@@ -482,16 +506,17 @@ export async function createExpenseOption(input: {
 
   const label = parsed.data.label.trim();
   try {
-    // Compute next sortOrder for this field so new options append to the
-    // bottom of the list.
+    // Compute next sortOrder for this field (within the module) so new
+    // options append to the bottom of the list.
     const last = await db.expenseOption.findFirst({
-      where: { field: parsed.data.field },
+      where: { field: parsed.data.field, module: parsed.data.module },
       orderBy: { sortOrder: "desc" },
       select: { sortOrder: true },
     });
 
     await db.expenseOption.create({
       data: {
+        module: parsed.data.module,
         field: parsed.data.field,
         label,
         sortOrder: (last?.sortOrder ?? 0) + 10,

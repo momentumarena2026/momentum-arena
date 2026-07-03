@@ -229,7 +229,35 @@ const GROUPS: Group[] = [
         sub: "Log + analytics",
         icon: ic(IndianRupee, colors.emerald400),
         perm: "MANAGE_EXPENSES",
-        onPress: (t) => t.navigate("AdminExpenses"),
+        // Explicit screen + empty params: the RUNNING flavor shares this
+        // stack, so a bare navigate("AdminExpenses") could resurface a
+        // stale Running Expenses list. Empty params force GENERAL.
+        onPress: (t) =>
+          t.navigate("AdminExpenses", {
+            screen: "AdminExpensesList",
+            params: {},
+          }),
+      },
+      {
+        label: "Running Expenses",
+        sub: "Month-wise running costs",
+        icon: ic(Wallet, colors.emerald400),
+        perm: "MANAGE_EXPENSES",
+        onPress: (t) =>
+          t.navigate("AdminExpenses", {
+            screen: "AdminExpensesList",
+            params: { module: "RUNNING" },
+          }),
+      },
+      {
+        label: "Running Expense Analytics",
+        icon: ic(BarChart3),
+        perm: "MANAGE_EXPENSES",
+        onPress: (t) =>
+          t.navigate("AdminExpenses", {
+            screen: "AdminExpenseAnalytics",
+            params: { module: "RUNNING" },
+          }),
       },
     ],
   },

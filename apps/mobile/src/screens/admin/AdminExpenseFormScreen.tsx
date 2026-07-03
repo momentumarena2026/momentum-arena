@@ -60,6 +60,12 @@ export function AdminExpenseFormScreen() {
   const navigation = useNavigation<Nav>();
   const qc = useQueryClient();
   const isEdit = !!params.expenseId;
+  // RUNNING ⇒ Running Expenses flavor: create stamps the module on the
+  // new row and the option chips come from the RUNNING dropdown config
+  // (empty by design until seeded on web). Edit/delete are id-scoped,
+  // so the module only matters for copy + options there.
+  const moduleParam = params.module;
+  const isRunning = moduleParam === "RUNNING";
 
   // Detail query (skipped for create flow). Seeds the form on mount.
   const detail = useQuery({
@@ -69,8 +75,8 @@ export function AdminExpenseFormScreen() {
   });
 
   const optionsQuery = useQuery({
-    queryKey: ["admin-expense-options"],
-    queryFn: () => adminExpensesApi.options(),
+    queryKey: ["admin-expense-options", moduleParam ?? "GENERAL"],
+    queryFn: () => adminExpensesApi.options(moduleParam),
   });
 
   const [date, setDate] = useState<string>(getTodayIST());
@@ -122,7 +128,9 @@ export function AdminExpenseFormScreen() {
             ...body,
             editNote: editNote.trim() || undefined,
           })
-        : adminExpensesApi.create(body);
+        : adminExpensesApi.create(
+            moduleParam ? { ...body, module: moduleParam } : body,
+          );
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["admin-expenses"] });
@@ -181,7 +189,15 @@ export function AdminExpenseFormScreen() {
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
-        <Text variant="title">{isEdit ? "Edit expense" : "Add expense"}</Text>
+        <Text variant="title">
+          {isEdit
+            ? isRunning
+              ? "Edit running expense"
+              : "Edit expense"
+            : isRunning
+              ? "Add running expense"
+              : "Add expense"}
+        </Text>
         <Text variant="small" color={colors.zinc500}>
           {isEdit
             ? "Update any field — every change writes a row in the audit log."

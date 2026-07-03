@@ -31,6 +31,8 @@ const allNavItems = [
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
+  { href: "/admin/running-expenses", label: "Running Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
+  { href: "/admin/running-expenses/analytics", label: "Running Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/release-flow", label: "Release Flow", group: "Mobile Apps", permission: "MANAGE_APP_RELEASES" },
   { href: "/admin/ota", label: "App Updates (OTA)", group: "Mobile Apps", permission: "MANAGE_APP_RELEASES" },
   { href: "/admin/push", label: "Push Notifications", group: "Mobile Apps", permission: "MANAGE_PUSH" },

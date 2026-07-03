@@ -35,6 +35,8 @@ interface Props {
   initialFrom: string;
   initialTo: string;
   data: AnalyticsData;
+  /** Analytics route the date-range filter pushes to; defaults to GENERAL. */
+  basePath?: string;
 }
 
 // Sane hand-picked palette — matches the rest of admin analytics.
@@ -82,6 +84,7 @@ export function ExpenseAnalyticsClient({
   initialFrom,
   initialTo,
   data,
+  basePath = "/admin/expenses/analytics",
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -93,7 +96,7 @@ export function ExpenseAnalyticsClient({
     if (nextFrom) qs.set("from", nextFrom);
     if (nextTo) qs.set("to", nextTo);
     startTransition(() => {
-      router.push(`/admin/expenses/analytics?${qs.toString()}`);
+      router.push(`${basePath}?${qs.toString()}`);
     });
   }
 
