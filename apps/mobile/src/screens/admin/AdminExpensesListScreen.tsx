@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronRight,
   IndianRupee,
+  Lock,
   Plus,
   Receipt,
   Search,
@@ -164,25 +165,30 @@ export function AdminExpensesListScreen() {
 
         {/* Quick actions */}
         <View style={styles.actionRow}>
-          <Pressable
-            onPress={() =>
-              isRunning
-                ? setSheetOpen(true)
-                : navigation.navigate("AdminExpenseForm", {
-                    module: moduleParam,
-                  })
-            }
-            style={({ pressed }) => [
-              styles.actionBtn,
-              styles.actionPrimary,
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <Plus size={14} color={colors.yellow400} />
-            <Text variant="small" color={colors.yellow400} weight="600">
-              Add expense
-            </Text>
-          </Pressable>
+          {/* GENERAL is READ-ONLY (2026-07-03): no new entries - new spend
+              goes to Running Expenses. Server actions enforce this too. */}
+          {isRunning ? (
+            <Pressable
+              onPress={() => setSheetOpen(true)}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                styles.actionPrimary,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Plus size={14} color={colors.yellow400} />
+              <Text variant="small" color={colors.yellow400} weight="600">
+                Add expense
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={[styles.actionBtn, styles.actionNeutral]}>
+              <Lock size={14} color={"#fbbf24"} />
+              <Text variant="small" color={"#fbbf24"} weight="600">
+                Read-only
+              </Text>
+            </View>
+          )}
           <Pressable
             onPress={() =>
               navigation.navigate("AdminExpenseAnalytics", {
@@ -306,22 +312,9 @@ export function AdminExpensesListScreen() {
           </View>
         ) : (
           <View style={{ gap: spacing["2"] }}>
+            {/* GENERAL is READ-ONLY: rows are view-only, no edit/delete. */}
             {list.data!.rows.map((e) => (
-              <ExpenseRow
-                key={e.id}
-                expense={e}
-                onPress={() =>
-                  navigation.navigate("AdminExpenseForm", {
-                    expenseId: e.id,
-                  })
-                }
-                onDelete={() =>
-                  confirmDelete(e, () => remove.mutate(e.id))
-                }
-                isDeleting={
-                  remove.isPending && remove.variables === e.id
-                }
-              />
+              <ExpenseRow key={e.id} expense={e} isDeleting={false} />
             ))}
           </View>
         )}
@@ -386,17 +379,20 @@ function ExpenseRow({
   isDeleting,
 }: {
   expense: AdminExpense;
-  onPress: () => void;
-  onDelete: () => void;
+  // Both optional: the GENERAL tab is READ-ONLY (2026-07-03) - rows are
+  // not tappable and have no delete affordance there.
+  onPress?: () => void;
+  onDelete?: () => void;
   isDeleting: boolean;
 }) {
   return (
     <View style={styles.row}>
       <Pressable
         onPress={onPress}
+        disabled={!onPress}
         style={({ pressed }) => [
           styles.rowMain,
-          pressed && { opacity: 0.7 },
+          pressed && !!onPress && { opacity: 0.7 },
         ]}
       >
         <View style={{ flex: 1, gap: 2 }}>
@@ -420,9 +416,10 @@ function ExpenseRow({
         </View>
         <View style={styles.rowRight}>
           <Text variant="bodyStrong">{formatRupees(expense.amount)}</Text>
-          <ChevronRight size={14} color={colors.zinc700} />
+          {onPress ? <ChevronRight size={14} color={colors.zinc700} /> : null}
         </View>
       </Pressable>
+      {onDelete ? (
       <Pressable
         onPress={onDelete}
         disabled={isDeleting}
@@ -435,6 +432,7 @@ function ExpenseRow({
       >
         <Trash2 size={14} color={colors.destructive} />
       </Pressable>
+      ) : null}
     </View>
   );
 }
