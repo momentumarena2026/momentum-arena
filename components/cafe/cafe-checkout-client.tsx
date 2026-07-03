@@ -306,26 +306,11 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
     }
   }
 
-  // DQR pay-now step — render the dynamic QR once the intent exists.
-  if (dqrIntentId) {
-    return (
-      <div className="min-h-screen bg-black max-w-2xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold text-white mb-6">Scan to Pay</h1>
-        <DqrCheckout
-          holdId={dqrIntentId}
-          amount={finalAmount}
-          surface="cafe"
-          onConfirmed={(orderId) => {
-            clearCart();
-            router.push(`/cafe/confirmation/${orderId}`);
-          }}
-          onCancel={() => setDqrIntentId(null)}
-        />
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
+  // Keep the checkout mounted while the DQR sheet is up: onConfirmed
+  // clears the cart just before navigating, and without the dqrIntentId
+  // escape hatch the empty-cart screen would flash under (and unmount)
+  // the success animation.
+  if (items.length === 0 && !dqrIntentId) {
     return (
       <div className="min-h-screen bg-black max-w-2xl mx-auto text-center py-20 px-4">
         <div className="text-5xl mb-4">🛒</div>
@@ -553,6 +538,21 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
       >
         Back
       </button>
+
+      {/* DQR pay-now — Razorpay-style bottom sheet over the (still
+          mounted, dimmed) checkout once the CafePaymentIntent exists. */}
+      {dqrIntentId && (
+        <DqrCheckout
+          holdId={dqrIntentId}
+          amount={finalAmount}
+          surface="cafe"
+          onConfirmed={(orderId) => {
+            clearCart();
+            router.push(`/cafe/confirmation/${orderId}`);
+          }}
+          onCancel={() => setDqrIntentId(null)}
+        />
+      )}
     </div>
   );
 }

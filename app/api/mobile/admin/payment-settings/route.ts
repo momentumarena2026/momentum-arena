@@ -5,8 +5,11 @@ import {
   getPaymentGatewayConfig,
   setActivePaymentGateway,
   setDqrEnabled,
+  setIntentEnabled,
   setPaymentMethodEnabled,
+  setUpiQrMode,
   type PaymentMethodFlag,
+  type UpiQrMode,
 } from "@/actions/admin-payment-settings";
 import type { PaymentGateway } from "@prisma/client";
 
@@ -46,10 +49,11 @@ export async function POST(request: NextRequest) {
   if ("error" in g) return g.error;
 
   const body = (await request.json().catch(() => null)) as {
-    action?: "gateway" | "dqr" | "method";
+    action?: "gateway" | "dqr" | "method" | "upiMode" | "intent";
     gateway?: PaymentGateway;
     enabled?: boolean;
     method?: PaymentMethodFlag;
+    upiMode?: UpiQrMode;
   } | null;
   if (!body || !body.action) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
@@ -88,6 +92,29 @@ export async function POST(request: NextRequest) {
         Boolean(body.enabled),
         true,
       );
+      if (!r.success) {
+        return NextResponse.json(
+          { error: r.error ?? "Failed" },
+          { status: 400 },
+        );
+      }
+    } else if (body.action === "upiMode") {
+      if (
+        body.upiMode !== "STATIC" &&
+        body.upiMode !== "DQR" &&
+        body.upiMode !== "OFF"
+      ) {
+        return NextResponse.json({ error: "Invalid UPI mode" }, { status: 400 });
+      }
+      const r = await setUpiQrMode(body.upiMode, true);
+      if (!r.success) {
+        return NextResponse.json(
+          { error: r.error ?? "Failed" },
+          { status: 400 },
+        );
+      }
+    } else if (body.action === "intent") {
+      const r = await setIntentEnabled(Boolean(body.enabled), true);
       if (!r.success) {
         return NextResponse.json(
           { error: r.error ?? "Failed" },

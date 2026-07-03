@@ -75,17 +75,6 @@ const txnStatusPath = (merchantId: string, transactionId: string) =>
     transactionId,
   )}/status`;
 
-// Which "generate a UPI request" product to use for the customer-facing
-// UPI option. DQR (/v3/qr/init) is a scan QR; Open Intent (/v1/intent/init)
-// returns a tappable upi:// link. We DEFAULT TO SCAN: UPI blocks tappable
-// intent/link payments for our merchant VPA ("payment through a link is not
-// allowed for this merchant — please scan the QR"), so the customer scans
-// the QR (camera, or screenshot → scan-from-gallery on the same phone).
-// Flip to the tappable product with PHONEPE_DQR_MODE=intent once PhonePe
-// enables intent ACCEPTANCE on the VPA. Status + callback are identical.
-export function isOpenIntentMode(): boolean {
-  return (process.env.PHONEPE_DQR_MODE || "qr").toLowerCase() === "intent";
-}
 
 export const DQR_CONFIRMED_BY = "PHONEPE_DQR";
 

@@ -7,7 +7,13 @@ import { request } from "./admin-api";
  */
 
 export type PaymentGateway = "PHONEPE" | "RAZORPAY";
-export type PaymentMethodFlag = "online" | "upi_qr" | "advance";
+export type PaymentMethodFlag = "online" | "advance";
+/**
+ * UPI QR presentation at checkout. STATIC = venue QR + manual UTR,
+ * DQR = per-order PhonePe QR auto-confirmed via callback, OFF = hidden.
+ * Modes are mutually exclusive; the server switches atomically.
+ */
+export type UpiMode = "STATIC" | "DQR" | "OFF";
 
 export interface PaymentSettings {
   activeGateway: PaymentGateway;
@@ -16,6 +22,8 @@ export interface PaymentSettings {
   advanceEnabled: boolean;
   /** Admin toggle for the DQR (dynamic QR) UPI flow. */
   dqrEnabled: boolean;
+  /** UPI Intent (tap to pay) inside the DQR payment sheet. */
+  intentEnabled: boolean;
   /** Whether the PHONEPE_DQR_* env creds are present (read-only). */
   dqrConfigured: boolean;
 }
@@ -38,9 +46,16 @@ export const adminPaymentSettingsApi = {
       body: { action: "method", method, enabled },
     }),
 
-  setDqr: (enabled: boolean) =>
+  /** Atomic exclusive switch between STATIC / DQR / OFF. */
+  setUpiMode: (upiMode: UpiMode) =>
     request<{ config: PaymentSettings }>("/api/mobile/admin/payment-settings", {
       method: "POST",
-      body: { action: "dqr", enabled },
+      body: { action: "upiMode", upiMode },
+    }),
+
+  setIntent: (enabled: boolean) =>
+    request<{ config: PaymentSettings }>("/api/mobile/admin/payment-settings", {
+      method: "POST",
+      body: { action: "intent", enabled },
     }),
 };

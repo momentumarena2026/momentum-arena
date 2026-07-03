@@ -11,6 +11,7 @@ import {
   type PaymentGateway,
   type PaymentMethodFlag,
   type PaymentSettings,
+  type UpiMode,
 } from "../../lib/admin-payment-settings";
 import { AdminApiError } from "../../lib/admin-api";
 
@@ -43,8 +44,14 @@ export function AdminPaymentSettingsScreen() {
     onError: showError,
   });
 
-  const dqr = useMutation({
-    mutationFn: (enabled: boolean) => adminPaymentSettingsApi.setDqr(enabled),
+  const upiMode = useMutation({
+    mutationFn: (mode: UpiMode) => adminPaymentSettingsApi.setUpiMode(mode),
+    onSuccess: (data) => setConfig(data.config),
+    onError: showError,
+  });
+
+  const intent = useMutation({
+    mutationFn: (enabled: boolean) => adminPaymentSettingsApi.setIntent(enabled),
     onSuccess: (data) => setConfig(data.config),
     onError: showError,
   });
@@ -56,7 +63,11 @@ export function AdminPaymentSettingsScreen() {
   });
 
   const cfg = query.data?.config;
-  const busy = method.isPending || dqr.isPending || gateway.isPending;
+  const busy =
+    method.isPending || upiMode.isPending || intent.isPending || gateway.isPending;
+
+  // STATIC / DQR / OFF are mutually exclusive; derive the current mode.
+  const mode: UpiMode = !cfg?.upiQrEnabled ? "OFF" : cfg.dqrEnabled ? "DQR" : "STATIC";
 
   return (
     <Screen padded={false}>
@@ -79,7 +90,7 @@ export function AdminPaymentSettingsScreen() {
         ) : (
           <>
             <Text variant="tiny" color={colors.zinc500} style={styles.section}>
-              PAYMENT METHODS
+              PAYMENT METHODS AT CHECKOUT
             </Text>
             <Card style={styles.card}>
               <ToggleRow
@@ -88,13 +99,6 @@ export function AdminPaymentSettingsScreen() {
                 value={cfg.onlineEnabled}
                 disabled={busy}
                 onChange={(v) => method.mutate({ m: "online", enabled: v })}
-              />
-              <ToggleRow
-                label="UPI QR code"
-                sub="Customer scans a QR and enters the UTR manually"
-                value={cfg.upiQrEnabled}
-                disabled={busy}
-                onChange={(v) => method.mutate({ m: "upi_qr", enabled: v })}
               />
               <ToggleRow
                 label="Pay 50% now, 50% at venue"
@@ -109,22 +113,49 @@ export function AdminPaymentSettingsScreen() {
             </Text>
 
             <Text variant="tiny" color={colors.zinc500} style={styles.section}>
-              DYNAMIC QR (AUTO-CONFIRM)
+              UPI QR
             </Text>
             <Card style={styles.card}>
-              <ToggleRow
-                label="Dynamic QR"
-                sub="Per-order PhonePe QR with auto-confirm. Off = static QR + manual UTR."
-                value={cfg.dqrEnabled}
-                disabled={busy || !cfg.dqrConfigured}
-                onChange={(v) => dqr.mutate(v)}
-              />
-              {!cfg.dqrConfigured ? (
-                <Text variant="tiny" color={colors.yellow400}>
-                  PHONEPE_DQR_* credentials are not configured — dynamic QR stays
-                  off at checkout until they're set.
-                </Text>
-              ) : null}
+              <View style={[styles.modeCard, mode === "STATIC" && styles.modeCardActive]}>
+                <ToggleRow
+                  label="Static QR"
+                  sub="Customer scans the venue QR and enters the UTR manually"
+                  value={mode === "STATIC"}
+                  disabled={busy}
+                  onChange={() =>
+                    upiMode.mutate(mode === "STATIC" ? "OFF" : "STATIC")
+                  }
+                />
+              </View>
+              <View style={[styles.modeCard, mode === "DQR" && styles.modeCardActive]}>
+                <ToggleRow
+                  label="Dynamic QR (auto-confirm)"
+                  sub="Per-order PhonePe payment, auto-confirmed via callback — no UTR"
+                  value={mode === "DQR"}
+                  disabled={busy || !cfg.dqrConfigured}
+                  onChange={() => upiMode.mutate(mode === "DQR" ? "OFF" : "DQR")}
+                />
+                {!cfg.dqrConfigured ? (
+                  <Text variant="tiny" color={colors.yellow400}>
+                    PhonePe DQR credentials not configured
+                  </Text>
+                ) : null}
+                <View
+                  style={[styles.nestedRow, mode !== "DQR" && styles.nestedRowDimmed]}
+                >
+                  <ToggleRow
+                    label="UPI Intent (tap to pay)"
+                    sub="On = payment sheet lists UPI apps and opens the chosen one with the amount pre-filled. Off = the QR shows directly in the sheet."
+                    value={cfg.intentEnabled}
+                    disabled={busy || mode !== "DQR"}
+                    onChange={(v) => intent.mutate(v)}
+                  />
+                </View>
+              </View>
+              <Text variant="tiny" color={colors.zinc600}>
+                Static QR and Dynamic QR are mutually exclusive — enabling one
+                switches the other off. Both off hides UPI from checkout.
+              </Text>
             </Card>
 
             <Text variant="tiny" color={colors.zinc500} style={styles.section}>
@@ -217,6 +248,24 @@ const styles = StyleSheet.create({
   section: { letterSpacing: 1.2, fontWeight: "700", marginTop: spacing["3"] },
   hint: { marginTop: spacing["1"], marginLeft: spacing["1"] },
   toggleRow: { flexDirection: "row", alignItems: "center", gap: spacing["3"] },
+  modeCard: {
+    padding: spacing["3"],
+    gap: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+  },
+  modeCardActive: {
+    borderColor: colors.emerald400,
+    backgroundColor: colors.emerald500_05,
+  },
+  nestedRow: {
+    marginLeft: spacing["4"],
+    paddingLeft: spacing["3"],
+    borderLeftWidth: 2,
+    borderLeftColor: colors.zinc700,
+  },
+  nestedRowDimmed: { opacity: 0.45 },
   gatewayRow: {
     flexDirection: "row",
     alignItems: "center",

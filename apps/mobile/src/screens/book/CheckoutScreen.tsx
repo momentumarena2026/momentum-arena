@@ -589,85 +589,6 @@ export function CheckoutScreen() {
     );
   }
 
-  // ── UPI QR flow (inline, matches web) ──────────────────────────────────────
-  if (showUpiQr) {
-    const isAdvanceFlow = amountMode === "advance";
-    const upiAmount = isAdvanceFlow ? advanceAmount : payableAmount;
-
-    const qrHeader = (
-      <View style={styles.header}>
-        <Text variant="tiny" color={colors.primary} style={styles.kicker}>
-          UPI QR PAYMENT
-        </Text>
-        <Text variant="title">Scan &amp; pay</Text>
-      </View>
-    );
-
-    // DQR: auto-confirming dynamic QR. Booking is created server-side on
-    // payment; onConfirmed jumps straight to the booking detail.
-    if (config.dqrEnabled) {
-      return (
-        <Screen padded={false}>
-          <DqrCheckout
-            header={qrHeader}
-            holdId={params.holdId}
-            amount={upiAmount}
-            overrideAmount={payableAmount}
-            isAdvance={isAdvanceFlow}
-            advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
-            remainingAmount={isAdvanceFlow ? remainingAmount : undefined}
-            onCancel={() => setShowUpiQr(false)}
-            onConfirmed={(bookingId) => {
-              fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
-              goToBookingDetail(bookingId);
-            }}
-          />
-        </Screen>
-      );
-    }
-
-    // Legacy static QR: booking created PENDING on "I've paid"; verified
-    // later via the WhatsApp screenshot / admin.
-    return (
-      <Screen padded={false}>
-        <UpiQrCheckout
-          header={qrHeader}
-          amount={payableAmount}
-          isAdvance={isAdvanceFlow}
-          advanceAmount={isAdvanceFlow ? advanceAmount : undefined}
-          remainingAmount={isAdvanceFlow ? remainingAmount : undefined}
-          onCancel={() => setShowUpiQr(false)}
-          onPaymentInitiated={async () => {
-            // Commit the booking as PENDING. Admin confirms the UTR via the
-            // WhatsApp screenshot separately; the booking appears in "My
-            // Bookings" immediately so the user can see it.
-            try {
-              const res = await bookingApi.selectPayment({
-                holdId: params.holdId,
-                method: isAdvanceFlow ? "CASH" : "UPI_QR",
-                overrideAmount: upiAmount,
-                isAdvance: isAdvanceFlow,
-              });
-              if (!res.success || !res.bookingId) {
-                return { error: res.error || "Failed to create booking" };
-              }
-              fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
-              return { bookingId: res.bookingId };
-            } catch (err) {
-              return {
-                error:
-                  err instanceof ApiError
-                    ? err.message
-                    : "Failed to create booking",
-              };
-            }
-          }}
-          onDone={(bookingId) => goToBookingDetail(bookingId)}
-        />
-      </Screen>
-    );
-  }
-
   const sortedSlots = [...hold.slotPrices].sort((a, b) => a.hour - b.hour);
   const discountActive = serverDiscount > 0;
   const applying = applyCouponMutation.isPending;
@@ -965,6 +886,79 @@ export function CheckoutScreen() {
           fullWidth
         />
       </View>
+
+      {/* DQR: auto-confirming UPI checkout in a Razorpay-style bottom sheet.
+          Rendered as a Modal overlay so this screen stays mounted (and the
+          hold countdown keeps ticking) behind the dimmed backdrop. Booking
+          is created server-side on payment; onConfirmed jumps straight to
+          the booking detail. */}
+      {showUpiQr && config.dqrEnabled ? (
+        <DqrCheckout
+          holdId={params.holdId}
+          amount={amountMode === "advance" ? advanceAmount : payableAmount}
+          overrideAmount={payableAmount}
+          isAdvance={amountMode === "advance"}
+          advanceAmount={amountMode === "advance" ? advanceAmount : undefined}
+          remainingAmount={
+            amountMode === "advance" ? remainingAmount : undefined
+          }
+          onCancel={() => setShowUpiQr(false)}
+          onConfirmed={(bookingId) => {
+            setShowUpiQr(false);
+            fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
+            // Navigating while the native Modal is still dismissing gets
+            // swallowed on iOS — let the dismissal finish first.
+            setTimeout(() => goToBookingDetail(bookingId), 400);
+          }}
+        />
+      ) : null}
+
+      {/* Legacy static UPI QR (DQR off): same Razorpay-style bottom-sheet
+          Modal, but the booking is committed as PENDING on "I've completed
+          the payment" and verified manually via the WhatsApp screenshot. */}
+      {showUpiQr && !config.dqrEnabled ? (
+        <UpiQrCheckout
+          amount={payableAmount}
+          isAdvance={amountMode === "advance"}
+          advanceAmount={amountMode === "advance" ? advanceAmount : undefined}
+          remainingAmount={
+            amountMode === "advance" ? remainingAmount : undefined
+          }
+          onCancel={() => setShowUpiQr(false)}
+          onPaymentInitiated={async () => {
+            // Commit the booking as PENDING. Admin confirms the UTR via the
+            // WhatsApp screenshot separately; the booking appears in "My
+            // Bookings" immediately so the user can see it.
+            const isAdvanceFlow = amountMode === "advance";
+            try {
+              const res = await bookingApi.selectPayment({
+                holdId: params.holdId,
+                method: isAdvanceFlow ? "CASH" : "UPI_QR",
+                overrideAmount: isAdvanceFlow ? advanceAmount : payableAmount,
+                isAdvance: isAdvanceFlow,
+              });
+              if (!res.success || !res.bookingId) {
+                return { error: res.error || "Failed to create booking" };
+              }
+              fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
+              return { bookingId: res.bookingId };
+            } catch (err) {
+              return {
+                error:
+                  err instanceof ApiError
+                    ? err.message
+                    : "Failed to create booking",
+              };
+            }
+          }}
+          onDone={(bookingId) => {
+            setShowUpiQr(false);
+            // Navigating while the native Modal is still dismissing gets
+            // swallowed on iOS — let the dismissal finish first.
+            setTimeout(() => goToBookingDetail(bookingId), 400);
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -1255,12 +1249,5 @@ const styles = StyleSheet.create({
   },
   errorCta: {
     marginTop: spacing["4"],
-  },
-  kicker: {
-    letterSpacing: 1.5,
-    fontWeight: "700",
-  },
-  header: {
-    gap: spacing["1.5"],
   },
 });

@@ -9,8 +9,10 @@ git branches plus a handful of GitHub Actions workflows; there is no magic.
 Normal flow: commit your change → push to `development` (auto-deploys + tests on
 staging) → **promote `development` → `main`** (auto-deploys to production).
 
-> The single most important rule is the **`[skip ci]` rule** for schema changes.
-> Read §3 before any deploy that touches `prisma/schema.prisma`.
+> Schema sync is **fully automatic** (see §3): the Vercel build runs
+> `prisma db push` before the code goes live, and the seed workflows are
+> path-filtered to `prisma/**`. Never put `[skip ci]`-class tokens in commit
+> messages — they're retired and a pre-push hook blocks the dangerous cases.
 
 ---
 
@@ -18,8 +20,8 @@ staging) → **promote `development` → `main`** (auto-deploys to production).
 
 | You changed… | Do this |
 |---|---|
-| **Web/backend, no schema change** | push to `development`, then promote to `main` **with `[skip ci]`** |
-| **Anything in `prisma/schema.prisma`** | push to `development`, then promote to `main` **WITHOUT `[skip ci]`** (so the prod DB gets synced) |
+| **Web/backend, no schema change** | push to `development`, then promote to `main` — nothing else |
+| **Anything in `prisma/schema.prisma`** | same — the build syncs the DB automatically (keep changes additive, §3) |
 | **A coupon / seed data** | run the matching `workflow_dispatch` workflow (§6) |
 | **Mobile JS only** | push to `development`/`main` — OTA auto-publishes (§7); roll out from `/admin/ota` |
 | **Mobile native code / new dependency** | run `native-ios` / `native-android` workflow (§8) — new store build |
@@ -53,30 +55,39 @@ good one → *Promote to Production* (a.k.a. "Instant Rollback"). No git needed.
 
 ---
 
-## 3. Database schema sync — the `[skip ci]` rule ⚠️
+## 3. Database schema sync — fully automatic ⚠️
 
 There are **no Prisma migrations** applied on deploy. The schema is synced with
-`prisma db push --accept-data-loss`, run by two push-triggered workflows:
+`prisma db push --accept-data-loss`, in **two automatic layers** (no commit-message
+tokens, no decisions at promotion time):
 
-- **`seed-staging.yml`** — on push to `development` → `STAGING_DB_URL`
-- **`seed-production.yml`** — on push to `main` → `PRODUCTION_DB_URL`
+1. **Inside every Vercel build** (`scripts/vercel-build.sh`, the `build` script):
+   `pre-db-push-cleanup.sql` → `prisma db push` → `next build`. The deploy is
+   **schema-atomic** — code can't go live against a DB missing its columns, and a
+   failed push fails the build (the previous deployment keeps serving). Preview
+   builds sync the staging DB, Production builds sync the prod DB, via each
+   scope's `DATABASE_URL`. Local `npm run build` skips the DB steps entirely
+   (guarded on the `$VERCEL` env).
+2. **Path-filtered seed workflows** (belt-and-suspenders + seeding):
+   - **`seed-staging.yml`** — push to `development` touching `prisma/**` → `STAGING_DB_URL`
+   - **`seed-production.yml`** — push to `main` touching `prisma/**` → `PRODUCTION_DB_URL`
 
-Each runs: `pre-db-push-cleanup.sql` → `prisma db push` → `prisma/seed.ts`
-(only upserts the `gamelord` superadmin; it does **not** seed coupons/data).
+   Each runs: `pre-db-push-cleanup.sql` → `prisma db push` → `prisma/seed.ts`
+   (only upserts the `gamelord` superadmin; it does **not** seed coupons/data).
+   Both also expose `workflow_dispatch` as a recovery hatch — never needed in
+   the normal flow.
 
-**The rule:** a commit message containing **`[skip ci]` skips these workflows.**
+**The retired `[skip ci]` convention:** commit messages used to control whether
+the seed workflows ran. That was removed on 2026-07-02 after a token inside a
+commit *body* ("NO [skip ci]: …") silently skipped a needed db push (GitHub
+matches the token anywhere in the message). **Don't put `[skip ci]`-class tokens
+in commit messages at all** — the path filters make them unnecessary, and a
+local pre-push hook blocks the dangerous cases (token in body, or token on a
+schema/mobile push).
 
-- **Schema change** (you edited `prisma/schema.prisma`): the `main` merge commit
-  must **NOT** contain `[skip ci]`, or the production DB never gets the new
-  columns/enum and the new code 500s. Keep changes **additive** (new
-  nullable/defaulted columns, new enum values) so `db push --accept-data-loss`
-  is safe — never rename/drop in the same push as code that needs the old name.
-- **Schema-free change**: add **`[skip ci]`** to the merge so the redundant
-  db-push/seed doesn't run (faster, avoids flaky-network blips).
-
-**Manual schema push** (if a workflow failed): GitHub → *Actions* → the failed
-"Seed Staging/Production DB" run → **Re-run all jobs**. (Last resort, with the DB
-URL in hand: `DATABASE_URL=… npx prisma db push --accept-data-loss --skip-generate`.)
+Keep schema changes **additive** (new nullable/defaulted columns, new enum
+values) so `db push --accept-data-loss` is safe — never rename/drop in the same
+push as code that needs the old name.
 
 ---
 
@@ -89,7 +100,9 @@ Run this once staging looks good. It fast-forwards production to whatever is on
 cd <repo root>            # your normal checkout
 git fetch origin
 
-# Decide the message. Append " [skip ci]" ONLY if this is schema-FREE (see §3).
+# Plain message — no tokens, no schema-vs-not decision. The pipeline
+# self-selects: Vercel's build syncs the schema before code goes live, and
+# seed-production only fires when the push touches prisma/**.
 MSG="Merge development into main: <short description>"
 
 git switch main
@@ -99,11 +112,12 @@ git merge --no-ff origin/development -m "$MSG"
 # GATE — must print NOTHING. If it prints files, main != development; stop & inspect.
 git diff --stat origin/development HEAD
 
-git push origin main                  # → triggers prod deploy (+ seed-production unless [skip ci])
+git push origin main                  # → prod deploy (schema syncs inside the build)
 git switch development                 # back to your working branch
 ```
 
-Then watch the prod DB sync (only relevant for schema changes):
+For schema-touching promotions you can watch the seed workflow too (it runs
+automatically via the `prisma/**` path filter):
 ```bash
 gh run watch "$(gh run list --workflow=seed-production.yml --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status
 ```
@@ -230,7 +244,9 @@ gh workflow run post-native-release.yml --ref main \
   -f versionName=1.0.1 -f storeUrl="https://apps.apple.com/app/idXXXXXXXX"
 ```
 This recomputes + commits `apps/mobile/fingerprints/<channel>.<platform>.fingerprint`
-(with `[skip ci]`) and updates the in-DB **version gate** (min-supported build).
+(the auto-commit carries `[skip ci]` — the one legitimate remaining use of the
+token: machine-generated commits that must not re-trigger ota-publish) and
+updates the in-DB **version gate** (min-supported build).
 Do it per platform. After it lands, JS-only changes resume OTA-publishing
 normally (§7).
 
@@ -285,9 +301,11 @@ FCM/push credentials. Set the **same keys** in Vercel's *Production* and
 
 ## 12. Common gotchas
 
-- **Forgot to drop `[skip ci]` on a schema change** → prod code references a
-  missing column/enum and 500s. Fix: re-run `seed-production` (Actions →
-  Re-run), or push an empty no-`[skip ci]` commit to `main`.
+- **Prod code references a missing column/enum (P2022) after a deploy** →
+  shouldn't happen anymore (the Vercel build syncs schema before code goes
+  live), but if it does: run the `seed-production` workflow manually
+  (Actions → *Seed Production DB* → Run workflow) or redeploy from the
+  Vercel dashboard — the rebuild re-runs `prisma db push`.
 - **OTA keeps saying "native build required"** → the fingerprint baseline is
   stale; cut the native build and update `apps/mobile/fingerprints/*`.
 - **Vercel didn't build** → check the branch (only `main`/`development` deploy)

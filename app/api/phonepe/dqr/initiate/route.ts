@@ -3,7 +3,7 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
-import { isDqrConfigured, qrInit, intentInit, isOpenIntentMode } from "@/lib/phonepe-dqr";
+import { isDqrConfigured, qrInit, intentInit } from "@/lib/phonepe-dqr";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 // QR validity / hold extension. 15 min comfortably covers scanning +
@@ -84,7 +84,14 @@ export async function POST(request: NextRequest) {
     // DQR wants paise.
     const orderAmountPaise = orderAmount * 100;
 
-    const generate = isOpenIntentMode() ? intentInit : qrInit;
+    // Intent (tap-to-pay app picker) vs scan-only QR is an ADMIN toggle now
+    // (PaymentGatewayConfig.intentEnabled) - no redeploy needed to flip it.
+    const cfg = await db.paymentGatewayConfig.findUnique({
+      where: { id: "singleton" },
+      select: { intentEnabled: true },
+    });
+    const useIntent = !!cfg?.intentEnabled;
+    const generate = useIntent ? intentInit : qrInit;
     const result = await generate({
       transactionId,
       amountPaise: orderAmountPaise,
@@ -125,7 +132,7 @@ export async function POST(request: NextRequest) {
       // "intent" -> qrString is a TAPPABLE upi:// link (Open Intent product);
       // the client shows a "Pay with UPI app" button on mobile browsers.
       // "qr" -> scan-only string; the client renders the QR alone.
-      mode: isOpenIntentMode() ? "intent" : "qr",
+      mode: useIntent ? "intent" : "qr",
       transactionId,
       expiresIn: DQR_TTL_MINUTES * 60,
       amount: orderAmount,

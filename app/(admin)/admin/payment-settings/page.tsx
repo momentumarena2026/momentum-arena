@@ -1,7 +1,7 @@
 import { getPaymentGatewayConfig } from "@/actions/admin-payment-settings";
 import { PaymentGatewayToggle } from "./gateway-toggle";
 import { PaymentMethodToggles } from "./method-toggles";
-import { DqrToggle } from "./dqr-toggle";
+import { UpiModeToggles } from "./upi-mode-toggles";
 
 export default async function PaymentSettingsPage() {
   const config = await getPaymentGatewayConfig();
@@ -18,12 +18,13 @@ export default async function PaymentSettingsPage() {
 
       <PaymentMethodToggles
         onlineEnabled={config.onlineEnabled}
-        upiQrEnabled={config.upiQrEnabled}
         advanceEnabled={config.advanceEnabled}
       />
 
-      <DqrToggle
+      <UpiModeToggles
+        upiQrEnabled={config.upiQrEnabled}
         dqrEnabled={config.dqrEnabled}
+        intentEnabled={config.intentEnabled}
         dqrConfigured={config.dqrConfigured}
       />
 
