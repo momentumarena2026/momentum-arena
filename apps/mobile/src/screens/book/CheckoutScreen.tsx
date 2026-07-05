@@ -48,6 +48,18 @@ import {
   sportLabel,
 } from "../../lib/format";
 import { useAuth } from "../../providers/AuthProvider";
+import {
+  trackCheckoutStarted,
+  trackCouponApplied,
+  trackCouponFailed,
+  trackLockExpired,
+  trackNewUserDiscountApplied,
+  trackPaymentCancelled,
+  trackPaymentCompleted,
+  trackPaymentFailed,
+  trackPaymentInitiated,
+  trackPaymentMethodSelected,
+} from "../../lib/analytics";
 import type {
   BookStackParamList,
   MainTabsParamList,
@@ -200,6 +212,13 @@ export function CheckoutScreen() {
   const [newUserApplied, setNewUserApplied] = useState(false);
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
 
+  const checkoutTrackedRef = useRef(false);
+  useEffect(() => {
+    if (checkoutTrackedRef.current || !hold) return;
+    checkoutTrackedRef.current = true;
+    trackCheckoutStarted(params.holdId, hold.totalAmount, hold.courtConfig.sport);
+  }, [hold, params.holdId]);
+
   const newUserDiscountQuery = useQuery({
     queryKey: ["new-user-discount", sport, bookingCategory, baseAmount],
     queryFn: () =>
@@ -244,6 +263,7 @@ export function CheckoutScreen() {
         if (res.success) {
           setNewUserApplied(true);
           setDiscountLabel("First app booking discount");
+          trackCouponApplied(APP_FIRST_BOOKING_CODE, res.discountAmount ?? 0);
           return;
         }
       } catch {
@@ -255,6 +275,7 @@ export function CheckoutScreen() {
           const res = await applyCouponMutation.mutateAsync(nuDiscount.code);
           if (res.success) {
             setNewUserApplied(true);
+            trackNewUserDiscountApplied(res.discountAmount ?? 0);
             const label =
               nuDiscount.type === "PERCENTAGE"
                 ? `${nuDiscount.value / 100}% off`
@@ -271,6 +292,7 @@ export function CheckoutScreen() {
         const res = await applyCouponMutation.mutateAsync(code);
         if (res.success) {
           setDiscountLabel(fallbackLabelFor(sport));
+          trackCouponApplied(code, res.discountAmount ?? 0);
         }
       } catch {
         // fine — no coupon configured, continue at full price.
@@ -298,14 +320,16 @@ export function CheckoutScreen() {
             ? `Code: ${code} — ${formatRupees(res.discountAmount)} off`
             : `Code: ${code} applied`
         );
+        trackCouponApplied(code, res.discountAmount ?? 0);
         return { success: true };
       }
+      trackCouponFailed(code, res.error ?? "Invalid code");
       return { success: false, error: res.error ?? "Invalid code" };
     } catch (err) {
-      return {
-        success: false,
-        error: err instanceof ApiError ? err.message : "Couldn't apply code",
-      };
+      const message =
+        err instanceof ApiError ? err.message : "Couldn't apply code";
+      trackCouponFailed(code, message);
+      return { success: false, error: message };
     }
   }
 
@@ -327,6 +351,7 @@ export function CheckoutScreen() {
     if (msLeft > 0) return;
     if (expiredFired.current) return;
     expiredFired.current = true;
+    trackLockExpired(params.holdId);
     Alert.alert(
       "Slot released",
       "Your hold expired — please pick a time again.",
@@ -445,12 +470,15 @@ export function CheckoutScreen() {
       theme: { color: colors.primary },
     };
 
+    trackPaymentInitiated("RAZORPAY", order.amount, params.holdId);
+
     let success: PaymentSuccessData;
     try {
       success = (await RazorpayCheckout.open(options)) as PaymentSuccessData;
     } catch (err) {
       const e = err as PaymentErrorData;
       if (e?.code === 2 || e?.description?.toLowerCase().includes("cancel")) {
+        trackPaymentCancelled("RAZORPAY", params.holdId);
         return; // user dismissed sheet — not an error worth surfacing.
       }
       throw new ApiError(
@@ -484,6 +512,7 @@ export function CheckoutScreen() {
       throw new ApiError("Payment verification failed.", 0, null);
     }
 
+    trackPaymentCompleted("RAZORPAY", order.amount, verify.bookingId);
     fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
     goToBookingDetail(verify.bookingId);
   }
@@ -501,11 +530,12 @@ export function CheckoutScreen() {
         setShowUpiQr(true);
       }
     } catch (err) {
-      setPaymentError(
+      const message =
         err instanceof ApiError
           ? err.message
-          : "Payment couldn't complete. Please try again."
-      );
+          : "Payment couldn't complete. Please try again.";
+      trackPaymentFailed("RAZORPAY", params.holdId, message);
+      setPaymentError(message);
     } finally {
       setProcessing(false);
     }
@@ -840,6 +870,7 @@ export function CheckoutScreen() {
             amountMode={amountMode}
             onAmountModeChange={(m) => {
               setAmountMode(m);
+              trackPaymentMethodSelected(`${m}_${method}`);
               if (hold?.id) {
                 bookingApi
                   .logPaymentMethod({ holdId: hold.id, paymentMethod: `${m}_${method}` })
@@ -849,6 +880,7 @@ export function CheckoutScreen() {
             method={method}
             onMethodChange={(m) => {
               setMethod(m);
+              trackPaymentMethodSelected(`${amountMode}_${m}`);
               if (hold?.id) {
                 bookingApi
                   .logPaymentMethod({ holdId: hold.id, paymentMethod: `${amountMode}_${m}` })

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -23,6 +24,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, radius, spacing } from "../../theme";
 import { cafeApi, type CafeOrderStatus } from "../../lib/cafe";
 import { formatRupees } from "../../lib/format";
+import { trackCafeOrderConfirmationView } from "../../lib/analytics";
 import type {
   CafeStackParamList,
   AccountStackParamList,
@@ -92,6 +94,10 @@ export function CafeOrderDetailScreen() {
     queryFn: () => cafeApi.orderDetail(orderId),
     refetchInterval: 15_000, // poll every 15s so kitchen progress is visible
   });
+
+  useEffect(() => {
+    trackCafeOrderConfirmationView(orderId);
+  }, [orderId]);
 
   if (isLoading) {
     return (

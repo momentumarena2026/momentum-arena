@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -19,6 +19,11 @@ import { cafeApi } from "../../lib/cafe";
 import type { CafeItem } from "../../lib/types";
 import { formatRupees } from "../../lib/format";
 import { useCafeCart } from "../../providers/CafeCartProvider";
+import {
+  trackCafeBrowse,
+  trackCafeItemAdded,
+  trackCafeItemRemoved,
+} from "../../lib/analytics";
 import type { CafeStackParamList } from "../../navigation/types";
 
 type Nav = NativeStackNavigationProp<CafeStackParamList, "CafeMenu">;
@@ -35,6 +40,10 @@ export function CafeMenuScreen() {
     queryFn: () => cafeApi.menu(),
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    trackCafeBrowse();
+  }, []);
 
   if (isLoading) {
     return (
@@ -182,7 +191,8 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
                     quantity={qty}
                     outOfStock={outOfStock}
                     stockReached={stockReached}
-                    onAdd={() =>
+                    onAdd={() => {
+                      trackCafeItemAdded(item.name, item.price);
                       cart.addItem({
                         cafeItemId: item.id,
                         name: item.name,
@@ -190,10 +200,16 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
                         isVeg: item.isVeg,
                         imageUrl: item.image ?? null,
                         trackedStock: item.quantity ?? null,
-                      })
-                    }
-                    onIncrement={() => cart.increment(item.id)}
-                    onDecrement={() => cart.decrement(item.id)}
+                      });
+                    }}
+                    onIncrement={() => {
+                      trackCafeItemAdded(item.name, item.price);
+                      cart.increment(item.id);
+                    }}
+                    onDecrement={() => {
+                      trackCafeItemRemoved(item.name);
+                      cart.decrement(item.id);
+                    }}
                   />
                 );
               })}

@@ -53,6 +53,11 @@ import {
 import { ApiError } from "../../lib/api";
 import { waitlistApi } from "../../lib/waitlist";
 import {
+  trackDateChanged,
+  trackLockFailed,
+  trackLockSuccess,
+  trackProceedToCheckout,
+  trackSlotToggled,
   trackSlotUnavailableTap,
   trackWaitlistJoinFailed,
   trackWaitlistJoined,
@@ -124,6 +129,7 @@ export function BookSlotsScreen() {
   const [waitlistHour, setWaitlistHour] = useState<number | null>(null);
 
   const pickDate = useCallback((dateStr: string) => {
+    trackDateChanged(dateStr);
     setSelectedDate(dateStr);
     setSelected([]);
   }, []);
@@ -220,6 +226,11 @@ export function BookSlotsScreen() {
   // 8pm survived). The server doesn't enforce contiguity either, so
   // this is purely a UI rule that shouldn't have existed.
   function toggleHour(hour: number) {
+    trackSlotToggled(
+      selected.includes(hour) ? "remove" : "add",
+      hour,
+      slots.find((s) => s.hour === hour)?.price ?? 0,
+    );
     setSelected((prev) =>
       prev.includes(hour)
         ? prev.filter((h) => h !== hour)
@@ -234,6 +245,8 @@ export function BookSlotsScreen() {
       return;
     }
     if (selected.length === 0) return;
+
+    trackProceedToCheckout(selected.length, total, false);
 
     // Resolve storage coords for the selected slots. The 12am-1am
     // tile lives on the next calendar date's grid but its storage
@@ -290,15 +303,18 @@ export function BookSlotsScreen() {
               .map((h) => formatHourRangeCompact(h))
               .join(", ")} were just booked. Please pick again.`
           : res.error || "Couldn't reserve the slot. Try again.";
+        trackLockFailed(msg);
         Alert.alert("Slot unavailable", msg);
         await refetch();
         setSelected([]);
         return;
       }
+      trackLockSuccess(res.holdId);
       navigation.navigate("Checkout", { holdId: res.holdId });
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "Network error — try again.";
+      trackLockFailed(message);
       Alert.alert("Couldn't continue", message);
     } finally {
       setLocking(false);

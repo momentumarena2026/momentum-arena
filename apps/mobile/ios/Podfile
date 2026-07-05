@@ -15,6 +15,12 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
+# Use the AdId-free variant of FirebaseAnalytics (@react-native-firebase/
+# analytics). We run no ads or ad attribution, so skipping IDFA keeps the
+# App Store privacy questionnaire at "analytics only" and avoids any
+# App Tracking Transparency prompt requirement.
+$RNFirebaseAnalyticsWithoutAdIdSupport = true
+
 target 'MomentumArena' do
   use_expo_modules!
 

@@ -9,6 +9,7 @@ import { SportCardGradient } from "../../components/booking/SportCardGradient";
 import { colors, spacing } from "../../theme";
 import type { Sport } from "../../lib/types";
 import { sportLabel } from "../../lib/format";
+import { trackSportSelected } from "../../lib/analytics";
 import type { BookStackParamList } from "../../navigation/types";
 
 type Nav = NativeStackNavigationProp<BookStackParamList, "BookSport">;
@@ -90,7 +91,10 @@ export function BookSportScreen() {
           return (
             <Pressable
               key={sport}
-              onPress={() => navigation.navigate("BookCourt", { sport })}
+              onPress={() => {
+                trackSportSelected(sport);
+                navigation.navigate("BookCourt", { sport });
+              }}
               style={({ pressed }) => [
                 styles.card,
                 { borderColor: theme.border },

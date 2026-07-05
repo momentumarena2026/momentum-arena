@@ -27,6 +27,7 @@ import { bookingsApi } from "../../lib/bookings";
 import { bookingApi } from "../../lib/booking";
 import { ApiError } from "../../lib/api";
 import { sportLabel } from "../../lib/format";
+import { trackCourtConfigSelected } from "../../lib/analytics";
 import type { CourtConfig } from "../../lib/types";
 import type { BookStackParamList } from "../../navigation/types";
 
@@ -90,6 +91,11 @@ function logCourtSelection(
     size?: string;
   },
 ) {
+  trackCourtConfigSelected(
+    sport,
+    payload.courtConfigId ?? payload.mode ?? "unknown",
+    payload.label,
+  );
   void bookingApi.logCourtSelection({ sport, ...payload }).catch(() => {});
 }
 

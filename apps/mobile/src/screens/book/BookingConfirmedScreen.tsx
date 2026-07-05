@@ -21,6 +21,7 @@ import {
   formatRupees,
   sportLabel,
 } from "../../lib/format";
+import { trackBookingConfirmedView } from "../../lib/analytics";
 import type {
   BookStackParamList,
   MainTabsParamList,
@@ -38,6 +39,11 @@ export function BookingConfirmedScreen() {
     queryKey: ["booking", params.bookingId],
     queryFn: () => bookingsApi.detail(params.bookingId),
   });
+
+  useEffect(() => {
+    trackBookingConfirmedView(params.bookingId, booking?.status ?? "UNKNOWN");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per screen visit
+  }, [params.bookingId]);
 
   // Disable hardware back from navigating back into the (now-invalid) hold.
   useEffect(() => {

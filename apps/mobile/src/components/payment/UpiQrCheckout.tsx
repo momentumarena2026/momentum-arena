@@ -25,6 +25,12 @@ import { Text } from "../ui/Text";
 import { radius, spacing } from "../../theme";
 import { env } from "../../config/env";
 import { formatRupees } from "../../lib/format";
+import {
+  trackUpiAppLaunched,
+  trackUpiPaymentConfirmed,
+  trackUpiQrShown,
+  trackUpiWhatsappClick,
+} from "../../lib/analytics";
 
 export type UpiCommitResult = { bookingId?: string; error?: string } | void;
 
@@ -112,6 +118,13 @@ export function UpiQrCheckout({
   const [commitError, setCommitError] = useState<string | null>(null);
   const [bookingId, setBookingId] = useState<string | null>(null);
 
+  const qrShownTrackedRef = useRef(false);
+  useEffect(() => {
+    if (qrShownTrackedRef.current) return;
+    qrShownTrackedRef.current = true;
+    trackUpiQrShown(isAdvance && advanceAmount ? advanceAmount : amount);
+  }, [isAdvance, advanceAmount, amount]);
+
   // Success-animation drivers (built-in Animated — no extra deps). Same
   // spring-in circle + check pattern as DqrCheckout's confirmed phase.
   const circleScale = useRef(new Animated.Value(0)).current;
@@ -159,6 +172,7 @@ export function UpiQrCheckout({
     if (!upiDeepLink) return;
     try {
       await Linking.openURL(upiDeepLink);
+      trackUpiAppLaunched(displayAmount);
     } catch {
       // Most commonly hit when no UPI app is installed (or on iOS
       // simulators). Let the user know politely and leave the QR as
@@ -190,6 +204,7 @@ export function UpiQrCheckout({
       if (result && "bookingId" in result && result.bookingId) {
         setBookingId(result.bookingId);
       }
+      trackUpiPaymentConfirmed(displayAmount);
       setStep("paid");
     } catch (e) {
       setCommitError(
@@ -201,6 +216,7 @@ export function UpiQrCheckout({
   }
 
   async function openWhatsapp() {
+    trackUpiWhatsappClick(bookingId ?? undefined);
     const ok = await Linking.canOpenURL(whatsappUrl);
     if (ok) void Linking.openURL(whatsappUrl);
   }

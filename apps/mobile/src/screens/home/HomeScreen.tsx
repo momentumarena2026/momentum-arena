@@ -42,6 +42,10 @@ import { colors, radius, spacing } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
 import { bookingsApi } from "../../lib/bookings";
 import { bookingApi } from "../../lib/booking";
+import {
+  trackHomepageCafeClick,
+  trackHomepageSportClick,
+} from "../../lib/analytics";
 import { env } from "../../config/env";
 import type {
   MainTabsParamList,
@@ -127,6 +131,7 @@ export function HomeScreen() {
   }, [refetch, signedIn]);
 
   function openSport(slug: (typeof SPORTS)[number]["slug"]) {
+    trackHomepageSportClick(slug);
     // `initial: false` keeps BookSport at the bottom of the Sports
     // stack so the user can swipe / tap back to the sport-picker
     // instead of landing at BookSlots with no back history.
@@ -227,7 +232,10 @@ export function HomeScreen() {
               style={styles.heroBtnPrimary}
             />
             <Pressable
-              onPress={() => navigation.navigate("Cafe")}
+              onPress={() => {
+                trackHomepageCafeClick();
+                navigation.navigate("Cafe");
+              }}
               style={({ pressed }) => [styles.heroBtnAmber, pressed && styles.pressed]}
             >
               <Text variant="bodyStrong" color="#fff">☕  Order Food</Text>
@@ -330,7 +338,10 @@ export function HomeScreen() {
             accentColor="#f59e0b"
           />
           <Pressable
-            onPress={() => navigation.navigate("Cafe")}
+            onPress={() => {
+              trackHomepageCafeClick();
+              navigation.navigate("Cafe");
+            }}
             style={({ pressed }) => pressed && styles.pressed}
           >
             <ImageBackground

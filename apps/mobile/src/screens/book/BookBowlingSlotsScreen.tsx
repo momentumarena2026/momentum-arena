@@ -30,6 +30,13 @@ import { GearPicker } from "../../components/booking/GearPicker";
 import { ApiError } from "../../lib/api";
 import { formatRupees, sportLabel } from "../../lib/format";
 import {
+  trackDateChanged,
+  trackLockFailed,
+  trackLockSuccess,
+  trackProceedToCheckout,
+  trackSlotToggled,
+} from "../../lib/analytics";
+import {
   formatDateIST,
   getTodayIST,
   getUpcomingDatesIST,
@@ -112,6 +119,7 @@ export function BookBowlingSlotsScreen() {
   const equipmentOptions = equipmentQuery.data?.equipment ?? [];
 
   const pickDate = useCallback((dateStr: string) => {
+    trackDateChanged(dateStr);
     setSelectedDate(dateStr);
     setSelectedKeys(new Set());
   }, []);
@@ -160,6 +168,7 @@ export function BookBowlingSlotsScreen() {
   function toggleSlot(slot: BowlingSlotAvailability) {
     if (slot.status !== "available") return;
     const k = keyOf(slot.hour, slot.minute);
+    trackSlotToggled(selectedKeys.has(k) ? "remove" : "add", slot.hour, slot.price);
     setSelectedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(k)) {
@@ -190,6 +199,7 @@ export function BookBowlingSlotsScreen() {
       return;
     }
     if (sortedSelected.length === 0) return;
+    trackProceedToCheckout(sortedSelected.length, total, false);
     setLocking(true);
     try {
       const equipmentSelection =
@@ -207,6 +217,7 @@ export function BookBowlingSlotsScreen() {
         equipmentSelection,
       });
       if (!res.success || !res.holdId) {
+        trackLockFailed(res.error || "Those slots were just taken");
         Alert.alert(
           "Slot unavailable",
           res.error || "Those slots were just taken — please pick again.",
@@ -215,10 +226,12 @@ export function BookBowlingSlotsScreen() {
         setSelectedKeys(new Set());
         return;
       }
+      trackLockSuccess(res.holdId);
       navigation.navigate("Checkout", { holdId: res.holdId });
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "Network error — try again.";
+      trackLockFailed(message);
       Alert.alert("Couldn't continue", message);
     } finally {
       setLocking(false);
