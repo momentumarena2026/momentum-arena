@@ -1,10 +1,20 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+ requires runtime permission for posting
          notifications. We request it lazily from JS (after first
          booking) via PermissionsAndroid. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Firebase Analytics auto-adds AD_ID, but we do no ads/attribution
+         and the Play Console declaration says "no advertising ID" — Play
+         rejects any AAB carrying the permission. Strip it from the merged
+         manifest (Android analogue of the iOS
+         $RNFirebaseAnalyticsWithoutAdIdSupport pod flag; adid collection
+         itself is disabled in apps/mobile/firebase.json). -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
 
     <application
       android:name=".MainApplication"
