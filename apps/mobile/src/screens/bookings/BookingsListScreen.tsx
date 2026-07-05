@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
   NativeScrollEvent,
@@ -29,6 +29,10 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { BookingCard } from "../../components/BookingCard";
 import { colors, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
+import {
+  trackBookingCardClick,
+  trackDashboardView,
+} from "../../lib/analytics";
 import type {
   Booking,
   BookingsListResponse,
@@ -86,10 +90,15 @@ export function BookingsListScreen() {
 
   const goToDetail = useCallback(
     (bookingId: string) => {
+      trackBookingCardClick(bookingId);
       navigation.navigate("BookingDetail", { bookingId });
     },
     [navigation],
   );
+
+  useEffect(() => {
+    trackDashboardView();
+  }, []);
 
   // Flatten all pages, split into upcoming / past by IST calendar day.
   // `summary` (from page 1) owns the hero totals so the tiles don't

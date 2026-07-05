@@ -13,6 +13,7 @@ import { BookStack } from "./BookStack";
 import { CafeStack } from "./CafeStack";
 import { ShopStack } from "./ShopStack";
 import { colors } from "../theme";
+import { trackBottomNavClick } from "../lib/analytics";
 import type { MainTabsParamList } from "./types";
 
 const Tab = createBottomTabNavigator<MainTabsParamList>();
@@ -20,6 +21,9 @@ const Tab = createBottomTabNavigator<MainTabsParamList>();
 export function MainNavigator() {
   return (
     <Tab.Navigator
+      screenListeners={({ route }) => ({
+        tabPress: () => trackBottomNavClick(route.name),
+      })}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {

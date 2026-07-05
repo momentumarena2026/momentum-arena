@@ -26,6 +26,11 @@ import { Text } from "../ui/Text";
 import { radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 import { bookingApi } from "../../lib/booking";
+import {
+  trackUpiAppLaunched,
+  trackUpiPaymentConfirmed,
+  trackUpiQrShown,
+} from "../../lib/analytics";
 
 interface Props {
   holdId: string;
@@ -189,6 +194,14 @@ export function DqrCheckout({
     return stopPolling;
   }, [awaitingPayment, checkStatus, stopPolling]);
 
+  const qrShownTrackedRef = useRef(false);
+  useEffect(() => {
+    if (phase !== "qr" || qrShownTrackedRef.current) return;
+    qrShownTrackedRef.current = true;
+    trackUpiQrShown(displayAmount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- displayAmount is stable per mount
+  }, [phase]);
+
   // TTL countdown. PhonePe rejects an expired transaction, so when the TTL
   // runs out we stop polling and surface a regenerate prompt (the error
   // retry re-initiates with a fresh QR/intent + timer).
@@ -231,6 +244,7 @@ export function DqrCheckout({
   const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
+    trackUpiPaymentConfirmed(displayAmount);
     Animated.spring(circleScale, {
       toValue: 1,
       friction: 5,
@@ -262,6 +276,7 @@ export function DqrCheckout({
     setAppOpenError(null);
     Linking.openURL(url)
       .then(() => {
+        trackUpiAppLaunched(displayAmount);
         setWaitingApp({ name, url });
         setPhase("waiting");
       })
@@ -270,7 +285,7 @@ export function DqrCheckout({
           "Couldn't open the app — is it installed? Try another option.",
         );
       });
-  }, []);
+  }, [displayAmount]);
 
   const dismiss = useCallback(() => {
     // Ignore dismissal once paid — the success handoff owns navigation.

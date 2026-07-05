@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -10,6 +10,10 @@ import { Button } from "../../components/ui/Button";
 import { colors, spacing } from "../../theme";
 import { authApi } from "../../lib/auth";
 import { ApiError } from "../../lib/api";
+import {
+  trackLoginModalOpened,
+  trackLoginPhoneSubmitted,
+} from "../../lib/analytics";
 import type { RootStackParamList } from "../../navigation/types";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "Phone">;
@@ -24,6 +28,10 @@ export function PhoneScreen() {
   const phoneDigits = phone.replace(/\D/g, "");
   const isValid = phoneDigits.length === 10;
 
+  useEffect(() => {
+    trackLoginModalOpened();
+  }, []);
+
   async function handleContinue() {
     if (!isValid) {
       setError("Enter a 10-digit mobile number");
@@ -32,6 +40,7 @@ export function PhoneScreen() {
     setError(null);
     setLoading(true);
     try {
+      trackLoginPhoneSubmitted();
       await authApi.sendOtp(phoneDigits);
       navigation.navigate("Otp", {
         phone: phoneDigits,

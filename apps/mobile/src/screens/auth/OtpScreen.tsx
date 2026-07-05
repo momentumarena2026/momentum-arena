@@ -20,6 +20,10 @@ import { Input } from "../../components/ui/Input";
 import { colors, radius, spacing } from "../../theme";
 import { authApi } from "../../lib/auth";
 import { ApiError } from "../../lib/api";
+import {
+  trackLoginFailed,
+  trackLoginOtpSubmitted,
+} from "../../lib/analytics";
 import { useAuth } from "../../providers/AuthProvider";
 import type { RootStackParamList } from "../../navigation/types";
 
@@ -101,6 +105,7 @@ export function OtpScreen() {
     setLoading(true);
     setError(null);
     try {
+      trackLoginOtpSubmitted();
       const user = await authApi.verifyOtp(
         params.phone,
         code,
@@ -122,6 +127,7 @@ export function OtpScreen() {
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "Couldn't verify the OTP.";
+      trackLoginFailed(message);
       setError(message);
     } finally {
       setLoading(false);

@@ -25,6 +25,10 @@ import {
   processMessage,
   type ChatMessage,
 } from "../../lib/chat-engine";
+import {
+  trackChatMessageSent,
+  trackChatWidgetOpened,
+} from "../../lib/analytics";
 import type { MainTabsParamList } from "../../navigation/types";
 import type { Sport } from "../../lib/types";
 
@@ -148,6 +152,10 @@ export function ChatScreen() {
   const [context, setContext] = useState(createInitialContext);
   const scrollRef = useRef<ScrollView>(null);
 
+  useEffect(() => {
+    trackChatWidgetOpened();
+  }, []);
+
   // Keep the view pinned to the latest message — mirrors the web's
   // scrollIntoView behaviour. `requestAnimationFrame` waits for layout
   // so the new bubble is measured before we scroll past it.
@@ -162,6 +170,8 @@ export function ChatScreen() {
     (text?: string) => {
       const query = (text ?? input).trim();
       if (!query) return;
+
+      trackChatMessageSent();
 
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,

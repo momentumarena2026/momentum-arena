@@ -1,15 +1,23 @@
 import { Platform, AppState, type AppStateStatus } from "react-native";
+import type { FirebaseAnalyticsTypes } from "@react-native-firebase/analytics";
 import { mmkv } from "./storage";
 import { env } from "../config/env";
 import { tokenStorage } from "./storage";
 import { version as appVersion } from "../../package.json";
 
 /**
- * Mobile-side first-party analytics — mirrors lib/analytics.ts on web.
+ * Mobile-side analytics — mirrors lib/analytics.ts on web.
  *
- * Same trackXxx() naming so funnels are platform-agnostic on the
- * server side. Events are queued in MMKV (synchronous, persists
- * across app kills) and flushed in batches to /api/events.
+ * Every trackXxx() helper dual-writes, exactly like the web:
+ *  1. Google Analytics 4 via Firebase Analytics — release builds of
+ *     `main` only (the builds that talk to production), mirroring the
+ *     web's "gtag fires only on www.momentumarena.com" gate.
+ *  2. First-party Postgres via /api/events — ALL environments.
+ *
+ * Same trackXxx() naming + event names as web so funnels are
+ * platform-agnostic on the server side. Events are queued in MMKV
+ * (synchronous, persists across app kills) and flushed in batches
+ * to /api/events.
  *
  * Lifecycle:
  *   - Auto-flush on app foreground (background→active transition).
@@ -57,11 +65,91 @@ let flushTimer: ReturnType<typeof setInterval> | null = null;
 let appStateSub: { remove: () => void } | null = null;
 let initialized = false;
 
+// ---------- Google Analytics (GA4 via Firebase Analytics) ----------
+
+/**
+ * GA fires only from release builds of `main` — the exact analogue of
+ * the web gate (gtag only on www.momentumarena.com). Debug builds and
+ * development-branch builds keep GA off so staging traffic never
+ * pollutes the production property. First-party events are unaffected.
+ */
+const GA_ENABLED = env.gitBranch === "main" && !__DEV__;
+
+let gaResolved = false;
+let gaInstance: FirebaseAnalyticsTypes.Module | null = null;
+
+/**
+ * OTA-SAFETY: this JS ships over-the-air to binaries that may predate
+ * the @react-native-firebase/analytics NATIVE module (added alongside
+ * this code). Resolve the module lazily inside try/catch — on an old
+ * binary GA just stays silently off until the user updates the app;
+ * the first-party pipe keeps working either way. Do NOT convert this
+ * to a top-level value import.
+ */
+function getGa(): FirebaseAnalyticsTypes.Module | null {
+  if (gaResolved) return gaInstance;
+  gaResolved = true;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("@react-native-firebase/analytics");
+    gaInstance = (mod.default as () => FirebaseAnalyticsTypes.Module)();
+  } catch {
+    gaInstance = null;
+  }
+  return gaInstance;
+}
+
+/** GA4 param values: strings ≤100 chars or numbers. Drop null/undefined. */
+function sanitizeGaParams(
+  properties?: Record<string, unknown>,
+): Record<string, string | number> | undefined {
+  if (!properties) return undefined;
+  const out: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      out[key] = value;
+    } else if (typeof value === "boolean") {
+      out[key] = String(value);
+    } else {
+      out[key] = String(value).slice(0, 100);
+    }
+  }
+  return out;
+}
+
+function gaLog(name: string, properties?: Record<string, unknown>): void {
+  if (!GA_ENABLED) return;
+  const ga = getGa();
+  if (!ga) return;
+  try {
+    if (name === "page_view") {
+      // Apps use screen_view, not page_view — map our route-change
+      // event onto the GA4-native concept so screen reports work.
+      const path =
+        typeof properties?.path === "string" ? properties.path : "unknown";
+      void ga
+        .logScreenView({
+          screen_name: path.slice(0, 100),
+          screen_class: path.slice(0, 100),
+        })
+        .catch(() => {});
+    } else {
+      void ga.logEvent(name, sanitizeGaParams(properties)).catch(() => {});
+    }
+  } catch {
+    // RNFB validates event names synchronously — a bad name must never
+    // take the first-party pipe down with it.
+  }
+}
+
 // ---------- Public API: trackEvent + helpers ----------
 
 /**
  * Core dispatcher. Mirrors lib/analytics.ts:trackEvent on web —
- * includes an optional category that helps the dashboard group events.
+ * fires GA4 (production builds only) AND the first-party queue
+ * (all environments). The optional category helps the dashboard
+ * group events.
  */
 export function trackEvent(
   name: string,
@@ -79,6 +167,7 @@ export function trackEvent(
       : undefined,
     occurredAt: new Date().toISOString(),
   });
+  gaLog(name, properties);
 }
 
 // ─── Booking funnel — mirrors web ────────────────────────────────
@@ -99,42 +188,123 @@ export function trackSlotToggled(action: "add" | "remove", hour: number, price: 
 export function trackDateChanged(date: string) {
   trackEvent("date_changed", { date }, "BOOKING");
 }
-export function trackProceedToCheckout(slotCount: number, total: number) {
+export function trackRecurringToggled(enabled: boolean) {
+  trackEvent("recurring_toggled", { enabled }, "BOOKING");
+}
+export function trackRecurringModeSelected(mode: "weekly" | "daily") {
+  trackEvent("recurring_mode_selected", { mode }, "BOOKING");
+}
+export function trackRecurringDurationSelected(mode: "weekly" | "daily", count: number, discount: number) {
+  trackEvent(
+    "recurring_duration_selected",
+    { mode, count, discount_percent: discount },
+    "BOOKING",
+  );
+}
+export function trackProceedToCheckout(slotCount: number, total: number, isRecurring: boolean) {
   trackEvent(
     "proceed_to_checkout_click",
-    { slot_count: slotCount, total_amount: total, is_recurring: false },
+    { slot_count: slotCount, total_amount: total, is_recurring: isRecurring },
     "BOOKING",
   );
 }
 export function trackCheckoutStarted(bookingId: string, amount: number, sport?: string) {
   trackEvent("checkout_started", { booking_id: bookingId, amount, sport }, "BOOKING");
+  // GA4 standard e-commerce: begin_checkout (mirrors web)
+  trackEvent("begin_checkout", { currency: "INR", value: amount }, "BOOKING");
 }
 export function trackBookingConfirmedView(bookingId: string, status: string) {
   trackEvent("booking_confirmed_view", { booking_id: bookingId, status }, "BOOKING");
 }
+export function trackLockExpired(bookingId: string) {
+  trackEvent("lock_expired", { booking_id: bookingId }, "BOOKING");
+}
+export function trackLockSuccess(bookingId: string) {
+  trackEvent("lock_success", { booking_id: bookingId }, "BOOKING");
+}
+export function trackLockFailed(error: string) {
+  trackEvent("lock_failed", { error_message: error }, "BOOKING");
+}
 
 // ─── Payment ─────────────────────────────────────────────────────
 
+export function trackPaymentMethodSelected(method: string) {
+  trackEvent("payment_method_selected", { method }, "PAYMENT");
+  // GA4 standard: add_payment_info (mirrors web)
+  trackEvent("add_payment_info", { payment_type: method }, "PAYMENT");
+}
 export function trackPaymentInitiated(method: string, amount: number, bookingId: string) {
   trackEvent("payment_initiated", { method, amount, booking_id: bookingId }, "PAYMENT");
 }
 export function trackPaymentCompleted(method: string, amount: number, bookingId: string) {
   trackEvent("payment_completed", { method, amount, booking_id: bookingId }, "PAYMENT");
+  // GA4 standard: purchase (mirrors web)
+  trackEvent(
+    "purchase",
+    { currency: "INR", value: amount, transaction_id: bookingId },
+    "PAYMENT",
+  );
 }
 export function trackPaymentFailed(method: string, bookingId: string, error?: string) {
   trackEvent("payment_failed", { method, booking_id: bookingId, error }, "PAYMENT");
 }
+export function trackPaymentCancelled(method: string, bookingId: string) {
+  trackEvent("payment_cancelled", { method, booking_id: bookingId }, "PAYMENT");
+}
+
+// ─── Discount & coupons ──────────────────────────────────────────
+
+export function trackCouponApplied(code: string, discountAmount: number) {
+  trackEvent(
+    "coupon_applied",
+    { coupon_code: code, discount_amount: discountAmount },
+    "PAYMENT",
+  );
+}
+export function trackCouponFailed(code: string, reason?: string) {
+  trackEvent("coupon_failed", { coupon_code: code, reason }, "PAYMENT");
+}
+export function trackNewUserDiscountApplied(discountAmount: number) {
+  trackEvent(
+    "new_user_discount_applied",
+    { discount_amount: discountAmount },
+    "PAYMENT",
+  );
+}
+
+// ─── UPI QR flow ─────────────────────────────────────────────────
+
+export function trackUpiQrShown(amount: number) {
+  trackEvent("upi_qr_shown", { amount }, "PAYMENT");
+}
+export function trackUpiPaymentConfirmed(amount: number) {
+  trackEvent("upi_payment_confirmed", { amount }, "PAYMENT");
+}
+export function trackUpiWhatsappClick(bookingId?: string) {
+  trackEvent("upi_whatsapp_screenshot_click", { booking_id: bookingId }, "PAYMENT");
+}
+/** Fired when the user taps a UPI app in the Razorpay-style sheet —
+ *  the app-to-app intent launch (mirrors web's deep-link button). */
+export function trackUpiAppLaunched(amount: number) {
+  trackEvent("upi_app_launched", { amount }, "PAYMENT");
+}
 
 // ─── Auth ────────────────────────────────────────────────────────
 
-export function trackPhoneSubmitted() {
+export function trackLoginModalOpened() {
+  trackEvent("login_modal_opened", {}, "AUTH");
+}
+export function trackLoginPhoneSubmitted() {
   trackEvent("login_phone_submitted", {}, "AUTH");
 }
-export function trackOtpSubmitted() {
+export function trackLoginOtpSubmitted() {
   trackEvent("login_otp_submitted", {}, "AUTH");
 }
 export function trackLoginSuccess() {
   trackEvent("login_success", {}, "AUTH");
+}
+export function trackLoginFailed(error: string) {
+  trackEvent("login_failed", { error_message: error }, "AUTH");
 }
 export function trackSignOutClick() {
   trackEvent("sign_out_click", {}, "AUTH");
@@ -197,23 +367,42 @@ export function trackWaitlistNotificationTapped(waitlistId?: string) {
   );
 }
 
-// ─── Cafe ────────────────────────────────────────────────────────
+// ─── Cafe — event names + shapes mirror web ──────────────────────
 
 export function trackCafeBrowse() {
   trackEvent("cafe_browse", {}, "CAFE");
 }
-export function trackCafeItemAdded(itemId: string, price: number) {
-  trackEvent("cafe_item_added", { item_id: itemId, price }, "CAFE");
+export function trackCafeItemAdded(itemName: string, price: number) {
+  trackEvent("cafe_item_added", { item_name: itemName, price }, "CAFE");
 }
-export function trackCafeCheckout(amount: number) {
-  trackEvent("cafe_checkout", { amount }, "CAFE");
+export function trackCafeItemRemoved(itemName: string) {
+  trackEvent("cafe_item_removed", { item_name: itemName }, "CAFE");
 }
-export function trackCafePaymentCompleted(orderId: string, amount: number) {
+export function trackCafeCheckoutStarted(itemCount: number, totalAmount: number) {
   trackEvent(
-    "cafe_payment_completed",
-    { order_id: orderId, amount },
-    "PAYMENT",
+    "cafe_checkout_started",
+    { item_count: itemCount, total_amount: totalAmount },
+    "CAFE",
   );
+}
+export function trackCafePaymentMethodSelected(method: string) {
+  trackEvent("cafe_payment_method_selected", { method }, "CAFE");
+}
+export function trackCafeOrderPlaced(orderId: string, amount: number, method: string) {
+  trackEvent(
+    "cafe_order_placed",
+    { order_id: orderId, amount, payment_method: method },
+    "CAFE",
+  );
+  // GA4 standard: purchase (mirrors web)
+  trackEvent(
+    "purchase",
+    { currency: "INR", value: amount, transaction_id: orderId },
+    "CAFE",
+  );
+}
+export function trackCafeOrderConfirmationView(orderId: string) {
+  trackEvent("cafe_order_confirmation_view", { order_id: orderId }, "CAFE");
 }
 
 // ─── Rewards ─────────────────────────────────────────────────────
@@ -256,13 +445,57 @@ export function trackRewardsRedeemCompleted(points: number, paiseSaved: number) 
   );
 }
 
+// ─── Home screen — same event names as the web homepage ─────────
+
+export function trackHomepageSportClick(sport: string) {
+  trackEvent("homepage_sport_click", { sport }, "NAVIGATION");
+}
+export function trackHomepageCafeClick() {
+  trackEvent("homepage_cafe_click", {}, "NAVIGATION");
+}
+
+// ─── Dashboard / account ─────────────────────────────────────────
+
+export function trackDashboardView() {
+  trackEvent("dashboard_view", {}, "NAVIGATION");
+}
+export function trackBookingCardClick(bookingId: string) {
+  trackEvent("booking_card_click", { booking_id: bookingId }, "NAVIGATION");
+}
+export function trackInvoiceDownload(bookingId: string) {
+  trackEvent("invoice_download", { booking_id: bookingId }, "NAVIGATION");
+}
+
+// ─── Chat / support ──────────────────────────────────────────────
+
+export function trackChatWidgetOpened() {
+  trackEvent("chat_widget_opened", {}, "NAVIGATION");
+}
+export function trackChatMessageSent() {
+  trackEvent("chat_message_sent", {}, "NAVIGATION");
+}
+
+// ─── Errors ──────────────────────────────────────────────────────
+
+export function trackError(errorType: string, message: string) {
+  trackEvent(
+    "app_error",
+    { error_type: errorType, error_message: message },
+    "ERROR",
+  );
+}
+
 // ─── Navigation / system ─────────────────────────────────────────
 
+/** Route-change event. On GA this maps to the native screen_view
+ *  (see gaLog) so Firebase screen reports work out of the box.
+ *  Wired once in RootNavigator — don't call from feature code. */
 export function trackPageView(path: string) {
   trackEvent("page_view", { path }, "NAVIGATION");
 }
-export function trackTabSwitched(to: string) {
-  trackEvent("tab_switched", { to }, "NAVIGATION");
+/** Bottom-tab tap — same event name as the web bottom nav. */
+export function trackBottomNavClick(tab: string) {
+  trackEvent("bottom_nav_click", { tab }, "NAVIGATION");
 }
 export function trackAppForeground() {
   trackEvent("app_foreground", {}, "SYSTEM");
@@ -303,6 +536,14 @@ export function rotateAnalyticsSession(): void {
 function ensureInitialized(): void {
   if (initialized) return;
   initialized = true;
+
+  // Keep Firebase's automatic collection (first_open, session_start,
+  // user_engagement …) aligned with the same production-only gate our
+  // manual events use, so dev/staging builds send nothing to GA.
+  const ga = getGa();
+  if (ga) {
+    void ga.setAnalyticsCollectionEnabled(GA_ENABLED).catch(() => {});
+  }
 
   // Foreground/background lifecycle. Flush on transition to active
   // because that's the user-visible point at which any queued events

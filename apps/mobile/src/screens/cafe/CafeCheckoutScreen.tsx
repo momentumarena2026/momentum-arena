@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -28,6 +28,11 @@ import {
 } from "../../lib/cafe";
 import { formatRupees } from "../../lib/format";
 import { ApiError } from "../../lib/api";
+import {
+  trackCafeCheckoutStarted,
+  trackCafeOrderPlaced,
+  trackCafePaymentMethodSelected,
+} from "../../lib/analytics";
 import type { CafeStackParamList } from "../../navigation/types";
 
 type Nav = NativeStackNavigationProp<CafeStackParamList, "CafeCheckout">;
@@ -84,6 +89,14 @@ export function CafeCheckoutScreen() {
   const [couponError, setCouponError] = useState<string | null>(null);
   const [couponLoading, setCouponLoading] = useState(false);
   const [note, setNote] = useState("");
+
+  const checkoutTrackedRef = useRef(false);
+  useEffect(() => {
+    if (checkoutTrackedRef.current || cart.lines.length === 0) return;
+    checkoutTrackedRef.current = true;
+    trackCafeCheckoutStarted(cart.itemCount, cart.subtotal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per visit
+  }, []);
 
   if (cart.lines.length === 0) {
     return (
@@ -150,6 +163,7 @@ export function CafeCheckoutScreen() {
 
       // In-person path — order is real, navigate straight to detail.
       if (!orderRes.intent) {
+        trackCafeOrderPlaced(orderRes.orderId, total, method);
         cart.clear();
         navigation.replace("CafeOrderDetail", { orderId: orderRes.orderId });
         return;
@@ -211,6 +225,7 @@ export function CafeCheckoutScreen() {
         razorpaySignature: success.razorpay_signature ?? "",
       });
 
+      trackCafeOrderPlaced(verify.orderId, total, "RAZORPAY");
       cart.clear();
       navigation.replace("CafeOrderDetail", { orderId: verify.orderId });
     } catch (err) {
@@ -349,7 +364,10 @@ export function CafeCheckoutScreen() {
             return (
               <Pressable
                 key={m.id}
-                onPress={() => setMethod(m.id)}
+                onPress={() => {
+                  setMethod(m.id);
+                  trackCafePaymentMethodSelected(m.id);
+                }}
                 style={({ pressed }) => [
                   styles.methodTile,
                   selected ? styles.methodTileSelected : null,
