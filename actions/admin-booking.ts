@@ -8,7 +8,7 @@ import {
 } from "@/lib/notifications";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { normalizeIndianPhone } from "@/lib/phone";
-import { sendToUser } from "@/lib/push";
+import { sendTemplatedToUser } from "@/lib/push-templates";
 import { formatHoursAsRanges } from "@/lib/court-config";
 import { notifyWaitlistersForFreedSlots } from "@/actions/waitlist";
 import {
@@ -600,22 +600,18 @@ async function notifyBookingCancelled(
         ? formatHoursAsRanges(b.slots.map((s) => s.startHour))
         : "";
     const when = [dateLabel, timeLabel].filter(Boolean).join(" ");
-    await sendToUser(b.userId, {
-      title: refunded ? "Booking refunded" : "Booking cancelled",
-      body: when
-        ? `Your slot on ${when} was ${refunded ? "refunded" : "cancelled"}.${
-            reason ? ` Reason: ${reason.slice(0, 120)}` : ""
-          }`
-        : reason
-          ? `Reason: ${reason.slice(0, 200)}`
-          : refunded
-            ? "Your refund has been processed."
-            : "Your booking was cancelled.",
-      data: {
+    await sendTemplatedToUser(
+      b.userId,
+      refunded ? "booking_refunded" : "booking_cancelled",
+      {
+        when,
+        reason: reason ? `Reason: ${reason.slice(0, 120)}` : "",
+      },
+      {
         kind: refunded ? "refund_processed" : "booking_cancelled",
         bookingId,
       },
-    });
+    );
   } catch (err) {
     console.error("Cancellation push failed for", bookingId, err);
   }

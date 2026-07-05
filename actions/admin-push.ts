@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { PUSH_TEMPLATES } from "@/lib/push-templates";
 import { requireAdmin } from "@/lib/admin-auth";
 import {
   sendToTokens,
@@ -489,4 +490,124 @@ export async function pruneStalePushDevices(olderThanDays = 90, skipAuth = false
     where: { lastSeenAt: { lt: cutoff } },
   });
   return { ok: true as const, deleted: result.count };
+}
+
+// ---------------------------------------------------------------------
+// Automated push templates (lib/push-templates.ts registry + overrides)
+// ---------------------------------------------------------------------
+
+export interface PushTemplateView {
+  key: string;
+  audience: "customer" | "admin";
+  label: string;
+  trigger: string;
+  defaultTitle: string;
+  defaultBody: string;
+  variables: { name: string; description: string; example: string }[];
+  // Effective values (override ?? default) + override state
+  enabled: boolean;
+  title: string;
+  body: string;
+  isCustomized: boolean;
+  updatedAt: string | null;
+}
+
+/** Registry merged with DB overrides — what the dashboards render. */
+export async function listPushTemplates(
+  skipAuth = false,
+): Promise<PushTemplateView[]> {
+  if (!skipAuth) await requireAdmin(PERMISSION);
+  const overrides = await db.pushTemplate.findMany();
+  const byKey = new Map(overrides.map((o) => [o.key, o]));
+  return PUSH_TEMPLATES.map((def) => {
+    const o = byKey.get(def.key);
+    return {
+      key: def.key,
+      audience: def.audience,
+      label: def.label,
+      trigger: def.trigger,
+      defaultTitle: def.defaultTitle,
+      defaultBody: def.defaultBody,
+      variables: [...def.variables],
+      enabled: o?.enabled ?? true,
+      title: o?.title?.trim() || def.defaultTitle,
+      body: o?.body?.trim() || def.defaultBody,
+      isCustomized: !!(o && (o.title || o.body)),
+      updatedAt: o?.updatedAt.toISOString() ?? null,
+    };
+  });
+}
+
+/**
+ * Update one template's toggle and/or copy. Passing an empty/default-equal
+ * title/body clears the override (falls back to the registry default).
+ * Placeholders are validated against the template's declared variables so
+ * a typo'd {variabel} can't silently ship.
+ */
+export async function updatePushTemplate(
+  key: string,
+  input: { enabled?: boolean; title?: string; body?: string },
+  skipAuth = false,
+  adminId?: string,
+): Promise<{ success: boolean; error?: string }> {
+  let actorId = adminId ?? null;
+  if (!skipAuth) {
+    const admin = await requireAdmin(PERMISSION);
+    actorId = admin.id;
+  }
+
+  const def = PUSH_TEMPLATES.find((t) => t.key === key);
+  if (!def) return { success: false, error: "Unknown template" };
+
+  const allowed = new Set<string>(def.variables.map((v) => v.name));
+  const validate = (text: string, field: string): string | null => {
+    if (text.length > (field === "title" ? 120 : 300)) {
+      return `${field} is too long`;
+    }
+    for (const m of text.matchAll(/\{([a-zA-Z0-9_]+)\}/g)) {
+      if (!allowed.has(m[1])) {
+        return `Unknown variable {${m[1]}} — allowed: ${
+          def.variables.length
+            ? def.variables.map((v) => `{${v.name}}`).join(", ")
+            : "none"
+        }`;
+      }
+    }
+    return null;
+  };
+
+  const title = input.title?.trim();
+  const body = input.body?.trim();
+  if (title !== undefined) {
+    const err = validate(title, "title");
+    if (err) return { success: false, error: err };
+  }
+  if (body !== undefined) {
+    const err = validate(body, "body");
+    if (err) return { success: false, error: err };
+  }
+
+  // Store NULL when the value equals the default (or is blank) so the row
+  // reads as "not customized" and future default improvements flow through.
+  const normalize = (value: string | undefined, def_: string) =>
+    value === undefined ? undefined : value === "" || value === def_ ? null : value;
+
+  await db.pushTemplate.upsert({
+    where: { key },
+    update: {
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(title !== undefined ? { title: normalize(title, def.defaultTitle) } : {}),
+      ...(body !== undefined ? { body: normalize(body, def.defaultBody) } : {}),
+      updatedByAdminId: actorId,
+    },
+    create: {
+      key,
+      enabled: input.enabled ?? true,
+      title: normalize(title, def.defaultTitle) ?? null,
+      body: normalize(body, def.defaultBody) ?? null,
+      updatedByAdminId: actorId,
+    },
+  });
+
+  return { success: true };
 }

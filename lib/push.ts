@@ -109,7 +109,7 @@ export interface PushPayload {
   data: { kind: PushKind } & Record<string, string>;
 }
 
-interface SendResult {
+export interface SendResult {
   attempted: number;
   succeeded: number;
   failed: number;

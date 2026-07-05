@@ -8,10 +8,14 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
+  BellRing,
   CheckCircle2,
+  ChevronRight,
   AlertTriangle,
   Send,
   Smartphone,
@@ -42,6 +46,9 @@ import {
   type RecentPushSend,
 } from "../../lib/admin-push";
 import { AdminApiError } from "../../lib/admin-api";
+import type { AdminMoreStackParamList } from "../../navigation/types";
+
+type Nav = NativeStackNavigationProp<AdminMoreStackParamList, "AdminPush">;
 
 const TITLE_MAX = 100;
 const BODY_MAX = 500;
@@ -84,6 +91,7 @@ function audienceLabel(r: RecentPushSend): string {
 }
 
 export function AdminPushScreen() {
+  const navigation = useNavigation<Nav>();
   const qc = useQueryClient();
   const overview = useQuery({
     queryKey: ["admin", "push", "overview"],
@@ -332,6 +340,20 @@ export function AdminPushScreen() {
             />
           </View>
         )}
+
+        {/* Automated (event-triggered) templates entry */}
+        <Pressable
+          style={styles.manageRow}
+          onPress={() => navigation.navigate("AdminPushTemplates")}
+        >
+          <View style={styles.manageLeft}>
+            <BellRing size={16} color={colors.zinc400} />
+            <Text variant="small" color={colors.foreground} weight="500">
+              Automated messages
+            </Text>
+          </View>
+          <ChevronRight size={16} color={colors.zinc500} />
+        </Pressable>
 
         {/* Manage devices entry */}
         <Pressable

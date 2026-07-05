@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { formatBookingDate } from "@/lib/pricing";
-import { sendToUser } from "@/lib/push";
+import { sendTemplatedToUser } from "@/lib/push-templates";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 // DLT-approved template baked in as the default — keeps SMS working
@@ -306,10 +306,11 @@ async function dispatchSlotAvailableNotification(
   // 1. Push (logged-in users only — guests have no device token).
   if (entry.userId) {
     try {
-      await sendToUser(entry.userId, {
-        title: "A slot just opened up",
-        body: `${slotLine} just opened up. Book now before someone else grabs it.`,
-        data: {
+      await sendTemplatedToUser(
+        entry.userId,
+        "waitlist_slot_available",
+        { slot: slotLine },
+        {
           kind: "slot_available",
           waitlistId: entry.id,
           courtConfigId: entry.courtConfigId,
@@ -317,7 +318,7 @@ async function dispatchSlotAvailableNotification(
           startHour: String(entry.startHour),
           endHour: String(entry.endHour),
         },
-      });
+      );
     } catch (err) {
       console.error("[waitlist] push failed for", entry.id, err);
     }

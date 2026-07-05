@@ -1881,6 +1881,18 @@ model ExpenseOption {
   @@index([module, field, isActive])
 }
 
+// Admin overrides for automated push templates. One optional row per
+// registry key (lib/push-templates.ts): absent row = defaults + enabled.
+// title/body NULL = use the registry default for that part.
+model PushTemplate {
+  key              String   @id
+  enabled          Boolean  @default(true)
+  title            String?
+  body             String?
+  updatedAt        DateTime @updatedAt
+  updatedByAdminId String?
+}
+
 // ===========================
 // PUSH NOTIFICATIONS (FCM)
 // ===========================

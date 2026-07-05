@@ -102,6 +102,41 @@ export interface PushDevicesPage {
   totalPages: number;
 }
 
+/** One placeholder an automated template's copy may reference, e.g. {name}. */
+export interface PushTemplateVariable {
+  name: string;
+  description: string;
+  example: string;
+}
+
+/**
+ * An automated (event-triggered) push template: the code registry entry
+ * merged with any DB override — mirrors the web dashboard's view model.
+ * `title`/`body` are the EFFECTIVE values (override ?? default).
+ */
+export interface PushTemplateView {
+  key: string;
+  audience: "customer" | "admin";
+  label: string;
+  trigger: string;
+  defaultTitle: string;
+  defaultBody: string;
+  variables: PushTemplateVariable[];
+  enabled: boolean;
+  title: string;
+  body: string;
+  isCustomized: boolean;
+  updatedAt: string | null;
+}
+
+export interface UpdatePushTemplateInput {
+  key: string;
+  enabled?: boolean;
+  /** Sending copy equal to the default clears the override server-side. */
+  title?: string;
+  body?: string;
+}
+
 function qs(params: Record<string, string | number | undefined>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(params)) {
@@ -161,4 +196,21 @@ export const adminPushApi = {
       method: "DELETE",
       body: { pruneStale: true },
     }),
+
+  /** Automated (event-triggered) template registry merged with overrides. */
+  templates: () =>
+    request<{ templates: PushTemplateView[] }>(
+      "/api/mobile/admin/push/templates",
+      { method: "GET" },
+    ),
+
+  /**
+   * Toggle / re-copy one automated template. Returns the refreshed full
+   * list so callers can setQueryData without a follow-up GET.
+   */
+  updateTemplate: (input: UpdatePushTemplateInput) =>
+    request<{ templates: PushTemplateView[] }>(
+      "/api/mobile/admin/push/templates",
+      { method: "POST", body: input },
+    ),
 };

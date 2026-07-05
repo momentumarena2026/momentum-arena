@@ -35,6 +35,7 @@ import {
   Repeat,
   PieChart,
   Bell,
+  MessageSquareText,
   Smartphone,
   Workflow,
   type LucideIcon,
@@ -75,6 +76,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/running-expenses": Repeat,
   "/admin/running-expenses/analytics": PieChart,
   "/admin/push": Bell,
+  "/admin/push/templates": MessageSquareText,
 };
 
 interface NavGroup {

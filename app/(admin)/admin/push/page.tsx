@@ -1,13 +1,14 @@
+import Link from "next/link";
 import {
   Bell,
   Smartphone,
   Apple,
-  Users,
   CheckCircle2,
   AlertTriangle,
   Clock,
   Send,
   Globe,
+  MessageSquareText,
 } from "lucide-react";
 import {
   getPushStats,
@@ -87,7 +88,16 @@ export default async function AdminPushPage() {
             FCM device registry, broadcast tooling and delivery audit log.
           </p>
         </div>
-        <PruneStaleButton staleDevices={stats.staleDevices} />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin/push/templates"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+          >
+            <MessageSquareText className="h-3.5 w-3.5" />
+            Automated messages
+          </Link>
+          <PruneStaleButton staleDevices={stats.staleDevices} />
+        </div>
       </div>
 
       {/* Stat cards */}
