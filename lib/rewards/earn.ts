@@ -8,7 +8,10 @@ import type {
 } from "@prisma/client";
 import { applyBalanceDelta, ensureBalance } from "./balance";
 import { getRewardConfig, pointsToPaise } from "./config";
-import { sendToUser } from "@/lib/push";
+import {
+  sendTemplatedToUser,
+  type PushTemplateKey,
+} from "@/lib/push-templates";
 
 /**
  * Earn-paths. Every entry point is idempotent — the
@@ -526,42 +529,30 @@ async function sendEarnedPush(args: {
   points: number;
   type: RewardTxnType;
 }): Promise<void> {
-  let title = "You earned Momentum Points";
-  switch (args.type) {
-    case "EARNED_BOOKING":
-      title = "Points for your booking";
-      break;
-    case "EARNED_BOOKING_REMAINDER":
-      title = "Bonus points — venue payment cleared";
-      break;
-    case "EARNED_CAFE":
-      title = "Points for your cafe order";
-      break;
-    case "EARNED_SIGNUP":
-      title = "Welcome bonus";
-      break;
-    case "EARNED_REFERRAL":
-      title = "Referral bonus";
-      break;
-    case "EARNED_BIRTHDAY":
-      title = "🎂 Happy birthday!";
-      break;
-    case "EARNED_ADJUSTMENT":
-      title = "Bonus points added";
-      break;
-    default:
-      break;
-  }
+  // Each earn type is its own admin-editable template (title varies per
+  // type; body shared by default). Unknown/legacy types fall back to the
+  // manual-adjustment template.
+  const templateByType: Partial<Record<RewardTxnType, PushTemplateKey>> = {
+    EARNED_BOOKING: "rewards_earned_booking",
+    EARNED_BOOKING_REMAINDER: "rewards_earned_booking_remainder",
+    EARNED_CAFE: "rewards_earned_cafe",
+    EARNED_SIGNUP: "rewards_earned_signup",
+    EARNED_REFERRAL: "rewards_earned_referral",
+    EARNED_BIRTHDAY: "rewards_earned_birthday",
+    EARNED_ADJUSTMENT: "rewards_earned_adjustment",
+  };
+  const key = templateByType[args.type] ?? "rewards_earned_adjustment";
   try {
-    await sendToUser(args.userId, {
-      title,
-      body: `+${args.points.toLocaleString("en-IN")} pts added — tap to view`,
-      data: {
+    await sendTemplatedToUser(
+      args.userId,
+      key,
+      { points: args.points.toLocaleString("en-IN") },
+      {
         kind: "rewards_earned",
         points: String(args.points),
         txnType: args.type,
       },
-    });
+    );
   } catch (err) {
     console.warn(
       "[rewards] earn push failed:",

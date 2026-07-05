@@ -1,7 +1,10 @@
 import { db } from "./db";
 import { formatSlotsAsRanges } from "./court-config";
 import { normalizeIndianPhone } from "./phone";
-import { sendToAdmins, sendToUser } from "./push";
+import {
+  sendTemplatedToAdmins,
+  sendTemplatedToUser,
+} from "./push-templates";
 
 // Parse + normalize + de-duplicate the admin phone list from env. Without
 // this, "+919876543210" and "919876543210" in the same env string both
@@ -100,20 +103,23 @@ async function sendPushConfirmation(bookingId: string): Promise<void> {
   const when = [dateLabel, timeLabel].filter(Boolean).join(" ");
 
   try {
-    const result = await sendToUser(booking.userId, {
-      title: "Booking confirmed",
-      body: when ? `Your slot on ${when} is locked in.` : "Your slot is locked in.",
-      data: { kind: "booking_confirmed", bookingId },
-    });
+    const result = await sendTemplatedToUser(
+      booking.userId,
+      "booking_confirmed",
+      { when },
+      { kind: "booking_confirmed", bookingId },
+    );
     await logNotification(
       bookingId,
       "push",
       result.succeeded > 0 ? "sent" : result.attempted === 0 ? "skipped" : "failed",
-      result.attempted === 0
-        ? "no registered devices"
-        : result.failed > 0
-          ? `${result.failed}/${result.attempted} failed`
-          : undefined
+      result.skipped
+        ? "disabled by admin (push templates)"
+        : result.attempted === 0
+          ? "no registered devices"
+          : result.failed > 0
+            ? `/ failed`
+            : undefined
     );
   } catch (error) {
     console.error("Push booking confirmation error:", error);
@@ -240,14 +246,11 @@ export async function notifyAdminPendingBooking(
   // a missing service-account key just no-ops sendToAdmins. The
   // mobile shell tap handler routes this kind to the unconfirmed
   // queue. Runs in parallel with the SMS path below.
-  void sendToAdmins({
-    title: "New booking awaiting verification",
-    body: `${details.userName} just booked — verify the screenshot or collect cash to confirm.`,
-    data: {
-      kind: "admin_pending_booking",
-      bookingId,
-    },
-  }).catch((err) => console.error("[push] admin pending booking failed:", err));
+  void sendTemplatedToAdmins(
+    "admin_pending_booking",
+    { customerName: details.userName },
+    { kind: "admin_pending_booking", bookingId },
+  ).catch((err) => console.error("[push] admin pending booking failed:", err));
 
   const adminPhones = parseAdminPhones();
 
@@ -349,14 +352,11 @@ export async function notifyAdminBookingConfirmed(
   // Independent of the SMS path (which depends on the DLT template
   // env vars) so the mobile alert lands even when SMS isn't set up.
   const customerName = booking.user?.name?.trim() || "A customer";
-  void sendToAdmins({
-    title: "Booking confirmed",
-    body: `${customerName} · ${date} · ${amount}`,
-    data: {
-      kind: "admin_booking_confirmed",
-      bookingId,
-    },
-  }).catch((err) =>
+  void sendTemplatedToAdmins(
+    "admin_booking_confirmed",
+    { customerName, date, amount },
+    { kind: "admin_booking_confirmed", bookingId },
+  ).catch((err) =>
     console.error("[push] admin booking confirmed failed:", err),
   );
 
@@ -422,19 +422,18 @@ export async function notifyAdminBookingCancelled(
   if (!details) return;
 
   const trimmedReason = reason.trim();
-  const body = refunded
-    ? `${details.userName} · refund processed${trimmedReason ? ` — ${trimmedReason}` : ""}`
-    : `${details.userName} cancelled${trimmedReason ? ` — ${trimmedReason}` : ""}`;
-
-  void sendToAdmins({
-    title: refunded ? "Booking refunded" : "Booking cancelled",
-    body,
-    data: {
+  void sendTemplatedToAdmins(
+    refunded ? "admin_booking_refunded" : "admin_booking_cancelled",
+    {
+      customerName: details.userName,
+      reason: trimmedReason ? ` — ` : "",
+    },
+    {
       kind: "admin_booking_cancelled",
       bookingId,
       refunded: refunded ? "1" : "0",
     },
-  }).catch((err) =>
+  ).catch((err) =>
     console.error("[push] admin booking cancelled failed:", err),
   );
 }

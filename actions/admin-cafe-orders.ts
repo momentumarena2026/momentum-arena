@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { CafeOrderStatus, PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
-import { sendToUser } from "@/lib/push";
+import { sendTemplatedToUser } from "@/lib/push-templates";
 
 async function requireCafeAdmin() {
   const user = await requireAdmin("MANAGE_CAFE_ORDERS");
@@ -240,13 +240,12 @@ export async function updateCafeOrderStatus(
     // a reason they already know about), so no push for those.
     if (order.userId && (newStatus === "PREPARING" || newStatus === "READY")) {
       const isReady = newStatus === "READY";
-      void sendToUser(order.userId, {
-        title: isReady ? "Your cafe order is ready" : "Your cafe order is being prepared",
-        body: isReady
-          ? `Order #${order.orderNumber} — head to the cafe counter for pickup.`
-          : `Order #${order.orderNumber} is in the kitchen. We'll ping you when it's ready.`,
-        data: { kind: "cafe_order_status", cafeOrderId: orderId, status: newStatus },
-      }).catch((err) => console.error("Cafe order push failed:", err));
+      void sendTemplatedToUser(
+        order.userId,
+        isReady ? "cafe_order_ready" : "cafe_order_preparing",
+        { orderNumber: String(order.orderNumber) },
+        { kind: "cafe_order_status", cafeOrderId: orderId, status: newStatus },
+      ).catch((err) => console.error("Cafe order push failed:", err));
     }
 
     // Award reward points when the order is COMPLETED (food delivered).

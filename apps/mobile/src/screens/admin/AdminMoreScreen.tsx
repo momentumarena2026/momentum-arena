@@ -6,6 +6,7 @@ import {
   Ban,
   BarChart3,
   Bell,
+  BellRing,
   ChevronRight,
   Coffee,
   CreditCard,
@@ -280,6 +281,13 @@ const GROUPS: Group[] = [
         icon: ic(Bell),
         perm: "MANAGE_PUSH",
         onPress: (nav) => nav.navigate("AdminPush"),
+      },
+      {
+        label: "Auto push messages",
+        sub: "Edit + toggle automated notifications",
+        icon: ic(BellRing),
+        perm: "MANAGE_PUSH",
+        onPress: (nav) => nav.navigate("AdminPushTemplates"),
       },
       {
         label: "App updates (OTA)",

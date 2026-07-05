@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { formatHourRangeCompact, SPORT_INFO } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
-import { sendToUser } from "@/lib/push";
+import { sendTemplatedToUser } from "@/lib/push-templates";
 import type { PushKind } from "@/lib/push";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
@@ -56,17 +56,14 @@ async function sendPushReminder(
     PushKind,
     "booking_reminder_24h" | "booking_reminder_2h" | "booking_reminder_1h"
   >,
-  title: string,
-  body: string,
+  vars: { sport: string; time: string },
 ): Promise<void> {
   try {
-    await sendToUser(userId, {
-      title,
-      body,
-      data: { kind, bookingId },
-    });
+    // Template keys intentionally equal the PushKind values here, so the
+    // admin dashboard copy + toggle apply per reminder stage.
+    await sendTemplatedToUser(userId, kind, vars, { kind, bookingId });
   } catch (error) {
-    console.error(`Push reminder ${kind} failed for booking ${bookingId}:`, error);
+    console.error(`Push reminder  failed for booking :`, error);
   }
 }
 
@@ -121,13 +118,10 @@ export async function sendBookingReminders(): Promise<{
 
       // Push goes out alongside SMS — best-effort, doesn't gate the
       // 24h-sent state. If push fails the user still gets the SMS.
-      void sendPushReminder(
-        booking.userId,
-        booking.id,
-        "booking_reminder_24h",
-        `${sportName} tomorrow at ${timeStr}`,
-        "See you at Momentum Arena.",
-      );
+      void sendPushReminder(booking.userId, booking.id, "booking_reminder_24h", {
+        sport: sportName,
+        time: timeStr,
+      });
 
       if (sent) {
         await db.booking.update({
@@ -191,13 +185,10 @@ export async function sendBookingReminders(): Promise<{
 
       const sent = await sendSmsReminder(booking.user.phone, message);
 
-      void sendPushReminder(
-        booking.userId,
-        booking.id,
-        "booking_reminder_2h",
-        `${sportName} in 2 hours`,
-        `Tap to view your booking. ${timeStr}.`,
-      );
+      void sendPushReminder(booking.userId, booking.id, "booking_reminder_2h", {
+        sport: sportName,
+        time: timeStr,
+      });
 
       if (sent) {
         await db.booking.update({
@@ -249,13 +240,10 @@ export async function sendBookingReminders(): Promise<{
         booking.courtConfig.sport;
       const timeStr = formatHourRangeCompact(startHour);
 
-      await sendPushReminder(
-        booking.userId,
-        booking.id,
-        "booking_reminder_1h",
-        `${sportName} in 1 hour`,
-        `Heading to Momentum Arena? ${timeStr}. Tap for booking details.`,
-      );
+      await sendPushReminder(booking.userId, booking.id, "booking_reminder_1h", {
+        sport: sportName,
+        time: timeStr,
+      });
 
       await db.booking.update({
         where: { id: booking.id },
