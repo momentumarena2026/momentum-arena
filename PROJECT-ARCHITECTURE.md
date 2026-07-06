@@ -1,35 +1,40 @@
 # Momentum Arena — Project Architecture
 
-Multi-sport facility booking platform for Momentum Arena (Mathura). Replaces a WhatsApp-based manual booking process with a self-serve web app, an admin console, and a customer mobile app.
+*Last updated: July 2026.*
+
+Multi-sport facility platform for Momentum Arena (Mathura). Replaces a
+WhatsApp-based manual booking process with a self-serve web app, iOS +
+Android apps (customer **and** admin), and a full admin console.
 
 ---
 
 ## Repository layout
 
-The repo is a **monorepo by convention** — a Next.js web app at the root and a React Native mobile app under `apps/mobile/`. They are not workspace-linked; they share concepts and HTTP contracts, not code.
+The repo is a **monorepo by convention** — a Next.js web app at the root and a
+React Native mobile app under `apps/mobile/`. They are not workspace-linked;
+they share concepts and HTTP contracts, not code.
 
 ```
 /
-├── app/              ← Next.js 16 App Router (public + customer + admin + REST)
-├── actions/          ← Server actions (one file per domain, ~36 files)
-├── lib/              ← Domain modules (db, auth, payments, pricing, …, ~37 files)
-├── components/       ← shadcn/ui primitives + feature components
-├── prisma/           ← schema.prisma + migrations + seed
-├── scripts/          ← One-off maintenance scripts (TS/JS/Python)
-├── docs/             ← Deploy runbook + email templates
-├── public/           ← Static assets
-├── types/            ← Module augmentation (next-auth)
-├── middleware.ts     ← Edge cookie-presence gate
-├── next.config.ts
-├── vercel.json       ← Cron schedule + ignore script
-└── apps/
-    └── mobile/       ← React Native 0.85 (iOS + Android)
-        ├── App.tsx
-        ├── android/, ios/
-        └── src/
-            ├── screens/, navigation/, components/
-            ├── lib/, providers/, theme/, config/
-            └── types/
+├── app/                  ← Next.js App Router (public + customer + admin + REST)
+├── actions/              ← Server actions (one file per domain, ~54 files)
+├── lib/                  ← Domain modules (db, auth, payments, push, …, ~59 files)
+├── components/           ← shadcn/ui primitives + feature components
+├── prisma/               ← schema.prisma (~80 models/enums) + seed
+├── scripts/              ← Build/deploy scripts (vercel-build.sh, publish-ota.ts, seeds)
+├── .github/workflows/    ← CI: seeds, OTA publish, native builds, crons
+├── docs/                 ← DEPLOYMENT.md, GO-LIVE.md, vendor onboarding
+├── public/               ← Static assets (icons, UPI app logos, letterhead)
+├── middleware.ts         ← Edge cookie-presence gate
+├── vercel.json           ← Vercel cron schedule
+└── apps/mobile/          ← React Native 0.85 (iOS + Android)
+    ├── App.tsx            ← splash, OTA auto-apply, version gate
+    ├── android/, ios/     ← native projects (Firebase configured)
+    ├── fingerprints/      ← native-fingerprint baselines per channel/platform
+    └── src/
+        ├── screens/       ← customer + admin/* screens
+        ├── navigation/, components/, providers/, theme/
+        └── lib/           ← typed API clients, analytics, push, storage
 ```
 
 ---
@@ -40,279 +45,194 @@ The repo is a **monorepo by convention** — a Next.js web app at the root and a
 
 | Layer            | Technology |
 |------------------|-----------|
-| Framework        | Next.js 16 (App Router, Turbopack) |
-| Language         | TypeScript |
-| UI               | React 19 · Tailwind CSS v4 · shadcn/ui · Base UI · lucide-react |
-| Customer auth    | NextAuth v5 (JWT, Credentials provider) |
-| Admin auth       | Custom session + cookie (`admin-session-token`) via `/godmode` |
-| Mobile auth      | JWT bearer tokens served from `/api/mobile/*` |
-| Database         | PostgreSQL (Neon, serverless driver) |
-| ORM              | Prisma 6 with Neon adapter |
-| Validation       | Zod 4 |
-| Payments         | PhonePe Standard Checkout v2 (active) · Razorpay · UPI QR · Cash |
-| Notifications    | MSG91 (email + SMS OTP + transactional) · in-app `Notification` rows |
-| PDF / QR         | jspdf · qrcode · html5-qrcode |
-| Charts           | recharts |
-| Toasts / theming | sonner · next-themes |
+| Framework        | Next.js (App Router, Turbopack) · React 19 · TypeScript |
+| UI               | Tailwind CSS v4 · shadcn/ui · lucide-react · recharts · sonner |
+| Customer auth    | NextAuth v5 (JWT) — **phone + SMS OTP** (MSG91) |
+| Admin auth       | Custom session cookie (`admin-session-token`) via `/godmode` |
+| Mobile API auth  | JWT bearer tokens under `/api/mobile/*` |
+| Database         | PostgreSQL (Neon serverless) · Prisma with Neon adapter · Zod validation |
+| Payments         | Razorpay (cards/netbanking) · **PhonePe Dynamic QR** (UPI intent + scan, auto-confirm) · static UPI QR + UTR verify · cash · 50% advance |
+| Push             | Firebase Cloud Messaging (customer + admin devices), admin-editable templates |
+| Analytics        | First-party events → Postgres (all envs) + **Google Analytics 4** (production only) |
+| Email / SMS      | MSG91 — SMS OTP; transactional email from `mail.momentumarena.com` (template-based) |
+| PDF / QR         | jspdf · reportlab (feature guide) · qrcode |
 
 ### Mobile (`apps/mobile/`)
 
-React Native 0.85.2 · React 19 · React Navigation v7 (native stack + bottom tabs) · TanStack Query v5 · React Hook Form + Zod · MMKV (cache) + Keychain (secrets) · Reanimated v4 + Worklets · Razorpay native SDK · `@eabdullazyanov/react-native-sms-user-consent` for SMS auto-fill · linear-gradient + svg + qrcode-svg.
+React Native 0.85 · React 19 · React Navigation v7 · TanStack Query v5 ·
+MMKV + Keychain · Reanimated v4 · Razorpay native SDK ·
+`@react-native-firebase/{app,messaging,analytics}` (analytics uses the
+AdId-free variants on both platforms) · **Expo Updates (self-hosted OTA)**
+with code-signed bundles · SMS User Consent (Android OTP auto-read).
 
-The mobile app talks exclusively to the web app's `/api/mobile/*` REST surface — no Prisma or server-side code is shared.
+The app talks exclusively to the web app's `/api/mobile/*` REST surface.
+Backend host is picked **at bundle time from the git branch**
+(`main` → production, else staging) via `scripts/write-build-config.js`.
 
 ---
 
 ## Routing (web)
 
-Next.js **route groups** (parentheses) organize routes without affecting URLs.
+| Group          | URL prefix | Audience | Notes |
+|----------------|-----------|----------|-------|
+| (root)         | `/`       | Public   | Marketing, sport pages, FAQ, policies, coupons, rewards |
+| `(auth)`       | `/login`  | Public   | Phone-OTP login |
+| `(admin-auth)` | `/godmode`| Public   | Admin password login + invite/setup |
+| `(protected)`  | `/dashboard`, `/bookings`, `/profile`, `/referral` | Customer | NextAuth session |
+| `(admin)`      | `/admin/*`| Admin    | Permission-gated sidebar nav |
 
-| Group              | URL prefix      | Audience  | Layout role                                    |
-|--------------------|-----------------|-----------|-----------------------------------------------|
-| (root)             | `/`             | Public    | Marketing landing, sport pages, FAQ, policies |
-| `(auth)`           | `/login`        | Public    | OTP login form                                 |
-| `(admin-auth)`     | `/godmode`      | Public    | Admin password login + setup-password         |
-| `(protected)`      | `/dashboard`, `/bookings`, `/profile`, `/referral` | Customer (NextAuth session) | Customer chrome, sign-out |
-| `(admin)`          | `/admin/*`      | Admin (custom session) | Admin sidebar + nav |
+Public flow routes: `/book`, `/cafe`, `/shop`, `/coupons`, `/faq`,
+`/policies`, `/rewards`.
 
-Top-level public routes outside groups: `/book`, `/cafe`, `/coupons`, `/faq`, `/generator`, `/policies`, `/rewards`, `/sitemap.ts`, `/not-found.tsx`.
+### Admin console (32 page areas)
 
-### Admin pages (24)
+`analytics · reports · bookings (list/unconfirmed/calendar/recovery/create) ·
+checkin · recurring · sports · equipment · pricing · slots · cafe-menu ·
+cafe-orders · cafe-live · cafe-coupons · products · product-orders · pos ·
+coupons · rewards · expenses (read-only legacy) · running-expenses ·
+release-flow · ota · push (+ push/templates) · users · users/groups ·
+admin-users · generator · faqs · payment-settings · razorpay · phonepe ·
+utr-verify · discounts (legacy) · profile`
 
-`admin/` page tree under `(admin)`:
-
-`admin-users · analytics · bookings · cafe-coupons · cafe-live · cafe-menu · cafe-orders · calendar · checkin · coupons · discounts · equipment · expenses · faqs · generator · payment-settings · pricing · profile · razorpay · recurring · rewards · slots · sports · users · utr-verify`
-
-### Middleware
-
-[middleware.ts](middleware.ts) runs at the edge and gates routes by **cookie presence only** — it matches `/admin/:path*`, `/godmode/:path*`, `/dashboard/:path*`, `/bookings/:path*`, `/profile/:path*`. Real session validation happens server-side in `requireAdmin()` / `auth()` / `requireMobileUser()`.
-
----
-
-## API routes (`app/api/`)
-
-| Route                                    | Purpose |
-|------------------------------------------|---------|
-| `auth/[...nextauth]`                     | NextAuth handler (customer JWT) |
-| `admin-auth/*`                           | Admin login, logout, invite acceptance, password setup |
-| `availability`                           | Slot availability lookup |
-| `booking/lock`, `booking/release-lock`   | Atomic slot reservation during checkout |
-| `phonepe/initiate`, `phonepe/callback`, `phonepe/redirect` | Sports payments (Standard Checkout v2) |
-| `phonepe/cafe-initiate`, `phonepe/cafe-callback`, `phonepe/cafe-redirect` | Cafe payments |
-| `phonepe/static-qr-callback`             | Legacy V1 X-VERIFY for venue static QR |
-| `razorpay/create-order`, `razorpay/verify` | Sports payments (legacy / fallback) |
-| `razorpay/cafe-create-order`, `razorpay/cafe-verify` | Cafe payments |
-| `invoice`, `cafe-invoice`, `cafe-menu-pdf` | PDF generation |
-| `generator/*`                            | Hardware bulk-log endpoint + admin views |
-| `cron/cleanup-locks`                     | Drop expired SlotHolds |
-| `cron/expire-utrs`                       | Expire stale UTR submissions |
-| `cron/generator-check`                   | Oil-change reminders, monthly summaries |
-| `cron/send-reminders`                    | 24h + 2h booking reminders |
-| `mobile/*`                               | Bearer-token REST surface for the RN app |
-
-### Mobile REST surface
-
-`/api/mobile/login · send-otp · verify-otp · google-login · forgot-password · change-password · set-password · me · dashboard · courts · booking · bookings · cafe · coupons · recurring · razorpay · settings`
+Middleware gates by cookie presence only; real authZ happens server-side
+(`requireAdmin()` / permission checks per action and per API route — the
+mobile admin routes enforce the same permission map).
 
 ---
 
 ## Authentication — three independent systems
 
-The platform runs **three separate auth systems** that never share session state:
-
-1. **Customer (web)** — NextAuth v5, JWT strategy, Credentials provider keyed on phone+OTP. Sessions land in `authjs.session-token` / `__Secure-authjs.session-token` cookies. See [lib/auth.ts](lib/auth.ts), [lib/auth.config.ts](lib/auth.config.ts).
-2. **Admin (web)** — Hand-rolled. `AdminUser` table (separate from `User`), bcrypt passwords, role + permissions array. Custom signed cookie `admin-session-token`. Login via `/godmode`. See [lib/admin-auth.ts](lib/admin-auth.ts), [lib/admin-auth-session.ts](lib/admin-auth-session.ts), [lib/permissions.ts](lib/permissions.ts).
-3. **Mobile** — JWT bearer tokens issued by `/api/mobile/login` and `/api/mobile/verify-otp`, validated by `requireMobileUser()`. Token stored in Keychain on device. See [lib/mobile-auth.ts](lib/mobile-auth.ts), [apps/mobile/src/lib/api.ts](apps/mobile/src/lib/api.ts).
-
-OTP delivery is shared across customer-web and mobile via [lib/otp.ts](lib/otp.ts) (MSG91, with rate-limit + lockout in `RateLimit` table).
-
----
-
-## Domain model
-
-[prisma/schema.prisma](prisma/schema.prisma) (~1,370 lines, 12 migrations) is the system's center of gravity. Models fall into clusters:
-
-### Core
-
-- `User` (CUSTOMER / ADMIN role, optional password, referral code, birthday, soft-delete)
-- `Account`, `Session`, `VerificationToken`, `RateLimit` — auth scaffolding
-- `AdminUser` (separate identity), `AdminRole` enum (SUPERADMIN / ADMIN / STAFF)
-
-### Court & booking
-
-- `CourtConfig` — sport × size × position with zones; one row per bookable court configuration
-- `SlotHold` — transient checkout reservation. Created when a customer proceeds to checkout, deleted atomically when payment commits or expires. Tracks the in-flight Razorpay/PhonePe order ID, applied coupon, and a `wasBookedAsHalfCourt` flag for the unified "Half Court (40x90)" customer flow.
-- `Booking` + `BookingSlot` — confirmed reservations
-- `BookingEditHistory` — admin audit trail
-- `SlotBlock` — admin-imposed unavailability
-- `PricingRule` (`courtConfig × dayType × timeType`), `TimeClassification` — pricing matrix
-- `Notification` — outbound message log
-
-### Payments
-
-`Payment` and `CafePayment` are parallel models:
-
-- Methods: `RAZORPAY · PHONEPE · UPI_QR · CASH · FREE`
-- Status: `PENDING · PARTIAL · COMPLETED · REFUNDED · FAILED`
-- UPI QR flow: customer submits `utrNumber`, admin verifies, cron expires unverified submissions
-- Partial payments: `advanceAmount` + `remainingAmount`, with the venue-side remainder splittable across cash and UPI (`remainderCashAmount`, `remainderUpiAmount`, `remainderMethod`)
-- `PaymentGatewayConfig` (singleton): toggles `activeGateway`, `onlineEnabled`, `upiQrEnabled`, `advanceEnabled`
-
-### Cafe ordering
-
-`CafeItem · CafeOrder · CafeOrderItem · CafePayment · CafeOrderEditHistory · CafeSettings (table count) · CafeDiscount · CafeDiscountUsage` — full QSR-style ordering with table numbers, status workflow (PENDING → PREPARING → READY → COMPLETED), guest checkout, and its own discount engine alongside the unified coupon system.
-
-### Coupons (unified)
-
-- `Coupon` — scope (SPORTS / CAFE / BOTH), discount type, max-uses, per-user cap, sport / category / user-group filters, stacking, system-code flag
-- `CouponCondition` — extensible condition types (MIN_AMOUNT, FIRST_PURCHASE, USER_GROUP, SPORT_SPECIFIC, CATEGORY_SPECIFIC, TIME_WINDOW, BIRTHDAY, REFERRAL)
-- `CouponUsage` — per-user-per-booking ledger
-- **Admin-curated targeting** (recent addition): `UserGroup` + `UserGroupMember` for hand-built cohorts, `CouponEligibleUser` and `CouponEligibleGroup` for direct or group-scoped coupon eligibility
-- Legacy `DiscountCode` + `DiscountUsage` still present alongside the unified system
-
-### Reward points
-
-- `RewardPointsBalance` (per user, lifetime earned/redeemed/current, tier)
-- `PointsTransaction` (typed: EARNED_*, REDEEMED_*, EXPIRED, ADJUSTMENT)
-- `RewardConfig` (singleton): earn rates, redemption ratio, tier thresholds, multipliers (basis points), expiry days, tiers `BRONZE → SILVER → GOLD → PLATINUM`
-
-### Other features
-
-- `Feedback` — post-match rating + tags
-- `Waitlist` — slot-watch with status workflow and auto-expiry
-- `Equipment` + `EquipmentRental` — per-hour rentals attached to bookings
-- `RecurringBooking` + `RecurringConfig` — weekly or daily recurring with discount tiers
-- `PromoBanner` — placement-aware homepage / checkout banners
-- `FAQEntry` — bot + FAQ page
-
-### Generator operations (venue infrastructure)
-
-- `Generator` — venue diesel/petrol generators
-- `GeneratorConfig` (singleton): petrol/oil prices, consumption rate, oil-change schedule (first / second / regular intervals), alert thresholds, MSG91 template IDs, mobile PIN, hardware API key
-- `GeneratorFuelLog`, `GeneratorOilChange`, `GeneratorRunLog` — fuel + oil + runtime tracking. Run logs accept entries from the website or a hardware device via the bulk-log endpoint.
-
-### Operational
-
-- `CachedDocument` — bytes + mime-type for periodically regenerated PDFs (sports pricing, cafe menu)
-- `Expense` + `ExpenseEditHistory` + `ExpenseOption` — internal cost tracker that replaced a Google Sheet. `ExpenseOption` makes every dropdown editable from the admin UI without redeploys; amounts stored in whole rupees.
+1. **Customer (web)** — NextAuth v5 JWT, phone + OTP credentials. New users
+   provide a name post-OTP. (`lib/auth.ts`, `lib/otp.ts` — rate-limited,
+   lockout-protected.)
+2. **Admin (web)** — separate `AdminUser` table, bcrypt, roles
+   SUPERADMIN / ADMIN / STAFF + a 21-permission grid (`lib/permissions.ts`),
+   custom signed cookie. Email invites/resets via MSG91 templates.
+3. **Mobile** — JWT bearer from `/api/mobile/verify-otp`, stored in Keychain;
+   `getMobileUser()` / `requireMobileAdmin(permission)` guard every route.
+   The admin console is reached in-app via a hidden 5-tap gesture.
 
 ---
 
-## Server actions (`actions/`)
+## Domain model (prisma/schema.prisma)
 
-36 files, roughly split admin vs. customer. Naming convention `admin-*` for admin-only mutations:
+~80 models. Clusters:
 
-| Customer-facing                                                                                  | Admin-only                                                                                                                                                                                              |
-|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `auth.ts · booking.ts · cafe-orders.ts · checkin.ts · coupon-validation.ts · customer-coupons.ts · discount-validation.ts · equipment.ts · feedback.ts · generator.ts · profile.ts · recurring-booking.ts · referral.ts · reward-points.ts · upi-payment.ts · waitlist.ts · cafe-settings.ts` | `admin-analytics · admin-auth · admin-booking · admin-cafe · admin-cafe-discounts · admin-cafe-orders · admin-calendar · admin-coupons · admin-discounts · admin-equipment · admin-expenses · admin-faqs · admin-payment-settings · admin-pricing · admin-razorpay · admin-recurring · admin-rewards · admin-slots · admin-user-groups · admin-users` |
-
-Heaviest actions by line count: `generator.ts` (~845), `upi-payment.ts` (~448), `recurring-booking.ts` (~443), `coupon-validation.ts` (~396).
-
----
-
-## Library modules (`lib/`)
-
-37 modules. Highlights:
-
-- **Database**: [db.ts](lib/db.ts) — Prisma client singleton on Neon serverless adapter
-- **Auth**: [auth.ts](lib/auth.ts), [auth.config.ts](lib/auth.config.ts), [auth-unified.ts](lib/auth-unified.ts), [admin-auth.ts](lib/admin-auth.ts), [admin-auth-session.ts](lib/admin-auth-session.ts), [mobile-auth.ts](lib/mobile-auth.ts), [permissions.ts](lib/permissions.ts), [otp.ts](lib/otp.ts), [password.ts](lib/password.ts), [phone.ts](lib/phone.ts)
-- **Booking core**: [slot-hold.ts](lib/slot-hold.ts), [availability.ts](lib/availability.ts), [court-config.ts](lib/court-config.ts), [pricing.ts](lib/pricing.ts), [ist-date.ts](lib/ist-date.ts)
-- **Payments**: [phonepe.ts](lib/phonepe.ts) (Standard Checkout v2 — recently migrated from V1 X-VERIFY), [phonepe-static-qr.ts](lib/phonepe-static-qr.ts) (legacy V1 for venue QR), [razorpay.ts](lib/razorpay.ts), [razorpay-api.ts](lib/razorpay-api.ts)
-- **Notifications**: [notifications.ts](lib/notifications.ts), [email.ts](lib/email.ts), [reminders.ts](lib/reminders.ts), [generator-notifications.ts](lib/generator-notifications.ts), [ics.ts](lib/ics.ts)
-- **Coupons / rewards**: [new-user-discount.ts](lib/new-user-discount.ts), [reward-points.ts](lib/reward-points.ts)
-- **Chatbot**: [chat-engine.ts](lib/chat-engine.ts), [faq-data.ts](lib/faq-data.ts), [faq-search.ts](lib/faq-search.ts) — in-app FAQ assistant
-- **Misc**: [analytics.ts](lib/analytics.ts), [expenses.ts](lib/expenses.ts), [generator-pin.ts](lib/generator-pin.ts), [utils.ts](lib/utils.ts)
-
----
-
-## Components (`components/`)
-
-shadcn/ui primitives in `components/ui/`. Feature components grouped by domain:
-
-- `admin/` — booking edit history, edit-booking modal, edit-slots modal, create-booking form, date-filter input
-- `booking/` — countdown timer, court diagram, date picker, discount input, slot grid, sport card
-- `cafe/` — cafe-cart drawer, checkout client, menu page
-- `payment/` — advance-payment selector, payment selector, UPI QR checkout, UPI QR display
-- `chatbot/` · `rewards/` · top-level chrome (`bottom-nav`, `back-button`, `login-modal`, `checkout-auth`, `sign-out-button`, analytics trackers)
-
----
-
-## Mobile app (`apps/mobile/`)
-
-### Boot
-
-[App.tsx](apps/mobile/App.tsx) shows an animated splash on every cold start (the native `LaunchScreen.storyboard` is plain black, so the JS splash takes over invisibly), then mounts `RootNavigator`.
-
-### Navigation
-
-- `RootNavigator` — branches on auth state: signed-in users see `MainNavigator`; signed-out users see modal stack with `Phone` → `Otp` screens
-- `MainNavigator` — bottom tabs: Sports / Bookings / Cafe / Chat / Account (mirrors web bottom nav)
-- `BookStack` — sport → court → slots → checkout → confirmation
-- `AccountStack` — account screens
-
-### Screens
-
-`auth/{Phone,Otp} · book/{BookSport,BookCourt,BookSlots,Checkout,BookingConfirmed} · bookings/{BookingsList,BookingDetail,RecurringBookings} · cafe/CafeMenu · account/{Account,EditName} · home/Home · chat/Chat · splash/Splash`
-
-### Lib
-
-- [api.ts](apps/mobile/src/lib/api.ts) — Bearer-token fetch wrapper with a global 401 handler that signs the user out
-- [auth.ts](apps/mobile/src/lib/auth.ts), [storage.ts](apps/mobile/src/lib/storage.ts) — token lifecycle (Keychain + MMKV)
-- [booking.ts](apps/mobile/src/lib/booking.ts), [bookings.ts](apps/mobile/src/lib/bookings.ts), [cafe.ts](apps/mobile/src/lib/cafe.ts) — typed clients for `/api/mobile/*`
-- [chat-engine.ts](apps/mobile/src/lib/chat-engine.ts), [faq-data.ts](apps/mobile/src/lib/faq-data.ts) — chat parity with web (duplicated, not shared)
-- [queryClient.ts](apps/mobile/src/lib/queryClient.ts) — TanStack Query setup
-- [format.ts](apps/mobile/src/lib/format.ts), [ist-date.ts](apps/mobile/src/lib/ist-date.ts), [types.ts](apps/mobile/src/lib/types.ts)
-
-### Build configuration
-
-`scripts/write-build-config.js` (run on `postinstall` and `npm run build-config`) picks the API backend by git branch at bundle time — branches map to local vs. preview vs. production hosts.
+- **Core** — `User` (phone-first, referral code, birthday, soft-delete),
+  auth scaffolding, `RateLimit`, `AdminUser`, `ArenaSettings`,
+  `OperatingWindow`.
+- **Booking** — `CourtConfig` (sport × size × zones), `SlotHold` (5-min
+  checkout hold; deleted atomically on payment), `Booking` + `BookingSlot`
+  (statuses incl. COMPLETED / ABSENT), `BookingEditHistory`, `SlotBlock`,
+  `PricingRule` × `TimeClassification`, `Waitlist`, `RecurringBooking` +
+  `RecurringConfig`, `Equipment` + `EquipmentRental`.
+- **Payments** — `Payment` / `CafePayment` / `ProductOrderPayment`
+  (RAZORPAY · PHONEPE · UPI_QR · CASH · FREE; PENDING → COMPLETED/PARTIAL/
+  REFUNDED), UTR fields for static-QR verification, advance/remainder split,
+  `CafePaymentIntent` (no order row until gateway success),
+  `PaymentGatewayConfig` singleton (active gateway, online/advance toggles,
+  `upiQrMode` STATIC | DQR | OFF, `intentEnabled`).
+- **Cafe** — `CafeItem` (stock-tracked), `CafeOrder` → PENDING → PREPARING →
+  READY → COMPLETED, guest checkout, `CafeSettings` (open/closed),
+  cafe-scoped discounts.
+- **Shop** — `ProductCategory · Product · Cart · ProductOrder ·
+  ProductStockMovement` + POS walk-in sales.
+- **Coupons** — unified `Coupon` + `CouponCondition` (MIN_AMOUNT,
+  FIRST_PURCHASE, FIRST_APP_BOOKING, USER_GROUP, TIME_WINDOW, BIRTHDAY …) +
+  platform targeting (web/app) + `UserGroup` cohorts + usage ledgers.
+- **Rewards** — `RewardConfig` (per-sport & cafe earn rates, redeem ratio,
+  caps), `RewardBalance`, `RewardTransaction` (EARNED_BOOKING /
+  _REMAINDER / _CAFE / _SIGNUP / _REFERRAL / _BIRTHDAY, REDEEMED, ADJUSTMENT),
+  `RewardAlert`.
+- **Push** — `PushDevice` / `AdminPushDevice` (FCM tokens + app version),
+  `PushDispatch` (delivery log), **`PushTemplate`** (admin overrides for the
+  20-trigger registry in `lib/push-templates.ts` — every automated push is
+  editable/toggleable without deploys).
+- **Analytics** — `AnalyticsSession` + `AnalyticsEvent` (first-party events
+  from web + both apps, anonymous-to-authed backfill), `MetricRollup`
+  (hourly), `UserCohort` (frozen at first booking), `Report` (queued report
+  jobs), `ServerActionLog`.
+- **Mobile ops** — `OtaRelease` + `OtaReleaseAsset` (self-hosted Expo
+  Updates: draft/canary/rollout percentages, code-signing), `AppVersionGate`
+  (min/forced version per platform).
+- **Expenses** — `Expense` (+ edit history) with `ExpenseModule`
+  GENERAL (legacy, read-only) | RUNNING (active), `ExpenseOption` for
+  admin-editable dropdowns.
+- **Venue infra** — `Generator*` (fuel/oil/run logs + hardware bulk-log API).
+- **Dormant/legacy** — `PromoBanner`, `Feedback`, `DiscountCode` (superseded
+  by the unified coupon system but still in schema).
 
 ---
+
+## API surface (`app/api/`)
+
+- **Payments**: `phonepe/*` (Standard Checkout + `dqr/*` initiate/status +
+  S2S callbacks for booking & cafe), `razorpay/*` (+ `razorpay/webhook` for
+  captured-payment recovery), `invoice` / `cafe-invoice` PDFs.
+- **Booking**: `availability`, `booking/lock` + `release-lock`, `events`
+  (first-party analytics ingestion, open + rate-limited).
+- **Mobile**: `mobile/*` — the complete customer surface (auth, booking,
+  cafe, shop, rewards, coupons, waitlist, account deletion, payment config)
+  **plus `mobile/admin/*`** — the admin console API mirroring web server
+  actions, permission-checked per route.
+- **OTA**: `updates/manifest` + asset routes (self-hosted Expo Updates
+  server, code-signed).
+- **Cron** (`cron/*`, `CRON_SECRET`-guarded): see below.
 
 ## Cron jobs
 
-Scheduled via `vercel.json` against routes under `app/api/cron/`:
-
-- `cleanup-locks` — drop expired `SlotHold` rows
-- `expire-utrs` — expire stale UTR submissions on UPI QR payments
-- `generator-check` — oil-change reminders + monthly summaries to admins
-- `send-reminders` — 24h + 2h booking reminders (email + SMS)
-
-All cron routes are guarded by a `CRON_SECRET` env var.
+- **Vercel crons** (`vercel.json`): `cleanup-locks`, `analytics-retention`,
+  `cohort-backfill`, `reports-retention`, `rewards-expire`, `rewards-alerts`,
+  `send-reminders`, `generator-check`.
+- **GitHub Actions crons**: `cron-process-reports` (per-minute report queue),
+  `cron-rollup-metrics` (hourly), `cron-send-reminders` (hourly backstop).
 
 ---
 
-## Environment
+## Mobile app structure
 
-Sample in [.env.example](.env.example). Required keys:
-
-- `DATABASE_URL` — Neon PostgreSQL with pooled connection
-- `AUTH_SECRET` — NextAuth JWT signing secret
-- `MSG91_AUTH_KEY` + multiple template IDs (OTP email, OTP SMS, booking confirmation, admin pending booking)
-- `ADMIN_NOTIFICATION_PHONES` — comma-separated 91-prefixed numbers
-- `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`
-- `PHONEPE_CLIENT_ID` / `PHONEPE_CLIENT_SECRET` / `PHONEPE_CLIENT_VERSION` / `PHONEPE_ENV` (SANDBOX / PRODUCTION)
-- `PHONEPE_WEBHOOK_USERNAME` / `PHONEPE_WEBHOOK_PASSWORD` — S2S callback auth
-- `PHONEPE_STATIC_QR_SALT_KEY` / `PHONEPE_STATIC_QR_SALT_INDEX` — legacy V1 scheme for venue QR
-- `CRON_SECRET`
+- **Customer tabs**: Home · Sports (BookSport → BookCourt →
+  BookSlots/BookBowlingSlots → Checkout → Confirmed) · Cafe (menu → cart →
+  checkout → order tracking) · Shop · Account (bookings, rewards, coupons,
+  waitlist, settings). Plus Chat (FAQ assistant) and phone-OTP auth modals.
+- **Admin shell** (hidden entry): full parity with web admin — dashboard,
+  bookings (list/calendar/check-in/unconfirmed/recovery), courts & pricing,
+  cafe (incl. live board), shop/POS, promotions, expenses, analytics suite,
+  push console + template editor, OTA rollout dashboard, settings.
+- **Payments in-app**: Razorpay native SDK + the same Razorpay-style dark
+  UPI sheet (intent deep-links `phonepe://`, `tez://`, `paytmmp://`, generic
+  `upi://`; DQR scan; static QR fallback).
+- **Push**: FCM with foreground banners, background handler, tap-routing per
+  `data.kind`; device registration carries app version.
+- **OTA**: checks on launch, auto-applies pending updates, sticky rollout
+  bucket for staged percentages; force/soft version gates from the server.
+- **Analytics**: `src/lib/analytics.ts` mirrors web — every event dual-writes
+  to the first-party API (MMKV-queued, batched) and GA4 via Firebase
+  (release builds of `main` only; module resolved lazily so OTA bundles are
+  safe on older binaries).
 
 ---
 
-## Operational notes
+## Deployment (summary — full runbook in docs/DEPLOYMENT.md)
 
-- **PhonePe Standard Checkout v2** is the primary online gateway — recently migrated from the V1 X-VERIFY scheme. Razorpay remains wired up. Static-QR callbacks still use V1.
-- **Slot locking** uses `SlotHold` rows with a 5-minute TTL extended during payment. On payment success the hold is deleted atomically and a `Booking` + `Payment` are created. If the customer abandons checkout, the hold expires and no booking is ever written.
-- **Admin sessions are independent** of customer sessions. A customer is signed in via `authjs.session-token`; an admin is signed in via `admin-session-token` (issued at `/godmode`). The two cookies coexist without interference.
-- **Mobile and web share HTTP contracts**, not code. Adding a feature to the mobile app usually means adding a new `app/api/mobile/<feature>/route.ts` and a typed client in `apps/mobile/src/lib/`.
-- **Vercel build is gated**: `ci(vercel): skip web build when only apps/mobile/ changed` — see `scripts/vercel-ignore.sh`.
-- **Branch-driven mobile API host**: the RN app picks its backend at bundle time based on the current git branch (see `apps/mobile/scripts/write-build-config.js`).
+- `development` → staging, `main` → production; **push = deploy** (Vercel).
+- Builds are **schema-atomic**: `scripts/vercel-build.sh` runs cleanup SQL +
+  `prisma db push` before `next build`; seed workflows are path-filtered to
+  `prisma/**`. No commit-message tokens — retired 2026-07-02.
+- Mobile: `ota-publish.yml` publishes JS bundles per channel and compares a
+  **native fingerprint** to the committed baseline; native changes
+  auto-dispatch test-track store builds on `development` (fastlane; prod
+  tracks are manual). `post-native-release.yml` refreshes baselines +
+  version gates.
+- Promotion `development` → `main` is a plain merge with an empty-diff gate.
 
 ---
 
 ## Related docs
 
 - [README.md](README.md) — quick start
-- [Momentum-Arena-Feature-Guide.pdf](Momentum-Arena-Feature-Guide.pdf) — product-side feature catalog
-- [SEO-GUIDE.md](SEO-GUIDE.md), [LOCAL-SEO-GUIDE.md](LOCAL-SEO-GUIDE.md)
-- [docs/PRODUCTION-DEPLOY-RUNBOOK-2026-04-16.md](docs/PRODUCTION-DEPLOY-RUNBOOK-2026-04-16.md) — production deploy procedure
-- [docs/email-templates/](docs/email-templates/) — MSG91 transactional templates
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — deployment runbook
+- [docs/GO-LIVE.md](docs/GO-LIVE.md) — launch checklist / current status
+- [Momentum-Arena-Feature-Guide.pdf](Momentum-Arena-Feature-Guide.pdf) — product feature catalog + flowcharts
+- [docs/phonepe-dqr-onboarding.md](docs/phonepe-dqr-onboarding.md) — DQR reference
+- [SEO-GUIDE.md](SEO-GUIDE.md) · [LOCAL-SEO-GUIDE.md](LOCAL-SEO-GUIDE.md)

@@ -24,7 +24,7 @@ staging) → **promote `development` → `main`** (auto-deploys to production).
 | **Anything in `prisma/schema.prisma`** | same — the build syncs the DB automatically (keep changes additive, §3) |
 | **A coupon / seed data** | run the matching `workflow_dispatch` workflow (§6) |
 | **Mobile JS only** | push to `development`/`main` — OTA auto-publishes (§7); roll out from `/admin/ota` |
-| **Mobile native code / new dependency** | run `native-ios` / `native-android` workflow (§8) — new store build |
+| **Mobile native code / new dependency** | push to `development` — test-track builds **auto-dispatch** on fingerprint change; production store builds are a manual `native-ios` / `native-android` dispatch (§8) |
 
 ---
 

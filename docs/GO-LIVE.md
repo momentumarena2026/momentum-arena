@@ -14,31 +14,30 @@ store / vendor — I can't do these)
 
 | Surface | State |
 |---|---|
-| **Website** | ✅ Live on Vercel production (`www.momentumarena.com`) |
-| **iOS app** | 🟡 On **TestFlight** (build 29706516, runtimeVersion 2). **Not** on the App Store yet. |
-| **Android app** | 🟡 On **Play Internal testing** (versionCode 29706573, rtv 2). **Not** on the Play production track yet. |
-| **Mobile OTA** | ✅ Development channel proven. 🟡 **Production channel dormant** until the first *production* native build commits a prod fingerprint baseline (automatic via `post-native-release`). |
-| **main branch** | ✅ Up to date — `main` tree == `development`, so a `--ref main` native build has all the latest code. |
+| **Website** | ✅ Live on Vercel production (`www.momentumarena.com`) — real payments (Razorpay live + PhonePe DQR), OTP sign-in, push, rewards all operational |
+| **iOS app** | 🟡 On **TestFlight** (runtimeVersion 2; latest dev builds include Firebase Analytics). **Not** on the App Store yet. |
+| **Android app** | 🟡 On **Play Internal testing** (rtv 2; latest builds include Firebase Analytics + the AD_ID-free manifest). **Not** on the Play production track yet. |
+| **Mobile OTA** | ✅ Development channel proven (staged rollouts in regular use). 🟡 **Production channel dormant** until the first *production* native build commits a prod fingerprint baseline (automatic via `post-native-release`). |
+| **Analytics** | ✅ First-party events live everywhere; ✅ GA4 live on web; 🟡 GA4 in the apps ships with the first **production** native builds (gated to release builds of `main`). |
+| **main branch** | ✅ Kept in sync with `development` — a `--ref main` native build has all the latest code. |
 
 ---
 
 ## 1. Blockers — must be done before the public launch
 
-1. ⬜🔒 **Razorpay LIVE keys + webhook** — set `RAZORPAY_KEY_ID`/`SECRET` to
-   `rzp_live_*` and `RAZORPAY_WEBHOOK_SECRET` in the Vercel **Production** scope,
-   and register the webhook (`/api/razorpay/webhook`) in the Razorpay dashboard.
-   *Without the webhook secret, captured-but-no-booking recovery silently never
-   fires.* Verify: `curl https://www.momentumarena.com/api/razorpay/webhook`
-   → `"secretConfigured": true`.
-2. ⬜🔒 **PhonePe PRODUCTION** — `PHONEPE_ENV=PRODUCTION` + production
-   `PHONEPE_CLIENT_ID`/`SECRET`/`CLIENT_VERSION` + `PHONEPE_WEBHOOK_USERNAME`/
-   `PASSWORD` (set the same user/pass in the PhonePe dashboard Webhooks tab).
-   Requires PhonePe merchant **production approval**.
-3. ⬜🔒 **MSG91 production** — real SMS/email OTP keys + templates
-   (`MSG91_AUTH_KEY`, the template IDs). Real OTP delivery is required for
-   customer sign-in.
-4. ⬜🔒 **App Store submission** (iOS) — see §3.
-5. ⬜🔒 **Play production submission** (Android) — see §3.
+1. ✅ **Razorpay LIVE keys + webhook** — live keys set, webhook registered;
+   captured-payment recovery is operational
+   (`curl https://www.momentumarena.com/api/razorpay/webhook` →
+   `"secretConfigured": true`).
+2. ✅ **PhonePe Dynamic QR in production** — DQR (scan + intent) live on the
+   production merchant; the UPI checkout auto-confirms. (Standard-Checkout
+   gateway creds remain available if the active gateway is switched.)
+3. ✅ **MSG91 production** — SMS OTP live; transactional email live from the
+   verified `mail.momentumarena.com` subdomain (all sends template-based).
+4. ⬜🔒 **App Store submission** (iOS) — see §3. Include the **analytics**
+   declaration in the privacy questionnaire (GA4/Firebase ships in this build).
+5. ⬜🔒 **Play production submission** (Android) — see §3. Data-safety form:
+   analytics collected, no advertising ID (the AD_ID permission is stripped).
 6. ⬜🔒 **Reviewer login bypass decision** — see §5 (security-sensitive).
 
 ---
@@ -99,20 +98,20 @@ After the apps are approved, set the production `AppVersionGate` rows in
 
 ## 4. Payments — production readiness detail
 
-- **Razorpay** (gateway / cards / netbanking) — live keys + webhook (§1.1).
-- **PhonePe gateway** — production env + creds + webhook (§1.2).
-- **UPI** — the default "Pay by UPI" path:
-  - **Static QR + manual UTR** works today (admin verifies UTRs in
-    `/admin/utr-verify`). Set `PHONEPE_STATIC_QR_SALT_KEY` if you use static-QR
-    webhooks.
-  - 🟡 **PhonePe DQR** (auto-confirming dynamic QR) is **optional & dormant** —
-    needs PhonePe DQR onboarding (`PHONEPE_DQR_MERCHANT_ID` + `SALT_KEY` +
-    `STORE_ID`, see `docs/phonepe-dqr-onboarding.md`) **and** the admin toggle on
-    `/admin/payment-settings`. Until then UPI uses the static-QR flow — **not a
-    launch blocker**. Set `PHONEPE_DQR_MODE=intent` only once PhonePe enables
-    Open-Intent acceptance on your VPA (defaults to scan-only `qr`).
-- **Admin payment-method config** — confirm which methods are enabled for
-  bookings / cafe / shop on `/admin/payment-settings` before launch.
+- **Razorpay** (gateway / cards / netbanking) — ✅ live keys + webhook.
+- **UPI — PhonePe Dynamic QR** — ✅ **live in production**. Per-order dynamic
+  QR with auto-confirmation (S2S callback + status polling). Checkout renders
+  a Razorpay-style UPI sheet; two sub-modes controlled from
+  `/admin/payment-settings` → UPI QR → Dynamic QR:
+  - **Scan** (default): dynamic QR image bound to the exact amount.
+  - **UPI Intent** (nested toggle): tappable PhonePe / GPay / Paytm / BHIM /
+    generic deep links. (The old `PHONEPE_DQR_MODE` env var is retired — this
+    is a DB toggle now.)
+- **UPI — Static QR + manual UTR** — retained as the admin-selectable
+  fallback mode (`/admin/utr-verify` for verification).
+- **Admin payment-method config** — Payment Settings owns: active gateway,
+  online on/off, 50%-advance on/off, Static-vs-DQR (mutually exclusive) and
+  the Intent toggle. All server-enforced, no deploys.
 
 ---
 
@@ -125,8 +124,8 @@ After the apps are approved, set the production `AppVersionGate` rows in
   the **Production** backend; **remove it once both apps are approved** (it's a
   known-credentials backdoor past SMS auth). Alternative: keep it off prod and
   give reviewers a different demo path.
-- 🔒 **Rotate chat-leaked secrets** — `STAGING_DB_URL` + `BLOB_READ_WRITE_TOKEN`
-  were pasted into a chat earlier this project; rotate both.
+- ✅ **Rotate chat-leaked secrets** — done 2026-07-07 (staging DB URL, Blob
+  token, PhonePe DQR salt key all rotated).
 - ✅ Debug route `app/api/debug/env-check` — already removed.
 - ⬜ **Activate the `APPFIRST` coupon** — created inactive in prod; review the
   discount value and toggle Active in `/admin/coupons` when the app is live.

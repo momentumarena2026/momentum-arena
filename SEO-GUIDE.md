@@ -46,10 +46,22 @@
 - Priority loading for hero image
 - Lazy loading for other images
 
+## Status (July 2026)
+
+Done since this guide was written: domain live (`www.momentumarena.com`,
+Vercel + HTTPS), dedicated sport booking pages, FAQ page + chat assistant,
+pricing shown live in the booking flow, policies pages, favicon +
+apple-touch icons, **Google Analytics 4 live on the website AND both mobile
+apps** (Firebase, same event names everywhere) alongside first-party
+analytics with an in-admin events/funnels/cohorts suite.
+
+Still open: Google Search Console verification, Google Business Profile,
+blog/content strategy, local directory listings, review generation.
+
 ## Next Steps for Better SEO
 
 ### Immediate Actions:
-1. **Get a Domain**: Register `momentumarena.com`
+1. ~~**Get a Domain**~~ ✅ `www.momentumarena.com` live
 2. **Google Search Console**: 
    - Add your site
    - Submit sitemap
@@ -59,17 +71,17 @@
 
 ### Content Improvements:
 1. Add a blog section for regular content
-2. Create dedicated pages for each sport
-3. Add FAQ section
+2. ~~Create dedicated pages for each sport~~ ✅ live (`/book/[sport]`)
+3. ~~Add FAQ section~~ ✅ live (`/faq` + chat assistant)
 4. Include customer testimonials (when available)
-5. Add pricing information when ready
+5. ~~Add pricing information~~ ✅ live in the booking flow
 
 ### Technical SEO:
 1. **Performance**: Optimize images further (already using Next.js Image)
 2. **Mobile**: Ensure site is fully responsive (already done with Tailwind)
-3. **HTTPS**: Enable SSL certificate on deployment
-4. **Analytics**: Add Google Analytics 4
-5. **Speed**: Deploy on Vercel/Netlify for edge network
+3. ~~**HTTPS**~~ ✅ (Vercel)
+4. ~~**Analytics**: Add Google Analytics 4~~ ✅ live on web + iOS + Android (G-JV1973H52L)
+5. ~~**Speed**: Deploy on Vercel~~ ✅
 
 ### Local SEO:
 1. **Google My Business**: Claim and optimize listing
@@ -124,8 +136,8 @@
 
 ## Important Notes
 
-- Update the URL in metadata from `momentumarena.com` to your actual domain
 - Add real opening hours in JSON-LD when finalized
-- Add exact address when available
 - Update images with higher resolution versions
-- Consider adding a privacy policy and terms of service page
+- ~~Privacy policy / terms~~ ✅ live at `/policies`
+- Once the apps hit the public stores, add app-store smart banners / app
+  links for cross-surface discovery

@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Momentum Arena
 
-## Getting Started
+Multi-sport venue platform for **Momentum Arena, Mathura** — court booking
+(cricket, football, pickleball + bowling machine), cafe ordering, a pickup
+shop, rewards, and a full admin console. One backend, three surfaces:
 
-First, run the development server:
+| Surface | What | Where |
+|---|---|---|
+| **Web** | Customer site + full admin console | `www.momentumarena.com` (prod) · `development.momentumarena.com` (staging) |
+| **iOS app** | Customer + full admin console | TestFlight / App Store (`com.momentumarena`) |
+| **Android app** | Customer + full admin console | Play internal / production (`com.momentumarena`) |
+
+The repo is a monorepo by convention: the Next.js web app at the root, the
+React Native app under `apps/mobile/`. They share HTTP contracts
+(`/api/mobile/*`), not code.
+
+## Quick start (web)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # http://localhost:3000
+npx tsc --noEmit     # typecheck
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy `.env.example` → `.env` and fill in at least `DATABASE_URL` and
+`AUTH_SECRET`. `npm run build` locally skips the DB-sync steps (they only run
+on Vercel).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quick start (mobile)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cd apps/mobile
+npm install          # also writes src/config/build-config.generated.ts
+npm run ios          # or: npm run android
+```
 
-## Learn More
+The app picks its backend from the current **git branch** at bundle time:
+`main` → production API, anything else → staging. iOS pods:
+`pod install --project-directory=ios` (CocoaPods 1.16.x).
 
-To learn more about Next.js, take a look at the following resources:
+## Deploying
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Everything ships from two branches — push to `development` (staging), then
+promote to `main` (production). Schema sync, seeds, mobile OTA publishing and
+native store builds are all automated; read
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** before your first deploy.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Documentation
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [PROJECT-ARCHITECTURE.md](PROJECT-ARCHITECTURE.md) — codebase map: routing, auth systems, domain model, mobile app
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — the deployment runbook (web, DB, OTA, native builds)
+- [docs/GO-LIVE.md](docs/GO-LIVE.md) — production launch checklist & current status
+- [Momentum-Arena-Feature-Guide.pdf](Momentum-Arena-Feature-Guide.pdf) — product feature catalog with flowcharts (regenerate via `python3 generate-feature-guide.py`)
+- [docs/phonepe-dqr-onboarding.md](docs/phonepe-dqr-onboarding.md) — PhonePe Dynamic QR reference
+- [SEO-GUIDE.md](SEO-GUIDE.md) / [LOCAL-SEO-GUIDE.md](LOCAL-SEO-GUIDE.md) — search/discovery playbooks
+- [CLAUDE.md](CLAUDE.md) — repo-wide rules for AI-assisted sessions

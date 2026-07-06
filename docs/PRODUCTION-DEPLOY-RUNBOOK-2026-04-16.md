@@ -1,3 +1,9 @@
+> **ARCHIVED (July 2026).** This was the one-off runbook for the April 2026
+> SlotHold-refactor release and is kept for historical reference only. It
+> predates the current pipeline — deploys are now fully automated and
+> schema-atomic. **For anything you want to ship today, use
+> [DEPLOYMENT.md](DEPLOYMENT.md).**
+
 # Production Deploy Runbook — SlotHold Refactor + UI Fixes
 
 **Target release:** merge `development` → `main` (11 commits ahead)
