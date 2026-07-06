@@ -1,752 +1,726 @@
 #!/usr/bin/env python3
-"""Generate Momentum Arena Feature Guide & Manual Testing Document PDF"""
+"""Generate the Momentum Arena Feature Guide PDF.
+
+v2.0 (July 2026) — complete rewrite reflecting the shipped system:
+web + iOS + Android customer apps, PhonePe DQR / UPI-intent payments,
+rewards, waitlist, recurring, cafe, shop, push templates, full admin
+suite, OTA pipeline. Every major feature carries a flowchart.
+
+Run:  python3 generate-feature-guide.py
+Writes Momentum-Arena-Feature-Guide.pdf next to this script.
+"""
+
+import os
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.colors import HexColor, black, white
-from reportlab.lib.units import mm, cm
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.units import mm
+from reportlab.lib.enums import TA_CENTER
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, ListFlowable, ListItem, KeepTogether
+    PageBreak, Flowable, KeepTogether,
 )
 
-# Colors
+# ── Brand colors ────────────────────────────────────────────────────
 EMERALD = HexColor("#10b981")
 EMERALD_DARK = HexColor("#065f46")
+EMERALD_TINT = HexColor("#d1fae5")
 AMBER = HexColor("#f59e0b")
-AMBER_DARK = HexColor("#92400e")
-ZINC_900 = HexColor("#18181b")
-ZINC_800 = HexColor("#27272a")
+AMBER_TINT = HexColor("#fef3c7")
 ZINC_700 = HexColor("#3f3f46")
+ZINC_500 = HexColor("#71717a")
 ZINC_400 = HexColor("#a1a1aa")
-RED = HexColor("#ef4444")
+ZINC_200 = HexColor("#e4e4e7")
 BLUE = HexColor("#3b82f6")
-PURPLE = HexColor("#a855f7")
+
+PAGE_W, PAGE_H = A4
+MARGIN = 18 * mm
+FRAME_W = PAGE_W - 2 * MARGIN
+
+VERSION = "Version 2.0 | July 2026"
+
+
+# ── Flowchart flowable ──────────────────────────────────────────────
+# rows: list of rows; each row is a list of nodes.
+# node = (text, kind) or (text, kind, edge_label)
+#   kind: "start" | "step" | "decision" | "end"
+#   edge_label: label on the arrow ENTERING this node (e.g. "Yes")
+class FlowChart(Flowable):
+    FONT = "Helvetica"
+    FSIZE = 7.5
+    PAD_X = 4
+    PAD_Y = 3.5
+    ROW_GAP = 8 * mm
+    NODE_GAP = 6 * mm
+    LEAD = 9
+
+    def __init__(self, rows, width=FRAME_W):
+        super().__init__()
+        self.rows = [
+            [(n + ("",))[:3] if len(n) < 3 else n for n in row]
+            for row in rows
+        ]
+        self.width = width
+        self._layout()
+
+    def _wrap(self, text, max_w):
+        words, lines, cur = text.split(), [], ""
+        for w in words:
+            trial = (cur + " " + w).strip()
+            if stringWidth(trial, self.FONT, self.FSIZE) <= max_w - 2 * self.PAD_X:
+                cur = trial
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        return lines or [""]
+
+    def _layout(self):
+        self.layout = []  # per row: list of (x, w, h, lines, kind, label)
+        y = 0
+        for row in self.rows:
+            n = len(row)
+            if n == 1:
+                node_w = 64 * mm
+            else:
+                node_w = min(52 * mm, (self.width - (n - 1) * self.NODE_GAP) / n)
+            total_w = n * node_w + (n - 1) * self.NODE_GAP
+            x0 = (self.width - total_w) / 2
+            placed, row_h = [], 0
+            for i, (text, kind, label) in enumerate(row):
+                lines = self._wrap(text, node_w)
+                h = len(lines) * self.LEAD + 2 * self.PAD_Y
+                row_h = max(row_h, h)
+                placed.append([x0 + i * (node_w + self.NODE_GAP), node_w, h, lines, kind, label])
+            for p in placed:
+                p[2] = row_h  # equal heights per row
+            self.layout.append((row_h, placed))
+        self._height = sum(h for h, _ in self.layout) + self.ROW_GAP * (len(self.layout) - 1)
+
+    def wrap(self, availWidth, availHeight):
+        return self.width, self._height
+
+    def _fill_for(self, kind):
+        if kind in ("start", "end"):
+            return EMERALD, white
+        if kind == "decision":
+            return AMBER_TINT, black
+        if kind == "stop":  # neutral terminal (branch ends without success)
+            return ZINC_200, black
+        return white, black
+
+    def _arrow(self, c, x1, y1, x2, y2, label=""):
+        c.setStrokeColor(ZINC_500)
+        c.setLineWidth(0.9)
+        c.line(x1, y1, x2, y2)
+        # arrowhead
+        import math
+        ang = math.atan2(y2 - y1, x2 - x1)
+        for da in (2.6, -2.6):
+            c.line(x2, y2, x2 - 4.5 * math.cos(ang + da), y2 - 4.5 * math.sin(ang + da))
+        if label:
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            c.setFont("Helvetica-Oblique", 6.5)
+            c.setFillColor(ZINC_700)
+            tw = stringWidth(label, "Helvetica-Oblique", 6.5)
+            c.setFillColor(white)
+            c.rect(mx - tw / 2 - 1.5, my - 3, tw + 3, 8, stroke=0, fill=1)
+            c.setFillColor(ZINC_700)
+            c.drawCentredString(mx, my - 1, label)
+
+    def draw(self):
+        c = self.canv
+        # y of the TOP of each row (flowable origin is bottom-left)
+        tops = []
+        y = self._height
+        for row_h, _ in self.layout:
+            tops.append(y)
+            y -= row_h + self.ROW_GAP
+
+        # boxes
+        for (row_h, placed), top in zip(self.layout, tops):
+            for x, w, h, lines, kind, _ in placed:
+                fill, txt_color = self._fill_for(kind)
+                c.setFillColor(fill)
+                c.setStrokeColor(EMERALD_DARK if kind in ("start", "end") else ZINC_400)
+                c.setLineWidth(1)
+                c.roundRect(x, top - h, w, h, 3.5, stroke=1, fill=1)
+                c.setFillColor(txt_color)
+                c.setFont(self.FONT, self.FSIZE)
+                ty = top - self.PAD_Y - self.FSIZE + 1.5
+                for ln in lines:
+                    c.drawCentredString(x + w / 2, ty, ln)
+                    ty -= self.LEAD
+
+        # arrows between consecutive rows — terminal nodes (end/stop)
+        # never emit an outgoing arrow.
+        TERMINAL = ("end", "stop")
+        for i in range(len(self.layout) - 1):
+            row_h_a, placed_a = self.layout[i]
+            row_h_b, placed_b = self.layout[i + 1]
+            top_a, top_b = tops[i], tops[i + 1]
+            bottoms_a = [(x + w / 2, top_a - row_h_a, kind)
+                         for x, w, h, lines, kind, lbl in placed_a]
+            tops_b = [(x + w / 2, top_b) for x, w, *_ in placed_b]
+            labels_b = [lbl for *_, lbl in placed_b]
+            live_a = [(ax, ay) for ax, ay, kind in bottoms_a if kind not in TERMINAL]
+            if not live_a:
+                continue
+            if len(placed_a) == 1:
+                for (bx, by), lbl in zip(tops_b, labels_b):
+                    self._arrow(c, live_a[0][0], live_a[0][1], bx, by, lbl)
+            elif len(placed_b) == 1:
+                for j, (ax, ay) in enumerate(live_a):
+                    self._arrow(c, ax, ay, tops_b[0][0], tops_b[0][1], labels_b[0] if j == 0 else "")
+            else:
+                for (ax, ay, kind), (bx, by), lbl in zip(bottoms_a, tops_b, labels_b):
+                    if kind in TERMINAL:
+                        continue
+                    self._arrow(c, ax, ay, bx, by, lbl)
+
+
+# ── Document scaffolding ────────────────────────────────────────────
+def make_styles():
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="DocTitle", parent=styles["Title"], fontSize=28,
+                              textColor=EMERALD, spaceAfter=6, alignment=TA_CENTER,
+                              fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle(name="DocSubtitle", parent=styles["Normal"], fontSize=12,
+                              textColor=ZINC_500, spaceAfter=20, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="SectionTitle", parent=styles["Heading1"], fontSize=16,
+                              textColor=EMERALD, spaceBefore=18, spaceAfter=8,
+                              fontName="Helvetica-Bold", borderWidth=1,
+                              borderColor=EMERALD, borderPadding=4))
+    styles.add(ParagraphStyle(name="SubSection", parent=styles["Heading2"], fontSize=12.5,
+                              textColor=AMBER, spaceBefore=12, spaceAfter=5,
+                              fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle(name="FlowTitle", parent=styles["Heading3"], fontSize=10.5,
+                              textColor=HexColor("#60a5fa"), spaceBefore=10, spaceAfter=6,
+                              fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle(name="Body", parent=styles["Normal"], fontSize=9.5,
+                              textColor=black, spaceAfter=3.5, leading=13))
+    styles.add(ParagraphStyle(name="URL", parent=styles["Normal"], fontSize=8.5,
+                              textColor=BLUE, spaceAfter=4, fontName="Courier"))
+    styles.add(ParagraphStyle(name="Note", parent=styles["Normal"], fontSize=8.5,
+                              textColor=ZINC_700, spaceAfter=4, leftIndent=10,
+                              fontName="Helvetica-Oblique", leading=11.5))
+    return styles
+
+
+def footer(canvas, doc):
+    canvas.saveState()
+    canvas.setFont("Helvetica", 7.5)
+    canvas.setFillColor(ZINC_400)
+    canvas.drawString(MARGIN, 11 * mm, "Momentum Arena — Complete Feature Guide v2.0")
+    canvas.drawRightString(PAGE_W - MARGIN, 11 * mm, f"Page {doc.page}")
+    canvas.restoreState()
+
 
 def build_pdf():
-    output_path = "/Users/nakulvarshney/Workspace/momentum-arena/.claude/worktrees/naughty-buck/Momentum-Arena-Feature-Guide.pdf"
-
-    doc = SimpleDocTemplate(
-        output_path,
-        pagesize=A4,
-        topMargin=20*mm,
-        bottomMargin=20*mm,
-        leftMargin=18*mm,
-        rightMargin=18*mm,
-    )
-
-    styles = getSampleStyleSheet()
-
-    # Custom styles
-    styles.add(ParagraphStyle(
-        name='DocTitle',
-        parent=styles['Title'],
-        fontSize=28,
-        textColor=EMERALD,
-        spaceAfter=6,
-        alignment=TA_CENTER,
-        fontName='Helvetica-Bold',
-    ))
-    styles.add(ParagraphStyle(
-        name='DocSubtitle',
-        parent=styles['Normal'],
-        fontSize=12,
-        textColor=ZINC_400,
-        spaceAfter=20,
-        alignment=TA_CENTER,
-    ))
-    styles.add(ParagraphStyle(
-        name='SectionTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        textColor=EMERALD,
-        spaceBefore=20,
-        spaceAfter=10,
-        fontName='Helvetica-Bold',
-        borderWidth=1,
-        borderColor=EMERALD,
-        borderPadding=4,
-    ))
-    styles.add(ParagraphStyle(
-        name='SubSection',
-        parent=styles['Heading2'],
-        fontSize=14,
-        textColor=AMBER,
-        spaceBefore=14,
-        spaceAfter=6,
-        fontName='Helvetica-Bold',
-    ))
-    styles.add(ParagraphStyle(
-        name='SubSubSection',
-        parent=styles['Heading3'],
-        fontSize=11,
-        textColor=HexColor("#60a5fa"),
-        spaceBefore=10,
-        spaceAfter=4,
-        fontName='Helvetica-Bold',
-    ))
-    styles.add(ParagraphStyle(
-        name='Body',
-        parent=styles['Normal'],
-        fontSize=9.5,
-        textColor=black,
-        spaceAfter=4,
-        leading=13,
-    ))
-    styles.add(ParagraphStyle(
-        name='URL',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=BLUE,
-        spaceAfter=4,
-        fontName='Courier',
-    ))
-    styles.add(ParagraphStyle(
-        name='TestStep',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=black,
-        spaceAfter=2,
-        leftIndent=15,
-        leading=12,
-    ))
-    styles.add(ParagraphStyle(
-        name='Expected',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=EMERALD_DARK,
-        spaceAfter=6,
-        leftIndent=15,
-        fontName='Helvetica-Oblique',
-        leading=12,
-    ))
-    styles.add(ParagraphStyle(
-        name='Note',
-        parent=styles['Normal'],
-        fontSize=8.5,
-        textColor=ZINC_700,
-        spaceAfter=4,
-        leftIndent=10,
-        fontName='Helvetica-Oblique',
-    ))
-
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "Momentum-Arena-Feature-Guide.pdf")
+    doc = SimpleDocTemplate(out, pagesize=A4, topMargin=18 * mm,
+                            bottomMargin=20 * mm, leftMargin=MARGIN, rightMargin=MARGIN)
+    st = make_styles()
     story = []
 
-    # ============ COVER PAGE ============
-    story.append(Spacer(1, 60*mm))
-    story.append(Paragraph("MOMENTUM ARENA", styles['DocTitle']))
-    story.append(Paragraph("Complete Feature Guide &<br/>Manual Testing Document", styles['DocSubtitle']))
-    story.append(Spacer(1, 10*mm))
-    story.append(Paragraph("Version 1.0 | March 2026", styles['DocSubtitle']))
-    story.append(Spacer(1, 5*mm))
-    story.append(Paragraph("Mathura's Premier Multi-Sport Arena", styles['DocSubtitle']))
-    story.append(Spacer(1, 15*mm))
+    def S(t):
+        story.append(Paragraph(t, st["SectionTitle"]))
 
-    # Table of contents summary
-    toc_data = [
-        ["Section", "Page"],
-        ["1. Customer - Homepage & Navigation", "3"],
-        ["2. Customer - Authentication (Login/Signup)", "4"],
-        ["3. Customer - Sports Booking Flow", "5"],
-        ["4. Customer - Cafe Ordering", "8"],
-        ["5. Customer - Dashboard & Profile", "10"],
-        ["6. Customer - Rewards & Coupons", "11"],
-        ["7. Admin - Login (Godmode)", "12"],
-        ["8. Admin - Overview Dashboard", "13"],
-        ["9. Admin - Bookings (Calendar + List)", "14"],
-        ["10. Admin - Create Booking", "16"],
-        ["11. Admin - Pricing Management", "17"],
-        ["12. Admin - Slot Blocks", "18"],
-        ["13. Admin - Sports/Courts", "19"],
-        ["14. Admin - User Management", "20"],
-        ["15. Admin - Unified Coupon Management", "21"],
-        ["16. Admin - Banners & FAQs", "22"],
-        ["17. Admin - Cafe Menu Management", "23"],
-        ["18. Admin - Cafe Orders & Live Dashboard", "24"],
-        ["19. Admin - Analytics Dashboard", "26"],
-        ["20. Admin - Reward Points Config", "27"],
-        ["21. Admin - Razorpay & Admin Users", "28"],
-        ["22. Invoice & PDF Generation", "29"],
-        ["23. Environment & Configuration", "30"],
+    def sub(t):
+        story.append(Paragraph(t, st["SubSection"]))
+
+    def body(t):
+        story.append(Paragraph(t, st["Body"]))
+
+    def bullets(items):
+        for i in items:
+            story.append(Paragraph("• " + i, st["Body"]))
+
+    def url(t):
+        story.append(Paragraph(t, st["URL"]))
+
+    def note(t):
+        story.append(Paragraph(t, st["Note"]))
+
+    def flow(title, rows):
+        story.append(KeepTogether([
+            Paragraph("FLOW: " + title, st["FlowTitle"]),
+            FlowChart(rows),
+            Spacer(1, 4 * mm),
+        ]))
+
+    def table(data, widths, header_bg=EMERALD):
+        t = Table(data, colWidths=widths)
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("TEXTCOLOR", (0, 0), (-1, 0), white),
+            ("BACKGROUND", (0, 0), (-1, 0), header_bg),
+            ("GRID", (0, 0), (-1, -1), 0.5, ZINC_400),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        story.append(t)
+
+    # ══ COVER ═══════════════════════════════════════════════════════
+    story.append(Spacer(1, 46 * mm))
+    story.append(Paragraph("MOMENTUM ARENA", st["DocTitle"]))
+    story.append(Paragraph("Complete Feature Guide", st["DocSubtitle"]))
+    story.append(Paragraph(VERSION, st["DocSubtitle"]))
+    story.append(Paragraph("Mathura's Premier Multi-Sport Arena", st["DocSubtitle"]))
+    story.append(Paragraph("Web · iOS App · Android App — every feature with its flow", st["DocSubtitle"]))
+    story.append(Spacer(1, 8 * mm))
+
+    toc = [
+        ["#", "Section"],
+        ["1", "Platform Overview"],
+        ["2", "Customer — Authentication & Onboarding"],
+        ["3", "Customer — Home & Navigation"],
+        ["4", "Customer — Court Booking"],
+        ["5", "Customer — Bowling Machine Booking"],
+        ["6", "Customer — Waitlist"],
+        ["7", "Customer — Recurring Bookings"],
+        ["8", "Customer — Checkout, Discounts & Payments"],
+        ["9", "Customer — Momentum Points (Rewards)"],
+        ["10", "Customer — My Bookings & Account"],
+        ["11", "Customer — Cafe Ordering"],
+        ["12", "Customer — Shop (Pickup Store)"],
+        ["13", "Customer — Chat Assistant"],
+        ["14", "Push Notifications & Auto-Push Templates"],
+        ["15", "Admin — Access, Roles & Permissions"],
+        ["16", "Admin — Bookings Operations"],
+        ["17", "Admin — Courts, Pricing & Slot Inventory"],
+        ["18", "Admin — Cafe & Shop Operations"],
+        ["19", "Admin — Promotions: Coupons, Groups & Rewards"],
+        ["20", "Admin — Payments: Settings, Dashboards & Recovery"],
+        ["21", "Admin — Expenses & Running Expenses"],
+        ["22", "Admin — Analytics & Insights"],
+        ["23", "Mobile App Platform (OTA, Releases, Version Gates)"],
+        ["24", "Invoices & Documents"],
     ]
-    toc_table = Table(toc_data, colWidths=[140*mm, 20*mm])
-    toc_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('TEXTCOLOR', (0, 0), (-1, 0), EMERALD),
-        ('LINEBELOW', (0, 0), (-1, 0), 1, EMERALD),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(toc_table)
+    table(toc, [12 * mm, 148 * mm])
     story.append(PageBreak())
 
-    # ============ SECTION 1: HOMEPAGE ============
-    story.append(Paragraph("1. CUSTOMER - HOMEPAGE & NAVIGATION", styles['SectionTitle']))
-    story.append(Paragraph("URL: /", styles['URL']))
-    story.append(Paragraph("The homepage is the public landing page accessible without login. It showcases Momentum Arena's facilities and provides navigation to sports booking and cafe ordering.", styles['Body']))
+    # ══ 1. PLATFORM OVERVIEW ════════════════════════════════════════
+    S("1. PLATFORM OVERVIEW")
+    body("Momentum Arena runs one product on three surfaces backed by a single system:")
+    bullets([
+        "<b>Web</b> — www.momentumarena.com (customer site + full admin console).",
+        "<b>iOS + Android apps</b> — customer experience plus the complete admin console (full parity with web admin), distributed via TestFlight / App Store and Google Play.",
+        "<b>Environments</b> — production (main branch) and staging (development branch at development.momentumarena.com); every git push deploys automatically with schema-atomic builds.",
+    ])
+    sub("Business modules")
+    body("Court booking (cricket, football, pickleball + bowling machine), cafe with live kitchen board, pickup shop with POS, Momentum Points rewards, coupons engine, waitlist, recurring bookings, push notifications, expenses tracking, and a full analytics stack (first-party events + Google Analytics 4 on all three surfaces).")
+    sub("Tech stack")
+    body("Next.js App Router + TypeScript + Prisma/PostgreSQL (Neon) on Vercel · React Native apps (self-hosted OTA updates) · Firebase (push + analytics) · Razorpay and PhonePe payments · MSG91 (SMS OTP + email).")
+
+    # ══ 2. AUTH ═════════════════════════════════════════════════════
+    S("2. CUSTOMER — AUTHENTICATION & ONBOARDING")
+    body("One auth model on all surfaces: mobile-number OTP. No passwords for customers.")
+    bullets([
+        "Login modal (web) / login screens (app) — 10-digit phone, 6-digit OTP via MSG91 SMS.",
+        "Android auto-reads the OTP (SMS User Consent); resend with cooldown.",
+        "New users are asked for their name right after OTP verification, then land signed-in.",
+        "Optional referral code at signup — both sides earn bonus Momentum Points.",
+        "Server-side abuse protection: per-phone rate limits + failed-attempt lockouts.",
+        "Browsing is open — login is required only at the payment step (checkout) and for account pages.",
+        "In-app account deletion (store-compliance) with full data cleanup.",
+    ])
+    flow("Sign in / sign up", [
+        [("Enter mobile number (+ optional referral code)", "start")],
+        [("OTP sent via SMS", "step")],
+        [("Enter 6-digit OTP (auto-read on Android)", "step")],
+        [("New user?", "decision")],
+        [("Enter your name", "step", "Yes"), ("Signed in", "end", "No")],
+        [("Signed in + signup bonus points", "end")],
+    ])
+
+    # ══ 3. HOME ═════════════════════════════════════════════════════
+    S("3. CUSTOMER — HOME & NAVIGATION")
+    url("Web: /   ·   App: Home tab")
+    bullets([
+        "Hero with sport tiles (Cricket, Football, Pickleball) and Order Food CTA.",
+        "Signed-in home shows upcoming bookings and the rewards points chip.",
+        "Pickleball launch-promo banner appears automatically while its coupon is live.",
+        "Facilities, contact, Google Maps, WhatsApp + social links (web).",
+        "App bottom tabs: Home · Sports · Cafe · Shop · Account. Web mirrors with header/bottom nav.",
+        "Force-update gate in the app: admin can require a minimum version; soft-update nags once per session.",
+    ])
+
+    # ══ 4. COURT BOOKING ════════════════════════════════════════════
+    S("4. CUSTOMER — COURT BOOKING")
+    url("Web: /book → /book/[sport] → slots → /book/checkout   ·   App: Sports tab")
+    sub("Choose sport & court")
+    bullets([
+        "Sports: Cricket, Football, Pickleball (admin can add court configs per sport).",
+        "Court options with size diagrams (e.g. half-field 'venue assigns a side'); single-option sports skip straight to slots.",
+        "Cricket additionally offers the Bowling Machine (separate flow, section 5).",
+    ])
+    sub("Pick date & slots")
+    bullets([
+        "30-day date strip; hourly grid 5 AM – 1 AM with per-slot prices (peak / off-peak / weekend via admin time classifications).",
+        "Any combination of available hours — multi-select, no contiguity restriction.",
+        "Full slots are tappable: see WHY it's blocked plus alternative courts/times, or join the waitlist (section 6).",
+        "Late-night 12–1 AM slot appears on the night it belongs to (display-shifted).",
+        "Rental gear picker (e.g. bats, machine balls) — per-slot pricing, snapshotted onto the booking.",
+    ])
+    sub("Hold & lock")
+    bullets([
+        "Selecting slots creates a 5-minute hold with a live countdown at checkout — no one can double-book underneath you.",
+        "Conflicts caught at lock time list exactly which hours were just taken.",
+        "Expired hold = friendly 'slot released' alert and a clean restart.",
+    ])
+    flow("Book a court", [
+        [("Pick sport", "start")],
+        [("Pick court / size", "step")],
+        [("Pick date + hour slots (+ gear)", "step")],
+        [("Slots available?", "decision")],
+        [("5-min hold created", "step", "Yes"), ("See reason, pick alternatives or join waitlist", "stop", "No")],
+        [("Checkout: coupons, points, full or 50% advance", "step")],
+        [("Pay (UPI sheet / gateway)", "step")],
+        [("Booking confirmed + push + reminders", "end")],
+    ])
+
+    # ══ 5. BOWLING ══════════════════════════════════════════════════
+    S("5. CUSTOMER — BOWLING MACHINE BOOKING")
+    bullets([
+        "30-minute slots (vs hourly courts) with contiguous-selection enforcement.",
+        "Own availability grid + pricing; machine-ball rental add-on.",
+        "Same hold → checkout → payment pipeline as courts.",
+    ])
+
+    # ══ 6. WAITLIST ═════════════════════════════════════════════════
+    S("6. CUSTOMER — WAITLIST")
+    bullets([
+        "Tap a full future slot → join the waitlist for that court + hour.",
+        "The moment the slot frees (cancellation/admin change), everyone whose range covers it gets a push notification.",
+        "Waitlist screen under Account lists entries with one-tap Book Now (prefilled date/slot).",
+        "Entries can be cancelled anytime; joins are tracked in analytics for demand insight.",
+    ])
+    flow("Waitlist", [
+        [("Tap an unavailable slot", "start")],
+        [("Join waitlist", "step")],
+        [("Slot frees up", "step")],
+        [("Push: 'Slot available'", "step")],
+        [("Book Now → prefilled booking flow", "end")],
+    ])
+
+    # ══ 7. RECURRING ════════════════════════════════════════════════
+    S("7. CUSTOMER — RECURRING BOOKINGS")
+    bullets([
+        "Weekly or daily series with admin-configured duration discounts (e.g. 4 weeks = X% off).",
+        "Series pricing shown up front; one payment covers the series.",
+        "Manage & cancel the series from the app (Recurring screen).",
+        "Admin has a matching recurring console (create/manage on behalf of customers).",
+    ])
+    flow("Recurring series", [
+        [("Enable 'Repeat' on slot selection", "start")],
+        [("Choose weekly or daily", "step")],
+        [("Choose duration → discount applied", "step")],
+        [("Pay once for the series", "step")],
+        [("All occurrences booked; manage/cancel anytime", "end")],
+    ])
+
+    # ══ 8. CHECKOUT & PAYMENTS ══════════════════════════════════════
+    S("8. CUSTOMER — CHECKOUT, DISCOUNTS & PAYMENTS")
+    sub("Checkout")
+    bullets([
+        "Booking summary with per-slot breakdown, gear, points discount and live total.",
+        "Amount choice: Pay Full or Pay 50% Advance (remainder at venue) — admin can toggle advance off.",
+        "Earn-preview: 'You'll earn N Momentum Points' updates live with the payable amount.",
+    ])
+    sub("Discounts (auto-apply chain)")
+    bullets([
+        "APPFIRST — first-ever app booking discount (app-only), attempted automatically & safely.",
+        "New-user discount — auto-applied when eligible.",
+        "Sport fallback promos (e.g. PICKLEBALL25, FLAT100) — auto-applied when nothing better fits.",
+        "Manual code entry + a browsable coupon drawer (targeted coupons via user groups).",
+    ])
+    flow("Auto-apply discount chain", [
+        [("Checkout opens", "start")],
+        [("Try APPFIRST (app only)", "step")],
+        [("Eligible?", "decision")],
+        [("Applied", "end", "Yes"), ("Try new-user discount", "step", "No")],
+        [("Eligible?", "decision")],
+        [("Applied", "end", "Yes"), ("Apply sport fallback promo", "end", "No")],
+    ])
+    sub("Payment methods")
+    bullets([
+        "<b>UPI (recommended, zero gateway fee)</b> — a Razorpay-style dark bottom sheet with three admin-selectable modes:",
+        "<b>UPI Intent</b>: pick PhonePe / GPay / Paytm / BHIM / Other → app opens with amount prefilled → auto-confirm via PhonePe Dynamic QR + status polling.",
+        "<b>Scan QR</b>: dynamic QR bound to this exact payment; auto-confirms, no screenshots.",
+        "<b>Static QR fallback</b>: pay to venue VPA → booking pends → WhatsApp screenshot → admin UTR verification.",
+        "<b>Card / Netbanking</b> — Razorpay native sheet (web + app), signature-verified server-side.",
+        "Admin controls which of these are live from Payment Settings (section 20).",
+        "Safety nets: server-to-server payment callbacks, webhook capture of orphaned payments, payment-recovery queue.",
+    ])
+    flow("UPI payment (dynamic QR)", [
+        [("Tap Pay via UPI", "start")],
+        [("Razorpay-style sheet opens", "step")],
+        [("Intent enabled?", "decision")],
+        [("Pick UPI app → deep-link with amount", "step", "Yes"), ("Dynamic QR shown → scan", "step", "No")],
+        [("PhonePe confirms (poll + server callback)", "step")],
+        [("Success animation → booking auto-confirmed", "end")],
+    ])
+
+    # ══ 9. REWARDS ══════════════════════════════════════════════════
+    S("9. CUSTOMER — MOMENTUM POINTS")
+    bullets([
+        "Earn on bookings and cafe orders (admin-set rates per sport / cafe), plus signup, referral and birthday bonuses.",
+        "Advance-pay bookings earn on the advance now and the remainder when the venue collects it.",
+        "Redeem at checkout with a live slider — capped at an admin-set % of the bill, minimum redeem threshold.",
+        "Rewards screen: balance, full transaction history, 'how it works' explainer; points chip on home/account.",
+        "Every earn triggers a push (each type individually editable/toggleable by admin — section 14).",
+    ])
+    flow("Earn & redeem loop", [
+        [("Pay for booking / cafe order", "start")],
+        [("Points credited (rate x bill)", "step")],
+        [("Balance grows (+signup/referral/birthday bonuses)", "step")],
+        [("Next checkout: redeem slider (capped %)", "step")],
+        [("Discount applied → pay less → earn again", "end")],
+    ])
+
+    # ══ 10. MY BOOKINGS & ACCOUNT ═══════════════════════════════════
+    S("10. CUSTOMER — MY BOOKINGS & ACCOUNT")
+    bullets([
+        "Bookings list: upcoming vs past, infinite scroll, status badges (confirmed / pending / completed / absent / cancelled / refunded).",
+        "Booking detail: full breakdown, payment info, add-to-calendar (ICS) export; invoice download on web.",
+        "Account hub: edit name, Momentum Points tile, My Coupons browser, Waitlist, policies, sign-out, delete account.",
+        "Confirmation push on booking + reminders at 24h / 2h / 1h before play.",
+    ])
+
+    # ══ 11. CAFE ════════════════════════════════════════════════════
+    S("11. CUSTOMER — CAFE ORDERING")
+    url("Web: /cafe   ·   App: Cafe tab")
+    bullets([
+        "Live menu grouped by category with veg/non-veg marks, photos and real-time stock (sold-out greys out; stock caps quantity).",
+        "Admin can close the cafe → warm 'closed' screen with hours.",
+        "Cart with quantity steppers → checkout with coupon field and order note.",
+        "Guests can order without an account (name + phone optional on web).",
+        "Pay via UPI (same dynamic-QR sheet as bookings), card/netbanking, or cash at counter.",
+        "Order tracking screen polls kitchen status; push when the kitchen starts preparing and when it's ready.",
+        "Earn Momentum Points on cafe spend; cafe-scoped coupons supported.",
+    ])
+    flow("Cafe order", [
+        [("Browse menu → add to cart", "start")],
+        [("Checkout (coupon, note, table/takeaway)", "step")],
+        [("Pay: UPI / card / cash at counter", "step")],
+        [("Order lands on kitchen live board", "step")],
+        [("Preparing (push)", "step")],
+        [("Ready for pickup (push)", "step")],
+        [("Completed", "end")],
+    ])
+
+    # ══ 12. SHOP ════════════════════════════════════════════════════
+    S("12. CUSTOMER — SHOP")
+    bullets([
+        "Pickup-at-venue product catalog (equipment, merch) on web + app.",
+        "Product detail with images and stock; order online, collect at the venue.",
+        "Same payment stack as cafe; order history with status tracking.",
+        "Admin-side POS covers walk-in sales (section 18).",
+    ])
+
+    # ══ 13. CHAT ════════════════════════════════════════════════════
+    S("13. CUSTOMER — CHAT ASSISTANT")
+    bullets([
+        "Built-in assistant (web widget + full app tab) answering from the FAQ knowledge base.",
+        "Intent matching with quick-action buttons that deep-link into booking, cafe, rewards etc.",
+        "FAQ content is fully admin-managed (categories, keywords, ordering).",
+    ])
+
+    # ══ 14. PUSH ════════════════════════════════════════════════════
+    S("14. PUSH NOTIFICATIONS & AUTO-PUSH TEMPLATES")
+    body("Firebase Cloud Messaging to both apps, with tap-routing to the right screen. Two halves:")
+    sub("Automated pushes (20 registered triggers)")
+    bullets([
+        "Customer: booking confirmed / cancelled / refunded, 24h / 2h / 1h reminders, waitlist slot available, cafe preparing / ready, 7 rewards-earned variants.",
+        "Admin devices: new pending booking, booking confirmed / cancelled / refunded alerts.",
+    ])
+    sub("Admin-configurable templates")
+    bullets([
+        "Every automated push is editable from Admin → Auto Push Messages (web + app): title, body, per-push enable/disable.",
+        "Documented {variables} per message with insert-chips and live preview; typo-guard rejects unknown placeholders.",
+        "Edits apply on the very next send — no deploy. New triggers MUST register in the template registry, so future pushes are automatically configurable.",
+        "Manual push console: broadcast or targeted sends (user groups / individual), plus delivery analytics.",
+    ])
+    flow("Automated push pipeline", [
+        [("Trigger fires (e.g. booking confirmed)", "start")],
+        [("Look up template registry key", "step")],
+        [("Enabled by admin?", "decision")],
+        [("Merge admin-edited title/body", "step", "Yes"), ("Skipped (logged)", "stop", "No")],
+        [("Substitute {variables}", "step")],
+        [("FCM → device → tap opens the right screen", "end")],
+    ])
+
+    # ══ 15. ADMIN ACCESS ════════════════════════════════════════════
+    S("15. ADMIN — ACCESS, ROLES & PERMISSIONS")
+    url("Web: /godmode → /admin   ·   App: hidden 5-tap entry on the Account screen")
+    bullets([
+        "Separate admin session (independent of the customer session).",
+        "Roles: SUPERADMIN (everything, undeletable), ADMIN (granular permissions), STAFF (restricted to day-to-day booking ops + live cafe board).",
+        "Admin invites via email with expiring set-password links; password reset + superadmin-alert emails.",
+        "The mobile admin console mirrors web admin at full parity, permission-gated per screen and per API route.",
+    ])
+    body("<b>Permissions:</b> MANAGE_BOOKINGS · MANAGE_PRICING · MANAGE_SLOTS · MANAGE_SPORTS · MANAGE_USERS · MANAGE_DISCOUNTS · MANAGE_FAQS · VIEW_ANALYTICS · VIEW_RAZORPAY · MANAGE_ADMIN_USERS (superadmin-only) · MANAGE_CAFE_MENU · MANAGE_CAFE_ORDERS · MANAGE_CAFE_DISCOUNTS · MANAGE_REWARDS · MANAGE_COUPONS · MANAGE_EXPENSES · MANAGE_PUSH · MANAGE_SHOP_CATALOG · MANAGE_SHOP_ORDERS · MANAGE_APP_RELEASES · MANAGE_PAYMENT_SETTINGS")
+
+    # ══ 16. ADMIN BOOKINGS ══════════════════════════════════════════
+    S("16. ADMIN — BOOKINGS OPERATIONS")
+    bullets([
+        "<b>All Bookings</b>: search, multi-select status/sport filters, sort options, pagination; detail page with full history log.",
+        "<b>Unconfirmed queue</b>: pending payments (static-QR/UTR & advance flows) for one-tap verify/confirm.",
+        "<b>Calendar</b>: full 24-hour day grid across all courts, color-coded, tap-to-inspect, off-hours admin bookings priced at PEAK.",
+        "<b>Create booking</b>: book on behalf of walk-in/phone customers, any hour of the day, any payment method incl. cash/free.",
+        "<b>Check-in</b>: mark arrivals; complete or mark ABSENT after the slot (absent shows advance-only owed).",
+        "<b>Extend +30 min</b>: stretch a live booking when the next slot is free, price auto-added and logged.",
+        "<b>Cancel / refund</b> with reason (customer gets the push); every mutation logged with who/when.",
+        "<b>UTR verification</b> screen for static-QR payments; <b>Payment Recovery</b> for money-captured-but-no-booking cases (section 20).",
+        "Recurring console for series management.",
+    ])
+    flow("Booking lifecycle (ops view)", [
+        [("Booking lands", "start")],
+        [("Payment auto-verified?", "decision")],
+        [("CONFIRMED (+push)", "step", "Yes"), ("Unconfirmed queue → admin verifies UTR/screenshot", "step", "No")],
+        [("Play day: check-in", "step")],
+        [("Played?", "decision")],
+        [("COMPLETED (+remainder collected → points top-up)", "end", "Yes"), ("ABSENT (advance retained)", "end", "No")],
+    ])
+
+    # ══ 17. ADMIN COURTS & PRICING ══════════════════════════════════
+    S("17. ADMIN — COURTS, PRICING & SLOT INVENTORY")
+    bullets([
+        "<b>Sports & courts</b>: court configurations per sport (sizes, zones, half-court behaviour), enable/disable instantly.",
+        "<b>Equipment</b>: rentable gear catalog with per-slot pricing, attached to sports.",
+        "<b>Pricing matrix</b>: per court x time-classification (weekday off-peak / peak / weekend...), inline editing.",
+        "<b>Time classifications</b>: admin-defined day/hour bands that drive slot pricing.",
+        "<b>Slot blocks</b>: block hours or whole days per court / sport / venue for maintenance and events.",
+        "<b>Generator</b>: bulk slot/pricing generation utility.",
+    ])
+
+    # ══ 18. ADMIN CAFE & SHOP ═══════════════════════════════════════
+    S("18. ADMIN — CAFE & SHOP OPERATIONS")
+    sub("Cafe")
+    bullets([
+        "Menu CRUD with images, veg/non-veg, tags, category ordering and stock counts (auto-decrement on order).",
+        "Cafe open/closed master switch.",
+        "Orders list + stats; <b>Live kitchen board</b>: Pending → Preparing → Ready kanban, auto-refresh, sound alert, fullscreen KDS mode.",
+        "Create order (walk-in), cafe-scoped coupons.",
+    ])
+    sub("Shop")
+    bullets([
+        "Product catalog CRUD with stock, product orders management,",
+        "<b>Walk-in POS</b>: ring up in-person sales with any payment method.",
+    ])
+
+    # ══ 19. ADMIN PROMOTIONS ════════════════════════════════════════
+    S("19. ADMIN — PROMOTIONS")
+    sub("Coupons")
+    bullets([
+        "Unified engine for sports + cafe: percentage (with cap) or flat; min-amount, validity windows, usage limits per user/total.",
+        "Platform targeting (web-only / app-only / both) and special conditions like FIRST_APP_BOOKING (powers APPFIRST).",
+        "User-group targeting: cohorts defined once under Settings → User Groups feed coupons AND push targeting.",
+        "Public/hidden toggle; hidden codes work but don't show in browse.",
+    ])
+    sub("Rewards configuration")
+    bullets([
+        "Earn rates per sport and for cafe, redeem rate, min redeem, max-% cap per order.",
+        "Signup / referral / birthday bonus amounts; manual point adjustments per user with audit trail.",
+    ])
+
+    # ══ 20. ADMIN PAYMENTS ══════════════════════════════════════════
+    S("20. ADMIN — PAYMENTS")
+    sub("Payment Settings (live switches, no deploy)")
+    bullets([
+        "Online payments master toggle · Pay-50%-advance toggle.",
+        "UPI QR mode: <b>Static QR</b> or <b>Dynamic QR (PhonePe)</b> — mutually exclusive; DQR carries a nested <b>UPI Intent</b> toggle (tap-to-pay app list vs scan-only).",
+        "Active gateway selector (Razorpay / PhonePe) drives every checkout on web + app instantly.",
+    ])
+    sub("Dashboards & recovery")
+    bullets([
+        "Razorpay dashboard: live transactions from the gateway API.",
+        "PhonePe dashboard: DQR + static QR transaction views with per-store tabs (Online / Offline / Gym / Yoga / Cafe).",
+        "<b>Payment Recovery</b>: webhook + sweep catch payments captured without a booking (hold expired mid-payment); admin resolves to booking or refund — no customer money can silently vanish.",
+    ])
+    flow("Orphaned payment recovery", [
+        [("Customer pays but hold already expired", "start")],
+        [("Gateway webhook / reconciliation sweep flags it", "step")],
+        [("Recovery queue entry created", "step")],
+        [("Admin reviews", "decision")],
+        [("Recreate booking", "end", "Slot free"), ("Refund customer", "end", "Slot gone")],
+    ])
+
+    # ══ 21. EXPENSES ════════════════════════════════════════════════
+    S("21. ADMIN — EXPENSES & RUNNING EXPENSES")
+    bullets([
+        "<b>Expenses (legacy)</b>: historical ledger, now read-only — no new entries or edits.",
+        "<b>Running Expenses</b>: active ledger with admin-defined dropdown configs (category, payment mode...), month-wise collapsible table, add/edit via modal (desktop) / bottom-sheet (mobile), filters.",
+        "Separate analytics for each module: totals, category breakdowns, trends.",
+        "Available on web admin and the admin app.",
+    ])
+
+    # ══ 22. ANALYTICS ═══════════════════════════════════════════════
+    S("22. ADMIN — ANALYTICS & INSIGHTS")
+    bullets([
+        "<b>Business analytics</b>: revenue/bookings KPIs, sport-wise & cafe breakdowns, peak-hours, payment-method mix, top customers, date-range/grouping filters.",
+        "<b>Demand insight</b>: waitlist pressure and slot-unavailable taps show where capacity is short.",
+        "<b>Funnels</b>: booking funnel (sport → slots → checkout → paid) with drop-off per step.",
+        "<b>Cohorts</b>: user cohorts frozen at first booking; retention views.",
+        "<b>Events explorer</b>: every first-party event (web + app) searchable with properties, sessions and user attribution.",
+        "<b>Push analytics</b>: delivery/open stats per campaign.",
+        "<b>Reports</b>: scheduled/queued report generation (processed by cron).",
+        "<b>Google Analytics 4</b> runs in parallel on web + iOS + Android (Firebase), with identical event names across surfaces.",
+    ])
+    flow("Analytics data pipeline", [
+        [("User acts on web / iOS / Android", "start")],
+        [("Typed event fires (same name on all surfaces)", "step")],
+        [("First-party store (all envs)", "step", ""), ("GA4 / Firebase (production only)", "step", "")],
+        [("Hourly rollups + dashboards, funnels, cohorts", "end")],
+    ])
+
+    # ══ 23. MOBILE PLATFORM ═════════════════════════════════════════
+    S("23. MOBILE APP PLATFORM")
+    sub("Self-hosted OTA updates")
+    bullets([
+        "JS-level app updates ship over-the-air from our own server — no store review for UI/logic changes.",
+        "Admin OTA dashboard: draft releases per channel, staged percentage rollouts, promote/rollback, device adoption stats.",
+        "Updates are code-signed; apps auto-apply pending updates on launch.",
+    ])
+    sub("Release pipeline")
+    bullets([
+        "Every push with mobile changes auto-publishes an OTA draft; a native fingerprint decides JS-only vs native.",
+        "Native changes on the development branch auto-trigger store builds (TestFlight / Play internal); production store builds are a deliberate manual dispatch.",
+        "Release Flow page documents the whole pipeline; version gates let admin force or suggest app updates.",
+    ])
+    flow("Ship an app change", [
+        [("Merge mobile change", "start")],
+        [("Native fingerprint changed?", "decision")],
+        [("Store build (auto on dev / manual for prod)", "step", "Yes"), ("OTA draft published", "step", "No")],
+        [("Admin rolls out (staged %)", "step")],
+        [("Devices update on next launch", "end")],
+    ])
+
+    # ══ 24. INVOICES ════════════════════════════════════════════════
+    S("24. INVOICES & DOCUMENTS")
+    bullets([
+        "Booking invoice PDF on company letterhead with GST breakdown (download from booking detail, web).",
+        "Cafe order invoice PDF in the same format.",
+        "Public cafe menu PDF endpoint for QR-code table cards.",
+        "Add-to-calendar (ICS) export for bookings in the app.",
+    ])
+
+    story.append(Spacer(1, 10 * mm))
+    story.append(Paragraph("— END OF DOCUMENT —", ParagraphStyle(
+        name="EndDoc", parent=st["Normal"], fontSize=10,
+        textColor=ZINC_400, alignment=TA_CENTER)))
+
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    print(f"PDF generated: {out}")
 
-    story.append(Paragraph("1.1 Hero Section", styles['SubSection']))
-    story.append(Paragraph("- Animated floating orbs (emerald + amber glow effects)", styles['Body']))
-    story.append(Paragraph("- Momentum Arena logo with glow backdrop", styles['Body']))
-    story.append(Paragraph("- Title: 'MATHURA'S PREMIER MULTI-SPORT ARENA' with gradient text", styles['Body']))
-    story.append(Paragraph("- Sports listed: Cricket, Football, Pickleball, Badminton", styles['Body']))
-    story.append(Paragraph("- Two CTA buttons: 'Book a Court' (emerald) and 'Order Food' (amber)", styles['Body']))
-    story.append(Paragraph("- Scroll indicator animation at bottom", styles['Body']))
-
-    story.append(Paragraph("1.2 Sports Section", styles['SubSection']))
-    story.append(Paragraph("- 4 sport cards (Cricket, Football, Pickleball, Badminton) with background images", styles['Body']))
-    story.append(Paragraph("- Each card links to /book/[sport] for booking", styles['Body']))
-    story.append(Paragraph("- Hover effects: scale, glow, 'Book Now' button appears", styles['Body']))
-
-    story.append(Paragraph("1.3 Cafe Section", styles['SubSection']))
-    story.append(Paragraph("- Dedicated section with amber gradient background", styles['Body']))
-    story.append(Paragraph("- Large cafe card with category badges (Snacks, Beverages, Meals, Desserts)", styles['Body']))
-    story.append(Paragraph("- Links to /cafe for ordering", styles['Body']))
-
-    story.append(Paragraph("1.4 Facilities Section", styles['SubSection']))
-    story.append(Paragraph("6 facility cards with hover effects:", styles['Body']))
-    story.append(Paragraph("- Professional Turf, Floodlights, Spectator Seating, Cafeteria, Ample Parking, Clean Washrooms (M/F)", styles['Body']))
-
-    story.append(Paragraph("1.5 Contact & Location", styles['SubSection']))
-    story.append(Paragraph("- Address, phone, opening hours (5 AM - 1 AM), email", styles['Body']))
-    story.append(Paragraph("- Embedded Google Maps", styles['Body']))
-    story.append(Paragraph("- WhatsApp contact button (direct chat)", styles['Body']))
-    story.append(Paragraph("- Follow Us: WhatsApp Channel, Instagram, YouTube", styles['Body']))
-
-    story.append(Paragraph("1.6 Mobile Navigation", styles['SubSection']))
-    story.append(Paragraph("- Fixed bottom tab bar on mobile: Home, Sports, Cafe, Account", styles['Body']))
-    story.append(Paragraph("- Desktop: Sports and Cafe links in header navbar", styles['Body']))
-
-    story.append(Paragraph("MANUAL TEST: Homepage", styles['SubSubSection']))
-    story.append(Paragraph("1. Open homepage - verify hero loads with animations", styles['TestStep']))
-    story.append(Paragraph("2. Click 'Book a Court' - should scroll to sports section", styles['TestStep']))
-    story.append(Paragraph("3. Click 'Order Food' - should scroll to cafe section", styles['TestStep']))
-    story.append(Paragraph("4. Click each sport card - should navigate to /book/[sport]", styles['TestStep']))
-    story.append(Paragraph("5. Click cafe card - should navigate to /cafe", styles['TestStep']))
-    story.append(Paragraph("6. On mobile: verify bottom tab shows Home/Sports/Cafe/Account", styles['TestStep']))
-    story.append(Paragraph("7. Click WhatsApp button - should open wa.me link", styles['TestStep']))
-    story.append(Paragraph("Expected: All links work, animations smooth, responsive on mobile", styles['Expected']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 2: AUTHENTICATION ============
-    story.append(Paragraph("2. CUSTOMER - AUTHENTICATION", styles['SectionTitle']))
-
-    story.append(Paragraph("2.1 Login Modal", styles['SubSection']))
-    story.append(Paragraph("URL: Triggered from header 'Login' button (modal overlay)", styles['URL']))
-    story.append(Paragraph("Three login methods available:", styles['Body']))
-    story.append(Paragraph("<b>Google OAuth:</b> One-click Google sign-in. Email auto-verified.", styles['Body']))
-    story.append(Paragraph("<b>Email OTP:</b> Enter email -> receive 6-digit OTP -> verify -> logged in", styles['Body']))
-    story.append(Paragraph("<b>Email + Password:</b> For returning users who have set a password", styles['Body']))
-
-    story.append(Paragraph("2.2 Set Password (First Time)", styles['SubSection']))
-    story.append(Paragraph("After first login (Google or OTP), user sees 'Set Your Password' modal:", styles['Body']))
-    story.append(Paragraph("- Password requirements: Min 10 chars, alphanumeric, 1 special character", styles['Body']))
-    story.append(Paragraph("- Can skip this step ('Skip for now')", styles['Body']))
-    story.append(Paragraph("- If skipped, shown again on next login", styles['Body']))
-    story.append(Paragraph("- Google login auto-verifies email (no OTP needed for password setup)", styles['Body']))
-
-    story.append(Paragraph("2.3 Forgot Password", styles['SubSection']))
-    story.append(Paragraph("- From password login tab, click 'Forgot Password'", styles['Body']))
-    story.append(Paragraph("- Enter email -> OTP sent -> verify OTP -> set new password", styles['Body']))
-    story.append(Paragraph("- Email must be verified before password can be set", styles['Body']))
-
-    story.append(Paragraph("2.4 Session Management", styles['SubSection']))
-    story.append(Paragraph("- Sessions last 30 days", styles['Body']))
-    story.append(Paragraph("- Customer and Admin sessions are SEPARATE (different cookies)", styles['Body']))
-    story.append(Paragraph("- Customer cookie: authjs.session-token", styles['Body']))
-    story.append(Paragraph("- Admin cookie: admin-session-token", styles['Body']))
-    story.append(Paragraph("- Both can be logged in simultaneously", styles['Body']))
-
-    story.append(Paragraph("2.5 Guest Checkout", styles['SubSection']))
-    story.append(Paragraph("- Sports booking and cafe ordering do NOT require login to browse", styles['Body']))
-    story.append(Paragraph("- Login required only at payment step (inline auth at checkout)", styles['Body']))
-    story.append(Paragraph("- Cafe orders can be placed as guest (no login at all)", styles['Body']))
-
-    story.append(Paragraph("MANUAL TEST: Authentication", styles['SubSubSection']))
-    story.append(Paragraph("1. Click Login -> Google -> verify redirects back logged in", styles['TestStep']))
-    story.append(Paragraph("2. Click Login -> Email OTP -> enter email -> verify OTP arrives -> enter OTP", styles['TestStep']))
-    story.append(Paragraph("3. After OTP login, verify 'Set Password' modal appears", styles['TestStep']))
-    story.append(Paragraph("4. Set password -> sign out -> login with email+password", styles['TestStep']))
-    story.append(Paragraph("5. Sign out -> verify header shows 'Login' button (not username)", styles['TestStep']))
-    story.append(Paragraph("6. Login as admin at /godmode -> navigate to homepage -> verify customer session intact", styles['TestStep']))
-    story.append(Paragraph("Expected: All auth flows work, sessions separate for admin/customer", styles['Expected']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 3: SPORTS BOOKING ============
-    story.append(Paragraph("3. CUSTOMER - SPORTS BOOKING FLOW", styles['SectionTitle']))
-
-    story.append(Paragraph("3.1 Step 1: Choose Sport", styles['SubSection']))
-    story.append(Paragraph("URL: /book", styles['URL']))
-    story.append(Paragraph("- 4 sport cards: Cricket, Football, Pickleball, Badminton", styles['Body']))
-    story.append(Paragraph("- All cards same fixed height (100px)", styles['Body']))
-    story.append(Paragraph("- Inactive sports greyed out", styles['Body']))
-    story.append(Paragraph("- Promo banners shown above sport cards", styles['Body']))
-
-    story.append(Paragraph("3.2 Step 2: Choose Court Size", styles['SubSection']))
-    story.append(Paragraph("URL: /book/[sport]", styles['URL']))
-    story.append(Paragraph("- Lists all active court configurations for the sport", styles['Body']))
-    story.append(Paragraph("- Shows court diagram with proportional dimensions", styles['Body']))
-    story.append(Paragraph("- Displays dimensions (e.g., 30ft x 90ft)", styles['Body']))
-    story.append(Paragraph("Cricket configs: XS (Leather Pitch), Small (Lane A/B), Medium (Left/Right Half), Large (Center), XL (Left/Right), Full Field", styles['Body']))
-
-    story.append(Paragraph("3.3 Step 3: Select Date & Slots", styles['SubSection']))
-    story.append(Paragraph("URL: /book/[sport]/[configId]", styles['URL']))
-    story.append(Paragraph("- Scrollable date picker: today + 30 days", styles['Body']))
-    story.append(Paragraph("- Saturday/Sunday highlighted in color", styles['Body']))
-    story.append(Paragraph("- Hourly slots from 5 AM to 1 AM (20 slots per day)", styles['Body']))
-    story.append(Paragraph("- Each slot shows price (varies by peak/off-peak, weekday/weekend)", styles['Body']))
-    story.append(Paragraph("- Green = available, Red = booked, Gray = blocked", styles['Body']))
-    story.append(Paragraph("- Past hours on current date are disabled", styles['Body']))
-    story.append(Paragraph("- Zone overlap detection prevents conflicting bookings", styles['Body']))
-    story.append(Paragraph("- Selected slots highlighted, total shown at bottom", styles['Body']))
-    story.append(Paragraph("- 'Pay Now' button fixed at bottom on mobile", styles['Body']))
-
-    story.append(Paragraph("3.4 Step 4: Checkout & Payment", styles['SubSection']))
-    story.append(Paragraph("URL: /book/checkout?bookingId=[id]", styles['URL']))
-    story.append(Paragraph("- Booking summary: sport, court, date, slots, prices", styles['Body']))
-    story.append(Paragraph("- 5-minute countdown timer (lock expires)", styles['Body']))
-    story.append(Paragraph("- Discount code input (unified coupon system)", styles['Body']))
-    story.append(Paragraph("- New user discount auto-applied if eligible", styles['Body']))
-    story.append(Paragraph("Payment methods:", styles['Body']))
-    story.append(Paragraph("  1. Pay Online (Razorpay - cards, UPI, netbanking)", styles['Body']))
-    story.append(Paragraph("  2. UPI QR Code (scan & send screenshot on WhatsApp)", styles['Body']))
-    story.append(Paragraph("  3. Pay at Venue (20% advance online, rest in cash)", styles['Body']))
-
-    story.append(Paragraph("3.5 Step 5: Confirmation", styles['SubSection']))
-    story.append(Paragraph("URL: /book/confirmation/[bookingId]", styles['URL']))
-    story.append(Paragraph("- Booking confirmed status", styles['Body']))
-    story.append(Paragraph("- Full details: ID, sport, court, date, time, amount", styles['Body']))
-    story.append(Paragraph("- Download Invoice button (PDF on letterhead with GST)", styles['Body']))
-    story.append(Paragraph("- Invoice includes: CGST 9% + SGST 9% = 18% GST (inclusive)", styles['Body']))
-
-    story.append(Paragraph("3.6 Slot Locking (Advisory Locks)", styles['SubSection']))
-    story.append(Paragraph("- Uses PostgreSQL advisory locks (pg_advisory_xact_lock)", styles['Body']))
-    story.append(Paragraph("- Zero deadlocks - each slot gets unique lock key", styles['Body']))
-    story.append(Paragraph("- Lock TTL: 5 minutes", styles['Body']))
-    story.append(Paragraph("- Expired locks cleaned up by cron job (/api/cron/cleanup-locks)", styles['Body']))
-
-    story.append(Paragraph("MANUAL TEST: Sports Booking", styles['SubSubSection']))
-    story.append(Paragraph("1. Go to /book -> click Cricket -> click Small (Lane A)", styles['TestStep']))
-    story.append(Paragraph("2. Select tomorrow's date -> select 2 consecutive slots", styles['TestStep']))
-    story.append(Paragraph("3. Click Pay Now -> verify checkout page shows correct summary", styles['TestStep']))
-    story.append(Paragraph("4. Apply a valid discount code -> verify price recalculates", styles['TestStep']))
-    story.append(Paragraph("5. Select Razorpay -> complete payment -> verify confirmation page", styles['TestStep']))
-    story.append(Paragraph("6. Click Download Invoice -> verify PDF has correct GST breakdown", styles['TestStep']))
-    story.append(Paragraph("7. Go back to same court/date -> verify those slots show as booked", styles['TestStep']))
-    story.append(Paragraph("8. Test lock expiry: select slots, wait 5+ mins, try to pay", styles['TestStep']))
-    story.append(Paragraph("Expected: Full flow works, invoice correct, no double-booking possible", styles['Expected']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 4: CAFE ============
-    story.append(Paragraph("4. CUSTOMER - CAFE ORDERING", styles['SectionTitle']))
-
-    story.append(Paragraph("4.1 Menu Page", styles['SubSection']))
-    story.append(Paragraph("URL: /cafe", styles['URL']))
-    story.append(Paragraph("- NO LOGIN REQUIRED to browse or order", styles['Body']))
-    story.append(Paragraph("- Categories: Snacks, Beverages, Meals, Desserts, Combos", styles['Body']))
-    story.append(Paragraph("- Sticky search bar and category tabs at top", styles['Body']))
-    story.append(Paragraph("- Search filters by item name only", styles['Body']))
-    story.append(Paragraph("- Each item card: image, name, description, price, veg/non-veg dot", styles['Body']))
-    story.append(Paragraph("- Popular/Bestseller badges on featured items", styles['Body']))
-    story.append(Paragraph("- Out-of-stock items greyed out", styles['Body']))
-    story.append(Paragraph("- +/- quantity buttons per item", styles['Body']))
-    story.append(Paragraph("- Floating cart bar at bottom: item count, total, 'View Cart'", styles['Body']))
-
-    story.append(Paragraph("4.2 Checkout", styles['SubSection']))
-    story.append(Paragraph("URL: /cafe/checkout", styles['URL']))
-    story.append(Paragraph("- Guest info fields (optional): name, phone", styles['Body']))
-    story.append(Paragraph("- Table number selector: Takeaway or Table 1-10", styles['Body']))
-    story.append(Paragraph("- Order summary with item details", styles['Body']))
-    story.append(Paragraph("- Coupon code input", styles['Body']))
-    story.append(Paragraph("- Payment: Razorpay, UPI QR, Cash", styles['Body']))
-    story.append(Paragraph("- Guest default: Cash | Logged-in default: Razorpay", styles['Body']))
-
-    story.append(Paragraph("4.3 Order Confirmation", styles['SubSection']))
-    story.append(Paragraph("URL: /cafe/confirmation/[orderId]", styles['URL']))
-    story.append(Paragraph("- Order number, status, items, total", styles['Body']))
-    story.append(Paragraph("- Download Invoice button", styles['Body']))
-    story.append(Paragraph("- Accessible without login for guest orders", styles['Body']))
-
-    story.append(Paragraph("4.4 PDF Menu", styles['SubSection']))
-    story.append(Paragraph("URL: /api/cafe-menu-pdf", styles['URL']))
-    story.append(Paragraph("- Public link (no auth needed) - for QR code printing", styles['Body']))
-    story.append(Paragraph("- Dark amber theme with logo and clipart icons", styles['Body']))
-    story.append(Paragraph("- Items grouped by category with prices", styles['Body']))
-    story.append(Paragraph("- Veg/non-veg indicators, Popular/Bestseller tags", styles['Body']))
-
-    story.append(Paragraph("MANUAL TEST: Cafe Ordering", styles['SubSubSection']))
-    story.append(Paragraph("1. Go to /cafe without login -> verify menu loads", styles['TestStep']))
-    story.append(Paragraph("2. Search for an item -> verify search works by name", styles['TestStep']))
-    story.append(Paragraph("3. Add 2 items to cart -> verify cart badge updates", styles['TestStep']))
-    story.append(Paragraph("4. Click View Cart -> proceed to checkout", styles['TestStep']))
-    story.append(Paragraph("5. Select Table 3 -> enter guest name -> pay with Cash", styles['TestStep']))
-    story.append(Paragraph("6. Verify confirmation page shows order details", styles['TestStep']))
-    story.append(Paragraph("7. Visit /api/cafe-menu-pdf -> verify PDF generates with all items", styles['TestStep']))
-    story.append(Paragraph("Expected: Guest ordering works without login, table number saved", styles['Expected']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 5: DASHBOARD & PROFILE ============
-    story.append(Paragraph("5. CUSTOMER - DASHBOARD & PROFILE", styles['SectionTitle']))
-
-    story.append(Paragraph("5.1 Dashboard", styles['SubSection']))
-    story.append(Paragraph("URL: /dashboard (requires login)", styles['URL']))
-    story.append(Paragraph("- Welcome message with user name", styles['Body']))
-    story.append(Paragraph("- 'Book a Court' CTA card", styles['Body']))
-    story.append(Paragraph("- 'My Profile' link", styles['Body']))
-    story.append(Paragraph("- Stats: Upcoming bookings count, Total bookings, My Bookings link", styles['Body']))
-    story.append(Paragraph("- Upcoming bookings list (max 3, sport icon, date, time, amount)", styles['Body']))
-
-    story.append(Paragraph("5.2 My Bookings", styles['SubSection']))
-    story.append(Paragraph("URL: /bookings (requires login)", styles['URL']))
-    story.append(Paragraph("- All user bookings with status badges", styles['Body']))
-    story.append(Paragraph("- Upcoming vs Past separation", styles['Body']))
-    story.append(Paragraph("- Click booking -> full detail + invoice download", styles['Body']))
-
-    story.append(Paragraph("5.3 Profile", styles['SubSection']))
-    story.append(Paragraph("URL: /profile (requires login)", styles['URL']))
-    story.append(Paragraph("- View/edit: name, email, phone", styles['Body']))
-    story.append(Paragraph("- View: member since, total bookings, email/phone verified badges", styles['Body']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 6: REWARDS & COUPONS (CUSTOMER) ============
-    story.append(Paragraph("6. CUSTOMER - REWARDS & COUPONS", styles['SectionTitle']))
-
-    story.append(Paragraph("6.1 Rewards Page", styles['SubSection']))
-    story.append(Paragraph("URL: /rewards", styles['URL']))
-    story.append(Paragraph("Logged in: Shows tier card (Bronze/Silver/Gold/Platinum), current balance, progress bar to next tier, transaction history", styles['Body']))
-    story.append(Paragraph("Not logged in: Shows program overview with tier benefits", styles['Body']))
-
-    story.append(Paragraph("6.2 Coupons Page", styles['SubSection']))
-    story.append(Paragraph("URL: /coupons", styles['URL']))
-    story.append(Paragraph("- Public page (no login needed to browse)", styles['Body']))
-    story.append(Paragraph("- Filter tabs: All / Sports / Cafe", styles['Body']))
-    story.append(Paragraph("- Each coupon card: code, description, value, validity, terms", styles['Body']))
-    story.append(Paragraph("- 'Copy Code' button on each card", styles['Body']))
-    story.append(Paragraph("- Logged-in users see personalized 'For You' section (birthday, first-time)", styles['Body']))
-
-    story.append(Paragraph("6.3 Redeem Points at Checkout", styles['SubSection']))
-    story.append(Paragraph("- Slider appears on sports/cafe checkout if user has enough points", styles['Body']))
-    story.append(Paragraph("- Shows: 'Use X points to save Rs.Y'", styles['Body']))
-    story.append(Paragraph("- Max redeem: 50% of order value (configurable by admin)", styles['Body']))
-    story.append(Paragraph("- Min redeem: 100 points (configurable)", styles['Body']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 7: ADMIN LOGIN ============
-    story.append(Paragraph("7. ADMIN - LOGIN (GODMODE)", styles['SectionTitle']))
-    story.append(Paragraph("URL: /godmode", styles['URL']))
-    story.append(Paragraph("- Completely separate from customer login", styles['Body']))
-    story.append(Paragraph("- Username + Password authentication", styles['Body']))
-    story.append(Paragraph("- Separate cookie (admin-session-token)", styles['Body']))
-    story.append(Paragraph("- Superadmin: 'gamelord' (undeletable)", styles['Body']))
-    story.append(Paragraph("- After login, redirected to /admin", styles['Body']))
-    story.append(Paragraph("- Logo in admin header links to /admin (not customer homepage)", styles['Body']))
-
-    story.append(Paragraph("Admin Roles:", styles['SubSection']))
-    story.append(Paragraph("<b>SUPERADMIN:</b> Full access, can create/delete admin users, cannot be deleted", styles['Body']))
-    story.append(Paragraph("<b>ADMIN:</b> Granular permissions, can be deleted by superadmin", styles['Body']))
-
-    story.append(Paragraph("MANUAL TEST: Admin Login", styles['SubSubSection']))
-    story.append(Paragraph("1. Go to /godmode -> login as 'gamelord'", styles['TestStep']))
-    story.append(Paragraph("2. Verify redirected to /admin dashboard", styles['TestStep']))
-    story.append(Paragraph("3. Open new tab -> go to homepage -> verify customer session not affected", styles['TestStep']))
-    story.append(Paragraph("4. Sign out from admin -> verify lands on /godmode, customer session intact", styles['TestStep']))
-    story.append(Paragraph("Expected: Admin/customer sessions completely independent", styles['Expected']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 8: ADMIN OVERVIEW ============
-    story.append(Paragraph("8. ADMIN - OVERVIEW DASHBOARD", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin", styles['URL']))
-    story.append(Paragraph("5 stat cards: Total Bookings, Today's Bookings, Revenue Today, Active Users, Pending Payments", styles['Body']))
-    story.append(Paragraph("Quick links to: Manage Bookings, Set Pricing, Block Slots, Manage Sports", styles['Body']))
-
-    # ============ SECTION 9: BOOKINGS ============
-    story.append(Paragraph("9. ADMIN - BOOKINGS MANAGEMENT", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/bookings", styles['URL']))
-
-    story.append(Paragraph("9.1 Calendar View (Default)", styles['SubSection']))
-    story.append(Paragraph("- Google Calendar-style day view", styles['Body']))
-    story.append(Paragraph("- Rows = hours (5 AM to 1 AM), Columns = court configs", styles['Body']))
-    story.append(Paragraph("- Date slider with prev/next day and 'Today' button", styles['Body']))
-    story.append(Paragraph("- Sport filter chips (All, Cricket, Football, Pickleball, Badminton)", styles['Body']))
-    story.append(Paragraph("- Color-coded cells: Green=CONFIRMED, Yellow=LOCKED, Gray=BLOCKED", styles['Body']))
-    story.append(Paragraph("- Click booked cell -> booking detail modal (customer, status, payment)", styles['Body']))
-    story.append(Paragraph("- Click empty cell -> quick-book modal with link to create booking", styles['Body']))
-    story.append(Paragraph("- Current hour highlighted with emerald tint, auto-scrolls on load", styles['Body']))
-    story.append(Paragraph("- Sticky header (court names) and sticky left column (hours)", styles['Body']))
-
-    story.append(Paragraph("9.2 List View", styles['SubSection']))
-    story.append(Paragraph("- Toggle to list view via Calendar/List buttons", styles['Body']))
-    story.append(Paragraph("- Filters: status, sport, date, search", styles['Body']))
-    story.append(Paragraph("- Bookings grouped by date, sorted by earliest slot", styles['Body']))
-    story.append(Paragraph("- Each row: user, sport, court, time, amount, payment status", styles['Body']))
-    story.append(Paragraph("- Pagination (20 per page)", styles['Body']))
-
-    story.append(Paragraph("9.3 Booking Detail Page", styles['SubSection']))
-    story.append(Paragraph("URL: /admin/bookings/[id]", styles['URL']))
-    story.append(Paragraph("- Full booking info + customer info + payment info", styles['Body']))
-    story.append(Paragraph("- Admin actions: Confirm, Cancel (with reason), Refund, Edit slots", styles['Body']))
-    story.append(Paragraph("- Edit history tracking (who changed what, when)", styles['Body']))
-    story.append(Paragraph("- Cancel & refund with reason logging", styles['Body']))
-
-    story.append(Paragraph("MANUAL TEST: Bookings Calendar", styles['SubSubSection']))
-    story.append(Paragraph("1. Go to /admin/bookings -> verify calendar view is default", styles['TestStep']))
-    story.append(Paragraph("2. Navigate dates -> verify data updates", styles['TestStep']))
-    story.append(Paragraph("3. Click a booked cell -> verify detail modal shows customer info", styles['TestStep']))
-    story.append(Paragraph("4. Click empty cell -> verify quick-book modal appears", styles['TestStep']))
-    story.append(Paragraph("5. Filter by Cricket -> verify only cricket courts shown", styles['TestStep']))
-    story.append(Paragraph("6. Toggle to List view -> verify list loads with filters", styles['TestStep']))
-    story.append(Paragraph("Expected: Calendar accurate, modals work, filters responsive", styles['Expected']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 10: CREATE BOOKING ============
-    story.append(Paragraph("10. ADMIN - CREATE BOOKING", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/bookings/create", styles['URL']))
-    story.append(Paragraph("5-step wizard for admin to book on behalf of a customer:", styles['Body']))
-    story.append(Paragraph("Step 1: Sport & Court - Select sport, then court config", styles['Body']))
-    story.append(Paragraph("Step 2: Date & Slots - Pick date, select available hours", styles['Body']))
-    story.append(Paragraph("Step 3: Customer - Search existing customer or enter new (name, phone, email)", styles['Body']))
-    story.append(Paragraph("Step 4: Payment - Select method (Razorpay, UPI QR, Cash, Free)", styles['Body']))
-    story.append(Paragraph("Step 5: Review & Create - Summary with confirm button", styles['Body']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 11-16: OTHER ADMIN FEATURES ============
-    story.append(Paragraph("11. ADMIN - PRICING MANAGEMENT", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/pricing", styles['URL']))
-    story.append(Paragraph("- Time classifications: Weekday Off-Peak (5:00-16:00), Weekday Peak (16:00-1:00), Weekend (all peak)", styles['Body']))
-    story.append(Paragraph("- Pricing matrix: rows = court configs, columns = day/time combinations", styles['Body']))
-    story.append(Paragraph("- Editable inline - click price to modify", styles['Body']))
-    story.append(Paragraph("- All prices in Rupees (stored as paise internally)", styles['Body']))
-
-    story.append(Paragraph("12. ADMIN - SLOT BLOCKS", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/slots", styles['URL']))
-    story.append(Paragraph("- Block specific hours or full days for maintenance/events", styles['Body']))
-    story.append(Paragraph("- Can block by: specific court, entire sport, or all courts", styles['Body']))
-    story.append(Paragraph("- Blocked slots show as gray in customer view and calendar", styles['Body']))
-
-    story.append(Paragraph("13. ADMIN - SPORTS/COURTS", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/sports", styles['URL']))
-    story.append(Paragraph("- Toggle individual court configurations active/inactive", styles['Body']))
-    story.append(Paragraph("- Disabled courts won't appear in booking flow", styles['Body']))
-
-    story.append(Paragraph("14. ADMIN - USER MANAGEMENT", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/users", styles['URL']))
-    story.append(Paragraph("- Search users by name, email, phone", styles['Body']))
-    story.append(Paragraph("- View: total bookings, member since, verification status", styles['Body']))
-
-    story.append(Paragraph("15. ADMIN - UNIFIED COUPON MANAGEMENT", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/coupons", styles['URL']))
-    story.append(Paragraph("Single unified system for both sports and cafe coupons:", styles['Body']))
-    story.append(Paragraph("- Scope: Sports only, Cafe only, or Both", styles['Body']))
-    story.append(Paragraph("- Type: Percentage (with optional max cap) or Flat amount", styles['Body']))
-    story.append(Paragraph("- Filters: sport filter, cafe category filter", styles['Body']))
-    story.append(Paragraph("- User groups: First-time, Premium Player (10+ bookings), Frequent Visitor (5+ orders), Birthday Month", styles['Body']))
-    story.append(Paragraph("- Conditions: minimum amount, time window (flash deals), first purchase", styles['Body']))
-    story.append(Paragraph("- Stackable coupons: allow percentage + flat together", styles['Body']))
-    story.append(Paragraph("- Public toggle: visible on /coupons page", styles['Body']))
-    story.append(Paragraph("- Usage tracking per user per order", styles['Body']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 16: BANNERS & FAQ ============
-    story.append(Paragraph("16. ADMIN - BANNERS & FAQs", styles['SectionTitle']))
-    story.append(Paragraph("Banners (/admin/banners): Promo banners on booking pages (BOOK_PAGE, SLOT_SELECTION, CHECKOUT)", styles['Body']))
-    story.append(Paragraph("FAQs (/admin/faqs): Manage FAQ entries with categories, keywords, sort order", styles['Body']))
-
-    # ============ SECTION 17: CAFE MENU ============
-    story.append(Paragraph("17. ADMIN - CAFE MENU MANAGEMENT", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/cafe-menu", styles['URL']))
-    story.append(Paragraph("- CRUD for menu items: name, description, category, price, image, veg/non-veg", styles['Body']))
-    story.append(Paragraph("- Tags: Popular, Bestseller, New, Spicy, Cold, Hot", styles['Body']))
-    story.append(Paragraph("- Toggle availability (in-stock/out-of-stock)", styles['Body']))
-    story.append(Paragraph("- Sort order within categories", styles['Body']))
-    story.append(Paragraph("- Search items by name", styles['Body']))
-
-    # ============ SECTION 18: CAFE ORDERS & LIVE ============
-    story.append(Paragraph("18. ADMIN - CAFE ORDERS & LIVE DASHBOARD", styles['SectionTitle']))
-
-    story.append(Paragraph("18.1 Cafe Orders", styles['SubSection']))
-    story.append(Paragraph("URL: /admin/cafe-orders", styles['URL']))
-    story.append(Paragraph("- Order list with filters: status, date, search", styles['Body']))
-    story.append(Paragraph("- Stats: today's orders, revenue, pending count, popular items", styles['Body']))
-    story.append(Paragraph("- Status workflow: PENDING -> PREPARING -> READY -> COMPLETED", styles['Body']))
-    story.append(Paragraph("- Admin can create orders for walk-in customers", styles['Body']))
-
-    story.append(Paragraph("18.2 Live Orders (Kitchen Display)", styles['SubSection']))
-    story.append(Paragraph("URL: /admin/cafe-live", styles['URL']))
-    story.append(Paragraph("- Kanban board: 3 columns (Pending, Preparing, Ready)", styles['Body']))
-    story.append(Paragraph("- Each card: order#, table badge, items, elapsed time, action button", styles['Body']))
-    story.append(Paragraph("- Auto-refreshes every 10 seconds", styles['Body']))
-    story.append(Paragraph("- Sound notification on new orders (with mute toggle)", styles['Body']))
-    story.append(Paragraph("- Fullscreen mode for dedicated KDS tablet", styles['Body']))
-    story.append(Paragraph("- One-click status advancement buttons", styles['Body']))
-
-    story.append(Paragraph("MANUAL TEST: Live Orders", styles['SubSubSection']))
-    story.append(Paragraph("1. Open /admin/cafe-live in one tab", styles['TestStep']))
-    story.append(Paragraph("2. Place a cafe order from /cafe in another tab", styles['TestStep']))
-    story.append(Paragraph("3. Verify order appears in PENDING column within 10 seconds", styles['TestStep']))
-    story.append(Paragraph("4. Click 'Start Preparing' -> verify moves to PREPARING column", styles['TestStep']))
-    story.append(Paragraph("5. Click 'Mark Ready' -> verify moves to READY column", styles['TestStep']))
-    story.append(Paragraph("6. Click 'Complete' -> verify order disappears from board", styles['TestStep']))
-    story.append(Paragraph("7. Test fullscreen mode -> verify admin nav hidden", styles['TestStep']))
-    story.append(Paragraph("Expected: Real-time updates, status flow works, table number visible", styles['Expected']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 19: ANALYTICS ============
-    story.append(Paragraph("19. ADMIN - ANALYTICS DASHBOARD", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/analytics", styles['URL']))
-    story.append(Paragraph("Multi-level filters: date range, scope (All/Sports/Cafe), group by (Day/Week/Month)", styles['Body']))
-
-    story.append(Paragraph("19.1 KPI Cards", styles['SubSection']))
-    story.append(Paragraph("Total Revenue, Sports Revenue, Cafe Revenue, Total Bookings, Avg Booking Value, Cancellation Rate", styles['Body']))
-
-    story.append(Paragraph("19.2 Charts (Recharts)", styles['SubSection']))
-    story.append(Paragraph("- Revenue over time (line chart - sports, cafe, total lines)", styles['Body']))
-    story.append(Paragraph("- Sport-wise revenue (pie chart)", styles['Body']))
-    story.append(Paragraph("- Cafe category revenue (pie chart)", styles['Body']))
-    story.append(Paragraph("- Peak booking hours (bar chart)", styles['Body']))
-    story.append(Paragraph("- Payment method breakdown (donut chart)", styles['Body']))
-    story.append(Paragraph("- Top customers table", styles['Body']))
-
-    # ============ SECTION 20: REWARDS CONFIG ============
-    story.append(Paragraph("20. ADMIN - REWARD POINTS CONFIG", styles['SectionTitle']))
-    story.append(Paragraph("URL: /admin/rewards", styles['URL']))
-
-    story.append(Paragraph("20.1 Config Tab (All Admin-Configurable)", styles['SubSection']))
-    config_data = [
-        ["Setting", "Default", "Description"],
-        ["Sports earn rate", "1 pt/Rs.1", "Points earned per rupee on bookings"],
-        ["Cafe earn rate", "2 pt/Rs.1", "Points earned per rupee on cafe orders"],
-        ["Redeem rate", "10 pts = Rs.1", "Points needed per rupee discount"],
-        ["Min redeem", "100 points", "Minimum points to redeem"],
-        ["Max redeem %", "50%", "Maximum discount from points per order"],
-        ["Referral bonus", "100 points", "Points for referrer + referred"],
-        ["Point expiry", "365 days", "Days until points expire"],
-        ["Silver threshold", "500 pts", "Lifetime earned for Silver (1.25x)"],
-        ["Gold threshold", "2000 pts", "Lifetime earned for Gold (1.5x)"],
-        ["Platinum threshold", "5000 pts", "Lifetime earned for Platinum (2x)"],
-    ]
-    config_table = Table(config_data, colWidths=[35*mm, 30*mm, 95*mm])
-    config_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('TEXTCOLOR', (0, 0), (-1, 0), white),
-        ('BACKGROUND', (0, 0), (-1, 0), EMERALD),
-        ('GRID', (0, 0), (-1, -1), 0.5, ZINC_400),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(config_table)
-
-    story.append(Paragraph("20.2 Users Tab: Search users, view/adjust points manually", styles['Body']))
-    story.append(Paragraph("20.3 Stats Tab: Total circulation, tier distribution, top earners", styles['Body']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 21: RAZORPAY & ADMIN USERS ============
-    story.append(Paragraph("21. ADMIN - RAZORPAY & ADMIN USERS", styles['SectionTitle']))
-
-    story.append(Paragraph("21.1 Razorpay Dashboard", styles['SubSection']))
-    story.append(Paragraph("URL: /admin/razorpay", styles['URL']))
-    story.append(Paragraph("- Payment overview from Razorpay API", styles['Body']))
-    story.append(Paragraph("- Transaction history", styles['Body']))
-
-    story.append(Paragraph("21.2 Admin Users", styles['SubSection']))
-    story.append(Paragraph("URL: /admin/admin-users (Superadmin only)", styles['URL']))
-    story.append(Paragraph("- Create new admin users with granular permissions", styles['Body']))
-    story.append(Paragraph("- Invite via email with set-password link (24hr expiry)", styles['Body']))
-    story.append(Paragraph("- Permissions: MANAGE_BOOKINGS, MANAGE_PRICING, MANAGE_SLOTS, MANAGE_SPORTS, MANAGE_USERS, MANAGE_DISCOUNTS, MANAGE_BANNERS, MANAGE_FAQS, VIEW_ANALYTICS, VIEW_RAZORPAY, MANAGE_CAFE_MENU, MANAGE_CAFE_ORDERS, MANAGE_REWARDS, MANAGE_COUPONS", styles['Body']))
-    story.append(Paragraph("- Superadmin password change notifies recovery emails", styles['Body']))
-    story.append(Paragraph("- Recovery emails: y12.nakul@gmail.com, tangrianand@gmail.com, saxenautkarsh193@gmail.com", styles['Body']))
-
-    # ============ SECTION 22: INVOICES ============
-    story.append(Paragraph("22. INVOICE & PDF GENERATION", styles['SectionTitle']))
-
-    story.append(Paragraph("22.1 Sports Booking Invoice", styles['SubSection']))
-    story.append(Paragraph("- Generated on demand (Download Invoice button)", styles['Body']))
-    story.append(Paragraph("- On company letterhead (letterhead.png)", styles['Body']))
-    story.append(Paragraph("- Contains: Invoice#, date, Bill To, From (GSTIN: 09AFWFS2503M1ZB)", styles['Body']))
-    story.append(Paragraph("- Booking details: ID, sport, court, date, time, payment info", styles['Body']))
-    story.append(Paragraph("- Line items table: S.No, Description, Hours, Rate, Amount", styles['Body']))
-    story.append(Paragraph("- GST: 18% inclusive (9% CGST + 9% SGST)", styles['Body']))
-    story.append(Paragraph("- Amount in words, Terms & Conditions", styles['Body']))
-
-    story.append(Paragraph("22.2 Cafe Order Invoice", styles['SubSection']))
-    story.append(Paragraph("- Same letterhead and GST format as sports invoice", styles['Body']))
-    story.append(Paragraph("- Items table with quantities and unit prices", styles['Body']))
-
-    story.append(Paragraph("22.3 Cafe Menu PDF", styles['SubSection']))
-    story.append(Paragraph("URL: /api/cafe-menu-pdf (public, no auth)", styles['URL']))
-    story.append(Paragraph("- Dark amber theme, Momentum Arena logo", styles['Body']))
-    story.append(Paragraph("- Category icons (clipart), item cards with veg/non-veg, tags, prices", styles['Body']))
-    story.append(Paragraph("- Multi-page support with continuation headers", styles['Body']))
-
-    story.append(PageBreak())
-
-    # ============ SECTION 23: ENV & CONFIG ============
-    story.append(Paragraph("23. ENVIRONMENT & CONFIGURATION", styles['SectionTitle']))
-
-    env_data = [
-        ["Variable", "Purpose"],
-        ["DATABASE_URL", "PostgreSQL connection (Neon)"],
-        ["AUTH_SECRET", "NextAuth JWT signing key"],
-        ["GOOGLE_CLIENT_ID", "Google OAuth client ID"],
-        ["GOOGLE_CLIENT_SECRET", "Google OAuth secret"],
-        ["MSG91_AUTH_KEY", "MSG91 for OTP emails"],
-        ["RAZORPAY_KEY_ID", "Razorpay API key"],
-        ["RAZORPAY_KEY_SECRET", "Razorpay API secret"],
-        ["CRON_SECRET", "Auth for cron endpoints"],
-        ["NEXTAUTH_URL", "Base URL for auth callbacks"],
-    ]
-    env_table = Table(env_data, colWidths=[50*mm, 110*mm])
-    env_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('TEXTCOLOR', (0, 0), (-1, 0), white),
-        ('BACKGROUND', (0, 0), (-1, 0), EMERALD_DARK),
-        ('GRID', (0, 0), (-1, -1), 0.5, ZINC_400),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('FONTNAME', (0, 1), (0, -1), 'Courier'),
-        ('FONTSIZE', (0, 1), (0, -1), 8),
-    ]))
-    story.append(env_table)
-
-    story.append(Spacer(1, 10*mm))
-    story.append(Paragraph("Deployments:", styles['SubSection']))
-    story.append(Paragraph("- Production: momentumarena.com (Vercel, main branch)", styles['Body']))
-    story.append(Paragraph("- Staging: development.momentumarena.com (Vercel, development branch)", styles['Body']))
-    story.append(Paragraph("- Local: localhost:3000", styles['Body']))
-
-    story.append(Spacer(1, 10*mm))
-    story.append(Paragraph("Tech Stack:", styles['SubSection']))
-    story.append(Paragraph("Next.js 16 (App Router) | TypeScript | Tailwind CSS | Prisma ORM | PostgreSQL (Neon) | NextAuth v5 | Razorpay | Recharts | jsPDF | MSG91", styles['Body']))
-
-    story.append(Spacer(1, 15*mm))
-    story.append(Paragraph("--- END OF DOCUMENT ---", ParagraphStyle(
-        name='EndDoc',
-        parent=styles['Normal'],
-        fontSize=10,
-        textColor=ZINC_400,
-        alignment=TA_CENTER,
-    )))
-
-    # Build
-    doc.build(story)
-    print(f"PDF generated: {output_path}")
 
 if __name__ == "__main__":
     build_pdf()
