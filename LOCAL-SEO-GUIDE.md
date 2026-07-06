@@ -1,5 +1,11 @@
 # Local SEO Implementation Guide - Momentum Arena
 
+> **Status (July 2026):** all on-site technical items below are live on
+> `www.momentumarena.com`. The off-site work (Google Business Profile,
+> directories, review generation) is still open — those remain the highest
+>-leverage local-SEO actions. A post-visit rating prompt with a Google-review
+> nudge is on the product roadmap and will feed the Reviews item directly.
+
 ## ✅ What We've Implemented
 
 ### 1. **Enhanced LocalBusiness Schema**

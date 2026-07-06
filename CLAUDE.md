@@ -28,3 +28,29 @@ If you ever need to inspect or modify the guard, the hook source is at:
     .git/hooks/pre-push
 
 ---
+
+## Branch discipline (2026-07)
+
+- **Default destination is `development`.** Promote to `main` only when the
+  user explicitly asks ("push to main" / "promote"). Never assume.
+- Promotion = merge `origin/development` into `main` with an **empty
+  gate-check** (`git diff --stat origin/development HEAD` must print nothing).
+  Full procedure: `docs/DEPLOYMENT.md` §4.
+
+## Commit-message tokens (2026-07-02 incident)
+
+Never write `[skip ci]`-class tokens anywhere in a commit message — not even
+in prose describing them (GitHub matches the token *anywhere* in the message
+and silently skips workflows). The pipeline is path-filtered; tokens are
+unnecessary. The one legitimate use is machine-generated fingerprint-baseline
+commits created by CI itself.
+
+## Deployment model (read before shipping)
+
+Push = deploy. Vercel builds are schema-atomic (`prisma db push` runs inside
+the build); seed workflows are path-filtered to `prisma/**`; mobile OTA
+publishes automatically on `apps/mobile/**` changes; native store builds are
+auto-dispatched on `development` when the native fingerprint changes and are
+**manual-only** for production tracks. Details: `docs/DEPLOYMENT.md`.
+
+---
