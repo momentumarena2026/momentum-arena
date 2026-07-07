@@ -17,7 +17,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AlertCircle,
   Check,
-  ChevronRight,
   QrCode,
   RefreshCw,
   X,
@@ -61,7 +60,6 @@ const INK_MUTED = "#a1a1aa"; // zinc-400 secondary text
 const INK_FAINT = "#71717a"; // zinc-500 tertiary text / countdown
 const HAIRLINE = "#27272a"; // zinc-800 dividers + pressed rows
 const ROW_TEXT = "#f4f4f5"; // zinc-100 app-row names
-const CHEVRON = "#52525b"; // zinc-600
 const EMERALD = "#10b981";
 const EMERALD_LIGHT = "#34d399"; // emerald-400 accents on dark
 const RED = "#f87171"; // red-400 reads on dark
@@ -69,12 +67,16 @@ const AMBER_TEXT = "#fde68a"; // amber-200 notice body
 const AMBER_STRIP_TEXT = "#fcd34d"; // amber-300 advance strip
 
 const MOMENTUM_LOGO: ImageSourcePropType = require("../../assets/momentum-icon.png");
-const UPI_GENERIC_ICON: ImageSourcePropType = require("../../assets/upi/upi.webp");
 
 /**
- * UPI intent deep-link prefixes for the big four apps. The query string is
+ * UPI intent deep-link prefixes, most-popular first. The query string is
  * shared: everything after the `?` of the server's `upi://pay?...` qrString
  * (payee VPA, amount, txn ref) is app-agnostic — only the scheme differs.
+ * If an app's own scheme fails to open we retry the generic `upi://pay`
+ * link (system chooser on Android) before surfacing an error.
+ *
+ * Icons are PNG on purpose — React Native on iOS does not render .webp,
+ * which is why the earlier logos showed up blank in the app.
  */
 const UPI_APPS: {
   key: string;
@@ -82,10 +84,15 @@ const UPI_APPS: {
   prefix: string;
   icon: ImageSourcePropType;
 }[] = [
-  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", icon: require("../../assets/upi/phonepe.webp") },
-  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", icon: require("../../assets/upi/gpay.jpg") },
-  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", icon: require("../../assets/upi/paytm.webp") },
-  { key: "bhim", name: "BHIM", prefix: "upi://pay", icon: UPI_GENERIC_ICON },
+  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", icon: require("../../assets/upi/phonepe.png") },
+  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", icon: require("../../assets/upi/gpay.png") },
+  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", icon: require("../../assets/upi/paytm.png") },
+  { key: "bhim", name: "BHIM", prefix: "bhim://upi/pay", icon: require("../../assets/upi/bhim.png") },
+  { key: "amazonpay", name: "Amazon Pay", prefix: "amzn://upi/pay", icon: require("../../assets/upi/amazonpay.png") },
+  { key: "cred", name: "CRED", prefix: "credpay://upi/pay", icon: require("../../assets/upi/cred.png") },
+  { key: "mobikwik", name: "MobiKwik", prefix: "mobikwik://upi/pay", icon: require("../../assets/upi/mobikwik.png") },
+  { key: "whatsapp", name: "WhatsApp Pay", prefix: "whatsapp://upi/pay", icon: require("../../assets/upi/whatsapp.png") },
+  { key: "navi", name: "Navi", prefix: "navipay://upi/pay", icon: require("../../assets/upi/navi.png") },
 ];
 
 /**
@@ -271,21 +278,38 @@ export function DqrCheckout({
 
   // Intentionally NOT Linking.canOpenURL: on iOS that requires each scheme in
   // LSApplicationQueriesSchemes (a native build), while plain openURL + catch
-  // stays OTA-safe. Rejection = app not installed → inline note, stay on list.
-  const openUpiApp = useCallback((name: string, url: string) => {
-    setAppOpenError(null);
-    Linking.openURL(url)
-      .then(() => {
+  // stays OTA-safe. If the app-specific scheme rejects (not installed /
+  // community-observed scheme drifted) we retry the generic upi:// link —
+  // Android shows the system chooser; only a double failure surfaces the
+  // inline error.
+  const openUpiApp = useCallback(
+    (name: string, url: string, fallbackUrl?: string) => {
+      setAppOpenError(null);
+      const launched = (openedUrl: string) => {
         trackUpiAppLaunched(displayAmount);
-        setWaitingApp({ name, url });
+        setWaitingApp({ name, url: openedUrl });
         setPhase("waiting");
-      })
-      .catch(() => {
-        setAppOpenError(
-          "Couldn't open the app — is it installed? Try another option.",
-        );
-      });
-  }, [displayAmount]);
+      };
+      Linking.openURL(url)
+        .then(() => launched(url))
+        .catch(() => {
+          if (fallbackUrl && fallbackUrl !== url) {
+            Linking.openURL(fallbackUrl)
+              .then(() => launched(fallbackUrl))
+              .catch(() => {
+                setAppOpenError(
+                  "Couldn't open the app — is it installed? Try another option.",
+                );
+              });
+          } else {
+            setAppOpenError(
+              "Couldn't open the app — is it installed? Try another option.",
+            );
+          }
+        });
+    },
+    [displayAmount],
+  );
 
   const dismiss = useCallback(() => {
     // Ignore dismissal once paid — the success handoff owns navigation.
@@ -365,32 +389,27 @@ export function DqrCheckout({
                     </Text>
                   </View>
                 ) : null}
-                {UPI_APPS.map((app, i) => (
-                  <View key={app.key}>
-                    {i > 0 ? <View style={styles.rowDivider} /> : null}
-                    <AppRow
+                <View style={styles.appsGrid}>
+                  {UPI_APPS.map((app) => (
+                    <AppTile
+                      key={app.key}
                       name={app.name}
-                      onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
+                      onPress={() =>
+                        openUpiApp(app.name, `${app.prefix}?${q}`, `upi://pay?${q}`)
+                      }
                       tile={<AppIconTile source={app.icon} />}
                     />
-                  </View>
-                ))}
-                <View style={styles.rowDivider} />
-                <AppRow
-                  name="Scan QR code"
-                  onPress={() => setPhase("qr")}
-                  tile={
-                    <Tile dark>
-                      <QrCode size={18} color="#d4d4d8" />
-                    </Tile>
-                  }
-                />
-                <View style={styles.rowDivider} />
-                <AppRow
-                  name="Other UPI apps"
-                  onPress={() => openUpiApp("your UPI app", `upi://pay?${q}`)}
-                  tile={<AppIconTile source={UPI_GENERIC_ICON} />}
-                />
+                  ))}
+                  <AppTile
+                    name="Scan QR code"
+                    onPress={() => setPhase("qr")}
+                    tile={
+                      <Tile dark>
+                        <QrCode size={18} color="#d4d4d8" />
+                      </Tile>
+                    }
+                  />
+                </View>
               </View>
             ) : null}
 
@@ -572,8 +591,8 @@ function AppIconTile({ source }: { source: ImageSourcePropType }) {
   );
 }
 
-/** One tappable row in the UPI-app list: [tile] [name] [chevron]. */
-function AppRow({
+/** One tappable tile in the two-per-row UPI-app grid: [icon] [name]. */
+function AppTile({
   name,
   onPress,
   tile,
@@ -585,11 +604,12 @@ function AppRow({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.appRow, pressed && styles.appRowPressed]}
+      style={({ pressed }) => [styles.appTile, pressed && styles.appRowPressed]}
     >
       {tile}
-      <Text style={styles.appName}>{name}</Text>
-      <ChevronRight size={18} color={CHEVRON} />
+      <Text style={styles.appTileName} numberOfLines={2}>
+        {name}
+      </Text>
     </Pressable>
   );
 }
@@ -656,21 +676,32 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.9 },
 
-  // ── UPI app list ────────────────────────────────────────────────────────
-  listLabel: { marginBottom: spacing["1"] },
-  appRow: {
+  // ── UPI app grid (two tiles per row, Razorpay-style) ───────────────────
+  listLabel: { marginBottom: spacing["2"] },
+  appsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  appTile: {
+    width: "48.5%",
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing["3"],
-    minHeight: 52,
+    gap: spacing["2.5"],
+    minHeight: 56,
+    paddingHorizontal: spacing["3"],
     paddingVertical: spacing["2"],
+    borderWidth: 1,
+    borderColor: HAIRLINE,
+    borderRadius: radius.lg,
+    marginBottom: spacing["2.5"],
   },
   appRowPressed: { backgroundColor: HAIRLINE },
-  appName: { flex: 1, fontSize: 15, color: ROW_TEXT },
-  rowDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: HAIRLINE,
-    marginLeft: 36 + spacing["3"],
+  appTileName: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: "500",
+    color: ROW_TEXT,
   },
   tile: {
     width: 36,
