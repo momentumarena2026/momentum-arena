@@ -28,7 +28,7 @@ import { Text } from "../ui/Text";
 import { radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 import { bookingApi } from "../../lib/booking";
-import { ApiError } from "../../lib/api";
+import { UPI_ICON_DATA, MOMENTUM_LOGO_DATA } from "./upi-icons.generated";
 import {
   trackUpiAppLaunched,
   trackUpiPaymentConfirmed,
@@ -70,7 +70,7 @@ const RED = "#f87171"; // red-400 reads on dark
 const AMBER_TEXT = "#fde68a"; // amber-200 notice body
 const AMBER_STRIP_TEXT = "#fcd34d"; // amber-300 advance strip
 
-const MOMENTUM_LOGO: ImageSourcePropType = require("../../assets/momentum-icon.png");
+const MOMENTUM_LOGO = { uri: MOMENTUM_LOGO_DATA };
 
 /**
  * UPI intent deep-link prefixes, most-popular first. The query string is
@@ -79,8 +79,9 @@ const MOMENTUM_LOGO: ImageSourcePropType = require("../../assets/momentum-icon.p
  * If an app's own scheme fails to open we retry the generic `upi://pay`
  * link (system chooser on Android) before surfacing an error.
  *
- * Icons are PNG on purpose — React Native on iOS does not render .webp,
- * which is why the earlier logos showed up blank in the app.
+ * Icons come from UPI_ICON_DATA (base64 data URIs in the JS bundle), NOT
+ * require() — the self-hosted OTA does not deliver require()'d image assets
+ * to an older native binary, so they rendered blank. See upi-icons.generated.ts.
  */
 const UPI_APPS: {
   key: string;
@@ -88,38 +89,35 @@ const UPI_APPS: {
   prefix: string;
   icon: ImageSourcePropType;
 }[] = [
-  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", icon: require("../../assets/upi/phonepe.png") },
-  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", icon: require("../../assets/upi/gpay.png") },
-  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", icon: require("../../assets/upi/paytm.png") },
-  { key: "bhim", name: "BHIM", prefix: "bhim://upi/pay", icon: require("../../assets/upi/bhim.png") },
-  { key: "amazonpay", name: "Amazon Pay", prefix: "amzn://upi/pay", icon: require("../../assets/upi/amazonpay.png") },
-  { key: "cred", name: "CRED", prefix: "credpay://upi/pay", icon: require("../../assets/upi/cred.png") },
-  { key: "mobikwik", name: "MobiKwik", prefix: "mobikwik://upi/pay", icon: require("../../assets/upi/mobikwik.png") },
-  { key: "whatsapp", name: "WhatsApp Pay", prefix: "whatsapp://upi/pay", icon: require("../../assets/upi/whatsapp.png") },
-  { key: "navi", name: "Navi", prefix: "navipay://upi/pay", icon: require("../../assets/upi/navi.png") },
+  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", icon: { uri: UPI_ICON_DATA.phonepe } },
+  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", icon: { uri: UPI_ICON_DATA.gpay } },
+  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", icon: { uri: UPI_ICON_DATA.paytm } },
+  { key: "bhim", name: "BHIM", prefix: "bhim://upi/pay", icon: { uri: UPI_ICON_DATA.bhim } },
+  { key: "amazonpay", name: "Amazon Pay", prefix: "amzn://upi/pay", icon: { uri: UPI_ICON_DATA.amazonpay } },
+  { key: "cred", name: "CRED", prefix: "credpay://upi/pay", icon: { uri: UPI_ICON_DATA.cred } },
+  { key: "mobikwik", name: "MobiKwik", prefix: "mobikwik://upi/pay", icon: { uri: UPI_ICON_DATA.mobikwik } },
+  { key: "whatsapp", name: "WhatsApp Pay", prefix: "whatsapp://upi/pay", icon: { uri: UPI_ICON_DATA.whatsapp } },
+  { key: "navi", name: "Navi", prefix: "navipay://upi/pay", icon: { uri: UPI_ICON_DATA.navi } },
 ];
 
 /** The long tail shown under "All apps" (and searchable) after the
- *  suggested grid — same registry-sourced schemes + sprite icons. */
+ *  suggested grid — same registry-sourced schemes + base64 icons. */
 const MORE_APPS: typeof UPI_APPS = [
-  { key: "sbi", name: "SBI (YONO)", prefix: "yono://upi/pay", icon: require("../../assets/upi/sbi.png") },
-  { key: "icici", name: "ICICI iMobile", prefix: "imobile://upi/pay", icon: require("../../assets/upi/icici.png") },
-  { key: "hdfc", name: "HDFC PayZapp", prefix: "payzapp://upi/pay", icon: require("../../assets/upi/hdfc.png") },
-  { key: "axis", name: "Axis Bank", prefix: "axispay://upi/pay", icon: require("../../assets/upi/axis.png") },
-  { key: "kotak", name: "Kotak Bank", prefix: "kmb://upi/pay", icon: require("../../assets/upi/kotak.png") },
-  { key: "pnb", name: "PNB", prefix: "pnbupi://upi/pay", icon: require("../../assets/upi/pnb.png") },
-  { key: "airtel", name: "Airtel Payments Bank", prefix: "myairtel://upi/pay", icon: require("../../assets/upi/airtel.png") },
-  { key: "jupiter", name: "Jupiter", prefix: "jupiter://upi/pay", icon: require("../../assets/upi/jupiter.png") },
-  { key: "fi", name: "Fi Money", prefix: "fi://upi/pay", icon: require("../../assets/upi/fi.png") },
-  { key: "fampay", name: "FamApp", prefix: "in.fampay.app://upi/pay", icon: require("../../assets/upi/fampay.png") },
-  { key: "jiopay", name: "JioPay", prefix: "myjio://upi/pay", icon: require("../../assets/upi/jiopay.png") },
-  { key: "tataneu", name: "Tata Neu", prefix: "tnupi://upi/pay", icon: require("../../assets/upi/tataneu.png") },
+  { key: "sbi", name: "SBI (YONO)", prefix: "yono://upi/pay", icon: { uri: UPI_ICON_DATA.sbi } },
+  { key: "icici", name: "ICICI iMobile", prefix: "imobile://upi/pay", icon: { uri: UPI_ICON_DATA.icici } },
+  { key: "hdfc", name: "HDFC PayZapp", prefix: "payzapp://upi/pay", icon: { uri: UPI_ICON_DATA.hdfc } },
+  { key: "axis", name: "Axis Bank", prefix: "axispay://upi/pay", icon: { uri: UPI_ICON_DATA.axis } },
+  { key: "kotak", name: "Kotak Bank", prefix: "kmb://upi/pay", icon: { uri: UPI_ICON_DATA.kotak } },
+  { key: "pnb", name: "PNB", prefix: "pnbupi://upi/pay", icon: { uri: UPI_ICON_DATA.pnb } },
+  { key: "airtel", name: "Airtel Payments Bank", prefix: "myairtel://upi/pay", icon: { uri: UPI_ICON_DATA.airtel } },
+  { key: "jupiter", name: "Jupiter", prefix: "jupiter://upi/pay", icon: { uri: UPI_ICON_DATA.jupiter } },
+  { key: "scapia", name: "Scapia UPI", prefix: "scapia://upi/pay", icon: { uri: UPI_ICON_DATA.scapia } },
+  { key: "fampay", name: "FamApp", prefix: "in.fampay.app://upi/pay", icon: { uri: UPI_ICON_DATA.fampay } },
+  { key: "jiopay", name: "JioPay", prefix: "myjio://upi/pay", icon: { uri: UPI_ICON_DATA.jiopay } },
+  { key: "tataneu", name: "Tata Neu", prefix: "tnupi://upi/pay", icon: { uri: UPI_ICON_DATA.tataneu } },
 ];
 
 const ALL_APPS = [...UPI_APPS, ...MORE_APPS];
-
-/** UPI VPA shape: handle@psp — mirrors the server-side check. */
-const VPA_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,}@[a-zA-Z]{2,}$/;
 
 /**
  * Mobile PhonePe DQR checkout, presented as a Razorpay-style bottom sheet.
@@ -149,12 +147,8 @@ export function DqrCheckout({
   const [appOpenError, setAppOpenError] = useState<string | null>(null);
   const [waitingApp, setWaitingApp] = useState<{ name: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-  // Search + "Pay with UPI ID" (collect request) state.
+  // App-search state.
   const [query, setQuery] = useState("");
-  const [vpa, setVpa] = useState("");
-  const [vpaError, setVpaError] = useState<string | null>(null);
-  const [vpaSending, setVpaSending] = useState(false);
-  const [collectVpa, setCollectVpa] = useState<string | null>(null);
   const txnRef = useRef<string | null>(null);
   const bookingIdRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -343,41 +337,6 @@ export function DqrCheckout({
     [displayAmount],
   );
 
-  // "Pay with UPI ID": server sends a UPI collect request to the VPA; the
-  // customer approves it inside their own app. The response carries a NEW
-  // transactionId — repoint the status poll at it and sit in "waiting".
-  const submitCollect = useCallback(async () => {
-    const clean = vpa.trim().toLowerCase();
-    if (!VPA_RE.test(clean)) {
-      setVpaError("Enter a valid UPI ID (e.g. name@bank)");
-      return;
-    }
-    setVpaError(null);
-    setVpaSending(true);
-    try {
-      const res = await bookingApi.dqrCollect({
-        holdId,
-        vpa: clean,
-        isAdvance,
-        overrideAmount,
-      });
-      txnRef.current = res.transactionId;
-      doneRef.current = false;
-      if (typeof res.expiresIn === "number") setSecondsLeft(res.expiresIn);
-      setWaitingApp(null);
-      setCollectVpa(clean);
-      setPhase("waiting");
-    } catch (err) {
-      setVpaError(
-        err instanceof ApiError
-          ? err.message
-          : "Couldn't send the payment request — try again",
-      );
-    } finally {
-      setVpaSending(false);
-    }
-  }, [vpa, holdId, isAdvance, overrideAmount]);
-
   const dismiss = useCallback(() => {
     // Ignore dismissal once paid — the success handoff owns navigation.
     if (phase === "confirmed") return;
@@ -523,51 +482,6 @@ export function DqrCheckout({
                       />
                     </View>
 
-                    {/* Pay with UPI ID (collect request) */}
-                    <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                      Pay with UPI ID / Number
-                    </Text>
-                    <View style={styles.vpaCard}>
-                      <TextInput
-                        value={vpa}
-                        onChangeText={(t) => {
-                          setVpa(t);
-                          if (vpaError) setVpaError(null);
-                        }}
-                        placeholder="example@okhdfcbank"
-                        placeholderTextColor={INK_FAINT}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardType="email-address"
-                        style={styles.vpaInput}
-                      />
-                      {vpaError ? (
-                        <Text variant="tiny" color={RED} style={styles.vpaError}>
-                          {vpaError}
-                        </Text>
-                      ) : null}
-                      <Pressable
-                        onPress={submitCollect}
-                        disabled={vpaSending || !vpa.trim()}
-                        style={({ pressed }) => [
-                          styles.vpaBtn,
-                          (vpaSending || !vpa.trim()) && styles.vpaBtnDisabled,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        {vpaSending ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : null}
-                        <Text variant="small" weight="600" color="#fff">
-                          {vpaSending ? "Sending request…" : "Verify and Pay"}
-                        </Text>
-                      </Pressable>
-                      <Text variant="tiny" color={INK_FAINT}>
-                        You&apos;ll get a payment request in your UPI app —
-                        approve it to complete the booking.
-                      </Text>
-                    </View>
-
                     {/* All apps */}
                     <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
                       All apps
@@ -643,14 +557,10 @@ export function DqrCheckout({
               <View style={styles.centerBlock}>
                 <ActivityIndicator size="large" color={EMERALD} />
                 <Text variant="bodyStrong" color={INK} align="center">
-                  {collectVpa
-                    ? `Payment request sent to ${collectVpa}`
-                    : `Complete payment in ${waitingApp?.name ?? "your UPI app"}`}
+                  Complete payment in {waitingApp?.name ?? "your UPI app"}
                 </Text>
                 <Text variant="small" color={INK_MUTED} align="center">
-                  {collectVpa
-                    ? "Open your UPI app and approve the request — confirms automatically."
-                    : "Confirms automatically the moment you pay."}
+                  Confirms automatically the moment you pay.
                 </Text>
                 {countdown ? (
                   <Text variant="tiny" color={INK_FAINT}>
@@ -677,15 +587,9 @@ export function DqrCheckout({
                     </Text>
                   </Pressable>
                 ) : null}
-                <Pressable
-                  onPress={() => {
-                    setCollectVpa(null);
-                    setPhase("apps");
-                  }}
-                  style={styles.ghostBtn}
-                >
+                <Pressable onPress={() => setPhase("apps")} style={styles.ghostBtn}>
                   <Text variant="small" color={INK_MUTED}>
-                    {collectVpa ? "Pay a different way" : "Choose another app"}
+                    Choose another app
                   </Text>
                 </Pressable>
               </View>
@@ -917,33 +821,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing["2"],
   },
   listRowName: { flex: 1, fontSize: 14.5, color: ROW_TEXT },
-  vpaCard: {
-    borderWidth: 1,
-    borderColor: HAIRLINE,
-    borderRadius: radius.lg,
-    padding: spacing["3"],
-    gap: spacing["2"],
-  },
-  vpaInput: {
-    borderWidth: 1,
-    borderColor: "#3f3f46",
-    borderRadius: radius.md,
-    paddingHorizontal: spacing["3"],
-    paddingVertical: spacing["2.5"],
-    fontSize: 14,
-    color: ROW_TEXT,
-  },
-  vpaError: { marginTop: -2 },
-  vpaBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing["2"],
-    backgroundColor: EMERALD,
-    borderRadius: radius.md,
-    paddingVertical: spacing["2.5"],
-  },
-  vpaBtnDisabled: { opacity: 0.4 },
   appsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",

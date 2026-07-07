@@ -531,21 +531,6 @@ export const bookingApi = {
       `/api/phonepe/dqr/status?transactionId=${encodeURIComponent(transactionId)}`,
     ),
 
-  /**
-   * "Pay with UPI ID": send a UPI COLLECT request to the customer's VPA.
-   * Same status-poll/callback confirmation path as dqrInitiate.
-   */
-  dqrCollect: (body: {
-    holdId: string;
-    vpa: string;
-    isAdvance?: boolean;
-    overrideAmount?: number;
-  }) =>
-    api.post<{ transactionId: string; expiresIn: number; amount: number }>(
-      "/api/phonepe/dqr/collect",
-      body,
-    ),
-
   /** Audit log when the customer taps a payment tile (no booking created). */
   logPaymentMethod: (body: { holdId: string; paymentMethod: string }) =>
     api.post<{ ok: boolean }>("/api/mobile/booking/payment-method", body),

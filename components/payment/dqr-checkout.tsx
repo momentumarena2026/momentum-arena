@@ -111,12 +111,8 @@ export function DqrCheckout({
     name: string;
     link: string;
   } | null>(null);
-  // "Pay with UPI ID" (collect request) + app search state.
+  // App search state.
   const [query, setQuery] = useState("");
-  const [vpa, setVpa] = useState("");
-  const [vpaError, setVpaError] = useState<string | null>(null);
-  const [vpaSending, setVpaSending] = useState(false);
-  const [collectVpa, setCollectVpa] = useState<string | null>(null);
   const txnRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneRef = useRef(false);
@@ -321,7 +317,7 @@ export function DqrCheckout({
     { key: "pnb", name: "PNB", link: `pnbupi://upi/pay?${q}` },
     { key: "airtel", name: "Airtel Payments Bank", link: `myairtel://upi/pay?${q}` },
     { key: "jupiter", name: "Jupiter", link: `jupiter://upi/pay?${q}` },
-    { key: "fi", name: "Fi Money", link: `fi://upi/pay?${q}` },
+    { key: "scapia", name: "Scapia UPI", link: `scapia://upi/pay?${q}` },
     { key: "fampay", name: "FamApp", link: `in.fampay.app://upi/pay?${q}` },
     { key: "jiopay", name: "JioPay", link: `myjio://upi/pay?${q}` },
     { key: "tataneu", name: "Tata Neu", link: `tnupi://upi/pay?${q}` },
@@ -338,49 +334,6 @@ export function DqrCheckout({
     "flex min-h-[56px] items-center gap-2.5 rounded-xl border border-zinc-800 px-3 py-2 text-left transition-colors hover:bg-zinc-800/60 active:bg-zinc-800";
   const rowClass =
     "flex min-h-[52px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-800/60 active:bg-zinc-800";
-
-  const submitCollect = async () => {
-    const cleanVpa = vpa.trim().toLowerCase();
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,}@[a-zA-Z]{2,}$/.test(cleanVpa)) {
-      setVpaError("Enter a valid UPI ID (e.g. name@bank)");
-      return;
-    }
-    setVpaError(null);
-    setVpaSending(true);
-    try {
-      const res = await fetch(
-        surface === "cafe"
-          ? "/api/phonepe/dqr/cafe-collect"
-          : "/api/phonepe/dqr/collect",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            surface === "cafe"
-              ? { orderId: holdId, vpa: cleanVpa }
-              : { holdId, vpa: cleanVpa, isAdvance: !!isAdvance, overrideAmount },
-          ),
-        },
-      );
-      const data = await res.json();
-      if (!res.ok || !data.transactionId) {
-        setVpaError(data.error || "Couldn't send the payment request");
-        return;
-      }
-      // The collect request is a NEW PhonePe transaction — point the
-      // status poll (and TTL) at it; approval confirms like any DQR pay.
-      txnRef.current = data.transactionId;
-      doneRef.current = false;
-      if (typeof data.expiresIn === "number") setSecondsLeft(data.expiresIn);
-      setLaunchedApp(null);
-      setCollectVpa(cleanVpa);
-      setPhase("waiting");
-    } catch {
-      setVpaError("Couldn't send the payment request — try again");
-    } finally {
-      setVpaSending(false);
-    }
-  };
 
   const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
     // Payment already went through — don't let a stray tap cancel out of
@@ -511,42 +464,6 @@ export function DqrCheckout({
                   </button>
                 </div>
 
-                {/* Pay with UPI ID (collect request) */}
-                <p className="px-4 pb-1 pt-5 text-[12px] font-medium uppercase tracking-wider text-zinc-500">
-                  Pay with UPI ID / Number
-                </p>
-                <div className="px-4">
-                  <div className="rounded-xl border border-zinc-800 p-3">
-                    <input
-                      type="text"
-                      value={vpa}
-                      onChange={(e) => {
-                        setVpa(e.target.value);
-                        if (vpaError) setVpaError(null);
-                      }}
-                      placeholder="example@okhdfcbank"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-950/60 px-3 py-2.5 text-[14px] text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/60 focus:outline-none"
-                    />
-                    {vpaError && (
-                      <p className="mt-1.5 text-xs text-red-400">{vpaError}</p>
-                    )}
-                    <button
-                      onClick={submitCollect}
-                      disabled={vpaSending || !vpa.trim()}
-                      className="mt-2.5 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-[14px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {vpaSending ? "Sending request…" : "Verify and Pay"}
-                    </button>
-                    <p className="mt-2 text-[11px] leading-snug text-zinc-500">
-                      You&apos;ll get a payment request in your UPI app —
-                      approve it to complete the booking.
-                    </p>
-                  </div>
-                </div>
-
                 {/* All apps */}
                 <p className="px-4 pb-1 pt-5 text-[12px] font-medium uppercase tracking-wider text-zinc-500">
                   All apps
@@ -644,14 +561,11 @@ export function DqrCheckout({
           <div className="flex flex-col items-center px-6 py-10 text-center">
             <Loader2 className="h-9 w-9 animate-spin text-emerald-500" />
             <p className="mt-4 text-base font-medium text-white">
-              {collectVpa
-                ? `Payment request sent to ${collectVpa}`
-                : `Complete payment in ${launchedApp?.name ?? "your UPI app"}`}
+              Complete payment in {launchedApp?.name ?? "your UPI app"}
             </p>
             <p className="mt-1 text-[13px] text-zinc-400">
-              {collectVpa
-                ? "Open your UPI app and approve the request — this confirms automatically."
-                : "This confirms automatically the moment you pay — nothing to send us."}
+              This confirms automatically the moment you pay — nothing to send
+              us.
             </p>
             {countdown && (
               <p className="mt-2 text-xs text-zinc-500">
@@ -667,13 +581,10 @@ export function DqrCheckout({
               </button>
             )}
             <button
-              onClick={() => {
-                setCollectVpa(null);
-                setPhase("apps");
-              }}
+              onClick={() => setPhase("apps")}
               className="mt-2 w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
             >
-              {collectVpa ? "Pay a different way" : "Choose another app"}
+              Choose another app
             </button>
           </div>
         )}
