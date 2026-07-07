@@ -28,7 +28,7 @@ import { Text } from "../ui/Text";
 import { radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 import { bookingApi } from "../../lib/booking";
-import { ApiError } from "../../lib/api";
+import { UPI_ICON_DATA, MOMENTUM_LOGO_DATA } from "./upi-icons.generated";
 import {
   trackUpiAppLaunched,
   trackUpiPaymentConfirmed,
@@ -70,7 +70,7 @@ const RED = "#f87171"; // red-400 reads on dark
 const AMBER_TEXT = "#fde68a"; // amber-200 notice body
 const AMBER_STRIP_TEXT = "#fcd34d"; // amber-300 advance strip
 
-const MOMENTUM_LOGO: ImageSourcePropType = require("../../assets/momentum-icon.png");
+const MOMENTUM_LOGO = { uri: MOMENTUM_LOGO_DATA };
 
 /**
  * UPI intent deep-link prefixes, most-popular first. The query string is
@@ -79,8 +79,9 @@ const MOMENTUM_LOGO: ImageSourcePropType = require("../../assets/momentum-icon.p
  * If an app's own scheme fails to open we retry the generic `upi://pay`
  * link (system chooser on Android) before surfacing an error.
  *
- * Icons are PNG on purpose — React Native on iOS does not render .webp,
- * which is why the earlier logos showed up blank in the app.
+ * Icons come from UPI_ICON_DATA (base64 data URIs in the JS bundle), NOT
+ * require() — the self-hosted OTA does not deliver require()'d image assets
+ * to an older native binary, so they rendered blank. See upi-icons.generated.ts.
  */
 const UPI_APPS: {
   key: string;
@@ -88,38 +89,35 @@ const UPI_APPS: {
   prefix: string;
   icon: ImageSourcePropType;
 }[] = [
-  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", icon: require("../../assets/upi/phonepe.png") },
-  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", icon: require("../../assets/upi/gpay.png") },
-  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", icon: require("../../assets/upi/paytm.png") },
-  { key: "bhim", name: "BHIM", prefix: "bhim://upi/pay", icon: require("../../assets/upi/bhim.png") },
-  { key: "amazonpay", name: "Amazon Pay", prefix: "amzn://upi/pay", icon: require("../../assets/upi/amazonpay.png") },
-  { key: "cred", name: "CRED", prefix: "credpay://upi/pay", icon: require("../../assets/upi/cred.png") },
-  { key: "mobikwik", name: "MobiKwik", prefix: "mobikwik://upi/pay", icon: require("../../assets/upi/mobikwik.png") },
-  { key: "whatsapp", name: "WhatsApp Pay", prefix: "whatsapp://upi/pay", icon: require("../../assets/upi/whatsapp.png") },
-  { key: "navi", name: "Navi", prefix: "navipay://upi/pay", icon: require("../../assets/upi/navi.png") },
+  { key: "phonepe", name: "PhonePe", prefix: "phonepe://pay", icon: { uri: UPI_ICON_DATA.phonepe } },
+  { key: "gpay", name: "Google Pay", prefix: "tez://upi/pay", icon: { uri: UPI_ICON_DATA.gpay } },
+  { key: "paytm", name: "Paytm", prefix: "paytmmp://pay", icon: { uri: UPI_ICON_DATA.paytm } },
+  { key: "bhim", name: "BHIM", prefix: "bhim://upi/pay", icon: { uri: UPI_ICON_DATA.bhim } },
+  { key: "amazonpay", name: "Amazon Pay", prefix: "amzn://upi/pay", icon: { uri: UPI_ICON_DATA.amazonpay } },
+  { key: "cred", name: "CRED", prefix: "credpay://upi/pay", icon: { uri: UPI_ICON_DATA.cred } },
+  { key: "mobikwik", name: "MobiKwik", prefix: "mobikwik://upi/pay", icon: { uri: UPI_ICON_DATA.mobikwik } },
+  { key: "whatsapp", name: "WhatsApp Pay", prefix: "whatsapp://upi/pay", icon: { uri: UPI_ICON_DATA.whatsapp } },
+  { key: "navi", name: "Navi", prefix: "navipay://upi/pay", icon: { uri: UPI_ICON_DATA.navi } },
 ];
 
 /** The long tail shown under "All apps" (and searchable) after the
- *  suggested grid — same registry-sourced schemes + sprite icons. */
+ *  suggested grid — same registry-sourced schemes + base64 icons. */
 const MORE_APPS: typeof UPI_APPS = [
-  { key: "sbi", name: "SBI (YONO)", prefix: "yono://upi/pay", icon: require("../../assets/upi/sbi.png") },
-  { key: "icici", name: "ICICI iMobile", prefix: "imobile://upi/pay", icon: require("../../assets/upi/icici.png") },
-  { key: "hdfc", name: "HDFC PayZapp", prefix: "payzapp://upi/pay", icon: require("../../assets/upi/hdfc.png") },
-  { key: "axis", name: "Axis Bank", prefix: "axispay://upi/pay", icon: require("../../assets/upi/axis.png") },
-  { key: "kotak", name: "Kotak Bank", prefix: "kmb://upi/pay", icon: require("../../assets/upi/kotak.png") },
-  { key: "pnb", name: "PNB", prefix: "pnbupi://upi/pay", icon: require("../../assets/upi/pnb.png") },
-  { key: "airtel", name: "Airtel Payments Bank", prefix: "myairtel://upi/pay", icon: require("../../assets/upi/airtel.png") },
-  { key: "jupiter", name: "Jupiter", prefix: "jupiter://upi/pay", icon: require("../../assets/upi/jupiter.png") },
-  { key: "fi", name: "Fi Money", prefix: "fi://upi/pay", icon: require("../../assets/upi/fi.png") },
-  { key: "fampay", name: "FamApp", prefix: "in.fampay.app://upi/pay", icon: require("../../assets/upi/fampay.png") },
-  { key: "jiopay", name: "JioPay", prefix: "myjio://upi/pay", icon: require("../../assets/upi/jiopay.png") },
-  { key: "tataneu", name: "Tata Neu", prefix: "tnupi://upi/pay", icon: require("../../assets/upi/tataneu.png") },
+  { key: "sbi", name: "SBI (YONO)", prefix: "yono://upi/pay", icon: { uri: UPI_ICON_DATA.sbi } },
+  { key: "icici", name: "ICICI iMobile", prefix: "imobile://upi/pay", icon: { uri: UPI_ICON_DATA.icici } },
+  { key: "hdfc", name: "HDFC PayZapp", prefix: "payzapp://upi/pay", icon: { uri: UPI_ICON_DATA.hdfc } },
+  { key: "axis", name: "Axis Bank", prefix: "axispay://upi/pay", icon: { uri: UPI_ICON_DATA.axis } },
+  { key: "kotak", name: "Kotak Bank", prefix: "kmb://upi/pay", icon: { uri: UPI_ICON_DATA.kotak } },
+  { key: "pnb", name: "PNB", prefix: "pnbupi://upi/pay", icon: { uri: UPI_ICON_DATA.pnb } },
+  { key: "airtel", name: "Airtel Payments Bank", prefix: "myairtel://upi/pay", icon: { uri: UPI_ICON_DATA.airtel } },
+  { key: "jupiter", name: "Jupiter", prefix: "jupiter://upi/pay", icon: { uri: UPI_ICON_DATA.jupiter } },
+  { key: "scapia", name: "Scapia UPI", prefix: "scapia://upi/pay", icon: { uri: UPI_ICON_DATA.scapia } },
+  { key: "fampay", name: "FamApp", prefix: "in.fampay.app://upi/pay", icon: { uri: UPI_ICON_DATA.fampay } },
+  { key: "jiopay", name: "JioPay", prefix: "myjio://upi/pay", icon: { uri: UPI_ICON_DATA.jiopay } },
+  { key: "tataneu", name: "Tata Neu", prefix: "tnupi://upi/pay", icon: { uri: UPI_ICON_DATA.tataneu } },
 ];
 
 const ALL_APPS = [...UPI_APPS, ...MORE_APPS];
-
-/** UPI VPA shape: handle@psp — mirrors the server-side check. */
-const VPA_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,}@[a-zA-Z]{2,}$/;
 
 /**
  * Mobile PhonePe DQR checkout, presented as a Razorpay-style bottom sheet.
@@ -149,12 +147,16 @@ export function DqrCheckout({
   const [appOpenError, setAppOpenError] = useState<string | null>(null);
   const [waitingApp, setWaitingApp] = useState<{ name: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-  // Search + "Pay with UPI ID" (collect request) state.
+  // App-search state.
   const [query, setQuery] = useState("");
-  const [vpa, setVpa] = useState("");
-  const [vpaError, setVpaError] = useState<string | null>(null);
-  const [vpaSending, setVpaSending] = useState(false);
-  const [collectVpa, setCollectVpa] = useState<string | null>(null);
+  // Which UPI apps are actually installed + openable on THIS device. null =
+  // not probed yet. We only show these (Razorpay-style): tapping a listed app
+  // always opens it, and apps that can't open (not installed / no working iOS
+  // scheme, e.g. most bank apps) never appear — so no dead taps and no
+  // accidentally opening the OS's default upi:// handler (WhatsApp on iOS).
+  const [installedApps, setInstalledApps] = useState<typeof ALL_APPS | null>(
+    null,
+  );
   const txnRef = useRef<string | null>(null);
   const bookingIdRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -308,75 +310,31 @@ export function DqrCheckout({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- animated values are stable refs; onConfirmed via ref
   }, [phase]);
 
-  // Intentionally NOT Linking.canOpenURL: on iOS that requires each scheme in
-  // LSApplicationQueriesSchemes (a native build), while plain openURL + catch
-  // stays OTA-safe. If the app-specific scheme rejects (not installed /
-  // community-observed scheme drifted) we retry the generic upi:// link —
-  // Android shows the system chooser; only a double failure surfaces the
-  // inline error.
+  // Open the chosen app's OWN scheme only — never a generic upi:// fallback
+  // (that would open iOS's default UPI handler, e.g. WhatsApp, instead of the
+  // app the user picked). We only list canOpenURL-true apps, so this opens
+  // reliably; the error is a safety net for the rare race where the app was
+  // uninstalled between probe and tap.
   const openUpiApp = useCallback(
-    (name: string, url: string, fallbackUrl?: string) => {
+    async (name: string, url: string) => {
       setAppOpenError(null);
-      const launched = (openedUrl: string) => {
-        trackUpiAppLaunched(displayAmount);
-        setWaitingApp({ name, url: openedUrl });
-        setPhase("waiting");
-      };
-      Linking.openURL(url)
-        .then(() => launched(url))
-        .catch(() => {
-          if (fallbackUrl && fallbackUrl !== url) {
-            Linking.openURL(fallbackUrl)
-              .then(() => launched(fallbackUrl))
-              .catch(() => {
-                setAppOpenError(
-                  "Couldn't open the app — is it installed? Try another option.",
-                );
-              });
-          } else {
-            setAppOpenError(
-              "Couldn't open the app — is it installed? Try another option.",
-            );
-          }
-        });
+      try {
+        if (await Linking.canOpenURL(url)) {
+          await Linking.openURL(url);
+          trackUpiAppLaunched(displayAmount);
+          setWaitingApp({ name, url });
+          setPhase("waiting");
+          return;
+        }
+      } catch {
+        // fall through to the error
+      }
+      setAppOpenError(
+        `Couldn't open ${name}. Scan the QR below or pick another app.`,
+      );
     },
     [displayAmount],
   );
-
-  // "Pay with UPI ID": server sends a UPI collect request to the VPA; the
-  // customer approves it inside their own app. The response carries a NEW
-  // transactionId — repoint the status poll at it and sit in "waiting".
-  const submitCollect = useCallback(async () => {
-    const clean = vpa.trim().toLowerCase();
-    if (!VPA_RE.test(clean)) {
-      setVpaError("Enter a valid UPI ID (e.g. name@bank)");
-      return;
-    }
-    setVpaError(null);
-    setVpaSending(true);
-    try {
-      const res = await bookingApi.dqrCollect({
-        holdId,
-        vpa: clean,
-        isAdvance,
-        overrideAmount,
-      });
-      txnRef.current = res.transactionId;
-      doneRef.current = false;
-      if (typeof res.expiresIn === "number") setSecondsLeft(res.expiresIn);
-      setWaitingApp(null);
-      setCollectVpa(clean);
-      setPhase("waiting");
-    } catch (err) {
-      setVpaError(
-        err instanceof ApiError
-          ? err.message
-          : "Couldn't send the payment request — try again",
-      );
-    } finally {
-      setVpaSending(false);
-    }
-  }, [vpa, holdId, isAdvance, overrideAmount]);
 
   const dismiss = useCallback(() => {
     // Ignore dismissal once paid — the success handoff owns navigation.
@@ -384,8 +342,33 @@ export function DqrCheckout({
     onCancel();
   }, [phase, onCancel]);
 
+  // Probe once we reach the app-picker. Each canOpenURL is truthful because
+  // the schemes are declared in Info.plist / AndroidManifest <queries>.
+  useEffect(() => {
+    if (phase !== "apps") return;
+    let cancelled = false;
+    (async () => {
+      const checks = await Promise.all(
+        ALL_APPS.map(async (app) => {
+          try {
+            return (await Linking.canOpenURL(`${app.prefix}?pa=x`)) ? app : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (!cancelled) {
+        setInstalledApps(checks.filter((a): a is (typeof ALL_APPS)[number] => a !== null));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase]);
+
+  const visibleApps = installedApps ?? [];
   const filteredApps = query.trim()
-    ? ALL_APPS.filter((a) =>
+    ? visibleApps.filter((a) =>
         a.name.toLowerCase().includes(query.trim().toLowerCase()),
       )
     : null;
@@ -451,19 +434,21 @@ export function DqrCheckout({
 
             {phase === "apps" ? (
               <View>
-                {/* Search */}
-                <View style={styles.searchRow}>
-                  <Search size={16} color={INK_FAINT} />
-                  <TextInput
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder="Search UPI apps"
-                    placeholderTextColor={INK_FAINT}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.searchInput}
-                  />
-                </View>
+                {/* Search — only when there are enough installed apps to sift. */}
+                {installedApps && installedApps.length > 4 ? (
+                  <View style={styles.searchRow}>
+                    <Search size={16} color={INK_FAINT} />
+                    <TextInput
+                      value={query}
+                      onChangeText={setQuery}
+                      placeholder="Search UPI apps"
+                      placeholderTextColor={INK_FAINT}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={styles.searchInput}
+                    />
+                  </View>
+                ) : null}
 
                 {appOpenError ? (
                   <View style={styles.openErrorBox}>
@@ -474,12 +459,20 @@ export function DqrCheckout({
                   </View>
                 ) : null}
 
-                {filteredApps ? (
-                  /* Search results — single-column rows across ALL apps */
+                {installedApps === null ? (
+                  /* Probing which UPI apps are installed. */
+                  <View style={styles.probeRow}>
+                    <ActivityIndicator size="small" color={INK_FAINT} />
+                    <Text variant="small" color={INK_MUTED}>
+                      Finding your UPI apps…
+                    </Text>
+                  </View>
+                ) : filteredApps ? (
+                  /* Search results — single-column rows over installed apps. */
                   <View>
                     {filteredApps.length === 0 ? (
                       <Text variant="small" color={INK_FAINT} align="center" style={styles.noMatch}>
-                        No UPI app matches &ldquo;{query.trim()}&rdquo;
+                        No installed UPI app matches &ldquo;{query.trim()}&rdquo;
                       </Text>
                     ) : null}
                     {filteredApps.map((app, i) => (
@@ -487,28 +480,24 @@ export function DqrCheckout({
                         {i > 0 ? <View style={styles.rowDivider} /> : null}
                         <AppListRow
                           name={app.name}
-                          onPress={() =>
-                            openUpiApp(app.name, `${app.prefix}?${q}`, `upi://pay?${q}`)
-                          }
+                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
                           tile={<AppIconTile source={app.icon} />}
                         />
                       </View>
                     ))}
                   </View>
-                ) : (
+                ) : visibleApps.length > 0 ? (
+                  /* Installed UPI apps — two tiles per row + Scan QR. */
                   <View>
-                    {/* Suggested apps — two tiles per row + Scan QR */}
                     <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                      Suggested apps
+                      Pay using UPI app
                     </Text>
                     <View style={styles.appsGrid}>
-                      {UPI_APPS.map((app) => (
+                      {visibleApps.map((app) => (
                         <AppTile
                           key={app.key}
                           name={app.name}
-                          onPress={() =>
-                            openUpiApp(app.name, `${app.prefix}?${q}`, `upi://pay?${q}`)
-                          }
+                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
                           tile={<AppIconTile source={app.icon} />}
                         />
                       ))}
@@ -522,68 +511,22 @@ export function DqrCheckout({
                         }
                       />
                     </View>
-
-                    {/* Pay with UPI ID (collect request) */}
-                    <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                      Pay with UPI ID / Number
+                  </View>
+                ) : (
+                  /* No UPI app detected on this device. */
+                  <View>
+                    <Text variant="small" color={INK_MUTED} align="center" style={styles.noMatch}>
+                      No UPI app found on this device.
                     </Text>
-                    <View style={styles.vpaCard}>
-                      <TextInput
-                        value={vpa}
-                        onChangeText={(t) => {
-                          setVpa(t);
-                          if (vpaError) setVpaError(null);
-                        }}
-                        placeholder="example@okhdfcbank"
-                        placeholderTextColor={INK_FAINT}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardType="email-address"
-                        style={styles.vpaInput}
-                      />
-                      {vpaError ? (
-                        <Text variant="tiny" color={RED} style={styles.vpaError}>
-                          {vpaError}
-                        </Text>
-                      ) : null}
-                      <Pressable
-                        onPress={submitCollect}
-                        disabled={vpaSending || !vpa.trim()}
-                        style={({ pressed }) => [
-                          styles.vpaBtn,
-                          (vpaSending || !vpa.trim()) && styles.vpaBtnDisabled,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        {vpaSending ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : null}
-                        <Text variant="small" weight="600" color="#fff">
-                          {vpaSending ? "Sending request…" : "Verify and Pay"}
-                        </Text>
-                      </Pressable>
-                      <Text variant="tiny" color={INK_FAINT}>
-                        You&apos;ll get a payment request in your UPI app —
-                        approve it to complete the booking.
-                      </Text>
-                    </View>
-
-                    {/* All apps */}
-                    <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                      All apps
-                    </Text>
-                    {ALL_APPS.map((app, i) => (
-                      <View key={app.key}>
-                        {i > 0 ? <View style={styles.rowDivider} /> : null}
-                        <AppListRow
-                          name={app.name}
-                          onPress={() =>
-                            openUpiApp(app.name, `${app.prefix}?${q}`, `upi://pay?${q}`)
-                          }
-                          tile={<AppIconTile source={app.icon} />}
-                        />
-                      </View>
-                    ))}
+                    <AppTile
+                      name="Scan QR code to pay"
+                      onPress={() => setPhase("qr")}
+                      tile={
+                        <Tile dark>
+                          <QrCode size={18} color="#d4d4d8" />
+                        </Tile>
+                      }
+                    />
                   </View>
                 )}
               </View>
@@ -643,14 +586,10 @@ export function DqrCheckout({
               <View style={styles.centerBlock}>
                 <ActivityIndicator size="large" color={EMERALD} />
                 <Text variant="bodyStrong" color={INK} align="center">
-                  {collectVpa
-                    ? `Payment request sent to ${collectVpa}`
-                    : `Complete payment in ${waitingApp?.name ?? "your UPI app"}`}
+                  Complete payment in {waitingApp?.name ?? "your UPI app"}
                 </Text>
                 <Text variant="small" color={INK_MUTED} align="center">
-                  {collectVpa
-                    ? "Open your UPI app and approve the request — confirms automatically."
-                    : "Confirms automatically the moment you pay."}
+                  Confirms automatically the moment you pay.
                 </Text>
                 {countdown ? (
                   <Text variant="tiny" color={INK_FAINT}>
@@ -677,15 +616,9 @@ export function DqrCheckout({
                     </Text>
                   </Pressable>
                 ) : null}
-                <Pressable
-                  onPress={() => {
-                    setCollectVpa(null);
-                    setPhase("apps");
-                  }}
-                  style={styles.ghostBtn}
-                >
+                <Pressable onPress={() => setPhase("apps")} style={styles.ghostBtn}>
                   <Text variant="small" color={INK_MUTED}>
-                    {collectVpa ? "Pay a different way" : "Choose another app"}
+                    Choose another app
                   </Text>
                 </Pressable>
               </View>
@@ -904,6 +837,13 @@ const styles = StyleSheet.create({
     color: ROW_TEXT,
   },
   noMatch: { paddingVertical: spacing["5"] },
+  probeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    paddingVertical: spacing["6"],
+  },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: HAIRLINE,
@@ -917,33 +857,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing["2"],
   },
   listRowName: { flex: 1, fontSize: 14.5, color: ROW_TEXT },
-  vpaCard: {
-    borderWidth: 1,
-    borderColor: HAIRLINE,
-    borderRadius: radius.lg,
-    padding: spacing["3"],
-    gap: spacing["2"],
-  },
-  vpaInput: {
-    borderWidth: 1,
-    borderColor: "#3f3f46",
-    borderRadius: radius.md,
-    paddingHorizontal: spacing["3"],
-    paddingVertical: spacing["2.5"],
-    fontSize: 14,
-    color: ROW_TEXT,
-  },
-  vpaError: { marginTop: -2 },
-  vpaBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing["2"],
-    backgroundColor: EMERALD,
-    borderRadius: radius.md,
-    paddingVertical: spacing["2.5"],
-  },
-  vpaBtnDisabled: { opacity: 0.4 },
   appsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",

@@ -69,7 +69,6 @@ const DQR_BASE = isProd
 // appended to DQR_BASE for the actual request URL.
 const QR_INIT_PATH = "/v3/qr/init";
 const INTENT_INIT_PATH = "/v1/intent/init";
-const CHARGE_PATH = "/v3/charge";
 const QR_TXN_LIST_PATH = "/v3/qr/transaction/list";
 const txnStatusPath = (merchantId: string, transactionId: string) =>
   `/v3/transaction/${encodeURIComponent(merchantId)}/${encodeURIComponent(
@@ -282,86 +281,6 @@ export async function intentInit(params: QrInitParams): Promise<QrInitResult> {
   });
 
   return { qrString: intentString, qrImage, transactionId: params.transactionId };
-}
-
-export interface CollectInitParams {
-  /** Our unique id (< 35 chars). Stored as phonePeMerchantTxnId. */
-  transactionId: string;
-  /** Amount in paise. */
-  amountPaise: number;
-  /** Collect-request validity in seconds. Tie to the hold TTL. */
-  expiresIn: number;
-  /** Absolute URL PhonePe POSTs the result to (our dqr-callback). */
-  callbackUrl: string;
-  /** The customer's UPI ID the collect request is sent to. */
-  vpa: string;
-  message?: string;
-}
-
-/**
- * Send a UPI COLLECT request to the customer's VPA via the enterprise
- * Charge API (`/v3/charge`, instrumentType VPA) — the "Pay with UPI ID"
- * path. The customer approves the request inside their own UPI app;
- * confirmation then flows through the SAME status poll + S2S callback
- * as qrInit/intentInit (identical transactionId conventions).
- *
- * NOTE: like the transaction-list API, /v3/charge is a separately
- * provisioned product on the PhonePe merchant. If it isn't enabled the
- * call fails here and callers surface a friendly "use an app or scan
- * instead" message — nothing else in the DQR flow is affected.
- */
-export async function collectInit(
-  params: CollectInitParams,
-): Promise<{ transactionId: string }> {
-  const merchantId = requireMerchantId();
-
-  const payload = {
-    merchantId,
-    transactionId: params.transactionId,
-    merchantOrderId: params.transactionId,
-    amount: params.amountPaise,
-    instrumentType: "VPA",
-    instrumentReference: params.vpa,
-    expiresIn: params.expiresIn,
-    storeId: DQR_STORE_ID,
-    ...(DQR_TERMINAL_ID ? { terminalId: DQR_TERMINAL_ID } : {}),
-    ...(params.message ? { message: params.message } : {}),
-  };
-
-  const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
-  const endpoint = `${DQR_BASE}${CHARGE_PATH}`;
-  const checksum = xVerify(base64 + CHARGE_PATH);
-
-  const res = await fetch(endpoint, {
-    method: "POST",
-    signal: AbortSignal.timeout(10000),
-    headers: {
-      "Content-Type": "application/json",
-      "X-VERIFY": checksum,
-      "X-CALL-MODE": "POST",
-      "X-CALLBACK-URL": params.callbackUrl,
-    },
-    body: JSON.stringify({ request: base64 }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    console.error(
-      `[dqr] collect failed env=${DQR_ENV} host=${DQR_BASE} status=${res.status} body=${text.slice(0, 300)}`,
-    );
-    throw new Error(
-      `PhonePe collect failed [env=${DQR_ENV} host=${DQR_BASE}]: ${res.status} ${text.slice(0, 400)}`,
-    );
-  }
-
-  const data = (await res.json()) as { success?: boolean; code?: string };
-  if (!data.success) {
-    throw new Error(
-      `PhonePe collect unsuccessful: code=${data.code ?? "?"} success=${data.success}`,
-    );
-  }
-
-  return { transactionId: params.transactionId };
 }
 
 export type DqrState = "PENDING" | "COMPLETED" | "FAILED";

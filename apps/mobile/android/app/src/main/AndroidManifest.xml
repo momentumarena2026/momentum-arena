@@ -16,6 +16,16 @@
         android:name="com.google.android.gms.permission.AD_ID"
         tools:node="remove" />
 
+    <!-- Android 11+ package-visibility: without this, Linking.canOpenURL()
+         can't see other apps and UPI intent launches fail. Declare the UPI
+         deep-link scheme so the OS resolves installed UPI apps. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
+    </queries>
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
