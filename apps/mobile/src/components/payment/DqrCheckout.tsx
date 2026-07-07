@@ -302,37 +302,41 @@ export function DqrCheckout({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- animated values are stable refs; onConfirmed via ref
   }, [phase]);
 
-  // Intentionally NOT Linking.canOpenURL: on iOS that requires each scheme in
-  // LSApplicationQueriesSchemes (a native build), while plain openURL + catch
-  // stays OTA-safe. If the app-specific scheme rejects (not installed /
-  // community-observed scheme drifted) we retry the generic upi:// link —
-  // Android shows the system chooser; only a double failure surfaces the
-  // inline error.
+  // canOpenURL first (the schemes are declared in Info.plist /
+  // AndroidManifest <queries>, so it truthfully reports which UPI apps are
+  // installed). Plain openURL alone silently no-ops on iOS for an
+  // unsupported scheme — that was the "tap does nothing" bug. If the app's
+  // own scheme isn't openable we retry the generic upi:// link, and only a
+  // double miss surfaces an honest "not installed → scan QR" message.
   const openUpiApp = useCallback(
-    (name: string, url: string, fallbackUrl?: string) => {
+    async (name: string, url: string, fallbackUrl?: string) => {
       setAppOpenError(null);
       const launched = (openedUrl: string) => {
         trackUpiAppLaunched(displayAmount);
         setWaitingApp({ name, url: openedUrl });
         setPhase("waiting");
       };
-      Linking.openURL(url)
-        .then(() => launched(url))
-        .catch(() => {
-          if (fallbackUrl && fallbackUrl !== url) {
-            Linking.openURL(fallbackUrl)
-              .then(() => launched(fallbackUrl))
-              .catch(() => {
-                setAppOpenError(
-                  "Couldn't open the app — is it installed? Try another option.",
-                );
-              });
-          } else {
-            setAppOpenError(
-              "Couldn't open the app — is it installed? Try another option.",
-            );
-          }
-        });
+      const tryOpen = async (u: string): Promise<boolean> => {
+        try {
+          const ok = await Linking.canOpenURL(u);
+          if (!ok) return false;
+          await Linking.openURL(u);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      if (await tryOpen(url)) {
+        launched(url);
+        return;
+      }
+      if (fallbackUrl && fallbackUrl !== url && (await tryOpen(fallbackUrl))) {
+        launched(fallbackUrl);
+        return;
+      }
+      setAppOpenError(
+        `Couldn't open ${name} — it may not be installed. Scan the QR below or pick another app.`,
+      );
     },
     [displayAmount],
   );

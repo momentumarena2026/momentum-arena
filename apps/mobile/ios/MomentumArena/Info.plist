@@ -68,5 +68,39 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<!-- UPI intent: iOS only lets Linking.canOpenURL() probe schemes that are
+	     declared here. Without this, canOpenURL() returns false for every UPI
+	     app so we can't tell which are installed and openURL() silently no-ops
+	     (the "tap does nothing" bug). One entry per UPI app scheme we deep-link. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>upi</string>
+		<string>phonepe</string>
+		<string>tez</string>
+		<string>gpay</string>
+		<string>paytmmp</string>
+		<string>paytm</string>
+		<string>bhim</string>
+		<string>credpay</string>
+		<string>amazonpay</string>
+		<string>amzn</string>
+		<string>mobikwik</string>
+		<string>whatsapp</string>
+		<string>navi</string>
+		<string>navipay</string>
+		<string>yono</string>
+		<string>imobile</string>
+		<string>payzapp</string>
+		<string>axispay</string>
+		<string>axismobile</string>
+		<string>kmb</string>
+		<string>pnbupi</string>
+		<string>myairtel</string>
+		<string>jupiter</string>
+		<string>scapia</string>
+		<string>in.fampay.app</string>
+		<string>myjio</string>
+		<string>tnupi</string>
+	</array>
 </dict>
 </plist>
