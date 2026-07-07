@@ -10,12 +10,10 @@ import {
 } from "react";
 import {
   AlertCircle,
-  ChevronRight,
   Download,
   Loader2,
   QrCode,
   RefreshCw,
-  Search,
   X,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
@@ -111,8 +109,6 @@ export function DqrCheckout({
     name: string;
     link: string;
   } | null>(null);
-  // App search state.
-  const [query, setQuery] = useState("");
   const txnRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneRef = useRef(false);
@@ -295,45 +291,27 @@ export function DqrCheckout({
       <img src={src} alt={alt} className="h-7 w-7 object-contain" />
     </span>
   );
-  // Most-popular first — mirrors apps/mobile DqrCheckout's UPI_APPS. PNG
-  // icons extracted from public/upi/UPI_icons.jpeg (webp doesn't render in
-  // the RN app, so both surfaces standardise on the PNG set). `suggested`
-  // apps fill the tile grid; everything renders in the All Apps list.
-  const allApps: { key: string; name: string; link: string; suggested?: boolean }[] = [
-    { key: "phonepe", name: "PhonePe", link: `phonepe://pay?${q}`, suggested: true },
-    { key: "gpay", name: "Google Pay", link: `tez://upi/pay?${q}`, suggested: true },
-    { key: "paytm", name: "Paytm", link: `paytmmp://pay?${q}`, suggested: true },
-    { key: "bhim", name: "BHIM", link: `bhim://upi/pay?${q}`, suggested: true },
-    { key: "amazonpay", name: "Amazon Pay", link: `amzn://upi/pay?${q}`, suggested: true },
-    { key: "cred", name: "CRED", link: `credpay://upi/pay?${q}`, suggested: true },
-    { key: "mobikwik", name: "MobiKwik", link: `mobikwik://upi/pay?${q}`, suggested: true },
-    { key: "whatsapp", name: "WhatsApp Pay", link: `whatsapp://upi/pay?${q}`, suggested: true },
-    { key: "navi", name: "Navi", link: `navipay://upi/pay?${q}`, suggested: true },
-    { key: "sbi", name: "SBI (YONO)", link: `yono://upi/pay?${q}` },
-    { key: "icici", name: "ICICI iMobile", link: `imobile://upi/pay?${q}` },
-    { key: "hdfc", name: "HDFC PayZapp", link: `payzapp://upi/pay?${q}` },
-    { key: "axis", name: "Axis Bank", link: `axispay://upi/pay?${q}` },
-    { key: "kotak", name: "Kotak Bank", link: `kmb://upi/pay?${q}` },
-    { key: "pnb", name: "PNB", link: `pnbupi://upi/pay?${q}` },
-    { key: "airtel", name: "Airtel Payments Bank", link: `myairtel://upi/pay?${q}` },
-    { key: "jupiter", name: "Jupiter", link: `jupiter://upi/pay?${q}` },
-    { key: "scapia", name: "Scapia UPI", link: `scapia://upi/pay?${q}` },
-    { key: "fampay", name: "FamApp", link: `in.fampay.app://upi/pay?${q}` },
-    { key: "jiopay", name: "JioPay", link: `myjio://upi/pay?${q}` },
-    { key: "tataneu", name: "Tata Neu", link: `tnupi://upi/pay?${q}` },
+  // The 9 most-popular UPI apps (mirrors apps/mobile DqrCheckout's UPI_APPS) +
+  // a Scan-QR tile = 10 tiles. Web can't probe which apps are installed (no
+  // canOpenURL in a browser), so we show a fixed top-9 grid rather than the
+  // full/searchable list — banks etc. rarely deep-link cleanly from mobile web.
+  // PNG icons come from public/upi/ (webp doesn't render in the RN app, so both
+  // surfaces standardise on PNG).
+  const suggestedApps: { key: string; name: string; link: string }[] = [
+    { key: "phonepe", name: "PhonePe", link: `phonepe://pay?${q}` },
+    { key: "gpay", name: "Google Pay", link: `tez://upi/pay?${q}` },
+    { key: "paytm", name: "Paytm", link: `paytmmp://pay?${q}` },
+    { key: "bhim", name: "BHIM", link: `bhim://upi/pay?${q}` },
+    { key: "amazonpay", name: "Amazon Pay", link: `amzn://upi/pay?${q}` },
+    { key: "cred", name: "CRED", link: `credpay://upi/pay?${q}` },
+    { key: "mobikwik", name: "MobiKwik", link: `mobikwik://upi/pay?${q}` },
+    { key: "whatsapp", name: "WhatsApp Pay", link: `whatsapp://upi/pay?${q}` },
+    { key: "navi", name: "Navi", link: `navipay://upi/pay?${q}` },
   ];
-  const suggestedApps = allApps.filter((a) => a.suggested);
-  const filteredApps = query.trim()
-    ? allApps.filter((a) =>
-        a.name.toLowerCase().includes(query.trim().toLowerCase()),
-      )
-    : null;
 
   // Two tiles per row, Razorpay-style: [icon] [name] inside a bordered card.
   const tileBtnClass =
     "flex min-h-[56px] items-center gap-2.5 rounded-xl border border-zinc-800 px-3 py-2 text-left transition-colors hover:bg-zinc-800/60 active:bg-zinc-800";
-  const rowClass =
-    "flex min-h-[52px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-800/60 active:bg-zinc-800";
 
   const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
     // Payment already went through — don't let a stray tap cancel out of
@@ -399,92 +377,32 @@ export function DqrCheckout({
 
         {phase === "apps" && (
           <div className="pb-4">
-            {/* Search */}
-            <div className="px-4 pt-3">
-              <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2.5">
-                <Search className="h-4 w-4 shrink-0 text-zinc-500" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search UPI apps"
-                  className="w-full bg-transparent text-[14px] text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-                />
-              </div>
+            {/* Top UPI apps — two tiles per row + Scan QR (10 tiles total). */}
+            <p className="px-4 pb-1 pt-4 text-[12px] font-medium uppercase tracking-wider text-zinc-500">
+              Pay using UPI app
+            </p>
+            <div className="grid grid-cols-2 gap-2.5 px-4 pt-1">
+              {suggestedApps.map((app) => (
+                <button
+                  key={app.key}
+                  onClick={() => launchApp(app.name, app.link)}
+                  className={tileBtnClass}
+                >
+                  {appTile(`/upi/${app.key}.png`, app.name)}
+                  <span className="min-w-0 flex-1 text-[13.5px] font-medium leading-tight text-zinc-100">
+                    {app.name}
+                  </span>
+                </button>
+              ))}
+              <button onClick={() => setPhase("qr")} className={tileBtnClass}>
+                <span className={`${tileBase} bg-zinc-800`}>
+                  <QrCode className="h-5 w-5 text-zinc-300" />
+                </span>
+                <span className="min-w-0 flex-1 text-[13.5px] font-medium leading-tight text-zinc-100">
+                  Scan QR code
+                </span>
+              </button>
             </div>
-
-            {filteredApps ? (
-              /* Search results — single-column rows across ALL apps */
-              <div className="mt-2 divide-y divide-zinc-800/70">
-                {filteredApps.length === 0 && (
-                  <p className="px-4 py-6 text-center text-sm text-zinc-500">
-                    No UPI app matches &ldquo;{query.trim()}&rdquo;
-                  </p>
-                )}
-                {filteredApps.map((app) => (
-                  <button
-                    key={app.key}
-                    onClick={() => launchApp(app.name, app.link)}
-                    className={rowClass}
-                  >
-                    {appTile(`/upi/${app.key}.png`, app.name)}
-                    <span className="flex-1 text-[14px] font-medium text-zinc-100">
-                      {app.name}
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <>
-                {/* Suggested apps — two tiles per row + Scan QR */}
-                <p className="px-4 pb-1 pt-4 text-[12px] font-medium uppercase tracking-wider text-zinc-500">
-                  Suggested apps
-                </p>
-                <div className="grid grid-cols-2 gap-2.5 px-4 pt-1">
-                  {suggestedApps.map((app) => (
-                    <button
-                      key={app.key}
-                      onClick={() => launchApp(app.name, app.link)}
-                      className={tileBtnClass}
-                    >
-                      {appTile(`/upi/${app.key}.png`, app.name)}
-                      <span className="min-w-0 flex-1 text-[13.5px] font-medium leading-tight text-zinc-100">
-                        {app.name}
-                      </span>
-                    </button>
-                  ))}
-                  <button onClick={() => setPhase("qr")} className={tileBtnClass}>
-                    <span className={`${tileBase} bg-zinc-800`}>
-                      <QrCode className="h-5 w-5 text-zinc-300" />
-                    </span>
-                    <span className="min-w-0 flex-1 text-[13.5px] font-medium leading-tight text-zinc-100">
-                      Scan QR code
-                    </span>
-                  </button>
-                </div>
-
-                {/* All apps */}
-                <p className="px-4 pb-1 pt-5 text-[12px] font-medium uppercase tracking-wider text-zinc-500">
-                  All apps
-                </p>
-                <div className="divide-y divide-zinc-800/70">
-                  {allApps.map((app) => (
-                    <button
-                      key={app.key}
-                      onClick={() => launchApp(app.name, app.link)}
-                      className={rowClass}
-                    >
-                      {appTile(`/upi/${app.key}.png`, app.name)}
-                      <span className="flex-1 text-[14px] font-medium text-zinc-100">
-                        {app.name}
-                      </span>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
           </div>
         )}
 
