@@ -1,15 +1,19 @@
 # UPI app logos
 
-Brand logos for the iOS "choose your UPI app" buttons on the DQR checkout
-(components/payment/dqr-checkout.tsx → UPI_LOGO_SRC / UpiAppGlyph).
+Brand icons for the UPI intent sheet (components/payment/dqr-checkout.tsx
+on web; apps/mobile/src/components/payment/DqrCheckout.tsx keeps an
+identical copy under apps/mobile/src/assets/upi/).
 
-Current files (square brand icons):
+All icons are 128x128 PNG on a white chip, extracted from
+`UPI_icons.jpeg` (the master sprite) by `README`-documented grid crop.
+PNG is mandatory: React Native on iOS does not render .webp, which made
+the earlier logos invisible in the app.
 
-- gpay.jpg      — Google Pay
-- phonepe.webp  — PhonePe
-- paytm.webp    — Paytm
-- upi.webp      — generic UPI (the "Other UPI app" tile)
+Current set (popularity order used in the sheet):
+phonepe · gpay · paytm · bhim · amazonpay · cred · mobikwik · whatsapp ·
+navi — plus `upi.png` (generic mark, used by the static-QR flow).
 
-If a file is missing the tile falls back to a brand-coloured mark, so a
-missing logo never renders a broken image. To swap a logo, replace the file
-and update its path in UPI_LOGO_SRC.
+To add an app: crop it from UPI_icons.jpeg (or a square brand icon),
+save as 128x128 PNG here AND in apps/mobile/src/assets/upi/, then add
+the entry (name, deep-link scheme, icon) to the UPI_APPS lists in both
+checkout components.

@@ -10,7 +10,6 @@ import {
 } from "react";
 import {
   AlertCircle,
-  ChevronRight,
   Download,
   Loader2,
   QrCode,
@@ -292,31 +291,24 @@ export function DqrCheckout({
       <img src={src} alt={alt} className="h-7 w-7 object-contain" />
     </span>
   );
+  // Most-popular first — mirrors apps/mobile DqrCheckout's UPI_APPS. PNG
+  // icons extracted from public/upi/UPI_icons.jpeg (webp doesn't render in
+  // the RN app, so both surfaces standardise on the PNG set).
   const appRows: { name: string; link: string; tile: ReactNode }[] = [
-    {
-      name: "PhonePe",
-      link: `phonepe://pay?${q}`,
-      tile: appTile("/upi/phonepe.webp", "PhonePe"),
-    },
-    {
-      name: "Google Pay",
-      link: `tez://upi/pay?${q}`,
-      tile: appTile("/upi/gpay.jpg", "Google Pay"),
-    },
-    {
-      name: "Paytm",
-      link: `paytmmp://pay?${q}`,
-      tile: appTile("/upi/paytm.webp", "Paytm"),
-    },
-    {
-      name: "BHIM",
-      link: `upi://pay?${q}`,
-      tile: appTile("/upi/upi.webp", "BHIM UPI"),
-    },
+    { name: "PhonePe", link: `phonepe://pay?${q}`, tile: appTile("/upi/phonepe.png", "PhonePe") },
+    { name: "Google Pay", link: `tez://upi/pay?${q}`, tile: appTile("/upi/gpay.png", "Google Pay") },
+    { name: "Paytm", link: `paytmmp://pay?${q}`, tile: appTile("/upi/paytm.png", "Paytm") },
+    { name: "BHIM", link: `bhim://upi/pay?${q}`, tile: appTile("/upi/bhim.png", "BHIM") },
+    { name: "Amazon Pay", link: `amzn://upi/pay?${q}`, tile: appTile("/upi/amazonpay.png", "Amazon Pay") },
+    { name: "CRED", link: `credpay://upi/pay?${q}`, tile: appTile("/upi/cred.png", "CRED") },
+    { name: "MobiKwik", link: `mobikwik://upi/pay?${q}`, tile: appTile("/upi/mobikwik.png", "MobiKwik") },
+    { name: "WhatsApp Pay", link: `whatsapp://upi/pay?${q}`, tile: appTile("/upi/whatsapp.png", "WhatsApp Pay") },
+    { name: "Navi", link: `navipay://upi/pay?${q}`, tile: appTile("/upi/navi.png", "Navi") },
   ];
 
-  const rowClass =
-    "flex min-h-[48px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-800/60 active:bg-zinc-800";
+  // Two tiles per row, Razorpay-style: [icon] [name] inside a bordered card.
+  const tileBtnClass =
+    "flex min-h-[56px] items-center gap-2.5 rounded-xl border border-zinc-800 px-3 py-2 text-left transition-colors hover:bg-zinc-800/60 active:bg-zinc-800";
 
   const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
     // Payment already went through — don't let a stray tap cancel out of
@@ -385,38 +377,26 @@ export function DqrCheckout({
             <p className="px-4 pb-1 pt-4 text-[12px] font-medium uppercase tracking-wider text-zinc-500">
               Pay using UPI app
             </p>
-            <div className="divide-y divide-zinc-800">
+            <div className="grid grid-cols-2 gap-2.5 px-4 pt-2">
               {appRows.map((app) => (
                 <button
                   key={app.name}
                   onClick={() => launchApp(app.name, app.link)}
-                  className={rowClass}
+                  className={tileBtnClass}
                 >
                   {app.tile}
-                  <span className="flex-1 text-[15px] font-medium text-zinc-100">
+                  <span className="min-w-0 flex-1 text-[13.5px] font-medium leading-tight text-zinc-100">
                     {app.name}
                   </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
                 </button>
               ))}
-              <button onClick={() => setPhase("qr")} className={rowClass}>
+              <button onClick={() => setPhase("qr")} className={tileBtnClass}>
                 <span className={`${tileBase} bg-zinc-800`}>
                   <QrCode className="h-5 w-5 text-zinc-300" />
                 </span>
-                <span className="flex-1 text-[15px] font-medium text-zinc-100">
+                <span className="min-w-0 flex-1 text-[13.5px] font-medium leading-tight text-zinc-100">
                   Scan QR code
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
-              </button>
-              <button
-                onClick={() => launchApp("your UPI app", `upi://pay?${q}`)}
-                className={rowClass}
-              >
-                {appTile("/upi/upi.webp", "UPI")}
-                <span className="flex-1 text-[15px] font-medium text-zinc-100">
-                  Other UPI apps
-                </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
               </button>
             </div>
           </div>
