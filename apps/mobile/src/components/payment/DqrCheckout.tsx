@@ -149,6 +149,14 @@ export function DqrCheckout({
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   // App-search state.
   const [query, setQuery] = useState("");
+  // Which UPI apps are actually installed + openable on THIS device. null =
+  // not probed yet. We only show these (Razorpay-style): tapping a listed app
+  // always opens it, and apps that can't open (not installed / no working iOS
+  // scheme, e.g. most bank apps) never appear — so no dead taps and no
+  // accidentally opening the OS's default upi:// handler (WhatsApp on iOS).
+  const [installedApps, setInstalledApps] = useState<typeof ALL_APPS | null>(
+    null,
+  );
   const txnRef = useRef<string | null>(null);
   const bookingIdRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -302,40 +310,27 @@ export function DqrCheckout({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- animated values are stable refs; onConfirmed via ref
   }, [phase]);
 
-  // canOpenURL first (the schemes are declared in Info.plist /
-  // AndroidManifest <queries>, so it truthfully reports which UPI apps are
-  // installed). Plain openURL alone silently no-ops on iOS for an
-  // unsupported scheme — that was the "tap does nothing" bug. If the app's
-  // own scheme isn't openable we retry the generic upi:// link, and only a
-  // double miss surfaces an honest "not installed → scan QR" message.
+  // Open the chosen app's OWN scheme only — never a generic upi:// fallback
+  // (that would open iOS's default UPI handler, e.g. WhatsApp, instead of the
+  // app the user picked). We only list canOpenURL-true apps, so this opens
+  // reliably; the error is a safety net for the rare race where the app was
+  // uninstalled between probe and tap.
   const openUpiApp = useCallback(
-    async (name: string, url: string, fallbackUrl?: string) => {
+    async (name: string, url: string) => {
       setAppOpenError(null);
-      const launched = (openedUrl: string) => {
-        trackUpiAppLaunched(displayAmount);
-        setWaitingApp({ name, url: openedUrl });
-        setPhase("waiting");
-      };
-      const tryOpen = async (u: string): Promise<boolean> => {
-        try {
-          const ok = await Linking.canOpenURL(u);
-          if (!ok) return false;
-          await Linking.openURL(u);
-          return true;
-        } catch {
-          return false;
+      try {
+        if (await Linking.canOpenURL(url)) {
+          await Linking.openURL(url);
+          trackUpiAppLaunched(displayAmount);
+          setWaitingApp({ name, url });
+          setPhase("waiting");
+          return;
         }
-      };
-      if (await tryOpen(url)) {
-        launched(url);
-        return;
-      }
-      if (fallbackUrl && fallbackUrl !== url && (await tryOpen(fallbackUrl))) {
-        launched(fallbackUrl);
-        return;
+      } catch {
+        // fall through to the error
       }
       setAppOpenError(
-        `Couldn't open ${name} — it may not be installed. Scan the QR below or pick another app.`,
+        `Couldn't open ${name}. Scan the QR below or pick another app.`,
       );
     },
     [displayAmount],
@@ -347,8 +342,33 @@ export function DqrCheckout({
     onCancel();
   }, [phase, onCancel]);
 
+  // Probe once we reach the app-picker. Each canOpenURL is truthful because
+  // the schemes are declared in Info.plist / AndroidManifest <queries>.
+  useEffect(() => {
+    if (phase !== "apps") return;
+    let cancelled = false;
+    (async () => {
+      const checks = await Promise.all(
+        ALL_APPS.map(async (app) => {
+          try {
+            return (await Linking.canOpenURL(`${app.prefix}?pa=x`)) ? app : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (!cancelled) {
+        setInstalledApps(checks.filter((a): a is (typeof ALL_APPS)[number] => a !== null));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase]);
+
+  const visibleApps = installedApps ?? [];
   const filteredApps = query.trim()
-    ? ALL_APPS.filter((a) =>
+    ? visibleApps.filter((a) =>
         a.name.toLowerCase().includes(query.trim().toLowerCase()),
       )
     : null;
@@ -414,19 +434,21 @@ export function DqrCheckout({
 
             {phase === "apps" ? (
               <View>
-                {/* Search */}
-                <View style={styles.searchRow}>
-                  <Search size={16} color={INK_FAINT} />
-                  <TextInput
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder="Search UPI apps"
-                    placeholderTextColor={INK_FAINT}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.searchInput}
-                  />
-                </View>
+                {/* Search — only when there are enough installed apps to sift. */}
+                {installedApps && installedApps.length > 4 ? (
+                  <View style={styles.searchRow}>
+                    <Search size={16} color={INK_FAINT} />
+                    <TextInput
+                      value={query}
+                      onChangeText={setQuery}
+                      placeholder="Search UPI apps"
+                      placeholderTextColor={INK_FAINT}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={styles.searchInput}
+                    />
+                  </View>
+                ) : null}
 
                 {appOpenError ? (
                   <View style={styles.openErrorBox}>
@@ -437,12 +459,20 @@ export function DqrCheckout({
                   </View>
                 ) : null}
 
-                {filteredApps ? (
-                  /* Search results — single-column rows across ALL apps */
+                {installedApps === null ? (
+                  /* Probing which UPI apps are installed. */
+                  <View style={styles.probeRow}>
+                    <ActivityIndicator size="small" color={INK_FAINT} />
+                    <Text variant="small" color={INK_MUTED}>
+                      Finding your UPI apps…
+                    </Text>
+                  </View>
+                ) : filteredApps ? (
+                  /* Search results — single-column rows over installed apps. */
                   <View>
                     {filteredApps.length === 0 ? (
                       <Text variant="small" color={INK_FAINT} align="center" style={styles.noMatch}>
-                        No UPI app matches &ldquo;{query.trim()}&rdquo;
+                        No installed UPI app matches &ldquo;{query.trim()}&rdquo;
                       </Text>
                     ) : null}
                     {filteredApps.map((app, i) => (
@@ -450,28 +480,24 @@ export function DqrCheckout({
                         {i > 0 ? <View style={styles.rowDivider} /> : null}
                         <AppListRow
                           name={app.name}
-                          onPress={() =>
-                            openUpiApp(app.name, `${app.prefix}?${q}`, `upi://pay?${q}`)
-                          }
+                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
                           tile={<AppIconTile source={app.icon} />}
                         />
                       </View>
                     ))}
                   </View>
-                ) : (
+                ) : visibleApps.length > 0 ? (
+                  /* Installed UPI apps — two tiles per row + Scan QR. */
                   <View>
-                    {/* Suggested apps — two tiles per row + Scan QR */}
                     <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                      Suggested apps
+                      Pay using UPI app
                     </Text>
                     <View style={styles.appsGrid}>
-                      {UPI_APPS.map((app) => (
+                      {visibleApps.map((app) => (
                         <AppTile
                           key={app.key}
                           name={app.name}
-                          onPress={() =>
-                            openUpiApp(app.name, `${app.prefix}?${q}`, `upi://pay?${q}`)
-                          }
+                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
                           tile={<AppIconTile source={app.icon} />}
                         />
                       ))}
@@ -485,23 +511,22 @@ export function DqrCheckout({
                         }
                       />
                     </View>
-
-                    {/* All apps */}
-                    <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                      All apps
+                  </View>
+                ) : (
+                  /* No UPI app detected on this device. */
+                  <View>
+                    <Text variant="small" color={INK_MUTED} align="center" style={styles.noMatch}>
+                      No UPI app found on this device.
                     </Text>
-                    {ALL_APPS.map((app, i) => (
-                      <View key={app.key}>
-                        {i > 0 ? <View style={styles.rowDivider} /> : null}
-                        <AppListRow
-                          name={app.name}
-                          onPress={() =>
-                            openUpiApp(app.name, `${app.prefix}?${q}`, `upi://pay?${q}`)
-                          }
-                          tile={<AppIconTile source={app.icon} />}
-                        />
-                      </View>
-                    ))}
+                    <AppTile
+                      name="Scan QR code to pay"
+                      onPress={() => setPhase("qr")}
+                      tile={
+                        <Tile dark>
+                          <QrCode size={18} color="#d4d4d8" />
+                        </Tile>
+                      }
+                    />
                   </View>
                 )}
               </View>
@@ -812,6 +837,13 @@ const styles = StyleSheet.create({
     color: ROW_TEXT,
   },
   noMatch: { paddingVertical: spacing["5"] },
+  probeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    paddingVertical: spacing["6"],
+  },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: HAIRLINE,
