@@ -10,7 +10,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
   type ImageSourcePropType,
 } from "react-native";
@@ -18,10 +17,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AlertCircle,
   Check,
-  ChevronRight,
   QrCode,
   RefreshCw,
-  Search,
   X,
 } from "lucide-react-native";
 import { Text } from "../ui/Text";
@@ -100,25 +97,6 @@ const UPI_APPS: {
   { key: "navi", name: "Navi", prefix: "navipay://upi/pay", icon: { uri: UPI_ICON_DATA.navi } },
 ];
 
-/** The long tail shown under "All apps" (and searchable) after the
- *  suggested grid — same registry-sourced schemes + base64 icons. */
-const MORE_APPS: typeof UPI_APPS = [
-  { key: "sbi", name: "SBI (YONO)", prefix: "yono://upi/pay", icon: { uri: UPI_ICON_DATA.sbi } },
-  { key: "icici", name: "ICICI iMobile", prefix: "imobile://upi/pay", icon: { uri: UPI_ICON_DATA.icici } },
-  { key: "hdfc", name: "HDFC PayZapp", prefix: "payzapp://upi/pay", icon: { uri: UPI_ICON_DATA.hdfc } },
-  { key: "axis", name: "Axis Bank", prefix: "axispay://upi/pay", icon: { uri: UPI_ICON_DATA.axis } },
-  { key: "kotak", name: "Kotak Bank", prefix: "kmb://upi/pay", icon: { uri: UPI_ICON_DATA.kotak } },
-  { key: "pnb", name: "PNB", prefix: "pnbupi://upi/pay", icon: { uri: UPI_ICON_DATA.pnb } },
-  { key: "airtel", name: "Airtel Payments Bank", prefix: "myairtel://upi/pay", icon: { uri: UPI_ICON_DATA.airtel } },
-  { key: "jupiter", name: "Jupiter", prefix: "jupiter://upi/pay", icon: { uri: UPI_ICON_DATA.jupiter } },
-  { key: "scapia", name: "Scapia UPI", prefix: "scapia://upi/pay", icon: { uri: UPI_ICON_DATA.scapia } },
-  { key: "fampay", name: "FamApp", prefix: "in.fampay.app://upi/pay", icon: { uri: UPI_ICON_DATA.fampay } },
-  { key: "jiopay", name: "JioPay", prefix: "myjio://upi/pay", icon: { uri: UPI_ICON_DATA.jiopay } },
-  { key: "tataneu", name: "Tata Neu", prefix: "tnupi://upi/pay", icon: { uri: UPI_ICON_DATA.tataneu } },
-];
-
-const ALL_APPS = [...UPI_APPS, ...MORE_APPS];
-
 /**
  * Mobile PhonePe DQR checkout, presented as a Razorpay-style bottom sheet.
  *
@@ -147,16 +125,6 @@ export function DqrCheckout({
   const [appOpenError, setAppOpenError] = useState<string | null>(null);
   const [waitingApp, setWaitingApp] = useState<{ name: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-  // App-search state.
-  const [query, setQuery] = useState("");
-  // Which UPI apps are actually installed + openable on THIS device. null =
-  // not probed yet. We only show these (Razorpay-style): tapping a listed app
-  // always opens it, and apps that can't open (not installed / no working iOS
-  // scheme, e.g. most bank apps) never appear — so no dead taps and no
-  // accidentally opening the OS's default upi:// handler (WhatsApp on iOS).
-  const [installedApps, setInstalledApps] = useState<typeof ALL_APPS | null>(
-    null,
-  );
   const txnRef = useRef<string | null>(null);
   const bookingIdRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -342,37 +310,6 @@ export function DqrCheckout({
     onCancel();
   }, [phase, onCancel]);
 
-  // Probe once we reach the app-picker. Each canOpenURL is truthful because
-  // the schemes are declared in Info.plist / AndroidManifest <queries>.
-  useEffect(() => {
-    if (phase !== "apps") return;
-    let cancelled = false;
-    (async () => {
-      const checks = await Promise.all(
-        ALL_APPS.map(async (app) => {
-          try {
-            return (await Linking.canOpenURL(`${app.prefix}?pa=x`)) ? app : null;
-          } catch {
-            return null;
-          }
-        }),
-      );
-      if (!cancelled) {
-        setInstalledApps(checks.filter((a): a is (typeof ALL_APPS)[number] => a !== null));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [phase]);
-
-  const visibleApps = installedApps ?? [];
-  const filteredApps = query.trim()
-    ? visibleApps.filter((a) =>
-        a.name.toLowerCase().includes(query.trim().toLowerCase()),
-      )
-    : null;
-
   const q = qrString ? qrString.split("?")[1] ?? "" : "";
   const countdown =
     secondsLeft != null
@@ -434,22 +371,6 @@ export function DqrCheckout({
 
             {phase === "apps" ? (
               <View>
-                {/* Search — only when there are enough installed apps to sift. */}
-                {installedApps && installedApps.length > 4 ? (
-                  <View style={styles.searchRow}>
-                    <Search size={16} color={INK_FAINT} />
-                    <TextInput
-                      value={query}
-                      onChangeText={setQuery}
-                      placeholder="Search UPI apps"
-                      placeholderTextColor={INK_FAINT}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      style={styles.searchInput}
-                    />
-                  </View>
-                ) : null}
-
                 {appOpenError ? (
                   <View style={styles.openErrorBox}>
                     <AlertCircle size={14} color={RED} style={styles.noticeIcon} />
@@ -459,76 +380,30 @@ export function DqrCheckout({
                   </View>
                 ) : null}
 
-                {installedApps === null ? (
-                  /* Probing which UPI apps are installed. */
-                  <View style={styles.probeRow}>
-                    <ActivityIndicator size="small" color={INK_FAINT} />
-                    <Text variant="small" color={INK_MUTED}>
-                      Finding your UPI apps…
-                    </Text>
-                  </View>
-                ) : filteredApps ? (
-                  /* Search results — single-column rows over installed apps. */
-                  <View>
-                    {filteredApps.length === 0 ? (
-                      <Text variant="small" color={INK_FAINT} align="center" style={styles.noMatch}>
-                        No installed UPI app matches &ldquo;{query.trim()}&rdquo;
-                      </Text>
-                    ) : null}
-                    {filteredApps.map((app, i) => (
-                      <View key={app.key}>
-                        {i > 0 ? <View style={styles.rowDivider} /> : null}
-                        <AppListRow
-                          name={app.name}
-                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
-                          tile={<AppIconTile source={app.icon} />}
-                        />
-                      </View>
-                    ))}
-                  </View>
-                ) : visibleApps.length > 0 ? (
-                  /* Installed UPI apps — two tiles per row + Scan QR. */
-                  <View>
-                    <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                      Pay using UPI app
-                    </Text>
-                    <View style={styles.appsGrid}>
-                      {visibleApps.map((app) => (
-                        <AppTile
-                          key={app.key}
-                          name={app.name}
-                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
-                          tile={<AppIconTile source={app.icon} />}
-                        />
-                      ))}
-                      <AppTile
-                        name="Scan QR code"
-                        onPress={() => setPhase("qr")}
-                        tile={
-                          <Tile dark>
-                            <QrCode size={18} color="#d4d4d8" />
-                          </Tile>
-                        }
-                      />
-                    </View>
-                  </View>
-                ) : (
-                  /* No UPI app detected on this device. */
-                  <View>
-                    <Text variant="small" color={INK_MUTED} align="center" style={styles.noMatch}>
-                      No UPI app found on this device.
-                    </Text>
+                {/* Top UPI apps — two tiles per row + Scan QR (10 tiles),
+                    matching the web checkout. */}
+                <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
+                  Pay using UPI app
+                </Text>
+                <View style={styles.appsGrid}>
+                  {UPI_APPS.map((app) => (
                     <AppTile
-                      name="Scan QR code to pay"
-                      onPress={() => setPhase("qr")}
-                      tile={
-                        <Tile dark>
-                          <QrCode size={18} color="#d4d4d8" />
-                        </Tile>
-                      }
+                      key={app.key}
+                      name={app.name}
+                      onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
+                      tile={<AppIconTile source={app.icon} />}
                     />
-                  </View>
-                )}
+                  ))}
+                  <AppTile
+                    name="Scan QR code"
+                    onPress={() => setPhase("qr")}
+                    tile={
+                      <Tile dark>
+                        <QrCode size={18} color="#d4d4d8" />
+                      </Tile>
+                    }
+                  />
+                </View>
               </View>
             ) : null}
 
@@ -711,28 +586,6 @@ function AppIconTile({ source }: { source: ImageSourcePropType }) {
   );
 }
 
-/** One tappable full-width row (All apps / search results): [icon] [name] [>]. */
-function AppListRow({
-  name,
-  onPress,
-  tile,
-}: {
-  name: string;
-  onPress: () => void;
-  tile: ReactNode;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.listRow, pressed && styles.appRowPressed]}
-    >
-      {tile}
-      <Text style={styles.listRowName}>{name}</Text>
-      <ChevronRight size={18} color={INK_FAINT} />
-    </Pressable>
-  );
-}
-
 /** One tappable tile in the two-per-row UPI-app grid: [icon] [name]. */
 function AppTile({
   name,
@@ -820,43 +673,6 @@ const styles = StyleSheet.create({
 
   // ── UPI app grid (two tiles per row, Razorpay-style) ───────────────────
   listLabel: { marginBottom: spacing["2"], marginTop: spacing["3"] },
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["2"],
-    borderWidth: 1,
-    borderColor: HAIRLINE,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing["3"],
-    marginBottom: spacing["1"],
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: spacing["2.5"],
-    fontSize: 14,
-    color: ROW_TEXT,
-  },
-  noMatch: { paddingVertical: spacing["5"] },
-  probeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing["2"],
-    paddingVertical: spacing["6"],
-  },
-  rowDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: HAIRLINE,
-    marginLeft: 36 + spacing["3"],
-  },
-  listRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["3"],
-    minHeight: 52,
-    paddingVertical: spacing["2"],
-  },
-  listRowName: { flex: 1, fontSize: 14.5, color: ROW_TEXT },
   appsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
