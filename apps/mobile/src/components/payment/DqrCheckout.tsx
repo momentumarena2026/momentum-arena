@@ -125,6 +125,14 @@ export function DqrCheckout({
   const [appOpenError, setAppOpenError] = useState<string | null>(null);
   const [waitingApp, setWaitingApp] = useState<{ name: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  // Of our 9 UPI apps, which are actually installed + openable on THIS device.
+  // null = not probed yet. canOpenURL is truthful because the schemes are
+  // declared in Info.plist / AndroidManifest <queries>. Apps that can't open
+  // (not installed, or no iOS UPI-intent support like Amazon Pay / bank apps
+  // on iOS) are hidden so a tap never dead-ends or opens the wrong app.
+  const [installedApps, setInstalledApps] = useState<typeof UPI_APPS | null>(
+    null,
+  );
   const txnRef = useRef<string | null>(null);
   const bookingIdRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -310,6 +318,32 @@ export function DqrCheckout({
     onCancel();
   }, [phase, onCancel]);
 
+  // On reaching the app picker, probe which of the 9 apps are installed +
+  // openable and show only those. Scan QR is always available regardless.
+  useEffect(() => {
+    if (phase !== "apps") return;
+    let cancelled = false;
+    (async () => {
+      const checks = await Promise.all(
+        UPI_APPS.map(async (app) => {
+          try {
+            return (await Linking.canOpenURL(`${app.prefix}?pa=x`)) ? app : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (!cancelled) {
+        setInstalledApps(
+          checks.filter((a): a is (typeof UPI_APPS)[number] => a !== null),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase]);
+
   const q = qrString ? qrString.split("?")[1] ?? "" : "";
   const countdown =
     secondsLeft != null
@@ -380,30 +414,48 @@ export function DqrCheckout({
                   </View>
                 ) : null}
 
-                {/* Top UPI apps — two tiles per row + Scan QR (10 tiles),
-                    matching the web checkout. */}
-                <Text variant="tiny" weight="600" color={INK_MUTED} style={styles.listLabel}>
-                  Pay using UPI app
-                </Text>
-                <View style={styles.appsGrid}>
-                  {UPI_APPS.map((app) => (
-                    <AppTile
-                      key={app.key}
-                      name={app.name}
-                      onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
-                      tile={<AppIconTile source={app.icon} />}
-                    />
-                  ))}
-                  <AppTile
-                    name="Scan QR code"
-                    onPress={() => setPhase("qr")}
-                    tile={
-                      <Tile dark>
-                        <QrCode size={18} color="#d4d4d8" />
-                      </Tile>
-                    }
-                  />
-                </View>
+                {/* Installed UPI apps (from our 9) — two tiles per row +
+                    Scan QR. Only apps that will actually open are shown. */}
+                {installedApps === null ? (
+                  <View style={styles.probeRow}>
+                    <ActivityIndicator size="small" color={INK_FAINT} />
+                    <Text variant="small" color={INK_MUTED}>
+                      Finding your UPI apps…
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text
+                      variant="tiny"
+                      weight="600"
+                      color={INK_MUTED}
+                      style={styles.listLabel}
+                    >
+                      {installedApps.length > 0
+                        ? "Pay using UPI app"
+                        : "No UPI app found — scan the QR to pay"}
+                    </Text>
+                    <View style={styles.appsGrid}>
+                      {installedApps.map((app) => (
+                        <AppTile
+                          key={app.key}
+                          name={app.name}
+                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
+                          tile={<AppIconTile source={app.icon} />}
+                        />
+                      ))}
+                      <AppTile
+                        name="Scan QR code"
+                        onPress={() => setPhase("qr")}
+                        tile={
+                          <Tile dark>
+                            <QrCode size={18} color="#d4d4d8" />
+                          </Tile>
+                        }
+                      />
+                    </View>
+                  </>
+                )}
               </View>
             ) : null}
 
@@ -673,6 +725,13 @@ const styles = StyleSheet.create({
 
   // ── UPI app grid (two tiles per row, Razorpay-style) ───────────────────
   listLabel: { marginBottom: spacing["2"], marginTop: spacing["3"] },
+  probeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing["2"],
+    paddingVertical: spacing["6"],
+  },
   appsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
