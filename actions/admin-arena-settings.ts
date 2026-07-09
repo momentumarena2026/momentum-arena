@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { OPERATING_HOURS } from "@/lib/court-config";
+import { getMathuraRain } from "@/lib/weather";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -127,4 +128,103 @@ export async function updateArenaSettings(data: {
   }
 
   return { ok: true, openHour: open, closeHour: close };
+}
+
+// ─── "Rain doesn't slow us down" banner ──────────────────────────────────
+
+export type RainBannerMode = "AUTO" | "ON" | "OFF";
+
+/** Default banner copy when the admin hasn't set a custom message. */
+const DEFAULT_RAIN_BODY =
+  "Designed for quick drainage and uninterrupted play — book your slot.";
+
+/** Admin config for the banner. */
+export async function getRainBannerConfig(): Promise<{
+  mode: RainBannerMode;
+  text: string | null;
+}> {
+  try {
+    const row = await db.arenaSettings.findFirst({
+      select: { rainBannerMode: true, rainBannerText: true },
+    });
+    const mode = row?.rainBannerMode;
+    return {
+      mode: mode === "ON" || mode === "OFF" ? mode : "AUTO",
+      text: row?.rainBannerText ?? null,
+    };
+  } catch (err) {
+    console.error("[rain-banner] config read failed", err);
+    return { mode: "AUTO", text: null };
+  }
+}
+
+/**
+ * Resolve whether to show the banner right now, combining the admin mode
+ * with live weather. Public-by-design — the homepage + booking page call
+ * this. Never throws.
+ *   OFF  → hidden always
+ *   ON   → shown always
+ *   AUTO → shown only when it's raining / forecast rain in Mathura
+ */
+export async function getRainBanner(): Promise<{
+  show: boolean;
+  title: string;
+  body: string;
+}> {
+  const { mode, text } = await getRainBannerConfig();
+  const body = text?.trim() || DEFAULT_RAIN_BODY;
+
+  if (mode === "OFF") return { show: false, title: "", body };
+  if (mode === "ON") {
+    return { show: true, title: "Rain doesn't slow us down 🌧️🏏", body };
+  }
+  // AUTO
+  const rain = await getMathuraRain();
+  return {
+    show: rain.isRaining,
+    title: rain.label ? `${rain.label} — but we're still playing 🌧️🏏` : "",
+    body,
+  };
+}
+
+/** Update the banner mode + optional custom copy. Admin-only. */
+export async function setRainBanner(data: {
+  mode: RainBannerMode;
+  text?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requireAdmin("MANAGE_PRICING");
+  } catch {
+    return { ok: false, error: "You don't have permission to update this." };
+  }
+
+  const mode: RainBannerMode =
+    data.mode === "ON" || data.mode === "OFF" ? data.mode : "AUTO";
+  const text = data.text?.trim() ? data.text.trim().slice(0, 200) : null;
+
+  try {
+    const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+    if (existing) {
+      await db.arenaSettings.update({
+        where: { id: existing.id },
+        data: { rainBannerMode: mode, rainBannerText: text },
+      });
+    } else {
+      await db.arenaSettings.create({
+        data: { rainBannerMode: mode, rainBannerText: text },
+      });
+    }
+  } catch (err) {
+    console.error("[rain-banner] update failed", err);
+    return { ok: false, error: "Couldn't save. Please try again." };
+  }
+
+  try {
+    revalidatePath("/");
+    revalidatePath("/book");
+    revalidatePath("/admin/pricing");
+  } catch {
+    /* write already landed */
+  }
+  return { ok: true };
 }

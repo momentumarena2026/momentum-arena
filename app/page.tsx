@@ -14,6 +14,8 @@ import { db } from "@/lib/db";
 import { SPORT_INFO, customerFacingCourtLabel, formatHoursAsRanges } from "@/lib/court-config";
 import { formatBookingDate, formatPrice } from "@/lib/pricing";
 import { getActiveSportPromo } from "@/actions/sport-promo";
+import { getRainBanner } from "@/actions/admin-arena-settings";
+import { RainBanner } from "@/components/rain-banner";
 
 const sports = [
   {
@@ -94,6 +96,11 @@ const facilities = [
     icon: "🏟️",
     title: "Professional Turf",
     desc: "High-quality artificial turf designed for competitive play across all sports.",
+  },
+  {
+    icon: "🌧️",
+    title: "All-Weather Turf",
+    desc: "Rain doesn't slow us down — a quick-drain surface keeps play uninterrupted.",
   },
   {
     icon: "💡",
@@ -178,6 +185,14 @@ export default async function Home() {
     pickleballPromo?.percentOff != null
       ? `${pickleballPromo.percentOff}% OFF`
       : null;
+
+  // "Rain doesn't slow us down" banner — shown when it's raining in Mathura
+  // (AUTO) or forced on by admin. Never throws.
+  const rainBanner = await getRainBanner().catch(() => ({
+    show: false,
+    title: "",
+    body: "",
+  }));
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -330,12 +345,21 @@ export default async function Home() {
           </div>
         </nav>
 
-        {/* Promotional Banner — welcome offer for first-time bookers */}
-        <div className="fixed top-20 left-0 right-0 z-40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
-          <p className="text-xs sm:text-sm font-semibold">
-            New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.
-            <span className="ml-1 opacity-80">No coupon needed.</span>
-          </p>
+        {/* Fixed announcement stack below the nav — the welcome offer, then
+            the weather-aware rain banner (when shown). Stacked in one
+            container so they never overlap. */}
+        <div className="fixed top-20 left-0 right-0 z-40">
+          {/* Promotional Banner — welcome offer for first-time bookers */}
+          <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
+            <p className="text-xs sm:text-sm font-semibold">
+              New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.
+              <span className="ml-1 opacity-80">No coupon needed.</span>
+            </p>
+          </div>
+          {/* Weather-aware "rain doesn't slow us down" banner (auto/on/off) */}
+          {rainBanner.show ? (
+            <RainBanner title={rainBanner.title} body={rainBanner.body} href="/book" />
+          ) : null}
         </div>
 
         {/* HERO */}
@@ -384,9 +408,16 @@ export default async function Home() {
               Cricket &bull; Football &bull; Pickleball
             </p>
 
-            <p className="text-sm md:text-base text-zinc-500 mb-8">
+            <p className="text-sm md:text-base text-zinc-500 mb-4">
               Professional courts &bull; Floodlights &bull; Cafeteria &bull; Open 5 AM &ndash; 1 AM
             </p>
+
+            {/* All-weather badge — quick-drain turf USP */}
+            <div className="mb-8 flex justify-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-300 sm:text-sm">
+                🌧️ Rain-proof turf &bull; quick drainage, uninterrupted play
+              </span>
+            </div>
 
             <div className="flex items-center justify-center gap-4 flex-wrap">
               <a

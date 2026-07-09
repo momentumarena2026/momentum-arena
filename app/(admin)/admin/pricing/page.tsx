@@ -1,15 +1,18 @@
 import { getAllPricingData } from "@/actions/admin-pricing";
-import { getArenaSettings } from "@/actions/admin-arena-settings";
+import { getArenaSettings, getRainBannerConfig } from "@/actions/admin-arena-settings";
 import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
 import { ArenaHoursEditor } from "./arena-hours-editor";
+import { RainBannerEditor } from "./rain-banner-editor";
 import { PricingEditor } from "./pricing-editor";
 import { TimeClassificationsEditor } from "./time-classifications-editor";
 
 export default async function AdminPricingPage() {
-  const [{ configs, rules, classifications }, arenaHours] = await Promise.all([
-    getAllPricingData(),
-    getArenaSettings(),
-  ]);
+  const [{ configs, rules, classifications }, arenaHours, rainBanner] =
+    await Promise.all([
+      getAllPricingData(),
+      getArenaSettings(),
+      getRainBannerConfig(),
+    ]);
 
   // Group configs by sport
   const configsBySport = configs.reduce((acc, config) => {
@@ -43,6 +46,12 @@ export default async function AdminPricingPage() {
       <ArenaHoursEditor
         initialOpenHour={arenaHours.openHour}
         initialCloseHour={arenaHours.closeHour}
+      />
+
+      {/* "Rain doesn't slow us down" all-weather banner control. */}
+      <RainBannerEditor
+        initialMode={rainBanner.mode}
+        initialText={rainBanner.text}
       />
 
       {/* Peak / Off-Peak Hours editor — replaces the previous read-only
