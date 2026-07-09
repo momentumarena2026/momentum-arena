@@ -9,6 +9,9 @@ import { X } from "lucide-react";
  * (homepage, booking page) only when `getRainBanner()` says to show it —
  * so this component just paints the strip. Dismissible for the session so
  * it doesn't nag across page views; reappears next visit.
+ *
+ * Colours use the app's secondary orange (amber) so it reads distinctly
+ * from the green welcome-offer strip it stacks beneath.
  */
 export function RainBanner({
   title,
