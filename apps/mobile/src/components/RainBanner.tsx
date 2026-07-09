@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import { X } from "lucide-react-native";
 import { useQuery } from "@tanstack/react-query";
-import { Text } from "./ui/Text";
 import { rainBannerApi } from "../lib/rain-banner";
 import { radius, spacing } from "../theme";
 
@@ -19,11 +18,15 @@ import { radius, spacing } from "../theme";
  * false. Colours mirror web's secondary-orange (amber) gradient so it
  * reads distinctly from the green welcome-offer strip it sits under.
  *
- * Layout note: the message is a plain centred **column** (title over
- * body), NOT a row with a shrinking text block — a row + `flexShrink`
- * without a definite width makes the wrapping body miscompute its
- * height and collapse to one line, which clipped the body behind the
- * hero. A column grows naturally, so both lines always show.
+ * Layout note: the title + body are ONE multi-line `<Text>` (body on a
+ * second line via `\n`), NOT stacked flex children. A flex row/column of
+ * separate Texts kept collapsing the wrapping body to zero/one line and
+ * clipping it behind the hero; a single Text always lays out every line
+ * and grows to fit, so both always show. `textAlign:"center"` centres
+ * both lines; the dismiss button lives in the right padding gutter.
+ *
+ * Uses raw RN `Text` (not the app's variant `Text`) so no default
+ * variant line-height interferes with the two type sizes.
  *
  * @param onPress  When provided, the whole strip is tappable (used on
  *                 Home to deep-link into booking). Omit on the booking
@@ -51,6 +54,8 @@ export function RainBanner({
 
   if (dismissed || !data?.show) return null;
 
+  const title = data.title || "Rain doesn't slow us down";
+
   const inner = (
     <LinearGradient
       // amber-950/80 → amber-900/40 → orange-950/60 (web parity).
@@ -64,13 +69,12 @@ export function RainBanner({
       end={{ x: 1, y: 0 }}
       style={[styles.strip, rounded && styles.stripRounded]}
     >
-      <View style={styles.content}>
-        <Text weight="600" style={styles.title}>
-          <Text style={styles.emoji}>🌧️ </Text>
-          {data.title || "Rain doesn't slow us down"}
-        </Text>
-        <Text style={styles.body}>{data.body}</Text>
-      </View>
+      <Text style={styles.message} allowFontScaling={false}>
+        <Text style={styles.titleRun}>{`🌧️  ${title}`}</Text>
+        {data.body ? (
+          <Text style={styles.bodyRun}>{`\n${data.body}`}</Text>
+        ) : null}
+      </Text>
       {/* Absolutely positioned in the right padding gutter so its width
           never pulls the centred message off-centre. */}
       <Pressable
@@ -114,26 +118,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(245, 158, 11, 0.20)",
   },
-  content: {
-    alignItems: "center",
-    justifyContent: "center",
+  // One line-height for the whole block keeps the two type sizes on a
+  // consistent rhythm and avoids iOS nested-lineHeight clipping.
+  message: {
+    textAlign: "center",
+    lineHeight: 18,
   },
-  title: {
+  titleRun: {
     color: "#ffffff",
     fontSize: 13,
-    lineHeight: 18,
-    textAlign: "center",
+    fontWeight: "600",
   },
-  emoji: {
-    fontSize: 15,
-    lineHeight: 18,
-  },
-  body: {
-    color: "rgba(254, 243, 199, 0.80)", // amber-100/80
+  bodyRun: {
+    color: "rgba(254, 243, 199, 0.85)", // amber-100
     fontSize: 11,
-    lineHeight: 15,
-    textAlign: "center",
-    marginTop: 2,
   },
   dismiss: {
     position: "absolute",
