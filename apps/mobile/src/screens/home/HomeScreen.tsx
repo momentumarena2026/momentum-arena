@@ -38,6 +38,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { BookingCard } from "../../components/BookingCard";
 import { RewardsChip } from "../../components/RewardsChip";
+import { RainBanner } from "../../components/RainBanner";
 import { colors, radius, spacing } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
 import { bookingsApi } from "../../lib/bookings";
@@ -196,6 +197,15 @@ export function HomeScreen() {
             automatically at checkout.
           </Text>
         </View>
+
+        {/* Rain "all-weather" banner — stacks under the promo, mirroring
+            web. Tapping deep-links into the booking flow. Renders only
+            when getRainBanner() says to (AUTO/ON), so it's usually absent. */}
+        <RainBanner
+          onPress={() =>
+            navigation.navigate("Sports", { screen: "BookSport" })
+          }
+        />
 
         {/* Hero */}
         <View style={styles.hero}>

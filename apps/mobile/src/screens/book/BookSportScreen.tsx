@@ -4,6 +4,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ChevronRight } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
+import { RainBanner } from "../../components/RainBanner";
 import { SportIcon } from "../../components/booking/SportIcon";
 import { SportCardGradient } from "../../components/booking/SportCardGradient";
 import { colors, spacing } from "../../theme";
@@ -73,6 +74,11 @@ export function BookSportScreen() {
 
   return (
     <Screen scrollable>
+      {/* Rain "all-weather" banner — mirrors web's /book page. Rounded,
+          informational (no deep-link; the user is already booking).
+          Renders only when getRainBanner() says to. */}
+      <RainBanner rounded />
+
       <View style={styles.header}>
         {/* Web: <h1 className="text-2xl font-bold text-white">Book a Court</h1> */}
         <Text variant="title" weight="700" color={colors.foreground}>
