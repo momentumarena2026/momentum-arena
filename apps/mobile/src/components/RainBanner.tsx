@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import LinearGradient from "react-native-linear-gradient";
+import { Pressable, StyleSheet, View } from "react-native";
 import { X } from "lucide-react-native";
 import { useQuery } from "@tanstack/react-query";
+import { Text } from "./ui/Text";
 import { rainBannerApi } from "../lib/rain-banner";
 import { radius, spacing } from "../theme";
 
@@ -15,25 +15,22 @@ import { radius, spacing } from "../theme";
  *
  * Dismissible for the session; reappears on next launch. Never blocks a
  * screen — renders nothing while loading, on error, or when `show` is
- * false. Colours mirror web's secondary-orange (amber) gradient so it
- * reads distinctly from the green welcome-offer strip it sits under.
+ * false.
  *
- * Layout note: the title + body are ONE multi-line `<Text>` (body on a
- * second line via `\n`), NOT stacked flex children. A flex row/column of
- * separate Texts kept collapsing the wrapping body to zero/one line and
- * clipping it behind the hero; a single Text always lays out every line
- * and grows to fit, so both always show. `textAlign:"center"` centres
- * both lines; the dismiss button lives in the right padding gutter.
- *
- * Uses raw RN `Text` (not the app's variant `Text`) so no default
- * variant line-height interferes with the two type sizes.
+ * Styling deliberately mirrors the green "₹100 OFF" promo strip above it
+ * (`HomeScreen` `styles.promo`): a plain <View> with a SOLID background
+ * and centred, freely-wrapping <Text>. An earlier `LinearGradient`
+ * version clipped its own multi-line content (the gradient didn't grow
+ * to fit inside the ScrollView); a plain View sizes to its text
+ * correctly, so nothing is cut off. Colour is the secondary orange so it
+ * still reads distinctly from the green promo it sits under.
  *
  * @param onPress  When provided, the whole strip is tappable (used on
  *                 Home to deep-link into booking). Omit on the booking
  *                 flow itself, where it's purely informational.
- * @param rounded  Inset, fully-bordered card style for padded screens
- *                 (booking flow). Default is a full-bleed strip with a
- *                 bottom border, for stacking under the promo banner.
+ * @param rounded  Inset, rounded card style for padded screens (booking
+ *                 flow). Default is a full-bleed strip, for stacking
+ *                 directly under the promo banner.
  */
 export function RainBanner({
   onPress,
@@ -57,24 +54,15 @@ export function RainBanner({
   const title = data.title || "Rain doesn't slow us down";
 
   const inner = (
-    <LinearGradient
-      // amber-950/80 → amber-900/40 → orange-950/60 (web parity).
-      colors={[
-        "rgba(69, 26, 3, 0.80)",
-        "rgba(120, 53, 15, 0.40)",
-        "rgba(67, 20, 7, 0.60)",
-      ]}
-      locations={[0, 0.5, 1]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 0 }}
-      style={[styles.strip, rounded && styles.stripRounded]}
-    >
-      <Text style={styles.message} allowFontScaling={false}>
-        <Text style={styles.titleRun}>{`🌧️  ${title}`}</Text>
-        {data.body ? (
-          <Text style={styles.bodyRun}>{`\n${data.body}`}</Text>
-        ) : null}
+    <View style={[styles.strip, rounded && styles.stripRounded]}>
+      <Text variant="small" weight="700" style={styles.title}>
+        {`🌧️  ${title}`}
       </Text>
+      {data.body ? (
+        <Text variant="tiny" weight="500" style={styles.body}>
+          {data.body}
+        </Text>
+      ) : null}
       {/* Absolutely positioned in the right padding gutter so its width
           never pulls the centred message off-centre. */}
       <Pressable
@@ -84,9 +72,9 @@ export function RainBanner({
         accessibilityLabel="Dismiss"
         style={styles.dismiss}
       >
-        <X size={16} color="rgba(254, 243, 199, 0.6)" />
+        <X size={16} color="rgba(67, 20, 7, 0.65)" />
       </Pressable>
-    </LinearGradient>
+    </View>
   );
 
   if (onPress) {
@@ -103,35 +91,27 @@ export function RainBanner({
 }
 
 const styles = StyleSheet.create({
+  // Mirrors HomeScreen `styles.promo`, in secondary orange. Extra
+  // horizontal padding leaves room for the absolute dismiss button.
   strip: {
     position: "relative",
-    paddingVertical: spacing["2.5"],
-    // Symmetric side room so the centred text always clears the
-    // absolutely-positioned dismiss button in the right gutter.
     paddingHorizontal: spacing["10"],
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(245, 158, 11, 0.20)", // amber-500/20
+    paddingVertical: spacing["2"],
+    backgroundColor: "#f59e0b", // secondary orange (amber-500)
+    alignItems: "center",
   },
   stripRounded: {
     marginVertical: spacing["2"],
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.20)",
   },
-  // One line-height for the whole block keeps the two type sizes on a
-  // consistent rhythm and avoids iOS nested-lineHeight clipping.
-  message: {
+  title: {
+    color: "#431407", // dark amber, high contrast on the orange
     textAlign: "center",
-    lineHeight: 18,
   },
-  titleRun: {
-    color: "#ffffff",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  bodyRun: {
-    color: "rgba(254, 243, 199, 0.85)", // amber-100
-    fontSize: 11,
+  body: {
+    color: "#7c2d12", // slightly softer dark amber for the sub-line
+    textAlign: "center",
+    marginTop: 2,
   },
   dismiss: {
     position: "absolute",
@@ -141,6 +121,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pressed: {
-    opacity: 0.85,
+    opacity: 0.9,
   },
 });
