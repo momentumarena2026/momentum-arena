@@ -309,13 +309,6 @@ export default async function Home() {
       />
 
       <main className="bg-black text-white overflow-x-hidden">
-        {/* Weather-aware "rain doesn't slow us down" banner (auto/on/off) */}
-        {rainBanner.show ? (
-          <div className="fixed top-20 left-0 right-0 z-40">
-            <RainBanner title={rainBanner.title} body={rainBanner.body} href="/book" />
-          </div>
-        ) : null}
-
         {/* NAV BAR */}
         <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/5">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-20 gap-2">
@@ -352,12 +345,21 @@ export default async function Home() {
           </div>
         </nav>
 
-        {/* Promotional Banner — welcome offer for first-time bookers */}
-        <div className="fixed top-20 left-0 right-0 z-40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
-          <p className="text-xs sm:text-sm font-semibold">
-            New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.
-            <span className="ml-1 opacity-80">No coupon needed.</span>
-          </p>
+        {/* Fixed announcement stack below the nav — the welcome offer, then
+            the weather-aware rain banner (when shown). Stacked in one
+            container so they never overlap. */}
+        <div className="fixed top-20 left-0 right-0 z-40">
+          {/* Promotional Banner — welcome offer for first-time bookers */}
+          <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
+            <p className="text-xs sm:text-sm font-semibold">
+              New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.
+              <span className="ml-1 opacity-80">No coupon needed.</span>
+            </p>
+          </div>
+          {/* Weather-aware "rain doesn't slow us down" banner (auto/on/off) */}
+          {rainBanner.show ? (
+            <RainBanner title={rainBanner.title} body={rainBanner.body} href="/book" />
+          ) : null}
         </div>
 
         {/* HERO */}
