@@ -19,6 +19,12 @@ import { radius, spacing } from "../theme";
  * false. Colours mirror web's secondary-orange (amber) gradient so it
  * reads distinctly from the green welcome-offer strip it sits under.
  *
+ * Layout note: the message is a plain centred **column** (title over
+ * body), NOT a row with a shrinking text block — a row + `flexShrink`
+ * without a definite width makes the wrapping body miscompute its
+ * height and collapse to one line, which clipped the body behind the
+ * hero. A column grows naturally, so both lines always show.
+ *
  * @param onPress  When provided, the whole strip is tappable (used on
  *                 Home to deep-link into booking). Omit on the booking
  *                 flow itself, where it's purely informational.
@@ -58,17 +64,15 @@ export function RainBanner({
       end={{ x: 1, y: 0 }}
       style={[styles.strip, rounded && styles.stripRounded]}
     >
-      <View style={styles.center}>
-        <Text style={styles.emoji}>🌧️</Text>
-        <View style={styles.textWrap}>
-          <Text weight="600" style={styles.title}>
-            {data.title || "Rain doesn't slow us down"}
-          </Text>
-          <Text style={styles.body}>{data.body}</Text>
-        </View>
+      <View style={styles.content}>
+        <Text weight="600" style={styles.title}>
+          <Text style={styles.emoji}>🌧️ </Text>
+          {data.title || "Rain doesn't slow us down"}
+        </Text>
+        <Text style={styles.body}>{data.body}</Text>
       </View>
-      {/* Absolutely positioned so its width never pulls the centred
-          message off-centre — matches the web layout. */}
+      {/* Absolutely positioned in the right padding gutter so its width
+          never pulls the centred message off-centre. */}
       <Pressable
         onPress={() => setDismissed(true)}
         hitSlop={8}
@@ -97,12 +101,9 @@ export function RainBanner({
 const styles = StyleSheet.create({
   strip: {
     position: "relative",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: spacing["2"],
+    paddingVertical: spacing["2.5"],
     // Symmetric side room so the centred text always clears the
-    // absolutely-positioned dismiss button on the right.
+    // absolutely-positioned dismiss button in the right gutter.
     paddingHorizontal: spacing["10"],
     borderBottomWidth: 1,
     borderBottomColor: "rgba(245, 158, 11, 0.20)", // amber-500/20
@@ -113,32 +114,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(245, 158, 11, 0.20)",
   },
-  center: {
-    flexDirection: "row",
+  content: {
     alignItems: "center",
-    gap: spacing["2.5"],
-    maxWidth: "100%",
-  },
-  emoji: {
-    fontSize: 18,
-    lineHeight: 22,
-    includeFontPadding: false,
-  },
-  textWrap: {
-    flexShrink: 1,
+    justifyContent: "center",
   },
   title: {
     color: "#ffffff",
     fontSize: 13,
-    lineHeight: 17,
+    lineHeight: 18,
     textAlign: "center",
+  },
+  emoji: {
+    fontSize: 15,
+    lineHeight: 18,
   },
   body: {
     color: "rgba(254, 243, 199, 0.80)", // amber-100/80
     fontSize: 11,
     lineHeight: 15,
     textAlign: "center",
-    marginTop: 1,
+    marginTop: 2,
   },
   dismiss: {
     position: "absolute",
