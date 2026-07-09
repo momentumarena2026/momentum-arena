@@ -27,14 +27,19 @@ export function RainBanner({
 
   return (
     <div className="relative z-30 border-b border-amber-500/20 bg-gradient-to-r from-amber-950/80 via-amber-900/40 to-orange-950/60 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-6">
+      <div className="relative mx-auto flex max-w-6xl items-center justify-center px-10 py-2 sm:px-12">
         {/* The whole strip is tappable (leads to booking) — no separate
-            CTA button, so the message has full width and isn't clipped. */}
-        <Link href={href} className="flex min-w-0 flex-1 items-center gap-2.5">
+            CTA button, so the message has full width and isn't clipped.
+            Centred; the dismiss button is absolutely positioned so its
+            width doesn't pull the message off-centre. */}
+        <Link
+          href={href}
+          className="flex min-w-0 items-center justify-center gap-2.5 text-center"
+        >
           <span aria-hidden className="shrink-0 text-lg leading-none">
             🌧️
           </span>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0">
             <p className="text-sm font-semibold leading-snug text-white">
               {title || "Rain doesn't slow us down"}
             </p>
@@ -45,7 +50,7 @@ export function RainBanner({
           type="button"
           onClick={() => setDismissed(true)}
           aria-label="Dismiss"
-          className="shrink-0 self-start rounded-full p-1 text-amber-100/60 transition-colors hover:bg-white/10 hover:text-white"
+          className="absolute right-2 top-1/2 -translate-y-1/2 shrink-0 rounded-full p-1 text-amber-100/60 transition-colors hover:bg-white/10 hover:text-white sm:right-4"
         >
           <X className="h-4 w-4" />
         </button>
