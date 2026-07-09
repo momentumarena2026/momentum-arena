@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { SPORT_INFO } from "@/lib/court-config";
 import { SportCard } from "@/components/booking/sport-card";
 import { BackButton } from "@/components/back-button";
+import { getRainBanner } from "@/actions/admin-arena-settings";
+import { RainBanner } from "@/components/rain-banner";
 
 export default async function BookPage() {
   const configs = await db.courtConfig.findMany({
@@ -17,8 +19,24 @@ export default async function BookPage() {
     isActive: activeSports.has(key as keyof typeof SPORT_INFO),
   }));
 
+  const rainBanner = await getRainBanner().catch(() => ({
+    show: false,
+    title: "",
+    body: "",
+  }));
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
+      {rainBanner.show ? (
+        <div className="-mx-4 -mt-4 overflow-hidden rounded-b-xl sm:mx-0 sm:mt-0 sm:rounded-xl">
+          <RainBanner
+            title={rainBanner.title}
+            body={rainBanner.body}
+            href="/book"
+          />
+        </div>
+      ) : null}
+
       <div>
         <BackButton className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors" label="Back" />
         <h1 className="text-2xl font-bold text-white">Book a Court</h1>

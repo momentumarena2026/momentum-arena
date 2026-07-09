@@ -1465,6 +1465,11 @@ model ArenaSettings {
   id        String   @id @default(cuid())
   openHour  Int      @default(5)
   closeHour Int      @default(25)
+  // "Rain doesn't slow us down" banner. mode: AUTO (show only when it's
+  // raining / rain is forecast in Mathura), ON (always show), OFF (never).
+  // rainBannerText optionally overrides the default banner copy.
+  rainBannerMode String  @default("AUTO")
+  rainBannerText String?
   updatedAt DateTime @updatedAt
 }
 
