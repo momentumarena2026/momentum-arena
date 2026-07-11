@@ -3,7 +3,8 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
-import { isDqrConfigured, qrInit, intentInit } from "@/lib/phonepe-dqr";
+import { isDqrConfigured, qrInit, intentInit, qrStatus } from "@/lib/phonepe-dqr";
+import { confirmDqrBooking } from "@/lib/dqr-confirm";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 // QR validity / hold extension. 15 min comfortably covers scanning +
@@ -50,6 +51,52 @@ export async function POST(request: NextRequest) {
       { error: stillOk.reason, conflicts: stillOk.conflicts },
       { status: 409 },
     );
+  }
+
+  // In-flight payment guard. Re-initiating on a hold that already carries a
+  // DQR transaction happens when the customer retries — or when an in-app
+  // browser silently RELOADS the checkout on return from the UPI app
+  // (real incident: two ₹1,600 captures on one hold, 2026-07-11). Minting a
+  // new txn here would overwrite the hold's pointer, so the payment the
+  // customer just made could never find its hold again (orphan). Probe the
+  // prior txn first: if PhonePe says it COMPLETED, confirm THAT booking and
+  // return it — never issue a second QR for money already taken.
+  if (hold.phonePeMerchantTxnId?.startsWith("DQR_")) {
+    try {
+      const prior = await qrStatus(hold.phonePeMerchantTxnId);
+      if (prior.state === "COMPLETED") {
+        const confirmed = await confirmDqrBooking(
+          hold.phonePeMerchantTxnId,
+          prior.providerReferenceId,
+        );
+        if (confirmed.bookingId) {
+          logServerAction({
+            userId,
+            category: AnalyticsCategory.PAYMENT,
+            action: "payment.dqr.already-paid",
+            outcome: "success",
+            path: request.nextUrl.pathname,
+            method: "POST",
+            platform: resolveRequestPlatform(request),
+            metadata: {
+              holdId,
+              transactionId: hold.phonePeMerchantTxnId,
+              bookingId: confirmed.bookingId,
+            },
+          });
+          return NextResponse.json({
+            alreadyPaid: true,
+            bookingId: confirmed.bookingId,
+          });
+        }
+      }
+      // PENDING/FAILED → fall through and mint a fresh txn. A PENDING
+      // payment that completes AFTER the overwrite is caught by the
+      // orphan net (recordOrphanPayment) for admin recovery.
+    } catch {
+      // Status probe failed (PhonePe hiccup) — don't block the customer
+      // from paying; the orphan net remains the backstop.
+    }
   }
 
   try {

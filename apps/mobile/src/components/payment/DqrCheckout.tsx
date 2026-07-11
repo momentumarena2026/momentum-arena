@@ -181,6 +181,15 @@ export function DqrCheckout({
     doneRef.current = false;
     try {
       const res = await bookingApi.dqrInitiate({ holdId, isAdvance, overrideAmount });
+      // Server-side in-flight guard: a prior QR/intent for this hold was
+      // already paid — the booking is confirmed; skip straight to success
+      // instead of issuing (and letting the customer pay) a second QR.
+      if (res.alreadyPaid && res.bookingId) {
+        doneRef.current = true;
+        bookingIdRef.current = res.bookingId;
+        setPhase("confirmed");
+        return;
+      }
       // "intent" needs a tappable upi:// string; "qr" needs the rendered image.
       const canIntent = res.mode === "intent" && !!res.qrString;
       if (!res.transactionId || (!canIntent && !res.qrImage)) {

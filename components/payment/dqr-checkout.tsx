@@ -133,6 +133,22 @@ export function DqrCheckout({
     }
   }, []);
 
+  // Live-transaction store, keyed by hold. In-app browsers (WhatsApp /
+  // Instagram / gallery apps) routinely RELOAD the page when the user
+  // returns from the UPI app — a remount that used to call initiate again,
+  // mint a NEW transactionId, and overwrite the one the customer just paid
+  // against (real double-payment incident, 2026-07-11). sessionStorage
+  // survives same-tab reloads, so on mount we resume the in-flight txn
+  // instead of minting a fresh one.
+  const storeKey = `dqr-live:${surface}:${holdId}`;
+  const clearStore = useCallback(() => {
+    try {
+      sessionStorage.removeItem(storeKey);
+    } catch {
+      /* storage unavailable (private mode) — resume is best-effort */
+    }
+  }, [storeKey]);
+
   const checkStatus = useCallback(async () => {
     const txn = txnRef.current;
     if (!txn || doneRef.current) return;
@@ -145,6 +161,7 @@ export function DqrCheckout({
       if (data.state === "COMPLETED" && settledId) {
         doneRef.current = true;
         stopPolling();
+        clearStore();
         // Don't fire onConfirmed yet — park the id and let the success
         // animation play; the confirmed-phase effect below hands off.
         settledIdRef.current = settledId;
@@ -152,17 +169,57 @@ export function DqrCheckout({
       } else if (data.state === "FAILED") {
         doneRef.current = true;
         stopPolling();
+        clearStore();
         setError("Payment failed or expired. Please try again.");
         setPhase("error");
       }
     } catch {
       // Transient — keep polling; the S2S callback is the backstop.
     }
-  }, [statusBase, surface, stopPolling]);
+  }, [statusBase, surface, stopPolling, clearStore]);
 
   const initiate = useCallback(async () => {
     // No synchronous setState here — this runs from the mount effect.
     doneRef.current = false;
+
+    // Resume an in-flight transaction (page reloaded mid-payment) instead
+    // of minting a new one — see storeKey comment above.
+    try {
+      const raw = sessionStorage.getItem(storeKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as {
+          txn?: string;
+          qrImage?: string;
+          qrString?: string | null;
+          mode?: string;
+          expiresAt?: number;
+        };
+        const msLeft = (saved.expiresAt ?? 0) - Date.now();
+        if (saved.txn && saved.qrImage && msLeft > 5_000) {
+          txnRef.current = saved.txn;
+          setQrDataUrl(saved.qrImage);
+          const qrString =
+            typeof saved.qrString === "string" ? saved.qrString : null;
+          setPayString(qrString);
+          setMode(saved.mode === "intent" ? "intent" : "qr");
+          setSecondsLeft(Math.floor(msLeft / 1000));
+          setLaunchedApp(null);
+          setPhase(
+            saved.mode === "intent" && qrString && isMobileBrowser()
+              ? "apps"
+              : "qr",
+          );
+          // Poll right away — if they already paid, flip to confirmed
+          // without waiting for the first interval tick.
+          void checkStatus();
+          return;
+        }
+        sessionStorage.removeItem(storeKey);
+      }
+    } catch {
+      /* corrupt/unavailable storage — fall through to a fresh initiate */
+    }
+
     try {
       const res = await fetch(initiateUrl, {
         method: "POST",
@@ -174,6 +231,17 @@ export function DqrCheckout({
         ),
       });
       const data = await res.json();
+      // Server-side in-flight guard: the customer already paid on a prior
+      // QR for this hold — the booking/order is confirmed, don't show
+      // another payment screen.
+      const paidId = surface === "cafe" ? data.orderId : data.bookingId;
+      if (res.ok && data.alreadyPaid && paidId) {
+        doneRef.current = true;
+        clearStore();
+        settledIdRef.current = paidId;
+        setPhase("confirmed");
+        return;
+      }
       if (!res.ok || !data.qrImage) {
         setError(data.error || "Couldn't start UPI payment");
         setPhase("error");
@@ -186,6 +254,23 @@ export function DqrCheckout({
       setMode(data.mode === "intent" ? "intent" : "qr");
       setSecondsLeft(typeof data.expiresIn === "number" ? data.expiresIn : null);
       setLaunchedApp(null);
+      try {
+        sessionStorage.setItem(
+          storeKey,
+          JSON.stringify({
+            txn: data.transactionId,
+            qrImage: data.qrImage,
+            qrString,
+            mode: data.mode === "intent" ? "intent" : "qr",
+            expiresAt:
+              Date.now() +
+              (typeof data.expiresIn === "number" ? data.expiresIn : 900) *
+                1000,
+          }),
+        );
+      } catch {
+        /* storage unavailable — resume just won't kick in */
+      }
       // Intent mode on a mobile browser opens on the app picker; scan-only
       // mode (or any desktop browser) goes straight to the QR. Sniff the UA
       // directly — the isMobile state closure here is stale (mount-time).
@@ -198,7 +283,16 @@ export function DqrCheckout({
       setError("Couldn't start UPI payment");
       setPhase("error");
     }
-  }, [initiateUrl, surface, holdId, isAdvance, overrideAmount]);
+  }, [
+    initiateUrl,
+    surface,
+    holdId,
+    isAdvance,
+    overrideAmount,
+    storeKey,
+    clearStore,
+    checkStatus,
+  ]);
 
   // Kick off on mount. `initiate` only setStates AFTER its network await.
   useEffect(() => {
@@ -228,6 +322,7 @@ export function DqrCheckout({
     if (secondsLeft <= 0) {
       doneRef.current = true;
       stopPolling();
+      clearStore();
       setError("This QR has expired. Generate a new one to continue.");
       setPhase("error");
       return;
@@ -237,7 +332,27 @@ export function DqrCheckout({
       1000,
     );
     return () => clearTimeout(id);
-  }, [phase, secondsLeft, stopPolling]);
+  }, [phase, secondsLeft, stopPolling, clearStore]);
+
+  // Instant status check the moment the customer returns from the UPI app.
+  // While they're off in Paytm/GPay the browser throttles (or outright
+  // freezes) interval timers; without this, the sheet sat on the spinner
+  // for up to a full POLL_MS after return — or indefinitely where the
+  // interval never resumed. visibilitychange covers tab restore, focus
+  // covers same-document app switches.
+  useEffect(() => {
+    if (!LIVE_PHASES.includes(phase)) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void checkStatus();
+    };
+    const onFocus = () => void checkStatus();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [phase, checkStatus]);
 
   // Success handoff: let the tick animation land, hold a beat, then hand
   // the settled id to the parent (which navigates to the confirmation).
@@ -441,6 +556,15 @@ export function DqrCheckout({
                 Expires in {countdown}
               </p>
             )}
+            {/* Same anti-double-pay affordance as the waiting phase —
+                gallery-scan users return here after paying in their UPI
+                app and hit the identical stuck-spinner path. */}
+            <button
+              onClick={() => void checkStatus()}
+              className="mt-3 w-full rounded-xl border border-emerald-500/40 px-4 py-2.5 text-sm font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10"
+            >
+              I&apos;ve paid — check status
+            </button>
 
             {/* Scan-only mode on the same phone: no intent link to tap, so
                 keep the save-to-gallery workaround alive. */}
@@ -490,10 +614,16 @@ export function DqrCheckout({
                 Expires in {countdown}
               </p>
             )}
+            <button
+              onClick={() => void checkStatus()}
+              className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500"
+            >
+              I&apos;ve paid — check status
+            </button>
             {launchedApp && (
               <button
                 onClick={() => launchApp(launchedApp.name, launchedApp.link)}
-                className="mt-6 w-full rounded-xl border border-emerald-500/40 px-4 py-3 text-[15px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10"
+                className="mt-2 w-full rounded-xl border border-emerald-500/40 px-4 py-3 text-[15px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10"
               >
                 Open {launchedApp.name} again
               </button>
@@ -504,6 +634,14 @@ export function DqrCheckout({
             >
               Choose another app
             </button>
+            {/* Anti-double-pay: the 2026-07-11 incident was a customer
+                paying twice because the sheet never flipped. Make the
+                "don't pay again" rule explicit right where they'd retry. */}
+            <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+              Money already deducted? <span className="text-zinc-300">Don&apos;t pay again</span> —
+              your payment is matched automatically, and any unmatched amount
+              is verified &amp; refunded by our team.
+            </p>
           </div>
         )}
 
