@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isDqrConfigured, qrInit, intentInit } from "@/lib/phonepe-dqr";
+import { isDqrConfigured, qrInit, intentInit, qrStatus } from "@/lib/phonepe-dqr";
+import { confirmDqrCafe } from "@/lib/dqr-confirm";
 
 const DQR_TTL_MINUTES = 15;
 
@@ -38,6 +39,31 @@ export async function POST(request: NextRequest) {
       { error: "This checkout was already completed" },
       { status: 409 },
     );
+  }
+
+  // In-flight payment guard — same incident class as the booking initiate:
+  // a retry (or an in-app browser reloading on return from the UPI app)
+  // would mint a fresh txn and overwrite the intent's pointer, orphaning a
+  // payment the customer already made. Probe the prior txn first; if it
+  // COMPLETED, materialise THAT order instead of issuing a second QR.
+  if (intent.phonePeMerchantTxnId?.startsWith("DQRC_")) {
+    try {
+      const prior = await qrStatus(intent.phonePeMerchantTxnId);
+      if (prior.state === "COMPLETED") {
+        const confirmed = await confirmDqrCafe(
+          intent.phonePeMerchantTxnId,
+          prior.providerReferenceId,
+        );
+        if (confirmed.orderId) {
+          return NextResponse.json({
+            alreadyPaid: true,
+            orderId: confirmed.orderId,
+          });
+        }
+      }
+    } catch {
+      // Status probe failed — don't block payment; orphan net backstops.
+    }
   }
 
   try {

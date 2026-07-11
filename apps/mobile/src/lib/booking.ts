@@ -269,6 +269,14 @@ export interface DqrInitResult {
   isAdvance?: boolean;
   advanceAmount?: number | null;
   remainingAmount?: number | null;
+  /**
+   * In-flight guard short-circuit: a prior QR/intent on this hold was
+   * already PAID — the server confirmed that booking instead of minting a
+   * new transaction. When true, `bookingId` is set and none of the QR
+   * fields above are present.
+   */
+  alreadyPaid?: boolean;
+  bookingId?: string;
   error?: string;
 }
 
