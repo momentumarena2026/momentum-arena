@@ -15,6 +15,11 @@ interface MenuItem {
   description: string | null;
   category: string;
   price: number;
+  // Stock counter. NULL = unlimited / kitchen-prepared; an integer is
+  // the on-hand count. Surfaced so the menu can mark quantity===0 items
+  // "Out of stock" (disable Add) and cap the stepper at what's left,
+  // instead of only rejecting at order time.
+  quantity: number | null;
   image: string | null;
   isVeg: boolean;
   isAvailable: boolean;
@@ -34,11 +39,10 @@ export default async function CafePage() {
 
   // Open → fetch the menu and hand it to the existing customer
   // CafeMenuPage component. Only `isAvailable: true` items are
-  // surfaced (matches the customer-facing rule); out-of-stock
-  // items still appear so customers see what the cafe serves,
-  // but the add-to-cart → order-create path stock-checks at
-  // order time and refuses lines that would push quantity below
-  // zero.
+  // surfaced (matches the customer-facing rule). Out-of-stock items
+  // (quantity===0) still appear so customers see the full menu, but
+  // CafeMenuPage marks them "Out of stock" and disables Add — with
+  // the order-create path stock-checking at order time as a backstop.
   const items = await db.cafeItem.findMany({
     where: { isAvailable: true },
     orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
@@ -53,6 +57,7 @@ export default async function CafePage() {
       description: item.description,
       category: item.category,
       price: item.price,
+      quantity: item.quantity,
       image: item.image,
       isVeg: item.isVeg,
       isAvailable: item.isAvailable,

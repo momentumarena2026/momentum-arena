@@ -12,6 +12,10 @@ interface MenuItem {
   description: string | null;
   category: string;
   price: number;
+  // Stock counter. NULL = unlimited / kitchen-prepared; integer = units
+  // on hand. Drives the "Out of stock" state (quantity===0) and the
+  // stepper cap (can't add more than what's left).
+  quantity: number | null;
   image: string | null;
   isVeg: boolean;
   isAvailable: boolean;
@@ -286,13 +290,21 @@ export function CafeMenuPage({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {(displayGrouped[cat] || []).map((item) => {
                   const qty = getCartQuantity(item.id);
+                  // Stock-tracked items (quantity !== null) can run out or
+                  // hit their on-hand cap. Kitchen-prepared items
+                  // (quantity === null) never do.
+                  const outOfStock =
+                    item.quantity !== null && item.quantity <= 0;
+                  const atStockLimit =
+                    item.quantity !== null && qty >= item.quantity;
+                  const disabled = !item.isAvailable || outOfStock;
                   return (
                     <div
                       key={item.id}
                       className={`group relative bg-zinc-900/70 border rounded-xl overflow-hidden transition-all ${
-                        item.isAvailable
-                          ? "border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900"
-                          : "border-zinc-800/40 opacity-50"
+                        disabled
+                          ? "border-zinc-800/40 opacity-50"
+                          : "border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900"
                       }`}
                     >
                       {/* Image — aspect-locked + white-backed so
@@ -377,6 +389,10 @@ export function CafeMenuPage({
                             <span className="text-[11px] text-zinc-600 italic bg-zinc-800 px-2 py-1 rounded">
                               Unavailable
                             </span>
+                          ) : outOfStock ? (
+                            <span className="text-[11px] font-semibold text-red-300 bg-red-950/40 border border-red-900/40 px-2 py-1 rounded">
+                              Out of stock
+                            </span>
                           ) : qty === 0 ? (
                             <button
                               onClick={() =>
@@ -404,9 +420,26 @@ export function CafeMenuPage({
                               <span className="text-white font-bold text-xs min-w-[24px] text-center">
                                 {qty}
                               </span>
+                              {/* Cap the stepper at what's on hand for
+                                  stock-tracked items so the cart can't
+                                  exceed stock (order-create backstops it
+                                  server-side too). */}
                               <button
-                                onClick={() => updateQuantity(item.id, qty + 1)}
-                                className="text-white font-bold px-2.5 py-1.5 hover:bg-amber-700 transition-colors text-sm"
+                                onClick={() =>
+                                  !atStockLimit &&
+                                  updateQuantity(item.id, qty + 1)
+                                }
+                                disabled={atStockLimit}
+                                title={
+                                  atStockLimit
+                                    ? `Only ${item.quantity} in stock`
+                                    : undefined
+                                }
+                                className={`text-white font-bold px-2.5 py-1.5 transition-colors text-sm ${
+                                  atStockLimit
+                                    ? "opacity-40 cursor-not-allowed"
+                                    : "hover:bg-amber-700"
+                                }`}
                               >
                                 +
                               </button>
