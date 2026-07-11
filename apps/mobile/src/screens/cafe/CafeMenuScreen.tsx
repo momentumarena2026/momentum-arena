@@ -314,7 +314,7 @@ function ItemRow({
       <View style={styles.qtyColumn}>
         {outOfStock ? (
           <Text variant="tiny" color={colors.destructive_300} weight="600">
-            Sold out
+            Out of stock
           </Text>
         ) : quantity === 0 ? (
           <Pressable
