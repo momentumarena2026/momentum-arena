@@ -2221,6 +2221,12 @@ enum ReportType {
   // inventory table shows out of the box. Year/month on the
   // Report row are request-timestamp metadata only.
   CAFE_INVENTORY_LIFETIME
+  // CA filing: cafe item sales for the calendar month — exactly
+  // three data columns: item name, total quantity sold, total
+  // sales value (₹). Aggregated from CafeOrderItem line snapshots
+  // (itemName/totalPrice at order time) so renamed or deleted
+  // menu items still report correctly.
+  CAFE_ITEM_SALES_MONTHLY
 }
 
 enum ReportStatus {
