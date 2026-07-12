@@ -43,7 +43,7 @@ const TYPES = [
   {
     value: "CA_MONTHLY",
     label: "CA monthly report",
-    desc: "Same column shape as the sales report, filename-tagged for the chartered accountant's monthly filing.",
+    desc: "The chartered accountant's monthly filing: Bookings + Cafe Orders payment sheets, plus a Cafe Item Sales sheet (item name · qty sold · total ₹).",
   },
   {
     value: "EXPENSES_MONTHLY",
@@ -89,11 +89,6 @@ const TYPES = [
     value: "CAFE_INVENTORY_LIFETIME",
     label: "Cafe inventory & sales (all-time)",
     desc: "Same shape as the monthly version but covers every cafe order ever — matches the inventory table on the cafe analytics page out of the box (its default window is all-time). Month picker is ignored for this type.",
-  },
-  {
-    value: "CAFE_ITEM_SALES_MONTHLY",
-    label: "Cafe item sales — CA (monthly)",
-    desc: "The CA's month-wise cafe filing: exactly three columns — item name, total quantity sold in the month, and total sales value (₹). Uses order-time snapshots, so renamed/deleted items still report correctly.",
   },
 ] as const;
 
