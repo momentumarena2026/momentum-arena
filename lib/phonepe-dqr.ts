@@ -340,6 +340,16 @@ export async function qrStatus(transactionId: string): Promise<QrStatusResult> {
         ? "FAILED"
         : "PENDING";
 
+  // One line per probe, incl. PhonePe's raw code. Incident 2026-07-11/12:
+  // intent payments made via Paytm never left PENDING (money captured on
+  // the VPA, txn never matched — the pending PhonePe "intent replication"
+  // provisioning). This log is the hard evidence for that ticket: a paid
+  // txn probing as `code=PAYMENT_NOT_FOUND` (or perpetually
+  // PAYMENT_PENDING) is PhonePe-side non-matching, not an app bug.
+  console.log(
+    `[dqr] status probe txn=${transactionId} → code=${data.code ?? "?"} raw=${raw || "?"} mapped=${state} success=${data.success}`,
+  );
+
   return {
     success: state === "COMPLETED",
     state,

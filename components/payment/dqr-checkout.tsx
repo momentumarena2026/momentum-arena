@@ -178,6 +178,21 @@ export function DqrCheckout({
     }
   }, [statusBase, surface, stopPolling, clearStore]);
 
+  // Manual "I've paid" check with visible feedback. The 2026-07-12 retest
+  // showed the button reading as dead: the status probe ran, PhonePe said
+  // PENDING, and the UI changed nothing. Surface the outcome explicitly so
+  // the customer knows we checked — and that they must NOT pay again.
+  const [manualCheck, setManualCheck] = useState<"idle" | "checking" | "unpaid">(
+    "idle",
+  );
+  const manualCheckStatus = useCallback(async () => {
+    setManualCheck("checking");
+    await checkStatus();
+    // On success checkStatus flips the phase to "confirmed" and this
+    // message never shows; otherwise tell them where things stand.
+    setManualCheck(doneRef.current ? "idle" : "unpaid");
+  }, [checkStatus]);
+
   const initiate = useCallback(async () => {
     // No synchronous setState here — this runs from the mount effect.
     doneRef.current = false;
@@ -560,11 +575,22 @@ export function DqrCheckout({
                 gallery-scan users return here after paying in their UPI
                 app and hit the identical stuck-spinner path. */}
             <button
-              onClick={() => void checkStatus()}
-              className="mt-3 w-full rounded-xl border border-emerald-500/40 px-4 py-2.5 text-sm font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10"
+              onClick={() => void manualCheckStatus()}
+              disabled={manualCheck === "checking"}
+              className="mt-3 w-full rounded-xl border border-emerald-500/40 px-4 py-2.5 text-sm font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10 disabled:opacity-60"
             >
-              I&apos;ve paid — check status
+              {manualCheck === "checking"
+                ? "Checking with PhonePe…"
+                : "I've paid — check status"}
             </button>
+            {manualCheck === "unpaid" && (
+              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-200">
+                PhonePe hasn&apos;t matched this payment yet. If money left
+                your account, <strong>don&apos;t pay again</strong> — we
+                verify every deducted amount and confirm your booking or
+                refund it.
+              </p>
+            )}
 
             {/* Scan-only mode on the same phone: no intent link to tap, so
                 keep the save-to-gallery workaround alive. */}
@@ -615,11 +641,22 @@ export function DqrCheckout({
               </p>
             )}
             <button
-              onClick={() => void checkStatus()}
-              className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500"
+              onClick={() => void manualCheckStatus()}
+              disabled={manualCheck === "checking"}
+              className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
             >
-              I&apos;ve paid — check status
+              {manualCheck === "checking"
+                ? "Checking with PhonePe…"
+                : "I've paid — check status"}
             </button>
+            {manualCheck === "unpaid" && (
+              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-200">
+                PhonePe hasn&apos;t matched this payment yet. If money left
+                your account, <strong>don&apos;t pay again</strong> — we
+                verify every deducted amount and confirm your booking or
+                refund it.
+              </p>
+            )}
             {launchedApp && (
               <button
                 onClick={() => launchApp(launchedApp.name, launchedApp.link)}
