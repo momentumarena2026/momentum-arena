@@ -72,3 +72,20 @@ BEGIN
     COMMENT ON COLUMN "Coupon"."minAmount" IS 'rupees:1.0';
   END IF;
 END $$;
+
+-- ---- ReportType enum: CAFE_ITEM_SALES_MONTHLY removal (2026-07) ----
+-- The standalone CA cafe item-sales report was merged into CA_MONTHLY
+-- as a workbook sheet the same week it shipped. Purge any Report rows
+-- generated under the short-lived type so `db push` can rebuild the
+-- enum without them blocking the cast. No-op once the value is gone.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'ReportType' AND e.enumlabel = 'CAFE_ITEM_SALES_MONTHLY'
+  ) THEN
+    DELETE FROM "Report" WHERE "type"::text = 'CAFE_ITEM_SALES_MONTHLY';
+  END IF;
+END $$;

@@ -12,8 +12,7 @@ export type ReportType =
   | "REWARD_TXN_LEDGER_MONTHLY"
   | "REWARD_TXN_LEDGER_LIFETIME"
   | "CAFE_INVENTORY_MONTHLY"
-  | "CAFE_INVENTORY_LIFETIME"
-  | "CAFE_ITEM_SALES_MONTHLY";
+  | "CAFE_INVENTORY_LIFETIME";
 
 export type ReportStatus =
   | "QUEUED"
@@ -50,7 +49,6 @@ export const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: "REWARD_TXN_LEDGER_LIFETIME", label: "Reward ledger (lifetime)" },
   { value: "CAFE_INVENTORY_MONTHLY", label: "Cafe inventory (monthly)" },
   { value: "CAFE_INVENTORY_LIFETIME", label: "Cafe inventory (lifetime)" },
-  { value: "CAFE_ITEM_SALES_MONTHLY", label: "Cafe item sales — CA (monthly)" },
 ];
 
 export const adminReportsApi = {
