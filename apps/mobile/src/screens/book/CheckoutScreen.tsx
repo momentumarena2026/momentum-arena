@@ -474,15 +474,36 @@ export function CheckoutScreen() {
 
     let success: PaymentSuccessData;
     try {
+      // Breadcrumbs around the SDK promise — the 2026-07-12 report
+      // ("just a loading icon after tapping Success/Failure on the
+      // test bank page") points at this promise never settling.
+      // These logs pin down whether the SDK resolved, rejected, or
+      // hung on the next repro.
+      console.log("[razorpay] opening sheet", {
+        order: options.order_id,
+        amount: options.amount,
+      });
       success = (await RazorpayCheckout.open(options)) as PaymentSuccessData;
+      console.log("[razorpay] sheet resolved", {
+        paymentId: success?.razorpay_payment_id,
+      });
     } catch (err) {
       const e = err as PaymentErrorData;
+      console.log("[razorpay] sheet rejected", {
+        code: e?.code,
+        description: e?.description?.slice(0, 200),
+      });
       if (e?.code === 2 || e?.description?.toLowerCase().includes("cancel")) {
         trackPaymentCancelled("RAZORPAY", params.holdId);
         return; // user dismissed sheet — not an error worth surfacing.
       }
+      // Surface the SDK's own reason (incl. its numeric code) so a
+      // failed test/live payment reads as an actionable error on the
+      // checkout screen instead of a silent dead end.
       throw new ApiError(
-        e?.description || "Payment failed. Try another method.",
+        e?.description
+          ? `Payment failed: ${e.description}`
+          : `Payment failed (code ${e?.code ?? "?"}). Try another method.`,
         0,
         e
       );

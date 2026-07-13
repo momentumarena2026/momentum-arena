@@ -509,10 +509,15 @@ export function BookSlotsScreen() {
           />
         )}
         <View style={styles.footerBody}>
+          {/* Web parity: "1 Slot 12am - 1am" — the slot count + actual
+              time range, matching the scrollable summary card above.
+              The old "1 × 1 hour · Cricket" duplicated info the user
+              already chose and hid the one thing they scroll back to
+              check (which hours). */}
           <Text variant="small" color={colors.mutedForeground}>
             {selected.length === 0
               ? "Pick one or more slots"
-              : `${selected.length} × 1 hour · ${sportLabel(params.sport)}`}
+              : `${selected.length} Slot${selected.length > 1 ? "s" : ""} ${formatHoursAsRanges(selected)}`}
           </Text>
           {showDiscount && totalDiscounted < totalOriginal ? (
             <View style={styles.footerPriceRow}>
@@ -763,14 +768,25 @@ function SlotGrid({
           <Pressable
             key={slot.hour}
             onPress={() => {
-              if (isAvailable) onToggle(slot.hour);
+              // A SELECTED tile always deselects first — even when the
+              // slot has since gone full (availability refetch, or the
+              // user's own hold marking it taken after backing out of
+              // checkout). Routing those taps to the notify sheet left
+              // the slot stuck in the selection — inflating the total
+              // and even reaching checkout with unbookable hours
+              // (Trello: "unable to deselect notify-me slots").
+              if (isSelected) onToggle(slot.hour);
+              else if (isAvailable) onToggle(slot.hour);
               else if (softBlockInteractive && onShowAlternatives)
                 onShowAlternatives(slot);
               else if (bookedFutureInteractive && onUnavailableTap)
                 onUnavailableTap(slot.hour);
             }}
             disabled={
-              !isAvailable && !softBlockInteractive && !bookedFutureInteractive
+              !isSelected &&
+              !isAvailable &&
+              !softBlockInteractive &&
+              !bookedFutureInteractive
             }
             style={({ pressed }) => [
               styles.slot,
@@ -899,13 +915,12 @@ const styles = StyleSheet.create({
   // Sticky variant of `section`: same vertical spacing, plus an
   // opaque background and a small border-bottom so the day strip
   // reads as a pinned bar (not a floating section) when it sticks
-  // to the top. `gap` is bumped from 12 → 20 so the "Select Date"
-  // label has visible breathing room above the date strip — the
-  // tighter spacing was making the icon + label cling to the
-  // strip's top edge.
+  // to the top. `gap` sits at 24 (was 12 → 20 → 24) so the "Select
+  // Date" label has clear breathing room above the date strip —
+  // 20 still read as clinging on device (Trello 2026-07-12).
   stickyDateSection: {
     marginTop: spacing["4"],
-    gap: spacing["5"],
+    gap: spacing["6"],
     backgroundColor: colors.background,
     paddingBottom: spacing["3"],
     borderBottomWidth: StyleSheet.hairlineWidth,
