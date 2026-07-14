@@ -1,6 +1,16 @@
 import { api } from "./api";
 import type { CourtConfig, Sport } from "./types";
 
+// AbortController-based timeout — `AbortSignal.timeout()` isn't
+// guaranteed on Hermes, so build the same thing by hand. Used by the
+// payment-critical calls below where an unbounded hang means the
+// customer stares at a spinner with no way out.
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 // Mirrors the server's SlotStatus exactly. "closed" lands on
 // past slots for today's date — the customer picker dims those
 // tiles + labels them "Past" so it's clear they can't be tapped.
@@ -481,21 +491,42 @@ export const bookingApi = {
       )
       .catch(() => ({ success: false })),
 
-  /** Create a Razorpay order tied to the hold. */
+  /** Create a Razorpay order tied to the hold. Hard 30s timeout — a
+   *  hung request here (or in verify) left the checkout on a spinner
+   *  forever with no error (Trello 2026-07-12); aborting turns it
+   *  into a visible "try again" instead. */
   createOrder: (body: {
     holdId: string;
     isAdvance?: boolean;
     overrideAmount?: number;
-  }) => api.post<RazorpayOrder>("/api/mobile/razorpay/create-order", body),
+  }) =>
+    api.post<RazorpayOrder>("/api/mobile/razorpay/create-order", body, {
+      signal: timeoutSignal(30_000),
+    }),
 
-  /** Verify the signature and convert the hold into a Booking. */
+  /** Verify the signature and convert the hold into a Booking.
+   *  Same 30s abort guard as createOrder. */
   verifyOrder: (body: {
     holdId: string;
     razorpayPaymentId: string;
     razorpayOrderId: string;
     razorpaySignature: string;
     isAdvance?: boolean;
-  }) => api.post<VerifyResult>("/api/mobile/razorpay/verify", body),
+  }) =>
+    api.post<VerifyResult>("/api/mobile/razorpay/verify", body, {
+      signal: timeoutSignal(30_000),
+    }),
+
+  /**
+   * Did this Razorpay order already land as a Booking (via the
+   * payment.captured webhook)? The checkout's escape hatch for a
+   * hung/errored SDK sheet — see CheckoutScreen.settledByWebhook.
+   */
+  orderStatus: (razorpayOrderId: string) =>
+    api.get<{ completed: boolean; bookingId?: string }>(
+      `/api/mobile/razorpay/order-status?orderId=${encodeURIComponent(razorpayOrderId)}`,
+      { signal: timeoutSignal(15_000) },
+    ),
 
   /**
    * Public payment-gateway config. Tells the native checkout which

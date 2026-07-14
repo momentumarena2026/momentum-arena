@@ -63,6 +63,14 @@ export function Button({
             variant={size === "sm" ? "small" : "bodyStrong"}
             color={variantStyles[variant].labelColor}
             weight="600"
+            // The text variants carry a paragraph lineHeight (small
+            // 13/18, bodyStrong 15/22). Inside a fixed-height button
+            // the extra leading lands BELOW the glyphs on iOS, so
+            // labels sat visibly high ("pay button not centered",
+            // Trello 2026-07-12). Tighten the line box to ~1.2x the
+            // font and drop Android's font padding so the flexbox
+            // centering is also optical centering.
+            style={size === "sm" ? styles.labelSm : styles.label}
           >
             {label}
           </Text>
@@ -151,5 +159,15 @@ const styles = StyleSheet.create({
   },
   iconTrailing: {
     marginLeft: spacing["2"],
+  },
+  // Tight line boxes for button labels — see the comment at the
+  // <Text> call site. 16/18 = ~1.2x the 13/15pt label fonts.
+  labelSm: {
+    lineHeight: 16,
+    includeFontPadding: false,
+  },
+  label: {
+    lineHeight: 18,
+    includeFontPadding: false,
   },
 });

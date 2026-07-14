@@ -472,17 +472,64 @@ export function CheckoutScreen() {
 
     trackPaymentInitiated("RAZORPAY", order.amount, params.holdId);
 
+    // Webhook escape hatch. The payment.captured webhook completes the
+    // booking server-side independently of this screen — and the SDK's
+    // sheet has been seen hanging on the test bank page while exactly
+    // that happened (2026-07-14: "order completes but stuck on the same
+    // page"). So EVERY exit from the sheet — cancel, error, or a failed
+    // verify — first asks the server whether the money already landed;
+    // if it did, this was a success regardless of what the SDK said.
+    const settledByWebhook = async (): Promise<string | null> => {
+      try {
+        const s = await bookingApi.orderStatus(order.orderId);
+        return s.completed && s.bookingId ? s.bookingId : null;
+      } catch {
+        return null;
+      }
+    };
+    const finishAsPaid = (bookingId: string) => {
+      trackPaymentCompleted("RAZORPAY", order.amount, bookingId);
+      fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
+      goToBookingDetail(bookingId);
+    };
+
     let success: PaymentSuccessData;
     try {
+      // Breadcrumbs around the SDK promise — pin down whether it
+      // resolved, rejected, or hung on the next repro.
+      console.log("[razorpay] opening sheet", {
+        order: options.order_id,
+        amount: options.amount,
+      });
       success = (await RazorpayCheckout.open(options)) as PaymentSuccessData;
+      console.log("[razorpay] sheet resolved", {
+        paymentId: success?.razorpay_payment_id,
+      });
     } catch (err) {
       const e = err as PaymentErrorData;
+      console.log("[razorpay] sheet rejected", {
+        code: e?.code,
+        description: e?.description?.slice(0, 200),
+      });
+      // The "Back" press that escapes a stuck bank page surfaces here
+      // as a cancel — but the webhook may have already completed the
+      // booking. Check before treating any rejection as a failure.
+      const paidBookingId = await settledByWebhook();
+      if (paidBookingId) {
+        finishAsPaid(paidBookingId);
+        return;
+      }
       if (e?.code === 2 || e?.description?.toLowerCase().includes("cancel")) {
         trackPaymentCancelled("RAZORPAY", params.holdId);
         return; // user dismissed sheet — not an error worth surfacing.
       }
+      // Surface the SDK's own reason (incl. its numeric code) so a
+      // failed test/live payment reads as an actionable error on the
+      // checkout screen instead of a silent dead end.
       throw new ApiError(
-        e?.description || "Payment failed. Try another method.",
+        e?.description
+          ? `Payment failed: ${e.description}`
+          : `Payment failed (code ${e?.code ?? "?"}). Try another method.`,
         0,
         e
       );
@@ -493,6 +540,11 @@ export function CheckoutScreen() {
       !success.razorpay_order_id ||
       !success.razorpay_signature
     ) {
+      const paidBookingId = await settledByWebhook();
+      if (paidBookingId) {
+        finishAsPaid(paidBookingId);
+        return;
+      }
       throw new ApiError(
         "We couldn't confirm the payment. If money was debited we'll reach out.",
         0,
@@ -500,21 +552,37 @@ export function CheckoutScreen() {
       );
     }
 
-    const verify = await bookingApi.verifyOrder({
-      holdId: params.holdId,
-      razorpayPaymentId: success.razorpay_payment_id,
-      razorpayOrderId: success.razorpay_order_id,
-      razorpaySignature: success.razorpay_signature,
-      isAdvance,
-    });
+    let verified: { success: boolean; bookingId?: string };
+    try {
+      verified = await bookingApi.verifyOrder({
+        holdId: params.holdId,
+        razorpayPaymentId: success.razorpay_payment_id,
+        razorpayOrderId: success.razorpay_order_id,
+        razorpaySignature: success.razorpay_signature,
+        isAdvance,
+      });
+    } catch (err) {
+      // Verify request failed/timed out — the webhook may still have
+      // (or shortly will have) landed the booking. Prefer that truth
+      // over an error the customer would misread as "payment failed".
+      const paidBookingId = await settledByWebhook();
+      if (paidBookingId) {
+        finishAsPaid(paidBookingId);
+        return;
+      }
+      throw err;
+    }
 
-    if (!verify.success || !verify.bookingId) {
+    if (!verified.success || !verified.bookingId) {
+      const paidBookingId = await settledByWebhook();
+      if (paidBookingId) {
+        finishAsPaid(paidBookingId);
+        return;
+      }
       throw new ApiError("Payment verification failed.", 0, null);
     }
 
-    trackPaymentCompleted("RAZORPAY", order.amount, verify.bookingId);
-    fireRedeemCompleted(pointsRedeemed, pointsRedeemPaiseSaved);
-    goToBookingDetail(verify.bookingId);
+    finishAsPaid(verified.bookingId);
   }
 
   async function handleContinue() {
@@ -548,7 +616,7 @@ export function CheckoutScreen() {
     // doesn't jump when data lands. Replaces the previous centered
     // spinner that gave the user nothing to anchor on.
     return (
-      <Screen>
+      <Screen edges={["top"]}>
         <View style={styles.loadingScroll}>
           <Skeleton width="40%" height={22} rounded="md" />
           <Skeleton width="70%" height={12} rounded="md" style={styles.loadingSub} />
@@ -590,7 +658,7 @@ export function CheckoutScreen() {
 
   if (isError || !hold) {
     return (
-      <Screen>
+      <Screen edges={["top"]}>
         <View style={styles.centered}>
           <Text variant="heading">Couldn't load this hold</Text>
           <Text
@@ -638,7 +706,7 @@ export function CheckoutScreen() {
       : `Pay ${formatRupees(payableAmount)} via UPI`;
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={["top"]}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         {/* Page title — matches web's "Complete Payment" (no kicker). */}
         <Text variant="title">Complete Payment</Text>
@@ -1217,12 +1285,16 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(239, 68, 68, 0.10)",
     padding: spacing["3"],
   },
+  // Symmetric 12/12 vertical padding. The old 20 bottom + the Screen's
+  // (since-removed) bottom safe-area edge stacked ~54dp of dead space
+  // under the pay button while only ~12 sat above it — the button read
+  // as floating high in an oversized bar (Trello 2026-07-14).
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     paddingHorizontal: spacing["6"],
     paddingTop: spacing["3"],
-    paddingBottom: spacing["5"],
+    paddingBottom: spacing["3"],
     backgroundColor: colors.background,
     gap: spacing["3"],
   },
