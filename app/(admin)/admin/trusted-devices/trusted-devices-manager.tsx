@@ -128,9 +128,9 @@ export function TrustedDevicesManager({ devices }: { devices: Device[] }) {
       {/* Device list */}
       {devices.length === 0 ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          No devices registered yet — while this list is empty, the 5-tap
-          admin entry works on <strong>every</strong> device (so you can’t
-          lock yourself out). Add the first device to switch enforcement on.
+          No devices registered — the 5-tap admin entry is currently
+          disabled on <strong>every</strong> device. Tap the app’s version
+          number 12 times to reveal a device’s ID, then add it here.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-zinc-800">

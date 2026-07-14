@@ -11,9 +11,10 @@ import { db } from "@/lib/db";
  * admin credentials + per-route permission checks. This endpoint only
  * gates DISCOVERY of the login screen.
  *
- * GRACE RULE: while the TrustedDevice table is empty the answer is
- * always "trusted", so shipping this feature can never lock the team
- * out before the first device is registered.
+ * Enforcement is ALWAYS on — an empty allowlist means no device can
+ * open the admin entry. Bootstrap: 12 taps on the app's version footer
+ * reveal the device ID; register it on /admin/trusted-devices (the web
+ * admin login is independent of the app, so this can't lock you out).
  *
  * GET /api/mobile/device-trust?deviceId=...  →  { trusted: boolean }
  */
@@ -24,11 +25,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const registered = await db.trustedDevice.count();
-    if (registered === 0) {
-      return NextResponse.json({ trusted: true });
-    }
-
     const device = await db.trustedDevice.findUnique({
       where: { deviceId },
       select: { id: true },

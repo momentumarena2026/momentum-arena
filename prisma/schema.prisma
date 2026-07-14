@@ -792,9 +792,9 @@ model FAQEntry {
 // nothing. Rows are added either manually from /admin/trusted-devices
 // (paste the ID revealed by 12 taps on an untrusted device) or
 // automatically on a successful mobile admin login (source LOGIN).
-// GRACE RULE: while this table has no rows the 5-tap works everywhere,
-// so shipping the feature can never lock the team out before the
-// first device is registered.
+// Enforcement is always on — an empty table means NO device can open
+// the admin entry; bootstrap new devices via the 12-tap ID reveal +
+// this list (web admin login is independent of the app).
 model TrustedDevice {
   id         String   @id @default(cuid())
   // App-generated ID: keychain-persisted UUID seeded from the platform
