@@ -65,6 +65,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/rewards": Gift,
   "/admin/users": Users,
   "/admin/admin-users": Shield,
+  "/admin/trusted-devices": Smartphone,
   "/admin/generator": Fuel,
   "/admin/ota": Smartphone,
   "/admin/release-flow": Workflow,

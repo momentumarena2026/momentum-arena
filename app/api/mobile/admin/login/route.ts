@@ -16,6 +16,12 @@ import { signMobileAdminToken } from "@/lib/mobile-auth";
 const Schema = z.object({
   username: z.string().min(1).max(64),
   password: z.string().min(1).max(256),
+  // Optional device fingerprint — a successful login auto-registers
+  // the device as trusted so the 5-tap admin entry keeps working on
+  // it (see TrustedDevice + /api/mobile/device-trust). Older app
+  // builds simply omit these.
+  deviceId: z.string().min(1).max(128).optional(),
+  deviceLabel: z.string().min(1).max(120).optional(),
 });
 
 const RATE_LIMIT_ACTION = "admin-mobile-login";
@@ -110,6 +116,27 @@ export async function POST(request: NextRequest) {
     where: { id: admin.id },
     data: { lastLoginAt: new Date() },
   });
+
+  // Auto-trust: proving admin credentials from this device is stronger
+  // evidence than any manual allowlisting, so register it for the
+  // 5-tap admin entry. Best-effort — a failure here must never block
+  // the login itself.
+  if (parsed.data.deviceId) {
+    const label =
+      parsed.data.deviceLabel?.trim() || `${admin.username}'s device`;
+    await db.trustedDevice
+      .upsert({
+        where: { deviceId: parsed.data.deviceId },
+        create: {
+          deviceId: parsed.data.deviceId,
+          label,
+          source: "LOGIN",
+          lastSeenAt: new Date(),
+        },
+        update: { lastSeenAt: new Date() },
+      })
+      .catch(() => {});
+  }
 
   const token = signMobileAdminToken(admin);
 
