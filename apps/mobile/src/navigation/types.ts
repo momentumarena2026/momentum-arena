@@ -214,6 +214,7 @@ export type AdminMoreStackParamList = {
   AdminRazorpay: undefined;
   AdminPhonePe: undefined;
   AdminAdminUsers: undefined;
+  AdminTrustedDevices: undefined;
   AdminProfile: undefined;
   // Bookings extras + legacy discounts
   AdminRecovery: undefined;

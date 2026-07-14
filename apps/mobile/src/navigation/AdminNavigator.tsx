@@ -68,6 +68,7 @@ import { AdminPaymentSettingsScreen } from "../screens/admin/AdminPaymentSetting
 import { AdminRazorpayScreen } from "../screens/admin/AdminRazorpayScreen";
 import { AdminPhonePeScreen } from "../screens/admin/AdminPhonePeScreen";
 import { AdminAdminUsersScreen } from "../screens/admin/AdminAdminUsersScreen";
+import { AdminTrustedDevicesScreen } from "../screens/admin/AdminTrustedDevicesScreen";
 import { AdminProfileScreen } from "../screens/admin/AdminProfileScreen";
 import { AdminRecoveryScreen } from "../screens/admin/AdminRecoveryScreen";
 import { AdminRecurringConfigScreen } from "../screens/admin/AdminRecurringConfigScreen";
@@ -210,6 +211,7 @@ function AdminMoreStackNav() {
       <MoreStack.Screen name="AdminRazorpay" component={AdminRazorpayScreen} options={{ title: "Razorpay" }} />
       <MoreStack.Screen name="AdminPhonePe" component={AdminPhonePeScreen} options={{ title: "PhonePe" }} />
       <MoreStack.Screen name="AdminAdminUsers" component={AdminAdminUsersScreen} options={{ title: "Admin users" }} />
+      <MoreStack.Screen name="AdminTrustedDevices" component={AdminTrustedDevicesScreen} options={{ title: "Trusted devices" }} />
       <MoreStack.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: "My profile" }} />
       <MoreStack.Screen name="AdminRecovery" component={AdminRecoveryScreen} options={{ title: "Payment recovery" }} />
       <MoreStack.Screen name="AdminRecurringConfig" component={AdminRecurringConfigScreen} options={{ title: "Recurring config" }} />

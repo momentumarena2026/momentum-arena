@@ -31,6 +31,9 @@ export const ALL_PERMISSIONS = [
   // DQR enablement. Previously straddled VIEW_RAZORPAY (sidebar) and
   // MANAGE_PRICING (actions) — now one dedicated permission for both.
   "MANAGE_PAYMENT_SETTINGS",
+  // Trusted-device allowlist for the app's hidden 5-tap admin entry
+  // (/admin/trusted-devices + the mobile-admin screen).
+  "MANAGE_TRUSTED_DEVICES",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -61,6 +64,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_SHOP_ORDERS: "Manage Shop Orders",
   MANAGE_APP_RELEASES: "Manage App Releases (OTA)",
   MANAGE_PAYMENT_SETTINGS: "Manage Payment Settings",
+  MANAGE_TRUSTED_DEVICES: "Manage Trusted Devices (5-tap admin entry)",
 };
 
 export function hasPermission(

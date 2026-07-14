@@ -46,7 +46,7 @@ const allNavItems = [
   // groups (and other features also use them somehow)".
   { href: "/admin/users/groups", label: "User Groups", group: "Settings", permission: "MANAGE_COUPONS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
-  { href: "/admin/trusted-devices", label: "Trusted Devices", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
+  { href: "/admin/trusted-devices", label: "Trusted Devices", group: "Settings", permission: "MANAGE_TRUSTED_DEVICES" },
   { href: "/admin/generator", label: "Generator", group: "Settings", permission: "MANAGE_PRICING" },
   { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },
   { href: "/admin/payment-settings", label: "Payment Gateway", group: "Settings", permission: "MANAGE_PAYMENT_SETTINGS" },

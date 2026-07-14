@@ -20,6 +20,7 @@ import {
   ScanLine,
   Settings2,
   ShoppingBag,
+  Smartphone,
   Sparkles,
   Tag,
   Target,
@@ -354,6 +355,13 @@ const GROUPS: Group[] = [
         icon: ic(Settings2),
         perm: "MANAGE_ADMIN_USERS",
         onPress: (nav) => nav.navigate("AdminAdminUsers"),
+      },
+      {
+        label: "Trusted devices",
+        sub: "5-tap admin entry allowlist",
+        icon: ic(Smartphone),
+        perm: "MANAGE_TRUSTED_DEVICES",
+        onPress: (nav) => nav.navigate("AdminTrustedDevices"),
       },
       {
         label: "My profile",
