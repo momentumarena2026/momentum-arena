@@ -241,7 +241,7 @@ export function BookBowlingSlotsScreen() {
   const signedIn = state.status === "signedIn";
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={["top"]}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         // Pin the date-picker section (index 1) so the customer
@@ -565,6 +565,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing["2"],
+    // Extra air under the section labels — mirror of BookSlotsScreen.
+    marginBottom: spacing["2"],
   },
   dateRow: {
     flexDirection: "row",
@@ -681,12 +683,15 @@ const styles = StyleSheet.create({
   summarySub: {
     marginTop: 2,
   },
+  // Symmetric 12/12 vertical padding — with the Screen's bottom
+  // safe-area edge removed (tab bar owns that inset), 20 bottom read
+  // as a tall dead zone under the Continue button.
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     paddingHorizontal: spacing["6"],
     paddingTop: spacing["3"],
-    paddingBottom: spacing["5"],
+    paddingBottom: spacing["3"],
     backgroundColor: colors.background,
     gap: spacing["3"],
   },

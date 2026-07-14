@@ -518,6 +518,17 @@ export const bookingApi = {
     }),
 
   /**
+   * Did this Razorpay order already land as a Booking (via the
+   * payment.captured webhook)? The checkout's escape hatch for a
+   * hung/errored SDK sheet — see CheckoutScreen.settledByWebhook.
+   */
+  orderStatus: (razorpayOrderId: string) =>
+    api.get<{ completed: boolean; bookingId?: string }>(
+      `/api/mobile/razorpay/order-status?orderId=${encodeURIComponent(razorpayOrderId)}`,
+      { signal: timeoutSignal(15_000) },
+    ),
+
+  /**
    * Public payment-gateway config. Tells the native checkout which
    * payment-method tiles to render and which gateway (PhonePe/Razorpay) is
    * active so the "Online Payment" tile can show the right subtitle/icon.

@@ -18,7 +18,7 @@ import {
 } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { NativeStackNavigationProp as RootNavType } from "@react-navigation/native-stack";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   ArrowRightLeft,
@@ -89,6 +89,7 @@ export function BookSlotsScreen() {
   const { params } = useRoute<Rt>();
   const navigation = useNavigation<Nav>();
   const { state } = useAuth();
+  const qc = useQueryClient();
 
   // Track selectedDate as the IST "YYYY-MM-DD" string directly (web does the
   // same). Easier to compare against getTodayIST() and to pass to the API.
@@ -175,6 +176,77 @@ export function BookSlotsScreen() {
   // (`percentOff` non-null). FLAT promos like FLAT100 apply once to the
   // whole order and would show misleading numbers per slot.
   const showDiscount = promo?.percentOff != null;
+
+  // The signed-in user's live waitlist entries, mapped onto THIS court +
+  // date's display hours (slots carry their own lock coords, so the
+  // 12am-1am tile — stored on the previous date as hour 24 — matches
+  // without date math). Drives the "On the list · tap to leave" tile
+  // state: tapping a slot you've already asked to be notified about now
+  // REMOVES you from the waitlist instead of re-opening the join popup
+  // (Trello 2026-07-12/14: "unable to deselect notify-me slots").
+  const { data: mineData } = useQuery({
+    queryKey: ["waitlist", "mine"],
+    queryFn: () => waitlistApi.mine(),
+    enabled: state.status === "signedIn" && !isMedium && !!params.courtConfigId,
+    staleTime: 30_000,
+  });
+  const waitlistedByHour = useMemo(() => {
+    const m = new Map<number, string>();
+    const entries = mineData?.entries;
+    if (!entries?.length || !params.courtConfigId) return m;
+    for (const s of slots) {
+      const lockDate = s.lockDate ?? selectedDate;
+      const lockHour = s.lockHour ?? s.hour;
+      const entry = entries.find(
+        (e) =>
+          e.courtConfigId === params.courtConfigId &&
+          (e.status === "WAITING" || e.status === "NOTIFIED") &&
+          e.date.slice(0, 10) === lockDate &&
+          e.startHour === lockHour,
+      );
+      if (entry) m.set(s.hour, entry.id);
+    }
+    return m;
+  }, [mineData, slots, params.courtConfigId, selectedDate]);
+
+  const handleLeaveWaitlist = useCallback(
+    (hour: number) => {
+      const id = waitlistedByHour.get(hour);
+      if (!id) return;
+      Alert.alert(
+        "Leave the waitlist?",
+        `You'll stop getting notified if ${formatHourRangeCompact(hour)} frees up on this court.`,
+        [
+          { text: "Stay on it", style: "cancel" },
+          {
+            text: "Leave",
+            style: "destructive",
+            onPress: () => {
+              void (async () => {
+                try {
+                  const res = await waitlistApi.cancel(id);
+                  if (!res.success) {
+                    Alert.alert(
+                      "Couldn't leave the waitlist",
+                      res.error ?? "Please try again.",
+                    );
+                  }
+                } catch {
+                  Alert.alert(
+                    "Couldn't leave the waitlist",
+                    "Network error — please try again.",
+                  );
+                } finally {
+                  void qc.invalidateQueries({ queryKey: ["waitlist", "mine"] });
+                }
+              })();
+            },
+          },
+        ],
+      );
+    },
+    [waitlistedByHour, qc],
+  );
 
   const slotsOriginal = useMemo(
     () =>
@@ -324,7 +396,7 @@ export function BookSlotsScreen() {
   const signedIn = state.status === "signedIn";
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={["top"]}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         // Pin the date-picker section (index 1, right under the
@@ -424,6 +496,8 @@ export function BookSlotsScreen() {
               selected={selected}
               onToggle={toggleHour}
               promo={promo}
+              waitlistedHours={waitlistedByHour}
+              onLeaveWaitlist={isMedium ? undefined : handleLeaveWaitlist}
               onUnavailableTap={
                 isMedium ? undefined : (h) => setWaitlistHour(h)
               }
@@ -553,7 +627,12 @@ export function BookSlotsScreen() {
 
       <WaitlistSheet
         visible={waitlistHour !== null}
-        onClose={() => setWaitlistHour(null)}
+        onClose={() => {
+          setWaitlistHour(null);
+          // A join may have just happened inside the sheet — refresh so
+          // the tile flips to "On the list" immediately.
+          void qc.invalidateQueries({ queryKey: ["waitlist", "mine"] });
+        }}
         courtConfigId={params.courtConfigId ?? ""}
         courtLabel={params.courtLabel}
         sport={params.sport}
@@ -698,6 +777,8 @@ function SlotGrid({
   onShowAlternatives,
   pastHourCutoff,
   promo,
+  waitlistedHours,
+  onLeaveWaitlist,
 }: {
   slots: SlotAvailability[];
   selected: number[];
@@ -725,6 +806,11 @@ function SlotGrid({
    * price. Math via computeAutoApplyDiscount keeps display ≡ charge.
    */
   promo?: ActiveSportPromo | null;
+  /** Display hour → waitlist entry id for slots the user already
+   *  joined the waitlist on. Those tiles flip to "On the list" and
+   *  tap REMOVES the entry via onLeaveWaitlist. */
+  waitlistedHours?: Map<number, string>;
+  onLeaveWaitlist?: (hour: number) => void;
 }) {
   const showDiscount = promo?.percentOff != null;
   return (
@@ -732,6 +818,7 @@ function SlotGrid({
       {slots.map((slot) => {
         const isSelected = selected.includes(slot.hour);
         const isAvailable = slot.status === "available";
+        const isWaitlisted = waitlistedHours?.has(slot.hour) ?? false;
         const isPast =
           pastHourCutoff !== undefined && slot.hour <= pastHourCutoff;
 
@@ -777,6 +864,10 @@ function SlotGrid({
               // (Trello: "unable to deselect notify-me slots").
               if (isSelected) onToggle(slot.hour);
               else if (isAvailable) onToggle(slot.hour);
+              // Already on the waitlist → tap manages (leaves) it
+              // instead of re-opening the join popup.
+              else if (isWaitlisted && onLeaveWaitlist)
+                onLeaveWaitlist(slot.hour);
               else if (softBlockInteractive && onShowAlternatives)
                 onShowAlternatives(slot);
               else if (bookedFutureInteractive && onUnavailableTap)
@@ -785,6 +876,7 @@ function SlotGrid({
             disabled={
               !isSelected &&
               !isAvailable &&
+              !isWaitlisted &&
               !softBlockInteractive &&
               !bookedFutureInteractive
             }
@@ -794,13 +886,18 @@ function SlotGrid({
                 ? styles.slotSelected
                 : isAvailable
                 ? styles.slotAvailable
+                : isWaitlisted
+                ? styles.slotWaitlisted
                 : softBlockInteractive
                 ? styles.slotSoftBlocked
                 : bookedFutureInteractive
                 ? styles.slotBookedFuture
                 : styles.slotUnavailable,
               pressed &&
-                (isAvailable || softBlockInteractive || bookedFutureInteractive) && {
+                (isAvailable ||
+                  isWaitlisted ||
+                  softBlockInteractive ||
+                  bookedFutureInteractive) && {
                   opacity: 0.85,
                 },
             ]}
@@ -826,6 +923,8 @@ function SlotGrid({
               </View>
               {isSelected ? (
                 <Check size={16} color={colors.emerald400} />
+              ) : isWaitlisted ? (
+                <BellRing size={14} color={colors.emerald400} />
               ) : softBlockInteractive ? (
                 <ArrowRightLeft size={14} color={colors.yellow400} />
               ) : bookedFutureInteractive ? (
@@ -856,6 +955,8 @@ function SlotGrid({
                 color={
                   isAvailable
                     ? colors.zinc400
+                    : isWaitlisted
+                    ? colors.emerald400
                     : softBlockInteractive
                     ? colors.yellow400
                     : bookedFutureInteractive
@@ -866,6 +967,8 @@ function SlotGrid({
               >
                 {isAvailable
                   ? formatRupees(slot.price)
+                  : isWaitlisted
+                  ? "On the list · tap to leave"
                   : softBlockInteractive
                   ? `${availabilityTag ?? "Available"} · tap`
                   : bookedFutureInteractive
@@ -930,6 +1033,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing["2"],
+    // Extra air under the "Select Date"/"Select Time" labels on top of
+    // the section gap — the label still read as clinging to the date
+    // strip on device (Trello 2026-07-14).
+    marginBottom: spacing["2"],
   },
   dateRow: {
     flexDirection: "row",
@@ -992,6 +1099,12 @@ const styles = StyleSheet.create({
   slotBookedFuture: {
     backgroundColor: colors.destructive_10,
     borderColor: colors.destructive_30,
+  },
+  // User is on the waitlist for this slot — calm emerald "armed bell"
+  // state; tap leaves the list (vs red = full, tap to join).
+  slotWaitlisted: {
+    backgroundColor: colors.emerald500_05,
+    borderColor: colors.emerald500_30,
   },
   // Soft block — slot's taken on this court but a sibling court is
   // still free at the same hour. Amber palette signals "pivot
@@ -1087,12 +1200,15 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: 3, // source is 1200x400 (designer banner)
   },
+  // Symmetric 12/12 vertical padding — with the Screen's bottom
+  // safe-area edge removed (tab bar owns that inset), 20 bottom read
+  // as a tall dead zone under the Continue button.
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     paddingHorizontal: spacing["6"],
     paddingTop: spacing["3"],
-    paddingBottom: spacing["5"],
+    paddingBottom: spacing["3"],
     backgroundColor: colors.background,
     gap: spacing["3"],
   },
