@@ -786,6 +786,29 @@ model FAQEntry {
   @@index([category])
 }
 
+// Devices allowed to reveal the hidden admin entry (the 5-tap on the
+// app's version footer). The tap gesture checks this allowlist via the
+// public /api/mobile/device-trust endpoint; untrusted devices see
+// nothing. Rows are added either manually from /admin/trusted-devices
+// (paste the ID revealed by 12 taps on an untrusted device) or
+// automatically on a successful mobile admin login (source LOGIN).
+// GRACE RULE: while this table has no rows the 5-tap works everywhere,
+// so shipping the feature can never lock the team out before the
+// first device is registered.
+model TrustedDevice {
+  id         String   @id @default(cuid())
+  // App-generated ID: keychain-persisted UUID seeded from the platform
+  // identifier (ANDROID_ID / identifierForVendor) on first launch.
+  deviceId   String   @unique
+  label      String
+  platform   String? // "ios" | "android" — display only
+  // "MANUAL" (added on the admin page) | "LOGIN" (auto-trust on a
+  // successful mobile admin login from that device).
+  source     String   @default("MANUAL")
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+}
+
 model AdminUser {
   id                String    @id @default(cuid())
   username          String    @unique

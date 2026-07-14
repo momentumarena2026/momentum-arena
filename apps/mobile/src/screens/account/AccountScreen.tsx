@@ -1,5 +1,5 @@
-import { useRef } from "react";
-import { Alert, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Modal, Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
@@ -36,7 +36,8 @@ import { useAdminAuth } from "../../providers/AdminAuthProvider";
 import { bookingsApi } from "../../lib/bookings";
 import { rewardsApi } from "../../lib/rewards";
 import { authApi } from "../../lib/auth";
-import { ApiError } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
+import { getDeviceId } from "../../lib/device-id";
 import { trackRewardsTileTap } from "../../lib/analytics";
 import { versionLabel } from "../../lib/appVersion";
 import {
@@ -701,9 +702,18 @@ function Divider() {
  * navigates to the AdminLogin modal — same idea as Android's
  * "tap build number 7 times to enable Developer mode" easter egg.
  *
- * No visual feedback on the first 4 taps so customers tapping idly
+ * TRUSTED DEVICES ONLY: the 5th tap fires only when this device is on
+ * the TrustedDevice allowlist (checked via the public
+ * /api/mobile/device-trust endpoint, cached 5 min; an already-signed-in
+ * admin session bypasses the check). On an untrusted device the taps
+ * do nothing — except that reaching 12 taps in one burst reveals this
+ * device's ID in a selectable modal, which is what an admin pastes
+ * into /admin/trusted-devices to register a new phone. Devices also
+ * self-register on a successful admin login.
+ *
+ * No visual feedback on the first taps so customers tapping idly
  * don't think anything is happening. The reset timer is cleared on
- * each tap so a deliberate 5-in-a-row always succeeds even on slower
+ * each tap so a deliberate streak always succeeds even on slower
  * devices.
  */
 function VersionFooter() {
@@ -711,6 +721,36 @@ function VersionFooter() {
   const adminAuth = useAdminAuth();
   const tapCountRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showDeviceId, setShowDeviceId] = useState(false);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+
+  // Resolve the device id once; drives both the trust check and the
+  // 12-tap reveal.
+  useEffect(() => {
+    let mounted = true;
+    void getDeviceId().then((id) => {
+      if (mounted) setDeviceId(id);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Trust check — public endpoint, no auth. Errors → untrusted (fail
+  // closed); a live admin session overrides below.
+  const { data: trustData } = useQuery({
+    queryKey: ["device-trust", deviceId],
+    queryFn: () =>
+      api.get<{ trusted: boolean }>(
+        `/api/mobile/device-trust?deviceId=${encodeURIComponent(deviceId!)}`,
+        { auth: false },
+      ),
+    enabled: !!deviceId,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const trusted =
+    adminAuth.state.status === "signedIn" || trustData?.trusted === true;
 
   function onTap() {
     tapCountRef.current += 1;
@@ -718,7 +758,7 @@ function VersionFooter() {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    if (tapCountRef.current >= 5) {
+    if (trusted && tapCountRef.current >= 5) {
       tapCountRef.current = 0;
       // Already signed in as admin → skip the login form and go
       // straight to the admin shell. Otherwise prompt for credentials.
@@ -729,15 +769,58 @@ function VersionFooter() {
       }
       return;
     }
+    // Untrusted path: keep counting quietly; a deliberate 12-tap burst
+    // surfaces this device's ID for registration. (When trusted, the
+    // 5th tap navigates away, so this branch is unreachable.)
+    if (!trusted && tapCountRef.current >= 12) {
+      tapCountRef.current = 0;
+      setShowDeviceId(true);
+      return;
+    }
     timerRef.current = setTimeout(() => {
       tapCountRef.current = 0;
     }, 1500);
   }
 
   return (
-    <Pressable onPress={onTap} hitSlop={8}>
-      <Text style={styles.version}>{versionLabel()}</Text>
-    </Pressable>
+    <>
+      <Pressable onPress={onTap} hitSlop={8}>
+        <Text style={styles.version}>{versionLabel()}</Text>
+      </Pressable>
+
+      {/* Device-ID reveal — selectable so it can be long-press-copied
+          and sent to whoever manages /admin/trusted-devices. */}
+      <Modal
+        visible={showDeviceId}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeviceId(false)}
+      >
+        <Pressable
+          style={styles.deviceIdBackdrop}
+          onPress={() => setShowDeviceId(false)}
+        >
+          <Pressable
+            style={styles.deviceIdCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text variant="bodyStrong" color={colors.foreground}>
+              Device ID
+            </Text>
+            <Text
+              selectable
+              style={styles.deviceIdValue}
+            >
+              {deviceId ?? "…"}
+            </Text>
+            <Text variant="tiny" color={colors.zinc500}>
+              Long-press to copy. An admin can register this device under
+              Admin → Trusted Devices.
+            </Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -1205,4 +1288,28 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
   },
+  // ── Device-ID reveal modal (12-tap on version, untrusted devices) ──
+  deviceIdBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing["6"],
+  },
+  deviceIdCard: {
+    alignSelf: "stretch",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["5"],
+    gap: spacing["3"],
+  },
+  deviceIdValue: {
+    color: colors.emerald400,
+    fontSize: 15,
+    lineHeight: 22,
+    fontVariant: ["tabular-nums"],
+  },
+
 });

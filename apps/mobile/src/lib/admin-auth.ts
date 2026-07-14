@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { env } from "../config/env";
 import { adminTokenStorage } from "./storage";
+import { getDeviceId, deviceLabelHint } from "./device-id";
 
 /**
  * Admin auth API client. Lives separately from `lib/auth.ts` (the
@@ -80,9 +81,20 @@ export const adminAuthApi = {
    * returns the admin profile.
    */
   async login(username: string, password: string): Promise<AdminUser> {
+    // Attach the device fingerprint so a successful login auto-registers
+    // this device for the 5-tap admin entry (TrustedDevice, source
+    // LOGIN). Best-effort — login must work even if the id lookup fails.
+    let deviceId: string | undefined;
+    let deviceLabel: string | undefined;
+    try {
+      deviceId = await getDeviceId();
+      deviceLabel = `${username} · ${deviceLabelHint()}`;
+    } catch {
+      /* proceed without device registration */
+    }
     const res = await request<LoginResponse>("/api/mobile/admin/login", {
       method: "POST",
-      body: { username, password },
+      body: { username, password, deviceId, deviceLabel },
     });
     await adminTokenStorage.save(res.token);
     return res.admin;
