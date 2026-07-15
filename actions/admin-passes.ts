@@ -613,6 +613,10 @@ export async function extendPassValidity(
   }
   const pass = await db.userPass.findUnique({ where: { id } });
   if (!pass) return { ok: false, error: "Pass not found." };
+  // Cancellation is terminal — a cancelled pass can't be revived.
+  if (pass.status === "CANCELLED") {
+    return { ok: false, error: "This pass is cancelled — no further changes." };
+  }
   await db.userPass.update({
     where: { id },
     data: {
@@ -637,6 +641,10 @@ export async function adjustPassMinutes(
   }
   const pass = await db.userPass.findUnique({ where: { id } });
   if (!pass) return { ok: false, error: "Pass not found." };
+  // Cancellation is terminal — a cancelled pass can't be revived.
+  if (pass.status === "CANCELLED") {
+    return { ok: false, error: "This pass is cancelled — no further changes." };
+  }
   const next = pass.remainingMinutes + deltaMinutes;
   if (next < 0) return { ok: false, error: "Balance can't go negative." };
   await db.userPass.update({

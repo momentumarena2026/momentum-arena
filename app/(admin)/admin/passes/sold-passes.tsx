@@ -124,43 +124,48 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2 text-xs">
-                      <button
-                        disabled={pending}
-                        onClick={() => {
-                          const d = window.prompt("Extend validity by how many days?", "7");
-                          if (!d) return;
-                          run(() => extendPassValidity(p.id, parseInt(d, 10)));
-                        }}
-                        className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
-                      >
-                        Extend
-                      </button>
-                      <button
-                        disabled={pending}
-                        onClick={() => {
-                          const m = window.prompt(
-                            "Adjust balance by minutes (e.g. 60 or -30):",
-                            "60",
-                          );
-                          if (!m) return;
-                          run(() => adjustPassMinutes(p.id, parseInt(m, 10)));
-                        }}
-                        className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
-                      >
-                        Adjust
-                      </button>
-                      <button
-                        disabled={pending || p.status === "CANCELLED"}
-                        onClick={() => {
-                          if (!window.confirm(`Cancel ${p.customer}'s pass? Refund (if any) is manual via the gateway dashboard.`)) return;
-                          run(() => cancelUserPass(p.id));
-                        }}
-                        className="rounded-md border border-red-900/50 px-2 py-1 text-red-400 hover:bg-red-500/10"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                    {/* Cancellation is terminal — no further actions. */}
+                    {p.status === "CANCELLED" ? (
+                      <p className="text-right text-xs text-zinc-600">—</p>
+                    ) : (
+                      <div className="flex justify-end gap-2 text-xs">
+                        <button
+                          disabled={pending}
+                          onClick={() => {
+                            const d = window.prompt("Extend validity by how many days?", "7");
+                            if (!d) return;
+                            run(() => extendPassValidity(p.id, parseInt(d, 10)));
+                          }}
+                          className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
+                        >
+                          Extend
+                        </button>
+                        <button
+                          disabled={pending}
+                          onClick={() => {
+                            const m = window.prompt(
+                              "Adjust balance by minutes (e.g. 60 or -30):",
+                              "60",
+                            );
+                            if (!m) return;
+                            run(() => adjustPassMinutes(p.id, parseInt(m, 10)));
+                          }}
+                          className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
+                        >
+                          Adjust
+                        </button>
+                        <button
+                          disabled={pending}
+                          onClick={() => {
+                            if (!window.confirm(`Cancel ${p.customer}'s pass? Refund (if any) is manual via the gateway dashboard.`)) return;
+                            run(() => cancelUserPass(p.id));
+                          }}
+                          className="rounded-md border border-red-900/50 px-2 py-1 text-red-400 hover:bg-red-500/10"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
