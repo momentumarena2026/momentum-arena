@@ -1,4 +1,4 @@
-import { getActivePassPlans, getMyPasses } from "@/actions/passes";
+import { getActivePassPlans } from "@/actions/passes";
 import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
 import { arePassesEnabled } from "@/lib/passes";
 import { PassesClient } from "./passes-client";
@@ -7,17 +7,17 @@ import { PassesClient } from "./passes-client";
 export const dynamic = "force-dynamic";
 
 export default async function PassesPage() {
-  const [enabled, plans, myPasses, payConfig] = await Promise.all([
+  // The customer's own passes now live on the account dashboard; this
+  // page is the storefront (available plans) only.
+  const [enabled, plans, payConfig] = await Promise.all([
     arePassesEnabled(),
     getActivePassPlans(),
-    getMyPasses(),
     getCheckoutPaymentConfig(),
   ]);
   return (
     <PassesClient
       enabled={enabled}
       plans={plans}
-      myPasses={myPasses}
       dqrEnabled={payConfig.dqrEnabled}
     />
   );

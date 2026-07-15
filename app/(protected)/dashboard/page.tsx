@@ -22,6 +22,9 @@ import {
 } from "lucide-react";
 import { readBalance } from "@/lib/rewards/balance";
 import { getRewardConfig } from "@/lib/rewards/config";
+import { getMyPasses } from "@/actions/passes";
+import { arePassesEnabled } from "@/lib/passes";
+import { MyPasses } from "@/components/passes/my-passes";
 import { SignOutButton } from "@/components/sign-out-button";
 import { OpenChatButton } from "@/components/chatbot/open-chat-button";
 import {
@@ -85,7 +88,7 @@ export default async function DashboardPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [upcomingBookings, totalBookings, thisMonthBookings, user, rewardBalance, rewardCfg] = await Promise.all([
+  const [upcomingBookings, totalBookings, thisMonthBookings, user, rewardBalance, rewardCfg, myPasses, passesEnabled] = await Promise.all([
     db.booking.findMany({
       where: {
         userId: session.user.id,
@@ -119,6 +122,8 @@ export default async function DashboardPage() {
     }),
     readBalance(session.user.id),
     getRewardConfig(),
+    getMyPasses().catch(() => []),
+    arePassesEnabled().catch(() => false),
   ]);
 
   const nextBooking = upcomingBookings[0];
@@ -324,6 +329,13 @@ export default async function DashboardPage() {
           <ArrowRight className="h-4 w-4 text-zinc-700 transition-all group-hover:text-zinc-400 group-hover:translate-x-0.5" />
         </OpenChatButton>
       </div>
+
+      {/* Your passes — animated balance clocks (moved here from /passes).
+          Shown when the customer holds a pass, or when the storefront is
+          open (so the empty-state invite has somewhere to send them). */}
+      {(myPasses.length > 0 || passesEnabled) && (
+        <MyPasses passes={myPasses} />
+      )}
 
       {/* Upcoming Bookings */}
       <div>

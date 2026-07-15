@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Clock,
   ShieldCheck,
   ChevronDown,
   Smartphone,
@@ -23,6 +22,7 @@ import {
 import { GiCricketBat } from "react-icons/gi";
 import type { IconType } from "react-icons";
 import { DqrCheckout } from "@/components/payment/dqr-checkout";
+import { PassClock } from "@/components/passes/pass-clock";
 
 // Sport → illustration + accent colour for the ticket cards. Bowling
 // Machine (a cricket sub-sport) gets its own bat-and-ball glyph.
@@ -52,19 +52,6 @@ interface Plan {
   validityDays: number;
   bandsSummary: string;
 }
-interface MyPass {
-  id: string;
-  name: string;
-  sport: string;
-  totalMinutes: number;
-  remainingMinutes: number;
-  bandsSummary: string;
-  purchasedAt: string;
-  startsAt: string;
-  expiresAt: string;
-  status: string;
-  redemptions: { minutes: number; createdAt: string; restored: boolean }[];
-}
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 /** A pass with no band restriction summarises as "All hours" — no badge
@@ -79,13 +66,6 @@ function istDateStr(offsetDays = 0): string {
     { timeZone: "Asia/Kolkata" },
   );
 }
-const fmtDay = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -135,12 +115,10 @@ const TERMS = [
 export function PassesClient({
   enabled,
   plans,
-  myPasses,
   dqrEnabled,
 }: {
   enabled: boolean;
   plans: Plan[];
-  myPasses: MyPass[];
   /** UPI (PhonePe Dynamic QR) available at checkout — env creds present
    *  AND the admin toggle on. When false the pass buys Razorpay-only. */
   dqrEnabled: boolean;
@@ -242,8 +220,6 @@ export function PassesClient({
     }
   }
 
-  const active = myPasses.filter((p) => p.status === "ACTIVE");
-
   return (
     <div className="min-h-screen bg-black">
       {/* Hero */}
@@ -261,68 +237,9 @@ export function PassesClient({
       </div>
 
       <div className="mx-auto max-w-5xl space-y-10 px-4 py-8 sm:px-6">
-        {/* My passes */}
-        {myPasses.length > 0 && (
-          <section>
-            <h2 className="mb-3 text-lg font-semibold text-white">Your passes</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {myPasses.map((p) => {
-                const usedPct = Math.round(
-                  ((p.totalMinutes - p.remainingMinutes) / p.totalMinutes) * 100,
-                );
-                return (
-                  <div
-                    key={p.id}
-                    className={`rounded-xl border p-4 ${
-                      p.status === "ACTIVE"
-                        ? "border-emerald-500/30 bg-emerald-500/5"
-                        : "border-zinc-800 bg-zinc-900/50 opacity-70"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-white">{p.name}</p>
-                      <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">
-                        {p.status}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-2xl font-bold text-emerald-400">
-                      {(p.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}h
-                      <span className="text-sm font-normal text-zinc-500">
-                        {" "}
-                        / {p.totalMinutes / 60}h left
-                      </span>
-                    </p>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{ width: `${100 - usedPct}%` }}
-                      />
-                    </div>
-                    {p.status === "UPCOMING" && (
-                      <p className="mt-2 text-xs font-medium text-amber-300">
-                        Starts {fmtDay(p.startsAt)}
-                      </p>
-                    )}
-                    <p className="mt-2 text-xs text-zinc-500">
-                      Expires{" "}
-                      {new Date(p.expiresAt).toLocaleDateString("en-IN", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                      {isRestricted(p.bandsSummary)
-                        ? ` · ${p.bandsSummary}`
-                        : ""}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* Plans — hidden entirely while the storefront is disabled. */}
-        {!enabled && myPasses.length === 0 && (
+        {/* Plans — hidden entirely while the storefront is disabled. Your
+            own passes now live on the account dashboard. */}
+        {!enabled && (
           <section className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-zinc-400">
             Monthly passes aren&apos;t available at the moment — check back
             soon, or follow us for announcements.
@@ -331,7 +248,7 @@ export function PassesClient({
         {enabled && (
         <section>
           <h2 className="mb-3 text-lg font-semibold text-white">
-            {active.length > 0 ? "Buy another pass" : "Available passes"}
+            Available passes
           </h2>
           {plans.length === 0 ? (
             <p className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-zinc-400">
@@ -392,26 +309,38 @@ export function PassesClient({
 
                   {/* Body */}
                   <div className="flex flex-1 flex-col p-5">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-2xl font-bold text-white">
-                        {inr(plan.price)}
-                      </span>
-                      <span className="text-sm text-zinc-500 line-through">
-                        {inr(plan.baseAmount)}
-                      </span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-bold text-white">
+                            {inr(plan.price)}
+                          </span>
+                          <span className="text-sm text-zinc-500 line-through">
+                            {inr(plan.baseAmount)}
+                          </span>
+                        </div>
+                        <p
+                          className="mt-1 text-sm font-medium"
+                          style={{ color: accent }}
+                        >
+                          {inr(plan.effectiveHourly)}/hr
+                          <span className="block text-zinc-500">
+                            instead of {inr(plan.anchorPricePerHour)}/hr
+                          </span>
+                        </p>
+                      </div>
+                      {/* Clock — sweeps to the pass's full hours when the
+                          card scrolls into view. */}
+                      <PassClock
+                        totalHours={plan.hours}
+                        accent={accent}
+                        size={84}
+                        stroke={8}
+                        trigger="inview"
+                      />
                     </div>
-                    <p className="mt-1 text-sm font-medium" style={{ color: accent }}>
-                      {inr(plan.effectiveHourly)}/hr
-                      <span className="text-zinc-500">
-                        {" "}
-                        instead of {inr(plan.anchorPricePerHour)}/hr
-                      </span>
-                    </p>
 
-                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-400">
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="h-3.5 w-3.5" /> {plan.hours} hours
-                      </span>
+                    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-400">
                       <span className="inline-flex items-center gap-1">
                         <ShieldCheck className="h-3.5 w-3.5" /> Valid{" "}
                         {plan.validityDays} days
@@ -451,7 +380,7 @@ export function PassesClient({
 
         {/* How it works — numbered stepper with icon badges + a subtle
             connector line that threads the three steps on desktop. */}
-        {(enabled || myPasses.length > 0) && (
+        {enabled && (
         <section>
           <h2 className="mb-4 text-lg font-semibold text-white">How it works</h2>
           <ol className="relative grid gap-4 sm:grid-cols-3">
