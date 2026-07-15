@@ -59,9 +59,11 @@ const TERMS = [
  * passes with live balances, how-it-works, and T&C.
  */
 export function PassesClient({
+  enabled,
   plans,
   myPasses,
 }: {
+  enabled: boolean;
   plans: Plan[];
   myPasses: MyPass[];
 }) {
@@ -139,8 +141,9 @@ export function PassesClient({
             Monthly Passes 🎟️
           </h1>
           <p className="mt-2 max-w-xl text-zinc-400">
-            Buy hours in bulk at a lower per-hour rate, then book as usual —
-            your pass pays instead of your wallet.
+            {enabled
+              ? "Buy hours in bulk at a lower per-hour rate, then book as usual — your pass pays instead of your wallet."
+              : "Pass sales are paused right now. Any passes you already own keep working at checkout."}
           </p>
         </div>
       </div>
@@ -198,7 +201,14 @@ export function PassesClient({
           </section>
         )}
 
-        {/* Plans */}
+        {/* Plans — hidden entirely while the storefront is disabled. */}
+        {!enabled && myPasses.length === 0 && (
+          <section className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-zinc-400">
+            Monthly passes aren&apos;t available at the moment — check back
+            soon, or follow us for announcements.
+          </section>
+        )}
+        {enabled && (
         <section>
           <h2 className="mb-3 text-lg font-semibold text-white">
             {active.length > 0 ? "Buy another pass" : "Available passes"}
@@ -262,8 +272,10 @@ export function PassesClient({
           )}
           {error && <p className="mt-3 text-sm text-amber-300">{error}</p>}
         </section>
+        )}
 
         {/* How it works */}
+        {(enabled || myPasses.length > 0) && (
         <section>
           <h2 className="mb-3 text-lg font-semibold text-white">How it works</h2>
           <ol className="grid gap-3 sm:grid-cols-3">
@@ -279,6 +291,7 @@ export function PassesClient({
             ))}
           </ol>
         </section>
+        )}
 
         {/* Terms */}
         <section className="pb-10">

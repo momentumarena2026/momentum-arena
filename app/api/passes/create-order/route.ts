@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { createPassOrder } from "@/lib/passes";
+import { arePassesEnabled, createPassOrder } from "@/lib/passes";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 
 /** Start a pass purchase — creates the Razorpay order (money-first:
@@ -9,6 +9,12 @@ export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Sign in to buy a pass" }, { status: 401 });
+  }
+  if (!(await arePassesEnabled())) {
+    return NextResponse.json(
+      { error: "Passes aren't available right now" },
+      { status: 403 },
+    );
   }
   const { planId } = await request.json().catch(() => ({}));
   if (!planId) {

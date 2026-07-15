@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { passLiveStatus } from "@/lib/passes";
+import { arePassesEnabled, passLiveStatus } from "@/lib/passes";
 
 /**
  * Customer-facing pass reads. Purchase runs through
@@ -11,6 +11,9 @@ import { passLiveStatus } from "@/lib/passes";
  */
 
 export async function getActivePassPlans() {
+  // Storefront switch — OFF hides every plan from customers while
+  // sold passes keep redeeming at checkout.
+  if (!(await arePassesEnabled())) return [];
   const plans = await db.passPlan.findMany({
     where: { isActive: true },
     include: { courtConfig: { select: { label: true, category: true } } },

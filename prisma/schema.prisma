@@ -1589,6 +1589,11 @@ model ArenaSettings {
   // rainBannerText optionally overrides the default banner copy.
   rainBannerMode String  @default("AUTO")
   rainBannerText String?
+  // Master switch for the Monthly Passes storefront. OFF hides the
+  // customer /passes buying page + plan listing and blocks the
+  // purchase API. Already-sold passes keep redeeming at checkout
+  // regardless — disabling sales never voids paid hours.
+  passesEnabled  Boolean @default(false)
   updatedAt DateTime @updatedAt
 }
 

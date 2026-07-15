@@ -13,6 +13,33 @@ import { revalidatePath } from "next/cache";
 
 const PERMISSION = "MANAGE_PASSES" as const;
 
+/** Storefront master switch — reads/writes ArenaSettings.passesEnabled. */
+export async function getPassesEnabled(): Promise<boolean> {
+  await requireAdmin(PERMISSION);
+  const settings = await db.arenaSettings.findFirst({
+    select: { passesEnabled: true },
+  });
+  return settings?.passesEnabled ?? false;
+}
+
+export async function setPassesEnabled(
+  enabled: boolean,
+): Promise<{ ok: true }> {
+  await requireAdmin(PERMISSION);
+  const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+  if (existing) {
+    await db.arenaSettings.update({
+      where: { id: existing.id },
+      data: { passesEnabled: enabled },
+    });
+  } else {
+    await db.arenaSettings.create({ data: { passesEnabled: enabled } });
+  }
+  revalidatePath("/admin/passes");
+  revalidatePath("/passes");
+  return { ok: true };
+}
+
 export interface PassConfigOption {
   id: string;
   sport: string;

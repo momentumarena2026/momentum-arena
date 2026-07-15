@@ -1,11 +1,12 @@
-import { getPassAdminData, getSoldPasses } from "@/actions/admin-passes";
+import { getPassAdminData, getPassesEnabled, getSoldPasses } from "@/actions/admin-passes";
 import { SoldPasses } from "./sold-passes";
 import { PassesManager } from "./passes-manager";
 
 export default async function AdminPassesPage() {
-  const [{ configs, plans }, sold] = await Promise.all([
+  const [{ configs, plans }, sold, salesEnabled] = await Promise.all([
     getPassAdminData(),
     getSoldPasses(),
+    getPassesEnabled(),
   ]);
 
   return (
@@ -19,7 +20,7 @@ export default async function AdminPassesPage() {
         </p>
       </div>
 
-      <PassesManager configs={configs} plans={plans} />
+      <PassesManager configs={configs} plans={plans} salesEnabled={salesEnabled} />
 
       <SoldPasses passes={sold} />
     </div>

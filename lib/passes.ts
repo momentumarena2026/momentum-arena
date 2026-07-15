@@ -183,3 +183,16 @@ export async function restorePassForBooking(bookingId: string) {
     }),
   ]);
 }
+
+/** Master storefront switch (ArenaSettings.passesEnabled). OFF hides
+ *  the buying page + blocks purchases; sold passes still redeem. */
+export async function arePassesEnabled(): Promise<boolean> {
+  try {
+    const settings = await db.arenaSettings.findFirst({
+      select: { passesEnabled: true },
+    });
+    return settings?.passesEnabled ?? false;
+  } catch {
+    return false;
+  }
+}
