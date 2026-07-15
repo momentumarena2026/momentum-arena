@@ -169,3 +169,86 @@ export async function deletePassPlan(
 function formatHours(h: number): string {
   return Number.isInteger(h) ? `${h} Hour` : `${h} Hr`;
 }
+
+// ─── Sold passes (Phase 4) ──────────────────────────────────────────
+
+export async function getSoldPasses() {
+  await requireAdmin(PERMISSION);
+  const passes = await db.userPass.findMany({
+    include: {
+      user: { select: { name: true, phone: true } },
+      redemptions: { select: { minutes: true, restoredAt: true } },
+    },
+    orderBy: { purchasedAt: "desc" },
+    take: 200,
+  });
+  return passes.map((p) => ({
+    id: p.id,
+    name: p.name,
+    customer: p.user.name ?? "—",
+    phone: p.user.phone ?? "—",
+    totalMinutes: p.totalMinutes,
+    remainingMinutes: p.remainingMinutes,
+    price: p.price,
+    status: p.status,
+    purchasedAt: p.purchasedAt.toISOString(),
+    expiresAt: p.expiresAt.toISOString(),
+    redemptionCount: p.redemptions.filter((r) => !r.restoredAt).length,
+  }));
+}
+
+export async function extendPassValidity(
+  id: string,
+  extraDays: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdmin(PERMISSION);
+  if (!Number.isInteger(extraDays) || extraDays < 1 || extraDays > 365) {
+    return { ok: false, error: "Days must be 1–365." };
+  }
+  const pass = await db.userPass.findUnique({ where: { id } });
+  if (!pass) return { ok: false, error: "Pass not found." };
+  await db.userPass.update({
+    where: { id },
+    data: {
+      expiresAt: new Date(
+        pass.expiresAt.getTime() + extraDays * 24 * 60 * 60 * 1000,
+      ),
+      // Re-arm an expired-but-unspent pass.
+      ...(pass.status === "EXPIRED" ? { status: "ACTIVE" } : {}),
+    },
+  });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
+export async function adjustPassMinutes(
+  id: string,
+  deltaMinutes: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdmin(PERMISSION);
+  if (!Number.isInteger(deltaMinutes) || deltaMinutes === 0) {
+    return { ok: false, error: "Delta must be a non-zero minute count." };
+  }
+  const pass = await db.userPass.findUnique({ where: { id } });
+  if (!pass) return { ok: false, error: "Pass not found." };
+  const next = pass.remainingMinutes + deltaMinutes;
+  if (next < 0) return { ok: false, error: "Balance can't go negative." };
+  await db.userPass.update({
+    where: { id },
+    data: {
+      remainingMinutes: next,
+      status: next > 0 && pass.status === "EXHAUSTED" ? "ACTIVE" : pass.status,
+    },
+  });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
+export async function cancelUserPass(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdmin(PERMISSION);
+  await db.userPass.update({ where: { id }, data: { status: "CANCELLED" } });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}

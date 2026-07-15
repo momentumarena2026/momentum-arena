@@ -235,6 +235,37 @@ export async function generateCaMonthlyReport(input: {
   }
   itemSheet.views = [{ state: "frozen", ySplit: 1 }];
 
+  // 4. Pass sales — revenue recognised at PURCHASE (pass-paid
+  // bookings show ₹0 in the sheets above, so nothing double-counts).
+  const passSales = await db.userPass.findMany({
+    where: { purchasedAt: { gte: monthStart, lt: monthEnd } },
+    select: {
+      purchasedAt: true,
+      name: true,
+      price: true,
+      user: { select: { phone: true } },
+    },
+    orderBy: { purchasedAt: "asc" },
+  });
+  const passSheet = wb.addWorksheet("Pass Sales");
+  passSheet.columns = [
+    { header: "Date", key: "date", width: 20 },
+    { header: "Pass", key: "name", width: 34 },
+    { header: "Customer phone", key: "phone", width: 18 },
+    { header: "Amount (₹)", key: "amount", width: 14 },
+    { header: "Method", key: "method", width: 12 },
+  ];
+  styleHeaderRow(passSheet);
+  for (const ps of passSales) {
+    passSheet.addRow({
+      date: fmtIst(ps.purchasedAt),
+      name: ps.name,
+      phone: ps.user.phone ?? "—",
+      amount: ps.price,
+      method: "RAZORPAY",
+    });
+  }
+
   // ─── Output ────────────────────────────────────────────────────
   const ab = await wb.xlsx.writeBuffer();
   const bytes = Buffer.from(ab);
