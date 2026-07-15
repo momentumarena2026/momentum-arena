@@ -3301,17 +3301,21 @@ export async function extendBookingByThirtyMin(
         return { success: false, error: "Guest bookings can't use a pass" };
       }
       const pass = await db.userPass.findUnique({ where: { id: payWithPassId } });
+      // Validity is judged against the booking's play date — the pass
+      // must have started by then and not expire before it (mirrors
+      // getPassOfferForHold).
       if (
         !pass ||
         pass.userId !== booking.userId ||
         pass.courtConfigId !== booking.courtConfigId ||
         pass.status !== "ACTIVE" ||
-        pass.expiresAt.getTime() < Date.now() ||
+        pass.startsAt.getTime() > booking.date.getTime() ||
+        pass.expiresAt.getTime() <= booking.date.getTime() ||
         pass.remainingMinutes < 30
       ) {
         return {
           success: false,
-          error: "Pass isn't valid for this booking (wrong court, expired, or <30 min left)",
+          error: "Pass isn't valid for this booking (wrong court, not started/expired, or <30 min left)",
         };
       }
       effectivePrice = 0;

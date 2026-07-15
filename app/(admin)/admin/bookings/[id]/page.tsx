@@ -102,7 +102,9 @@ export default async function AdminBookingDetailPage({
   ]);
 
   // Eligible pass for a pass-paid extension — same rules as customer
-  // redemption (this customer, this court, ACTIVE, unexpired, ≥30 min).
+  // redemption (this customer, this court, ACTIVE, ≥30 min), with
+  // validity judged against the BOOKING's play date: the pass must have
+  // started by then and not expire before it.
   const extendPass = booking.userId
     ? await db.userPass.findFirst({
         where: {
@@ -110,7 +112,8 @@ export default async function AdminBookingDetailPage({
           courtConfigId: booking.courtConfigId,
           status: "ACTIVE",
           remainingMinutes: { gte: 30 },
-          expiresAt: { gt: new Date() },
+          startsAt: { lte: booking.date },
+          expiresAt: { gt: booking.date },
         },
         orderBy: { expiresAt: "asc" },
         select: { id: true, name: true, remainingMinutes: true },

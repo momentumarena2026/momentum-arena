@@ -17,16 +17,23 @@ const MAX_START_AHEAD_DAYS = 90;
 
 /**
  * Resolve a user/admin-supplied start date (YYYY-MM-DD, IST) into a
- * concrete activation timestamp: defaults to now, never in the past
- * (a today/earlier choice = start now), capped at +90 days.
+ * concrete activation timestamp at IST MIDNIGHT of that day: defaults to
+ * today, never earlier than today, capped at +90 days.
+ *
+ * Midnight (not "now") matters: pass validity is judged against a
+ * booking's play DATE (stored at calendar-date midnight), so a pass
+ * bought mid-day with "start today" must still cover a booking for
+ * today.
  */
 export function parseStartDate(dateStr?: string | null): Date {
-  const now = new Date();
-  if (!dateStr) return now;
+  const todayIst = new Date(
+    `${new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })}T00:00:00+05:30`,
+  );
+  if (!dateStr) return todayIst;
   const d = new Date(`${dateStr}T00:00:00+05:30`);
-  if (Number.isNaN(d.getTime())) return now;
-  if (d.getTime() <= now.getTime()) return now;
-  const max = new Date(now.getTime() + MAX_START_AHEAD_DAYS * 86_400_000);
+  if (Number.isNaN(d.getTime())) return todayIst;
+  if (d.getTime() <= todayIst.getTime()) return todayIst;
+  const max = new Date(todayIst.getTime() + MAX_START_AHEAD_DAYS * 86_400_000);
   return d.getTime() > max.getTime() ? max : d;
 }
 
@@ -98,8 +105,10 @@ export async function materializeUserPass(args: {
   const plan = await db.passPlan.findUnique({ where: { id: args.planId } });
   if (!plan) return null;
 
-  // Validity counts from the (possibly future) start date.
-  const startsAt = args.startsAt ?? new Date();
+  // Validity counts from the (possibly future) start date. Fallback
+  // (e.g. a legacy order with no startsAt note) = today at IST midnight
+  // so a same-day booking is still covered.
+  const startsAt = args.startsAt ?? parseStartDate();
   const expiresAt = new Date(
     startsAt.getTime() + plan.validityDays * 24 * 60 * 60 * 1000,
   );
@@ -233,14 +242,20 @@ export async function getPassOfferForHold(hold: {
   });
   const groupIds = groupConfigs.map((c) => c.id);
 
+  // Validity is judged against the BOOKING's play date, not the moment
+  // of checkout: a pass starting 1 Aug covers a booking made today FOR
+  // 2 Aug (and never one for 31 Jul), and a pass can't pay for play
+  // scheduled after its expiry. (startsAt/expiresAt sit at IST midnight
+  // boundaries; hold.date is the calendar date at UTC midnight, which
+  // falls inside the corresponding IST day — the comparisons line up.)
   const passes = await db.userPass.findMany({
     where: {
       userId: hold.userId,
       courtConfigId: { in: groupIds },
       status: "ACTIVE",
       remainingMinutes: { gt: 0 },
-      startsAt: { lte: new Date() }, // not yet started → not redeemable
-      expiresAt: { gt: new Date() },
+      startsAt: { lte: hold.date }, // pass must have started by play date
+      expiresAt: { gt: hold.date }, // …and still be valid on it
     },
     orderBy: { expiresAt: "asc" }, // burn the soonest-expiring first
   });
