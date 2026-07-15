@@ -5,12 +5,14 @@ import {
   type DqrCallbackData,
 } from "@/lib/phonepe-dqr";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
+import { confirmDqrPass } from "@/lib/passes";
 
 /**
  * PhonePe Dynamic QR S2S callback — the authoritative confirmation
  * path. PhonePe POSTs `{ response: base64 }` with an X-VERIFY header
  * (V1 scheme). We verify, then match the transactionId against a
- * booking hold first, then a cafe intent, and materialise the order.
+ * booking hold first, then a cafe intent, then a pass intent, and
+ * materialise the order.
  *
  * Always returns 200 (mirrors static-qr-callback) so PhonePe doesn't
  * hammer retries on our own transient errors. Idempotent — safe to
@@ -72,6 +74,14 @@ export async function POST(request: NextRequest) {
     if (cafe.orderId) {
       console.log(
         `[dqr-callback] cafe order ${cafe.orderId} confirmed (txn ${transactionId})`,
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    const pass = await confirmDqrPass(transactionId, providerRef);
+    if (pass.userPassId) {
+      console.log(
+        `[dqr-callback] pass ${pass.userPassId} confirmed (txn ${transactionId})`,
       );
       return NextResponse.json({ success: true });
     }

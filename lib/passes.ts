@@ -41,15 +41,26 @@ export async function createPassOrder(planId: string, userId: string) {
   return { plan, orderId: order.id, amount: plan.price };
 }
 
-/** Idempotently convert a captured payment into a UserPass. */
+/** Idempotently convert a captured payment into a UserPass. Works for
+ *  both gateways: pass either a razorpayOrderId or a
+ *  phonePeMerchantTxnId as the idempotency key. */
 export async function materializeUserPass(args: {
-  razorpayOrderId: string;
-  razorpayPaymentId?: string;
   planId: string;
   userId: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  phonePeMerchantTxnId?: string;
+  phonePeTransactionId?: string;
 }): Promise<{ userPassId: string; alreadyDone: boolean } | null> {
-  const existing = await db.userPass.findUnique({
-    where: { razorpayOrderId: args.razorpayOrderId },
+  const existing = await db.userPass.findFirst({
+    where: {
+      OR: [
+        args.razorpayOrderId ? { razorpayOrderId: args.razorpayOrderId } : {},
+        args.phonePeMerchantTxnId
+          ? { phonePeMerchantTxnId: args.phonePeMerchantTxnId }
+          : {},
+      ].filter((o) => Object.keys(o).length > 0),
+    },
     select: { id: true },
   });
   if (existing) return { userPassId: existing.id, alreadyDone: true };
@@ -73,11 +84,45 @@ export async function materializeUserPass(args: {
       validityDays: plan.validityDays,
       remainingMinutes: plan.totalMinutes,
       expiresAt,
-      razorpayOrderId: args.razorpayOrderId,
+      razorpayOrderId: args.razorpayOrderId ?? null,
       razorpayPaymentId: args.razorpayPaymentId ?? null,
+      phonePeMerchantTxnId: args.phonePeMerchantTxnId ?? null,
     },
   });
   return { userPassId: created.id, alreadyDone: false };
+}
+
+/** DQR pass confirm — look up the intent by txn, materialise the pass,
+ *  stamp the intent. Called by the status poll + S2S callback; both
+ *  idempotent. */
+export async function confirmDqrPass(
+  transactionId: string,
+  providerReferenceId?: string,
+): Promise<{ userPassId: string | null; alreadyDone: boolean }> {
+  const intent = await db.passPurchaseIntent.findUnique({
+    where: { phonePeMerchantTxnId: transactionId },
+    select: { id: true, planId: true, userId: true, consumedUserPassId: true },
+  });
+  if (!intent) return { userPassId: null, alreadyDone: false };
+  if (intent.consumedUserPassId) {
+    return { userPassId: intent.consumedUserPassId, alreadyDone: true };
+  }
+
+  const result = await materializeUserPass({
+    planId: intent.planId,
+    userId: intent.userId,
+    phonePeMerchantTxnId: transactionId,
+    phonePeTransactionId: providerReferenceId,
+  });
+  if (!result) return { userPassId: null, alreadyDone: false };
+
+  await db.passPurchaseIntent
+    .update({
+      where: { id: intent.id },
+      data: { consumedUserPassId: result.userPassId },
+    })
+    .catch(() => {});
+  return { userPassId: result.userPassId, alreadyDone: result.alreadyDone };
 }
 
 /** Live status for display + eligibility (lazy expiry). */

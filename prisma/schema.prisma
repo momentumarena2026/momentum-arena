@@ -871,6 +871,9 @@ model UserPass {
   // the gateway verifies/webhooks the capture).
   razorpayOrderId   String? @unique
   razorpayPaymentId String?
+  // DQR (PhonePe UPI) idempotency key — set when a pass is bought via
+  // the dynamic-QR flow instead of Razorpay.
+  phonePeMerchantTxnId String? @unique
 
   redemptions PassRedemption[]
 
@@ -889,6 +892,22 @@ model PassRedemption {
   createdAt  DateTime @default(now())
   // Set when an eligible cancellation restored these minutes.
   restoredAt DateTime?
+}
+
+// Money-first holder for a pass bought via PhonePe Dynamic QR. Unlike
+// Razorpay (whose order NOTES carry planId+userId), DQR callbacks only
+// carry the transactionId — so we persist the mapping here and
+// materialise the UserPass on the status poll / S2S callback.
+model PassPurchaseIntent {
+  id                   String   @id @default(cuid())
+  planId               String
+  userId               String
+  phonePeMerchantTxnId String?  @unique
+  // UserPass id once materialised (idempotency fast-path).
+  consumedUserPassId   String?
+  createdAt            DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model TrustedDevice {

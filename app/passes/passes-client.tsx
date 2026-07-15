@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, ShieldCheck, ChevronDown } from "lucide-react";
+import {
+  Clock,
+  ShieldCheck,
+  ChevronDown,
+  Smartphone,
+  CreditCard,
+  Check,
+  X,
+} from "lucide-react";
 import {
   MdSportsCricket,
   MdSportsSoccer,
@@ -10,6 +18,7 @@ import {
 } from "react-icons/md";
 import { GiCricketBat } from "react-icons/gi";
 import type { IconType } from "react-icons";
+import { DqrCheckout } from "@/components/payment/dqr-checkout";
 
 // Sport → illustration + accent colour for the ticket cards. Bowling
 // Machine (a cricket sub-sport) gets its own bat-and-ball glyph.
@@ -82,15 +91,48 @@ export function PassesClient({
   enabled,
   plans,
   myPasses,
+  dqrEnabled,
 }: {
   enabled: boolean;
   plans: Plan[];
   myPasses: MyPass[];
+  /** UPI (PhonePe Dynamic QR) available at checkout — env creds present
+   *  AND the admin toggle on. When false the pass buys Razorpay-only. */
+  dqrEnabled: boolean;
 }) {
   const router = useRouter();
   const [buying, setBuying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
+  // The plan whose method chooser is open, the selected method, and —
+  // once UPI is confirmed — the plan whose DQR sheet is showing.
+  const [chooserPlan, setChooserPlan] = useState<Plan | null>(null);
+  const [method, setMethod] = useState<"upi" | "gateway">("upi");
+  const [dqrPlan, setDqrPlan] = useState<Plan | null>(null);
+
+  // "Buy pass" entry. With UPI available, open the method chooser
+  // (UPI pre-selected); otherwise go straight to Razorpay as before.
+  function startBuy(plan: Plan) {
+    setError(null);
+    if (dqrEnabled) {
+      setMethod("upi");
+      setChooserPlan(plan);
+    } else {
+      buy(plan);
+    }
+  }
+
+  // Commit the chooser: UPI opens the DQR sheet, gateway opens Razorpay.
+  function confirmMethod() {
+    const plan = chooserPlan;
+    if (!plan) return;
+    setChooserPlan(null);
+    if (method === "upi") {
+      setDqrPlan(plan);
+    } else {
+      buy(plan);
+    }
+  }
 
   async function buy(plan: Plan) {
     setError(null);
@@ -319,7 +361,7 @@ export function PassesClient({
                     </div>
 
                     <button
-                      onClick={() => buy(plan)}
+                      onClick={() => startBuy(plan)}
                       disabled={buying === plan.id}
                       className="mt-4 w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                       style={{ backgroundColor: accent, color: "#04140d" }}
@@ -379,6 +421,120 @@ export function PassesClient({
           )}
         </section>
       </div>
+
+      {/* Payment-method chooser — UPI pre-selected, Razorpay one tap
+          away. Mirrors the booking checkout's method nudge. */}
+      {chooserPlan && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setChooserPlan(null);
+          }}
+        >
+          <div className="w-full rounded-t-2xl border border-zinc-800 bg-zinc-900 text-zinc-100 sm:max-w-[400px] sm:rounded-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold leading-tight text-white">
+                  Choose payment method
+                </p>
+                <p className="truncate text-xs text-zinc-400">
+                  {chooserPlan.name}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-[15px] font-semibold text-white">
+                  {inr(chooserPlan.price)}
+                </span>
+                <button
+                  onClick={() => setChooserPlan(null)}
+                  aria-label="Close"
+                  className="rounded-full p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 p-4">
+              <button
+                onClick={() => setMethod("upi")}
+                className={`flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors ${
+                  method === "upi"
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-zinc-800 hover:bg-zinc-800/50"
+                }`}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15">
+                  <Smartphone className="h-5 w-5 text-emerald-400" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white">
+                      UPI
+                    </span>
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                      Recommended
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-xs text-zinc-400">
+                    Scan a QR / pay from any UPI app — no extra charge
+                  </span>
+                </span>
+                {method === "upi" && (
+                  <Check className="h-5 w-5 shrink-0 text-emerald-400" />
+                )}
+              </button>
+
+              <button
+                onClick={() => setMethod("gateway")}
+                className={`flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors ${
+                  method === "gateway"
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-zinc-800 hover:bg-zinc-800/50"
+                }`}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800">
+                  <CreditCard className="h-5 w-5 text-zinc-300" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-white">
+                    Card / Netbanking / Wallet
+                  </span>
+                  <span className="mt-0.5 block text-xs text-zinc-400">
+                    Pay securely via Razorpay
+                  </span>
+                </span>
+                {method === "gateway" && (
+                  <Check className="h-5 w-5 shrink-0 text-emerald-400" />
+                )}
+              </button>
+
+              <button
+                onClick={confirmMethod}
+                className="mt-1.5 w-full rounded-xl bg-emerald-600 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500"
+              >
+                Pay {inr(chooserPlan.price)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPI (Dynamic QR) sheet — surface="pass" hits the pass-initiate /
+          pass-status routes; holdId carries the PassPlan id and the
+          settled id is the new UserPass. */}
+      {dqrPlan && (
+        <DqrCheckout
+          surface="pass"
+          holdId={dqrPlan.id}
+          amount={dqrPlan.price}
+          onConfirmed={() => {
+            setDqrPlan(null);
+            router.refresh();
+          }}
+          onCancel={() => setDqrPlan(null)}
+        />
+      )}
     </div>
   );
 }
