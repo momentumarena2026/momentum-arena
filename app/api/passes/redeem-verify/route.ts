@@ -49,7 +49,13 @@ export async function POST(request: NextRequest) {
   if (!bookingId) {
     return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
   }
-  const ok = await debitPass(offer.passId, offer.coveredMinutes, bookingId);
+  // The pass settles everything the gateway remainder didn't cover.
+  const ok = await debitPass(
+    offer.passId,
+    offer.coveredMinutes,
+    bookingId,
+    Math.max(0, hold.totalAmount - offer.remainderAmount),
+  );
   if (!ok) {
     console.error("[passes] topup debit failed post-booking", bookingId);
   }

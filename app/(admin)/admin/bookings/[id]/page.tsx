@@ -89,6 +89,7 @@ export default async function AdminBookingDetailPage({
     equipmentCatalog,
     suggestedBeforePrice,
     suggestedAfterPrice,
+    passRedemptionRow,
   ] = await Promise.all([
     getBookingEquipmentSnapshot(booking.id),
     listEquipmentForAdmin(booking.id),
@@ -99,7 +100,26 @@ export default async function AdminBookingDetailPage({
     // already-30-min slots.
     suggestExtendPrice(booking.id, "before"),
     suggestExtendPrice(booking.id, "after"),
+    // Pass redemption backing this booking (if any) — carries the value
+    // attribution (worth at the pass's effective rate) and the list-price
+    // amount the pass settled (drives owed-at-venue math).
+    db.passRedemption.findUnique({
+      where: { bookingId: booking.id },
+      select: {
+        minutes: true,
+        value: true,
+        coveredAmount: true,
+        restoredAt: true,
+        userPass: { select: { name: true } },
+      },
+    }),
   ]);
+  // A restored redemption (cancelled booking, hours returned) no longer
+  // settles or values anything.
+  const passRedemption =
+    passRedemptionRow && !passRedemptionRow.restoredAt
+      ? passRedemptionRow
+      : null;
 
   // Eligible pass for a pass-paid extension — same rules as customer
   // redemption (this customer, this court, ACTIVE, ≥30 min), with
@@ -346,6 +366,41 @@ export default async function AdminBookingDetailPage({
                   </>
                 );
               })()
+            ) : passRedemption ? (
+              <>
+                {/* Pass-paid booking: money and pass value are separate
+                    figures. Revenue was recognised when the pass was
+                    bought — the "worth" line is attribution, not a second
+                    collection. The slot list price stays for context. */}
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Collected (money)</span>
+                  <span className="text-lg font-bold text-white">
+                    {formatPrice(booking.payment.amount)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-emerald-400">
+                    Paid with pass — {passRedemption.userPass.name} (
+                    {(passRedemption.minutes / 60)
+                      .toFixed(1)
+                      .replace(/\.0$/, "")}
+                    h)
+                  </span>
+                  <span className="font-semibold text-emerald-400">
+                    worth {formatPrice(passRedemption.value)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">Slot list price</span>
+                  <span className="text-zinc-500 line-through">
+                    {formatPrice(booking.totalAmount)}
+                  </span>
+                </div>
+                <div className="mt-1 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-200/90">
+                  Nothing to collect for the covered hours — their revenue
+                  was recognised when the pass was purchased.
+                </div>
+              </>
             ) : (
               <>
                 <div className="flex justify-between">
@@ -586,7 +641,14 @@ export default async function AdminBookingDetailPage({
         }))}
         initialEquipmentTotalRupees={equipmentSnapshot.equipmentTotalRupees}
         initialBookingTotalRupees={equipmentSnapshot.bookingTotalRupees}
-        paymentAmountRupees={booking.payment?.amount ?? null}
+        // Owed-at-venue = total − money paid − what the pass settled at
+        // list price. Without the pass term, a fully pass-paid booking
+        // (money = ₹0) showed its whole slot total as "Collect at venue".
+        paymentAmountRupees={
+          booking.payment
+            ? booking.payment.amount + (passRedemption?.coveredAmount ?? 0)
+            : null
+        }
       />
 
       {/* Quick +30 min extension controls. Lives just above the

@@ -306,8 +306,26 @@ export async function getPassOfferForHold(hold: {
   };
 }
 
-/** Atomic debit — fails (returns false) if the balance moved. */
-export async function debitPass(passId: string, minutes: number, bookingId: string) {
+/** Rupee worth of `minutes` at a pass's effective rate — the value
+ *  attribution recorded per redemption (revenue itself is recognised
+ *  once, at purchase). */
+export function passMinutesValue(
+  pass: { price: number; totalMinutes: number },
+  minutes: number,
+): number {
+  if (pass.totalMinutes <= 0) return 0;
+  return Math.round((pass.price * minutes) / pass.totalMinutes);
+}
+
+/** Atomic debit — fails (returns false) if the balance moved.
+ *  `coveredAmount` = list-price rupees these minutes settle on the
+ *  booking (drives owed-at-venue math). */
+export async function debitPass(
+  passId: string,
+  minutes: number,
+  bookingId: string,
+  coveredAmount = 0,
+) {
   const updated = await db.userPass.updateMany({
     where: {
       id: passId,
@@ -318,8 +336,18 @@ export async function debitPass(passId: string, minutes: number, bookingId: stri
     data: { remainingMinutes: { decrement: minutes } },
   });
   if (updated.count === 0) return false;
+  const pass = await db.userPass.findUnique({
+    where: { id: passId },
+    select: { price: true, totalMinutes: true },
+  });
   await db.passRedemption.create({
-    data: { userPassId: passId, bookingId, minutes },
+    data: {
+      userPassId: passId,
+      bookingId,
+      minutes,
+      value: pass ? passMinutesValue(pass, minutes) : 0,
+      coveredAmount,
+    },
   });
   // Flip to EXHAUSTED when the balance hits zero (display nicety).
   await db.userPass.updateMany({

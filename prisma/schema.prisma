@@ -919,6 +919,16 @@ model PassRedemption {
   // single row (minutes = the covered portion).
   bookingId  String   @unique
   minutes    Int
+  // Value attribution (rupees): what the redeemed minutes actually cost
+  // the customer at the pass's effective rate (pass.price × minutes /
+  // totalMinutes). Revenue stays recognised ONCE at pass purchase; this
+  // is the per-booking worth shown on bookings / analytics / reports.
+  value      Int      @default(0)
+  // List-price rupees this redemption SETTLES on the booking (the
+  // covered slots at slot pricing). Drives owed-at-venue math so a
+  // pass-paid booking never shows "collect at venue". 0 for pass-paid
+  // extends (their slots are recorded at ₹0 and never join the total).
+  coveredAmount Int   @default(0)
   createdAt  DateTime @default(now())
   // Set when an eligible cancellation restored these minutes.
   restoredAt DateTime?

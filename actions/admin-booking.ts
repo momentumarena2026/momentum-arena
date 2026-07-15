@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { restorePassForBooking } from "@/lib/passes";
+import { restorePassForBooking, passMinutesValue } from "@/lib/passes";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
@@ -3296,6 +3296,9 @@ export async function extendBookingByThirtyMin(
     // customer + court. On success the slot is recorded free (charge 0)
     // and 30 min is debited below inside the same transaction.
     let effectivePrice = priceOverride;
+    // Value attribution for a pass-paid extension (rupees the 30 min are
+    // worth at the pass's effective rate) — recorded on the redemption.
+    let passExtendValue = 0;
     if (payWithPassId) {
       if (!booking.userId) {
         return { success: false, error: "Guest bookings can't use a pass" };
@@ -3318,6 +3321,7 @@ export async function extendBookingByThirtyMin(
           error: "Pass isn't valid for this booking (wrong court, not started/expired, or <30 min left)",
         };
       }
+      passExtendValue = passMinutesValue(pass, 30);
       effectivePrice = 0;
     }
 
@@ -3404,11 +3408,22 @@ export async function extendBookingByThirtyMin(
         if (existingRed) {
           await tx.passRedemption.update({
             where: { bookingId },
-            data: { minutes: { increment: 30 } },
+            data: {
+              minutes: { increment: 30 },
+              value: { increment: passExtendValue },
+            },
           });
         } else {
           await tx.passRedemption.create({
-            data: { userPassId: payWithPassId, bookingId, minutes: 30 },
+            data: {
+              userPassId: payWithPassId,
+              bookingId,
+              minutes: 30,
+              value: passExtendValue,
+              // Extends record their slot at ₹0 (never joins the booking
+              // total), so there's no list price to settle.
+              coveredAmount: 0,
+            },
           });
         }
         await tx.userPass.updateMany({

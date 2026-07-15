@@ -64,7 +64,13 @@ export async function POST(request: NextRequest) {
     if (!bookingId) {
       return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
     }
-    const ok = await debitPass(offer.passId, offer.coveredMinutes, bookingId);
+    // Full coverage settles the whole slot total at list price.
+    const ok = await debitPass(
+      offer.passId,
+      offer.coveredMinutes,
+      bookingId,
+      hold.totalAmount,
+    );
     if (!ok) {
       // Balance raced away between offer + debit — undo the booking.
       await db.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } });

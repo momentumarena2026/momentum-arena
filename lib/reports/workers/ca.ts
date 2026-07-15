@@ -69,6 +69,7 @@ export async function generateCaMonthlyReport(input: {
       },
     },
     select: {
+      id: true,
       date: true,
       totalAmount: true,
       payment: {
@@ -87,6 +88,21 @@ export async function generateCaMonthlyReport(input: {
     },
     orderBy: { date: "asc" },
   });
+
+  // Pass-value attribution per booking — the redeemed hours' worth at
+  // the pass's effective rate. Informational only: the money was
+  // recognised in "Pass Sales" at purchase, so this column must NOT be
+  // added to the paid/cash/UPI/online sums.
+  const redemptions = await db.passRedemption.findMany({
+    where: {
+      bookingId: { in: bookings.map((b) => b.id) },
+      restoredAt: null,
+    },
+    select: { bookingId: true, value: true },
+  });
+  const passValueByBooking = new Map(
+    redemptions.map((r) => [r.bookingId, r.value]),
+  );
 
   const cafeOrders = await db.cafeOrder.findMany({
     where: {
@@ -131,6 +147,10 @@ export async function generateCaMonthlyReport(input: {
     { header: "UPI QR (₹)", key: "upiQr", width: 12 },
     { header: "Online (₹)", key: "online", width: 12 },
     { header: "Discount at venue (₹)", key: "venueDiscount", width: 18 },
+    // Worth of pass-redeemed hours at the pass's effective rate.
+    // Attribution only — that money is in "Pass Sales" (recognised at
+    // purchase), so it is deliberately NOT part of Paid/Cash/UPI/Online.
+    { header: "Pass value (₹)", key: "passValue", width: 14 },
     { header: "Method", key: "method", width: 12 },
   ];
   styleHeaderRow(bookingsSheet);
@@ -145,6 +165,7 @@ export async function generateCaMonthlyReport(input: {
       upiQr: split.upiQr,
       online: split.online,
       venueDiscount: split.venueDiscount,
+      passValue: passValueByBooking.get(b.id) ?? 0,
       method: b.payment?.method ?? "—",
     });
   }
