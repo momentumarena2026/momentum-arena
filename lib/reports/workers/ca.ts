@@ -243,6 +243,9 @@ export async function generateCaMonthlyReport(input: {
       purchasedAt: true,
       name: true,
       price: true,
+      paymentMethod: true,
+      razorpayOrderId: true,
+      phonePeMerchantTxnId: true,
       user: { select: { phone: true } },
     },
     orderBy: { purchasedAt: "asc" },
@@ -262,7 +265,7 @@ export async function generateCaMonthlyReport(input: {
       name: ps.name,
       phone: ps.user.phone ?? "—",
       amount: ps.price,
-      method: "RAZORPAY",
+      method: passReportMethod(ps),
     });
   }
 
@@ -278,6 +281,26 @@ export async function generateCaMonthlyReport(input: {
 // ─── Local formatting helpers ─────────────────────────────────────
 // Duplicated from admin-export.ts so the worker stays self-
 // contained — these are tiny formatters; not worth a shared module.
+
+/** How a pass was paid, for the Pass Sales sheet — offline method if
+ *  stamped (admin-issued at the venue), else inferred from the gateway
+ *  refs. */
+function passReportMethod(p: {
+  paymentMethod: string | null;
+  razorpayOrderId: string | null;
+  phonePeMerchantTxnId: string | null;
+}): string {
+  switch (p.paymentMethod) {
+    case "CASH":
+      return "Cash";
+    case "UPI_QR":
+      return "Static QR";
+    case "FREE":
+      return "Free";
+  }
+  if (p.phonePeMerchantTxnId) return "UPI (DQR)";
+  return "Razorpay";
+}
 
 function fmtIstDate(d: Date): string {
   return d.toLocaleDateString("en-IN", {

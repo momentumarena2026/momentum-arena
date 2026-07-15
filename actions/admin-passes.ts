@@ -197,6 +197,104 @@ function formatHours(h: number): string {
   return Number.isInteger(h) ? `${h} Hour` : `${h} Hr`;
 }
 
+// ─── Issue a pass at the venue (offline sale) ───────────────────────
+
+/**
+ * Admin issues a pass directly to a customer — a walk-in who bought at
+ * the venue and paid by cash or static QR (or a free/comp pass). No
+ * gateway involved: we snapshot the plan onto a new UserPass exactly
+ * like an online purchase, but stamp the offline payment method, the
+ * issuing admin, and an optional reference (static-QR UTR / note).
+ *
+ * amountCollected lets staff record what was actually taken (walk-in
+ * discounts, rounding); it defaults to the plan price and is forced to
+ * 0 for a FREE comp pass.
+ */
+export async function issuePassToUser(input: {
+  planId: string;
+  userId: string;
+  paymentMethod: "CASH" | "UPI_QR" | "FREE";
+  amountCollected?: number;
+  offlineRef?: string;
+}): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
+  const admin = await requireAdmin(PERMISSION);
+
+  const { planId, userId, paymentMethod } = input;
+  if (!["CASH", "UPI_QR", "FREE"].includes(paymentMethod)) {
+    return { ok: false, error: "Invalid payment method." };
+  }
+
+  const [plan, user] = await Promise.all([
+    db.passPlan.findUnique({ where: { id: planId } }),
+    db.user.findUnique({ where: { id: userId }, select: { id: true } }),
+  ]);
+  if (!plan) return { ok: false, error: "Plan not found." };
+  if (!user) return { ok: false, error: "Customer not found." };
+
+  // Price actually collected: FREE ⇒ 0, else the override (if a valid
+  // non-negative rupee amount was given) or the plan price.
+  let price = plan.price;
+  if (paymentMethod === "FREE") {
+    price = 0;
+  } else if (input.amountCollected != null) {
+    if (!Number.isInteger(input.amountCollected) || input.amountCollected < 0) {
+      return { ok: false, error: "Amount collected must be a non-negative whole number." };
+    }
+    price = input.amountCollected;
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + plan.validityDays * 24 * 60 * 60 * 1000,
+  );
+
+  const created = await db.userPass.create({
+    data: {
+      planId: plan.id,
+      userId,
+      name: plan.name,
+      sport: plan.sport,
+      courtConfigId: plan.courtConfigId,
+      totalMinutes: plan.totalMinutes,
+      price,
+      validityDays: plan.validityDays,
+      remainingMinutes: plan.totalMinutes,
+      expiresAt,
+      paymentMethod,
+      issuedByAdminId: admin.id,
+      offlineRef: input.offlineRef?.trim() || null,
+    },
+    select: { id: true },
+  });
+
+  revalidatePath("/admin/passes");
+  return { ok: true, userPassId: created.id };
+}
+
+/** Human label for how a pass was paid — offline method if stamped,
+ *  else inferred from the gateway refs. */
+function passMethodLabel(p: {
+  paymentMethod: string | null;
+  razorpayOrderId: string | null;
+  phonePeMerchantTxnId: string | null;
+}): string {
+  switch (p.paymentMethod) {
+    case "CASH":
+      return "Cash";
+    case "UPI_QR":
+      return "Static QR";
+    case "FREE":
+      return "Free";
+    case "RAZORPAY":
+      return "Razorpay";
+    case "PHONEPE":
+      return "UPI (DQR)";
+  }
+  if (p.phonePeMerchantTxnId) return "UPI (DQR)";
+  if (p.razorpayOrderId) return "Razorpay";
+  return "Online";
+}
+
 // ─── Sold passes (Phase 4) ──────────────────────────────────────────
 
 export async function getSoldPasses() {
@@ -218,6 +316,7 @@ export async function getSoldPasses() {
     remainingMinutes: p.remainingMinutes,
     price: p.price,
     status: p.status,
+    method: passMethodLabel(p),
     purchasedAt: p.purchasedAt.toISOString(),
     expiresAt: p.expiresAt.toISOString(),
     redemptionCount: p.redemptions.filter((r) => !r.restoredAt).length,

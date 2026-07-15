@@ -17,6 +17,7 @@ interface Sold {
   remainingMinutes: number;
   price: number;
   status: string;
+  method: string;
   purchasedAt: string;
   expiresAt: string;
   redemptionCount: number;
@@ -80,6 +81,7 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
                 <th className="px-4 py-3">Pass</th>
                 <th className="px-4 py-3">Balance</th>
                 <th className="px-4 py-3">Paid</th>
+                <th className="px-4 py-3">Method</th>
                 <th className="px-4 py-3">Expires</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -102,6 +104,11 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
                     {hrs(p.remainingMinutes)} / {hrs(p.totalMinutes)}
                   </td>
                   <td className="px-4 py-3 text-zinc-300">{inr(p.price)}</td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">
+                      {p.method}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-zinc-300">{dt(p.expiresAt)}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">

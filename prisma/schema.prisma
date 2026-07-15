@@ -875,6 +875,15 @@ model UserPass {
   // the dynamic-QR flow instead of Razorpay.
   phonePeMerchantTxnId String? @unique
 
+  // Offline / at-venue sale (admin-issued). Online purchases leave
+  // these null and are inferred as "Online" from the gateway refs
+  // above. paymentMethod records how a walk-in paid (CASH / UPI_QR
+  // static QR / FREE comp); issuedByAdminId is the audit trail;
+  // offlineRef holds a static-QR UTR or a free-text note.
+  paymentMethod   PaymentMethod?
+  issuedByAdminId String?
+  offlineRef      String?
+
   redemptions PassRedemption[]
 
   @@index([userId, status])
