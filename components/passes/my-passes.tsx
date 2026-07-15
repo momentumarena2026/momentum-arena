@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, Archive } from "lucide-react";
 import {
   MdSportsCricket,
   MdSportsSoccer,
@@ -60,19 +61,46 @@ const KEYFRAMES = `
 @keyframes mp-rise { from { opacity:0; transform: translateY(14px) } to { opacity:1; transform: translateY(0) } }
 `;
 
+/** ACTIVE + UPCOMING are "live"; everything else (cancelled, used up,
+ *  expired) files under the Inactive tab with its specific status. */
+const isLive = (status: string) => status === "ACTIVE" || status === "UPCOMING";
+
 /**
- * "Your passes" surface. Each owned pass is a ticket with an animated
- * clock (used vs remaining) that replays on hover / tap. When the
- * customer owns none, a glowing empty-state invites them to the pass
- * storefront.
+ * "Your passes" surface with Active / Inactive tabs. Each owned pass is
+ * a ticket with an animated clock (used vs remaining) that replays on
+ * hover / tap. An empty Active tab shows the glowing storefront invite;
+ * an empty Inactive tab a quiet note.
  */
 export function MyPasses({ passes }: { passes: MyPass[] }) {
-  if (passes.length === 0) return <EmptyPasses />;
+  const [tab, setTab] = useState<"active" | "inactive">("active");
+  const activePasses = passes.filter((p) => isLive(p.status));
+  const inactivePasses = passes.filter((p) => !isLive(p.status));
+  const shown = tab === "active" ? activePasses : inactivePasses;
+
+  const tabBtn = (key: "active" | "inactive", label: string, count: number) => (
+    <button
+      onClick={() => setTab(key)}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
+        tab === key
+          ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
+          : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+      }`}
+    >
+      {label}
+      <span
+        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+          tab === key ? "bg-emerald-500/20 text-emerald-300" : "bg-zinc-800 text-zinc-500"
+        }`}
+      >
+        {count}
+      </span>
+    </button>
+  );
 
   return (
     <section>
       <style>{KEYFRAMES}</style>
-      <div className="mb-1 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">Your passes</h2>
         <Link
           href="/passes"
@@ -81,12 +109,34 @@ export function MyPasses({ passes }: { passes: MyPass[] }) {
           Buy more <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
-      <p className="mb-4 text-xs text-zinc-500">
-        Hover (or tap) a pass to replay its balance ring.
-      </p>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {passes.map((p) => {
+      {/* Tabs */}
+      <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 w-fit">
+        {tabBtn("active", "Active", activePasses.length)}
+        {tabBtn("inactive", "Inactive", inactivePasses.length)}
+      </div>
+
+      {shown.length === 0 ? (
+        tab === "active" ? (
+          <EmptyPasses />
+        ) : (
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/40 px-6 py-10 text-center">
+            <Archive className="h-8 w-8 text-zinc-600" />
+            <p className="text-sm font-medium text-zinc-300">
+              No inactive passes
+            </p>
+            <p className="max-w-xs text-xs text-zinc-500">
+              Passes you cancel, use up, or let expire will be archived here.
+            </p>
+          </div>
+        )
+      ) : (
+        <>
+          <p className="mb-3 -mt-1 text-xs text-zinc-500">
+            Hover (or tap) a pass to replay its balance ring.
+          </p>
+          <div key={tab} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {shown.map((p) => {
           const accent = SPORT_ACCENT[p.sport] ?? "#34d399";
           const Icon =
             p.sport === "CRICKET" && p.bandsSummary === "All hours"
@@ -190,8 +240,10 @@ export function MyPasses({ passes }: { passes: MyPass[] }) {
               </div>
             </div>
           );
-        })}
-      </div>
+            })}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -203,8 +255,7 @@ export function MyPasses({ passes }: { passes: MyPass[] }) {
  */
 function EmptyPasses() {
   return (
-    <section>
-      <style>{KEYFRAMES}</style>
+    <div>
       <div
         className="relative overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-b from-emerald-950/40 via-zinc-950 to-black px-6 py-14 text-center"
         style={{ animation: "mp-rise 500ms ease-out both" }}
@@ -284,6 +335,6 @@ function EmptyPasses() {
           <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
-    </section>
+    </div>
   );
 }
