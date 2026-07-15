@@ -10,6 +10,10 @@ import {
   CreditCard,
   Check,
   X,
+  Ticket,
+  CalendarDays,
+  Wallet,
+  ScrollText,
 } from "lucide-react";
 import {
   MdSportsCricket,
@@ -71,6 +75,25 @@ function loadRazorpayScript(): Promise<boolean> {
     document.body.appendChild(s);
   });
 }
+
+// How-it-works steps — icon + copy for the numbered stepper.
+const STEPS = [
+  {
+    icon: Ticket,
+    title: "Buy a pass",
+    desc: "Pick a pass for your sport and pay online — hours land on your account instantly.",
+  },
+  {
+    icon: CalendarDays,
+    title: "Book as usual",
+    desc: "Choose your date and slots exactly like a normal booking.",
+  },
+  {
+    icon: Wallet,
+    title: "Pay with hours",
+    desc: "At checkout, choose “Use my pass” — hours are deducted instead of money. If the booking is longer than your balance, pay just the difference.",
+  },
+] as const;
 
 const TERMS = [
   "A pass is linked to the account that buys it and can't be transferred or shared.",
@@ -378,19 +401,33 @@ export function PassesClient({
         </section>
         )}
 
-        {/* How it works */}
+        {/* How it works — numbered stepper with icon badges + a subtle
+            connector line that threads the three steps on desktop. */}
         {(enabled || myPasses.length > 0) && (
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-white">How it works</h2>
-          <ol className="grid gap-3 sm:grid-cols-3">
-            {[
-              ["1. Buy a pass", "Pick a pass for your sport and pay online — hours land on your account instantly."],
-              ["2. Book as usual", "Choose your date and slots exactly like a normal booking."],
-              ["3. Pay with hours", "At checkout, choose “Use my pass” — hours are deducted instead of money. If the booking is longer than your balance, pay just the difference."],
-            ].map(([t, d]) => (
-              <li key={t} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-                <p className="font-medium text-white">{t}</p>
-                <p className="mt-1 text-sm text-zinc-400">{d}</p>
+          <h2 className="mb-4 text-lg font-semibold text-white">How it works</h2>
+          <ol className="relative grid gap-4 sm:grid-cols-3">
+            {/* Connector — sits at badge-centre height, visible only in
+                the gaps between the (opaque-topped) step cards. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-[44px] hidden h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent sm:block"
+            />
+            {STEPS.map(({ icon: Icon, title, desc }, i) => (
+              <li
+                key={title}
+                className="group relative flex flex-col rounded-2xl border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-900/40 p-5 transition-colors hover:border-emerald-500/40"
+              >
+                <span className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/25">
+                  <Icon className="h-5 w-5 text-emerald-400" />
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[11px] font-bold text-black shadow-lg shadow-emerald-500/30">
+                    {i + 1}
+                  </span>
+                </span>
+                <p className="mt-4 text-base font-semibold text-white">{title}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
+                  {desc}
+                </p>
               </li>
             ))}
           </ol>
@@ -401,20 +438,35 @@ export function PassesClient({
         <section className="pb-10">
           <button
             onClick={() => setTermsOpen((o) => !o)}
-            className="flex w-full items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-left"
+            aria-expanded={termsOpen}
+            className={`flex w-full items-center justify-between gap-3 border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-900/40 px-4 py-3.5 text-left transition-colors hover:border-zinc-700 ${
+              termsOpen ? "rounded-t-2xl border-b-0" : "rounded-2xl"
+            }`}
           >
-            <span className="font-medium text-white">
-              Terms, conditions & policies
+            <span className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
+                <ScrollText className="h-4 w-4 text-emerald-400" />
+              </span>
+              <span className="font-medium text-white">
+                Terms, conditions &amp; policies
+              </span>
             </span>
             <ChevronDown
-              className={`h-4 w-4 text-zinc-400 transition-transform ${termsOpen ? "rotate-180" : ""}`}
+              className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${termsOpen ? "rotate-180" : ""}`}
             />
           </button>
           {termsOpen && (
-            <ul className="mt-2 space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/30 p-4 text-sm text-zinc-400">
+            <ul className="divide-y divide-zinc-800/70 overflow-hidden rounded-b-2xl border border-t-0 border-zinc-800 bg-zinc-900/30">
               {TERMS.map((t) => (
-                <li key={t} className="flex gap-2">
-                  <span className="text-emerald-500">•</span> {t}
+                <li
+                  key={t}
+                  className="flex gap-3 px-4 py-3 text-sm leading-relaxed text-zinc-400"
+                >
+                  <span
+                    aria-hidden
+                    className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500/70"
+                  />
+                  <span>{t}</span>
                 </li>
               ))}
             </ul>
