@@ -22,6 +22,28 @@ export async function POST(request: NextRequest) {
   const hold = await getValidHold(holdId, session.user.id);
   if (!hold) return NextResponse.json({ error: "Hold expired" }, { status: 404 });
 
+  // Passes don't combine with coupons/points. If the customer applied
+  // either and then chose to pay with the pass, the pass wins — drop the
+  // coupon/points so (a) getPassOfferForHold below sees a clean hold and
+  // (b) the ₹0 PASS booking created by createBookingFromHold doesn't also
+  // spend the points / consume the coupon. They aren't consumed here, so
+  // the customer keeps their points balance.
+  if (hold.couponId || (hold.pointsToRedeem ?? 0) > 0) {
+    await db.slotHold.update({
+      where: { id: hold.id },
+      data: {
+        couponId: null,
+        discountAmount: null,
+        pointsToRedeem: null,
+        pointsRedeemPaiseSaved: null,
+      },
+    });
+    hold.couponId = null;
+    hold.discountAmount = null;
+    hold.pointsToRedeem = null;
+    hold.pointsRedeemPaiseSaved = null;
+  }
+
   const offer = await getPassOfferForHold(hold);
   if (!offer) {
     return NextResponse.json({ error: "No eligible pass for this booking" }, { status: 400 });
