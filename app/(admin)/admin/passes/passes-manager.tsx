@@ -4,12 +4,13 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createPassPlan,
+  updatePassPlan,
   deletePassPlan,
   setPassesEnabled,
   togglePassPlan,
   type PassConfigOption,
 } from "@/actions/admin-passes";
-import { Plus, Ticket, Trash2 } from "lucide-react";
+import { Plus, Ticket, Trash2, Pencil, X, Loader2 } from "lucide-react";
 
 interface Plan {
   id: string;
@@ -67,6 +68,7 @@ export function PassesManager({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Plan | null>(null);
 
   const sports = useMemo(
     () => [...new Set(configs.map((c) => c.sport))],
@@ -411,7 +413,15 @@ export function PassesManager({
                       </button>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => setEditing(p)}
+                          disabled={pending}
+                          title="Edit plan"
+                          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-30"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={() => {
                             if (!window.confirm(`Delete “${p.name}”?`)) return;
@@ -440,6 +450,222 @@ export function PassesManager({
           </table>
         </div>
       )}
+
+      {editing && (
+        <EditPlanModal
+          plan={editing}
+          config={configs.find((c) => c.id === editing.courtConfigId)}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Edit-plan modal. Court + sport are fixed (shown read-only); the rest
+ *  mirrors the create wizard and recomputes the price live. Saving never
+ *  touches already-sold passes — they're snapshots. */
+function EditPlanModal({
+  plan,
+  config,
+  onClose,
+}: {
+  plan: Plan;
+  config: PassConfigOption | undefined;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const [name, setName] = useState(plan.name);
+  const [hours, setHours] = useState(plan.totalMinutes / 60);
+  const [anchor, setAnchor] = useState(plan.anchorPricePerHour);
+  const [discount, setDiscount] = useState(plan.discountPercent);
+  const [validity, setValidity] = useState(plan.validityDays);
+  const [timeType, setTimeType] = useState<"" | "PEAK" | "OFF_PEAK">(
+    plan.timeType === "PEAK" || plan.timeType === "OFF_PEAK"
+      ? plan.timeType
+      : "",
+  );
+
+  const baseAmount = Math.round(anchor * hours);
+  const finalPrice = Math.round(baseAmount * (1 - discount / 100));
+  const effectiveHourly = hours > 0 ? Math.round(finalPrice / hours) : 0;
+  const step = config?.slotDurationMinutes === 30 ? 0.5 : 1;
+
+  const inputClass =
+    "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-emerald-600 focus:outline-none";
+  const labelClass = "text-xs text-zinc-400";
+
+  function save() {
+    setError(null);
+    start(async () => {
+      const res = await updatePassPlan(plan.id, {
+        totalHours: hours,
+        anchorPricePerHour: anchor,
+        discountPercent: discount,
+        validityDays: validity,
+        timeType: timeType || null,
+        name: name.trim() || undefined,
+      });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onClose();
+      router.refresh();
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-base font-semibold text-white">
+              <Pencil className="h-4 w-4 text-emerald-400" /> Edit pass plan
+            </h3>
+            <p className="text-xs text-zinc-500">
+              {config
+                ? `${config.sport.charAt(0)}${config.sport.slice(1).toLowerCase()} · ${config.label}`
+                : plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}{" "}
+              — court is fixed; make a new plan to change it.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={pending}
+            aria-label="Close"
+            className="rounded-full p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {plan.soldCount > 0 && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
+            {plan.soldCount} pass(es) already sold — edits apply only to
+            future purchases; existing passes keep their original terms.
+          </p>
+        )}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1 sm:col-span-2">
+            <label className={labelClass}>Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Total hours</label>
+            <input
+              type="number"
+              min={step}
+              max={200}
+              step={step}
+              value={hours}
+              onChange={(e) => setHours(Number(e.target.value))}
+              className={inputClass}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Anchor rate (₹/hour)</label>
+            <input
+              type="number"
+              min={1}
+              value={anchor || ""}
+              onChange={(e) => setAnchor(Number(e.target.value))}
+              className={inputClass}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Discount %</label>
+            <input
+              type="number"
+              min={0}
+              max={99}
+              step={0.5}
+              value={discount}
+              onChange={(e) => setDiscount(Number(e.target.value))}
+              className={inputClass}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Validity (days)</label>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={validity}
+              onChange={(e) => setValidity(Number(e.target.value))}
+              className={inputClass}
+            />
+          </div>
+          <div className="flex flex-col gap-1 sm:col-span-2">
+            <label className={labelClass}>Redeemable hours</label>
+            <select
+              value={timeType}
+              onChange={(e) => {
+                const v = e.target.value as "" | "PEAK" | "OFF_PEAK";
+                setTimeType(v);
+                if (config) setAnchor(anchorForBand(config, v));
+              }}
+              className={inputClass}
+            >
+              <option value="">All hours</option>
+              <option value="OFF_PEAK">Off-peak only</option>
+              <option value="PEAK">Peak only</option>
+            </select>
+          </div>
+        </div>
+
+        {anchor > 0 && hours > 0 && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm">
+            <span className="text-zinc-400">
+              Actual:{" "}
+              <span className="text-zinc-300 line-through">{inr(baseAmount)}</span>
+            </span>
+            <span className="font-semibold text-emerald-400">
+              Pass: {inr(finalPrice)}
+            </span>
+            <span className="text-zinc-400">
+              Effective{" "}
+              <span className="font-semibold text-white">
+                {inr(effectiveHourly)}/hr
+              </span>
+            </span>
+          </div>
+        )}
+
+        {error && <p className="text-sm text-red-400">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={pending}
+            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={pending || !anchor || !hours || !validity}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Save changes
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

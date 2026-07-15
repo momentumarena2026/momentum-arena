@@ -173,6 +173,76 @@ export async function createPassPlan(input: {
   return { ok: true };
 }
 
+/**
+ * Edit a pass plan. Recomputes baseAmount + price from the new hours /
+ * anchor / discount. The court + sport are fixed at creation (change
+ * those by making a new plan) — everything else is editable. Sold
+ * passes are snapshots and are NOT affected; edits only change what
+ * future buyers get.
+ */
+export async function updatePassPlan(
+  id: string,
+  input: {
+    totalHours: number;
+    anchorPricePerHour: number;
+    discountPercent: number;
+    validityDays: number;
+    timeType?: "PEAK" | "OFF_PEAK" | null;
+    name?: string;
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdmin(PERMISSION);
+
+  const { totalHours, anchorPricePerHour, discountPercent, validityDays } = input;
+  if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
+    return { ok: false, error: "Hours must be between 1 and 200." };
+  }
+  if (Math.round(totalHours * 2) !== totalHours * 2) {
+    return { ok: false, error: "Hours must be in 30-minute steps." };
+  }
+  if (!Number.isInteger(anchorPricePerHour) || anchorPricePerHour <= 0) {
+    return { ok: false, error: "Anchor price must be a positive rupee amount." };
+  }
+  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent >= 100) {
+    return { ok: false, error: "Discount must be between 0 and 99%." };
+  }
+  if (!Number.isInteger(validityDays) || validityDays < 1 || validityDays > 365) {
+    return { ok: false, error: "Validity must be 1–365 days." };
+  }
+  if (input.timeType && !["PEAK", "OFF_PEAK"].includes(input.timeType)) {
+    return { ok: false, error: "Invalid time band." };
+  }
+
+  const plan = await db.passPlan.findUnique({
+    where: { id },
+    include: { courtConfig: { select: { label: true } } },
+  });
+  if (!plan) return { ok: false, error: "Plan not found." };
+
+  const baseAmount = Math.round(anchorPricePerHour * totalHours);
+  const price = Math.round(baseAmount * (1 - discountPercent / 100));
+  const name =
+    input.name?.trim() ||
+    `${plan.courtConfig.label} — ${formatHours(totalHours)} Pass`;
+
+  await db.passPlan.update({
+    where: { id },
+    data: {
+      name,
+      totalMinutes: Math.round(totalHours * 60),
+      anchorPricePerHour,
+      baseAmount,
+      discountPercent,
+      price,
+      validityDays,
+      timeType: input.timeType ?? null,
+    },
+  });
+  revalidatePath("/admin/passes");
+  revalidatePath("/passes");
+  return { ok: true };
+}
+
 export async function togglePassPlan(
   id: string,
   isActive: boolean,
