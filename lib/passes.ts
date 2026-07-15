@@ -174,10 +174,28 @@ export async function getPassOfferForHold(hold: {
     .filter((s): s is NonNullable<typeof s> => !!s);
   if (bookedSlots.length === 0) return null;
 
+  // Interchangeable court group — a pass bought for the cricket LEFT half
+  // must also cover a booking that landed on the RIGHT half (same size,
+  // same price). Match any pass whose court is in the same group.
+  const holdCfg = await db.courtConfig.findUnique({
+    where: { id: hold.courtConfigId },
+    select: { sport: true, size: true, category: true },
+  });
+  if (!holdCfg) return null;
+  const groupConfigs = await db.courtConfig.findMany({
+    where: {
+      sport: holdCfg.sport,
+      size: holdCfg.size,
+      category: holdCfg.category,
+    },
+    select: { id: true },
+  });
+  const groupIds = groupConfigs.map((c) => c.id);
+
   const passes = await db.userPass.findMany({
     where: {
       userId: hold.userId,
-      courtConfigId: hold.courtConfigId,
+      courtConfigId: { in: groupIds },
       status: "ACTIVE",
       remainingMinutes: { gt: 0 },
       expiresAt: { gt: new Date() },

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { arePassesEnabled, passLiveStatus } from "@/lib/passes";
 import { parseBands, bandKey, bandsSummary } from "@/lib/pass-bands";
+import { courtGroupLabel } from "@/lib/court-config";
 
 /**
  * Customer-facing pass reads. Purchase runs through
@@ -21,6 +22,7 @@ export async function getActivePassPlans() {
       courtConfig: {
         select: {
           label: true,
+          size: true,
           category: true,
           prices: {
             select: { dayType: true, timeType: true, pricePerSlot: true },
@@ -54,7 +56,12 @@ export async function getActivePassPlans() {
       id: p.id,
       name: p.name,
       sport: String(p.sport),
-      courtLabel: p.courtConfig.label,
+      courtLabel: courtGroupLabel({
+        sport: String(p.sport),
+        size: String(p.courtConfig.size),
+        category: p.courtConfig.category ? String(p.courtConfig.category) : null,
+        label: p.courtConfig.label,
+      }),
       isBowling: p.courtConfig.category === "BOWLING_MACHINE",
       hours: p.totalMinutes / 60,
       baseAmount: p.baseAmount,

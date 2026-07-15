@@ -5,6 +5,7 @@ import { Prisma, type Sport } from "@prisma/client";
 import { requireAdmin } from "@/lib/admin-auth";
 import { revalidatePath } from "next/cache";
 import { parseBands, bandKey, type Band } from "@/lib/pass-bands";
+import { courtGroupKey, courtGroupLabel } from "@/lib/court-config";
 
 /** Prisma Json write helper — Band[] lacks the index signature Prisma's
  *  InputJsonValue wants, so cast at the boundary. */
@@ -133,6 +134,8 @@ export async function getPassAdminData() {
       select: {
         id: true,
         sport: true,
+        size: true,
+        position: true,
         label: true,
         category: true,
         slotDurationMinutes: true,
@@ -140,7 +143,7 @@ export async function getPassAdminData() {
           select: { dayType: true, timeType: true, pricePerSlot: true },
         },
       },
-      orderBy: [{ sport: "asc" }, { label: "asc" }],
+      orderBy: [{ sport: "asc" }, { size: "asc" }, { position: "asc" }],
     }),
     db.passPlan.findMany({
       include: { _count: { select: { userPasses: true } } },
@@ -157,21 +160,41 @@ export async function getPassAdminData() {
     ]),
   );
 
-  return {
-    configs: configs.map(
-      (c): PassConfigOption => ({
-        id: c.id,
+  // Collapse interchangeable positions (both cricket half-courts, both
+  // leather pitches) into ONE pickable option — a pass covers the whole
+  // group. The first config in each group (LEFT / LP1, by the ordering
+  // above) is the stored representative.
+  const groupedConfigs: PassConfigOption[] = [];
+  const seenGroups = new Set<string>();
+  for (const c of configs) {
+    const key = courtGroupKey({
+      sport: String(c.sport),
+      size: String(c.size),
+      category: c.category ? String(c.category) : null,
+    });
+    if (seenGroups.has(key)) continue;
+    seenGroups.add(key);
+    groupedConfigs.push({
+      id: c.id,
+      sport: String(c.sport),
+      label: courtGroupLabel({
         sport: String(c.sport),
-        label: c.label,
+        size: String(c.size),
         category: c.category ? String(c.category) : null,
-        slotDurationMinutes: c.slotDurationMinutes,
-        rates: c.prices.map((p) => ({
-          dayType: String(p.dayType),
-          timeType: String(p.timeType),
-          pricePerSlot: p.pricePerSlot,
-        })),
+        label: c.label,
       }),
-    ),
+      category: c.category ? String(c.category) : null,
+      slotDurationMinutes: c.slotDurationMinutes,
+      rates: c.prices.map((p) => ({
+        dayType: String(p.dayType),
+        timeType: String(p.timeType),
+        pricePerSlot: p.pricePerSlot,
+      })),
+    });
+  }
+
+  return {
+    configs: groupedConfigs,
     plans: plans.map((p) => {
       const bands = parseBands(p.bands);
       // Bands whose CURRENT court price still equals the anchor. A plan
