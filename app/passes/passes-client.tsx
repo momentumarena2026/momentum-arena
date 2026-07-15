@@ -2,7 +2,27 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Ticket, Clock, ShieldCheck, ChevronDown } from "lucide-react";
+import { Clock, ShieldCheck, ChevronDown } from "lucide-react";
+import {
+  MdSportsCricket,
+  MdSportsSoccer,
+  MdSportsTennis,
+} from "react-icons/md";
+import { GiCricketBat } from "react-icons/gi";
+import type { IconType } from "react-icons";
+
+// Sport → illustration + accent colour for the ticket cards. Bowling
+// Machine (a cricket sub-sport) gets its own bat-and-ball glyph.
+const SPORT_ICON: Record<string, IconType> = {
+  CRICKET: MdSportsCricket,
+  FOOTBALL: MdSportsSoccer,
+  PICKLEBALL: MdSportsTennis,
+};
+const SPORT_ACCENT: Record<string, string> = {
+  CRICKET: "#34d399", // emerald
+  FOOTBALL: "#60a5fa", // blue
+  PICKLEBALL: "#facc15", // yellow
+};
 
 interface Plan {
   id: string;
@@ -218,56 +238,98 @@ export function PassesClient({
               No passes on sale right now — check back soon.
             </p>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {plans.map((plan) => (
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {plans.map((plan) => {
+                const accent =
+                  SPORT_ACCENT[plan.sport] ?? "#34d399";
+                const SportIcon = plan.isBowling
+                  ? GiCricketBat
+                  : SPORT_ICON[plan.sport] ?? MdSportsCricket;
+                return (
                 <div
                   key={plan.id}
-                  className="flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 transition-colors hover:border-emerald-600/40"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                  style={{ boxShadow: `0 0 0 1px ${accent}12` }}
                 >
-                  <div className="flex items-center gap-2">
-                    <Ticket className="h-5 w-5 text-emerald-400" />
-                    <p className="font-semibold text-white">{plan.name}</p>
-                  </div>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {plan.courtLabel}
-                    {plan.isBowling ? " · Bowling Machine" : ""}
-                  </p>
-
-                  <div className="mt-4">
-                    <span className="text-sm text-zinc-500 line-through">
-                      {inr(plan.baseAmount)}
-                    </span>
-                    <span className="ml-2 text-2xl font-bold text-white">
-                      {inr(plan.price)}
-                    </span>
-                    <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
-                      Save {plan.discountPercent}%
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-emerald-300">
-                    {inr(plan.effectiveHourly)}/hr instead of{" "}
-                    {inr(plan.anchorPricePerHour)}/hr
-                  </p>
-
-                  <div className="mt-3 flex items-center gap-4 text-xs text-zinc-400">
-                    <span className="inline-flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5" /> {plan.hours} hours
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <ShieldCheck className="h-3.5 w-3.5" /> Valid{" "}
-                      {plan.validityDays} days
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={() => buy(plan)}
-                    disabled={buying === plan.id}
-                    className="mt-4 w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
+                  {/* Ticket stub — coloured header band with the sport
+                      illustration + perforation line, so the card reads
+                      as an actual pass/ticket. */}
+                  <div
+                    className="relative px-5 pb-5 pt-5"
+                    style={{
+                      background: `linear-gradient(135deg, ${accent}22, transparent 70%)`,
+                    }}
                   >
-                    {buying === plan.id ? "Opening payment…" : "Buy pass"}
-                  </button>
+                    <div className="flex items-start justify-between">
+                      <div
+                        className="flex h-12 w-12 items-center justify-center rounded-xl"
+                        style={{ backgroundColor: `${accent}1f` }}
+                      >
+                        <SportIcon size={28} color={accent} />
+                      </div>
+                      <span
+                        className="rounded-full px-2.5 py-1 text-xs font-bold"
+                        style={{ backgroundColor: `${accent}22`, color: accent }}
+                      >
+                        Save {plan.discountPercent}%
+                      </span>
+                    </div>
+                    <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                      {plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}
+                      {plan.isBowling ? " · Bowling Machine" : ""}
+                    </p>
+                    <p className="mt-0.5 text-lg font-bold leading-tight text-white">
+                      {plan.name}
+                    </p>
+                  </div>
+
+                  {/* Perforation — notches + dashed divider */}
+                  <div className="relative">
+                    <div className="absolute -left-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-black" />
+                    <div className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-black" />
+                    <div className="border-t border-dashed border-zinc-700" />
+                  </div>
+
+                  {/* Body */}
+                  <div className="flex flex-1 flex-col p-5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold text-white">
+                        {inr(plan.price)}
+                      </span>
+                      <span className="text-sm text-zinc-500 line-through">
+                        {inr(plan.baseAmount)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm font-medium" style={{ color: accent }}>
+                      {inr(plan.effectiveHourly)}/hr
+                      <span className="text-zinc-500">
+                        {" "}
+                        instead of {inr(plan.anchorPricePerHour)}/hr
+                      </span>
+                    </p>
+
+                    <div className="mt-3 flex items-center gap-4 text-xs text-zinc-400">
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" /> {plan.hours} hours
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5" /> Valid{" "}
+                        {plan.validityDays} days
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => buy(plan)}
+                      disabled={buying === plan.id}
+                      className="mt-4 w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                      style={{ backgroundColor: accent, color: "#04140d" }}
+                    >
+                      {buying === plan.id ? "Opening payment…" : "Buy pass"}
+                    </button>
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {error && <p className="mt-3 text-sm text-amber-300">{error}</p>}

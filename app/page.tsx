@@ -15,6 +15,7 @@ import { SPORT_INFO, customerFacingCourtLabel, formatHoursAsRanges } from "@/lib
 import { formatBookingDate, formatPrice } from "@/lib/pricing";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { getRainBanner } from "@/actions/admin-arena-settings";
+import { arePassesEnabled } from "@/lib/passes";
 import { RainBanner } from "@/components/rain-banner";
 
 const sports = [
@@ -188,6 +189,7 @@ export default async function Home() {
 
   // "Rain doesn't slow us down" banner — shown when it's raining in Mathura
   // (AUTO) or forced on by admin. Never throws.
+  const passesEnabled = await arePassesEnabled().catch(() => false);
   const rainBanner = await getRainBanner().catch(() => ({
     show: false,
     title: "",
@@ -340,6 +342,14 @@ export default async function Home() {
               >
                 🛍️ Shop
               </Link>
+              {passesEnabled && (
+                <Link
+                  href="/passes"
+                  className="text-base font-semibold text-zinc-300 hover:text-emerald-400 transition flex items-center gap-2"
+                >
+                  🎟️ Passes
+                </Link>
+              )}
             </div>
             <LoginButton />
           </div>

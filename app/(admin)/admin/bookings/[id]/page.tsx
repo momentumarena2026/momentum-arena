@@ -101,6 +101,22 @@ export default async function AdminBookingDetailPage({
     suggestExtendPrice(booking.id, "after"),
   ]);
 
+  // Eligible pass for a pass-paid extension — same rules as customer
+  // redemption (this customer, this court, ACTIVE, unexpired, ≥30 min).
+  const extendPass = booking.userId
+    ? await db.userPass.findFirst({
+        where: {
+          userId: booking.userId,
+          courtConfigId: booking.courtConfigId,
+          status: "ACTIVE",
+          remainingMinutes: { gte: 30 },
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { expiresAt: "asc" },
+        select: { id: true, name: true, remainingMinutes: true },
+      })
+    : null;
+
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
 
@@ -581,6 +597,15 @@ export default async function AdminBookingDetailPage({
         bookingStatus={booking.status}
         suggestedBeforePrice={suggestedBeforePrice}
         suggestedAfterPrice={suggestedAfterPrice}
+        pass={
+          extendPass
+            ? {
+                id: extendPass.id,
+                name: extendPass.name,
+                remainingMinutes: extendPass.remainingMinutes,
+              }
+            : null
+        }
       />
 
       {/* Admin Actions — hosts the Edit / Cancel / status-change
