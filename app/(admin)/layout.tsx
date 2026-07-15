@@ -29,6 +29,7 @@ const allNavItems = [
   { href: "/admin/pos", label: "Walk-in Sale", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
   { href: "/admin/coupons", label: "Coupons", group: "Promotions", permission: "MANAGE_COUPONS" },
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
+  { href: "/admin/passes", label: "Passes", group: "Promotions", permission: "MANAGE_PASSES" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/running-expenses", label: "Running Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },

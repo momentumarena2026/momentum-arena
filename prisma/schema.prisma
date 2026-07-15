@@ -55,6 +55,9 @@ enum PaymentMethod {
   UPI_QR
   CASH
   FREE
+  // Booking paid by debiting hours from a purchased UserPass —
+  // amount is 0; the revenue was recognised at pass purchase.
+  PASS
 }
 
 enum PaymentGateway {
@@ -244,6 +247,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   bookings      Booking[]
+  passes        UserPass[]
   slotHolds     SlotHold[]
   cafeOrders    CafeOrder[]
   referralCode  String?     @unique
@@ -367,6 +371,7 @@ model CourtConfig {
   bookings          Booking[]
   slotHolds         SlotHold[]
   prices            PricingRule[]
+  passPlans         PassPlan[]
   slotBlocks        SlotBlock[]
   waitlistEntries   Waitlist[]
   recurringBookings RecurringBooking[]
@@ -795,6 +800,94 @@ model FAQEntry {
 // Enforcement is always on — an empty table means NO device can open
 // the admin entry; bootstrap new devices via the 12-tap ID reveal +
 // this list (web admin login is independent of the app).
+enum UserPassStatus {
+  ACTIVE
+  EXHAUSTED
+  EXPIRED
+  CANCELLED
+}
+
+// ─── Monthly Passes ─────────────────────────────────────────────────
+// Bulk-hour products: N hours on one court config at a discounted
+// effective hourly rate, valid for validityDays from purchase.
+// PassPlan = the admin-configured product; UserPass = a purchased
+// instance with a live minute balance; PassRedemption = per-booking
+// debit audit (drives restore-on-cancel).
+
+model PassPlan {
+  id            String      @id @default(cuid())
+  name          String
+  sport         Sport
+  courtConfigId String
+  courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
+  // Balance sold, in MINUTES (5h = 300) so 30-min bowling slots
+  // debit cleanly with integer math.
+  totalMinutes  Int
+  // The headline per-hour rate the discount is marketed against
+  // (e.g. ₹2,000/hr → pass effective ₹1,900/hr). Pre-filled from the
+  // config's highest PricingRule; admin can adjust. Rupees.
+  anchorPricePerHour Int
+  // anchor × hours — the "actual price" shown struck through.
+  baseAmount    Int
+  discountPercent Float
+  // Final sell price, rupees, rounded.
+  price         Int
+  validityDays  Int
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userPasses UserPass[]
+
+  @@index([isActive, sortOrder])
+}
+
+model UserPass {
+  id     String @id @default(cuid())
+  planId String
+  plan   PassPlan @relation(fields: [planId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Plan snapshot at purchase time — plan edits never mutate what a
+  // customer already bought.
+  name          String
+  sport         Sport
+  courtConfigId String
+  totalMinutes  Int
+  price         Int
+  validityDays  Int
+
+  remainingMinutes Int
+  status           UserPassStatus @default(ACTIVE)
+  purchasedAt      DateTime       @default(now())
+  expiresAt        DateTime
+
+  // Purchase payment refs (money-first: the row is only created after
+  // the gateway verifies/webhooks the capture).
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String?
+
+  redemptions PassRedemption[]
+
+  @@index([userId, status])
+  @@index([courtConfigId, status])
+}
+
+model PassRedemption {
+  id         String   @id @default(cuid())
+  userPassId String
+  userPass   UserPass @relation(fields: [userPassId], references: [id])
+  // One redemption per booking; top-up bookings still debit through a
+  // single row (minutes = the covered portion).
+  bookingId  String   @unique
+  minutes    Int
+  createdAt  DateTime @default(now())
+  // Set when an eligible cancellation restored these minutes.
+  restoredAt DateTime?
+}
+
 model TrustedDevice {
   id         String   @id @default(cuid())
   // App-generated ID: keychain-persisted UUID seeded from the platform

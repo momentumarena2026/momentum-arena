@@ -34,6 +34,8 @@ export const ALL_PERMISSIONS = [
   // Trusted-device allowlist for the app's hidden 5-tap admin entry
   // (/admin/trusted-devices + the mobile-admin screen).
   "MANAGE_TRUSTED_DEVICES",
+  // Monthly passes: plan wizard + sold-pass management.
+  "MANAGE_PASSES",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -65,6 +67,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_APP_RELEASES: "Manage App Releases (OTA)",
   MANAGE_PAYMENT_SETTINGS: "Manage Payment Settings",
   MANAGE_TRUSTED_DEVICES: "Manage Trusted Devices (5-tap admin entry)",
+  MANAGE_PASSES: "Manage Monthly Passes",
 };
 
 export function hasPermission(

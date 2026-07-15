@@ -37,6 +37,7 @@ import {
   Bell,
   MessageSquareText,
   Smartphone,
+  Ticket,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -63,6 +64,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "/admin/pos": Store,
   "/admin/coupons": Tags,
   "/admin/rewards": Gift,
+  "/admin/passes": Ticket,
   "/admin/users": Users,
   "/admin/admin-users": Shield,
   "/admin/trusted-devices": Smartphone,
