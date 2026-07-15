@@ -284,12 +284,24 @@ export function PassesClient({
                       >
                         <SportIcon size={28} color={accent} />
                       </div>
-                      <span
-                        className="rounded-full px-2.5 py-1 text-xs font-bold"
-                        style={{ backgroundColor: `${accent}22`, color: accent }}
-                      >
-                        Save {plan.discountPercent}%
-                      </span>
+                      {/* Hours dial on top, discount badge beneath it —
+                          the ring sweeps to the pass's full hours when
+                          the card scrolls into view. */}
+                      <div className="flex flex-col items-center gap-2">
+                        <PassClock
+                          totalHours={plan.hours}
+                          accent={accent}
+                          size={80}
+                          stroke={8}
+                          trigger="inview"
+                        />
+                        <span
+                          className="rounded-full px-2.5 py-1 text-xs font-bold"
+                          style={{ backgroundColor: `${accent}22`, color: accent }}
+                        >
+                          Save {plan.discountPercent}%
+                        </span>
+                      </div>
                     </div>
                     <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                       {plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}
@@ -309,38 +321,23 @@ export function PassesClient({
 
                   {/* Body */}
                   <div className="flex flex-1 flex-col p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-2xl font-bold text-white">
-                            {inr(plan.price)}
-                          </span>
-                          <span className="text-sm text-zinc-500 line-through">
-                            {inr(plan.baseAmount)}
-                          </span>
-                        </div>
-                        <p
-                          className="mt-1 text-sm font-medium"
-                          style={{ color: accent }}
-                        >
-                          {inr(plan.effectiveHourly)}/hr
-                          <span className="block text-zinc-500">
-                            instead of {inr(plan.anchorPricePerHour)}/hr
-                          </span>
-                        </p>
-                      </div>
-                      {/* Clock — sweeps to the pass's full hours when the
-                          card scrolls into view. */}
-                      <PassClock
-                        totalHours={plan.hours}
-                        accent={accent}
-                        size={84}
-                        stroke={8}
-                        trigger="inview"
-                      />
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold text-white">
+                        {inr(plan.price)}
+                      </span>
+                      <span className="text-sm text-zinc-500 line-through">
+                        {inr(plan.baseAmount)}
+                      </span>
                     </div>
+                    <p className="mt-1 text-sm font-medium" style={{ color: accent }}>
+                      {inr(plan.effectiveHourly)}/hr
+                      <span className="text-zinc-500">
+                        {" "}
+                        instead of {inr(plan.anchorPricePerHour)}/hr
+                      </span>
+                    </p>
 
-                    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-400">
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-400">
                       <span className="inline-flex items-center gap-1">
                         <ShieldCheck className="h-3.5 w-3.5" /> Valid{" "}
                         {plan.validityDays} days
