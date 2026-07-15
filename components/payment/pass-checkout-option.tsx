@@ -56,7 +56,7 @@ export function PassCheckoutOption({
       if (!res.ok) throw new Error(data.error || "Couldn't redeem the pass");
 
       if (data.bookingId) {
-        router.push(`/booking/confirmation/${data.bookingId}`);
+        router.push(`/book/confirmation/${data.bookingId}`);
         return;
       }
       // Top-up path — collect the remainder.
@@ -86,7 +86,7 @@ export function PassCheckoutOption({
             }),
           });
           const vd = await v.json();
-          if (v.ok && vd.bookingId) router.push(`/booking/confirmation/${vd.bookingId}`);
+          if (v.ok && vd.bookingId) router.push(`/book/confirmation/${vd.bookingId}`);
           else setError(vd.error || "Payment received — confirming your booking…");
         },
         modal: { ondismiss: () => setBusy(false) },
