@@ -95,6 +95,7 @@ export async function getMyPasses() {
     remainingMinutes: p.remainingMinutes,
     bandsSummary: bandsSummary(parseBands(p.bands)),
     purchasedAt: p.purchasedAt.toISOString(),
+    startsAt: p.startsAt.toISOString(),
     expiresAt: p.expiresAt.toISOString(),
     status: passLiveStatus(p),
     redemptions: p.redemptions.map((r) => ({

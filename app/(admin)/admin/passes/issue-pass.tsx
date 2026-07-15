@@ -19,6 +19,10 @@ type Method = "CASH" | "UPI_QR" | "FREE";
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 const hrs = (m: number) => `${(m / 60).toFixed(1).replace(/\.0$/, "")}h`;
+const istDateStr = (offsetDays = 0) =>
+  new Date(Date.now() + offsetDays * 86_400_000).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
 
 const METHODS: { value: Method; label: string; hint: string }[] = [
   { value: "CASH", label: "Cash", hint: "Paid in cash at the counter" },
@@ -43,6 +47,7 @@ export function IssuePass({ plans }: { plans: Plan[] }) {
   const [method, setMethod] = useState<Method>("CASH");
   const [amount, setAmount] = useState("");
   const [ref, setRef] = useState("");
+  const [startDate, setStartDate] = useState(istDateStr());
 
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +75,7 @@ export function IssuePass({ plans }: { plans: Plan[] }) {
         paymentMethod: method,
         amountCollected: amt,
         offlineRef: ref.trim() || undefined,
+        startDate,
       });
       if (!res.ok) {
         setError(res.error);
@@ -193,6 +199,24 @@ export function IssuePass({ plans }: { plans: Plan[] }) {
             />
           )}
         </div>
+
+        {/* Start date */}
+        <div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Start date
+          </label>
+          <input
+            type="date"
+            value={startDate}
+            min={istDateStr()}
+            max={istDateStr(90)}
+            onChange={(e) => setStartDate(e.target.value || istDateStr())}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-emerald-600 focus:outline-none [color-scheme:dark]"
+          />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Pass activates on this day; validity counts from here.
+          </p>
+        </div>
       </div>
 
       {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
@@ -203,7 +227,7 @@ export function IssuePass({ plans }: { plans: Plan[] }) {
           {selectedPlan && (
             <>
               Issues {hrs(selectedPlan.totalMinutes)}, valid{" "}
-              {selectedPlan.validityDays} days from today.
+              {selectedPlan.validityDays} days from the start date.
             </>
           )}
         </p>

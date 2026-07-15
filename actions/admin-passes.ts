@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { revalidatePath } from "next/cache";
 import { parseBands, bandKey, type Band } from "@/lib/pass-bands";
 import { courtGroupKey, courtGroupLabel } from "@/lib/court-config";
+import { parseStartDate, passLiveStatus } from "@/lib/passes";
 
 /** Prisma Json write helper — Band[] lacks the index signature Prisma's
  *  InputJsonValue wants, so cast at the boundary. */
@@ -403,6 +404,7 @@ export async function issuePassToUser(input: {
   paymentMethod: "CASH" | "UPI_QR" | "FREE";
   amountCollected?: number;
   offlineRef?: string;
+  startDate?: string;
 }): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
   const admin = await requireAdmin(PERMISSION);
 
@@ -430,9 +432,9 @@ export async function issuePassToUser(input: {
     price = input.amountCollected;
   }
 
-  const now = new Date();
+  const startsAt = parseStartDate(input.startDate);
   const expiresAt = new Date(
-    now.getTime() + plan.validityDays * 24 * 60 * 60 * 1000,
+    startsAt.getTime() + plan.validityDays * 24 * 60 * 60 * 1000,
   );
 
   const created = await db.userPass.create({
@@ -446,6 +448,7 @@ export async function issuePassToUser(input: {
       price,
       validityDays: plan.validityDays,
       remainingMinutes: plan.totalMinutes,
+      startsAt,
       expiresAt,
       bands: bandsJson(parseBands(plan.bands)),
       anchorPrice: plan.anchorPrice,
@@ -479,6 +482,7 @@ export async function giftCustomPass(input: {
   name?: string;
   value?: number;
   note?: string;
+  startDate?: string;
 }): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
   const admin = await requireAdmin(PERMISSION);
 
@@ -512,9 +516,9 @@ export async function giftCustomPass(input: {
   const totalMinutes = Math.round(totalHours * 60);
   const name =
     input.name?.trim() || `${config.label} — ${formatHours(totalHours)} Gift Pass`;
-  const now = new Date();
+  const startsAt = parseStartDate(input.startDate);
   const expiresAt = new Date(
-    now.getTime() + validityDays * 24 * 60 * 60 * 1000,
+    startsAt.getTime() + validityDays * 24 * 60 * 60 * 1000,
   );
 
   const created = await db.userPass.create({
@@ -528,6 +532,7 @@ export async function giftCustomPass(input: {
       price: value,
       validityDays,
       remainingMinutes: totalMinutes,
+      startsAt,
       expiresAt,
       bands: bandsJson(parseBands(input.bands ?? [])),
       anchorPrice: null,
@@ -589,9 +594,10 @@ export async function getSoldPasses() {
     totalMinutes: p.totalMinutes,
     remainingMinutes: p.remainingMinutes,
     price: p.price,
-    status: p.status,
+    status: passLiveStatus(p),
     method: passMethodLabel(p),
     purchasedAt: p.purchasedAt.toISOString(),
+    startsAt: p.startsAt.toISOString(),
     expiresAt: p.expiresAt.toISOString(),
     redemptionCount: p.redemptions.filter((r) => !r.restoredAt).length,
   }));

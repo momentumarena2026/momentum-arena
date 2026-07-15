@@ -9,6 +9,10 @@ import { BandPicker } from "./band-picker";
 import type { Band } from "@/lib/pass-bands";
 
 const sportName = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
+const istDateStr = (offsetDays = 0) =>
+  new Date(Date.now() + offsetDays * 86_400_000).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
 
 /**
  * Gift a bespoke pass to one specific customer — a private, made-up
@@ -36,6 +40,7 @@ export function GiftPass({ configs }: { configs: PassConfigOption[] }) {
   const [bands, setBands] = useState<Band[]>([]);
   const [value, setValue] = useState("0");
   const [note, setNote] = useState("");
+  const [startDate, setStartDate] = useState(istDateStr());
 
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +71,7 @@ export function GiftPass({ configs }: { configs: PassConfigOption[] }) {
         name: name.trim() || undefined,
         value: Number.isNaN(val) ? 0 : val,
         note: note.trim() || undefined,
+        startDate,
       });
       if (!res.ok) {
         setError(res.error);
@@ -234,6 +240,21 @@ export function GiftPass({ configs }: { configs: PassConfigOption[] }) {
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-fuchsia-500 focus:outline-none"
           />
         </div>
+
+        {/* Start date */}
+        <div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Start date
+          </label>
+          <input
+            type="date"
+            value={startDate}
+            min={istDateStr()}
+            max={istDateStr(90)}
+            onChange={(e) => setStartDate(e.target.value || istDateStr())}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-fuchsia-500 focus:outline-none [color-scheme:dark]"
+          />
+        </div>
       </div>
 
       {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
@@ -241,8 +262,8 @@ export function GiftPass({ configs }: { configs: PassConfigOption[] }) {
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <p className="text-xs text-zinc-500">
-          Lands on the recipient&apos;s account immediately; expires after the
-          validity window.
+          Lands on the recipient&apos;s account on the start date; expires after
+          the validity window.
         </p>
         <button
           onClick={submit}

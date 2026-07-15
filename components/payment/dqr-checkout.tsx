@@ -33,6 +33,9 @@ interface DqrCheckoutProps {
   /** "booking" hits /api/phonepe/dqr/*, "cafe" the cafe-* variants,
    *  "pass" the pass-* variants (holdId carries the PassPlan id). */
   surface?: "booking" | "cafe" | "pass";
+  /** Extra fields merged into the initiate POST body (e.g. a pass
+   *  start date). */
+  initiateExtra?: Record<string, unknown>;
   /** For cafe: the CafePaymentIntent id passed as `holdId`-equivalent.
    *  For pass: the returned id is the UserPass id. */
   onConfirmed: (id: string) => void;
@@ -97,6 +100,7 @@ export function DqrCheckout({
   advanceAmount,
   remainingAmount,
   surface = "booking",
+  initiateExtra,
   onConfirmed,
   onCancel,
 }: DqrCheckoutProps) {
@@ -254,7 +258,7 @@ export function DqrCheckout({
           surface === "cafe"
             ? { orderId: holdId }
             : surface === "pass"
-              ? { planId: holdId }
+              ? { planId: holdId, ...(initiateExtra ?? {}) }
               : { holdId, isAdvance: !!isAdvance, overrideAmount },
         ),
       });
@@ -322,6 +326,7 @@ export function DqrCheckout({
     holdId,
     isAdvance,
     overrideAmount,
+    initiateExtra,
     storeKey,
     clearStore,
     checkStatus,

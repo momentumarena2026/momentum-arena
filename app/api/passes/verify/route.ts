@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
-import { materializeUserPass } from "@/lib/passes";
+import { materializeUserPass, parseStartDate } from "@/lib/passes";
 
 /** Client-side confirmation after the Razorpay modal succeeds. The
  *  payment.captured webhook is the backstop — both paths are
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await request.json().catch(() => ({}));
-  const { planId, razorpayOrderId, razorpayPaymentId, razorpaySignature } = body;
+  const { planId, razorpayOrderId, razorpayPaymentId, razorpaySignature, startDate } = body;
   if (!planId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     razorpayPaymentId,
     planId,
     userId: session.user.id,
+    startsAt: parseStartDate(startDate),
   });
   if (!result) {
     return NextResponse.json({ error: "Plan not found" }, { status: 404 });

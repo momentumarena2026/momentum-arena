@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { arePassesEnabled, createPassOrder } from "@/lib/passes";
+import { arePassesEnabled, createPassOrder, parseStartDate } from "@/lib/passes";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 
 /** Start a pass purchase — creates the Razorpay order (money-first:
@@ -16,12 +16,16 @@ export async function POST(request: NextRequest) {
       { status: 403 },
     );
   }
-  const { planId } = await request.json().catch(() => ({}));
+  const { planId, startDate } = await request.json().catch(() => ({}));
   if (!planId) {
     return NextResponse.json({ error: "Missing planId" }, { status: 400 });
   }
   try {
-    const order = await createPassOrder(planId, session.user.id);
+    const order = await createPassOrder(
+      planId,
+      session.user.id,
+      parseStartDate(startDate),
+    );
     if (!order) {
       return NextResponse.json({ error: "Plan not available" }, { status: 404 });
     }

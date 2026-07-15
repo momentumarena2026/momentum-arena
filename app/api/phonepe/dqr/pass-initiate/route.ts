@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isDqrConfigured, qrInit, intentInit } from "@/lib/phonepe-dqr";
-import { arePassesEnabled } from "@/lib/passes";
+import { arePassesEnabled, parseStartDate } from "@/lib/passes";
 
 const DQR_TTL_MINUTES = 15;
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Passes aren't available" }, { status: 403 });
   }
 
-  const { planId } = await request.json().catch(() => ({}));
+  const { planId, startDate } = await request.json().catch(() => ({}));
   if (!planId) {
     return NextResponse.json({ error: "Missing planId" }, { status: 400 });
   }
@@ -37,7 +37,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const intent = await db.passPurchaseIntent.create({
-      data: { planId, userId: session.user.id },
+      data: {
+        planId,
+        userId: session.user.id,
+        startsAt: parseStartDate(startDate),
+      },
     });
     // < 35 chars: "DQRP_" (5) + 12 + "_" (1) + 13-digit ms = 31.
     const transactionId = `DQRP_${intent.id.slice(-12)}_${Date.now()}`;

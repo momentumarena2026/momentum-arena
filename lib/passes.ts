@@ -12,10 +12,32 @@ import { parseBands, slotInBands } from "@/lib/pass-bands";
 
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
 
+/** Furthest ahead a pass may be scheduled to start. */
+const MAX_START_AHEAD_DAYS = 90;
+
+/**
+ * Resolve a user/admin-supplied start date (YYYY-MM-DD, IST) into a
+ * concrete activation timestamp: defaults to now, never in the past
+ * (a today/earlier choice = start now), capped at +90 days.
+ */
+export function parseStartDate(dateStr?: string | null): Date {
+  const now = new Date();
+  if (!dateStr) return now;
+  const d = new Date(`${dateStr}T00:00:00+05:30`);
+  if (Number.isNaN(d.getTime())) return now;
+  if (d.getTime() <= now.getTime()) return now;
+  const max = new Date(now.getTime() + MAX_START_AHEAD_DAYS * 86_400_000);
+  return d.getTime() > max.getTime() ? max : d;
+}
+
 /** Create a Razorpay order for a pass purchase. Notes carry the
  *  routing info the webhook needs to materialize without a DB
- *  intent row. */
-export async function createPassOrder(planId: string, userId: string) {
+ *  intent row (including the scheduled start). */
+export async function createPassOrder(
+  planId: string,
+  userId: string,
+  startsAt?: Date,
+) {
   const plan = await db.passPlan.findUnique({ where: { id: planId } });
   if (!plan || !plan.isActive) return null;
 
@@ -33,7 +55,12 @@ export async function createPassOrder(planId: string, userId: string) {
       amount: Math.round(plan.price * 100),
       currency: "INR",
       receipt: `pass_${planId.slice(-12)}`,
-      notes: { type: "PASS", planId, userId },
+      notes: {
+        type: "PASS",
+        planId,
+        userId,
+        ...(startsAt ? { startsAt: startsAt.toISOString() } : {}),
+      },
     }),
   });
   if (!res.ok) {
@@ -49,6 +76,7 @@ export async function createPassOrder(planId: string, userId: string) {
 export async function materializeUserPass(args: {
   planId: string;
   userId: string;
+  startsAt?: Date;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   phonePeMerchantTxnId?: string;
@@ -70,9 +98,10 @@ export async function materializeUserPass(args: {
   const plan = await db.passPlan.findUnique({ where: { id: args.planId } });
   if (!plan) return null;
 
-  const now = new Date();
+  // Validity counts from the (possibly future) start date.
+  const startsAt = args.startsAt ?? new Date();
   const expiresAt = new Date(
-    now.getTime() + plan.validityDays * 24 * 60 * 60 * 1000,
+    startsAt.getTime() + plan.validityDays * 24 * 60 * 60 * 1000,
   );
   const created = await db.userPass.create({
     data: {
@@ -85,6 +114,7 @@ export async function materializeUserPass(args: {
       price: plan.price,
       validityDays: plan.validityDays,
       remainingMinutes: plan.totalMinutes,
+      startsAt,
       expiresAt,
       bands: plan.bands ?? [],
       anchorPrice: plan.anchorPrice,
@@ -105,7 +135,13 @@ export async function confirmDqrPass(
 ): Promise<{ userPassId: string | null; alreadyDone: boolean }> {
   const intent = await db.passPurchaseIntent.findUnique({
     where: { phonePeMerchantTxnId: transactionId },
-    select: { id: true, planId: true, userId: true, consumedUserPassId: true },
+    select: {
+      id: true,
+      planId: true,
+      userId: true,
+      startsAt: true,
+      consumedUserPassId: true,
+    },
   });
   if (!intent) return { userPassId: null, alreadyDone: false };
   if (intent.consumedUserPassId) {
@@ -115,6 +151,7 @@ export async function confirmDqrPass(
   const result = await materializeUserPass({
     planId: intent.planId,
     userId: intent.userId,
+    startsAt: intent.startsAt,
     phonePeMerchantTxnId: transactionId,
     phonePeTransactionId: providerReferenceId,
   });
@@ -129,14 +166,18 @@ export async function confirmDqrPass(
   return { userPassId: result.userPassId, alreadyDone: result.alreadyDone };
 }
 
-/** Live status for display + eligibility (lazy expiry). */
+/** Live status for display + eligibility (lazy expiry). A pass whose
+ *  start date is still in the future reads as UPCOMING. */
 export function passLiveStatus(p: {
   status: string;
   remainingMinutes: number;
+  startsAt: Date;
   expiresAt: Date;
-}): "ACTIVE" | "EXHAUSTED" | "EXPIRED" | "CANCELLED" {
+}): "ACTIVE" | "EXHAUSTED" | "EXPIRED" | "CANCELLED" | "UPCOMING" {
   if (p.status === "CANCELLED") return "CANCELLED";
-  if (p.expiresAt.getTime() < Date.now()) return "EXPIRED";
+  const now = Date.now();
+  if (p.startsAt.getTime() > now) return "UPCOMING";
+  if (p.expiresAt.getTime() < now) return "EXPIRED";
   if (p.remainingMinutes <= 0) return "EXHAUSTED";
   return "ACTIVE";
 }
@@ -198,6 +239,7 @@ export async function getPassOfferForHold(hold: {
       courtConfigId: { in: groupIds },
       status: "ACTIVE",
       remainingMinutes: { gt: 0 },
+      startsAt: { lte: new Date() }, // not yet started → not redeemable
       expiresAt: { gt: new Date() },
     },
     orderBy: { expiresAt: "asc" }, // burn the soonest-expiring first

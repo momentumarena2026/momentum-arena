@@ -19,6 +19,7 @@ interface Sold {
   status: string;
   method: string;
   purchasedAt: string;
+  startsAt: string;
   expiresAt: string;
   redemptionCount: number;
 }
@@ -109,7 +110,14 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
                       {p.method}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-zinc-300">{dt(p.expiresAt)}</td>
+                  <td className="px-4 py-3 text-zinc-300">
+                    {dt(p.expiresAt)}
+                    {p.status === "UPCOMING" && (
+                      <span className="block text-[11px] text-amber-400">
+                        starts {dt(p.startsAt)}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">
                       {p.status}

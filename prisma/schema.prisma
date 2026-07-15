@@ -882,6 +882,10 @@ model UserPass {
   remainingMinutes Int
   status           UserPassStatus @default(ACTIVE)
   purchasedAt      DateTime       @default(now())
+  // When the pass activates. Buyer/admin may schedule a future start;
+  // the pass isn't redeemable before this, and expiresAt = startsAt +
+  // validityDays. Defaults to purchase time (immediate).
+  startsAt         DateTime       @default(now())
   expiresAt        DateTime
 
   // Purchase payment refs (money-first: the row is only created after
@@ -928,6 +932,8 @@ model PassPurchaseIntent {
   id                   String   @id @default(cuid())
   planId               String
   userId               String
+  // Scheduled start captured at initiate, carried onto the UserPass.
+  startsAt             DateTime @default(now())
   phonePeMerchantTxnId String?  @unique
   // UserPass id once materialised (idempotency fast-path).
   consumedUserPassId   String?

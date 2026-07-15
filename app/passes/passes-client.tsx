@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock,
@@ -60,6 +60,7 @@ interface MyPass {
   remainingMinutes: number;
   bandsSummary: string;
   purchasedAt: string;
+  startsAt: string;
   expiresAt: string;
   status: string;
   redemptions: { minutes: number; createdAt: string; restored: boolean }[];
@@ -69,6 +70,22 @@ const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 /** A pass with no band restriction summarises as "All hours" — no badge
  *  needed for those. */
 const isRestricted = (s: string) => !!s && s !== "All hours";
+
+/** Today (+offset) as YYYY-MM-DD in IST — for the start-date picker
+ *  bounds. */
+function istDateStr(offsetDays = 0): string {
+  return new Date(Date.now() + offsetDays * 86_400_000).toLocaleDateString(
+    "en-CA",
+    { timeZone: "Asia/Kolkata" },
+  );
+}
+const fmtDay = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -137,17 +154,21 @@ export function PassesClient({
   const [chooserPlan, setChooserPlan] = useState<Plan | null>(null);
   const [method, setMethod] = useState<"upi" | "gateway">("upi");
   const [dqrPlan, setDqrPlan] = useState<Plan | null>(null);
+  // Chosen activation date (YYYY-MM-DD, IST). Defaults to today; the pass
+  // activates then and validity counts from it.
+  const [startDate, setStartDate] = useState(istDateStr());
+  const minStart = istDateStr();
+  const maxStart = istDateStr(90);
+  // Stable object so the DQR sheet doesn't re-initiate on re-render.
+  const dqrExtra = useMemo(() => ({ startDate }), [startDate]);
 
-  // "Buy pass" entry. With UPI available, open the method chooser
-  // (UPI pre-selected); otherwise go straight to Razorpay as before.
+  // "Buy pass" entry — always opens the sheet (so the customer can pick a
+  // start date); UPI is pre-selected when available, else Razorpay only.
   function startBuy(plan: Plan) {
     setError(null);
-    if (dqrEnabled) {
-      setMethod("upi");
-      setChooserPlan(plan);
-    } else {
-      buy(plan);
-    }
+    setStartDate(istDateStr());
+    setMethod(dqrEnabled ? "upi" : "gateway");
+    setChooserPlan(plan);
   }
 
   // Commit the chooser: UPI opens the DQR sheet, gateway opens Razorpay.
@@ -169,7 +190,7 @@ export function PassesClient({
       const res = await fetch("/api/passes/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: plan.id }),
+        body: JSON.stringify({ planId: plan.id, startDate }),
       });
       if (res.status === 401) {
         router.push(`/login?callbackUrl=${encodeURIComponent("/passes")}`);
@@ -202,6 +223,7 @@ export function PassesClient({
               razorpayOrderId: resp.razorpay_order_id,
               razorpayPaymentId: resp.razorpay_payment_id,
               razorpaySignature: resp.razorpay_signature,
+              startDate,
             }),
           });
           if (v.ok) router.refresh();
@@ -276,6 +298,11 @@ export function PassesClient({
                         style={{ width: `${100 - usedPct}%` }}
                       />
                     </div>
+                    {p.status === "UPCOMING" && (
+                      <p className="mt-2 text-xs font-medium text-amber-300">
+                        Starts {fmtDay(p.startsAt)}
+                      </p>
+                    )}
                     <p className="mt-2 text-xs text-zinc-500">
                       Expires{" "}
                       {new Date(p.expiresAt).toLocaleDateString("en-IN", {
@@ -399,14 +426,19 @@ export function PassesClient({
                       )}
                     </div>
 
-                    <button
-                      onClick={() => startBuy(plan)}
-                      disabled={buying === plan.id}
-                      className="mt-4 w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                      style={{ backgroundColor: accent, color: "#04140d" }}
-                    >
-                      {buying === plan.id ? "Opening payment…" : "Buy pass"}
-                    </button>
+                    {/* mt-auto pins the button to the card bottom so the
+                        row of cards has aligned CTAs regardless of how
+                        much meta (band chip, wrapped price) sits above. */}
+                    <div className="mt-auto pt-4">
+                      <button
+                        onClick={() => startBuy(plan)}
+                        disabled={buying === plan.id}
+                        className="w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                        style={{ backgroundColor: accent, color: "#04140d" }}
+                      >
+                        {buying === plan.id ? "Opening payment…" : "Buy pass"}
+                      </button>
+                    </div>
                   </div>
                 </div>
                 );
@@ -524,34 +556,56 @@ export function PassesClient({
             </div>
 
             <div className="space-y-2.5 p-4">
-              <button
-                onClick={() => setMethod("upi")}
-                className={`flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors ${
-                  method === "upi"
-                    ? "border-emerald-500 bg-emerald-500/10"
-                    : "border-zinc-800 hover:bg-zinc-800/50"
-                }`}
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15">
-                  <Smartphone className="h-5 w-5 text-emerald-400" />
+              {/* Start date — the pass activates on this day; validity
+                  counts from here. Defaults to today. */}
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-zinc-400">
+                  Pass start date
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-white">
-                      UPI
+                <input
+                  type="date"
+                  value={startDate}
+                  min={minStart}
+                  max={maxStart}
+                  onChange={(e) => setStartDate(e.target.value || minStart)}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark]"
+                />
+                <span className="mt-1 block text-[11px] text-zinc-500">
+                  Valid {chooserPlan.validityDays} days from this date · defaults
+                  to today.
+                </span>
+              </label>
+
+              {dqrEnabled && (
+                <button
+                  onClick={() => setMethod("upi")}
+                  className={`flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors ${
+                    method === "upi"
+                      ? "border-emerald-500 bg-emerald-500/10"
+                      : "border-zinc-800 hover:bg-zinc-800/50"
+                  }`}
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15">
+                    <Smartphone className="h-5 w-5 text-emerald-400" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-white">
+                        UPI
+                      </span>
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                        Recommended
+                      </span>
                     </span>
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
-                      Recommended
+                    <span className="mt-0.5 block text-xs text-zinc-400">
+                      Scan a QR / pay from any UPI app — no extra charge
                     </span>
                   </span>
-                  <span className="mt-0.5 block text-xs text-zinc-400">
-                    Scan a QR / pay from any UPI app — no extra charge
-                  </span>
-                </span>
-                {method === "upi" && (
-                  <Check className="h-5 w-5 shrink-0 text-emerald-400" />
-                )}
-              </button>
+                  {method === "upi" && (
+                    <Check className="h-5 w-5 shrink-0 text-emerald-400" />
+                  )}
+                </button>
+              )}
 
               <button
                 onClick={() => setMethod("gateway")}
@@ -596,6 +650,7 @@ export function PassesClient({
           surface="pass"
           holdId={dqrPlan.id}
           amount={dqrPlan.price}
+          initiateExtra={dqrExtra}
           onConfirmed={() => {
             setDqrPlan(null);
             router.refresh();
