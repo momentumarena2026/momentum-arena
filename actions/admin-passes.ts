@@ -271,13 +271,93 @@ export async function issuePassToUser(input: {
   return { ok: true, userPassId: created.id };
 }
 
-/** Human label for how a pass was paid — offline method if stamped,
- *  else inferred from the gateway refs. */
+/**
+ * Gift / assign a bespoke pass to one specific customer. Unlike a
+ * plan-backed sale this creates NO public PassPlan — the pass exists
+ * only on the recipient's account (planId null), so it never shows on
+ * the customer storefront. Used for occasion gifts. Free by default;
+ * an optional value can be recorded. Redeemable at checkout on the
+ * chosen court exactly like a purchased pass.
+ */
+export async function giftCustomPass(input: {
+  userId: string;
+  courtConfigId: string;
+  totalHours: number;
+  validityDays: number;
+  name?: string;
+  value?: number;
+  note?: string;
+}): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
+  const admin = await requireAdmin(PERMISSION);
+
+  const { userId, courtConfigId, totalHours, validityDays } = input;
+  if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
+    return { ok: false, error: "Hours must be between 1 and 200." };
+  }
+  if (Math.round(totalHours * 2) !== totalHours * 2) {
+    return { ok: false, error: "Hours must be in 30-minute steps." };
+  }
+  if (!Number.isInteger(validityDays) || validityDays < 1 || validityDays > 365) {
+    return { ok: false, error: "Validity must be 1–365 days." };
+  }
+  const value = input.value ?? 0;
+  if (!Number.isInteger(value) || value < 0) {
+    return { ok: false, error: "Value must be a non-negative whole number." };
+  }
+
+  const [config, user] = await Promise.all([
+    db.courtConfig.findUnique({
+      where: { id: courtConfigId },
+      select: { id: true, sport: true, label: true, isActive: true },
+    }),
+    db.user.findUnique({ where: { id: userId }, select: { id: true } }),
+  ]);
+  if (!config || !config.isActive) {
+    return { ok: false, error: "Court config not found or inactive." };
+  }
+  if (!user) return { ok: false, error: "Customer not found." };
+
+  const totalMinutes = Math.round(totalHours * 60);
+  const name =
+    input.name?.trim() || `${config.label} — ${formatHours(totalHours)} Gift Pass`;
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + validityDays * 24 * 60 * 60 * 1000,
+  );
+
+  const created = await db.userPass.create({
+    data: {
+      planId: null, // bespoke — no public plan behind it
+      userId,
+      name,
+      sport: config.sport,
+      courtConfigId,
+      totalMinutes,
+      price: value,
+      validityDays,
+      remainingMinutes: totalMinutes,
+      expiresAt,
+      paymentMethod: "FREE",
+      issuedByAdminId: admin.id,
+      offlineRef: input.note?.trim() || null,
+    },
+    select: { id: true },
+  });
+
+  revalidatePath("/admin/passes");
+  return { ok: true, userPassId: created.id };
+}
+
+/** Human label for how a pass was paid — a bespoke gift (no plan)
+ *  reads as "Gift"; otherwise the offline method if stamped, else
+ *  inferred from the gateway refs. */
 function passMethodLabel(p: {
+  planId: string | null;
   paymentMethod: string | null;
   razorpayOrderId: string | null;
   phonePeMerchantTxnId: string | null;
 }): string {
+  if (!p.planId) return "Gift";
   switch (p.paymentMethod) {
     case "CASH":
       return "Cash";

@@ -2,6 +2,7 @@ import { getPassAdminData, getPassesEnabled, getSoldPasses } from "@/actions/adm
 import { SoldPasses } from "./sold-passes";
 import { PassesManager } from "./passes-manager";
 import { IssuePass } from "./issue-pass";
+import { GiftPass } from "./gift-pass";
 
 export default async function AdminPassesPage() {
   const [{ configs, plans }, sold, salesEnabled] = await Promise.all([
@@ -24,6 +25,8 @@ export default async function AdminPassesPage() {
       <PassesManager configs={configs} plans={plans} salesEnabled={salesEnabled} />
 
       <IssuePass plans={plans} />
+
+      <GiftPass configs={configs} />
 
       <SoldPasses passes={sold} />
     </div>

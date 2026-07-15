@@ -848,8 +848,11 @@ model PassPlan {
 
 model UserPass {
   id     String @id @default(cuid())
-  planId String
-  plan   PassPlan @relation(fields: [planId], references: [id])
+  // Optional: a bespoke gift pass (admin-created, private, not sold as
+  // a public PassPlan) has no plan behind it — everything it needs is
+  // snapshotted below. Storefront purchases + at-venue issues set it.
+  planId String?
+  plan   PassPlan? @relation(fields: [planId], references: [id])
   userId String
   user   User   @relation(fields: [userId], references: [id])
 

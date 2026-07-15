@@ -243,6 +243,7 @@ export async function generateCaMonthlyReport(input: {
       purchasedAt: true,
       name: true,
       price: true,
+      planId: true,
       paymentMethod: true,
       razorpayOrderId: true,
       phonePeMerchantTxnId: true,
@@ -286,10 +287,12 @@ export async function generateCaMonthlyReport(input: {
  *  stamped (admin-issued at the venue), else inferred from the gateway
  *  refs. */
 function passReportMethod(p: {
+  planId: string | null;
   paymentMethod: string | null;
   razorpayOrderId: string | null;
   phonePeMerchantTxnId: string | null;
 }): string {
+  if (!p.planId) return "Gift";
   switch (p.paymentMethod) {
     case "CASH":
       return "Cash";
