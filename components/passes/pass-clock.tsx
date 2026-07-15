@@ -88,7 +88,7 @@ export function PassClock({
   }
 
   const R = 42;
-  const dur = 1100;
+  const dur = 2200; // half-speed sweep — the tick should feel unhurried
   const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
   const trans = reduced
     ? "none"
@@ -148,7 +148,7 @@ export function PassClock({
               strokeDashoffset: drawn || reduced ? 0 : remPct,
               transition: reduced
                 ? "none"
-                : `stroke-dashoffset ${dur}ms ${ease} ${owned ? 220 : 0}ms`,
+                : `stroke-dashoffset ${dur}ms ${ease} ${owned ? 440 : 0}ms`,
               filter: dim ? "none" : `drop-shadow(0 0 5px ${accent}66)`,
             }}
           />
