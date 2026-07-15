@@ -449,6 +449,9 @@ model SlotHold {
   phonePeMerchantTxnId String?        @unique
   paymentMethod        PaymentMethod?
   paymentAmount        Int?
+  // Pass top-up flow: the UserPass whose hours will part-pay this
+  // hold once the gateway remainder captures (see /api/passes/redeem).
+  redeemPassId         String?
   paymentInitiatedAt   DateTime?
 
   // Coupon applied during checkout. Persisted on the hold so that when the

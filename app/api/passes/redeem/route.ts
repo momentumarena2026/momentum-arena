@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { getValidHold } from "@/lib/slot-hold";
+import { createBookingFromHold } from "@/actions/booking";
+import { getPassOfferForHold, debitPass } from "@/lib/passes";
+import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
+
+/**
+ * Redeem a pass against a hold. Full coverage → booking created now
+ * (method PASS, ₹0). Partial → returns a Razorpay order for the
+ * pro-rata remainder; /api/passes/redeem-verify completes it.
+ */
+export async function POST(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const { holdId } = await request.json().catch(() => ({}));
+  if (!holdId) return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
+
+  const hold = await getValidHold(holdId, session.user.id);
+  if (!hold) return NextResponse.json({ error: "Hold expired" }, { status: 404 });
+
+  const offer = await getPassOfferForHold(hold);
+  if (!offer) {
+    return NextResponse.json({ error: "No eligible pass for this booking" }, { status: 400 });
+  }
+
+  if (offer.fullCoverage) {
+    const bookingId = await createBookingFromHold(
+      hold.id,
+      {
+        method: "PASS",
+        status: "COMPLETED",
+        amount: 0,
+        confirmedAt: new Date(),
+        confirmedBy: "PASS",
+      },
+      "CONFIRMED",
+    );
+    if (!bookingId) {
+      return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
+    }
+    const ok = await debitPass(offer.passId, offer.neededMinutes, bookingId);
+    if (!ok) {
+      // Balance raced away between offer + debit — undo the booking.
+      await db.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } });
+      return NextResponse.json({ error: "Pass balance changed — try again" }, { status: 409 });
+    }
+    return NextResponse.json({ bookingId });
+  }
+
+  // Partial — Razorpay order for the remainder; notes carry routing.
+  const authHdr = Buffer.from(
+    `${RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET || ""}`,
+  ).toString("base64");
+  const res = await fetch("https://api.razorpay.com/v1/orders", {
+    method: "POST",
+    signal: AbortSignal.timeout(8000),
+    headers: { "Content-Type": "application/json", Authorization: `Basic ${authHdr}` },
+    body: JSON.stringify({
+      amount: Math.round(offer.remainderAmount * 100),
+      currency: "INR",
+      receipt: `ptop_${holdId.slice(-12)}`,
+      notes: { type: "PASS_TOPUP", holdId, passId: offer.passId },
+    }),
+  });
+  if (!res.ok) {
+    console.error("[passes] topup order failed", await res.text());
+    return NextResponse.json({ error: "Couldn't start payment" }, { status: 500 });
+  }
+  const order = (await res.json()) as { id: string };
+  await db.slotHold.update({ where: { id: holdId }, data: { redeemPassId: offer.passId } });
+  return NextResponse.json({
+    topup: {
+      orderId: order.id,
+      keyId: RAZORPAY_KEY_ID,
+      amount: offer.remainderAmount,
+      coveredMinutes: offer.coveredMinutes,
+    },
+  });
+}

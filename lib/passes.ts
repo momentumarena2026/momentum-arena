@@ -91,3 +91,95 @@ export function passLiveStatus(p: {
   if (p.remainingMinutes <= 0) return "EXHAUSTED";
   return "ACTIVE";
 }
+
+// ─── Redemption (Phase 3) ────────────────────────────────────────────
+
+/** Eligible pass + coverage math for a hold. Coupons/points don't
+ *  combine with passes (v1) — holds carrying either are ineligible. */
+export async function getPassOfferForHold(hold: {
+  userId: string;
+  courtConfigId: string | null;
+  hours: number[];
+  totalAmount: number;
+  couponId?: string | null;
+  pointsToRedeem?: number | null;
+  courtConfig?: { slotDurationMinutes: number } | null;
+}) {
+  if (!hold.courtConfigId) return null;
+  if (hold.couponId || (hold.pointsToRedeem ?? 0) > 0) return null;
+  const pass = await db.userPass.findFirst({
+    where: {
+      userId: hold.userId,
+      courtConfigId: hold.courtConfigId,
+      status: "ACTIVE",
+      remainingMinutes: { gt: 0 },
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { expiresAt: "asc" }, // burn the soonest-expiring first
+  });
+  if (!pass) return null;
+
+  const slotMinutes = hold.courtConfig?.slotDurationMinutes ?? 60;
+  const neededMinutes = hold.hours.length * slotMinutes;
+  const coveredMinutes = Math.min(pass.remainingMinutes, neededMinutes);
+  // Pro-rata remainder — per-slot prices vary, so the uncovered share
+  // is charged proportionally to uncovered time.
+  const remainderAmount = Math.round(
+    (hold.totalAmount * (neededMinutes - coveredMinutes)) / neededMinutes,
+  );
+  return {
+    passId: pass.id,
+    passName: pass.name,
+    remainingMinutes: pass.remainingMinutes,
+    neededMinutes,
+    coveredMinutes,
+    fullCoverage: coveredMinutes >= neededMinutes,
+    remainderAmount,
+  };
+}
+
+/** Atomic debit — fails (returns false) if the balance moved. */
+export async function debitPass(passId: string, minutes: number, bookingId: string) {
+  const updated = await db.userPass.updateMany({
+    where: {
+      id: passId,
+      remainingMinutes: { gte: minutes },
+      status: "ACTIVE",
+      expiresAt: { gt: new Date() },
+    },
+    data: { remainingMinutes: { decrement: minutes } },
+  });
+  if (updated.count === 0) return false;
+  await db.passRedemption.create({
+    data: { userPassId: passId, bookingId, minutes },
+  });
+  // Flip to EXHAUSTED when the balance hits zero (display nicety).
+  await db.userPass.updateMany({
+    where: { id: passId, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
+    data: { status: "EXHAUSTED" },
+  });
+  return true;
+}
+
+/** Restore hours on an eligible cancellation. No-op if already
+ *  restored, no redemption exists, or the pass has expired (dead
+ *  hours are dead). */
+export async function restorePassForBooking(bookingId: string) {
+  const red = await db.passRedemption.findUnique({ where: { bookingId } });
+  if (!red || red.restoredAt) return;
+  const pass = await db.userPass.findUnique({ where: { id: red.userPassId } });
+  if (!pass || pass.expiresAt.getTime() < Date.now() || pass.status === "CANCELLED") return;
+  await db.$transaction([
+    db.userPass.update({
+      where: { id: pass.id },
+      data: {
+        remainingMinutes: { increment: red.minutes },
+        status: "ACTIVE",
+      },
+    }),
+    db.passRedemption.update({
+      where: { id: red.id },
+      data: { restoredAt: new Date() },
+    }),
+  ]);
+}

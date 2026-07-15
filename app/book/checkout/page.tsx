@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
+import { getPassOfferForHold } from "@/lib/passes";
+import { PassCheckoutOption } from "@/components/payment/pass-checkout-option";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
@@ -49,6 +51,9 @@ export default async function CheckoutPage({
   if (hold.expiresAt < new Date()) {
     redirect("/book?error=lock_expired");
   }
+
+  // Eligible pass for this hold (null when none, or coupon/points applied).
+  const passOffer = await getPassOfferForHold(hold);
 
   const sportInfo = SPORT_INFO[hold.courtConfig.sport];
   const sizeInfo = SIZE_INFO[hold.courtConfig.size];
@@ -273,6 +278,12 @@ export default async function CheckoutPage({
           />
         </div>
       </div>
+
+      {/* Pass redemption — shown above the regular payment methods
+          whenever the signed-in user holds an eligible pass. */}
+      {passOffer && (
+        <PassCheckoutOption holdId={hold.id} offer={passOffer} />
+      )}
 
       {/* Payment */}
       <CheckoutClient

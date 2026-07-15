@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { restorePassForBooking } from "@/lib/passes";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
@@ -545,6 +546,9 @@ export async function cancelBooking(
     }),
   ]);
 
+  // Pass-paid booking → hours go back on the pass (no-op otherwise).
+  await restorePassForBooking(bookingId).catch(() => {});
+
   await revalidateBookingPaths(bookingId);
 
   // Push notification to the customer. Best-effort — fire-and-forget so
@@ -650,6 +654,9 @@ export async function refundBooking(
   const actualRefundAmount = refundAmount ?? booking.payment.amount;
   const isPartialRefund = actualRefundAmount < booking.payment.amount;
   const refundMethodStr = refundMethod || "ORIGINAL";
+
+  // Pass-paid booking → hours go back on the pass (no-op otherwise).
+  await restorePassForBooking(bookingId).catch(() => {});
 
   await db.$transaction([
     db.booking.update({

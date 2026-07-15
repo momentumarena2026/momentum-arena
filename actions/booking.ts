@@ -1031,7 +1031,7 @@ export async function selectCashPayment(
 // ────────────────────────────────────────────────────────────────────────────
 
 type PaymentRecord = {
-  method: "RAZORPAY" | "PHONEPE" | "UPI_QR" | "CASH" | "FREE";
+  method: "RAZORPAY" | "PHONEPE" | "UPI_QR" | "CASH" | "FREE" | "PASS";
   status: "PENDING" | "PARTIAL" | "COMPLETED" | "FAILED" | "REFUNDED";
   amount: number;
   razorpayOrderId?: string;
