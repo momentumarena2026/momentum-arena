@@ -50,7 +50,7 @@ interface Plan {
   anchorPricePerHour: number;
   effectiveHourly: number;
   validityDays: number;
-  timeType: string | null;
+  bandsSummary: string;
 }
 interface MyPass {
   id: string;
@@ -58,7 +58,7 @@ interface MyPass {
   sport: string;
   totalMinutes: number;
   remainingMinutes: number;
-  timeType: string | null;
+  bandsSummary: string;
   purchasedAt: string;
   expiresAt: string;
   status: string;
@@ -66,10 +66,9 @@ interface MyPass {
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
-const TIME_TYPE_LABEL: Record<string, string> = {
-  PEAK: "Peak hours",
-  OFF_PEAK: "Off-peak hours",
-};
+/** A pass with no band restriction summarises as "All hours" — no badge
+ *  needed for those. */
+const isRestricted = (s: string) => !!s && s !== "All hours";
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -284,8 +283,8 @@ export function PassesClient({
                         month: "short",
                         year: "numeric",
                       })}
-                      {p.timeType
-                        ? ` · ${TIME_TYPE_LABEL[p.timeType] ?? p.timeType}`
+                      {isRestricted(p.bandsSummary)
+                        ? ` · ${p.bandsSummary}`
                         : ""}
                     </p>
                   </div>
@@ -390,12 +389,12 @@ export function PassesClient({
                         <ShieldCheck className="h-3.5 w-3.5" /> Valid{" "}
                         {plan.validityDays} days
                       </span>
-                      {plan.timeType && (
+                      {isRestricted(plan.bandsSummary) && (
                         <span
                           className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
                           style={{ backgroundColor: `${accent}1f`, color: accent }}
                         >
-                          {TIME_TYPE_LABEL[plan.timeType] ?? plan.timeType}
+                          {plan.bandsSummary}
                         </span>
                       )}
                     </div>

@@ -3,14 +3,10 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Gift, Loader2 } from "lucide-react";
-import { giftCustomPass } from "@/actions/admin-passes";
+import { giftCustomPass, type PassConfigOption } from "@/actions/admin-passes";
 import { CustomerPicker, type PickedCustomer } from "./customer-picker";
-
-interface Config {
-  id: string;
-  sport: string;
-  label: string;
-}
+import { BandPicker } from "./band-picker";
+import type { Band } from "@/lib/pass-bands";
 
 const sportName = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 
@@ -21,7 +17,7 @@ const sportName = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
  * hours and validity, and it lands on their account, redeemable at
  * checkout like any pass. Free by default; a value can be recorded.
  */
-export function GiftPass({ configs }: { configs: Config[] }) {
+export function GiftPass({ configs }: { configs: PassConfigOption[] }) {
   const router = useRouter();
   const sortedConfigs = useMemo(
     () =>
@@ -33,10 +29,11 @@ export function GiftPass({ configs }: { configs: Config[] }) {
 
   const [customer, setCustomer] = useState<PickedCustomer | null>(null);
   const [courtConfigId, setCourtConfigId] = useState(sortedConfigs[0]?.id ?? "");
+  const selectedConfig = sortedConfigs.find((c) => c.id === courtConfigId);
   const [name, setName] = useState("");
   const [hours, setHours] = useState("5");
   const [validityDays, setValidityDays] = useState("30");
-  const [timeType, setTimeType] = useState<"" | "PEAK" | "OFF_PEAK">("");
+  const [bands, setBands] = useState<Band[]>([]);
   const [value, setValue] = useState("0");
   const [note, setNote] = useState("");
 
@@ -65,7 +62,7 @@ export function GiftPass({ configs }: { configs: Config[] }) {
         courtConfigId,
         totalHours,
         validityDays: days,
-        timeType: timeType || null,
+        bands,
         name: name.trim() || undefined,
         value: Number.isNaN(val) ? 0 : val,
         note: note.trim() || undefined,
@@ -130,7 +127,10 @@ export function GiftPass({ configs }: { configs: Config[] }) {
           </label>
           <select
             value={courtConfigId}
-            onChange={(e) => setCourtConfigId(e.target.value)}
+            onChange={(e) => {
+              setCourtConfigId(e.target.value);
+              setBands([]);
+            }}
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-fuchsia-500 focus:outline-none"
           >
             {sortedConfigs.map((c) => (
@@ -186,22 +186,21 @@ export function GiftPass({ configs }: { configs: Config[] }) {
           </div>
         </div>
 
-        {/* Redeemable hours */}
-        <div>
+        {/* Redeemable bands */}
+        <div className="sm:col-span-2">
           <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
-            Redeemable hours
+            Redeemable bands
           </label>
-          <select
-            value={timeType}
-            onChange={(e) =>
-              setTimeType(e.target.value as "" | "PEAK" | "OFF_PEAK")
-            }
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-fuchsia-500 focus:outline-none"
-          >
-            <option value="">All hours</option>
-            <option value="OFF_PEAK">Off-peak only</option>
-            <option value="PEAK">Peak only</option>
-          </select>
+          <BandPicker
+            config={selectedConfig}
+            selected={bands}
+            onChange={setBands}
+            accent="fuchsia"
+          />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Leave all unchecked for an all-hours gift, or pick a price tier to
+            restrict it.
+          </p>
         </div>
 
         {/* Value */}

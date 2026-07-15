@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     if (!bookingId) {
       return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
     }
-    const ok = await debitPass(offer.passId, offer.neededMinutes, bookingId);
+    const ok = await debitPass(offer.passId, offer.coveredMinutes, bookingId);
     if (!ok) {
       // Balance raced away between offer + debit — undo the booking.
       await db.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } });

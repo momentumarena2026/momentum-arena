@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getSlotPricesForDate } from "@/lib/pricing";
+import { parseBands, slotInBands } from "@/lib/pass-bands";
 
 /**
  * Monthly Passes — purchase plumbing (money-first). No UserPass row
@@ -85,7 +86,8 @@ export async function materializeUserPass(args: {
       validityDays: plan.validityDays,
       remainingMinutes: plan.totalMinutes,
       expiresAt,
-      timeType: plan.timeType,
+      bands: plan.bands ?? [],
+      anchorPrice: plan.anchorPrice,
       razorpayOrderId: args.razorpayOrderId ?? null,
       razorpayPaymentId: args.razorpayPaymentId ?? null,
       phonePeMerchantTxnId: args.phonePeMerchantTxnId ?? null,
@@ -156,54 +158,75 @@ export async function getPassOfferForHold(hold: {
   if (!hold.courtConfigId) return null;
   if (hold.couponId || (hold.pointsToRedeem ?? 0) > 0) return null;
 
-  // Peak / off-peak scoping: a time-restricted pass only covers slots of
-  // its own type. Classify the booked slots for this date; a booking that
-  // is entirely one type can use a matching restricted pass, a mixed
-  // booking can only be covered by an unrestricted (any-hour) pass.
+  const slotMinutes = hold.courtConfig?.slotDurationMinutes ?? 60;
+  const neededMinutes = hold.hours.length * slotMinutes;
+
+  // Classify every booked slot (dayType + timeType + price) for the date
+  // so we can match slots against each pass's bands and price the
+  // uncovered remainder from the actual slot prices.
   const slotPrices = await getSlotPricesForDate(
     hold.courtConfigId,
     hold.date,
   ).catch(() => []);
-  const typeByHour = new Map(slotPrices.map((s) => [s.hour, s.timeType]));
-  const bookingTypes = new Set(
-    hold.hours.map((h) => typeByHour.get(h)).filter(Boolean),
-  );
-  const singleBookingType =
-    bookingTypes.size === 1 ? [...bookingTypes][0] : null;
+  const byHour = new Map(slotPrices.map((s) => [s.hour, s]));
+  const bookedSlots = hold.hours
+    .map((h) => byHour.get(h))
+    .filter((s): s is NonNullable<typeof s> => !!s);
+  if (bookedSlots.length === 0) return null;
 
-  const pass = await db.userPass.findFirst({
+  const passes = await db.userPass.findMany({
     where: {
       userId: hold.userId,
       courtConfigId: hold.courtConfigId,
       status: "ACTIVE",
       remainingMinutes: { gt: 0 },
       expiresAt: { gt: new Date() },
-      OR: [
-        { timeType: null }, // any-hour pass covers anything
-        ...(singleBookingType ? [{ timeType: singleBookingType }] : []),
-      ],
     },
-    // Burn a time-restricted pass before an any-hour one (keep the
-    // flexible pass), then the soonest-expiring.
-    orderBy: [{ timeType: "asc" }, { expiresAt: "asc" }],
+    orderBy: { expiresAt: "asc" }, // burn the soonest-expiring first
   });
-  if (!pass) return null;
 
-  const slotMinutes = hold.courtConfig?.slotDurationMinutes ?? 60;
-  const neededMinutes = hold.hours.length * slotMinutes;
-  const coveredMinutes = Math.min(pass.remainingMinutes, neededMinutes);
-  // Pro-rata remainder — per-slot prices vary, so the uncovered share
-  // is charged proportionally to uncovered time.
-  const remainderAmount = Math.round(
-    (hold.totalAmount * (neededMinutes - coveredMinutes)) / neededMinutes,
+  // Slot-level coverage: a pass covers the booked slots whose band it
+  // carries (sold passes honour their band snapshot — never re-checked
+  // against current price). Pick the pass that covers the MOST booked
+  // minutes, then the soonest-expiring (already ordered).
+  let best:
+    | { pass: (typeof passes)[number]; matching: typeof bookedSlots }
+    | null = null;
+  for (const pass of passes) {
+    const bands = parseBands(pass.bands);
+    const matching = bookedSlots.filter((s) => slotInBands(bands, s));
+    if (matching.length === 0) continue;
+    if (!best || matching.length > best.matching.length) {
+      best = { pass, matching };
+    }
+  }
+  if (!best) return null;
+
+  const { pass, matching } = best;
+  const coverableMinutes = matching.length * slotMinutes;
+  const coveredMinutes = Math.min(pass.remainingMinutes, coverableMinutes);
+  const coveredSlots = Math.floor(coveredMinutes / slotMinutes);
+  // When the balance can't cover every matching slot, cover the priciest
+  // ones first so the customer pays the least on the remainder.
+  const coveredSet = new Set(
+    [...matching]
+      .sort((a, b) => b.price - a.price)
+      .slice(0, coveredSlots),
   );
+  const remainderAmount = bookedSlots
+    .filter((s) => !coveredSet.has(s))
+    .reduce((sum, s) => sum + s.price, 0);
+  const fullCoverage =
+    matching.length === bookedSlots.length &&
+    coveredMinutes >= coverableMinutes;
+
   return {
     passId: pass.id,
     passName: pass.name,
     remainingMinutes: pass.remainingMinutes,
     neededMinutes,
     coveredMinutes,
-    fullCoverage: coveredMinutes >= neededMinutes,
+    fullCoverage,
     remainderAmount,
   };
 }

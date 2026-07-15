@@ -10,7 +10,9 @@ import {
   togglePassPlan,
   type PassConfigOption,
 } from "@/actions/admin-passes";
-import { Plus, Ticket, Trash2, Pencil, X, Loader2 } from "lucide-react";
+import { Plus, Ticket, Trash2, Pencil, X, Loader2, AlertTriangle } from "lucide-react";
+import { bandsSummary, type Band } from "@/lib/pass-bands";
+import { BandPicker, anchorPerHour } from "./band-picker";
 
 interface Plan {
   id: string;
@@ -19,42 +21,22 @@ interface Plan {
   courtConfigId: string;
   totalMinutes: number;
   anchorPricePerHour: number;
+  anchorPrice: number | null;
+  bands: Band[];
+  pricingValid: boolean;
   baseAmount: number;
   discountPercent: number;
   price: number;
   validityDays: number;
-  timeType: string | null;
   isActive: boolean;
   soldCount: number;
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
-const TIME_TYPE_LABEL: Record<string, string> = {
-  PEAK: "Peak hours only",
-  OFF_PEAK: "Off-peak hours only",
-};
-
-/** Highest per-hour rate for a config within a time band ("" = any band).
- *  Used to pre-fill the anchor so a peak/off-peak pass is priced off the
- *  matching rate. */
-function anchorForBand(c: PassConfigOption, band: "" | "PEAK" | "OFF_PEAK") {
-  const perHour = c.slotDurationMinutes === 30 ? 2 : 1;
-  const rates = band ? c.rates.filter((r) => r.timeType === band) : c.rates;
-  return Math.max(0, ...rates.map((r) => r.pricePerSlot * perHour));
-}
-const RATE_LABEL: Record<string, string> = {
-  "WEEKDAY-OFF_PEAK": "Weekday · Off-peak",
-  "WEEKDAY-PEAK": "Weekday · Peak",
-  "WEEKEND-OFF_PEAK": "Weekend · Off-peak",
-  "WEEKEND-PEAK": "Weekend · Peak",
-};
 
 /**
- * Plan wizard + list. The wizard follows the agreed flow: sport →
- * court/sub-sport → hours (live "actual price") → discount % → validity
- * → create. The anchor rate defaults to the config's HIGHEST hourly
- * rate (marketing story: "₹2,000/hr → ₹1,900/hr with the pass") but
- * stays editable so the venue controls the economics.
+ * Plan wizard + list. Flow: sport → court → hours → pricing bands (the
+ * price tier the pass redeems on; anchor derived) → discount → validity.
  */
 export function PassesManager({
   configs,
@@ -80,37 +62,20 @@ export function PassesManager({
   const config = configs.find((c) => c.id === configId) ?? null;
 
   const [hours, setHours] = useState(5);
-  const [anchor, setAnchor] = useState<number>(0);
+  const [bands, setBands] = useState<Band[]>([]);
   const [discount, setDiscount] = useState(5);
   const [validity, setValidity] = useState(30);
-  const [timeType, setTimeType] = useState<"" | "PEAK" | "OFF_PEAK">("");
   const [name, setName] = useState("");
 
-  // Per-hour rates for the selected config (normalise 30-min slots ×2).
-  const hourlyRates = useMemo(() => {
-    if (!config) return [];
-    const perHour = config.slotDurationMinutes === 30 ? 2 : 1;
-    return config.rates
-      .map((r) => ({
-        key: `${r.dayType}-${r.timeType}`,
-        label: RATE_LABEL[`${r.dayType}-${r.timeType}`] ?? `${r.dayType} ${r.timeType}`,
-        perHour: r.pricePerSlot * perHour,
-      }))
-      .sort((a, b) => b.perHour - a.perHour);
-  }, [config]);
-
-  function pickConfig(id: string) {
-    setConfigId(id);
-    const c = configs.find((x) => x.id === id);
-    if (c) setAnchor(anchorForBand(c, timeType));
-  }
-
+  const anchor = anchorPerHour(config ?? undefined, bands);
   const baseAmount = Math.round(anchor * hours);
   const finalPrice = Math.round(baseAmount * (1 - discount / 100));
   const effectiveHourly = hours > 0 ? Math.round(finalPrice / hours) : 0;
-  const autoName = config
-    ? `${config.label} — ${hours} Hour Pass`
-    : "";
+
+  function pickConfig(id: string) {
+    setConfigId(id);
+    setBands([]); // bands belong to a court; reset on court change
+  }
 
   function submit() {
     setError(null);
@@ -118,10 +83,9 @@ export function PassesManager({
       const res = await createPassPlan({
         courtConfigId: configId,
         totalHours: hours,
-        anchorPricePerHour: anchor,
+        bands,
         discountPercent: discount,
         validityDays: validity,
-        timeType: timeType || null,
         name: name || undefined,
       });
       if (!res.ok) {
@@ -129,6 +93,7 @@ export function PassesManager({
         return;
       }
       setName("");
+      setBands([]);
       router.refresh();
     });
   }
@@ -188,7 +153,7 @@ export function PassesManager({
               onChange={(e) => {
                 setSport(e.target.value);
                 setConfigId("");
-                setAnchor(0);
+                setBands([]);
               }}
               className={inputClass}
             >
@@ -234,27 +199,6 @@ export function PassesManager({
             />
           </div>
 
-          {/* Anchor rate */}
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>
-              Anchor rate (₹/hour) — pre-filled with the highest
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={anchor || ""}
-              onChange={(e) => setAnchor(Number(e.target.value))}
-              className={inputClass}
-            />
-            {hourlyRates.length > 0 && (
-              <p className="text-[11px] text-zinc-500">
-                {hourlyRates
-                  .map((r) => `${r.label}: ${inr(r.perHour)}`)
-                  .join(" · ")}
-              </p>
-            )}
-          </div>
-
           {/* 4. Discount */}
           <div className="flex flex-col gap-1">
             <label className={labelClass}>4 · Discount %</label>
@@ -271,7 +215,7 @@ export function PassesManager({
 
           {/* 5. Validity */}
           <div className="flex flex-col gap-1">
-            <label className={labelClass}>5 · Validity (days from purchase)</label>
+            <label className={labelClass}>5 · Validity (days)</label>
             <input
               type="number"
               min={1}
@@ -282,39 +226,27 @@ export function PassesManager({
             />
           </div>
 
-          {/* 6. Redeemable hours (peak / off-peak scope) */}
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>6 · Redeemable hours</label>
-            <select
-              value={timeType}
-              onChange={(e) => {
-                const v = e.target.value as "" | "PEAK" | "OFF_PEAK";
-                setTimeType(v);
-                // Re-anchor to the chosen band's rate so the discount
-                // story stays honest (peak pass priced off peak rate).
-                if (config) setAnchor(anchorForBand(config, v));
-              }}
-              className={inputClass}
-            >
-              <option value="">All hours</option>
-              <option value="OFF_PEAK">Off-peak only</option>
-              <option value="PEAK">Peak only</option>
-            </select>
-            <p className="text-[11px] text-zinc-500">
-              Restricts where the pass can be spent — e.g. a cheaper
-              off-peak pass can&apos;t be used on peak slots.
-            </p>
-          </div>
-
           {/* Name */}
-          <div className="flex flex-col gap-1 sm:col-span-2">
+          <div className="flex flex-col gap-1">
             <label className={labelClass}>Name (optional)</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={autoName || "Auto-generated from court + hours"}
+              placeholder={
+                config ? `${config.label} — ${hours} Hour Pass` : "Auto-generated"
+              }
               className={inputClass}
             />
+          </div>
+        </div>
+
+        {/* 6. Pricing bands (determines the anchor) */}
+        <div className="mt-4">
+          <label className={labelClass}>
+            6 · Pricing bands — the price tier this pass redeems on
+          </label>
+          <div className="mt-1.5">
+            <BandPicker config={config ?? undefined} selected={bands} onChange={setBands} />
           </div>
         </div>
 
@@ -341,7 +273,9 @@ export function PassesManager({
         <div className="mt-4 flex items-center gap-3">
           <button
             onClick={submit}
-            disabled={pending || !configId || !anchor || !hours || !validity}
+            disabled={
+              pending || !configId || bands.length === 0 || !hours || !validity
+            }
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> Create pass
@@ -362,6 +296,7 @@ export function PassesManager({
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900 text-left text-xs uppercase tracking-wider text-zinc-500">
                 <th className="px-4 py-3">Plan</th>
+                <th className="px-4 py-3">Bands</th>
                 <th className="px-4 py-3">Hours</th>
                 <th className="px-4 py-3">Price</th>
                 <th className="px-4 py-3">Effective/hr</th>
@@ -381,8 +316,16 @@ export function PassesManager({
                       <p className="text-xs text-zinc-500">
                         {p.sport.charAt(0) + p.sport.slice(1).toLowerCase()} ·{" "}
                         {p.discountPercent}% off
-                        {p.timeType ? ` · ${TIME_TYPE_LABEL[p.timeType]}` : ""}
                       </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-zinc-300">{bandsSummary(p.bands)}</span>
+                      {!p.pricingValid && (
+                        <span className="mt-1 flex items-center gap-1 text-[11px] text-amber-400">
+                          <AlertTriangle className="h-3 w-3" /> Pricing changed —
+                          not sellable
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-zinc-300">{hrs}h</td>
                     <td className="px-4 py-3">
@@ -462,9 +405,8 @@ export function PassesManager({
   );
 }
 
-/** Edit-plan modal. Court + sport are fixed (shown read-only); the rest
- *  mirrors the create wizard and recomputes the price live. Saving never
- *  touches already-sold passes — they're snapshots. */
+/** Edit-plan modal. Court + sport are fixed (shown read-only); bands +
+ *  the rest mirror the create wizard. Saving never touches sold passes. */
 function EditPlanModal({
   plan,
   config,
@@ -480,18 +422,13 @@ function EditPlanModal({
 
   const [name, setName] = useState(plan.name);
   const [hours, setHours] = useState(plan.totalMinutes / 60);
-  const [anchor, setAnchor] = useState(plan.anchorPricePerHour);
   const [discount, setDiscount] = useState(plan.discountPercent);
   const [validity, setValidity] = useState(plan.validityDays);
-  const [timeType, setTimeType] = useState<"" | "PEAK" | "OFF_PEAK">(
-    plan.timeType === "PEAK" || plan.timeType === "OFF_PEAK"
-      ? plan.timeType
-      : "",
-  );
+  const [bands, setBands] = useState<Band[]>(plan.bands);
 
+  const anchor = anchorPerHour(config, bands);
   const baseAmount = Math.round(anchor * hours);
   const finalPrice = Math.round(baseAmount * (1 - discount / 100));
-  const effectiveHourly = hours > 0 ? Math.round(finalPrice / hours) : 0;
   const step = config?.slotDurationMinutes === 30 ? 0.5 : 1;
 
   const inputClass =
@@ -503,10 +440,9 @@ function EditPlanModal({
     start(async () => {
       const res = await updatePassPlan(plan.id, {
         totalHours: hours,
-        anchorPricePerHour: anchor,
+        bands,
         discountPercent: discount,
         validityDays: validity,
-        timeType: timeType || null,
         name: name.trim() || undefined,
       });
       if (!res.ok) {
@@ -578,16 +514,6 @@ function EditPlanModal({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className={labelClass}>Anchor rate (₹/hour)</label>
-            <input
-              type="number"
-              min={1}
-              value={anchor || ""}
-              onChange={(e) => setAnchor(Number(e.target.value))}
-              className={inputClass}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
             <label className={labelClass}>Discount %</label>
             <input
               type="number"
@@ -599,7 +525,7 @@ function EditPlanModal({
               className={inputClass}
             />
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 sm:col-span-2">
             <label className={labelClass}>Validity (days)</label>
             <input
               type="number"
@@ -610,21 +536,12 @@ function EditPlanModal({
               className={inputClass}
             />
           </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <label className={labelClass}>Redeemable hours</label>
-            <select
-              value={timeType}
-              onChange={(e) => {
-                const v = e.target.value as "" | "PEAK" | "OFF_PEAK";
-                setTimeType(v);
-                if (config) setAnchor(anchorForBand(config, v));
-              }}
-              className={inputClass}
-            >
-              <option value="">All hours</option>
-              <option value="OFF_PEAK">Off-peak only</option>
-              <option value="PEAK">Peak only</option>
-            </select>
+        </div>
+
+        <div>
+          <label className={labelClass}>Pricing bands</label>
+          <div className="mt-1.5">
+            <BandPicker config={config} selected={bands} onChange={setBands} />
           </div>
         </div>
 
@@ -636,12 +553,6 @@ function EditPlanModal({
             </span>
             <span className="font-semibold text-emerald-400">
               Pass: {inr(finalPrice)}
-            </span>
-            <span className="text-zinc-400">
-              Effective{" "}
-              <span className="font-semibold text-white">
-                {inr(effectiveHourly)}/hr
-              </span>
             </span>
           </div>
         )}
@@ -658,7 +569,7 @@ function EditPlanModal({
           </button>
           <button
             onClick={save}
-            disabled={pending || !anchor || !hours || !validity}
+            disabled={pending || bands.length === 0 || !hours || !validity}
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
           >
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

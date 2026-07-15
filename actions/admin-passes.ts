@@ -1,8 +1,80 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { Prisma, type Sport } from "@prisma/client";
 import { requireAdmin } from "@/lib/admin-auth";
 import { revalidatePath } from "next/cache";
+import { parseBands, bandKey, type Band } from "@/lib/pass-bands";
+
+/** Prisma Json write helper — Band[] lacks the index signature Prisma's
+ *  InputJsonValue wants, so cast at the boundary. */
+const bandsJson = (bands: Band[]) => bands as unknown as Prisma.InputJsonValue;
+
+/**
+ * Validate a band selection for a court and derive the anchor. Every
+ * selected band must exist on the court AND share one per-slot price
+ * (that price becomes the anchor). Returns the anchor + normalised bands
+ * or an error string.
+ */
+async function resolveBandsAnchor(
+  courtConfigId: string,
+  rawBands: unknown,
+): Promise<
+  | {
+      ok: true;
+      config: { id: string; sport: Sport; label: string; slotDurationMinutes: number };
+      bands: Band[];
+      anchorPrice: number;
+      anchorPricePerHour: number;
+    }
+  | { ok: false; error: string }
+> {
+  const config = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+    select: {
+      id: true,
+      sport: true,
+      label: true,
+      isActive: true,
+      slotDurationMinutes: true,
+      prices: { select: { dayType: true, timeType: true, pricePerSlot: true } },
+    },
+  });
+  if (!config || !config.isActive) {
+    return { ok: false, error: "Court config not found or inactive." };
+  }
+  const bands = parseBands(rawBands);
+  if (bands.length === 0) {
+    return { ok: false, error: "Select at least one pricing band." };
+  }
+  const priceByKey = new Map(
+    config.prices.map((p) => [`${p.dayType}-${p.timeType}`, p.pricePerSlot]),
+  );
+  const prices = bands.map((b) => priceByKey.get(bandKey(b)));
+  if (prices.some((p) => p == null)) {
+    return { ok: false, error: "A selected band has no configured price." };
+  }
+  const unique = new Set(prices);
+  if (unique.size !== 1) {
+    return { ok: false, error: "All selected bands must have the same price." };
+  }
+  const anchorPrice = prices[0] as number;
+  const anchorPricePerHour = Math.round(
+    (anchorPrice * 60) / config.slotDurationMinutes,
+  );
+  return {
+    ok: true,
+    config: {
+      id: config.id,
+      sport: config.sport,
+      label: config.label,
+      slotDurationMinutes: config.slotDurationMinutes,
+    },
+    bands,
+    anchorPrice,
+    anchorPricePerHour,
+  };
+}
 
 /**
  * Monthly Passes — admin plan management (Phase 1 of the passes
@@ -76,6 +148,15 @@ export async function getPassAdminData() {
     }),
   ]);
 
+  // Per-court current price lookup, to flag plans whose band price has
+  // since drifted off their anchor (pricing changed under them).
+  const priceByCourtBand = new Map(
+    configs.map((c) => [
+      c.id,
+      new Map(c.prices.map((p) => [`${p.dayType}-${p.timeType}`, p.pricePerSlot])),
+    ]),
+  );
+
   return {
     configs: configs.map(
       (c): PassConfigOption => ({
@@ -91,48 +172,59 @@ export async function getPassAdminData() {
         })),
       }),
     ),
-    plans: plans.map((p) => ({
-      id: p.id,
-      name: p.name,
-      sport: String(p.sport),
-      courtConfigId: p.courtConfigId,
-      totalMinutes: p.totalMinutes,
-      anchorPricePerHour: p.anchorPricePerHour,
-      baseAmount: p.baseAmount,
-      discountPercent: p.discountPercent,
-      price: p.price,
-      validityDays: p.validityDays,
-      timeType: p.timeType ? String(p.timeType) : null,
-      isActive: p.isActive,
-      soldCount: p._count.userPasses,
-    })),
+    plans: plans.map((p) => {
+      const bands = parseBands(p.bands);
+      // Bands whose CURRENT court price still equals the anchor. A plan
+      // with none is effectively unsellable (pricing changed) — surfaced
+      // so the admin table can flag it. Legacy unrestricted (no bands +
+      // no anchor) is always valid.
+      const courtPrices = priceByCourtBand.get(p.courtConfigId);
+      const validBands =
+        p.anchorPrice == null
+          ? bands
+          : bands.filter(
+              (b) => courtPrices?.get(bandKey(b)) === p.anchorPrice,
+            );
+      const pricingValid =
+        bands.length === 0 || validBands.length > 0;
+      return {
+        id: p.id,
+        name: p.name,
+        sport: String(p.sport),
+        courtConfigId: p.courtConfigId,
+        totalMinutes: p.totalMinutes,
+        anchorPricePerHour: p.anchorPricePerHour,
+        anchorPrice: p.anchorPrice,
+        bands,
+        pricingValid,
+        baseAmount: p.baseAmount,
+        discountPercent: p.discountPercent,
+        price: p.price,
+        validityDays: p.validityDays,
+        isActive: p.isActive,
+        soldCount: p._count.userPasses,
+      };
+    }),
   };
 }
 
 export async function createPassPlan(input: {
   courtConfigId: string;
   totalHours: number;
-  anchorPricePerHour: number;
+  bands: Band[];
   discountPercent: number;
   validityDays: number;
-  timeType?: "PEAK" | "OFF_PEAK" | null;
   name?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireAdmin(PERMISSION);
 
-  const { courtConfigId, totalHours, anchorPricePerHour, discountPercent, validityDays } = input;
-  if (input.timeType && !["PEAK", "OFF_PEAK"].includes(input.timeType)) {
-    return { ok: false, error: "Invalid time band." };
-  }
+  const { courtConfigId, totalHours, discountPercent, validityDays } = input;
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
     return { ok: false, error: "Hours must be between 1 and 200." };
   }
   // Whole or half hours only (half caters to 30-min bowling slots).
   if (Math.round(totalHours * 2) !== totalHours * 2) {
     return { ok: false, error: "Hours must be in 30-minute steps." };
-  }
-  if (!Number.isInteger(anchorPricePerHour) || anchorPricePerHour <= 0) {
-    return { ok: false, error: "Anchor price must be a positive rupee amount." };
   }
   if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent >= 100) {
     return { ok: false, error: "Discount must be between 0 and 99%." };
@@ -141,13 +233,9 @@ export async function createPassPlan(input: {
     return { ok: false, error: "Validity must be 1–365 days." };
   }
 
-  const config = await db.courtConfig.findUnique({
-    where: { id: courtConfigId },
-    select: { id: true, sport: true, label: true, isActive: true },
-  });
-  if (!config || !config.isActive) {
-    return { ok: false, error: "Court config not found or inactive." };
-  }
+  const resolved = await resolveBandsAnchor(courtConfigId, input.bands);
+  if (!resolved.ok) return resolved;
+  const { config, bands, anchorPrice, anchorPricePerHour } = resolved;
 
   const baseAmount = Math.round(anchorPricePerHour * totalHours);
   const price = Math.round(baseAmount * (1 - discountPercent / 100));
@@ -162,14 +250,16 @@ export async function createPassPlan(input: {
       courtConfigId,
       totalMinutes: Math.round(totalHours * 60),
       anchorPricePerHour,
+      anchorPrice,
+      bands: bandsJson(bands),
       baseAmount,
       discountPercent,
       price,
       validityDays,
-      timeType: input.timeType ?? null,
     },
   });
   revalidatePath("/admin/passes");
+  revalidatePath("/passes");
   return { ok: true };
 }
 
@@ -184,24 +274,20 @@ export async function updatePassPlan(
   id: string,
   input: {
     totalHours: number;
-    anchorPricePerHour: number;
+    bands: Band[];
     discountPercent: number;
     validityDays: number;
-    timeType?: "PEAK" | "OFF_PEAK" | null;
     name?: string;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireAdmin(PERMISSION);
 
-  const { totalHours, anchorPricePerHour, discountPercent, validityDays } = input;
+  const { totalHours, discountPercent, validityDays } = input;
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
     return { ok: false, error: "Hours must be between 1 and 200." };
   }
   if (Math.round(totalHours * 2) !== totalHours * 2) {
     return { ok: false, error: "Hours must be in 30-minute steps." };
-  }
-  if (!Number.isInteger(anchorPricePerHour) || anchorPricePerHour <= 0) {
-    return { ok: false, error: "Anchor price must be a positive rupee amount." };
   }
   if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent >= 100) {
     return { ok: false, error: "Discount must be between 0 and 99%." };
@@ -209,21 +295,22 @@ export async function updatePassPlan(
   if (!Number.isInteger(validityDays) || validityDays < 1 || validityDays > 365) {
     return { ok: false, error: "Validity must be 1–365 days." };
   }
-  if (input.timeType && !["PEAK", "OFF_PEAK"].includes(input.timeType)) {
-    return { ok: false, error: "Invalid time band." };
-  }
 
   const plan = await db.passPlan.findUnique({
     where: { id },
-    include: { courtConfig: { select: { label: true } } },
+    select: { id: true, courtConfigId: true },
   });
   if (!plan) return { ok: false, error: "Plan not found." };
+
+  const resolved = await resolveBandsAnchor(plan.courtConfigId, input.bands);
+  if (!resolved.ok) return resolved;
+  const { config, bands, anchorPrice, anchorPricePerHour } = resolved;
 
   const baseAmount = Math.round(anchorPricePerHour * totalHours);
   const price = Math.round(baseAmount * (1 - discountPercent / 100));
   const name =
     input.name?.trim() ||
-    `${plan.courtConfig.label} — ${formatHours(totalHours)} Pass`;
+    `${config.label} — ${formatHours(totalHours)} Pass`;
 
   await db.passPlan.update({
     where: { id },
@@ -231,11 +318,12 @@ export async function updatePassPlan(
       name,
       totalMinutes: Math.round(totalHours * 60),
       anchorPricePerHour,
+      anchorPrice,
+      bands: bandsJson(bands),
       baseAmount,
       discountPercent,
       price,
       validityDays,
-      timeType: input.timeType ?? null,
     },
   });
   revalidatePath("/admin/passes");
@@ -336,7 +424,8 @@ export async function issuePassToUser(input: {
       validityDays: plan.validityDays,
       remainingMinutes: plan.totalMinutes,
       expiresAt,
-      timeType: plan.timeType,
+      bands: bandsJson(parseBands(plan.bands)),
+      anchorPrice: plan.anchorPrice,
       paymentMethod,
       issuedByAdminId: admin.id,
       offlineRef: input.offlineRef?.trim() || null,
@@ -361,15 +450,14 @@ export async function giftCustomPass(input: {
   courtConfigId: string;
   totalHours: number;
   validityDays: number;
-  timeType?: "PEAK" | "OFF_PEAK" | null;
+  /** Pricing bands this gift redeems on. Empty = all hours (a gift needn't
+   *  respect same-price rules — it's free). */
+  bands?: Band[];
   name?: string;
   value?: number;
   note?: string;
 }): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
   const admin = await requireAdmin(PERMISSION);
-  if (input.timeType && !["PEAK", "OFF_PEAK"].includes(input.timeType)) {
-    return { ok: false, error: "Invalid time band." };
-  }
 
   const { userId, courtConfigId, totalHours, validityDays } = input;
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
@@ -418,7 +506,8 @@ export async function giftCustomPass(input: {
       validityDays,
       remainingMinutes: totalMinutes,
       expiresAt,
-      timeType: input.timeType ?? null,
+      bands: bandsJson(parseBands(input.bands ?? [])),
+      anchorPrice: null,
       paymentMethod: "FREE",
       issuedByAdminId: admin.id,
       offlineRef: input.note?.trim() || null,

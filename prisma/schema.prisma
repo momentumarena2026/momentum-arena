@@ -836,10 +836,14 @@ model PassPlan {
   // Final sell price, rupees, rounded.
   price         Int
   validityDays  Int
-  // Hours the pass may be redeemed on. null = any hour; PEAK / OFF_PEAK
-  // restrict redemption to slots of that type (peak vs off-peak pricing
-  // bands) so a cheap off-peak pass can't be spent on peak slots.
-  timeType      TimeType?
+  // Pricing bands the pass may be redeemed on — a JSON array of
+  // { dayType, timeType } cells that ALL shared `anchorPrice` (per slot)
+  // at creation. Redemption only covers slots in these bands. On a later
+  // sport-price change a band whose price no longer equals anchorPrice
+  // stops being valid; a plan with no valid band is treated as inactive.
+  // (Empty/absent = legacy unrestricted.)
+  bands         Json?
+  anchorPrice   Int?
   isActive      Boolean  @default(true)
   sortOrder     Int      @default(0)
   createdAt     DateTime @default(now())
@@ -868,10 +872,12 @@ model UserPass {
   totalMinutes  Int
   price         Int
   validityDays  Int
-  // Snapshot of the plan's redemption window (null = any hour). Enforced
-  // in getPassOfferForHold so a peak/off-peak pass only covers matching
-  // slots.
-  timeType      TimeType?
+  // Snapshot of the pricing bands this pass redeems on (JSON array of
+  // { dayType, timeType }) + the per-slot anchor price at purchase.
+  // Honoured as-bought forever — later sport-price changes never shrink
+  // an already-sold pass. Empty/absent = legacy unrestricted.
+  bands         Json?
+  anchorPrice   Int?
 
   remainingMinutes Int
   status           UserPassStatus @default(ACTIVE)
