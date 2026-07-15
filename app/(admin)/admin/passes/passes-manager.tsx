@@ -22,11 +22,25 @@ interface Plan {
   discountPercent: number;
   price: number;
   validityDays: number;
+  timeType: string | null;
   isActive: boolean;
   soldCount: number;
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+const TIME_TYPE_LABEL: Record<string, string> = {
+  PEAK: "Peak hours only",
+  OFF_PEAK: "Off-peak hours only",
+};
+
+/** Highest per-hour rate for a config within a time band ("" = any band).
+ *  Used to pre-fill the anchor so a peak/off-peak pass is priced off the
+ *  matching rate. */
+function anchorForBand(c: PassConfigOption, band: "" | "PEAK" | "OFF_PEAK") {
+  const perHour = c.slotDurationMinutes === 30 ? 2 : 1;
+  const rates = band ? c.rates.filter((r) => r.timeType === band) : c.rates;
+  return Math.max(0, ...rates.map((r) => r.pricePerSlot * perHour));
+}
 const RATE_LABEL: Record<string, string> = {
   "WEEKDAY-OFF_PEAK": "Weekday · Off-peak",
   "WEEKDAY-PEAK": "Weekday · Peak",
@@ -67,6 +81,7 @@ export function PassesManager({
   const [anchor, setAnchor] = useState<number>(0);
   const [discount, setDiscount] = useState(5);
   const [validity, setValidity] = useState(30);
+  const [timeType, setTimeType] = useState<"" | "PEAK" | "OFF_PEAK">("");
   const [name, setName] = useState("");
 
   // Per-hour rates for the selected config (normalise 30-min slots ×2).
@@ -85,11 +100,7 @@ export function PassesManager({
   function pickConfig(id: string) {
     setConfigId(id);
     const c = configs.find((x) => x.id === id);
-    if (c) {
-      const perHour = c.slotDurationMinutes === 30 ? 2 : 1;
-      const max = Math.max(0, ...c.rates.map((r) => r.pricePerSlot * perHour));
-      setAnchor(max);
-    }
+    if (c) setAnchor(anchorForBand(c, timeType));
   }
 
   const baseAmount = Math.round(anchor * hours);
@@ -108,6 +119,7 @@ export function PassesManager({
         anchorPricePerHour: anchor,
         discountPercent: discount,
         validityDays: validity,
+        timeType: timeType || null,
         name: name || undefined,
       });
       if (!res.ok) {
@@ -268,6 +280,30 @@ export function PassesManager({
             />
           </div>
 
+          {/* 6. Redeemable hours (peak / off-peak scope) */}
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>6 · Redeemable hours</label>
+            <select
+              value={timeType}
+              onChange={(e) => {
+                const v = e.target.value as "" | "PEAK" | "OFF_PEAK";
+                setTimeType(v);
+                // Re-anchor to the chosen band's rate so the discount
+                // story stays honest (peak pass priced off peak rate).
+                if (config) setAnchor(anchorForBand(config, v));
+              }}
+              className={inputClass}
+            >
+              <option value="">All hours</option>
+              <option value="OFF_PEAK">Off-peak only</option>
+              <option value="PEAK">Peak only</option>
+            </select>
+            <p className="text-[11px] text-zinc-500">
+              Restricts where the pass can be spent — e.g. a cheaper
+              off-peak pass can&apos;t be used on peak slots.
+            </p>
+          </div>
+
           {/* Name */}
           <div className="flex flex-col gap-1 sm:col-span-2">
             <label className={labelClass}>Name (optional)</label>
@@ -343,6 +379,7 @@ export function PassesManager({
                       <p className="text-xs text-zinc-500">
                         {p.sport.charAt(0) + p.sport.slice(1).toLowerCase()} ·{" "}
                         {p.discountPercent}% off
+                        {p.timeType ? ` · ${TIME_TYPE_LABEL[p.timeType]}` : ""}
                       </p>
                     </td>
                     <td className="px-4 py-3 text-zinc-300">{hrs}h</td>

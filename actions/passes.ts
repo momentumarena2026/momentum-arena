@@ -32,6 +32,7 @@ export async function getActivePassPlans() {
     anchorPricePerHour: p.anchorPricePerHour,
     effectiveHourly: Math.round(p.price / (p.totalMinutes / 60)),
     validityDays: p.validityDays,
+    timeType: p.timeType ? String(p.timeType) : null,
   }));
 }
 
@@ -54,6 +55,7 @@ export async function getMyPasses() {
     sport: String(p.sport),
     totalMinutes: p.totalMinutes,
     remainingMinutes: p.remainingMinutes,
+    timeType: p.timeType ? String(p.timeType) : null,
     purchasedAt: p.purchasedAt.toISOString(),
     expiresAt: p.expiresAt.toISOString(),
     status: passLiveStatus(p),

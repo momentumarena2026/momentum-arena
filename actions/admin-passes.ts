@@ -102,6 +102,7 @@ export async function getPassAdminData() {
       discountPercent: p.discountPercent,
       price: p.price,
       validityDays: p.validityDays,
+      timeType: p.timeType ? String(p.timeType) : null,
       isActive: p.isActive,
       soldCount: p._count.userPasses,
     })),
@@ -114,11 +115,15 @@ export async function createPassPlan(input: {
   anchorPricePerHour: number;
   discountPercent: number;
   validityDays: number;
+  timeType?: "PEAK" | "OFF_PEAK" | null;
   name?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireAdmin(PERMISSION);
 
   const { courtConfigId, totalHours, anchorPricePerHour, discountPercent, validityDays } = input;
+  if (input.timeType && !["PEAK", "OFF_PEAK"].includes(input.timeType)) {
+    return { ok: false, error: "Invalid time band." };
+  }
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
     return { ok: false, error: "Hours must be between 1 and 200." };
   }
@@ -161,6 +166,7 @@ export async function createPassPlan(input: {
       discountPercent,
       price,
       validityDays,
+      timeType: input.timeType ?? null,
     },
   });
   revalidatePath("/admin/passes");
@@ -260,6 +266,7 @@ export async function issuePassToUser(input: {
       validityDays: plan.validityDays,
       remainingMinutes: plan.totalMinutes,
       expiresAt,
+      timeType: plan.timeType,
       paymentMethod,
       issuedByAdminId: admin.id,
       offlineRef: input.offlineRef?.trim() || null,
@@ -284,11 +291,15 @@ export async function giftCustomPass(input: {
   courtConfigId: string;
   totalHours: number;
   validityDays: number;
+  timeType?: "PEAK" | "OFF_PEAK" | null;
   name?: string;
   value?: number;
   note?: string;
 }): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
   const admin = await requireAdmin(PERMISSION);
+  if (input.timeType && !["PEAK", "OFF_PEAK"].includes(input.timeType)) {
+    return { ok: false, error: "Invalid time band." };
+  }
 
   const { userId, courtConfigId, totalHours, validityDays } = input;
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
@@ -337,6 +348,7 @@ export async function giftCustomPass(input: {
       validityDays,
       remainingMinutes: totalMinutes,
       expiresAt,
+      timeType: input.timeType ?? null,
       paymentMethod: "FREE",
       issuedByAdminId: admin.id,
       offlineRef: input.note?.trim() || null,

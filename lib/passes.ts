@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
+import { getSlotPricesForDate } from "@/lib/pricing";
 
 /**
  * Monthly Passes — purchase plumbing (money-first). No UserPass row
@@ -84,6 +85,7 @@ export async function materializeUserPass(args: {
       validityDays: plan.validityDays,
       remainingMinutes: plan.totalMinutes,
       expiresAt,
+      timeType: plan.timeType,
       razorpayOrderId: args.razorpayOrderId ?? null,
       razorpayPaymentId: args.razorpayPaymentId ?? null,
       phonePeMerchantTxnId: args.phonePeMerchantTxnId ?? null,
@@ -144,6 +146,7 @@ export function passLiveStatus(p: {
 export async function getPassOfferForHold(hold: {
   userId: string;
   courtConfigId: string | null;
+  date: Date;
   hours: number[];
   totalAmount: number;
   couponId?: string | null;
@@ -152,6 +155,22 @@ export async function getPassOfferForHold(hold: {
 }) {
   if (!hold.courtConfigId) return null;
   if (hold.couponId || (hold.pointsToRedeem ?? 0) > 0) return null;
+
+  // Peak / off-peak scoping: a time-restricted pass only covers slots of
+  // its own type. Classify the booked slots for this date; a booking that
+  // is entirely one type can use a matching restricted pass, a mixed
+  // booking can only be covered by an unrestricted (any-hour) pass.
+  const slotPrices = await getSlotPricesForDate(
+    hold.courtConfigId,
+    hold.date,
+  ).catch(() => []);
+  const typeByHour = new Map(slotPrices.map((s) => [s.hour, s.timeType]));
+  const bookingTypes = new Set(
+    hold.hours.map((h) => typeByHour.get(h)).filter(Boolean),
+  );
+  const singleBookingType =
+    bookingTypes.size === 1 ? [...bookingTypes][0] : null;
+
   const pass = await db.userPass.findFirst({
     where: {
       userId: hold.userId,
@@ -159,8 +178,14 @@ export async function getPassOfferForHold(hold: {
       status: "ACTIVE",
       remainingMinutes: { gt: 0 },
       expiresAt: { gt: new Date() },
+      OR: [
+        { timeType: null }, // any-hour pass covers anything
+        ...(singleBookingType ? [{ timeType: singleBookingType }] : []),
+      ],
     },
-    orderBy: { expiresAt: "asc" }, // burn the soonest-expiring first
+    // Burn a time-restricted pass before an any-hour one (keep the
+    // flexible pass), then the soonest-expiring.
+    orderBy: [{ timeType: "asc" }, { expiresAt: "asc" }],
   });
   if (!pass) return null;
 

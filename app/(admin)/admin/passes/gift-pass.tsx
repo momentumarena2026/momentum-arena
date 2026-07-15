@@ -36,6 +36,7 @@ export function GiftPass({ configs }: { configs: Config[] }) {
   const [name, setName] = useState("");
   const [hours, setHours] = useState("5");
   const [validityDays, setValidityDays] = useState("30");
+  const [timeType, setTimeType] = useState<"" | "PEAK" | "OFF_PEAK">("");
   const [value, setValue] = useState("0");
   const [note, setNote] = useState("");
 
@@ -64,6 +65,7 @@ export function GiftPass({ configs }: { configs: Config[] }) {
         courtConfigId,
         totalHours,
         validityDays: days,
+        timeType: timeType || null,
         name: name.trim() || undefined,
         value: Number.isNaN(val) ? 0 : val,
         note: note.trim() || undefined,
@@ -182,6 +184,24 @@ export function GiftPass({ configs }: { configs: Config[] }) {
               className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-fuchsia-500 focus:outline-none"
             />
           </div>
+        </div>
+
+        {/* Redeemable hours */}
+        <div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Redeemable hours
+          </label>
+          <select
+            value={timeType}
+            onChange={(e) =>
+              setTimeType(e.target.value as "" | "PEAK" | "OFF_PEAK")
+            }
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-fuchsia-500 focus:outline-none"
+          >
+            <option value="">All hours</option>
+            <option value="OFF_PEAK">Off-peak only</option>
+            <option value="PEAK">Peak only</option>
+          </select>
         </div>
 
         {/* Value */}

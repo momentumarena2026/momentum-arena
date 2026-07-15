@@ -50,6 +50,7 @@ interface Plan {
   anchorPricePerHour: number;
   effectiveHourly: number;
   validityDays: number;
+  timeType: string | null;
 }
 interface MyPass {
   id: string;
@@ -57,6 +58,7 @@ interface MyPass {
   sport: string;
   totalMinutes: number;
   remainingMinutes: number;
+  timeType: string | null;
   purchasedAt: string;
   expiresAt: string;
   status: string;
@@ -64,6 +66,10 @@ interface MyPass {
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+const TIME_TYPE_LABEL: Record<string, string> = {
+  PEAK: "Peak hours",
+  OFF_PEAK: "Off-peak hours",
+};
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -278,6 +284,9 @@ export function PassesClient({
                         month: "short",
                         year: "numeric",
                       })}
+                      {p.timeType
+                        ? ` · ${TIME_TYPE_LABEL[p.timeType] ?? p.timeType}`
+                        : ""}
                     </p>
                   </div>
                 );
@@ -373,7 +382,7 @@ export function PassesClient({
                       </span>
                     </p>
 
-                    <div className="mt-3 flex items-center gap-4 text-xs text-zinc-400">
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-400">
                       <span className="inline-flex items-center gap-1">
                         <Clock className="h-3.5 w-3.5" /> {plan.hours} hours
                       </span>
@@ -381,6 +390,14 @@ export function PassesClient({
                         <ShieldCheck className="h-3.5 w-3.5" /> Valid{" "}
                         {plan.validityDays} days
                       </span>
+                      {plan.timeType && (
+                        <span
+                          className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                          style={{ backgroundColor: `${accent}1f`, color: accent }}
+                        >
+                          {TIME_TYPE_LABEL[plan.timeType] ?? plan.timeType}
+                        </span>
+                      )}
                     </div>
 
                     <button
