@@ -3303,13 +3303,25 @@ export async function extendBookingByThirtyMin(
       if (!booking.userId) {
         return { success: false, error: "Guest bookings can't use a pass" };
       }
-      const pass = await db.userPass.findUnique({ where: { id: payWithPassId } });
+      const pass = await db.userPass.findUnique({
+        where: { id: payWithPassId },
+        include: {
+          members: {
+            where: { userId: booking.userId },
+            select: { id: true },
+          },
+        },
+      });
       // Validity is judged against the booking's play date — the pass
       // must have started by then and not expire before it (mirrors
-      // getPassOfferForHold).
+      // getPassOfferForHold). The customer may be the pass owner OR a
+      // shared member.
+      const bookerCanUsePass =
+        !!pass &&
+        (pass.userId === booking.userId || pass.members.length > 0);
       if (
         !pass ||
-        pass.userId !== booking.userId ||
+        !bookerCanUsePass ||
         pass.courtConfigId !== booking.courtConfigId ||
         pass.status !== "ACTIVE" ||
         pass.startsAt.getTime() > booking.date.getTime() ||

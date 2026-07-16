@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { parseBands, bandKey, type Band } from "@/lib/pass-bands";
 import { courtGroupKey, courtGroupLabel } from "@/lib/court-config";
 import { parseStartDate, passLiveStatus } from "@/lib/passes";
+import { normalizeIndianPhone } from "@/lib/phone";
 
 /** Prisma Json write helper — Band[] lacks the index signature Prisma's
  *  InputJsonValue wants, so cast at the boundary. */
@@ -120,6 +121,8 @@ export interface PassConfigOption {
   label: string;
   category: string | null;
   slotDurationMinutes: number;
+  /** Shared-member cap for passes on this court group (0 = sharing off). */
+  maxPassMembers: number;
   /** Full rate matrix so the wizard can show it and pre-fill the
    *  anchor with the highest rate. Rupees per SLOT (30-min configs
    *  are normalised to per-hour by the caller). */
@@ -140,6 +143,7 @@ export async function getPassAdminData() {
         label: true,
         category: true,
         slotDurationMinutes: true,
+        maxPassMembers: true,
         prices: {
           select: { dayType: true, timeType: true, pricePerSlot: true },
         },
@@ -186,6 +190,7 @@ export async function getPassAdminData() {
       }),
       category: c.category ? String(c.category) : null,
       slotDurationMinutes: c.slotDurationMinutes,
+      maxPassMembers: c.maxPassMembers,
       rates: c.prices.map((p) => ({
         dayType: String(p.dayType),
         timeType: String(p.timeType),
@@ -582,6 +587,7 @@ export async function getSoldPasses() {
     include: {
       user: { select: { name: true, phone: true } },
       redemptions: { select: { minutes: true, restoredAt: true } },
+      _count: { select: { members: true } },
     },
     orderBy: { purchasedAt: "desc" },
     take: 200,
@@ -600,6 +606,7 @@ export async function getSoldPasses() {
     startsAt: p.startsAt.toISOString(),
     expiresAt: p.expiresAt.toISOString(),
     redemptionCount: p.redemptions.filter((r) => !r.restoredAt).length,
+    memberCount: p._count.members,
   }));
 }
 
@@ -663,6 +670,144 @@ export async function cancelUserPass(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireAdmin(PERMISSION);
   await db.userPass.update({ where: { id }, data: { status: "CANCELLED" } });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
+// ─── Pass sharing (members) ─────────────────────────────────────────
+
+/**
+ * Set how many additional members a pass on this court group may be
+ * shared with. Writes the same value to EVERY config in the group
+ * (e.g. both cricket half-courts) so a pass stored on either matches.
+ */
+export async function setPassSharingLimit(
+  courtConfigId: string,
+  max: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdmin(PERMISSION);
+  if (!Number.isInteger(max) || max < 0 || max > 30) {
+    return { ok: false, error: "Members must be 0–30." };
+  }
+  const config = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+    select: { sport: true, size: true, category: true },
+  });
+  if (!config) return { ok: false, error: "Court not found." };
+  await db.courtConfig.updateMany({
+    where: {
+      sport: config.sport,
+      size: config.size,
+      category: config.category,
+    },
+    data: { maxPassMembers: max },
+  });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
+/** Members of a pass + the court's cap, for the admin Members modal. */
+export async function adminGetPassMembers(passId: string) {
+  await requireAdmin(PERMISSION);
+  const pass = await db.userPass.findUnique({
+    where: { id: passId },
+    select: {
+      name: true,
+      user: { select: { name: true, phone: true } },
+      courtConfig: { select: { maxPassMembers: true } },
+      members: {
+        orderBy: { addedAt: "asc" },
+        include: { user: { select: { id: true, name: true, phone: true } } },
+      },
+    },
+  });
+  if (!pass) return null;
+  return {
+    passName: pass.name,
+    owner: { name: pass.user.name, phone: pass.user.phone },
+    maxMembers: pass.courtConfig.maxPassMembers,
+    members: pass.members.map((m) => ({
+      userId: m.userId,
+      name: m.user.name,
+      phone: m.user.phone,
+      addedAt: m.addedAt.toISOString(),
+    })),
+  };
+}
+
+/** Admin adds a member to any pass by registered phone (same rules as
+ *  the owner flow; notRegistered flags an un-signed-up number). */
+export async function adminAddPassMember(
+  passId: string,
+  phoneRaw: string,
+): Promise<
+  | { ok: true }
+  | { ok: false; error: string; notRegistered?: boolean; phone?: string }
+> {
+  const admin = await requireAdmin(PERMISSION);
+
+  const pass = await db.userPass.findUnique({
+    where: { id: passId },
+    include: {
+      courtConfig: { select: { maxPassMembers: true } },
+      _count: { select: { members: true } },
+    },
+  });
+  if (!pass) return { ok: false, error: "Pass not found." };
+  if (pass.status === "CANCELLED") {
+    return { ok: false, error: "This pass is cancelled." };
+  }
+  const max = pass.courtConfig.maxPassMembers;
+  if (max <= 0) {
+    return { ok: false, error: "Sharing isn't enabled for this court — set a member limit first." };
+  }
+  if (pass._count.members >= max) {
+    return { ok: false, error: `Member limit reached (${max} max).` };
+  }
+
+  const phone = normalizeIndianPhone(phoneRaw);
+  if (phone.length !== 12 || !phone.startsWith("91")) {
+    return { ok: false, error: "Enter a valid 10-digit Indian mobile number." };
+  }
+  const user = await db.user.findUnique({
+    where: { phone },
+    select: { id: true },
+  });
+  if (!user) {
+    return {
+      ok: false,
+      error: "This number isn't registered yet.",
+      notRegistered: true,
+      phone,
+    };
+  }
+  if (user.id === pass.userId) {
+    return { ok: false, error: "That's the pass owner — always included." };
+  }
+  try {
+    await db.passMember.create({
+      data: { userPassId: passId, userId: user.id, addedBy: admin.id },
+    });
+  } catch {
+    return { ok: false, error: "Already a member of this pass." };
+  }
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
+/** Admin removes a member from any pass. */
+export async function adminRemovePassMember(
+  passId: string,
+  memberUserId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin(PERMISSION);
+  await db.passMember
+    .delete({
+      where: {
+        userPassId_userId: { userPassId: passId, userId: memberUserId },
+      },
+    })
+    .catch(() => {});
   revalidatePath("/admin/passes");
   return { ok: true };
 }

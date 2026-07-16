@@ -3,6 +3,7 @@ import { SoldPasses } from "./sold-passes";
 import { PassesManager } from "./passes-manager";
 import { IssuePass } from "./issue-pass";
 import { GiftPass } from "./gift-pass";
+import { SharingLimits } from "./sharing-limits";
 
 export default async function AdminPassesPage() {
   const [{ configs, plans }, sold, salesEnabled] = await Promise.all([
@@ -27,6 +28,8 @@ export default async function AdminPassesPage() {
       <IssuePass plans={plans} />
 
       <GiftPass configs={configs} />
+
+      <SharingLimits configs={configs} />
 
       <SoldPasses passes={sold} />
     </div>

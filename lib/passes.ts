@@ -250,7 +250,12 @@ export async function getPassOfferForHold(hold: {
   // falls inside the corresponding IST day — the comparisons line up.)
   const passes = await db.userPass.findMany({
     where: {
-      userId: hold.userId,
+      // The booker may be the pass OWNER or an added MEMBER — shared
+      // passes redeem identically for both.
+      OR: [
+        { userId: hold.userId },
+        { members: { some: { userId: hold.userId } } },
+      ],
       courtConfigId: { in: groupIds },
       status: "ACTIVE",
       remainingMinutes: { gt: 0 },

@@ -128,7 +128,11 @@ export default async function AdminBookingDetailPage({
   const extendPass = booking.userId
     ? await db.userPass.findFirst({
         where: {
-          userId: booking.userId,
+          // Owner or shared member — same eligibility as checkout.
+          OR: [
+            { userId: booking.userId },
+            { members: { some: { userId: booking.userId } } },
+          ],
           courtConfigId: booking.courtConfigId,
           status: "ACTIVE",
           remainingMinutes: { gte: 30 },

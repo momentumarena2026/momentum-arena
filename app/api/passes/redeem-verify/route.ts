@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
 import { getPassOfferForHold, debitPass } from "@/lib/passes";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
 
 /** Complete a pass top-up: gateway remainder captured → create the
@@ -59,6 +64,17 @@ export async function POST(request: NextRequest) {
   if (!ok) {
     console.error("[passes] topup debit failed post-booking", bookingId);
   }
+  // Same confirmation fan-out as every money path (was missing here).
+  after(async () => {
+    await Promise.allSettled([
+      sendBookingConfirmation(bookingId).catch((err) =>
+        console.error("[passes] booking confirmation failed", err),
+      ),
+      notifyAdminBookingConfirmed(bookingId).catch((err) =>
+        console.error("[passes] admin notify failed", err),
+      ),
+    ]);
+  });
   void db; // (db imported for parity with redeem route)
   return NextResponse.json({ bookingId });
 }

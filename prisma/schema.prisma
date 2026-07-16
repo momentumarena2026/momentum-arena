@@ -248,6 +248,7 @@ model User {
   sessions      Session[]
   bookings      Booking[]
   passes        UserPass[]
+  passMemberships PassMember[]
   slotHolds     SlotHold[]
   cafeOrders    CafeOrder[]
   referralCode  String?     @unique
@@ -368,10 +369,17 @@ model CourtConfig {
   // implying anything about the rest of the sport.
   slotDurationMinutes Int @default(60)
 
+  // Pass sharing: how many ADDITIONAL members (besides the owner) a
+  // pass on this court may be shared with. 0 = sharing off. Set per
+  // sport/sub-sport from the admin passes page; the setter writes the
+  // same value to every config in the interchangeable court group.
+  maxPassMembers Int @default(0)
+
   bookings          Booking[]
   slotHolds         SlotHold[]
   prices            PricingRule[]
   passPlans         PassPlan[]
+  userPasses        UserPass[]    @relation("UserPassCourt")
   slotBlocks        SlotBlock[]
   waitlistEntries   Waitlist[]
   recurringBookings RecurringBooking[]
@@ -869,6 +877,9 @@ model UserPass {
   name          String
   sport         Sport
   courtConfigId String
+  // Relation added for member-cap / label lookups; the scalar remains
+  // the snapshot source of truth.
+  courtConfig   CourtConfig @relation("UserPassCourt", fields: [courtConfigId], references: [id])
   totalMinutes  Int
   price         Int
   validityDays  Int
@@ -906,9 +917,28 @@ model UserPass {
   offlineRef      String?
 
   redemptions PassRedemption[]
+  members     PassMember[]
 
   @@index([userId, status])
   @@index([courtConfigId, status])
+}
+
+// A user the pass owner shares their pass with. Members can redeem the
+// pass at checkout (and via admin extends) exactly like the owner, but
+// only the owner (or admin) manages the member list. Cap comes from
+// CourtConfig.maxPassMembers for the pass's court.
+model PassMember {
+  id         String   @id @default(cuid())
+  userPassId String
+  userPass   UserPass @relation(fields: [userPassId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  addedAt    DateTime @default(now())
+  // Audit: "OWNER" or the admin id that added them.
+  addedBy    String?
+
+  @@unique([userPassId, userId])
+  @@index([userId])
 }
 
 model PassRedemption {

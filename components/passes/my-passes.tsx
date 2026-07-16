@@ -22,6 +22,9 @@ export interface MyPass {
   startsAt: string;
   expiresAt: string;
   status: string;
+  /** "owner" bought it; "member" was added to someone else's pass. */
+  role: "owner" | "member";
+  ownerName: string | null;
 }
 
 const SPORT_ICON: Record<string, IconType> = {
@@ -146,9 +149,10 @@ export function MyPasses({ passes }: { passes: MyPass[] }) {
           const remaining = p.remainingMinutes / 60;
           const inactive = p.status !== "ACTIVE" && p.status !== "UPCOMING";
           return (
-            <div
+            <Link
               key={p.id}
-              className={`group relative overflow-hidden rounded-2xl border bg-zinc-900 transition-all hover:-translate-y-0.5 ${
+              href={`/passes/${p.id}`}
+              className={`group relative block overflow-hidden rounded-2xl border bg-zinc-900 transition-all hover:-translate-y-0.5 ${
                 inactive
                   ? "border-zinc-800 opacity-75"
                   : "border-zinc-800 hover:shadow-xl"
@@ -237,8 +241,14 @@ export function MyPasses({ passes }: { passes: MyPass[] }) {
                 {p.bandsSummary && p.bandsSummary !== "All hours" && (
                   <span> · {p.bandsSummary}</span>
                 )}
+                {p.role === "member" && (
+                  <span className="text-sky-300">
+                    {" "}
+                    · Shared by {p.ownerName ?? "the owner"}
+                  </span>
+                )}
               </div>
-            </div>
+            </Link>
           );
             })}
           </div>

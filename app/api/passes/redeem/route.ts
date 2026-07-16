@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
 import { getPassOfferForHold, debitPass } from "@/lib/passes";
+import {
+  sendBookingConfirmation,
+  notifyAdminBookingConfirmed,
+} from "@/lib/notifications";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 
 /**
@@ -76,6 +81,19 @@ export async function POST(request: NextRequest) {
       await db.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } });
       return NextResponse.json({ error: "Pass balance changed — try again" }, { status: 409 });
     }
+    // Confirmation messages ride after() so the response isn't blocked —
+    // same pattern as the gateway/DQR paths (this was missing: pass
+    // bookings confirmed silently, no SMS/push/admin notify).
+    after(async () => {
+      await Promise.allSettled([
+        sendBookingConfirmation(bookingId).catch((err) =>
+          console.error("[passes] booking confirmation failed", err),
+        ),
+        notifyAdminBookingConfirmed(bookingId).catch((err) =>
+          console.error("[passes] admin notify failed", err),
+        ),
+      ]);
+    });
     return NextResponse.json({ bookingId });
   }
 
