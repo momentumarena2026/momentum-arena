@@ -145,9 +145,11 @@ export default async function ConfirmationPage({
 
   const paymentLabel: Record<string, string> = {
     RAZORPAY: "Online (Razorpay)",
+    PHONEPE: "Online (PhonePe)",
     UPI_QR: "UPI QR",
     CASH: "Cash at Venue",
     FREE: "Complimentary",
+    PASS: "Monthly Pass",
   };
 
   const paymentStatusLabel = {
@@ -231,7 +233,11 @@ export default async function ConfirmationPage({
               )}
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-white">
-                  {formatPrice(booking.totalAmount)}
+                  {/* Pass-paid: no money changed hands on this booking —
+                      the hours were debited from the pass instead. */}
+                  {booking.payment?.method === "PASS"
+                    ? formatPrice(0)
+                    : formatPrice(booking.totalAmount)}
                 </p>
                 {booking.payment && (
                   <span className={`text-xs ${paymentStatusLabel[booking.payment.status].color}`}>
@@ -239,6 +245,15 @@ export default async function ConfirmationPage({
                   </span>
                 )}
               </div>
+              {booking.payment?.method === "PASS" && (
+                <p className="text-xs text-emerald-400">
+                  Covered by your pass — hours were deducted instead of money
+                  <span className="text-zinc-500">
+                    {" "}
+                    (slot value {formatPrice(booking.totalAmount)})
+                  </span>
+                </p>
+              )}
               {booking.payment?.isPartialPayment && booking.payment.advanceAmount && (
                 <div className="space-y-0.5">
                   <div className="flex justify-between text-xs">

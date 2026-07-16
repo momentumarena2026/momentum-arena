@@ -988,11 +988,12 @@ export async function getDailyEarningsForMonth(
 
     // Pass sales by IST purchase day.
     const passRows = await db.$queryRaw<
-      { day: number; earnings: bigint }[]
+      { day: number; earnings: bigint; pass_count: bigint }[]
     >(Prisma.sql`
       SELECT
         EXTRACT(DAY FROM (up."purchasedAt" + interval '330 minutes'))::int AS day,
-        SUM(up.price)::bigint AS earnings
+        SUM(up.price)::bigint AS earnings,
+        COUNT(*)::bigint AS pass_count
       FROM "UserPass" up
       WHERE up.price > 0
         AND up."purchasedAt" >= ${istStart}
@@ -1001,16 +1002,22 @@ export async function getDailyEarningsForMonth(
       ORDER BY day
     `);
 
-    const rowMap = new Map<number, { earnings: number; bookingCount: number }>();
+    const rowMap = new Map<
+      number,
+      { earnings: number; bookingCount: number; passCount: number }
+    >();
     for (const r of rows) {
       rowMap.set(r.day, {
         earnings: Number(r.earnings),
         bookingCount: Number(r.booking_count),
+        passCount: 0,
       });
     }
     for (const r of passRows) {
-      const existing = rowMap.get(r.day) ?? { earnings: 0, bookingCount: 0 };
+      const existing =
+        rowMap.get(r.day) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
       existing.earnings += Number(r.earnings);
+      existing.passCount += Number(r.pass_count);
       rowMap.set(r.day, existing);
     }
 
@@ -1021,6 +1028,7 @@ export async function getDailyEarningsForMonth(
         day,
         earnings: row?.earnings ?? 0,
         bookingCount: row?.bookingCount ?? 0,
+        passCount: row?.passCount ?? 0,
       };
     });
 
@@ -1076,11 +1084,12 @@ export async function getMonthlyEarningsForYear(
     `);
 
     const passRows = await db.$queryRaw<
-      { month: number; earnings: bigint }[]
+      { month: number; earnings: bigint; pass_count: bigint }[]
     >(Prisma.sql`
       SELECT
         EXTRACT(MONTH FROM (up."purchasedAt" + interval '330 minutes'))::int AS month,
-        SUM(up.price)::bigint AS earnings
+        SUM(up.price)::bigint AS earnings,
+        COUNT(*)::bigint AS pass_count
       FROM "UserPass" up
       WHERE up.price > 0
         AND up."purchasedAt" >= ${istStart}
@@ -1089,16 +1098,22 @@ export async function getMonthlyEarningsForYear(
       ORDER BY month
     `);
 
-    const rowMap = new Map<number, { earnings: number; bookingCount: number }>();
+    const rowMap = new Map<
+      number,
+      { earnings: number; bookingCount: number; passCount: number }
+    >();
     for (const r of rows) {
       rowMap.set(r.month, {
         earnings: Number(r.earnings),
         bookingCount: Number(r.booking_count),
+        passCount: 0,
       });
     }
     for (const r of passRows) {
-      const existing = rowMap.get(r.month) ?? { earnings: 0, bookingCount: 0 };
+      const existing =
+        rowMap.get(r.month) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
       existing.earnings += Number(r.earnings);
+      existing.passCount += Number(r.pass_count);
       rowMap.set(r.month, existing);
     }
 
@@ -1109,6 +1124,7 @@ export async function getMonthlyEarningsForYear(
         month,
         earnings: row?.earnings ?? 0,
         bookingCount: row?.bookingCount ?? 0,
+        passCount: row?.passCount ?? 0,
       };
     });
 

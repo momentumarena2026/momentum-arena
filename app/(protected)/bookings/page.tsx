@@ -166,11 +166,16 @@ export default async function MyBookingsPage({
       bookingDateKey(b.date) < todayIST
   );
 
-  // Dashboard stats
+  // Dashboard stats. "Spent" = money that actually left the customer's
+  // pocket on bookings — pass-paid bookings cost ₹0 here (the pass
+  // purchase was the spend, made on the passes page).
   const confirmedCount = bookings.filter((b) => b.status === "CONFIRMED").length;
   const totalSpent = bookings
     .filter((b) => b.status === "CONFIRMED" || b.status === "PENDING")
-    .reduce((sum, b) => sum + b.totalAmount, 0);
+    .reduce(
+      (sum, b) => sum + (b.payment?.method === "PASS" ? 0 : b.totalAmount),
+      0,
+    );
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -481,6 +486,9 @@ type BookingWithIncludes = Awaited<
     durationMinutes?: number | null;
   }[];
   recurringBooking: { id: string } | null;
+  // Only `method` is read (pass-paid bookings display ₹0); the page
+  // fetch includes the full payment row.
+  payment: { method: string } | null;
 };
 
 function BookingCard({
@@ -558,13 +566,30 @@ function BookingCard({
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <span
-            className={`text-base font-bold ${
-              muted ? "text-zinc-400" : "text-white"
-            }`}
-          >
-            {formatPrice(booking.totalAmount)}
-          </span>
+          {booking.payment?.method === "PASS" ? (
+            <>
+              {/* Pass-paid: no money on this booking — hours were
+                  deducted from the pass instead. */}
+              <span
+                className={`text-base font-bold ${
+                  muted ? "text-zinc-400" : "text-white"
+                }`}
+              >
+                {formatPrice(0)}
+              </span>
+              <span className="text-[10px] font-medium text-emerald-400">
+                paid with pass
+              </span>
+            </>
+          ) : (
+            <span
+              className={`text-base font-bold ${
+                muted ? "text-zinc-400" : "text-white"
+              }`}
+            >
+              {formatPrice(booking.totalAmount)}
+            </span>
+          )}
           <ChevronRight className="h-4 w-4 text-zinc-600 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-300" />
         </div>
       </div>
