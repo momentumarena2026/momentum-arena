@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Clock,
   ShieldCheck,
   ChevronDown,
   Smartphone,
@@ -13,6 +14,7 @@ import {
   CalendarDays,
   Wallet,
   ScrollText,
+  Users,
 } from "lucide-react";
 import {
   MdSportsCricket,
@@ -78,33 +80,126 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-// How-it-works steps — icon + copy for the numbered stepper.
+// Tiny chip used in the how-it-works mini-visuals.
+function StepChip({
+  children,
+  tone = "zinc",
+}: {
+  children: ReactNode;
+  tone?: "zinc" | "emerald";
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+        tone === "emerald"
+          ? "bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/25"
+          : "bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+// How-it-works steps — icon + copy + a mini-visual that SHOWS the step
+// (a pass chip, the shared squad, a matched slot, the ₹0 debit).
 const STEPS = [
   {
     icon: Ticket,
     title: "Buy a pass",
-    desc: "Pick a pass for your sport and pay online — hours land on your account instantly.",
+    desc: "Pick your sport and a bundle of hours, pay once — UPI or card. The hours land on your account instantly, at a cheaper rate than booking slot by slot.",
+    visual: (
+      <>
+        <StepChip tone="emerald">
+          <Ticket className="h-3 w-3" /> 10 hours
+        </StepChip>
+        <StepChip>Save 15%</StepChip>
+      </>
+    ),
+  },
+  {
+    icon: Users,
+    title: "Share with your squad",
+    desc: "These are team sports — so share the pass. Add friends by phone number and everyone on it can book with the same hours. You stay in charge of who's in.",
+    visual: (
+      <>
+        <span className="flex -space-x-2">
+          {["A", "R", "S"].map((ch) => (
+            <span
+              key={ch}
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-[10px] font-bold text-emerald-300 ring-2 ring-zinc-900"
+            >
+              {ch}
+            </span>
+          ))}
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-[10px] font-bold text-zinc-400 ring-2 ring-zinc-900">
+            +2
+          </span>
+        </span>
+        <span className="text-[11px] text-zinc-500">
+          not signed up? invite on WhatsApp
+        </span>
+      </>
+    ),
   },
   {
     icon: CalendarDays,
     title: "Book as usual",
-    desc: "Choose your date and slots exactly like a normal booking.",
+    desc: "Nothing new to learn — pick a date and slots like any booking. When the slot matches your pass (right court, right hours), the pass offers itself at checkout.",
+    visual: (
+      <>
+        <StepChip>Sat · 7–8pm</StepChip>
+        <StepChip tone="emerald">
+          <Check className="h-3 w-3" /> pass applies
+        </StepChip>
+      </>
+    ),
   },
   {
     icon: Wallet,
-    title: "Pay with hours",
-    desc: "At checkout, choose “Use my pass” — hours are deducted instead of money. If the booking is longer than your balance, pay just the difference.",
+    title: "Hours pay, not money",
+    desc: "Tap “Book with my pass” and hours are deducted instead of rupees. Booking longer than your balance? The pass covers its share — you pay only the difference.",
+    visual: (
+      <>
+        <StepChip tone="emerald">₹0 to pay</StepChip>
+        <StepChip>10h → 9h</StepChip>
+      </>
+    ),
   },
-] as const;
+];
 
-const TERMS = [
-  "A pass is linked to the account that buys it and can't be transferred or shared.",
-  "Hours are valid only for the specific court / sub-sport shown on the pass.",
-  "The pass expires on its validity date — unused hours lapse and aren't refunded.",
-  "Passes are non-refundable once purchased. For exceptional cases contact the venue.",
-  "If a pass-paid booking is cancelled within the allowed cancellation window, the hours return to your pass (validity unchanged). Late cancellations forfeit the hours.",
-  "If a booking is longer than your remaining balance, the pass covers what it can and the difference is payable online.",
-  "Slots remain subject to availability — a pass doesn't reserve any specific slot in advance.",
+// Terms grouped by theme so the policy reads as three short stories
+// instead of one wall of bullets.
+const TERM_GROUPS = [
+  {
+    icon: Users,
+    heading: "Owning & sharing your pass",
+    items: [
+      "The pass belongs to the account that buys it — it can't be transferred or resold.",
+      "The owner can share the pass with members (up to the limit set for that sport) by their registered phone number, and can add or remove them anytime. Members can book with the pass but can't edit the member list.",
+      "Everyone books from the same shared balance — hours used by any member come off the same pass.",
+    ],
+  },
+  {
+    icon: Clock,
+    heading: "Where the hours work",
+    items: [
+      "Hours are valid only for the court / sub-sport on the pass, and only on its pricing band (e.g. “Off-peak · all week”). Slots outside the band are charged normally.",
+      "The pass covers bookings played between its start date and expiry — you can book ahead for any date inside that window.",
+      "If a booking is longer than your remaining balance, the pass covers what it can and the difference is payable online.",
+      "Passes can't be combined with coupons or Momentum Points.",
+      "Slots remain subject to availability — a pass doesn't reserve any specific slot in advance.",
+    ],
+  },
+  {
+    icon: ShieldCheck,
+    heading: "Expiry, cancellations & refunds",
+    items: [
+      "The pass expires at the end of its validity window — unused hours lapse and aren't refunded.",
+      "Cancel a pass-paid booking within the allowed cancellation window and the hours return to your pass (validity unchanged). Late cancellations forfeit the hours.",
+      "Passes are non-refundable once purchased. For exceptional cases contact the venue.",
+    ],
+  },
 ];
 
 /**
@@ -375,19 +470,25 @@ export function PassesClient({
         </section>
         )}
 
-        {/* How it works — numbered stepper with icon badges + a subtle
-            connector line that threads the three steps on desktop. */}
+        {/* How it works — numbered stepper with icon badges, a subtle
+            connector line on desktop, and a mini-visual per step that
+            SHOWS the idea (pass chip / squad avatars / matched slot /
+            ₹0 debit). */}
         {enabled && (
         <section>
-          <h2 className="mb-4 text-lg font-semibold text-white">How it works</h2>
-          <ol className="relative grid gap-4 sm:grid-cols-3">
+          <h2 className="text-lg font-semibold text-white">How it works</h2>
+          <p className="mb-4 mt-1 text-sm text-zinc-500">
+            Buy hours once, share them with your squad, and let the pass pay
+            at checkout.
+          </p>
+          <ol className="relative grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Connector — sits at badge-centre height, visible only in
                 the gaps between the (opaque-topped) step cards. */}
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-x-0 top-[44px] hidden h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent sm:block"
+              className="pointer-events-none absolute inset-x-0 top-[44px] hidden h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent lg:block"
             />
-            {STEPS.map(({ icon: Icon, title, desc }, i) => (
+            {STEPS.map(({ icon: Icon, title, desc, visual }, i) => (
               <li
                 key={title}
                 className="group relative flex flex-col rounded-2xl border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-900/40 p-5 transition-colors hover:border-emerald-500/40"
@@ -399,9 +500,14 @@ export function PassesClient({
                   </span>
                 </span>
                 <p className="mt-4 text-base font-semibold text-white">{title}</p>
-                <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
+                <p className="mt-1.5 pb-4 text-sm leading-relaxed text-zinc-400">
                   {desc}
                 </p>
+                {/* Mini-visual — pinned to the card bottom so the row of
+                    footers lines up across steps. */}
+                <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-zinc-800/60 pt-3.5">
+                  {visual}
+                </div>
               </li>
             ))}
           </ol>
@@ -430,20 +536,34 @@ export function PassesClient({
             />
           </button>
           {termsOpen && (
-            <ul className="divide-y divide-zinc-800/70 overflow-hidden rounded-b-2xl border border-t-0 border-zinc-800 bg-zinc-900/30">
-              {TERMS.map((t) => (
-                <li
-                  key={t}
-                  className="flex gap-3 px-4 py-3 text-sm leading-relaxed text-zinc-400"
-                >
-                  <span
-                    aria-hidden
-                    className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500/70"
-                  />
-                  <span>{t}</span>
-                </li>
+            <div className="divide-y divide-zinc-800/70 overflow-hidden rounded-b-2xl border border-t-0 border-zinc-800 bg-zinc-900/30">
+              {/* Grouped by theme — three short stories instead of one
+                  wall of bullets. */}
+              {TERM_GROUPS.map(({ icon: GroupIcon, heading, items }) => (
+                <div key={heading} className="px-4 py-4">
+                  <p className="flex items-center gap-2 text-[13px] font-semibold text-zinc-200">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/20">
+                      <GroupIcon className="h-3.5 w-3.5 text-emerald-400" />
+                    </span>
+                    {heading}
+                  </p>
+                  <ul className="mt-2.5 space-y-2">
+                    {items.map((t) => (
+                      <li
+                        key={t}
+                        className="flex gap-3 text-sm leading-relaxed text-zinc-400"
+                      >
+                        <span
+                          aria-hidden
+                          className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500/70"
+                        />
+                        <span>{t}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </section>
       </div>
