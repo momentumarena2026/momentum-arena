@@ -166,7 +166,8 @@ export function DailyEarningsChart() {
             Daily Earnings — Month View
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Earnings keyed to booking date (post-discount). Totals:{" "}
+            Earnings keyed to booking date (post-discount). Pass sales count
+            on their purchase date; pass-paid bookings at ₹0. Totals:{" "}
             <span className="font-medium text-emerald-400">
               {formatINR(primaryTotal)}
             </span>
@@ -403,7 +404,8 @@ export function MonthlyEarningsChart() {
             Monthly Earnings — Year View
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Earnings keyed to booking date (post-discount). Year total:{" "}
+            Earnings keyed to booking date (post-discount). Pass sales count
+            on their purchase date; pass-paid bookings at ₹0. Year total:{" "}
             <span className="font-medium text-emerald-400">
               {formatINR(primaryTotal)}
             </span>

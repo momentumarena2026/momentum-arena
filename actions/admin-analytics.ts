@@ -47,6 +47,11 @@ export async function getRevenueOverTime(
     // Join Payment → Booking so we sum Booking.totalAmount (post-discount)
     // rather than Payment.amount. Keeps the chart consistent with the KPI
     // cards, which also use Booking.totalAmount for revenue recognition.
+    //
+    // Pass model (cash basis): money counts ONCE, when it arrives. The
+    // LEFT JOIN subtracts the pass-settled portion from each booking
+    // (fully pass-paid → ₹0; top-up → the gateway remainder), and pass
+    // PURCHASES are merged in below keyed to their purchase date.
     const sportsData =
       scope === "cafe"
         ? []
@@ -54,13 +59,32 @@ export async function getRevenueOverTime(
             { period: Date; revenue: bigint }[]
           >(Prisma.sql`
             SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, p."confirmedAt") AS period,
-                   SUM(b."totalAmount")::bigint AS revenue
+                   SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS revenue
             FROM "Payment" p
             INNER JOIN "Booking" b ON b.id = p."bookingId"
+            LEFT JOIN "PassRedemption" pr
+              ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
             WHERE p.status = 'COMPLETED'
               AND b.status = 'CONFIRMED'
               AND p."confirmedAt" >= ${from}
               AND p."confirmedAt" <= ${to}
+            GROUP BY period
+            ORDER BY period
+          `);
+
+    // Pass sales — sports money received at purchase time.
+    const passSalesData =
+      scope === "cafe"
+        ? []
+        : await db.$queryRaw<
+            { period: Date; revenue: bigint }[]
+          >(Prisma.sql`
+            SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, up."purchasedAt") AS period,
+                   SUM(up.price)::bigint AS revenue
+            FROM "UserPass" up
+            WHERE up.price > 0
+              AND up."purchasedAt" >= ${from}
+              AND up."purchasedAt" <= ${to}
             GROUP BY period
             ORDER BY period
           `);
@@ -96,6 +120,19 @@ export async function getRevenueOverTime(
         totalRevenue: 0,
       };
       existing.sportsRevenue = Number(row.revenue);
+      existing.totalRevenue = existing.sportsRevenue + existing.cafeRevenue;
+      periodMap.set(key, existing);
+    }
+
+    for (const row of passSalesData) {
+      const key = row.period.toISOString().split("T")[0];
+      const existing = periodMap.get(key) || {
+        period: key,
+        sportsRevenue: 0,
+        cafeRevenue: 0,
+        totalRevenue: 0,
+      };
+      existing.sportsRevenue += Number(row.revenue);
       existing.totalRevenue = existing.sportsRevenue + existing.cafeRevenue;
       periodMap.set(key, existing);
     }
@@ -154,12 +191,35 @@ export async function getSportRevenueBreakdown(
         },
       },
       select: {
+        id: true,
         totalAmount: true,
         courtConfig: {
           select: { sport: true },
         },
       },
     });
+
+    // Pass-settled rupees per booking (cash basis: that money was
+    // counted at pass purchase) + pass purchases in the window.
+    const [redemptions, passSales] = await Promise.all([
+      db.passRedemption.findMany({
+        where: {
+          bookingId: { in: results.map((b) => b.id) },
+          restoredAt: null,
+        },
+        select: { bookingId: true, coveredAmount: true },
+      }),
+      db.userPass.findMany({
+        where: {
+          purchasedAt: { gte: from, lte: to },
+          price: { gt: 0 },
+        },
+        select: { sport: true, price: true },
+      }),
+    ]);
+    const coveredByBooking = new Map(
+      redemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    );
 
     const sportMap = new Map<
       string,
@@ -173,8 +233,21 @@ export async function getSportRevenueBreakdown(
         revenue: 0,
         bookingCount: 0,
       };
-      existing.revenue += booking.totalAmount;
+      existing.revenue +=
+        booking.totalAmount - (coveredByBooking.get(booking.id) ?? 0);
       existing.bookingCount += 1;
+      sportMap.set(sport, existing);
+    }
+
+    // Pass purchases join their sport's revenue on the purchase date.
+    for (const p of passSales) {
+      const sport = String(p.sport);
+      const existing = sportMap.get(sport) || {
+        sport,
+        revenue: 0,
+        bookingCount: 0,
+      };
+      existing.revenue += p.price;
       sportMap.set(sport, existing);
     }
 
@@ -227,17 +300,42 @@ export async function getSportRevenueByMonth(
         },
       },
       select: {
+        id: true,
         totalAmount: true,
         payment: { select: { confirmedAt: true } },
         courtConfig: { select: { sport: true } },
       },
     });
 
+    // Cash-basis pass treatment: subtract what a pass settled on each
+    // booking, and count pass PURCHASES under their sport in the month
+    // the money arrived.
+    const [redemptions, passSales] = await Promise.all([
+      db.passRedemption.findMany({
+        where: {
+          bookingId: { in: results.map((b) => b.id) },
+          restoredAt: null,
+        },
+        select: { bookingId: true, coveredAmount: true },
+      }),
+      db.userPass.findMany({
+        where: {
+          purchasedAt: { gte: from, lte: to },
+          price: { gt: 0 },
+        },
+        select: { sport: true, price: true, purchasedAt: true },
+      }),
+    ]);
+    const coveredByBooking = new Map(
+      redemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    );
+
     // Discover every sport present in the window — we'll initialise
     // each month's row with all sports → 0 so the chart's <Line>
     // dataKeys never bottom out at `undefined`.
     const sports = new Set<string>();
     for (const b of results) sports.add(b.courtConfig.sport);
+    for (const p of passSales) sports.add(String(p.sport));
 
     // Pre-build the month axis. Iterate from the first day of
     // dateFrom's month to dateTo, stepping one month at a time.
@@ -264,7 +362,7 @@ export async function getSportRevenueByMonth(
       buckets.set(m, row);
     }
 
-    // Accumulate.
+    // Accumulate bookings net of the pass-settled portion.
     for (const b of results) {
       const at = b.payment?.confirmedAt;
       if (!at) continue;
@@ -274,7 +372,21 @@ export async function getSportRevenueByMonth(
       const row = buckets.get(key);
       if (!row) continue;
       const sportLabel = titleSport(b.courtConfig.sport);
-      row[sportLabel] = ((row[sportLabel] as number) ?? 0) + b.totalAmount;
+      row[sportLabel] =
+        ((row[sportLabel] as number) ?? 0) +
+        b.totalAmount -
+        (coveredByBooking.get(b.id) ?? 0);
+    }
+
+    // Pass purchases land in the month the money arrived.
+    for (const p of passSales) {
+      const key = `${p.purchasedAt.getUTCFullYear()}-${String(
+        p.purchasedAt.getUTCMonth() + 1,
+      ).padStart(2, "0")}`;
+      const row = buckets.get(key);
+      if (!row) continue;
+      const sportLabel = titleSport(String(p.sport));
+      row[sportLabel] = ((row[sportLabel] as number) ?? 0) + p.price;
     }
 
     const data = monthAxis.map((m) => buckets.get(m)!);
@@ -449,11 +561,34 @@ export async function getTopCustomers(
         },
       },
       select: {
+        id: true,
         totalAmount: true,
         userId: true,
       },
       take: 5000,
     });
+
+    // Cash basis: a customer's spend counts when money moved — the pass
+    // purchase itself counts; pass-settled booking portions don't.
+    const [bookingRedemptions, passPurchases] = await Promise.all([
+      db.passRedemption.findMany({
+        where: {
+          bookingId: { in: sportsBookings.map((b) => b.id) },
+          restoredAt: null,
+        },
+        select: { bookingId: true, coveredAmount: true },
+      }),
+      db.userPass.findMany({
+        where: {
+          purchasedAt: { gte: from, lte: to },
+          price: { gt: 0 },
+        },
+        select: { userId: true, price: true },
+      }),
+    ]);
+    const coveredByBooking = new Map(
+      bookingRedemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    );
 
     // Get cafe spending per user (limit to 5000 records)
     const cafePayments = await db.cafePayment.findMany({
@@ -482,9 +617,20 @@ export async function getTopCustomers(
         bookingCount: 0,
         orderCount: 0,
       };
-      existing.totalSpent += b.totalAmount;
+      existing.totalSpent +=
+        b.totalAmount - (coveredByBooking.get(b.id) ?? 0);
       existing.bookingCount += 1;
       customerMap.set(userId, existing);
+    }
+
+    for (const p of passPurchases) {
+      const existing = customerMap.get(p.userId) || {
+        totalSpent: 0,
+        bookingCount: 0,
+        orderCount: 0,
+      };
+      existing.totalSpent += p.price;
+      customerMap.set(p.userId, existing);
     }
 
     for (const p of cafePayments) {
@@ -635,6 +781,7 @@ export async function getKPIStats(
 
     const [
       sportsAgg,
+      passSalesAgg,
       cafeAgg,
       totalBookings,
       cancelledBookings,
@@ -642,22 +789,32 @@ export async function getKPIStats(
       activeBookingUsers,
       activeCafeUsers,
     ] = await Promise.all([
-      // Sports revenue. Sums Booking.totalAmount (post-discount) rather
-      // than Payment.amount — when a coupon reduces the final bill,
-      // Booking.totalAmount is authoritative, whereas Payment.amount
-      // can reflect the gateway-charged figure before the reduction.
+      // Sports booking revenue. Sums Booking.totalAmount (post-discount)
+      // rather than Payment.amount — when a coupon reduces the final
+      // bill, Booking.totalAmount is authoritative. The LEFT JOIN nets
+      // out the pass-settled portion (cash basis: that money was
+      // recognised at pass purchase, counted separately below).
       // Filter: CONFIRMED bookings whose payment lands COMPLETED inside
       // the selected window.
-      db.booking.aggregate({
+      db.$queryRaw<{ revenue: bigint | null; cnt: bigint }[]>(Prisma.sql`
+        SELECT SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS revenue,
+               COUNT(*)::bigint AS cnt
+        FROM "Booking" b
+        INNER JOIN "Payment" p ON p."bookingId" = b.id
+        LEFT JOIN "PassRedemption" pr
+          ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+        WHERE b.status = 'CONFIRMED'
+          AND p.status = 'COMPLETED'
+          AND p."confirmedAt" >= ${from}
+          AND p."confirmedAt" <= ${to}
+      `),
+      // Pass sales — sports money received at purchase time.
+      db.userPass.aggregate({
         where: {
-          status: "CONFIRMED",
-          payment: {
-            status: "COMPLETED",
-            confirmedAt: { gte: from, lte: to },
-          },
+          purchasedAt: { gte: from, lte: to },
+          price: { gt: 0 },
         },
-        _sum: { totalAmount: true },
-        _count: { id: true },
+        _sum: { price: true },
       }),
       // Cafe revenue
       db.cafePayment.aggregate({
@@ -713,14 +870,18 @@ export async function getKPIStats(
     ]);
 
     // Booking.totalAmount (sports) is rupees; CafePayment.amount is paise.
-    const sportsRevenue = sportsAgg._sum.totalAmount || 0;
+    const bookingNetRevenue = Number(sportsAgg[0]?.revenue ?? 0);
+    const passSalesRevenue = passSalesAgg._sum.price || 0;
+    const sportsRevenue = bookingNetRevenue + passSalesRevenue;
     const cafeRevenue = paiseToRupees(cafeAgg._sum.amount || 0);
     const totalRevenue = sportsRevenue + cafeRevenue;
 
-    const sportsPaymentCount = sportsAgg._count.id;
+    // Avg booking value stays a BOOKING metric — pass sales aren't
+    // bookings, so they don't join the numerator or denominator.
+    const sportsPaymentCount = Number(sportsAgg[0]?.cnt ?? 0);
     const avgBookingValue =
       sportsPaymentCount > 0
-        ? Math.round(sportsRevenue / sportsPaymentCount)
+        ? Math.round(bookingNetRevenue / sportsPaymentCount)
         : 0;
 
     const totalBookingsAndCancelled = totalBookings + cancelledBookings;
@@ -800,18 +961,42 @@ export async function getDailyEarningsForMonth(
     const start = new Date(Date.UTC(year, month - 1, 1));
     const nextStart = new Date(Date.UTC(year, month, 1));
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    // Pass purchases are timestamps; bucket them by IST calendar day.
+    // Midnight IST = UTC − 5h30m.
+    const IST_OFFSET_MS = 330 * 60 * 1000;
+    const istStart = new Date(start.getTime() - IST_OFFSET_MS);
+    const istNextStart = new Date(nextStart.getTime() - IST_OFFSET_MS);
 
+    // Bookings net of the pass-settled portion (cash basis — the pass
+    // money is counted on its purchase day below, not on play days).
     const rows = await db.$queryRaw<
       { day: number; earnings: bigint; booking_count: bigint }[]
     >(Prisma.sql`
       SELECT
         EXTRACT(DAY FROM b.date)::int AS day,
-        SUM(b."totalAmount")::bigint AS earnings,
+        SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
+      LEFT JOIN "PassRedemption" pr
+        ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
       WHERE b.status = 'CONFIRMED'
         AND b.date >= ${start}
         AND b.date < ${nextStart}
+      GROUP BY day
+      ORDER BY day
+    `);
+
+    // Pass sales by IST purchase day.
+    const passRows = await db.$queryRaw<
+      { day: number; earnings: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(DAY FROM (up."purchasedAt" + interval '330 minutes'))::int AS day,
+        SUM(up.price)::bigint AS earnings
+      FROM "UserPass" up
+      WHERE up.price > 0
+        AND up."purchasedAt" >= ${istStart}
+        AND up."purchasedAt" < ${istNextStart}
       GROUP BY day
       ORDER BY day
     `);
@@ -822,6 +1007,11 @@ export async function getDailyEarningsForMonth(
         earnings: Number(r.earnings),
         bookingCount: Number(r.booking_count),
       });
+    }
+    for (const r of passRows) {
+      const existing = rowMap.get(r.day) ?? { earnings: 0, bookingCount: 0 };
+      existing.earnings += Number(r.earnings);
+      rowMap.set(r.day, existing);
     }
 
     const data = Array.from({ length: daysInMonth }, (_, i) => {
@@ -863,18 +1053,38 @@ export async function getMonthlyEarningsForYear(
 
     const start = new Date(Date.UTC(year, 0, 1));
     const nextStart = new Date(Date.UTC(year + 1, 0, 1));
+    // Pass purchases bucket by IST calendar month (midnight IST = UTC − 5h30m).
+    const IST_OFFSET_MS = 330 * 60 * 1000;
+    const istStart = new Date(start.getTime() - IST_OFFSET_MS);
+    const istNextStart = new Date(nextStart.getTime() - IST_OFFSET_MS);
 
     const rows = await db.$queryRaw<
       { month: number; earnings: bigint; booking_count: bigint }[]
     >(Prisma.sql`
       SELECT
         EXTRACT(MONTH FROM b.date)::int AS month,
-        SUM(b."totalAmount")::bigint AS earnings,
+        SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
+      LEFT JOIN "PassRedemption" pr
+        ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
       WHERE b.status = 'CONFIRMED'
         AND b.date >= ${start}
         AND b.date < ${nextStart}
+      GROUP BY month
+      ORDER BY month
+    `);
+
+    const passRows = await db.$queryRaw<
+      { month: number; earnings: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(MONTH FROM (up."purchasedAt" + interval '330 minutes'))::int AS month,
+        SUM(up.price)::bigint AS earnings
+      FROM "UserPass" up
+      WHERE up.price > 0
+        AND up."purchasedAt" >= ${istStart}
+        AND up."purchasedAt" < ${istNextStart}
       GROUP BY month
       ORDER BY month
     `);
@@ -885,6 +1095,11 @@ export async function getMonthlyEarningsForYear(
         earnings: Number(r.earnings),
         bookingCount: Number(r.booking_count),
       });
+    }
+    for (const r of passRows) {
+      const existing = rowMap.get(r.month) ?? { earnings: 0, bookingCount: 0 };
+      existing.earnings += Number(r.earnings);
+      rowMap.set(r.month, existing);
     }
 
     const data = Array.from({ length: 12 }, (_, i) => {

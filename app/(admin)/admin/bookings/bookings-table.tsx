@@ -303,11 +303,24 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
         </p>
       </div>
 
-      {/* Amount */}
+      {/* Amount — money collected on THIS booking. Pass-paid bookings
+          collected ₹0 here (their money was recognised at pass
+          purchase), so showing the slot's list price would overstate. */}
       <div className="hidden md:block">
-        <span className="text-sm font-semibold text-white">
-          {formatPrice(booking.totalAmount)}
-        </span>
+        {booking.payment?.method === "PASS" ? (
+          <>
+            <span className="text-sm font-semibold text-white">
+              {formatPrice(0)}
+            </span>
+            <span className="block text-[10px] font-medium text-emerald-400">
+              paid with pass
+            </span>
+          </>
+        ) : (
+          <span className="text-sm font-semibold text-white">
+            {formatPrice(booking.totalAmount)}
+          </span>
+        )}
       </div>
 
       {/* Status */}
