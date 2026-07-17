@@ -61,6 +61,16 @@ export type BookStackParamList = {
   BookingConfirmed: { bookingId: string };
 };
 
+// Passes tab stack. MyPasses / PassesStore / PassDetail keep the SAME
+// route names + params as their AccountStack registrations — the shared
+// screen components navigate by these names, so they resolve correctly
+// in whichever stack they're mounted in (ShopOrderDetail precedent).
+export type PassesStackParamList = {
+  MyPasses: undefined;
+  PassesStore: undefined;
+  PassDetail: { passId: string };
+};
+
 export type MainTabsParamList = {
   Home: undefined;
   // Tab key kept as "Sports" to mirror the web bottom-nav label
@@ -73,6 +83,11 @@ export type MainTabsParamList = {
   // for items the customer can buy alongside or independently of a
   // booking. Account stays on the right edge of the nav.
   Shop: NavigatorScreenParams<ShopStackParamList>;
+  // Passes tab — wallet-first (My Passes home) with the storefront one
+  // tap away. Same screens stay registered in AccountStack so the
+  // Account → My Passes tile keeps working; route names match so the
+  // screens' shared navigation typing works in either stack.
+  Passes: NavigatorScreenParams<PassesStackParamList>;
   Account: NavigatorScreenParams<AccountStackParamList>;
 };
 

@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useRoute, type RouteProp } from "@react-navigation/native";
 import {
   CalendarDays,
   Crown,
@@ -35,9 +35,13 @@ import type { AccountStackParamList } from "../../navigation/types";
  * ring + validity meta, shared-members roster (owner can add by phone /
  * remove; unregistered numbers get a WhatsApp invite), and the
  * redemption history with who booked each session.
+ *
+ * Registered in BOTH AccountStack (Account → My Passes → ticket) and
+ * PassesStack (Passes tab) — same route name + params in each, so it's
+ * typed via the route hook rather than per-navigator screen props.
  */
 
-type Props = NativeStackScreenProps<AccountStackParamList, "PassDetail">;
+type Rt = RouteProp<AccountStackParamList, "PassDetail">;
 
 const SPORT_ACCENT: Record<string, string> = {
   CRICKET: "#34d399",
@@ -75,7 +79,8 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function PassDetailScreen({ route }: Props) {
+export function PassDetailScreen() {
+  const route = useRoute<Rt>();
   const { passId } = route.params;
   const queryClient = useQueryClient();
   const { data, isLoading, refetch, isRefetching } = useQuery({

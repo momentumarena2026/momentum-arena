@@ -27,11 +27,20 @@ export interface ArenaHours {
   openHour: number;
   closeHour: number;
 }
+/** "Rain doesn't slow us down" homepage/booking banner (ArenaSettings).
+ *  AUTO = weather-driven (shows only when it's raining in Mathura). */
+export type RainBannerMode = "AUTO" | "ON" | "OFF";
+export interface RainBannerConfig {
+  mode: RainBannerMode;
+  /** Custom body copy; null = server default. */
+  text: string | null;
+}
 export interface PricingData {
   configs: PricingCourtConfig[];
   rules: PricingRule[];
   classifications: TimeBand[];
   arena: ArenaHours;
+  rainBanner: RainBannerConfig;
 }
 
 export interface PriceUpdate {
@@ -73,5 +82,10 @@ export const adminPricingApi = {
     request<{ ok: true }>("/api/mobile/admin/pricing", {
       method: "POST",
       body: { action: "band-delete", id },
+    }),
+  saveRainBanner: (mode: RainBannerMode, text: string | null) =>
+    request<{ ok: true }>("/api/mobile/admin/pricing", {
+      method: "POST",
+      body: { action: "rain-banner", mode, text },
     }),
 };

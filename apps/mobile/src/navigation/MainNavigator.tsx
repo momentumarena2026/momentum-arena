@@ -4,6 +4,7 @@ import {
   Coffee,
   Home,
   ShoppingBag,
+  Ticket,
   Trophy,
   User,
 } from "lucide-react-native";
@@ -11,6 +12,7 @@ import { HomeScreen } from "../screens/home/HomeScreen";
 import { AccountStack } from "./AccountStack";
 import { BookStack } from "./BookStack";
 import { CafeStack } from "./CafeStack";
+import { PassesStack } from "./PassesStack";
 import { ShopStack } from "./ShopStack";
 import { colors } from "../theme";
 import { trackBottomNavClick } from "../lib/analytics";
@@ -55,6 +57,9 @@ export function MainNavigator() {
               // /shop on web. Sits in the 4th slot; Account holds
               // the rightmost slot.
               return <ShoppingBag {...props} />;
+            case "Passes":
+              // Monthly-pass wallet + storefront (5th slot).
+              return <Ticket {...props} />;
             case "Account":
               return <User {...props} />;
             default:
@@ -71,6 +76,7 @@ export function MainNavigator() {
       />
       <Tab.Screen name="Cafe" component={CafeStack} />
       <Tab.Screen name="Shop" component={ShopStack} />
+      <Tab.Screen name="Passes" component={PassesStack} />
       <Tab.Screen name="Account" component={AccountStack} />
     </Tab.Navigator>
   );
