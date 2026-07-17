@@ -57,7 +57,9 @@ const allNavItems = [
   { href: "/admin/phonepe", label: "PhonePe", group: "Settings", permission: "VIEW_RAZORPAY" },
 ];
 
-const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Operations", "Mobile Apps", "Settings"];
+// NOTE: a nav item's `group` must ALSO appear here — unknown group names
+// are silently dropped by the assembly loop below.
+const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Web & App Config", "Operations", "Mobile Apps", "Settings"];
 
 export default async function AdminLayout({
   children,
