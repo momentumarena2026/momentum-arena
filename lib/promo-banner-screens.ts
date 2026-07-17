@@ -4,7 +4,7 @@
  * validates against. Values mirror the BannerPlacement enum.
  */
 export const PROMO_SCREENS = [
-  { value: "HOME_TOP", label: "Home — top (above the logo)" },
+  { value: "HOME_TOP", label: "Home — above upcoming bookings" },
   { value: "HOME_PROMO", label: "Home — promo slot (mid-page)" },
   { value: "BOOK_SPORT", label: "Book — choose sport" },
   { value: "SLOT_SELECTION", label: "Slot selection" },

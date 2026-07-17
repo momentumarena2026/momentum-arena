@@ -302,9 +302,6 @@ export default async function Home() {
 
   return (
     <>
-      {/* Admin-scheduled promotion banner — full-width strip ABOVE the
-          logo/hero so it's the first thing a visitor sees. */}
-      <PromoBannerSlot screen="HOME_TOP" variant="top" />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -459,6 +456,12 @@ export default async function Home() {
             </div>
           </div>
         </section>
+
+        {/* Admin-scheduled promotion banner (HOME_TOP) — sits right
+            above the upcoming-bookings section, styled as the same
+            rounded card as the pickleball promo. Renders whether or
+            not the visitor has bookings. */}
+        <PromoBannerSlot screen="HOME_TOP" variant="top" />
 
         {/* YOUR UPCOMING BOOKINGS — only renders for signed-in users
             with at least one confirmed booking. Mirrors the mobile RN

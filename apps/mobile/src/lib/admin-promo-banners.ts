@@ -7,7 +7,7 @@ import { request } from "./admin-api";
  */
 
 export const PROMO_SCREEN_OPTIONS: { value: string; label: string }[] = [
-  { value: "HOME_TOP", label: "Home — top (above logo)" },
+  { value: "HOME_TOP", label: "Home — above upcoming bookings" },
   { value: "HOME_PROMO", label: "Home — promo slot" },
   { value: "BOOK_SPORT", label: "Book — choose sport" },
   { value: "SLOT_SELECTION", label: "Slot selection" },

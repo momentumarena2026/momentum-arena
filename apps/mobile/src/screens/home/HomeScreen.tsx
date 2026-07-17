@@ -170,12 +170,6 @@ export function HomeScreen() {
           ) : undefined
         }
       >
-        {/* Admin-scheduled promotion banner — first thing on the screen,
-            above the logo/hero (Web & App Config → Promotion Banners). */}
-        <PromoBannerSlot
-          screen="HOME_TOP"
-          style={{ marginHorizontal: spacing["4"], marginBottom: spacing["3"] }}
-        />
         {/* Top nav — signed-in users see the rewards chip in place of
             the "Hi, name 👋" greeting. The chip itself signals the
             signed-in state and shows a functional metric (current
@@ -259,6 +253,13 @@ export function HomeScreen() {
             </Pressable>
           </View>
         </View>
+
+        {/* Admin-scheduled promotion banner (HOME_TOP) — right above
+            the upcoming-bookings section. */}
+        <PromoBannerSlot
+          screen="HOME_TOP"
+          style={{ marginHorizontal: spacing["4"], marginBottom: spacing["3"] }}
+        />
 
         {/* Signed-in: upcoming bookings */}
         {signedIn && data && data.upcomingBookings.length > 0 ? (
