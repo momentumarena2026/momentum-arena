@@ -74,7 +74,15 @@ const isLive = (status: string) => status === "ACTIVE" || status === "UPCOMING";
  * hover / tap. An empty Active tab shows the glowing storefront invite;
  * an empty Inactive tab a quiet note.
  */
-export function MyPasses({ passes }: { passes: MyPass[] }) {
+export function MyPasses({
+  passes,
+  standalone = false,
+}: {
+  passes: MyPass[];
+  /** true on the dedicated /my-passes page, where the page renders its
+   *  own title + Buy-more affordance — hides the section header row. */
+  standalone?: boolean;
+}) {
   const [tab, setTab] = useState<"active" | "inactive">("active");
   const activePasses = passes.filter((p) => isLive(p.status));
   const inactivePasses = passes.filter((p) => !isLive(p.status));
@@ -103,15 +111,17 @@ export function MyPasses({ passes }: { passes: MyPass[] }) {
   return (
     <section>
       <style>{KEYFRAMES}</style>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">Your passes</h2>
-        <Link
-          href="/passes"
-          className="inline-flex items-center gap-1 text-sm font-medium text-emerald-400 hover:text-emerald-300"
-        >
-          Buy more <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </div>
+      {!standalone && (
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">Your passes</h2>
+          <Link
+            href="/passes"
+            className="inline-flex items-center gap-1 text-sm font-medium text-emerald-400 hover:text-emerald-300"
+          >
+            Buy more <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 w-fit">

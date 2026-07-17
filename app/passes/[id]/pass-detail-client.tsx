@@ -116,10 +116,10 @@ export function PassDetailClient({ pass }: { pass: PassDetail }) {
     <div className="min-h-screen bg-black">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         <Link
-          href="/dashboard"
+          href="/my-passes"
           className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to account
+          <ArrowLeft className="h-4 w-4" /> Back to My Passes
         </Link>
 
         {/* ── Ticket header ─────────────────────────────────────── */}
