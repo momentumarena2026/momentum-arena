@@ -361,7 +361,7 @@ export function PassesClient({
               No passes on sale right now — check back soon.
             </p>
           ) : (
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {plans.map((plan) => {
                 const accent =
                   SPORT_ACCENT[plan.sport] ?? "#34d399";
@@ -492,7 +492,7 @@ export function PassesClient({
             Buy hours once, share them with your squad, and let the pass pay
             at checkout.
           </p>
-          <ol className="relative grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <ol className="relative grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Connector — sits at badge-centre height, visible only in
                 the gaps between the (opaque-topped) step cards. */}
             <div

@@ -45,7 +45,7 @@ export default async function BookPage() {
         </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {sports.map((sport) => (
           <SportCard
             key={sport.sport}

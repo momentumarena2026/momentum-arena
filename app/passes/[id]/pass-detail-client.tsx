@@ -203,7 +203,7 @@ export function PassDetailClient({ pass }: { pass: PassDetail }) {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* ── Members ───────────────────────────────────────────── */}
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
             <div className="flex items-center justify-between gap-2">

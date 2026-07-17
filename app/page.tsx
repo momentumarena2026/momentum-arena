@@ -769,7 +769,7 @@ export default async function Home() {
               </p>
             </div>
 
-            <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] items-start">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] items-start">
               {/* Layout image — top-down view of the venue with
                   dimension labels baked in. Click → opens full-size
                   in a new tab for power users. */}

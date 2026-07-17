@@ -57,7 +57,7 @@ export default function Loading() {
       {/* Payment method tiles — 3 across on desktop, stacked on mobile */}
       <div className="space-y-3">
         <Skeleton className="h-4 w-32" />
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-20 rounded-xl" />
           ))}
