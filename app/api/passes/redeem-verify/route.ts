@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
@@ -14,8 +14,8 @@ import { verifyRazorpaySignature } from "@/lib/razorpay";
 /** Complete a pass top-up: gateway remainder captured → create the
  *  booking (RAZORPAY, remainder amount) and debit the covered hours. */
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await request.json().catch(() => ({}));
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Signature mismatch" }, { status: 400 });
   }
 
-  const hold = await getValidHold(holdId, session.user.id);
+  const hold = await getValidHold(holdId, userId);
   if (!hold || !hold.redeemPassId) {
     return NextResponse.json({ error: "Hold expired" }, { status: 404 });
   }

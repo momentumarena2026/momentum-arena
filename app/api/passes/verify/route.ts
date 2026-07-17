@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
 import { materializeUserPass, parseStartDate } from "@/lib/passes";
 
 /** Client-side confirmation after the Razorpay modal succeeds. The
  *  payment.captured webhook is the backstop — both paths are
- *  idempotent on razorpayOrderId. */
+ *  idempotent on razorpayOrderId. Unified auth (web cookie or mobile
+ *  bearer token). */
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await request.json().catch(() => ({}));
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
     razorpayOrderId,
     razorpayPaymentId,
     planId,
-    userId: session.user.id,
+    userId,
     startsAt: parseStartDate(startDate),
   });
   if (!result) {

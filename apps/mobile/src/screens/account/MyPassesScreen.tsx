@@ -7,12 +7,15 @@ import {
   View,
 } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import Svg, { Circle } from "react-native-svg";
 import { Archive, Sparkles, Ticket } from "lucide-react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Screen } from "../../components/ui/Screen";
+import { BalanceRing } from "../../components/passes/BalanceRing";
 import { Text } from "../../components/ui/Text";
 import { colors, spacing } from "../../theme";
 import { passesApi, type MyPassSummary } from "../../lib/passes";
+import type { AccountStackParamList } from "../../navigation/types";
 
 /**
  * My Passes — mobile mirror of the web /my-passes page. Active /
@@ -46,82 +49,23 @@ const fmtDate = (iso: string) =>
 
 const isLive = (s: string) => s === "ACTIVE" || s === "UPCOMING";
 
-/** Static balance ring — remaining share in the sport accent, used share
- *  in muted zinc. (Web animates the sweep; static parity here.) */
-function BalanceRing({
-  total,
-  remaining,
-  accent,
-  dim,
-  size = 112,
+function PassTicket({
+  pass,
+  onPress,
 }: {
-  total: number;
-  remaining: number;
-  accent: string;
-  dim: boolean;
-  size?: number;
+  pass: MyPassSummary;
+  onPress: () => void;
 }) {
-  const stroke = 10;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const remainFrac = total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
-  const ringColor = dim ? USED_COLOR : accent;
-  return (
-    <View style={{ width: size, height: size }}>
-      <Svg width={size} height={size}>
-        {/* Track */}
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke="rgba(255,255,255,0.08)"
-          strokeWidth={stroke}
-          fill="none"
-        />
-        {/* Used share (muted) */}
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={USED_COLOR}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={`${c * (1 - remainFrac)} ${c}`}
-          strokeLinecap="round"
-          transform={`rotate(${-90 + remainFrac * 360} ${size / 2} ${size / 2})`}
-        />
-        {/* Remaining share (accent) */}
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={ringColor}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={`${c * remainFrac} ${c}`}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
-      </Svg>
-      <View style={styles.ringCenter}>
-        <Text style={[styles.ringHours, { color: dim ? colors.zinc400 : ringColor }]}>
-          {fmtH(remaining)}
-        </Text>
-        <Text style={styles.ringSub}>of {fmtH(total)}</Text>
-      </View>
-    </View>
-  );
-}
-
-function PassTicket({ pass }: { pass: MyPassSummary }) {
   const accent = SPORT_ACCENT[pass.sport] ?? "#34d399";
   const inactive = !isLive(pass.status);
   return (
-    <View
-      style={[
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
         styles.ticket,
         inactive && styles.ticketInactive,
         !inactive && { borderColor: `${accent}33` },
+        pressed && { opacity: 0.85 },
       ]}
     >
       <View style={styles.ticketHeader}>
@@ -188,12 +132,15 @@ function PassTicket({ pass }: { pass: MyPassSummary }) {
             ? ` · ${pass.bandsSummary}`
             : ""}
         </Text>
+        <Text style={styles.footerLink}>Details ›</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
 export function MyPassesScreen() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AccountStackParamList>>();
   const [tab, setTab] = useState<"active" | "inactive">("active");
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["my-passes"],
@@ -217,7 +164,8 @@ export function MyPassesScreen() {
           />
         }
       >
-      {/* Tabs */}
+      {/* Tabs + storefront entry */}
+      <View style={styles.topRow}>
       <View style={styles.tabsRow}>
         {(
           [
@@ -246,6 +194,15 @@ export function MyPassesScreen() {
           </Pressable>
         ))}
       </View>
+      {data?.storefrontEnabled ? (
+        <Pressable
+          onPress={() => navigation.navigate("PassesStore")}
+          style={({ pressed }) => [styles.buyBtn, pressed && { opacity: 0.85 }]}
+        >
+          <Text style={styles.buyBtnText}>+ Buy</Text>
+        </Pressable>
+      ) : null}
+      </View>
 
       {isLoading ? (
         <View style={styles.emptyBox}>
@@ -262,12 +219,25 @@ export function MyPassesScreen() {
               Buy hours in bulk at a lower rate, share them with your squad,
               and let the pass pay at checkout.
             </Text>
-            <View style={styles.emptyHint}>
-              <Sparkles size={14} color={colors.emerald400} />
-              <Text style={styles.emptyHintText}>
-                Browse passes on momentumarena.com/passes
-              </Text>
-            </View>
+            {data?.storefrontEnabled ? (
+              <Pressable
+                onPress={() => navigation.navigate("PassesStore")}
+                style={({ pressed }) => [
+                  styles.emptyCta,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Sparkles size={14} color="#022c22" />
+                <Text style={styles.emptyCtaText}>Browse passes</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.emptyHint}>
+                <Sparkles size={14} color={colors.emerald400} />
+                <Text style={styles.emptyHintText}>
+                  Passes are coming soon — watch this space.
+                </Text>
+              </View>
+            )}
           </View>
         ) : (
           <View style={styles.emptyBox}>
@@ -281,7 +251,11 @@ export function MyPassesScreen() {
       ) : (
         <View style={styles.list}>
           {shown.map((p) => (
-            <PassTicket key={p.id} pass={p} />
+            <PassTicket
+              key={p.id}
+              pass={p}
+              onPress={() => navigation.navigate("PassDetail", { passId: p.id })}
+            />
           ))}
         </View>
       )}
@@ -295,6 +269,12 @@ const styles = StyleSheet.create({
     padding: spacing["4"],
     paddingBottom: spacing["8"],
   },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing["4"],
+  },
   tabsRow: {
     flexDirection: "row",
     gap: spacing["2"],
@@ -304,7 +284,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(24,24,27,0.6)",
     padding: 4,
     alignSelf: "flex-start",
-    marginBottom: spacing["4"],
+  },
+  buyBtn: {
+    borderRadius: 10,
+    backgroundColor: colors.emerald500,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: 8,
+  },
+  buyBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#022c22",
   },
   tabBtn: {
     flexDirection: "row",
@@ -433,10 +423,19 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.zinc800,
     paddingTop: spacing["2"],
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   footerText: {
+    flex: 1,
     fontSize: 11,
     color: colors.zinc500,
+  },
+  footerLink: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6ee7b7",
   },
 
   emptyBox: {
@@ -480,5 +479,20 @@ const styles = StyleSheet.create({
   emptyHintText: {
     fontSize: 12,
     color: "#6ee7b7",
+  },
+  emptyCta: {
+    marginTop: spacing["3"],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 12,
+    backgroundColor: colors.emerald500,
+    paddingHorizontal: spacing["4"],
+    paddingVertical: 10,
+  },
+  emptyCtaText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#022c22",
   },
 });

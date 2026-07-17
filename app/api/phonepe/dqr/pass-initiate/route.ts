@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { isDqrConfigured, qrInit, intentInit } from "@/lib/phonepe-dqr";
 import { arePassesEnabled, parseStartDate } from "@/lib/passes";
@@ -10,10 +10,11 @@ const DQR_TTL_MINUTES = 15;
  * Generate a PhonePe Dynamic QR for a PASS purchase. Money-first: a
  * PassPurchaseIntent row holds planId+userId+txn; the UserPass is only
  * materialised on the status poll / S2S callback. Mirrors cafe-initiate.
+ * Unified auth: web session cookie or mobile bearer token.
  */
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Sign in to buy a pass" }, { status: 401 });
   }
   if (!isDqrConfigured()) {
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
     const intent = await db.passPurchaseIntent.create({
       data: {
         planId,
-        userId: session.user.id,
+        userId,
         startsAt: parseStartDate(startDate),
       },
     });

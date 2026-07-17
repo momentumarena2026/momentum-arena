@@ -6,6 +6,10 @@ export type AccountStackParamList = {
   EditName: undefined;
   // Customer pass wallet — Active/Inactive tabs with balance rings.
   MyPasses: undefined;
+  // Pass detail — balance, validity, shared members, redemption history.
+  PassDetail: { passId: string };
+  // Pass storefront — plan cards + UPI/Razorpay purchase sheet.
+  PassesStore: undefined;
   BookingsList: undefined;
   RecurringBookings: undefined;
   BookingDetail: { bookingId: string };

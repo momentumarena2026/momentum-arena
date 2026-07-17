@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -32,8 +39,33 @@ import {
   trackUpiQrShown,
 } from "../../lib/analytics";
 
+/** Normalized DQR flow contract — lets non-booking purchases (e.g. pass
+ *  purchase) reuse this sheet with their own initiate/status endpoints.
+ *  `confirmedId` is whatever id the flow resolves to on success
+ *  (bookingId for holds, userPassId for passes). */
+export interface DqrFlowInit {
+  mode?: "intent" | "qr";
+  qrString?: string | null;
+  qrImage?: string | null;
+  transactionId?: string;
+  expiresIn?: number;
+  /** A prior QR/intent was already paid — skip straight to success. */
+  alreadyPaid?: boolean;
+  confirmedId?: string | null;
+  error?: string;
+}
+export interface DqrFlowStatus {
+  state: "PENDING" | "COMPLETED" | "FAILED";
+  confirmedId?: string | null;
+}
+export interface DqrEndpoints {
+  initiate: () => Promise<DqrFlowInit>;
+  status: (transactionId: string) => Promise<DqrFlowStatus>;
+}
+
 interface Props {
-  holdId: string;
+  /** Booking-hold flow. Required unless `endpoints` is provided. */
+  holdId?: string;
   amount: number;
   /** Full net payable (post coupon + points); sent as overrideAmount so the
    *  route charges the discounted total, not the gross hold amount. */
@@ -41,9 +73,16 @@ interface Props {
   isAdvance?: boolean;
   advanceAmount?: number;
   remainingAmount?: number;
-  /** Called with the bookingId once PhonePe confirms the payment. */
-  onConfirmed: (bookingId: string) => void;
+  /** Called with the confirmed id (bookingId / userPassId) once PhonePe
+   *  confirms the payment. */
+  onConfirmed: (confirmedId: string) => void;
   onCancel: () => void;
+  /** Override the initiate/status calls (e.g. pass purchase). MUST be
+   *  memoized by the parent (useMemo) — a fresh identity re-initiates
+   *  a new transaction on every parent render. */
+  endpoints?: DqrEndpoints;
+  /** Success-screen subtitle. Default: "Your booking is confirmed". */
+  successNote?: string;
   /** Legacy inline-header slot — unused now that the checkout presents as a
    *  bottom sheet with its own header; kept so existing callers type-check. */
   header?: ReactNode;
@@ -115,6 +154,8 @@ export function DqrCheckout({
   remainingAmount,
   onConfirmed,
   onCancel,
+  endpoints,
+  successNote,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("init");
@@ -134,9 +175,29 @@ export function DqrCheckout({
     null,
   );
   const txnRef = useRef<string | null>(null);
-  const bookingIdRef = useRef<string | null>(null);
+  const confirmedIdRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneRef = useRef(false);
+
+  // Normalized flow — custom endpoints (pass purchase) or the default
+  // booking-hold routes mapped onto the same shape.
+  const flow: DqrEndpoints = useMemo(() => {
+    if (endpoints) return endpoints;
+    return {
+      initiate: async () => {
+        const r = await bookingApi.dqrInitiate({
+          holdId: holdId ?? "",
+          isAdvance,
+          overrideAmount,
+        });
+        return { ...r, confirmedId: r.bookingId ?? null };
+      },
+      status: async (txn: string) => {
+        const r = await bookingApi.dqrStatus(txn);
+        return { state: r.state, confirmedId: r.bookingId ?? null };
+      },
+    };
+  }, [endpoints, holdId, isAdvance, overrideAmount]);
 
   // Success-animation drivers (built-in Animated — no extra deps).
   const circleScale = useRef(new Animated.Value(0)).current;
@@ -160,11 +221,11 @@ export function DqrCheckout({
     const txn = txnRef.current;
     if (!txn || doneRef.current) return;
     try {
-      const res = await bookingApi.dqrStatus(txn);
-      if (res.state === "COMPLETED" && res.bookingId) {
+      const res = await flow.status(txn);
+      if (res.state === "COMPLETED" && res.confirmedId) {
         doneRef.current = true;
         stopPolling();
-        bookingIdRef.current = res.bookingId;
+        confirmedIdRef.current = res.confirmedId;
         setPhase("confirmed");
       } else if (res.state === "FAILED") {
         doneRef.current = true;
@@ -175,18 +236,18 @@ export function DqrCheckout({
     } catch {
       // Transient — keep polling; the S2S callback is the backstop.
     }
-  }, [stopPolling]);
+  }, [flow, stopPolling]);
 
   const initiate = useCallback(async () => {
     doneRef.current = false;
     try {
-      const res = await bookingApi.dqrInitiate({ holdId, isAdvance, overrideAmount });
-      // Server-side in-flight guard: a prior QR/intent for this hold was
-      // already paid — the booking is confirmed; skip straight to success
+      const res = await flow.initiate();
+      // Server-side in-flight guard: a prior QR/intent for this purchase
+      // was already paid — it's confirmed; skip straight to success
       // instead of issuing (and letting the customer pay) a second QR.
-      if (res.alreadyPaid && res.bookingId) {
+      if (res.alreadyPaid && res.confirmedId) {
         doneRef.current = true;
-        bookingIdRef.current = res.bookingId;
+        confirmedIdRef.current = res.confirmedId;
         setPhase("confirmed");
         return;
       }
@@ -200,14 +261,14 @@ export function DqrCheckout({
       txnRef.current = res.transactionId;
       setQrImage(res.qrImage ?? null);
       setQrString(res.qrString ?? null);
-      setSecondsLeft(res.expiresIn);
+      setSecondsLeft(res.expiresIn ?? null);
       setMode(canIntent ? "intent" : "qr");
       setPhase(canIntent ? "apps" : "qr");
     } catch {
       setError("Couldn't start UPI payment");
       setPhase("error");
     }
-  }, [holdId, isAdvance, overrideAmount]);
+  }, [flow]);
 
   useEffect(() => {
     void initiate();
@@ -286,9 +347,9 @@ export function DqrCheckout({
       ]),
     ]).start();
     const id = setTimeout(() => {
-      if (!firedRef.current && bookingIdRef.current) {
+      if (!firedRef.current && confirmedIdRef.current) {
         firedRef.current = true;
-        onConfirmedRef.current(bookingIdRef.current);
+        onConfirmedRef.current(confirmedIdRef.current);
       }
     }, 1400);
     return () => clearTimeout(id);
@@ -582,7 +643,7 @@ export function DqrCheckout({
                     Payment successful
                   </Text>
                   <Text variant="small" color={INK_MUTED} align="center">
-                    Your booking is confirmed
+                    {successNote ?? "Your booking is confirmed"}
                   </Text>
                 </Animated.View>
               </View>

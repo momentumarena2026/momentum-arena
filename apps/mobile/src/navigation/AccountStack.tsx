@@ -2,6 +2,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AccountScreen } from "../screens/account/AccountScreen";
 import { EditNameScreen } from "../screens/account/EditNameScreen";
 import { MyPassesScreen } from "../screens/account/MyPassesScreen";
+import { PassDetailScreen } from "../screens/account/PassDetailScreen";
+import { PassesStoreScreen } from "../screens/account/PassesStoreScreen";
 import { WaitlistScreen } from "../screens/account/WaitlistScreen";
 import { CouponsScreen } from "../screens/account/CouponsScreen";
 import { RewardsScreen } from "../screens/account/RewardsScreen";
@@ -47,6 +49,16 @@ export function AccountStack() {
         name="MyPasses"
         component={MyPassesScreen}
         options={{ title: "My passes" }}
+      />
+      <Stack.Screen
+        name="PassDetail"
+        component={PassDetailScreen}
+        options={{ title: "Pass" }}
+      />
+      <Stack.Screen
+        name="PassesStore"
+        component={PassesStoreScreen}
+        options={{ title: "Buy a pass" }}
       />
       <Stack.Screen
         name="BookingsList"

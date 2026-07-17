@@ -289,6 +289,50 @@ export function trackUpiAppLaunched(amount: number) {
   trackEvent("upi_app_launched", { amount }, "PAYMENT");
 }
 
+// ─── Monthly passes ──────────────────────────────────────────────
+// Mirrors the web pass funnel in lib/analytics.ts so GA4 sees one
+// event vocabulary across surfaces.
+
+export function trackPassPurchaseStarted(
+  planId: string,
+  price: number,
+  method: "upi" | "razorpay",
+) {
+  trackEvent(
+    "pass_purchase_started",
+    { plan_id: planId, price, method },
+    "PAYMENT",
+  );
+}
+export function trackPassPurchaseCompleted(
+  planId: string,
+  price: number,
+  method: "upi" | "razorpay",
+) {
+  trackEvent(
+    "pass_purchase_completed",
+    { plan_id: planId, price, method },
+    "PAYMENT",
+  );
+}
+export function trackPassRedeemed(
+  coveredMinutes: number,
+  remainderAmount: number,
+) {
+  trackEvent(
+    "pass_redeemed",
+    {
+      covered_minutes: coveredMinutes,
+      remainder_amount: remainderAmount,
+      full_coverage: remainderAmount === 0,
+    },
+    "PAYMENT",
+  );
+}
+export function trackPassMemberAdded() {
+  trackEvent("pass_member_added");
+}
+
 // ─── Auth ────────────────────────────────────────────────────────
 
 export function trackLoginModalOpened() {

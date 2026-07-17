@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
@@ -17,14 +17,14 @@ import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
  * pro-rata remainder; /api/passes/redeem-verify completes it.
  */
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { holdId } = await request.json().catch(() => ({}));
   if (!holdId) return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
 
-  const hold = await getValidHold(holdId, session.user.id);
+  const hold = await getValidHold(holdId, userId);
   if (!hold) return NextResponse.json({ error: "Hold expired" }, { status: 404 });
 
   // Passes don't combine with coupons/points. If the customer applied
