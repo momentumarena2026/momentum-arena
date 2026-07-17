@@ -191,8 +191,10 @@ export default async function DashboardPage() {
             <p className="text-sm font-medium text-emerald-400/80">
               {getGreeting()},
             </p>
-            <h1 className="mt-0.5 truncate text-2xl font-bold text-white sm:text-3xl">
-              {user?.name || firstName} 👋
+            <h1 className="mt-0.5 flex items-baseline gap-2 text-2xl font-bold text-white sm:text-3xl">
+              {/* Name truncates; the wave never gets eaten by the ellipsis. */}
+              <span className="min-w-0 truncate">{user?.name || firstName}</span>
+              <span className="shrink-0">👋</span>
             </h1>
             {user?.phone && (
               <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">

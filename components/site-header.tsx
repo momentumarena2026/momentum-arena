@@ -35,12 +35,15 @@ export async function SiteHeader({ active }: { active?: Section }) {
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href="/">
+              {/* h-14 on phones — at h-24 the 3:1 logo alone is ~288px
+                  wide and overflows small viewports (same fix as the
+                  cafe + protected-layout headers). */}
               <Image
                 src="/blackLogo.png"
                 alt="Momentum Arena"
                 width={240}
                 height={80}
-                className="h-24 w-auto"
+                className="h-14 w-auto sm:h-24"
               />
             </Link>
             <Link href="/book" className={linkClass("sports", "hover:text-emerald-400")}>

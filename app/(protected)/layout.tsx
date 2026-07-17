@@ -21,12 +21,16 @@ export default async function ProtectedLayout({
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <Link href="/">
+              {/* h-14 on phones: at h-24 the 3:1 logo is ~288px wide and,
+                  with the name link, overflows the viewport — the page
+                  gains a horizontal scroll and every centred container
+                  drifts. Same fix the cafe header uses. */}
               <Image
                 src="/blackLogo.png"
                 alt="Momentum Arena"
                 width={240}
                 height={80}
-                className="h-24 w-auto"
+                className="h-14 w-auto sm:h-24"
               />
             </Link>
 
@@ -36,10 +40,15 @@ export default async function ProtectedLayout({
                 href="/dashboard"
                 className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
                   {displayInitial}
                 </div>
-                {displayName}
+                {/* Avatar-only on phones (the dashboard hero shows the
+                    full name); text returns from sm: up, truncated so a
+                    long name can never widen the bar. */}
+                <span className="hidden max-w-[180px] truncate sm:inline">
+                  {displayName}
+                </span>
               </Link>
             </div>
           </div>
