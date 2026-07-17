@@ -32,8 +32,7 @@ export function PromoBannerStrip({
           <img
             src={b.imageUrl}
             alt={b.title}
-            style={{ aspectRatio: String(b.aspectRatio) }}
-            className="h-auto w-full object-cover transition-transform duration-500 group-hover:scale-[1.01]"
+            className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.01]"
           />
         );
         return b.linkUrl ? (

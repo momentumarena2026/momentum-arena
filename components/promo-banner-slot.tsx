@@ -33,25 +33,30 @@ export async function PromoBannerSlot({
   );
   if (banners.length === 0) return null;
 
+  // Same card chrome as the pickleball launch banner: rounded, subtle
+  // border + shadow, gentle zoom on hover. The "top" variant only adds
+  // a page-width container so the card doesn't run edge-to-edge.
+  // Natural image height (h-auto) — never force the stored ratio onto
+  // the <img>, a mismatched value would crop/squash the artwork (the
+  // ratio is only needed by the APP to reserve layout).
   const frame =
-    variant === "top"
-      ? "block w-full"
-      : "group block overflow-hidden rounded-2xl border border-zinc-800 shadow-lg transition-all duration-300 hover:border-zinc-600";
+    "group block overflow-hidden rounded-2xl border border-zinc-800 shadow-lg transition-all duration-300 hover:border-zinc-600";
 
   return (
-    <div className={variant === "top" ? className : `space-y-4 ${className}`}>
+    <div
+      className={
+        variant === "top"
+          ? `mx-auto w-full max-w-7xl space-y-4 px-4 pt-4 sm:px-6 lg:px-8 ${className}`
+          : `space-y-4 ${className}`
+      }
+    >
       {banners.map((b) => {
         const img = (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={b.imageUrl}
             alt={b.title}
-            style={{ aspectRatio: String(b.aspectRatio) }}
-            className={
-              variant === "top"
-                ? "w-full object-cover"
-                : "h-auto w-full object-cover transition-transform duration-500 group-hover:scale-[1.01]"
-            }
+            className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.01]"
           />
         );
         return b.linkUrl ? (

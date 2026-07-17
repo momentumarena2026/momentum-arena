@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Image, Linking, Pressable, StyleSheet, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
@@ -74,12 +75,20 @@ function resolveLink(nav: NavLike, linkUrl: string) {
 }
 
 function Banner({ banner, nav }: { banner: PromoBannerItem; nav: NavLike }) {
+  // Layout starts from the stored ratio, then self-corrects to the
+  // image's REAL dimensions on load — a mismatched stored ratio (e.g.
+  // the default on URL-pasted banners) must never crop the artwork.
+  const [ratio, setRatio] = useState(banner.aspectRatio || 3);
   const body = (
     <Image
       source={{ uri: banner.imageUrl }}
-      style={[styles.image, { aspectRatio: banner.aspectRatio }]}
+      style={[styles.image, { aspectRatio: ratio }]}
       resizeMode="cover"
       accessibilityLabel={banner.title}
+      onLoad={(e) => {
+        const s = e.nativeEvent?.source;
+        if (s?.width && s?.height) setRatio(s.width / s.height);
+      }}
     />
   );
   if (!banner.linkUrl) return <View style={styles.frame}>{body}</View>;
