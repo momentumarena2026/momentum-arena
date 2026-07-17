@@ -62,6 +62,7 @@ export function AdminPromoBannersScreen() {
     imageUrl: string;
     linkUrl: string;
     screens: string[];
+    slotSports: string[];
     couponId: string;
     startsAt: string;
     endsAt: string;
@@ -80,6 +81,7 @@ export function AdminPromoBannersScreen() {
       imageUrl: "",
       linkUrl: "",
       screens: [],
+      slotSports: [],
       couponId: "",
       startsAt: "",
       endsAt: "",
@@ -95,6 +97,7 @@ export function AdminPromoBannersScreen() {
       imageUrl: b.imageUrl,
       linkUrl: b.linkUrl ?? "",
       screens: [...b.screens],
+      slotSports: [...b.slotSports],
       couponId: b.couponId ?? "",
       startsAt: toLocalText(b.startsAt),
       endsAt: toLocalText(b.endsAt),
@@ -120,6 +123,7 @@ export function AdminPromoBannersScreen() {
       aspectRatio: form.editing?.aspectRatio ?? 3,
       linkUrl: form.linkUrl.trim() || null,
       screens: form.screens,
+      slotSports: form.slotSports,
       couponId: form.couponId || null,
       startsAt,
       endsAt,
@@ -203,6 +207,11 @@ export function AdminPromoBannersScreen() {
                     trackColor={{ true: colors.emerald500, false: colors.zinc700 }}
                   />
                 </View>
+                {!b.live && b.hiddenReason ? (
+                  <Text variant="tiny" color="#fbbf24">
+                    Hidden: {b.hiddenReason}
+                  </Text>
+                ) : null}
                 <View style={styles.tagsRow}>
                   {b.screens.map((s) => (
                     <View key={s} style={styles.tag}>
@@ -323,6 +332,39 @@ export function AdminPromoBannersScreen() {
                     );
                   })}
                 </View>
+
+                {form.screens.includes("SLOT_SELECTION") ? (
+                  <>
+                    <Text variant="tiny" weight="600" color={colors.zinc400}>
+                      Slot selection — which sports (none = all)
+                    </Text>
+                    <View style={styles.chipsWrap}>
+                      {(["CRICKET", "FOOTBALL", "PICKLEBALL"] as const).map(
+                        (sp) => {
+                          const on = form.slotSports.includes(sp);
+                          return (
+                            <Pressable
+                              key={sp}
+                              onPress={() =>
+                                setForm({
+                                  ...form,
+                                  slotSports: on
+                                    ? form.slotSports.filter((v) => v !== sp)
+                                    : [...form.slotSports, sp],
+                                })
+                              }
+                              style={[styles.chip, on && styles.chipOn]}
+                            >
+                              <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                                {sp.charAt(0) + sp.slice(1).toLowerCase()}
+                              </Text>
+                            </Pressable>
+                          );
+                        },
+                      )}
+                    </View>
+                  </>
+                ) : null}
 
                 <Text variant="tiny" weight="600" color={colors.zinc400}>
                   Linked coupon (banner lives while the coupon is valid)

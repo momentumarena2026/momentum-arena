@@ -29,6 +29,7 @@ interface BannerRow {
   aspectRatio: number;
   linkUrl: string | null;
   screens: string[];
+  slotSports: string[];
   couponId: string | null;
   couponCode: string | null;
   couponLive: boolean;
@@ -36,6 +37,8 @@ interface BannerRow {
   endsAt: string | null;
   isActive: boolean;
   sortOrder: number;
+  live: boolean;
+  hiddenReason: string | null;
 }
 
 interface CouponOption {
@@ -61,6 +64,7 @@ const EMPTY_FORM = {
   aspectRatio: 3,
   linkUrl: "",
   screens: [] as string[],
+  slotSports: [] as string[],
   couponId: "",
   startsAt: "",
   endsAt: "",
@@ -76,7 +80,10 @@ export function PromoBannersManager({
   coupons: CouponOption[];
 }) {
   const router = useRouter();
-  const [banners] = useState(initialBanners);
+  // Render straight from the server prop — router.refresh() re-renders
+  // the page with fresh data, which a useState snapshot would ignore
+  // (the list looked stale after create/edit).
+  const banners = initialBanners;
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -101,6 +108,7 @@ export function PromoBannersManager({
       aspectRatio: b.aspectRatio,
       linkUrl: b.linkUrl ?? "",
       screens: [...b.screens],
+      slotSports: [...b.slotSports],
       couponId: b.couponId ?? "",
       startsAt: toLocalInput(b.startsAt),
       endsAt: toLocalInput(b.endsAt),
@@ -146,6 +154,7 @@ export function PromoBannersManager({
       aspectRatio: form.aspectRatio,
       linkUrl: form.linkUrl || null,
       screens: form.screens,
+      slotSports: form.slotSports,
       couponId: form.couponId || null,
       // datetime-local values are LOCAL wall-clock — Date() parses them
       // in the browser's zone, so the stored instant matches what the
@@ -199,14 +208,17 @@ export function PromoBannersManager({
                 <p className="font-semibold text-white">{b.title}</p>
                 <span
                   className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                    b.isActive
+                    b.live
                       ? "bg-emerald-500/15 text-emerald-400"
-                      : "bg-zinc-800 text-zinc-500"
+                      : "bg-amber-500/15 text-amber-400"
                   }`}
                 >
-                  {b.isActive ? "Active" : "Off"}
+                  {b.live ? "Live" : "Hidden"}
                 </span>
               </div>
+              {!b.live && b.hiddenReason && (
+                <p className="text-xs text-amber-400">{b.hiddenReason}</p>
+              )}
               <div className="flex flex-wrap gap-1.5">
                 {b.screens.map((s) => (
                   <span
@@ -359,25 +371,57 @@ export function PromoBannersManager({
                 </span>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {PROMO_SCREENS.map((s) => (
-                    <label
-                      key={s.value}
-                      className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-800 p-2.5 text-sm text-zinc-300"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={form.screens.includes(s.value)}
-                        onChange={(e) =>
-                          setForm((p) => ({
-                            ...p,
-                            screens: e.target.checked
-                              ? [...p.screens, s.value]
-                              : p.screens.filter((v) => v !== s.value),
-                          }))
-                        }
-                        className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
-                      />
-                      {s.label}
-                    </label>
+                    <div key={s.value}>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-800 p-2.5 text-sm text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={form.screens.includes(s.value)}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              screens: e.target.checked
+                                ? [...p.screens, s.value]
+                                : p.screens.filter((v) => v !== s.value),
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
+                        />
+                        {s.label}
+                      </label>
+                      {/* SLOT_SELECTION refinement — which sports' slot
+                          pages. Nothing checked = every sport. */}
+                      {s.value === "SLOT_SELECTION" &&
+                        form.screens.includes("SLOT_SELECTION") && (
+                          <div className="ml-6 mt-1.5 flex flex-wrap gap-2">
+                            {(["CRICKET", "FOOTBALL", "PICKLEBALL"] as const).map(
+                              (sp) => (
+                                <label
+                                  key={sp}
+                                  className="flex cursor-pointer items-center gap-1.5 rounded-full border border-zinc-800 px-2.5 py-1 text-xs text-zinc-400"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={form.slotSports.includes(sp)}
+                                    onChange={(e) =>
+                                      setForm((p) => ({
+                                        ...p,
+                                        slotSports: e.target.checked
+                                          ? [...p.slotSports, sp]
+                                          : p.slotSports.filter((v) => v !== sp),
+                                      }))
+                                    }
+                                    className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
+                                  />
+                                  {sp.charAt(0) + sp.slice(1).toLowerCase()}
+                                </label>
+                              ),
+                            )}
+                            <span className="self-center text-[11px] text-zinc-600">
+                              none checked = all sports
+                            </span>
+                          </div>
+                        )}
+                    </div>
                   ))}
                 </div>
               </div>

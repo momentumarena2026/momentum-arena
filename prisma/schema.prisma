@@ -761,6 +761,10 @@ model PromoBanner {
   // known paths to native screens and falls back to the browser.
   linkUrl   String?
   placement BannerPlacement[]
+  // SLOT_SELECTION refinement: when non-empty, the banner only shows on
+  // these sports' slot pages. Empty = every sport (legacy rows fall back
+  // to a linkUrl heuristic — see lib/promo-banners.bannerRelevantToSport).
+  slotSports Sport[] @default([])
   // Coupon-linked lifetime (see header comment).
   couponId String?
   coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)

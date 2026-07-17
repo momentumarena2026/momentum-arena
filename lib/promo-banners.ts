@@ -22,6 +22,8 @@ export interface LivePromoBanner {
   appImageUrl: string | null;
   aspectRatio: number;
   linkUrl: string | null;
+  /** SLOT_SELECTION refinement — empty = all sports. */
+  slotSports: string[];
 }
 
 /** Live banners for one screen, sortOrder ASC. Never throws. */
@@ -59,6 +61,7 @@ export async function getLivePromoBanners(
         appImageUrl: b.appImageUrl,
         aspectRatio: b.aspectRatio,
         linkUrl: b.linkUrl,
+        slotSports: b.slotSports as string[],
       }));
   } catch (err) {
     console.error("[promo-banners] live lookup failed", err);
@@ -67,17 +70,24 @@ export async function getLivePromoBanners(
 }
 
 /**
- * Sport relevance for SLOT_SELECTION placements: a banner whose link
- * targets a specific sport's booking flow (/book/<sport>...) should only
- * render on THAT sport's slot pages (the pickleball launch banner must
- * not appear over cricket slots). Sport-agnostic links always pass.
+ * Sport relevance for SLOT_SELECTION placements.
+ *
+ * Primary rule: the admin's explicit per-sport sub-list (slotSports) —
+ * non-empty means "only these sports' slot pages". Empty falls back to
+ * a linkUrl heuristic (a banner deep-linking /book/<sport> shouldn't
+ * render over another sport's slots — covers pre-slotSports rows like
+ * the seeded pickleball banner).
  */
 const SPORT_SLUGS = ["cricket", "football", "pickleball"];
 export function bannerRelevantToSport(
-  linkUrl: string | null,
+  banner: { linkUrl: string | null; slotSports: string[] },
   sportSlug: string | null | undefined,
 ): boolean {
-  if (!linkUrl || !sportSlug) return true;
-  const target = SPORT_SLUGS.find((s) => linkUrl.includes(`/book/${s}`));
+  if (!sportSlug) return true;
+  if (banner.slotSports.length > 0) {
+    return banner.slotSports.includes(sportSlug.toUpperCase());
+  }
+  if (!banner.linkUrl) return true;
+  const target = SPORT_SLUGS.find((s) => banner.linkUrl!.includes(`/book/${s}`));
   return !target || target === sportSlug.toLowerCase();
 }

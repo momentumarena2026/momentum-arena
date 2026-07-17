@@ -24,6 +24,7 @@ export interface AdminPromoBanner {
   aspectRatio: number;
   linkUrl: string | null;
   screens: string[];
+  slotSports: string[];
   couponId: string | null;
   couponCode: string | null;
   couponLive: boolean;
@@ -31,6 +32,8 @@ export interface AdminPromoBanner {
   endsAt: string | null;
   isActive: boolean;
   sortOrder: number;
+  live: boolean;
+  hiddenReason: string | null;
 }
 
 export interface PromoBannerInput {
@@ -40,6 +43,7 @@ export interface PromoBannerInput {
   aspectRatio?: number;
   linkUrl?: string | null;
   screens: string[];
+  slotSports?: string[];
   couponId?: string | null;
   startsAt?: string | null;
   endsAt?: string | null;

@@ -29,7 +29,7 @@ export async function PromoBannerSlot({
   sportSlug?: string;
 }) {
   const banners = (await getLivePromoBanners(screen)).filter((b) =>
-    bannerRelevantToSport(b.linkUrl, sportSlug),
+    bannerRelevantToSport(b, sportSlug),
   );
   if (banners.length === 0) return null;
 

@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
   // render on their own sport.
   const sport = request.nextUrl.searchParams.get("sport");
   const banners = (await getLivePromoBanners(screen as BannerPlacement)).filter(
-    (b) => bannerRelevantToSport(b.linkUrl, sport),
+    (b) => bannerRelevantToSport(b, sport),
   );
   return NextResponse.json({
     banners: banners.map((b) => ({

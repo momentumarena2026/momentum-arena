@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { revalidatePath } from "next/cache";
-import type { BannerPlacement } from "@prisma/client";
+import type { BannerPlacement, Sport } from "@prisma/client";
 
 /**
  * Promotion banners — admin CRUD (web "Web & App Config" section + the
@@ -40,6 +40,8 @@ export interface PromoBannerInput {
   aspectRatio?: number;
   linkUrl?: string | null;
   screens: string[];
+  /** SLOT_SELECTION refinement — which sports' slot pages (empty = all). */
+  slotSports?: string[];
   couponId?: string | null;
   /** ISO datetimes (or null) — exact go-live / retire moments. */
   startsAt?: string | null;
@@ -59,6 +61,7 @@ type Normalised =
         aspectRatio: number;
         linkUrl: string | null;
         placement: BannerPlacement[];
+        slotSports: Sport[];
         couponId: string | null;
         startsAt: Date | null;
         endsAt: Date | null;
@@ -99,6 +102,9 @@ function normalise(input: PromoBannerInput): Normalised {
       aspectRatio,
       linkUrl: input.linkUrl?.trim() || null,
       placement: screens,
+      slotSports: (input.slotSports ?? []).filter((s): s is Sport =>
+        ["CRICKET", "FOOTBALL", "PICKLEBALL"].includes(s),
+      ),
       couponId: input.couponId || null,
       startsAt,
       endsAt,
@@ -116,7 +122,13 @@ export async function getPromoBannersAdminData(ctx?: PromoBannerCtx) {
     db.promoBanner.findMany({
       include: {
         coupon: {
-          select: { id: true, code: true, isActive: true, validUntil: true },
+          select: {
+            id: true,
+            code: true,
+            isActive: true,
+            validFrom: true,
+            validUntil: true,
+          },
         },
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
@@ -127,26 +139,72 @@ export async function getPromoBannersAdminData(ctx?: PromoBannerCtx) {
       orderBy: { code: "asc" },
     }),
   ]);
+  // Same rules getLivePromoBanners applies — surfaced as a status +
+  // human reason so "why isn't my banner showing?" is answered in the
+  // admin list instead of by support.
+  const fmt = (d: Date) =>
+    d.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  function liveStatus(b: (typeof banners)[number]): {
+    live: boolean;
+    reason: string | null;
+  } {
+    if (!b.isActive) return { live: false, reason: "Turned off" };
+    if (b.startsAt && b.startsAt > now) {
+      return { live: false, reason: `Scheduled — goes live ${fmt(b.startsAt)}` };
+    }
+    if (b.endsAt && b.endsAt < now) {
+      return { live: false, reason: `Ended ${fmt(b.endsAt)}` };
+    }
+    if (b.coupon) {
+      if (!b.coupon.isActive) {
+        return { live: false, reason: `Coupon ${b.coupon.code} is disabled` };
+      }
+      if (b.coupon.validFrom > now) {
+        return {
+          live: false,
+          reason: `Coupon ${b.coupon.code} starts ${fmt(b.coupon.validFrom)}`,
+        };
+      }
+      if (b.coupon.validUntil < now) {
+        return { live: false, reason: `Coupon ${b.coupon.code} expired` };
+      }
+    }
+    return { live: true, reason: null };
+  }
+
   return {
-    banners: banners.map((b) => ({
-      id: b.id,
-      title: b.title,
-      imageUrl: b.imageUrl,
-      appImageUrl: b.appImageUrl,
-      aspectRatio: b.aspectRatio,
-      linkUrl: b.linkUrl,
-      screens: b.placement as string[],
-      couponId: b.couponId,
-      couponCode: b.coupon?.code ?? null,
-      couponLive:
-        !!b.coupon &&
-        b.coupon.isActive &&
-        b.coupon.validUntil >= now,
-      startsAt: b.startsAt?.toISOString() ?? null,
-      endsAt: b.endsAt?.toISOString() ?? null,
-      isActive: b.isActive,
-      sortOrder: b.sortOrder,
-    })),
+    banners: banners.map((b) => {
+      const status = liveStatus(b);
+      return {
+        id: b.id,
+        title: b.title,
+        imageUrl: b.imageUrl,
+        appImageUrl: b.appImageUrl,
+        aspectRatio: b.aspectRatio,
+        linkUrl: b.linkUrl,
+        screens: b.placement as string[],
+        slotSports: b.slotSports as string[],
+        couponId: b.couponId,
+        couponCode: b.coupon?.code ?? null,
+        couponLive:
+          !!b.coupon &&
+          b.coupon.isActive &&
+          b.coupon.validFrom <= now &&
+          b.coupon.validUntil >= now,
+        startsAt: b.startsAt?.toISOString() ?? null,
+        endsAt: b.endsAt?.toISOString() ?? null,
+        isActive: b.isActive,
+        sortOrder: b.sortOrder,
+        live: status.live,
+        hiddenReason: status.reason,
+      };
+    }),
     coupons: coupons.map((c) => ({
       id: c.id,
       code: c.code,
