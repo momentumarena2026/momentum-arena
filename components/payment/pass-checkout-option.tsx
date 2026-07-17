@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Ticket } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
+import { trackPassRedeemed } from "@/lib/analytics";
 
 interface Offer {
   passName: string;
@@ -56,6 +57,7 @@ export function PassCheckoutOption({
       if (!res.ok) throw new Error(data.error || "Couldn't redeem the pass");
 
       if (data.bookingId) {
+        trackPassRedeemed(offer.coveredMinutes, 0);
         router.push(`/book/confirmation/${data.bookingId}`);
         return;
       }
@@ -86,8 +88,10 @@ export function PassCheckoutOption({
             }),
           });
           const vd = await v.json();
-          if (v.ok && vd.bookingId) router.push(`/book/confirmation/${vd.bookingId}`);
-          else setError(vd.error || "Payment received — confirming your booking…");
+          if (v.ok && vd.bookingId) {
+            trackPassRedeemed(offer.coveredMinutes, offer.remainderAmount);
+            router.push(`/book/confirmation/${vd.bookingId}`);
+          } else setError(vd.error || "Payment received — confirming your booking…");
         },
         modal: { ondismiss: () => setBusy(false) },
       });

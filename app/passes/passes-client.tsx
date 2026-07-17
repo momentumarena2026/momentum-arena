@@ -25,6 +25,10 @@ import { GiCricketBat } from "react-icons/gi";
 import type { IconType } from "react-icons";
 import { DqrCheckout } from "@/components/payment/dqr-checkout";
 import { PassClock } from "@/components/passes/pass-clock";
+import {
+  trackPassPurchaseStarted,
+  trackPassPurchaseCompleted,
+} from "@/lib/analytics";
 
 // Sport → illustration + accent colour for the ticket cards. Bowling
 // Machine (a cricket sub-sport) gets its own bat-and-ball glyph.
@@ -248,6 +252,11 @@ export function PassesClient({
   function confirmMethod() {
     const plan = chooserPlan;
     if (!plan) return;
+    trackPassPurchaseStarted(
+      plan.id,
+      plan.price,
+      method === "upi" ? "upi" : "razorpay",
+    );
     setChooserPlan(null);
     if (method === "upi") {
       setDqrPlan(plan);
@@ -299,8 +308,10 @@ export function PassesClient({
               startDate,
             }),
           });
-          if (v.ok) router.refresh();
-          else
+          if (v.ok) {
+            trackPassPurchaseCompleted(plan.id, plan.price, "razorpay");
+            router.refresh();
+          } else
             setError(
               "Payment received — your pass will appear shortly (auto-verifying).",
             );
@@ -698,6 +709,7 @@ export function PassesClient({
           amount={dqrPlan.price}
           initiateExtra={dqrExtra}
           onConfirmed={() => {
+            trackPassPurchaseCompleted(dqrPlan.id, dqrPlan.price, "upi");
             setDqrPlan(null);
             router.refresh();
           }}

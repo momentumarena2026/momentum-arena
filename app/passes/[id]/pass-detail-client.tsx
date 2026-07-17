@@ -25,6 +25,7 @@ import type { IconType } from "react-icons";
 import { PassClock } from "@/components/passes/pass-clock";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { addPassMemberByPhone, removePassMember, getPassDetail } from "@/actions/passes";
+import { trackPassMemberAdded } from "@/lib/analytics";
 
 type PassDetail = NonNullable<Awaited<ReturnType<typeof getPassDetail>>>;
 
@@ -90,6 +91,7 @@ export function PassDetailClient({ pass }: { pass: PassDetail }) {
         if (res.notRegistered && res.phone) setInvitePhone(res.phone);
         return;
       }
+      trackPassMemberAdded();
       setPhone("");
       router.refresh();
     });
