@@ -208,6 +208,13 @@ const GROUPS: Group[] = [
         onPress: (nav) => nav.navigate("AdminCoupons"),
       },
       {
+        label: "Monthly passes",
+        sub: "Plans, sold passes, issue & gift, sharing",
+        icon: ic(Wallet, colors.emerald400),
+        perm: "MANAGE_PASSES",
+        onPress: (nav) => nav.navigate("AdminPasses"),
+      },
+      {
         label: "Rewards",
         sub: "Points overview, alerts, grant",
         icon: ic(Sparkles, colors.yellow400),

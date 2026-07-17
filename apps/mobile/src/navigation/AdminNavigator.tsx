@@ -46,6 +46,7 @@ import { AdminEquipmentScreen } from "../screens/admin/AdminEquipmentScreen";
 import { AdminBowlingScreen } from "../screens/admin/AdminBowlingScreen";
 import { AdminPricingScreen } from "../screens/admin/AdminPricingScreen";
 import { AdminCouponsScreen } from "../screens/admin/AdminCouponsScreen";
+import { AdminPassesScreen } from "../screens/admin/AdminPassesScreen";
 import { AdminProductsScreen } from "../screens/admin/AdminProductsScreen";
 import { AdminProductOrdersScreen } from "../screens/admin/AdminProductOrdersScreen";
 import { AdminPosScreen } from "../screens/admin/AdminPosScreen";
@@ -145,6 +146,11 @@ function AdminMoreStackNav() {
         name="AdminCoupons"
         component={AdminCouponsScreen}
         options={{ title: "Coupons" }}
+      />
+      <MoreStack.Screen
+        name="AdminPasses"
+        component={AdminPassesScreen}
+        options={{ title: "Monthly passes" }}
       />
       <MoreStack.Screen
         name="AdminProducts"
