@@ -21,13 +21,14 @@ import type {
 import { CreditCard, ShieldCheck, Smartphone, Ticket, X } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { PassClock } from "../../components/passes/PassClock";
+import { SportIcon } from "../../components/passes/SportIcon";
 import { Text } from "../../components/ui/Text";
 import {
   DqrCheckout,
   type DqrEndpoints,
 } from "../../components/payment/DqrCheckout";
 import { colors, spacing } from "../../theme";
-import { formatRupees, sportEmoji } from "../../lib/format";
+import { formatRupees } from "../../lib/format";
 import { ApiError } from "../../lib/api";
 import { bookingApi } from "../../lib/booking";
 import { passesApi, type PassPlanCard } from "../../lib/passes";
@@ -97,7 +98,7 @@ function PlanCard({
       <View style={[styles.stub, { backgroundColor: `${accent}14` }]}>
         <View style={styles.stubTop}>
           <View style={[styles.sportTile, { backgroundColor: `${accent}1f` }]}>
-            <Text style={styles.sportGlyph}>{sportEmoji(plan.sport)}</Text>
+            <SportIcon sport={plan.sport} size={28} color={accent} />
           </View>
           <View style={styles.dialCol}>
             <PassClock totalHours={plan.hours} accent={accent} size={80} stroke={8} />
@@ -519,9 +520,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-  },
-  sportGlyph: {
-    fontSize: 26,
   },
   dialCol: {
     alignItems: "center",
