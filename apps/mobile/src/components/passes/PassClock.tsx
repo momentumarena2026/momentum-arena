@@ -80,13 +80,36 @@ export function PassClock({
         />
       </Svg>
       <Animated.View style={[styles.center, { opacity: centerOpacity }]}>
+        {/* Explicit lineHeights: the shared Text base variant carries
+            lineHeight 22, which CLIPS glyph tops once fontSize scales
+            past it (the "5h" read as a beheaded digit). */}
         <View style={styles.hoursRow}>
-          <Text style={[styles.hours, { fontSize: size * 0.24 }]}>
+          <Text
+            style={[
+              styles.hours,
+              { fontSize: size * 0.24, lineHeight: size * 0.3 },
+            ]}
+          >
             {fmtH(totalHours)}
           </Text>
-          <Text style={[styles.hoursUnit, { fontSize: size * 0.13 }]}>h</Text>
+          <Text
+            style={[
+              styles.hoursUnit,
+              { fontSize: size * 0.13, lineHeight: size * 0.3 },
+            ]}
+          >
+            h
+          </Text>
         </View>
-        <Text style={[styles.sub, { fontSize: Math.max(7, size * 0.085) }]}>
+        <Text
+          style={[
+            styles.sub,
+            {
+              fontSize: Math.max(7, size * 0.085),
+              lineHeight: Math.max(9, size * 0.11),
+            },
+          ]}
+        >
           TOTAL
         </Text>
       </Animated.View>
