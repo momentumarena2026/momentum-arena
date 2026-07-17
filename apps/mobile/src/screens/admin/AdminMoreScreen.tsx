@@ -8,6 +8,7 @@ import {
   Bell,
   BellRing,
   ChevronRight,
+  CloudRain,
   Coffee,
   CreditCard,
   FileText,
@@ -227,6 +228,25 @@ const GROUPS: Group[] = [
         icon: ic(Tag),
         perm: "MANAGE_DISCOUNTS",
         onPress: (nav) => nav.navigate("AdminDiscounts"),
+      },
+    ],
+  },
+  {
+    title: "Web & App Config",
+    rows: [
+      {
+        label: "Rain banner",
+        sub: "Weather-aware homepage strip",
+        icon: ic(CloudRain, "#38bdf8"),
+        perm: "MANAGE_PRICING",
+        onPress: (nav) => nav.navigate("AdminRainBanner"),
+      },
+      {
+        label: "Promotion banners",
+        sub: "Scheduled image banners on web + app",
+        icon: ic(Megaphone, colors.emerald400),
+        perm: "MANAGE_PROMO_BANNERS",
+        onPress: (nav) => nav.navigate("AdminPromoBanners"),
       },
     ],
   },

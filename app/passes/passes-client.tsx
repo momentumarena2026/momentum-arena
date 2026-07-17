@@ -25,6 +25,7 @@ import { GiCricketBat } from "react-icons/gi";
 import type { IconType } from "react-icons";
 import { DqrCheckout } from "@/components/payment/dqr-checkout";
 import { PassClock } from "@/components/passes/pass-clock";
+import { PromoBannerStrip, type PromoBannerData } from "@/components/promo-banner-strip";
 import {
   trackPassPurchaseStarted,
   trackPassPurchaseCompleted,
@@ -215,12 +216,14 @@ export function PassesClient({
   enabled,
   plans,
   dqrEnabled,
+  promoBanners = [],
 }: {
   enabled: boolean;
   plans: Plan[];
   /** UPI (PhonePe Dynamic QR) available at checkout — env creds present
    *  AND the admin toggle on. When false the pass buys Razorpay-only. */
   dqrEnabled: boolean;
+  promoBanners?: PromoBannerData[];
 }) {
   const router = useRouter();
   const [buying, setBuying] = useState<string | null>(null);
@@ -343,6 +346,8 @@ export function PassesClient({
       </div>
 
       <div className="mx-auto max-w-5xl space-y-10 px-4 py-8 sm:px-6">
+        {/* Admin-managed promotion banners for this screen. */}
+        <PromoBannerStrip banners={promoBanners} />
         {/* Plans — hidden entirely while the storefront is disabled. Your
             own passes now live on the account dashboard. */}
         {!enabled && (

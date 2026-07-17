@@ -38,6 +38,7 @@ import {
   trackPassPurchaseStarted,
 } from "../../lib/analytics";
 import type { AccountStackParamList } from "../../navigation/types";
+import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 
 /**
  * Pass storefront — mobile mirror of the web /passes page. Plan cards
@@ -311,6 +312,9 @@ export function PassesStoreScreen() {
           />
         }
       >
+        {/* Admin-managed promotion banners for this screen. */}
+        <PromoBannerSlot screen="PASSES" style={{ marginBottom: spacing["3"] }} />
+
         <Text style={styles.lede}>
           Buy hours in bulk at a lower rate — share them with your squad and
           let the pass pay at checkout.

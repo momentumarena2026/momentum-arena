@@ -232,6 +232,10 @@ export type AdminMoreStackParamList = {
   AdminCohorts: undefined;
   AdminFunnels: undefined;
   AdminEvents: undefined;
+  // Web & App Config — customer-facing display toggles (mirrors the
+  // web sidebar group): rain banner + promotion banners.
+  AdminRainBanner: undefined;
+  AdminPromoBanners: undefined;
   // Settings (payments/profile)
   AdminPaymentSettings: undefined;
   AdminRazorpay: undefined;

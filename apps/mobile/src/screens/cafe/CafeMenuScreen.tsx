@@ -25,6 +25,7 @@ import {
   trackCafeItemRemoved,
 } from "../../lib/analytics";
 import type { CafeStackParamList } from "../../navigation/types";
+import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 
 type Nav = NativeStackNavigationProp<CafeStackParamList, "CafeMenu">;
 
@@ -156,6 +157,12 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
             Order now, pick up at the counter.
           </Text>
         </View>
+
+        {/* Admin-managed promotion banners — below the title/subtitle. */}
+        <PromoBannerSlot
+          screen="CAFE"
+          style={{ marginHorizontal: spacing["4"], marginBottom: spacing["3"] }}
+        />
 
         {categories.length === 0 ? (
           <View style={styles.emptyCard}>

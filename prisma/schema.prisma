@@ -134,9 +134,17 @@ enum DiscountType {
 }
 
 enum BannerPlacement {
+  // Legacy values (unused rows may still carry them)
   BOOK_PAGE
-  SLOT_SELECTION
   CHECKOUT
+  // Customer screens the promo-banner system targets (web + app).
+  HOME_TOP // homepage, full-width above the logo/header
+  HOME_PROMO // homepage mid-page promo slot (old pickleball spot)
+  BOOK_SPORT // choose-your-sport page
+  SLOT_SELECTION
+  CAFE
+  SHOP
+  PASSES
 }
 
 enum AdminRole {
@@ -732,21 +740,40 @@ model Notification {
   @@index([bookingId])
 }
 
+// Promotion banners (admin "Web & App Config") — image banners rendered
+// on chosen customer screens, web + app. Live when: isActive AND inside
+// [startsAt, endsAt] (either side optional) AND — when a coupon is
+// linked — that coupon is active and inside its own validity window
+// (the banner auto-retires with the promo). Repurposed from an unused
+// legacy model of the same name (no code ever queried it).
 model PromoBanner {
-  id              String            @id @default(cuid())
-  title           String
-  description     String
-  discountInfo    String?
-  imageUrl        String?
-  placement       BannerPlacement[]
-  razorpayOfferId String?
-  isActive        Boolean           @default(true)
-  startsAt        DateTime
-  endsAt          DateTime
-  createdBy       String
+  id    String @id @default(cuid())
+  title String // admin label + accessibility alt text
+  // Optimised upload variants (webp; see /api/admin/promo-banners/upload).
+  // Site-relative paths (seeded /public assets) are allowed — the mobile
+  // API absolutises them against the request origin.
+  imageUrl    String
+  appImageUrl String?
+  // width/height ratio of the master upload — the app reserves layout
+  // with it before the image loads.
+  aspectRatio Float @default(3)
+  // Where a tap lands (web URL or site-relative path). The app resolves
+  // known paths to native screens and falls back to the browser.
+  linkUrl   String?
+  placement BannerPlacement[]
+  // Coupon-linked lifetime (see header comment).
+  couponId String?
+  coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  createdBy String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([isActive])
 }
 
 model DiscountCode {
@@ -1401,6 +1428,9 @@ model Coupon {
 
   conditions CouponCondition[]
   usages     CouponUsage[]
+  // Promotion banners tied to this coupon — the banner stays live only
+  // while the coupon is active + inside its validity window.
+  promoBanners PromoBanner[]
 
   // Admin-curated targeting (sits alongside the auto-computed
   // userGroupFilter). When either of these is non-empty the coupon

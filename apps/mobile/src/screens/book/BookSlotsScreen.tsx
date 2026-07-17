@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -10,7 +9,6 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { env } from "../../config/env";
 import {
   useNavigation,
   useRoute,
@@ -75,6 +73,7 @@ import {
   getUpcomingDatesIST,
 } from "../../lib/ist-date";
 import { useAuth } from "../../providers/AuthProvider";
+import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 import type {
   BookStackParamList,
   RootStackParamList,
@@ -444,16 +443,14 @@ export function BookSlotsScreen() {
             coupon — when admin disables/expires it server-side, this
             disappears on the next render, same as the per-slot
             strike-through prices. Mirror of the web slot page. */}
-        {showDiscount && promo ? (
-          <View style={styles.promoBanner}>
-            <Image
-              source={{ uri: `${env.apiUrl}/pickleball-promo-banner.jpg` }}
-              style={styles.promoBannerImage}
-              resizeMode="cover"
-              accessibilityLabel={`Pickleball launch offer — ${promo.percentOff}% off, auto-applied at checkout`}
-            />
-          </View>
-        ) : null}
+        {/* Admin-managed promotion banners — the launch banner moved to
+            a seeded PromoBanner row (retires with its coupon); the
+            per-slot strike-through pricing stays promo-driven below. */}
+        <PromoBannerSlot
+          screen="SLOT_SELECTION"
+          sportSlug={params.sport.toLowerCase()}
+          style={styles.promoBanner}
+        />
 
         {/* Slots — 2-column grid with "5pm - 6pm"-style labels. */}
         <View style={styles.section}>

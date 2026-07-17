@@ -28,6 +28,7 @@ export const ALL_ADMIN_PERMISSIONS = [
   "MANAGE_APP_RELEASES",
   "MANAGE_PAYMENT_SETTINGS",
   "MANAGE_TRUSTED_DEVICES",
+  "MANAGE_PROMO_BANNERS",
   "MANAGE_PASSES",
 ] as const;
 
@@ -61,6 +62,7 @@ export const PERMISSION_LABELS: Record<AdminPermission, string> = {
   MANAGE_APP_RELEASES: "Manage App Releases (OTA)",
   MANAGE_PAYMENT_SETTINGS: "Manage Payment Settings",
   MANAGE_TRUSTED_DEVICES: "Manage Trusted Devices (5-tap admin entry)",
+  MANAGE_PROMO_BANNERS: "Manage Promotion Banners (web & app)",
   MANAGE_PASSES: "Manage Monthly Passes",
 };
 

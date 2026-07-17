@@ -5,6 +5,7 @@ import { useCafeCart } from "@/lib/cafe-cart-context";
 import { formatPrice } from "@/lib/pricing";
 import { CafeCartDrawer } from "./cafe-cart-drawer";
 import { Search, X, Coffee, UtensilsCrossed, IceCreamCone, Package, Sandwich } from "lucide-react";
+import { PromoBannerStrip, type PromoBannerData } from "@/components/promo-banner-strip";
 
 interface MenuItem {
   id: string;
@@ -50,8 +51,10 @@ const CATEGORY_ORDER = ["SNACKS", "BEVERAGES", "MEALS", "DESSERTS", "COMBOS"];
 
 export function CafeMenuPage({
   groupedItems,
+  promoBanners = [],
 }: {
   groupedItems: Record<string, MenuItem[]>;
+  promoBanners?: PromoBannerData[];
 }) {
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [cartOpen, setCartOpen] = useState(false);
@@ -201,6 +204,8 @@ export function CafeMenuPage({
           >
             My Orders →
           </a>
+          {/* Admin-managed promotion banners — below the title/subtitle. */}
+          <PromoBannerStrip banners={promoBanners} className="mt-4" />
         </div>
       </div>
 

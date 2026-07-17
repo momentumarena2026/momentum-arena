@@ -93,6 +93,42 @@ async function main() {
     },
   });
   console.log("Seeded coupon: WORLDCUP25 (create-only)");
+
+  // ── Pickleball launch banner → promo-banner system ────────────────
+  // Migrates the previously-hardcoded homepage + slot-page banner into
+  // the admin-managed PromoBanner module. Linked to PICKLEBALL25 so it
+  // keeps the exact old behaviour: visible while the coupon is live,
+  // gone the moment admin disables/expires it. CREATE-ONLY (find by
+  // title) — admin edits are never clobbered.
+  const pickleball25 = await prisma.coupon.findUnique({
+    where: { code: "PICKLEBALL25" },
+    select: { id: true },
+  });
+  const existingPbBanner = await prisma.promoBanner.findFirst({
+    where: { title: "Pickleball Launch Offer" },
+    select: { id: true },
+  });
+  if (!existingPbBanner) {
+    await prisma.promoBanner.create({
+      data: {
+        title: "Pickleball Launch Offer",
+        // Site-relative /public asset (1200×400) — web renders it
+        // directly; the mobile API absolutises it per request.
+        imageUrl: "/pickleball-promo-banner.jpg",
+        appImageUrl: "/pickleball-promo-banner.jpg",
+        aspectRatio: 3,
+        linkUrl: "/book/pickleball",
+        placement: ["HOME_PROMO", "SLOT_SELECTION"],
+        couponId: pickleball25?.id ?? null,
+        startsAt: null,
+        endsAt: null,
+        isActive: true,
+        sortOrder: 0,
+        createdBy: gamelord!.id,
+      },
+    });
+    console.log("Seeded promo banner: Pickleball Launch Offer (create-only)");
+  }
 }
 
 main()

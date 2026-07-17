@@ -7,7 +7,7 @@ import {
   View,
 } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { CloudRain, Plus, Trash2, X } from "lucide-react-native";
+import { Plus, Trash2, X } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -20,7 +20,6 @@ import {
   type PricingDayType,
   type PricingTimeType,
   type PriceUpdate,
-  type RainBannerMode,
   type TimeBand,
 } from "../../lib/admin-pricing";
 import { sportLabel } from "../../lib/format";
@@ -47,12 +46,6 @@ const CELLS: { dayType: PricingDayType; timeType: PricingTimeType; label: string
 const cellKey = (configId: string, d: PricingDayType, t: PricingTimeType) =>
   `${configId}|${d}|${t}`;
 
-// Mirrors the web RainBannerEditor mode cards (app/(admin)/admin/pricing).
-const RAIN_MODES: { value: RainBannerMode; label: string; hint: string }[] = [
-  { value: "AUTO", label: "Auto (weather)", hint: "Shows only when it's raining in Mathura" },
-  { value: "ON", label: "Always on", hint: "Force the banner on regardless of weather" },
-  { value: "OFF", label: "Off", hint: "Never show the banner" },
-];
 
 function hourLabel(h: number) {
   const wrapped = h % 24;
@@ -73,8 +66,6 @@ export function AdminPricingScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [bandDraft, setBandDraft] = useState<BandDraft | null>(null);
-  const [rainMode, setRainMode] = useState<RainBannerMode>("AUTO");
-  const [rainText, setRainText] = useState("");
 
   useEffect(() => {
     if (!data.data) return;
@@ -85,8 +76,6 @@ export function AdminPricingScreen() {
     setPrices(map);
     setOpen(String(data.data.arena.openHour));
     setClose(String(data.data.arena.closeHour));
-    setRainMode(data.data.rainBanner?.mode ?? "AUTO");
-    setRainText(data.data.rainBanner?.text ?? "");
   }, [data.data]);
 
   const bands = useMemo(() => {
@@ -225,66 +214,6 @@ export function AdminPricingScreen() {
               })
             }
             loading={busy === "arena"}
-          />
-        </Card>
-
-        {/* "Rain doesn't slow us down" banner — mirror of the web
-            RainBannerEditor; lives beside arena hours (both are
-            ArenaSettings). */}
-        <Card style={styles.card}>
-          <View style={styles.rainHead}>
-            <CloudRain size={16} color="#38bdf8" />
-            <Text variant="bodyStrong" color={colors.foreground}>
-              &ldquo;Rain doesn&apos;t slow us down&rdquo; banner
-            </Text>
-          </View>
-          <Text variant="tiny" color={colors.zinc500}>
-            Weather-aware strip on the homepage + booking page. On Auto it
-            appears only when it&apos;s raining (or rain&apos;s forecast) in
-            Mathura.
-          </Text>
-          <View style={styles.rainModes}>
-            {RAIN_MODES.map((m) => (
-              <Pressable
-                key={m.value}
-                onPress={() => setRainMode(m.value)}
-                style={[
-                  styles.rainModeTile,
-                  rainMode === m.value && styles.rainModeTileOn,
-                ]}
-              >
-                <Text
-                  variant="small"
-                  weight="600"
-                  color={rainMode === m.value ? "#7dd3fc" : colors.zinc300}
-                >
-                  {m.label}
-                </Text>
-                <Text variant="tiny" color={colors.zinc500}>
-                  {m.hint}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <Input
-            label="Banner message (optional — blank = default)"
-            value={rainText}
-            onChangeText={setRainText}
-            maxLength={200}
-            placeholder="Designed for quick drainage and uninterrupted play — book your slot."
-          />
-          <Button
-            label="Save banner"
-            onPress={() =>
-              void run("rain", async () => {
-                await adminPricingApi.saveRainBanner(
-                  rainMode,
-                  rainText.trim() || null,
-                );
-                Alert.alert("Saved", "Rain banner updated.");
-              })
-            }
-            loading={busy === "rain"}
           />
         </Card>
 
@@ -520,27 +449,6 @@ const styles = StyleSheet.create({
     marginTop: spacing["3"],
   },
   twoCol: { flexDirection: "row", gap: spacing["3"], marginTop: spacing["1"] },
-  rainHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["2"],
-  },
-  rainModes: {
-    gap: spacing["2"],
-    marginVertical: spacing["2"],
-  },
-  rainModeTile: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.zinc800,
-    backgroundColor: colors.background,
-    padding: spacing["3"],
-    gap: 2,
-  },
-  rainModeTileOn: {
-    borderColor: "rgba(56,189,248,0.5)",
-    backgroundColor: "rgba(56,189,248,0.10)",
-  },
   priceGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
