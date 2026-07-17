@@ -145,7 +145,7 @@ export default async function SportConfigPage({
         </h2>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {tiles.map((tile) => {
           if (tile.kind === "medium") {
             const rep = tile.representative;
@@ -249,7 +249,7 @@ export default async function SportConfigPage({
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Bowling Machine practice
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <CourtSelectLink
               href={`/book/${sport}/${bowlingConfig.id}`}
               sport={sportKey}

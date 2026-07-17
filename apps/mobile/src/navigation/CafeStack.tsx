@@ -3,8 +3,8 @@ import { CafeMenuScreen } from "../screens/cafe/CafeMenuScreen";
 import { CafeCartScreen } from "../screens/cafe/CafeCartScreen";
 import { CafeCheckoutScreen } from "../screens/cafe/CafeCheckoutScreen";
 import { CafeOrderDetailScreen } from "../screens/cafe/CafeOrderDetailScreen";
-import { colors } from "../theme";
 import type { CafeStackParamList } from "./types";
+import { stackHeaderOptions } from "./headerOptions";
 
 const Stack = createNativeStackNavigator<CafeStackParamList>();
 
@@ -16,14 +16,7 @@ const Stack = createNativeStackNavigator<CafeStackParamList>();
 export function CafeStack() {
   return (
     <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        headerBackButtonDisplayMode: "minimal",
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <Stack.Screen
         name="CafeMenu"

@@ -69,6 +69,7 @@ export async function generateCaMonthlyReport(input: {
       },
     },
     select: {
+      id: true,
       date: true,
       totalAmount: true,
       payment: {
@@ -87,6 +88,21 @@ export async function generateCaMonthlyReport(input: {
     },
     orderBy: { date: "asc" },
   });
+
+  // Pass-value attribution per booking — the redeemed hours' worth at
+  // the pass's effective rate. Informational only: the money was
+  // recognised in "Pass Sales" at purchase, so this column must NOT be
+  // added to the paid/cash/UPI/online sums.
+  const redemptions = await db.passRedemption.findMany({
+    where: {
+      bookingId: { in: bookings.map((b) => b.id) },
+      restoredAt: null,
+    },
+    select: { bookingId: true, value: true },
+  });
+  const passValueByBooking = new Map(
+    redemptions.map((r) => [r.bookingId, r.value]),
+  );
 
   const cafeOrders = await db.cafeOrder.findMany({
     where: {
@@ -131,6 +147,10 @@ export async function generateCaMonthlyReport(input: {
     { header: "UPI QR (₹)", key: "upiQr", width: 12 },
     { header: "Online (₹)", key: "online", width: 12 },
     { header: "Discount at venue (₹)", key: "venueDiscount", width: 18 },
+    // Worth of pass-redeemed hours at the pass's effective rate.
+    // Attribution only — that money is in "Pass Sales" (recognised at
+    // purchase), so it is deliberately NOT part of Paid/Cash/UPI/Online.
+    { header: "Pass value (₹)", key: "passValue", width: 14 },
     { header: "Method", key: "method", width: 12 },
   ];
   styleHeaderRow(bookingsSheet);
@@ -145,6 +165,7 @@ export async function generateCaMonthlyReport(input: {
       upiQr: split.upiQr,
       online: split.online,
       venueDiscount: split.venueDiscount,
+      passValue: passValueByBooking.get(b.id) ?? 0,
       method: b.payment?.method ?? "—",
     });
   }
@@ -235,6 +256,41 @@ export async function generateCaMonthlyReport(input: {
   }
   itemSheet.views = [{ state: "frozen", ySplit: 1 }];
 
+  // 4. Pass sales — revenue recognised at PURCHASE (pass-paid
+  // bookings show ₹0 in the sheets above, so nothing double-counts).
+  const passSales = await db.userPass.findMany({
+    where: { purchasedAt: { gte: monthStart, lt: monthEnd } },
+    select: {
+      purchasedAt: true,
+      name: true,
+      price: true,
+      planId: true,
+      paymentMethod: true,
+      razorpayOrderId: true,
+      phonePeMerchantTxnId: true,
+      user: { select: { phone: true } },
+    },
+    orderBy: { purchasedAt: "asc" },
+  });
+  const passSheet = wb.addWorksheet("Pass Sales");
+  passSheet.columns = [
+    { header: "Date", key: "date", width: 20 },
+    { header: "Pass", key: "name", width: 34 },
+    { header: "Customer phone", key: "phone", width: 18 },
+    { header: "Amount (₹)", key: "amount", width: 14 },
+    { header: "Method", key: "method", width: 12 },
+  ];
+  styleHeaderRow(passSheet);
+  for (const ps of passSales) {
+    passSheet.addRow({
+      date: fmtIst(ps.purchasedAt),
+      name: ps.name,
+      phone: ps.user.phone ?? "—",
+      amount: ps.price,
+      method: passReportMethod(ps),
+    });
+  }
+
   // ─── Output ────────────────────────────────────────────────────
   const ab = await wb.xlsx.writeBuffer();
   const bytes = Buffer.from(ab);
@@ -247,6 +303,28 @@ export async function generateCaMonthlyReport(input: {
 // ─── Local formatting helpers ─────────────────────────────────────
 // Duplicated from admin-export.ts so the worker stays self-
 // contained — these are tiny formatters; not worth a shared module.
+
+/** How a pass was paid, for the Pass Sales sheet — offline method if
+ *  stamped (admin-issued at the venue), else inferred from the gateway
+ *  refs. */
+function passReportMethod(p: {
+  planId: string | null;
+  paymentMethod: string | null;
+  razorpayOrderId: string | null;
+  phonePeMerchantTxnId: string | null;
+}): string {
+  if (!p.planId) return "Gift";
+  switch (p.paymentMethod) {
+    case "CASH":
+      return "Cash";
+    case "UPI_QR":
+      return "Static QR";
+    case "FREE":
+      return "Free";
+  }
+  if (p.phonePeMerchantTxnId) return "UPI (DQR)";
+  return "Razorpay";
+}
 
 function fmtIstDate(d: Date): string {
   return d.toLocaleDateString("en-IN", {

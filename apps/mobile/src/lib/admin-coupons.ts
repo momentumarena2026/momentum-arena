@@ -28,7 +28,8 @@ export type CouponConditionType =
   | "TIME_WINDOW"
   | "BIRTHDAY"
   | "REFERRAL"
-  | "FIRST_APP_BOOKING";
+  | "FIRST_APP_BOOKING"
+  | "BOOKING_DATE";
 
 export interface CouponCondition {
   conditionType: CouponConditionType;
@@ -71,6 +72,7 @@ export interface AdminCoupon {
   stackGroup: string | null;
   isPublic: boolean;
   isSystemCode: boolean;
+  autoApply: boolean;
   isActive: boolean;
   validFrom: string;
   validUntil: string;
@@ -100,6 +102,7 @@ export interface CreateCouponInput {
   stackGroup?: string | null;
   isPublic?: boolean;
   isSystemCode?: boolean;
+  autoApply?: boolean;
   validFrom: string;
   validUntil: string;
   conditions?: CouponCondition[];

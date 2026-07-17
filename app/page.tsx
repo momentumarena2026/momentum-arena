@@ -15,7 +15,9 @@ import { SPORT_INFO, customerFacingCourtLabel, formatHoursAsRanges } from "@/lib
 import { formatBookingDate, formatPrice } from "@/lib/pricing";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { getRainBanner } from "@/actions/admin-arena-settings";
+import { arePassesEnabled } from "@/lib/passes";
 import { RainBanner } from "@/components/rain-banner";
+import { PromoBannerSlot } from "@/components/promo-banner-slot";
 
 const sports = [
   {
@@ -188,6 +190,7 @@ export default async function Home() {
 
   // "Rain doesn't slow us down" banner — shown when it's raining in Mathura
   // (AUTO) or forced on by admin. Never throws.
+  const passesEnabled = await arePassesEnabled().catch(() => false);
   const rainBanner = await getRainBanner().catch(() => ({
     show: false,
     title: "",
@@ -340,6 +343,14 @@ export default async function Home() {
               >
                 🛍️ Shop
               </Link>
+              {passesEnabled && (
+                <Link
+                  href="/passes"
+                  className="text-base font-semibold text-zinc-300 hover:text-emerald-400 transition flex items-center gap-2"
+                >
+                  🎟️ Passes
+                </Link>
+              )}
             </div>
             <LoginButton />
           </div>
@@ -445,6 +456,12 @@ export default async function Home() {
             </div>
           </div>
         </section>
+
+        {/* Admin-scheduled promotion banner (HOME_TOP) — sits right
+            above the upcoming-bookings section, styled as the same
+            rounded card as the pickleball promo. Renders whether or
+            not the visitor has bookings. */}
+        <PromoBannerSlot screen="HOME_TOP" variant="top" />
 
         {/* YOUR UPCOMING BOOKINGS — only renders for signed-in users
             with at least one confirmed booking. Mirrors the mobile RN
@@ -566,28 +583,11 @@ export default async function Home() {
               </p>
             </div>
 
-            {/* Pickleball launch promo — tappable banner that deep-links
-                straight into /book/pickleball. Gated on the live
-                PICKLEBALL25 coupon (see `pickleballPromo` above); when
-                admin disables/expires the coupon this disappears on
-                the next request. */}
-            {pickleballPromoLabel ? (
-              <Link
-                href="/book/pickleball"
-                aria-label={`Pickleball Launch Offer — ${pickleballPromoLabel}, auto-applied at checkout`}
-                className="group mb-8 md:mb-10 block overflow-hidden rounded-2xl border border-yellow-500/30 shadow-lg shadow-yellow-500/10 transition-all duration-300 hover:border-yellow-400/60 hover:shadow-yellow-500/25"
-              >
-                <Image
-                  src="/pickleball-promo-banner.jpg"
-                  alt={`Pickleball Launch Offer: flat ${pickleballPromoLabel} every slot — auto-applied at checkout`}
-                  width={1200}
-                  height={400}
-                  priority
-                  className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.01]"
-                  sizes="(min-width: 1280px) 1216px, (min-width: 768px) calc(100vw - 96px), calc(100vw - 32px)"
-                />
-              </Link>
-            ) : null}
+            {/* Admin-managed promotion banners (Web & App Config) — the
+                pickleball launch banner now lives here as a seeded
+                PromoBanner row linked to PICKLEBALL25, so it (and any
+                future promo) retires with its coupon automatically. */}
+            <PromoBannerSlot screen="HOME_PROMO" className="mb-8 md:mb-10" />
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               {sports.map((sport) => {
@@ -759,7 +759,7 @@ export default async function Home() {
               </p>
             </div>
 
-            <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] items-start">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] items-start">
               {/* Layout image — top-down view of the venue with
                   dimension labels baked in. Click → opens full-size
                   in a new tab for power users. */}

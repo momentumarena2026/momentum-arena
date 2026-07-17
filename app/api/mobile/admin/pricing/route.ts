@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
-import { getArenaSettings } from "@/actions/admin-arena-settings";
+import {
+  getArenaSettings,
+  getRainBannerConfig,
+} from "@/actions/admin-arena-settings";
 import type { DayType, TimeType } from "@prisma/client";
 
 /**
@@ -14,6 +17,7 @@ import type { DayType, TimeType } from "@prisma/client";
  *   - "arena":       open/close window          (mirrors updateArenaSettings)
  *   - "band-save":   PEAK/OFF_PEAK band upsert  (mirrors updateTimeClassification)
  *   - "band-delete": drop a band               (mirrors deleteTimeClassification)
+ *   - "rain-banner": banner mode + custom copy  (mirrors setRainBanner)
  *
  * Authorization: requireMobileAdmin(MANAGE_PRICING) — the SAME permission the
  * web actions enforce. The web server actions guard via a cookie-session
@@ -29,17 +33,19 @@ export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_PRICING");
   if ("error" in gate) return gate.error;
 
-  const [configs, rules, classifications, arena] = await Promise.all([
-    db.courtConfig.findMany({
-      where: { isActive: true },
-      orderBy: [{ sport: "asc" }, { size: "asc" }],
-    }),
-    db.pricingRule.findMany(),
-    db.timeClassification.findMany({ orderBy: { startHour: "asc" } }),
-    getArenaSettings(),
-  ]);
+  const [configs, rules, classifications, arena, rainBanner] =
+    await Promise.all([
+      db.courtConfig.findMany({
+        where: { isActive: true },
+        orderBy: [{ sport: "asc" }, { size: "asc" }],
+      }),
+      db.pricingRule.findMany(),
+      db.timeClassification.findMany({ orderBy: { startHour: "asc" } }),
+      getArenaSettings(),
+      getRainBannerConfig(),
+    ]);
 
-  return NextResponse.json({ configs, rules, classifications, arena });
+  return NextResponse.json({ configs, rules, classifications, arena, rainBanner });
 }
 
 export async function POST(request: NextRequest) {
@@ -181,6 +187,37 @@ export async function POST(request: NextRequest) {
       );
     }
     revalidateArena();
+    return NextResponse.json({ ok: true });
+  }
+
+  // --- "Rain doesn't slow us down" banner (ArenaSettings) ---
+  // Mirrors the web setRainBanner action: mode falls back to AUTO on any
+  // unexpected value, custom copy trims + caps at 200 chars (null = default).
+  if (body.action === "rain-banner") {
+    const mode =
+      body.mode === "ON" || body.mode === "OFF" ? body.mode : "AUTO";
+    const text =
+      typeof body.text === "string" && body.text.trim()
+        ? body.text.trim().slice(0, 200)
+        : null;
+    const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+    if (existing) {
+      await db.arenaSettings.update({
+        where: { id: existing.id },
+        data: { rainBannerMode: mode, rainBannerText: text },
+      });
+    } else {
+      await db.arenaSettings.create({
+        data: { rainBannerMode: mode, rainBannerText: text },
+      });
+    }
+    // The banner renders on the homepage + booking page.
+    try {
+      revalidatePath("/");
+      revalidatePath("/book");
+    } catch {
+      // write already landed; revalidation is best-effort
+    }
     return NextResponse.json({ ok: true });
   }
 

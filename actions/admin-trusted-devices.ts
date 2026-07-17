@@ -6,9 +6,8 @@ import { revalidatePath } from "next/cache";
 
 /**
  * Trusted-device allowlist for the app's hidden admin entry (the
- * 5-tap on the version footer). Managing WHO can even see the admin
- * login screen is admin-user management, so the same superadmin-only
- * permission gates it.
+ * 5-tap on the version footer). Gated by its own grantable
+ * MANAGE_TRUSTED_DEVICES permission (superadmins always pass).
  *
  * Devices land here two ways:
  *  - MANUAL: pasted from the ID an untrusted device reveals after 12
@@ -16,7 +15,7 @@ import { revalidatePath } from "next/cache";
  *  - LOGIN: auto-registered by a successful mobile admin login.
  */
 
-const PERMISSION = "MANAGE_ADMIN_USERS" as const;
+const PERMISSION = "MANAGE_TRUSTED_DEVICES" as const;
 
 export async function getTrustedDevices() {
   await requireAdmin(PERMISSION);

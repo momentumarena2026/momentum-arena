@@ -46,6 +46,7 @@ const CELLS: { dayType: PricingDayType; timeType: PricingTimeType; label: string
 const cellKey = (configId: string, d: PricingDayType, t: PricingTimeType) =>
   `${configId}|${d}|${t}`;
 
+
 function hourLabel(h: number) {
   const wrapped = h % 24;
   const ampm = wrapped < 12 ? "am" : "pm";

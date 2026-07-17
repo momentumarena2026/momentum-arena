@@ -280,6 +280,36 @@ export function customerFacingCourtLabel(
   return wasBookedAsHalfCourt ? "Half Court (40×90)" : courtConfigLabel;
 }
 
+/**
+ * Interchangeable court group — configs that differ only by physical
+ * position (the two cricket half-courts, the two leather pitches) are
+ * one bookable product at one price. A pass bought for any position
+ * covers a booking on any other position in the same group. Keyed on
+ * sport + size + category (category keeps the Bowling-Machine config in
+ * its own group even though it shares the box-cricket size space).
+ */
+export function courtGroupKey(c: {
+  sport: string;
+  size: string;
+  category: string | null;
+}): string {
+  return `${c.sport}|${c.size}|${c.category ?? ""}`;
+}
+
+/** Neutral name for a court group. The multi-position cricket groups get
+ *  a side-agnostic label; everything else keeps its own config label. */
+export function courtGroupLabel(c: {
+  sport: string;
+  size: string;
+  category: string | null;
+  label: string;
+}): string {
+  if (c.category === "BOWLING_MACHINE") return c.label;
+  if (c.sport === "CRICKET" && c.size === "MEDIUM") return "Half Court (40×90)";
+  if (c.sport === "CRICKET" && c.size === "XS") return "Leather Pitch";
+  return c.label;
+}
+
 // Check if a date is a weekend (Saturday or Sunday)
 export function isWeekend(date: Date): boolean {
   const day = date.getDay();

@@ -2,11 +2,16 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
+import { getPassOfferForHold } from "@/lib/passes";
+import { PassCheckoutOption } from "@/components/payment/pass-checkout-option";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
 import { getCheckoutPaymentConfig } from "@/actions/admin-payment-settings";
-import { getActiveSportPromo } from "@/actions/sport-promo";
+import {
+  getActiveSportPromo,
+  getAutoApplyCouponCodes,
+} from "@/actions/sport-promo";
 import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
 import { getRewardConfig } from "@/lib/rewards/config";
 import { CheckoutClient } from "./checkout-client";
@@ -50,6 +55,9 @@ export default async function CheckoutPage({
     redirect("/book?error=lock_expired");
   }
 
+  // Eligible pass for this hold (null when none, or coupon/points applied).
+  const passOffer = await getPassOfferForHold(hold);
+
   const sportInfo = SPORT_INFO[hold.courtConfig.sport];
   const sizeInfo = SIZE_INFO[hold.courtConfig.size];
   void sizeInfo;
@@ -86,7 +94,7 @@ export default async function CheckoutPage({
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
   const recurringCountDisplay = recurringCount || 0;
 
-  const [newUserDiscount, paymentConfig, sportPromo, rewardConfig] =
+  const [newUserDiscount, paymentConfig, sportPromo, rewardConfig, autoApplyCodes] =
     await Promise.all([
       getNewUserDiscount(
         session.user.id,
@@ -104,6 +112,11 @@ export default async function CheckoutPage({
       // the client whenever Total changes (coupon/redeem/advance
       // toggles).
       getRewardConfig(),
+      // Admin-flagged auto-apply coupons — tried by the client BEFORE the
+      // new-user / sport fallback codes (event promos outrank welcome).
+      getAutoApplyCouponCodes({ sport: String(hold.courtConfig.sport) }).catch(
+        () => [] as string[],
+      ),
     ]);
 
   // Earn-rate that will actually fire when the booking is committed.
@@ -274,6 +287,12 @@ export default async function CheckoutPage({
         </div>
       </div>
 
+      {/* Pass redemption — shown above the regular payment methods
+          whenever the signed-in user holds an eligible pass. */}
+      {passOffer && (
+        <PassCheckoutOption holdId={hold.id} offer={passOffer} />
+      )}
+
       {/* Payment */}
       <CheckoutClient
         holdId={hold.id}
@@ -286,6 +305,7 @@ export default async function CheckoutPage({
         userEmail={session.user.email || ""}
         userPhone={(session.user as { phone?: string }).phone || ""}
         razorpayOfferId={undefined}
+        autoApplyCodes={autoApplyCodes}
         newUserDiscount={
           newUserDiscount
             ? {

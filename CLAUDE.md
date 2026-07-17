@@ -45,6 +45,14 @@ and silently skips workflows). The pipeline is path-filtered; tokens are
 unnecessary. The one legitimate use is machine-generated fingerprint-baseline
 commits created by CI itself.
 
+## Module docs
+
+- `docs/PASSES.md` — Monthly Passes: schema, pricing bands, court groups,
+  purchase/redemption/sharing flows, cash-basis money story, admin ops.
+- `docs/TRUSTED-DEVICES.md` — the 5-tap hidden admin entry allowlist
+  (device IDs, trust check, registration paths).
+- `docs/phonepe-dqr-onboarding.md` — PhonePe Dynamic QR merchant setup.
+
 ## Deployment model (read before shipping)
 
 Push = deploy. Vercel builds are schema-atomic (`prisma db push` runs inside

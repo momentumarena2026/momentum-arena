@@ -73,6 +73,7 @@ const patchSchema = z.object({
   stackGroup: z.string().nullish(),
   isPublic: z.boolean().optional(),
   isSystemCode: z.boolean().optional(),
+  autoApply: z.boolean().optional(),
   isActive: z.boolean().optional(),
   validFrom: z.string().min(1).optional(),
   validUntil: z.string().min(1).optional(),
@@ -123,6 +124,7 @@ export async function PATCH(
   if (d.stackGroup !== undefined) data.stackGroup = d.stackGroup?.trim() || null;
   if (d.isPublic !== undefined) data.isPublic = d.isPublic;
   if (d.isSystemCode !== undefined) data.isSystemCode = d.isSystemCode;
+  if (d.autoApply !== undefined) data.autoApply = d.autoApply;
   if (d.isActive !== undefined) data.isActive = d.isActive;
   if (d.validFrom !== undefined) data.validFrom = new Date(d.validFrom);
   if (d.validUntil !== undefined) data.validUntil = new Date(d.validUntil);

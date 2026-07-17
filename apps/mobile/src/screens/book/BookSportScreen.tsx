@@ -12,6 +12,7 @@ import type { Sport } from "../../lib/types";
 import { sportLabel } from "../../lib/format";
 import { trackSportSelected } from "../../lib/analytics";
 import type { BookStackParamList } from "../../navigation/types";
+import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 
 type Nav = NativeStackNavigationProp<BookStackParamList, "BookSport">;
 
@@ -73,7 +74,7 @@ export function BookSportScreen() {
   const navigation = useNavigation<Nav>();
 
   return (
-    <Screen scrollable>
+    <Screen scrollable edges={["top", "bottom"]}>
       {/* Rain "all-weather" banner — mirrors web's /book page. Rounded,
           informational (no deep-link; the user is already booking).
           Renders only when getRainBanner() says to. */}
@@ -89,6 +90,9 @@ export function BookSportScreen() {
           Choose your sport to get started
         </Text>
       </View>
+
+      {/* Admin-managed promotion banners for this screen. */}
+      <PromoBannerSlot screen="BOOK_SPORT" style={{ marginBottom: spacing["4"] }} />
 
       <View style={styles.list}>
         {SPORTS.map((sport) => {

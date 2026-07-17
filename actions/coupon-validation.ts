@@ -35,6 +35,14 @@ interface ValidateCouponContext {
    * paths that don't have a booking-category in context still work.
    */
   bookingCategory?: "BOX_CRICKET" | "BOWLING_MACHINE" | null;
+  /**
+   * The booking's PLAY DATE (SlotHold.date / Booking.date — stored at
+   * calendar-date midnight). Drives the BOOKING_DATE condition, which
+   * restricts a coupon to bookings ON specific days (event promos).
+   * Callers with no booking in context (cafe, code browsing) omit it —
+   * a BOOKING_DATE coupon then rejects with a clear error.
+   */
+  bookingDate?: Date | null;
 }
 
 export async function validateCoupon(
@@ -313,6 +321,30 @@ export async function validateCoupon(
                 error: `This coupon is only valid between ${startHour}:00 and ${endHour}:00`,
               };
             }
+          }
+          break;
+        }
+        case "BOOKING_DATE": {
+          // {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"} — IST calendar days,
+          // inclusive. Compared against the booking's PLAY date (not the
+          // purchase time — validFrom/validUntil already cover that).
+          const { from, to } = condValue as { from?: string; to?: string };
+          const label =
+            from === to || !to ? `on ${from}` : `between ${from} and ${to}`;
+          if (!context.bookingDate) {
+            return {
+              valid: false,
+              error: `This coupon is only valid for bookings ${label}`,
+            };
+          }
+          const playDay = context.bookingDate.toLocaleDateString("en-CA", {
+            timeZone: "Asia/Kolkata",
+          });
+          if ((from && playDay < from) || (to && playDay > to)) {
+            return {
+              valid: false,
+              error: `This coupon is only valid for bookings ${label}`,
+            };
           }
           break;
         }

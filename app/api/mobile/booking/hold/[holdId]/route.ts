@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
+import { getPassOfferForHold } from "@/lib/passes";
 import { logBookingRequest } from "@/lib/server-log";
 
 // GET /api/mobile/booking/hold/[holdId] — returns the SlotHold contents
@@ -43,6 +44,11 @@ export async function GET(
     },
   });
 
+  // Eligible pass + coverage for the "Use my pass" banner — same
+  // server-side math the web checkout page runs (null when no eligible
+  // pass, or when a coupon/points are already applied to the hold).
+  const passOffer = await getPassOfferForHold(hold).catch(() => null);
+
   return NextResponse.json({
     id: hold.id,
     courtConfigId: hold.courtConfigId,
@@ -63,5 +69,6 @@ export async function GET(
     equipmentSelection: hold.equipmentSelection ?? null,
     equipmentTotalAmount: hold.equipmentTotalAmount ?? null,
     courtConfig: hold.courtConfig,
+    passOffer,
   });
 }

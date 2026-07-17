@@ -85,6 +85,7 @@ interface DailyRow {
   day: number;
   earnings: number;
   bookingCount: number;
+  passCount: number;
 }
 
 export function DailyEarningsChart() {
@@ -148,6 +149,7 @@ export function DailyEarningsChart() {
       day: r.day,
       primary: r.earnings,
       primaryBookings: r.bookingCount,
+      primaryPasses: r.passCount ?? 0,
       compare: cmpMap.get(r.day) ?? 0,
     }));
   }, [primary, compare]);
@@ -166,7 +168,8 @@ export function DailyEarningsChart() {
             Daily Earnings — Month View
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Earnings keyed to booking date (post-discount). Totals:{" "}
+            Earnings keyed to booking date (post-discount). Pass sales count
+            on their purchase date; pass-paid bookings at ₹0. Totals:{" "}
             <span className="font-medium text-emerald-400">
               {formatINR(primaryTotal)}
             </span>
@@ -288,6 +291,7 @@ export function DailyEarningsChart() {
                   day: number;
                   primary: number;
                   primaryBookings: number;
+                  primaryPasses: number;
                   compare: number;
                 };
                 const weekdayLong = WEEKDAY_LONG[
@@ -298,6 +302,13 @@ export function DailyEarningsChart() {
                     <p className="mb-1 text-xs text-zinc-400">
                       Day {label} · {weekdayLong} · {row.primaryBookings} booking
                       {row.primaryBookings === 1 ? "" : "s"}
+                      {row.primaryPasses > 0 && (
+                        <>
+                          {" "}
+                          · {row.primaryPasses} pass
+                          {row.primaryPasses === 1 ? "" : "es"}
+                        </>
+                      )}
                     </p>
                     <p className="text-sm font-medium text-emerald-400">
                       {primaryLabel}: {formatINR(row.primary)}
@@ -341,6 +352,7 @@ interface MonthlyRow {
   month: number;
   earnings: number;
   bookingCount: number;
+  passCount: number;
 }
 
 export function MonthlyEarningsChart() {
@@ -388,6 +400,7 @@ export function MonthlyEarningsChart() {
       monthLabel: MONTHS[r.month - 1].slice(0, 3),
       primary: r.earnings,
       primaryBookings: r.bookingCount,
+      primaryPasses: r.passCount ?? 0,
       compare: cmpMap.get(r.month) ?? 0,
     }));
   }, [primary, compare]);
@@ -403,7 +416,8 @@ export function MonthlyEarningsChart() {
             Monthly Earnings — Year View
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Earnings keyed to booking date (post-discount). Year total:{" "}
+            Earnings keyed to booking date (post-discount). Pass sales count
+            on their purchase date; pass-paid bookings at ₹0. Year total:{" "}
             <span className="font-medium text-emerald-400">
               {formatINR(primaryTotal)}
             </span>
@@ -470,6 +484,7 @@ export function MonthlyEarningsChart() {
                   month: number;
                   primary: number;
                   primaryBookings: number;
+                  primaryPasses: number;
                   compare: number;
                 };
                 return (
@@ -477,6 +492,13 @@ export function MonthlyEarningsChart() {
                     <p className="mb-1 text-xs text-zinc-400">
                       {label} · {row.primaryBookings} booking
                       {row.primaryBookings === 1 ? "" : "s"}
+                      {row.primaryPasses > 0 && (
+                        <>
+                          {" "}
+                          · {row.primaryPasses} pass
+                          {row.primaryPasses === 1 ? "" : "es"}
+                        </>
+                      )}
                     </p>
                     <p className="text-sm font-medium text-emerald-400">
                       {year}: {formatINR(row.primary)}

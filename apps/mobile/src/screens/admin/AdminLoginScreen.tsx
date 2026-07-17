@@ -62,7 +62,7 @@ export function AdminLoginScreen() {
   }
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={["top", "bottom"]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <X size={22} color={colors.zinc400} />

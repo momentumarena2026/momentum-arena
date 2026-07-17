@@ -273,6 +273,8 @@ export async function applyCouponToHold(
     // new-user welcome discount is pre-seeded that way.
     bookingCategory: hold.courtConfig.category,
     platform,
+    // Play date — drives BOOKING_DATE event promos (e.g. final-day 25%).
+    bookingDate: hold.date,
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {
@@ -1031,7 +1033,7 @@ export async function selectCashPayment(
 // ────────────────────────────────────────────────────────────────────────────
 
 type PaymentRecord = {
-  method: "RAZORPAY" | "PHONEPE" | "UPI_QR" | "CASH" | "FREE";
+  method: "RAZORPAY" | "PHONEPE" | "UPI_QR" | "CASH" | "FREE" | "PASS";
   status: "PENDING" | "PARTIAL" | "COMPLETED" | "FAILED" | "REFUNDED";
   amount: number;
   razorpayOrderId?: string;

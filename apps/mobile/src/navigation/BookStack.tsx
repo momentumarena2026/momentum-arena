@@ -5,23 +5,16 @@ import { BookSlotsScreen } from "../screens/book/BookSlotsScreen";
 import { BookBowlingSlotsScreen } from "../screens/book/BookBowlingSlotsScreen";
 import { CheckoutScreen } from "../screens/book/CheckoutScreen";
 import { BookingConfirmedScreen } from "../screens/book/BookingConfirmedScreen";
-import { colors } from "../theme";
 import { sportLabel } from "../lib/format";
 import type { BookStackParamList } from "./types";
+import { stackHeaderOptions } from "./headerOptions";
 
 const Stack = createNativeStackNavigator<BookStackParamList>();
 
 export function BookStack() {
   return (
     <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        headerBackButtonDisplayMode: "minimal",
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <Stack.Screen
         name="BookSport"

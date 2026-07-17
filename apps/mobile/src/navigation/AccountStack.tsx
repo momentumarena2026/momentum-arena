@@ -1,6 +1,9 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AccountScreen } from "../screens/account/AccountScreen";
 import { EditNameScreen } from "../screens/account/EditNameScreen";
+import { MyPassesScreen } from "../screens/account/MyPassesScreen";
+import { PassDetailScreen } from "../screens/account/PassDetailScreen";
+import { PassesStoreScreen } from "../screens/account/PassesStoreScreen";
 import { WaitlistScreen } from "../screens/account/WaitlistScreen";
 import { CouponsScreen } from "../screens/account/CouponsScreen";
 import { RewardsScreen } from "../screens/account/RewardsScreen";
@@ -12,21 +15,15 @@ import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
 import { CafeOrdersListScreen } from "../screens/cafe/CafeOrdersListScreen";
 import { CafeOrderDetailScreen } from "../screens/cafe/CafeOrderDetailScreen";
 import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
-import { colors } from "../theme";
 import type { AccountStackParamList } from "./types";
+import { stackHeaderOptions } from "./headerOptions";
 
 const Stack = createNativeStackNavigator<AccountStackParamList>();
 
 export function AccountStack() {
   return (
     <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <Stack.Screen
         name="AccountHome"
@@ -41,6 +38,21 @@ export function AccountStack() {
         name="EditName"
         component={EditNameScreen}
         options={{ title: "Edit name" }}
+      />
+      <Stack.Screen
+        name="MyPasses"
+        component={MyPassesScreen}
+        options={{ title: "My passes" }}
+      />
+      <Stack.Screen
+        name="PassDetail"
+        component={PassDetailScreen}
+        options={{ title: "Pass" }}
+      />
+      <Stack.Screen
+        name="PassesStore"
+        component={PassesStoreScreen}
+        options={{ title: "Buy a pass" }}
       />
       <Stack.Screen
         name="BookingsList"

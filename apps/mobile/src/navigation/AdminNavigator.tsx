@@ -46,6 +46,9 @@ import { AdminEquipmentScreen } from "../screens/admin/AdminEquipmentScreen";
 import { AdminBowlingScreen } from "../screens/admin/AdminBowlingScreen";
 import { AdminPricingScreen } from "../screens/admin/AdminPricingScreen";
 import { AdminCouponsScreen } from "../screens/admin/AdminCouponsScreen";
+import { AdminPassesScreen } from "../screens/admin/AdminPassesScreen";
+import { AdminRainBannerScreen } from "../screens/admin/AdminRainBannerScreen";
+import { AdminPromoBannersScreen } from "../screens/admin/AdminPromoBannersScreen";
 import { AdminProductsScreen } from "../screens/admin/AdminProductsScreen";
 import { AdminProductOrdersScreen } from "../screens/admin/AdminProductOrdersScreen";
 import { AdminPosScreen } from "../screens/admin/AdminPosScreen";
@@ -68,12 +71,14 @@ import { AdminPaymentSettingsScreen } from "../screens/admin/AdminPaymentSetting
 import { AdminRazorpayScreen } from "../screens/admin/AdminRazorpayScreen";
 import { AdminPhonePeScreen } from "../screens/admin/AdminPhonePeScreen";
 import { AdminAdminUsersScreen } from "../screens/admin/AdminAdminUsersScreen";
+import { AdminTrustedDevicesScreen } from "../screens/admin/AdminTrustedDevicesScreen";
 import { AdminProfileScreen } from "../screens/admin/AdminProfileScreen";
 import { AdminRecoveryScreen } from "../screens/admin/AdminRecoveryScreen";
 import { AdminRecurringConfigScreen } from "../screens/admin/AdminRecurringConfigScreen";
 import { AdminUtrVerifyScreen } from "../screens/admin/AdminUtrVerifyScreen";
 import { AdminDiscountsScreen } from "../screens/admin/AdminDiscountsScreen";
 import { AdminReportsScreen } from "../screens/admin/AdminReportsScreen";
+import { stackHeaderOptions } from "./headerOptions";
 import type {
   AdminBookingsStackParamList,
   AdminCafeStackParamList,
@@ -102,13 +107,7 @@ const Tabs = createBottomTabNavigator<AdminTabsParamList>();
 function AdminMoreStackNav() {
   return (
     <MoreStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <MoreStack.Screen
         name="AdminMoreHome"
@@ -144,6 +143,21 @@ function AdminMoreStackNav() {
         name="AdminCoupons"
         component={AdminCouponsScreen}
         options={{ title: "Coupons" }}
+      />
+      <MoreStack.Screen
+        name="AdminPasses"
+        component={AdminPassesScreen}
+        options={{ title: "Monthly passes" }}
+      />
+      <MoreStack.Screen
+        name="AdminRainBanner"
+        component={AdminRainBannerScreen}
+        options={{ title: "Rain banner" }}
+      />
+      <MoreStack.Screen
+        name="AdminPromoBanners"
+        component={AdminPromoBannersScreen}
+        options={{ title: "Promotion banners" }}
       />
       <MoreStack.Screen
         name="AdminProducts"
@@ -210,6 +224,7 @@ function AdminMoreStackNav() {
       <MoreStack.Screen name="AdminRazorpay" component={AdminRazorpayScreen} options={{ title: "Razorpay" }} />
       <MoreStack.Screen name="AdminPhonePe" component={AdminPhonePeScreen} options={{ title: "PhonePe" }} />
       <MoreStack.Screen name="AdminAdminUsers" component={AdminAdminUsersScreen} options={{ title: "Admin users" }} />
+      <MoreStack.Screen name="AdminTrustedDevices" component={AdminTrustedDevicesScreen} options={{ title: "Trusted devices" }} />
       <MoreStack.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: "My profile" }} />
       <MoreStack.Screen name="AdminRecovery" component={AdminRecoveryScreen} options={{ title: "Payment recovery" }} />
       <MoreStack.Screen name="AdminRecurringConfig" component={AdminRecurringConfigScreen} options={{ title: "Recurring config" }} />
@@ -223,13 +238,7 @@ function AdminMoreStackNav() {
 function AdminRewardsStackNav() {
   return (
     <RewardsStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <RewardsStack.Screen
         name="AdminRewardsHome"
@@ -263,13 +272,7 @@ function AdminRewardsStackNav() {
 function AdminExpensesStackNav() {
   return (
     <ExpensesStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <ExpensesStack.Screen
         name="AdminExpensesList"
@@ -306,13 +309,7 @@ function AdminExpensesStackNav() {
 function AdminCafeStackNav() {
   return (
     <CafeStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <CafeStack.Screen
         name="AdminCafeOrders"
@@ -336,13 +333,7 @@ function AdminCafeStackNav() {
 function AdminCalendarStackNav() {
   return (
     <CalendarStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <CalendarStack.Screen
         name="AdminCalendar"
@@ -356,13 +347,7 @@ function AdminCalendarStackNav() {
 function AdminBookingsStack() {
   return (
     <BookingsStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground, fontWeight: "600" },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <BookingsStack.Screen
         name="AdminBookingsList"

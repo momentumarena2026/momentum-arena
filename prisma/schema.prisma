@@ -55,6 +55,9 @@ enum PaymentMethod {
   UPI_QR
   CASH
   FREE
+  // Booking paid by debiting hours from a purchased UserPass —
+  // amount is 0; the revenue was recognised at pass purchase.
+  PASS
 }
 
 enum PaymentGateway {
@@ -131,9 +134,17 @@ enum DiscountType {
 }
 
 enum BannerPlacement {
+  // Legacy values (unused rows may still carry them)
   BOOK_PAGE
-  SLOT_SELECTION
   CHECKOUT
+  // Customer screens the promo-banner system targets (web + app).
+  HOME_TOP // homepage, full-width above the logo/header
+  HOME_PROMO // homepage mid-page promo slot (old pickleball spot)
+  BOOK_SPORT // choose-your-sport page
+  SLOT_SELECTION
+  CAFE
+  SHOP
+  PASSES
 }
 
 enum AdminRole {
@@ -165,6 +176,12 @@ enum CouponConditionType {
   // (zero prior app bookings). Distinct from FIRST_PURCHASE, which keys on
   // prior coupon usage. Self-enforces app platform in the validator.
   FIRST_APP_BOOKING
+  // Valid only when the booking's PLAY DATE falls inside a calendar
+  // window: conditionValue {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"} (IST,
+  // inclusive). Distinct from validFrom/validUntil (which gate WHEN the
+  // coupon can be redeemed) — this gates WHICH DAY is being booked.
+  // Used for event promos (e.g. worldcup-final-day football discount).
+  BOOKING_DATE
 }
 
 enum UserGroupType {
@@ -244,6 +261,8 @@ model User {
   accounts      Account[]
   sessions      Session[]
   bookings      Booking[]
+  passes        UserPass[]
+  passMemberships PassMember[]
   slotHolds     SlotHold[]
   cafeOrders    CafeOrder[]
   referralCode  String?     @unique
@@ -364,9 +383,17 @@ model CourtConfig {
   // implying anything about the rest of the sport.
   slotDurationMinutes Int @default(60)
 
+  // Pass sharing: how many ADDITIONAL members (besides the owner) a
+  // pass on this court may be shared with. 0 = sharing off. Set per
+  // sport/sub-sport from the admin passes page; the setter writes the
+  // same value to every config in the interchangeable court group.
+  maxPassMembers Int @default(0)
+
   bookings          Booking[]
   slotHolds         SlotHold[]
   prices            PricingRule[]
+  passPlans         PassPlan[]
+  userPasses        UserPass[]    @relation("UserPassCourt")
   slotBlocks        SlotBlock[]
   waitlistEntries   Waitlist[]
   recurringBookings RecurringBooking[]
@@ -444,6 +471,9 @@ model SlotHold {
   phonePeMerchantTxnId String?        @unique
   paymentMethod        PaymentMethod?
   paymentAmount        Int?
+  // Pass top-up flow: the UserPass whose hours will part-pay this
+  // hold once the gateway remainder captures (see /api/passes/redeem).
+  redeemPassId         String?
   paymentInitiatedAt   DateTime?
 
   // Coupon applied during checkout. Persisted on the hold so that when the
@@ -710,21 +740,44 @@ model Notification {
   @@index([bookingId])
 }
 
+// Promotion banners (admin "Web & App Config") — image banners rendered
+// on chosen customer screens, web + app. Live when: isActive AND inside
+// [startsAt, endsAt] (either side optional) AND — when a coupon is
+// linked — that coupon is active and inside its own validity window
+// (the banner auto-retires with the promo). Repurposed from an unused
+// legacy model of the same name (no code ever queried it).
 model PromoBanner {
-  id              String            @id @default(cuid())
-  title           String
-  description     String
-  discountInfo    String?
-  imageUrl        String?
-  placement       BannerPlacement[]
-  razorpayOfferId String?
-  isActive        Boolean           @default(true)
-  startsAt        DateTime
-  endsAt          DateTime
-  createdBy       String
+  id    String @id @default(cuid())
+  title String // admin label + accessibility alt text
+  // Optimised upload variants (webp; see /api/admin/promo-banners/upload).
+  // Site-relative paths (seeded /public assets) are allowed — the mobile
+  // API absolutises them against the request origin.
+  imageUrl    String
+  appImageUrl String?
+  // width/height ratio of the master upload — the app reserves layout
+  // with it before the image loads.
+  aspectRatio Float @default(3)
+  // Where a tap lands (web URL or site-relative path). The app resolves
+  // known paths to native screens and falls back to the browser.
+  linkUrl   String?
+  placement BannerPlacement[]
+  // SLOT_SELECTION refinement: when non-empty, the banner only shows on
+  // these sports' slot pages. Empty = every sport (legacy rows fall back
+  // to a linkUrl heuristic — see lib/promo-banners.bannerRelevantToSport).
+  slotSports Sport[] @default([])
+  // Coupon-linked lifetime (see header comment).
+  couponId String?
+  coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  createdBy String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([isActive])
 }
 
 model DiscountCode {
@@ -795,6 +848,177 @@ model FAQEntry {
 // Enforcement is always on — an empty table means NO device can open
 // the admin entry; bootstrap new devices via the 12-tap ID reveal +
 // this list (web admin login is independent of the app).
+enum UserPassStatus {
+  ACTIVE
+  EXHAUSTED
+  EXPIRED
+  CANCELLED
+}
+
+// ─── Monthly Passes ─────────────────────────────────────────────────
+// Bulk-hour products: N hours on one court config at a discounted
+// effective hourly rate, valid for validityDays from purchase.
+// PassPlan = the admin-configured product; UserPass = a purchased
+// instance with a live minute balance; PassRedemption = per-booking
+// debit audit (drives restore-on-cancel).
+
+model PassPlan {
+  id            String      @id @default(cuid())
+  name          String
+  sport         Sport
+  courtConfigId String
+  courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
+  // Balance sold, in MINUTES (5h = 300) so 30-min bowling slots
+  // debit cleanly with integer math.
+  totalMinutes  Int
+  // The headline per-hour rate the discount is marketed against
+  // (e.g. ₹2,000/hr → pass effective ₹1,900/hr). Pre-filled from the
+  // config's highest PricingRule; admin can adjust. Rupees.
+  anchorPricePerHour Int
+  // anchor × hours — the "actual price" shown struck through.
+  baseAmount    Int
+  discountPercent Float
+  // Final sell price, rupees, rounded.
+  price         Int
+  validityDays  Int
+  // Pricing bands the pass may be redeemed on — a JSON array of
+  // { dayType, timeType } cells that ALL shared `anchorPrice` (per slot)
+  // at creation. Redemption only covers slots in these bands. On a later
+  // sport-price change a band whose price no longer equals anchorPrice
+  // stops being valid; a plan with no valid band is treated as inactive.
+  // (Empty/absent = legacy unrestricted.)
+  bands         Json?
+  anchorPrice   Int?
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userPasses UserPass[]
+
+  @@index([isActive, sortOrder])
+}
+
+model UserPass {
+  id     String @id @default(cuid())
+  // Optional: a bespoke gift pass (admin-created, private, not sold as
+  // a public PassPlan) has no plan behind it — everything it needs is
+  // snapshotted below. Storefront purchases + at-venue issues set it.
+  planId String?
+  plan   PassPlan? @relation(fields: [planId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Plan snapshot at purchase time — plan edits never mutate what a
+  // customer already bought.
+  name          String
+  sport         Sport
+  courtConfigId String
+  // Relation added for member-cap / label lookups; the scalar remains
+  // the snapshot source of truth.
+  courtConfig   CourtConfig @relation("UserPassCourt", fields: [courtConfigId], references: [id])
+  totalMinutes  Int
+  price         Int
+  validityDays  Int
+  // Snapshot of the pricing bands this pass redeems on (JSON array of
+  // { dayType, timeType }) + the per-slot anchor price at purchase.
+  // Honoured as-bought forever — later sport-price changes never shrink
+  // an already-sold pass. Empty/absent = legacy unrestricted.
+  bands         Json?
+  anchorPrice   Int?
+
+  remainingMinutes Int
+  status           UserPassStatus @default(ACTIVE)
+  purchasedAt      DateTime       @default(now())
+  // When the pass activates. Buyer/admin may schedule a future start;
+  // the pass isn't redeemable before this, and expiresAt = startsAt +
+  // validityDays. Defaults to purchase time (immediate).
+  startsAt         DateTime       @default(now())
+  expiresAt        DateTime
+
+  // Purchase payment refs (money-first: the row is only created after
+  // the gateway verifies/webhooks the capture).
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String?
+  // DQR (PhonePe UPI) idempotency key — set when a pass is bought via
+  // the dynamic-QR flow instead of Razorpay.
+  phonePeMerchantTxnId String? @unique
+
+  // Offline / at-venue sale (admin-issued). Online purchases leave
+  // these null and are inferred as "Online" from the gateway refs
+  // above. paymentMethod records how a walk-in paid (CASH / UPI_QR
+  // static QR / FREE comp); issuedByAdminId is the audit trail;
+  // offlineRef holds a static-QR UTR or a free-text note.
+  paymentMethod   PaymentMethod?
+  issuedByAdminId String?
+  offlineRef      String?
+
+  redemptions PassRedemption[]
+  members     PassMember[]
+
+  @@index([userId, status])
+  @@index([courtConfigId, status])
+}
+
+// A user the pass owner shares their pass with. Members can redeem the
+// pass at checkout (and via admin extends) exactly like the owner, but
+// only the owner (or admin) manages the member list. Cap comes from
+// CourtConfig.maxPassMembers for the pass's court.
+model PassMember {
+  id         String   @id @default(cuid())
+  userPassId String
+  userPass   UserPass @relation(fields: [userPassId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  addedAt    DateTime @default(now())
+  // Audit: "OWNER" or the admin id that added them.
+  addedBy    String?
+
+  @@unique([userPassId, userId])
+  @@index([userId])
+}
+
+model PassRedemption {
+  id         String   @id @default(cuid())
+  userPassId String
+  userPass   UserPass @relation(fields: [userPassId], references: [id])
+  // One redemption per booking; top-up bookings still debit through a
+  // single row (minutes = the covered portion).
+  bookingId  String   @unique
+  minutes    Int
+  // Value attribution (rupees): what the redeemed minutes actually cost
+  // the customer at the pass's effective rate (pass.price × minutes /
+  // totalMinutes). Revenue stays recognised ONCE at pass purchase; this
+  // is the per-booking worth shown on bookings / analytics / reports.
+  value      Int      @default(0)
+  // List-price rupees this redemption SETTLES on the booking (the
+  // covered slots at slot pricing). Drives owed-at-venue math so a
+  // pass-paid booking never shows "collect at venue". 0 for pass-paid
+  // extends (their slots are recorded at ₹0 and never join the total).
+  coveredAmount Int   @default(0)
+  createdAt  DateTime @default(now())
+  // Set when an eligible cancellation restored these minutes.
+  restoredAt DateTime?
+}
+
+// Money-first holder for a pass bought via PhonePe Dynamic QR. Unlike
+// Razorpay (whose order NOTES carry planId+userId), DQR callbacks only
+// carry the transactionId — so we persist the mapping here and
+// materialise the UserPass on the status poll / S2S callback.
+model PassPurchaseIntent {
+  id                   String   @id @default(cuid())
+  planId               String
+  userId               String
+  // Scheduled start captured at initiate, carried onto the UserPass.
+  startsAt             DateTime @default(now())
+  phonePeMerchantTxnId String?  @unique
+  // UserPass id once materialised (idempotency fast-path).
+  consumedUserPassId   String?
+  createdAt            DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model TrustedDevice {
   id         String   @id @default(cuid())
   // App-generated ID: keychain-persisted UUID seeded from the platform
@@ -1195,6 +1419,11 @@ model Coupon {
   stackGroup   String?
   isPublic     Boolean @default(true) // visible on customer coupon page
   isSystemCode Boolean @default(false) // auto-applied (new user, referral, etc.)
+  // Admin-flagged checkout auto-apply: both checkouts try these coupons
+  // FIRST (before the new-user / sport fallback codes) — full
+  // validateCoupon eligibility still applies, so an inapplicable
+  // auto-apply coupon silently falls through to the next candidate.
+  autoApply    Boolean @default(false)
 
   validFrom  DateTime
   validUntil DateTime
@@ -1203,6 +1432,9 @@ model Coupon {
 
   conditions CouponCondition[]
   usages     CouponUsage[]
+  // Promotion banners tied to this coupon — the banner stays live only
+  // while the coupon is active + inside its validity window.
+  promoBanners PromoBanner[]
 
   // Admin-curated targeting (sits alongside the auto-computed
   // userGroupFilter). When either of these is non-empty the coupon
@@ -1493,6 +1725,11 @@ model ArenaSettings {
   // rainBannerText optionally overrides the default banner copy.
   rainBannerMode String  @default("AUTO")
   rainBannerText String?
+  // Master switch for the Monthly Passes storefront. OFF hides the
+  // customer /passes buying page + plan listing and blocks the
+  // purchase API. Already-sold passes keep redeeming at checkout
+  // regardless — disabling sales never voids paid hours.
+  passesEnabled  Boolean @default(false)
   updatedAt DateTime @updatedAt
 }
 

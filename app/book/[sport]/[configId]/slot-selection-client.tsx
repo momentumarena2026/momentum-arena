@@ -522,25 +522,10 @@ export function SlotSelectionClient({
         </div>
       ) : (
         <>
-          {/* Launch-offer banner image. The designer banner already
-              carries the "25% OFF · auto-applied at checkout" copy +
-              the morning/night price chips, so a parallel text card
-              would be redundant.
-              Still gated on the live PICKLEBALL25 coupon — when admin
-              disables/expires it server-side, this disappears on the
-              next request, same as the per-slot strike-through prices. */}
-          {promo?.percentOff !== null && promo?.percentOff !== undefined && (
-            <div className="overflow-hidden rounded-2xl border border-yellow-500/30 shadow-lg shadow-yellow-500/10">
-              <Image
-                src="/pickleball-promo-banner.jpg"
-                alt={`Pickleball Launch Offer: ${promo.percentOff}% off every slot — auto-applied at checkout`}
-                width={1200}
-                height={400}
-                className="h-auto w-full"
-                sizes="(min-width: 768px) 768px, calc(100vw - 32px)"
-              />
-            </div>
-          )}
+          {/* The launch-offer banner moved to the server page's
+              PromoBannerSlot (below the title) — admin-managed now.
+              The per-slot strike-through pricing below stays driven by
+              the live promo. */}
           <SlotGrid
             slots={slots}
             promo={promo}

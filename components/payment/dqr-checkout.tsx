@@ -30,9 +30,14 @@ interface DqrCheckoutProps {
   isAdvance?: boolean;
   advanceAmount?: number;
   remainingAmount?: number;
-  /** "booking" hits /api/phonepe/dqr/*, "cafe" hits the cafe-* variants. */
-  surface?: "booking" | "cafe";
-  /** For cafe: the CafePaymentIntent id passed as `holdId`-equivalent. */
+  /** "booking" hits /api/phonepe/dqr/*, "cafe" the cafe-* variants,
+   *  "pass" the pass-* variants (holdId carries the PassPlan id). */
+  surface?: "booking" | "cafe" | "pass";
+  /** Extra fields merged into the initiate POST body (e.g. a pass
+   *  start date). */
+  initiateExtra?: Record<string, unknown>;
+  /** For cafe: the CafePaymentIntent id passed as `holdId`-equivalent.
+   *  For pass: the returned id is the UserPass id. */
   onConfirmed: (id: string) => void;
   onCancel?: () => void;
 }
@@ -95,6 +100,7 @@ export function DqrCheckout({
   advanceAmount,
   remainingAmount,
   surface = "booking",
+  initiateExtra,
   onConfirmed,
   onCancel,
 }: DqrCheckoutProps) {
@@ -120,11 +126,15 @@ export function DqrCheckout({
   const initiateUrl =
     surface === "cafe"
       ? "/api/phonepe/dqr/cafe-initiate"
-      : "/api/phonepe/dqr/initiate";
+      : surface === "pass"
+        ? "/api/phonepe/dqr/pass-initiate"
+        : "/api/phonepe/dqr/initiate";
   const statusBase =
     surface === "cafe"
       ? "/api/phonepe/dqr/cafe-status"
-      : "/api/phonepe/dqr/status";
+      : surface === "pass"
+        ? "/api/phonepe/dqr/pass-status"
+        : "/api/phonepe/dqr/status";
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -157,7 +167,12 @@ export function DqrCheckout({
         `${statusBase}?transactionId=${encodeURIComponent(txn)}`,
       );
       const data = await res.json();
-      const settledId = surface === "cafe" ? data.orderId : data.bookingId;
+      const settledId =
+        surface === "cafe"
+          ? data.orderId
+          : surface === "pass"
+            ? data.userPassId
+            : data.bookingId;
       if (data.state === "COMPLETED" && settledId) {
         doneRef.current = true;
         stopPolling();
@@ -242,14 +257,21 @@ export function DqrCheckout({
         body: JSON.stringify(
           surface === "cafe"
             ? { orderId: holdId }
-            : { holdId, isAdvance: !!isAdvance, overrideAmount },
+            : surface === "pass"
+              ? { planId: holdId, ...(initiateExtra ?? {}) }
+              : { holdId, isAdvance: !!isAdvance, overrideAmount },
         ),
       });
       const data = await res.json();
       // Server-side in-flight guard: the customer already paid on a prior
       // QR for this hold — the booking/order is confirmed, don't show
       // another payment screen.
-      const paidId = surface === "cafe" ? data.orderId : data.bookingId;
+      const paidId =
+        surface === "cafe"
+          ? data.orderId
+          : surface === "pass"
+            ? data.userPassId
+            : data.bookingId;
       if (res.ok && data.alreadyPaid && paidId) {
         doneRef.current = true;
         clearStore();
@@ -304,6 +326,7 @@ export function DqrCheckout({
     holdId,
     isAdvance,
     overrideAmount,
+    initiateExtra,
     storeKey,
     clearStore,
     checkStatus,
@@ -718,7 +741,9 @@ export function DqrCheckout({
               <p className="mt-1 text-[13px] text-zinc-400">
                 {surface === "cafe"
                   ? "Your order is confirmed"
-                  : "Your booking is confirmed"}
+                  : surface === "pass"
+                    ? "Your pass is ready"
+                    : "Your booking is confirmed"}
               </p>
             </div>
           </div>

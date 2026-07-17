@@ -4,6 +4,7 @@ import { SportCard } from "@/components/booking/sport-card";
 import { BackButton } from "@/components/back-button";
 import { getRainBanner } from "@/actions/admin-arena-settings";
 import { RainBanner } from "@/components/rain-banner";
+import { PromoBannerSlot } from "@/components/promo-banner-slot";
 
 export default async function BookPage() {
   const configs = await db.courtConfig.findMany({
@@ -45,7 +46,10 @@ export default async function BookPage() {
         </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      {/* Admin-managed promotion banners for this screen. */}
+      <PromoBannerSlot screen="BOOK_SPORT" />
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {sports.map((sport) => (
           <SportCard
             key={sport.sport}

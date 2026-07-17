@@ -132,7 +132,7 @@ export default async function RewardsHowItWorksPage() {
       {/* ─── 3 STEPS ───────────────────────────────────────────────── */}
       <section>
         <SectionLabel>The whole thing in 3 steps</SectionLabel>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <StepCard
             n={1}
             color="emerald"
@@ -206,7 +206,7 @@ export default async function RewardsHowItWorksPage() {
         <p className="mt-2 text-sm text-zinc-400">
           Points show up automatically — you don't have to claim anything.
         </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <EarnCard
             Icon={TrendingUp}
             color="emerald"
@@ -473,7 +473,7 @@ export default async function RewardsHowItWorksPage() {
       </section>
 
       {/* ─── CTA ──────────────────────────────────────────────────── */}
-      <section className="grid gap-3 sm:grid-cols-2">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Link
           href="/book"
           className="group relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-900/40 to-zinc-950 p-6 transition-all hover:border-emerald-400/60"

@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { listShopProducts } from "@/lib/product";
 import { getCartForUser } from "@/lib/cart";
 import { ShopClient } from "./shop-client";
+import { PromoBannerSlot } from "@/components/promo-banner-slot";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,9 @@ export default async function ShopPage() {
           Buy gear and gear up — pick up at the venue.
         </p>
       </div>
+
+      {/* Admin-managed promotion banners for this screen. */}
+      <PromoBannerSlot screen="SHOP" className="mb-6" />
 
       <ShopClient
         products={products}

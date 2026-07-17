@@ -19,6 +19,7 @@ import { shopApi, type PublicProduct } from "../../lib/shop";
 import { formatRupees } from "../../lib/format";
 import { useAuth } from "../../providers/AuthProvider";
 import type { ShopStackParamList } from "../../navigation/types";
+import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 
 type Nav = NativeStackNavigationProp<ShopStackParamList, "ShopHome">;
 
@@ -90,6 +91,12 @@ export function ShopHomeScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Admin-managed promotion banners for this screen. */}
+        <PromoBannerSlot
+          screen="SHOP"
+          style={{ marginHorizontal: spacing["4"], marginBottom: spacing["3"] }}
+        />
 
         {productsQuery.isLoading ? (
           <ActivityIndicator color={colors.primary} style={styles.loading} />

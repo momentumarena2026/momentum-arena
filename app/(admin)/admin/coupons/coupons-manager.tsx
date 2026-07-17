@@ -87,6 +87,7 @@ export interface CouponRow {
   stackGroup: string | null;
   isPublic: boolean;
   isSystemCode: boolean;
+  autoApply: boolean;
   // Platform restriction. Empty = all platforms; values are a subset
   // of "web" | "android" | "ios". Mapped to/from a single-select
   // preset in the form (see PLATFORM_PRESETS / platformsToPreset).
@@ -149,6 +150,7 @@ const CONDITION_TYPES: { value: CouponConditionType; label: string }[] = [
   // App-only by nature — the validator self-enforces an app platform,
   // but we nudge the admin toward "App only" in the platform picker.
   { value: "FIRST_APP_BOOKING", label: "First app booking only" },
+  { value: "BOOKING_DATE", label: "Booking date window" },
 ];
 
 // Platform restriction is edited as a single-select preset that maps
@@ -214,6 +216,7 @@ function emptyForm() {
     stackGroup: "",
     isPublic: true,
     isSystemCode: false,
+    autoApply: false,
     platformPreset: "ALL" as PlatformPreset,
     validFrom: new Date().toISOString().split("T")[0],
     validUntil: new Date(Date.now() + 30 * 86400000)
@@ -287,6 +290,7 @@ export function CouponsManager({
       stackGroup: coupon.stackGroup || "",
       isPublic: coupon.isPublic,
       isSystemCode: coupon.isSystemCode,
+      autoApply: coupon.autoApply,
       platformPreset: platformsToPreset(coupon.validPlatforms),
       validFrom: coupon.validFrom,
       validUntil: coupon.validUntil,
@@ -330,6 +334,7 @@ export function CouponsManager({
       stackGroup: form.stackGroup || null,
       isPublic: form.isPublic,
       isSystemCode: form.isSystemCode,
+      autoApply: form.autoApply,
       validPlatforms: presetToPlatforms(form.platformPreset),
       validFrom: form.validFrom,
       validUntil: form.validUntil,
@@ -1321,6 +1326,47 @@ export function CouponsManager({
                             placed from the mobile app
                           </p>
                         )}
+                        {cond.conditionType === "BOOKING_DATE" && (
+                          <div className="grid grid-cols-2 gap-2 p-1">
+                            {(["from", "to"] as const).map((k) => (
+                              <input
+                                key={k}
+                                type="date"
+                                value={
+                                  (() => {
+                                    try {
+                                      return (
+                                        JSON.parse(cond.conditionValue)[k] ?? ""
+                                      );
+                                    } catch {
+                                      return "";
+                                    }
+                                  })()
+                                }
+                                onChange={(e) => {
+                                  let existing: Record<string, string> = {};
+                                  try {
+                                    existing = JSON.parse(cond.conditionValue);
+                                  } catch {}
+                                  updateCondition(
+                                    i,
+                                    "conditionValue",
+                                    JSON.stringify({
+                                      ...existing,
+                                      [k]: e.target.value,
+                                    })
+                                  );
+                                }}
+                                title={k === "from" ? "Play date from" : "Play date to"}
+                                className="w-full rounded-md border border-zinc-700 bg-zinc-800 p-2 text-xs text-white"
+                              />
+                            ))}
+                            <p className="col-span-2 text-[11px] text-zinc-500">
+                              Valid only when the booked PLAY date falls in this
+                              window (inclusive, IST)
+                            </p>
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={() => removeCondition(i)}
@@ -1393,6 +1439,26 @@ export function CouponsManager({
                     <p className="text-sm text-white">Public</p>
                     <p className="text-xs text-zinc-500">
                       Visible on customer coupon page
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-center gap-3 rounded-lg border border-zinc-800 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.autoApply}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        autoApply: e.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <div>
+                    <p className="text-sm text-white">Auto-apply at checkout</p>
+                    <p className="text-xs text-zinc-500">
+                      Applied automatically when eligible — outranks the
+                      new-user welcome code
                     </p>
                   </div>
                 </label>

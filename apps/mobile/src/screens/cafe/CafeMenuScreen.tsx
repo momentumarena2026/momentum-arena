@@ -25,6 +25,7 @@ import {
   trackCafeItemRemoved,
 } from "../../lib/analytics";
 import type { CafeStackParamList } from "../../navigation/types";
+import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 
 type Nav = NativeStackNavigationProp<CafeStackParamList, "CafeMenu">;
 
@@ -47,7 +48,7 @@ export function CafeMenuScreen() {
 
   if (isLoading) {
     return (
-      <Screen>
+      <Screen edges={["top", "bottom"]}>
         <View style={styles.loading}>
           <ActivityIndicator color={colors.warning} />
         </View>
@@ -57,7 +58,7 @@ export function CafeMenuScreen() {
 
   if (isError || !data) {
     return (
-      <Screen>
+      <Screen edges={["top", "bottom"]}>
         <View style={styles.errorWrap}>
           <Text variant="body" color={colors.destructive_300} align="center">
             Couldn&apos;t load the cafe menu.
@@ -79,7 +80,7 @@ export function CafeMenuScreen() {
 
 function CafeClosedView() {
   return (
-    <Screen>
+    <Screen edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.closedScroll}>
         <View style={styles.heroCard}>
           <View style={styles.heroIcon}>
@@ -146,7 +147,7 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
   const categories = CATEGORY_ORDER.filter((c) => grouped[c]?.length > 0);
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.menuScroll}>
         <View style={styles.menuHeader}>
           <Text variant="heading" weight="700" color={colors.foreground}>
@@ -156,6 +157,12 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
             Order now, pick up at the counter.
           </Text>
         </View>
+
+        {/* Admin-managed promotion banners — below the title/subtitle. */}
+        <PromoBannerSlot
+          screen="CAFE"
+          style={{ marginHorizontal: spacing["4"], marginBottom: spacing["3"] }}
+        />
 
         {categories.length === 0 ? (
           <View style={styles.emptyCard}>

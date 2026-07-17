@@ -11,6 +11,7 @@ import { auth } from "@/lib/auth";
 import { BackButton } from "@/components/back-button";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { listEquipmentForBooking } from "@/lib/equipment";
+import { PromoBannerSlot } from "@/components/promo-banner-slot";
 
 export default async function SlotSelectionPage({
   params,
@@ -73,6 +74,11 @@ export default async function SlotSelectionPage({
             : config.label}
         </p>
       </div>
+
+      {/* Admin-managed promotion banners — sits below the page
+          title/subtitle (the old hardcoded pickleball banner above the
+          slot grid moved here as a seeded PromoBanner row). */}
+      <PromoBannerSlot screen="SLOT_SELECTION" sportSlug={sport} />
 
       {/* Config Info Card — bowling uses its own SVG / copy so the
           customer immediately sees the 10×90 strip context. */}

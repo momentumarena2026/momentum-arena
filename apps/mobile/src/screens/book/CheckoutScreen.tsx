@@ -34,6 +34,7 @@ import {
   type AmountMode,
   type PayMethod,
 } from "../../components/payment/PaymentMethodTiles";
+import { PassCheckoutOption } from "../../components/payment/PassCheckoutOption";
 import { UpiQrCheckout } from "../../components/payment/UpiQrCheckout";
 import { DqrCheckout } from "../../components/payment/DqrCheckout";
 import { colors, radius, spacing } from "../../theme";
@@ -249,9 +250,28 @@ export function CheckoutScreen() {
     if (newUserDiscountQuery.isLoading) return;
 
     const nuDiscount = newUserDiscountQuery.data?.discount;
+    const autoApplyCodes = newUserDiscountQuery.data?.autoApplyCodes ?? [];
     autoApplyRanRef.current = true;
 
     (async () => {
+      // -1. Admin-flagged auto-apply coupons — HIGHEST priority (an event
+      //     promo like the worldcup-final discount outranks the welcome
+      //     codes, per product rule). The apply route runs the full
+      //     validation (platform, sport, BOOKING_DATE, caps), so an
+      //     inapplicable candidate silently falls through to the next.
+      for (const code of autoApplyCodes) {
+        try {
+          const res = await applyCouponMutation.mutateAsync(code);
+          if (res.success) {
+            setNewUserApplied(true); // reuse the applied-pill presentation
+            setDiscountLabel(`${code} applied`);
+            trackCouponApplied(code, res.discountAmount ?? 0);
+            return;
+          }
+        } catch {
+          // try the next candidate
+        }
+      }
       // 0. First-ever app booking: attempt APPFIRST. The server validates
       //    eligibility (first app booking only) and silently rejects everyone
       //    else, so attempting it unconditionally is safe. On success, surface
@@ -616,7 +636,7 @@ export function CheckoutScreen() {
     // doesn't jump when data lands. Replaces the previous centered
     // spinner that gave the user nothing to anchor on.
     return (
-      <Screen edges={["top"]}>
+      <Screen edges={[]}>
         <View style={styles.loadingScroll}>
           <Skeleton width="40%" height={22} rounded="md" />
           <Skeleton width="70%" height={12} rounded="md" style={styles.loadingSub} />
@@ -658,7 +678,7 @@ export function CheckoutScreen() {
 
   if (isError || !hold) {
     return (
-      <Screen edges={["top"]}>
+      <Screen edges={[]}>
         <View style={styles.centered}>
           <Text variant="heading">Couldn't load this hold</Text>
           <Text
@@ -706,7 +726,7 @@ export function CheckoutScreen() {
       : `Pay ${formatRupees(payableAmount)} via UPI`;
 
   return (
-    <Screen padded={false} edges={["top"]}>
+    <Screen padded={false} edges={[]}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         {/* Page title — matches web's "Complete Payment" (no kicker). */}
         <Text variant="title">Complete Payment</Text>
@@ -928,6 +948,24 @@ export function CheckoutScreen() {
             slot-selection screen. The Booking Summary breakdown above
             shows the locked picks read-only; if the customer wants to
             change rentals they tap Back to the slot picker. */}
+
+        {/* "Use my pass" — server-computed offer (owner or shared member,
+            matching court group + bands + play-date validity). Hidden the
+            moment a coupon / points land on the hold (offer nulls out on
+            the next hold refetch); the redeem route also drops both
+            server-side, so the two never combine. */}
+        {hold.passOffer && signedInUser ? (
+          <PassCheckoutOption
+            holdId={hold.id}
+            offer={hold.passOffer}
+            prefill={{
+              name: signedInUser.name,
+              email: signedInUser.email,
+              phone: signedInUser.phone,
+            }}
+            onBooked={goToBookingDetail}
+          />
+        ) : null}
 
         {/* Payment method */}
         <View style={styles.sectionBlock}>

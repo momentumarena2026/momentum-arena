@@ -94,3 +94,43 @@ export async function getActiveSportPromo(
     percentOff,
   };
 }
+
+/**
+ * Admin-flagged auto-apply coupon codes for a booking context, NEWEST
+ * first. Both checkouts try these BEFORE the new-user / sport fallback
+ * codes (the user-facing rule: an event promo like the worldcup-final
+ * discount outranks the welcome discount). This is only a cheap
+ * prefilter (active + live window + sport/platform match) — the apply
+ * path still runs full validateCoupon, so conditions like BOOKING_DATE
+ * or usage caps silently drop a candidate at checkout.
+ */
+export async function getAutoApplyCouponCodes(args: {
+  sport: string;
+  platform?: CouponPlatform;
+}): Promise<string[]> {
+  const now = new Date();
+  try {
+    const rows = await db.coupon.findMany({
+      where: {
+        autoApply: true,
+        isActive: true,
+        scope: { in: ["SPORTS", "BOTH"] },
+        validFrom: { lte: now },
+        validUntil: { gte: now },
+      },
+      select: { code: true, sportFilter: true, validPlatforms: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows
+      .filter(
+        (r) =>
+          r.sportFilter.length === 0 ||
+          r.sportFilter.includes(args.sport as Sport),
+      )
+      .filter((r) => isPlatformAllowed(r.validPlatforms, args.platform ?? "web"))
+      .map((r) => r.code);
+  } catch (err) {
+    console.error("[auto-apply] candidate lookup failed", err);
+    return [];
+  }
+}

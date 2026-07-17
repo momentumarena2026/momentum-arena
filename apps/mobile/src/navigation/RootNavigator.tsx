@@ -27,6 +27,7 @@ import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
 import { AdminNavigator } from "./AdminNavigator";
 import { ChatScreen } from "../screens/chat/ChatScreen";
 import type { RootStackParamList } from "./types";
+import { stackHeaderOptions } from "./headerOptions";
 
 const navTheme = {
   ...DarkTheme,
@@ -254,14 +255,10 @@ export function RootNavigator() {
           options={{ headerShown: false }}
         />
         <Stack.Group
-          screenOptions={{
+          screenOptions={(p) => ({
+            ...stackHeaderOptions(p),
             presentation: "modal",
-            contentStyle: { backgroundColor: colors.background },
-            headerStyle: { backgroundColor: colors.background },
-            headerTitleStyle: { color: colors.foreground },
-            headerTintColor: colors.primary,
-            headerShadowVisible: false,
-          }}
+          })}
         >
           <Stack.Screen
             name="Phone"

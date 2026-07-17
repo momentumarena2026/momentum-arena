@@ -56,6 +56,8 @@ export async function POST(request: NextRequest) {
     bookingCategory: hold.courtConfig.category ?? null,
     // Drives validPlatforms + FIRST_APP_BOOKING — "android" | "ios" here.
     platform: resolveRequestPlatform(request),
+    // Play date — drives BOOKING_DATE event promos (e.g. final-day 25%).
+    bookingDate: hold.date,
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {

@@ -423,3 +423,35 @@ export function trackRewardsRedeemCompleted(points: number, paiseSaved: number) 
 export function trackRewardsChipClick(source: "header" | "dashboard_tile") {
   trackEvent("rewards_chip_click", { source }, "REWARDS");
 }
+
+// ─── Passes funnel ───────────────────────────────────────────────
+
+export function trackPassPurchaseStarted(
+  planId: string,
+  price: number,
+  method: "upi" | "razorpay",
+) {
+  trackEvent("pass_purchase_started", { plan_id: planId, price, method });
+}
+
+export function trackPassPurchaseCompleted(
+  planId: string,
+  price: number,
+  method: "upi" | "razorpay",
+) {
+  trackEvent("pass_purchase_completed", { plan_id: planId, price, method });
+}
+
+/** A booking paid (fully or partly) with pass hours. remainder 0 = full
+ *  coverage; >0 = hours + a gateway top-up. */
+export function trackPassRedeemed(coveredMinutes: number, remainderAmount: number) {
+  trackEvent("pass_redeemed", {
+    covered_minutes: coveredMinutes,
+    remainder_amount: remainderAmount,
+    full_coverage: remainderAmount === 0,
+  });
+}
+
+export function trackPassMemberAdded() {
+  trackEvent("pass_member_added");
+}

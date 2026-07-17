@@ -39,15 +39,20 @@ export function ExtendBookingControls({
   bookingStatus,
   suggestedBeforePrice,
   suggestedAfterPrice,
+  pass,
 }: {
   bookingId: string;
   bookingStatus: string;
   suggestedBeforePrice: number;
   suggestedAfterPrice: number;
+  /** Eligible pass for a pass-paid extension (≥30 min, this court),
+   *  or null when none / guest booking. */
+  pass?: { id: string; name: string; remainingMinutes: number } | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<Direction | null>(null);
   const [price, setPrice] = useState("");
+  const [usePass, setUsePass] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -62,6 +67,7 @@ export function ExtendBookingControls({
     setPrice(
       String(dir === "before" ? suggestedBeforePrice : suggestedAfterPrice),
     );
+    setUsePass(false);
     setError(null);
   }
 
@@ -73,6 +79,25 @@ export function ExtendBookingControls({
 
   function submit() {
     if (!open) return;
+    // Pass path: no price — 30 min is debited from the pass server-side.
+    if (usePass && pass) {
+      startTransition(async () => {
+        const res = await extendBookingByThirtyMin(
+          bookingId,
+          open,
+          0,
+          undefined,
+          pass.id,
+        );
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        setOpen(null);
+        router.refresh();
+      });
+      return;
+    }
     const parsed = Number.parseInt(price, 10);
     if (Number.isNaN(parsed) || parsed < 0) {
       setError("Price must be a non-negative whole number");
@@ -160,19 +185,50 @@ export function ExtendBookingControls({
               </button>
             </div>
 
-            <div className="space-y-1.5">
+            {/* Pass-paid option — only when the customer holds an
+                eligible pass for this court with ≥30 min left. Selecting
+                it debits 30 min from the pass instead of charging. */}
+            {pass && (
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <input
+                  type="checkbox"
+                  checked={usePass}
+                  onChange={(e) => setUsePass(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-emerald-500"
+                />
+                <span className="text-xs">
+                  <span className="font-semibold text-white">
+                    Pay with pass — {pass.name}
+                  </span>
+                  <span className="block text-zinc-400">
+                    Deducts 30 min ·{" "}
+                    {(pass.remainingMinutes / 60)
+                      .toFixed(1)
+                      .replace(/\.0$/, "")}
+                    h left → will show{" "}
+                    {((pass.remainingMinutes - 30) / 60)
+                      .toFixed(1)
+                      .replace(/\.0$/, "")}
+                    h after
+                  </span>
+                </span>
+              </label>
+            )}
+
+            <div className={`space-y-1.5 ${usePass ? "opacity-40" : ""}`}>
               <label className="block text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Charge for the extra 30 min (₹)
+                {usePass ? "Charge (covered by pass)" : "Charge for the extra 30 min (₹)"}
               </label>
               <input
                 type="number"
                 inputMode="numeric"
                 min={0}
                 step={1}
-                value={price}
+                value={usePass ? "0" : price}
                 onChange={(e) => setPrice(e.target.value)}
-                autoFocus
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/30"
+                disabled={usePass}
+                autoFocus={!usePass}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/30 disabled:cursor-not-allowed"
                 placeholder="0"
               />
               <p className="text-[11px] text-zinc-500">

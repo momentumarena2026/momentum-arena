@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
+import { materializeUserPass } from "@/lib/passes";
 import { verifyRazorpayWebhookSignature } from "@/lib/razorpay";
 import { createBookingFromHold } from "@/actions/booking";
 import {
@@ -95,6 +96,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { ok: true, reason: "missing-payment-fields" },
     );
+  }
+
+  // Pass purchases route on the order NOTES we stamp in
+  // /api/passes/create-order — they have no SlotHold. Materialize the
+  // UserPass idempotently (the client verify may have already won).
+  if (payment.notes?.type === "PASS" && payment.notes.planId && payment.notes.userId) {
+    const startsAt = payment.notes.startsAt
+      ? new Date(payment.notes.startsAt)
+      : undefined;
+    const result = await materializeUserPass({
+      razorpayOrderId: payment.order_id,
+      razorpayPaymentId: payment.id,
+      planId: payment.notes.planId,
+      userId: payment.notes.userId,
+      startsAt: startsAt && !Number.isNaN(startsAt.getTime()) ? startsAt : undefined,
+    });
+    return NextResponse.json({
+      ok: true,
+      via: result?.alreadyDone ? "pass-already-created" : "pass-created",
+      userPassId: result?.userPassId ?? null,
+    });
   }
 
   // If we already have a Booking for this payment, the client's

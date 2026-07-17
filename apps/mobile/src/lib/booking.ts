@@ -207,6 +207,21 @@ export interface Hold {
   }> | null;
   equipmentTotalAmount?: number | null;
   courtConfig: CourtConfig;
+  // Eligible monthly-pass coverage for this hold (null when the user has
+  // no matching pass, or a coupon/points are applied). Drives the
+  // "Use my pass" banner on the checkout screen.
+  passOffer?: PassOffer | null;
+}
+
+/** Server-computed pass coverage — mirrors lib/passes.getPassOfferForHold. */
+export interface PassOffer {
+  passId: string;
+  passName: string;
+  remainingMinutes: number;
+  neededMinutes: number;
+  coveredMinutes: number;
+  fullCoverage: boolean;
+  remainderAmount: number;
 }
 
 export interface ApplyPointsResult {
@@ -440,9 +455,13 @@ export const bookingApi = {
     q.set("sport", sport);
     q.set("amount", String(amount));
     if (category) q.set("category", category);
-    return api.get<{ discount: NewUserDiscount | null }>(
-      `/api/mobile/coupons/new-user?${q.toString()}`,
-    );
+    return api.get<{
+      discount: NewUserDiscount | null;
+      /** Admin-flagged auto-apply codes, newest first — the checkout
+       *  tries these BEFORE the new-user / fallback codes. Optional so
+       *  older server deploys (no field) type-check as undefined. */
+      autoApplyCodes?: string[];
+    }>(`/api/mobile/coupons/new-user?${q.toString()}`);
   },
 
   /** Public list of currently-valid, isPublic coupons for a given scope.

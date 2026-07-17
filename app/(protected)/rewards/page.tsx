@@ -78,7 +78,7 @@ export default async function RewardsPage() {
             How-it-works page renders all the config rules as a
             graphical breakdown; the inline bullet list that used to
             sit here was hard to scan. */}
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Link
             href="/book"
             className="group flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 transition-all hover:bg-emerald-500/15"

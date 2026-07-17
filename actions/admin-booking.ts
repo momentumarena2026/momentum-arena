@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { restorePassForBooking, passMinutesValue } from "@/lib/passes";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
@@ -545,6 +546,9 @@ export async function cancelBooking(
     }),
   ]);
 
+  // Pass-paid booking → hours go back on the pass (no-op otherwise).
+  await restorePassForBooking(bookingId).catch(() => {});
+
   await revalidateBookingPaths(bookingId);
 
   // Push notification to the customer. Best-effort — fire-and-forget so
@@ -650,6 +654,9 @@ export async function refundBooking(
   const actualRefundAmount = refundAmount ?? booking.payment.amount;
   const isPartialRefund = actualRefundAmount < booking.payment.amount;
   const refundMethodStr = refundMethod || "ORIGINAL";
+
+  // Pass-paid booking → hours go back on the pass (no-op otherwise).
+  await restorePassForBooking(bookingId).catch(() => {});
 
   await db.$transaction([
     db.booking.update({
@@ -3207,6 +3214,11 @@ export async function extendBookingByThirtyMin(
   direction: ExtendDirection,
   priceOverride: number,
   adminOverride?: { id: string; username: string },
+  // When set, the extra 30 min is paid by debiting this UserPass
+  // instead of charging money (priceOverride is ignored → the slot is
+  // recorded at ₹0). The pass must belong to the booking's customer,
+  // match its court, be ACTIVE/unexpired, and have ≥30 min left.
+  payWithPassId?: string,
 ): Promise<
   | {
       success: true;
@@ -3223,7 +3235,7 @@ export async function extendBookingByThirtyMin(
   const admin = adminOverride ?? (await requireAdminWithDetails());
 
   try {
-    if (!Number.isInteger(priceOverride) || priceOverride < 0) {
+    if (!payWithPassId && (!Number.isInteger(priceOverride) || priceOverride < 0)) {
       return {
         success: false,
         error: "Price must be a non-negative whole number",
@@ -3280,6 +3292,51 @@ export async function extendBookingByThirtyMin(
     const newStartMinute = newStartMin % 60; // 0 or 30
     const windowLabel = `${fmtMin(newStartMin)}–${fmtMin(newEndMin)}`;
 
+    // Pass-paid extension: validate the pass covers 30 min for THIS
+    // customer + court. On success the slot is recorded free (charge 0)
+    // and 30 min is debited below inside the same transaction.
+    let effectivePrice = priceOverride;
+    // Value attribution for a pass-paid extension (rupees the 30 min are
+    // worth at the pass's effective rate) — recorded on the redemption.
+    let passExtendValue = 0;
+    if (payWithPassId) {
+      if (!booking.userId) {
+        return { success: false, error: "Guest bookings can't use a pass" };
+      }
+      const pass = await db.userPass.findUnique({
+        where: { id: payWithPassId },
+        include: {
+          members: {
+            where: { userId: booking.userId },
+            select: { id: true },
+          },
+        },
+      });
+      // Validity is judged against the booking's play date — the pass
+      // must have started by then and not expire before it (mirrors
+      // getPassOfferForHold). The customer may be the pass owner OR a
+      // shared member.
+      const bookerCanUsePass =
+        !!pass &&
+        (pass.userId === booking.userId || pass.members.length > 0);
+      if (
+        !pass ||
+        !bookerCanUsePass ||
+        pass.courtConfigId !== booking.courtConfigId ||
+        pass.status !== "ACTIVE" ||
+        pass.startsAt.getTime() > booking.date.getTime() ||
+        pass.expiresAt.getTime() <= booking.date.getTime() ||
+        pass.remainingMinutes < 30
+      ) {
+        return {
+          success: false,
+          error: "Pass isn't valid for this booking (wrong court, not started/expired, or <30 min left)",
+        };
+      }
+      passExtendValue = passMinutesValue(pass, 30);
+      effectivePrice = 0;
+    }
+
     // Conflict check — any active booking on the same date with
     // overlapping zones that has a slot intersecting the new window.
     const otherBookings = await db.booking.findMany({
@@ -3314,7 +3371,7 @@ export async function extendBookingByThirtyMin(
     // Apply the extension transactionally so a half-applied state
     // can't happen (slot added but total not updated, etc.).
     const previousTotal = booking.totalAmount;
-    const newTotal = previousTotal + priceOverride;
+    const newTotal = previousTotal + effectivePrice;
     const previousSlotsForLog = booking.slots
       .slice()
       .sort((a, b) => slotStartMinutes(a) - slotStartMinutes(b))
@@ -3328,22 +3385,70 @@ export async function extendBookingByThirtyMin(
           startHour: newStartHour,
           startMinute: newStartMinute,
           durationMinutes: 30,
-          price: priceOverride,
+          price: effectivePrice,
         },
       });
 
-      // Always bump totalAmount, even when priceOverride is 0 (no-op
+      // Always bump totalAmount, even when the charge is 0 (no-op
       // arithmetically but keeps the code path uniform).
       await tx.booking.update({
         where: { id: bookingId },
         data: { totalAmount: newTotal },
       });
 
+      // Pass-paid extension: debit 30 min atomically (gte guard) and
+      // record a redemption keyed to this booking so cancel-restore
+      // returns the time. A failed guard aborts the whole transaction.
+      if (payWithPassId) {
+        const debited = await tx.userPass.updateMany({
+          where: {
+            id: payWithPassId,
+            remainingMinutes: { gte: 30 },
+            status: "ACTIVE",
+            expiresAt: { gt: new Date() },
+          },
+          data: { remainingMinutes: { decrement: 30 } },
+        });
+        if (debited.count === 0) {
+          throw new Error("Pass balance changed — please retry");
+        }
+        // One redemption row per booking. An extension after an initial
+        // pass redemption grows that row's minutes; otherwise create it.
+        const existingRed = await tx.passRedemption.findUnique({
+          where: { bookingId },
+        });
+        if (existingRed) {
+          await tx.passRedemption.update({
+            where: { bookingId },
+            data: {
+              minutes: { increment: 30 },
+              value: { increment: passExtendValue },
+            },
+          });
+        } else {
+          await tx.passRedemption.create({
+            data: {
+              userPassId: payWithPassId,
+              bookingId,
+              minutes: 30,
+              value: passExtendValue,
+              // Extends record their slot at ₹0 (never joins the booking
+              // total), so there's no list price to settle.
+              coveredAmount: 0,
+            },
+          });
+        }
+        await tx.userPass.updateMany({
+          where: { id: payWithPassId, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
+          data: { status: "EXHAUSTED" },
+        });
+      }
+
       // Payment delta — only relevant when we actually charged extra.
       // If the booking was fully paid and we add a charge, mark it
       // partial with a remainder the admin can collect at the venue.
       // For already-partial bookings we just grow remainingAmount.
-      if (booking.payment && priceOverride > 0) {
+      if (booking.payment && effectivePrice > 0) {
         const currentPaid = booking.payment.amount;
         if (booking.payment.isPartialPayment) {
           await tx.payment.update({
@@ -3378,7 +3483,11 @@ export async function extendBookingByThirtyMin(
           previousAmount: previousTotal,
           newAmount: newTotal,
           note: `Extended +30 min ${dirLabel} (${windowLabel})${
-            priceOverride > 0 ? ` · charged ₹${priceOverride}` : " · free"
+            payWithPassId
+              ? " · paid by pass (−30 min)"
+              : effectivePrice > 0
+              ? ` · charged ₹${effectivePrice}`
+              : " · free"
           }`,
         },
       });
@@ -3392,7 +3501,7 @@ export async function extendBookingByThirtyMin(
         startHour: newStartHour,
         startMinute: newStartMinute,
         durationMinutes: 30,
-        price: priceOverride,
+        price: effectivePrice,
         label: windowLabel,
       },
     };

@@ -82,7 +82,7 @@ export function BookingConfirmedScreen() {
   }
 
   return (
-    <Screen>
+    <Screen edges={["top", "bottom"]}>
       <View style={styles.wrap}>
         <View style={styles.hero}>
           <View style={styles.iconWrap}>

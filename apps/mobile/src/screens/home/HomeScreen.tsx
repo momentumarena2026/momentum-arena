@@ -48,6 +48,7 @@ import {
   trackHomepageSportClick,
 } from "../../lib/analytics";
 import { env } from "../../config/env";
+import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 import type {
   MainTabsParamList,
   RootStackParamList,
@@ -253,6 +254,13 @@ export function HomeScreen() {
           </View>
         </View>
 
+        {/* Admin-scheduled promotion banner (HOME_TOP) — right above
+            the upcoming-bookings section. */}
+        <PromoBannerSlot
+          screen="HOME_TOP"
+          style={{ marginHorizontal: spacing["4"], marginBottom: spacing["3"] }}
+        />
+
         {/* Signed-in: upcoming bookings */}
         {signedIn && data && data.upcomingBookings.length > 0 ? (
           <View style={styles.section}>
@@ -303,22 +311,10 @@ export function HomeScreen() {
               PICKLEBALL25 coupon — when admin disables it server-side
               this disappears on the next render (5-min stale window
               on the useQuery cache). */}
-          {pickleballPromoLabel ? (
-            <Pressable
-              onPress={() => openSport("PICKLEBALL")}
-              style={({ pressed }) => [
-                styles.promoBanner,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Image
-                source={{ uri: `${ASSETS}/pickleball-promo-banner.jpg` }}
-                style={styles.promoBannerImage}
-                resizeMode="cover"
-                accessibilityLabel={`Pickleball launch offer — ${pickleballPromoLabel}, auto-applied at checkout`}
-              />
-            </Pressable>
-          ) : null}
+          {/* Admin-managed promotion banners — the pickleball launch
+              banner now lives here as a seeded PromoBanner row linked to
+              PICKLEBALL25, retiring with its coupon automatically. */}
+          <PromoBannerSlot screen="HOME_PROMO" style={{ marginBottom: spacing["3"] }} />
           <View style={styles.sportsList}>
             {SPORTS.map((s) => (
               <SportCard

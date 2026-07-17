@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { getCafeSettings } from "@/actions/cafe-settings";
 import { CafeMenuPage } from "@/components/cafe/cafe-menu-page";
 import { CafeClosedPage } from "@/components/cafe/cafe-closed-page";
+import { getLivePromoBanners } from "@/lib/promo-banners";
 
 // Cafe items + settings change at admin-edit time; render on
 // every request rather than holding a stale ISR snapshot. The
@@ -65,5 +66,6 @@ export default async function CafePage() {
     });
   }
 
-  return <CafeMenuPage groupedItems={groupedItems} />;
+  const promoBanners = await getLivePromoBanners("CAFE");
+  return <CafeMenuPage groupedItems={groupedItems} promoBanners={promoBanners} />;
 }

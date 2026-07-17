@@ -29,6 +29,9 @@ const allNavItems = [
   { href: "/admin/pos", label: "Walk-in Sale", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
   { href: "/admin/coupons", label: "Coupons", group: "Promotions", permission: "MANAGE_COUPONS" },
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
+  { href: "/admin/passes", label: "Passes", group: "Promotions", permission: "MANAGE_PASSES" },
+  { href: "/admin/config/rain-banner", label: "Rain Banner", group: "Web & App Config", permission: "MANAGE_PRICING" },
+  { href: "/admin/config/promo-banners", label: "Promotion Banners", group: "Web & App Config", permission: "MANAGE_PROMO_BANNERS" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/running-expenses", label: "Running Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
@@ -46,7 +49,7 @@ const allNavItems = [
   // groups (and other features also use them somehow)".
   { href: "/admin/users/groups", label: "User Groups", group: "Settings", permission: "MANAGE_COUPONS" },
   { href: "/admin/admin-users", label: "Admin Users", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
-  { href: "/admin/trusted-devices", label: "Trusted Devices", group: "Settings", permission: "MANAGE_ADMIN_USERS" },
+  { href: "/admin/trusted-devices", label: "Trusted Devices", group: "Settings", permission: "MANAGE_TRUSTED_DEVICES" },
   { href: "/admin/generator", label: "Generator", group: "Settings", permission: "MANAGE_PRICING" },
   { href: "/admin/faqs", label: "FAQs", group: "Settings", permission: "MANAGE_FAQS" },
   { href: "/admin/payment-settings", label: "Payment Gateway", group: "Settings", permission: "MANAGE_PAYMENT_SETTINGS" },
@@ -54,7 +57,9 @@ const allNavItems = [
   { href: "/admin/phonepe", label: "PhonePe", group: "Settings", permission: "VIEW_RAZORPAY" },
 ];
 
-const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Operations", "Mobile Apps", "Settings"];
+// NOTE: a nav item's `group` must ALSO appear here — unknown group names
+// are silently dropped by the assembly loop below.
+const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Web & App Config", "Operations", "Mobile Apps", "Settings"];
 
 export default async function AdminLayout({
   children,
