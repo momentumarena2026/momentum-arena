@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { arePassesEnabled, passLiveStatus } from "@/lib/passes";
+import { arePassesEnabled, passLiveStatus, listUserPasses } from "@/lib/passes";
 import { parseBands, bandKey, bandsSummary } from "@/lib/pass-bands";
 import { courtGroupLabel } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
@@ -79,40 +79,9 @@ export async function getActivePassPlans() {
 export async function getMyPasses() {
   const session = await auth();
   if (!session?.user?.id) return [];
-  const userId = session.user.id;
-  // Owned passes + passes shared with me (member).
-  const passes = await db.userPass.findMany({
-    where: {
-      OR: [{ userId }, { members: { some: { userId } } }],
-    },
-    orderBy: { purchasedAt: "desc" },
-    include: {
-      user: { select: { name: true } },
-      redemptions: {
-        orderBy: { createdAt: "desc" },
-        select: { minutes: true, createdAt: true, restoredAt: true, bookingId: true },
-      },
-    },
-  });
-  return passes.map((p) => ({
-    id: p.id,
-    name: p.name,
-    sport: String(p.sport),
-    totalMinutes: p.totalMinutes,
-    remainingMinutes: p.remainingMinutes,
-    bandsSummary: bandsSummary(parseBands(p.bands)),
-    purchasedAt: p.purchasedAt.toISOString(),
-    startsAt: p.startsAt.toISOString(),
-    expiresAt: p.expiresAt.toISOString(),
-    status: passLiveStatus(p),
-    role: p.userId === userId ? ("owner" as const) : ("member" as const),
-    ownerName: p.user.name,
-    redemptions: p.redemptions.map((r) => ({
-      minutes: r.minutes,
-      createdAt: r.createdAt.toISOString(),
-      restored: !!r.restoredAt,
-    })),
-  }));
+  // Owned passes + passes shared with me (member) — shared shape with
+  // the mobile /api/mobile/passes route.
+  return listUserPasses(session.user.id);
 }
 
 // ─── Pass detail + shared members ───────────────────────────────────

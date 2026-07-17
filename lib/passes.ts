@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getSlotPricesForDate } from "@/lib/pricing";
-import { parseBands, slotInBands } from "@/lib/pass-bands";
+import { parseBands, slotInBands, bandsSummary } from "@/lib/pass-bands";
 
 /**
  * Monthly Passes — purchase plumbing (money-first). No UserPass row
@@ -383,6 +383,47 @@ export async function restorePassForBooking(bookingId: string) {
       data: { restoredAt: new Date() },
     }),
   ]);
+}
+
+/**
+ * All passes a user can use — owned + shared with them — in the shape
+ * both the web account page and the mobile app render (role, owner,
+ * band summary, clock fields). Single source so the two surfaces never
+ * drift.
+ */
+export async function listUserPasses(userId: string) {
+  const passes = await db.userPass.findMany({
+    where: {
+      OR: [{ userId }, { members: { some: { userId } } }],
+    },
+    orderBy: { purchasedAt: "desc" },
+    include: {
+      user: { select: { name: true } },
+      redemptions: {
+        orderBy: { createdAt: "desc" },
+        select: { minutes: true, createdAt: true, restoredAt: true, bookingId: true },
+      },
+    },
+  });
+  return passes.map((p) => ({
+    id: p.id,
+    name: p.name,
+    sport: String(p.sport),
+    totalMinutes: p.totalMinutes,
+    remainingMinutes: p.remainingMinutes,
+    bandsSummary: bandsSummary(parseBands(p.bands)),
+    purchasedAt: p.purchasedAt.toISOString(),
+    startsAt: p.startsAt.toISOString(),
+    expiresAt: p.expiresAt.toISOString(),
+    status: passLiveStatus(p),
+    role: p.userId === userId ? ("owner" as const) : ("member" as const),
+    ownerName: p.user.name,
+    redemptions: p.redemptions.map((r) => ({
+      minutes: r.minutes,
+      createdAt: r.createdAt.toISOString(),
+      restored: !!r.restoredAt,
+    })),
+  }));
 }
 
 /** Master storefront switch (ArenaSettings.passesEnabled). OFF hides

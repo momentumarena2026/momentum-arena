@@ -4,6 +4,8 @@ import type { Sport } from "../lib/types";
 export type AccountStackParamList = {
   AccountHome: undefined;
   EditName: undefined;
+  // Customer pass wallet — Active/Inactive tabs with balance rings.
+  MyPasses: undefined;
   BookingsList: undefined;
   RecurringBookings: undefined;
   BookingDetail: { bookingId: string };

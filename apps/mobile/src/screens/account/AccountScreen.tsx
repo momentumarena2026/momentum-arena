@@ -7,7 +7,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   Bell,
-  BookOpen,
   Calendar,
   ChevronRight,
   Clock,
@@ -17,11 +16,11 @@ import {
   MessageCircle,
   Phone,
   Plus,
-  RefreshCw,
   Shield,
   Coffee,
   ShoppingBag,
   Sparkles,
+  Tag,
   Ticket,
   Trash2,
   User as UserIcon,
@@ -155,7 +154,8 @@ export function AccountScreen() {
         <Text style={styles.subtitle}>Manage your account information</Text>
       </View>
 
-      {/* ─── Profile Header card ─────────────────────────────────────── */}
+      {/* ─── Hero card — identity + contact in one place (the old
+          separate Account Info card is folded in here). ───────────── */}
       <View style={styles.profileHeaderCard}>
         <View style={styles.profileHeaderRow}>
           <View style={styles.avatar}>
@@ -163,6 +163,12 @@ export function AccountScreen() {
           </View>
           <View style={styles.profileHeaderBody}>
             <Text style={styles.profileName}>{user.name ?? "Player"}</Text>
+            {user.phone && (
+              <View style={styles.phoneRow}>
+                <Phone size={12} color={colors.zinc500} />
+                <Text style={styles.phoneText}>+91 {user.phone}</Text>
+              </View>
+            )}
             <View style={styles.profilePillRow}>
               {/* USER role pill — mobile users are always regular so we
                   hard-code USER without needing the server to return a role. */}
@@ -177,29 +183,13 @@ export function AccountScreen() {
         </View>
       </View>
 
-      {/* ─── Account Info ────────────────────────────────────────────── */}
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionHeader}>Account Info</Text>
-        <View style={styles.infoList}>
-          <InfoRow
-            icon={<UserIcon size={16} color={colors.zinc400} />}
-            label="Name"
-            value={user.name ?? "Not set"}
-          />
-          <InfoRow
-            icon={<Phone size={16} color={colors.zinc400} />}
-            label="Phone"
-            value={user.phone ? `+91 ${user.phone}` : "Not set"}
-          />
-        </View>
-      </View>
-
-      {/* ─── Quick action tiles (full-width, stacked) ────────────────── */}
+      {/* ─── Account hub — priority-ordered, colour-coded tiles ──────── */}
+      <Text style={styles.hubHeader}>My Account</Text>
       <View style={styles.tilesStack}>
         {rewards?.overview?.config.enabled && (
           <Pressable
             onPress={() => {
-              trackRewardsTileTap(rewards.overview.pointsAvailable);
+              trackRewardsTileTap(rewards?.overview?.pointsAvailable ?? 0);
               navigation.navigate("Rewards");
             }}
             style={({ pressed }) => [
@@ -212,7 +202,7 @@ export function AccountScreen() {
               <Sparkles size={20} color={colors.emerald400} />
             </View>
             <View style={styles.tileBody}>
-              <Text style={styles.tileTitle}>Momentum Points</Text>
+              <Text style={styles.tileTitle}>My Momentum Points</Text>
               <Text style={styles.rewardsSubtitle}>
                 {(rewards.overview.pointsAvailable ?? 0).toLocaleString("en-IN")} pts available
               </Text>
@@ -220,67 +210,57 @@ export function AccountScreen() {
             <ChevronRight size={16} color={colors.emerald400} />
           </Pressable>
         )}
-        {/* How rewards work — drills into the graphical config page.
-            Only surfaced when rewards are enabled (same gating as the
-            Momentum Points tile above). */}
-        {rewards?.overview?.config.enabled && (
-          <ActionTile
-            icon={<BookOpen size={20} color={colors.zinc300} />}
-            title="How rewards work"
-            subtitle="Earn rates, caps, expiry rules"
-            onPress={() => navigation.navigate("RewardsHowItWorks")}
-          />
-        )}
         <ActionTile
-          icon={<History size={20} color={colors.zinc400} />}
-          title="Booking History"
-          subtitle="View past sessions"
+          icon={<History size={20} color="#7dd3fc" />}
+          iconBg="rgba(14, 165, 233, 0.14)"
+          title="My Bookings"
+          subtitle="History, upcoming & recurring series"
           onPress={() => navigation.navigate("BookingsList")}
         />
         <ActionTile
-          icon={<ShoppingBag size={20} color={colors.emerald400} />}
-          title="Shop orders"
-          subtitle="Items you've bought at the venue"
-          // Local push inside AccountStack — back pops to AccountHome
-          // naturally. ShopOrders is registered here (see AccountStack.tsx)
-          // precisely so we don't have to cross-tab jump into the Shop
-          // tab, which would (a) leave the Shop tab "stuck" on the
-          // orders list, and (b) require a custom headerLeft to get
-          // back navigation right.
-          onPress={() => navigation.navigate("ShopOrders")}
-        />
-        <ActionTile
-          icon={<Coffee size={20} color={"#fcd34d"} />}
-          title="Cafe orders"
-          subtitle="Your cafe order history"
-          // Same pattern as ShopOrders — registered on AccountStack so
-          // the Cafe tab in the bottom nav stays on the menu and back
-          // pops cleanly to AccountHome.
-          onPress={() => navigation.navigate("CafeOrders")}
-        />
-        <ActionTile
-          icon={<RefreshCw size={20} color={colors.zinc400} />}
-          title="Recurring Bookings"
-          subtitle="Weekly series"
-          onPress={() => navigation.navigate("RecurringBookings")}
+          icon={<Ticket size={20} color="#c4b5fd" />}
+          iconBg="rgba(139, 92, 246, 0.14)"
+          title="My Passes"
+          subtitle="Prepaid hours — balances & sharing"
+          onPress={() => navigation.navigate("MyPasses")}
         />
         <ActionTile
           icon={<Bell size={20} color={colors.warning} />}
+          iconBg="rgba(245, 158, 11, 0.14)"
           title="My Waitlist"
           subtitle="Get notified when slots open"
           onPress={() => navigation.navigate("Waitlist")}
         />
         <ActionTile
-          icon={<Ticket size={20} color={colors.emerald400} />}
+          icon={<Coffee size={20} color="#fdba74" />}
+          iconBg="rgba(249, 115, 22, 0.14)"
+          title="Cafe Orders"
+          subtitle="Your food & drink orders"
+          // Registered on AccountStack so the Cafe tab in the bottom nav
+          // stays on the menu and back pops cleanly to AccountHome.
+          onPress={() => navigation.navigate("CafeOrders")}
+        />
+        <ActionTile
+          icon={<ShoppingBag size={20} color="#6ee7b7" />}
+          iconBg="rgba(16, 185, 129, 0.14)"
+          title="Shop Orders"
+          subtitle="Items you've bought at the venue"
+          // Local push inside AccountStack — back pops to AccountHome
+          // naturally (see AccountStack.tsx for why not a cross-tab jump).
+          onPress={() => navigation.navigate("ShopOrders")}
+        />
+        <ActionTile
+          icon={<Tag size={20} color="#f9a8d4" />}
+          iconBg="rgba(236, 72, 153, 0.14)"
           title="Coupons & Offers"
           subtitle="Browse available discount codes"
           onPress={() => navigation.navigate("Coupons")}
         />
-        {/* Arena Assistant — Chat moved out of the bottom-nav tab
-            row into the Account screen, sitting alongside the
-            other quick-action tiles. Lives under "My Waitlist". */}
+        {/* Arena Assistant — Chat lives here rather than in the
+            bottom-nav tab row. */}
         <ActionTile
           icon={<MessageCircle size={20} color={colors.emerald400} />}
+          iconBg="rgba(16, 185, 129, 0.10)"
           title="Arena Assistant"
           subtitle="Ask about courts, hours, or your bookings"
           onPress={() => rootNavigation?.navigate("Chat")}
@@ -619,45 +599,28 @@ function SignedOutAccount() {
 // Sub-components
 // ────────────────────────────────────────────────────────────────────────────
 
-interface InfoRowProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}
-
-function InfoRow({ icon, label, value }: InfoRowProps) {
-  return (
-    <View style={styles.infoRow}>
-      <View style={styles.infoLabel}>
-        {icon}
-        <Text style={styles.infoLabelText}>{label}</Text>
-      </View>
-      <Text style={styles.infoValueText} numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 interface ActionTileProps {
   icon: React.ReactNode;
+  /** Per-destination tint behind the icon — keeps the hub scannable. */
+  iconBg?: string;
   title: string;
   subtitle: string;
   onPress: () => void;
 }
 
 /**
- * Web home page has a 2-up tile grid (Booking History / Recurring) in
- * rounded-xl cards with a muted icon tile on the left, stacked text in
- * the middle, and a small chevron on the right. We mirror that layout.
+ * Account-hub row: colour-coded icon tile on the left, stacked text in
+ * the middle, chevron on the right. Mirrors the web account hub.
  */
-function ActionTile({ icon, title, subtitle, onPress }: ActionTileProps) {
+function ActionTile({ icon, iconBg, title, subtitle, onPress }: ActionTileProps) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
     >
-      <View style={styles.tileIcon}>{icon}</View>
+      <View style={[styles.tileIcon, iconBg ? { backgroundColor: iconBg } : null]}>
+        {icon}
+      </View>
       <View style={styles.tileBody}>
         <Text style={styles.tileTitle}>{title}</Text>
         <Text style={styles.tileSubtitle}>{subtitle}</Text>
@@ -886,6 +849,24 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: "600",
     color: colors.foreground,
+  },
+  phoneRow: {
+    marginTop: 3,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  phoneText: {
+    fontSize: 12,
+    color: colors.zinc500,
+  },
+  hubHeader: {
+    fontSize: 13,
+    fontWeight: "500",
+    letterSpacing: 1,
+    color: colors.zinc500,
+    textTransform: "uppercase",
+    marginBottom: spacing["3"],
   },
   profilePillRow: {
     marginTop: 4,
