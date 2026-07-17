@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
+import { getAutoApplyCouponCodes } from "@/actions/sport-promo";
+import { getMobilePlatform } from "@/lib/mobile-auth";
 import { BookingCategory, type Sport } from "@prisma/client";
 
 // GET /api/mobile/coupons/new-user?sport=CRICKET&amount=2000&category=BOWLING_MACHINE
@@ -31,13 +33,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const discount = await getNewUserDiscount(
-      user.id,
-      sport,
-      amount,
-      bookingCategory,
-    );
-    return NextResponse.json({ discount });
+    const [discount, autoApplyCodes] = await Promise.all([
+      getNewUserDiscount(user.id, sport, amount, bookingCategory),
+      // Admin-flagged auto-apply coupons — the checkout tries these
+      // BEFORE the new-user / fallback codes (event promos outrank the
+      // welcome discount). Full validation happens on apply.
+      getAutoApplyCouponCodes({
+        sport,
+        platform: getMobilePlatform(request),
+      }).catch(() => [] as string[]),
+    ]);
+    return NextResponse.json({ discount, autoApplyCodes });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed" },

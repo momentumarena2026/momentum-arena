@@ -22,7 +22,12 @@ interface ScreenProps {
    *  (useHeaderHeight()) on screens that have a header so inputs lift to
    *  exactly above the keyboard instead of being left under it. */
   keyboardVerticalOffset?: number;
-  /** Which safe-area edges to respect. Default: top + bottom. */
+  /** Which safe-area edges to respect. Default: bottom only — a screen
+   *  under a native-stack header (or the admin shell header) already has
+   *  the status-bar space consumed by that header, and re-adding the top
+   *  inset here painted a large blank band under every header title.
+   *  Headerless screens (tab roots, full-screen modals) pass
+   *  edges={["top", "bottom"]} explicitly. */
   edges?: Edges;
   contentStyle?: ViewStyle;
   style?: ViewStyle;
@@ -33,7 +38,7 @@ export function Screen({
   scrollable = false,
   avoidKeyboard = false,
   keyboardVerticalOffset,
-  edges = ["top", "bottom"],
+  edges = ["bottom"],
   contentStyle,
   style,
   children,

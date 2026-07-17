@@ -43,6 +43,9 @@ interface CheckoutClientProps {
   userEmail: string;
   userPhone: string;
   razorpayOfferId?: string;
+  /** Admin-flagged auto-apply coupon codes (newest first) — tried
+   *  BEFORE the new-user / sport fallback codes. */
+  autoApplyCodes?: string[];
   newUserDiscount?: {
     code: string;
     discountAmount: number;
@@ -91,6 +94,7 @@ export function CheckoutClient({
   userEmail,
   userPhone,
   razorpayOfferId,
+  autoApplyCodes,
   newUserDiscount,
   bookingDate,
   startHour,
@@ -133,6 +137,9 @@ export function CheckoutClient({
   const [discountApplied, setDiscountApplied] = useState(false);
   const [discountLabel, setDiscountLabel] = useState<string | null>(null);
   const [newUserApplied, setNewUserApplied] = useState(false);
+  // Gate: the new-user + fallback effects wait until the admin
+  // auto-apply pass has finished (applied one or exhausted the list).
+  const [autoCouponTried, setAutoCouponTried] = useState(false);
 
   // Reward redemption state — fed by the SummaryFooter client
   // island in page.tsx, which now owns the checkbox UI inside the
@@ -247,10 +254,52 @@ export function CheckoutClient({
   const recurringUnitLabel = recurringMode === "daily" ? "day" : "week";
   const recurringUnitPluralLabel = recurringMode === "daily" ? "days" : "weeks";
 
+  // Admin-flagged auto-apply coupons — highest priority (an event promo
+  // like the worldcup-final discount outranks the new-user welcome code,
+  // per product rule). applyCouponToHold runs the FULL validation
+  // (platform, sport, BOOKING_DATE, caps) server-side, so a candidate
+  // that doesn't fit this hold silently falls through to the next.
+  useEffect(() => {
+    if (discountApplied) {
+      setAutoCouponTried(true);
+      return;
+    }
+    if (!autoApplyCodes || autoApplyCodes.length === 0) {
+      setAutoCouponTried(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      for (const code of autoApplyCodes) {
+        try {
+          const persisted = await applyCouponToHold(holdId, code);
+          if (cancelled) return;
+          if (persisted.success && persisted.discountAmount) {
+            setEffectiveAmount(amount - persisted.discountAmount);
+            setDiscountApplied(true);
+            setNewUserApplied(true); // reuse the applied-pill presentation
+            setDiscountLabel(`${code} applied`);
+            setBillNonce((n) => n + 1);
+            trackCouponApplied(code, persisted.discountAmount);
+            break;
+          }
+        } catch {
+          // try the next candidate
+        }
+      }
+      if (!cancelled) setAutoCouponTried(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per hold
+  }, [holdId]);
+
   // Auto-apply new user discount on mount via unified coupon system.
   // Persists the couponId on the SlotHold so that createBookingFromHold can
   // record a CouponUsage row + increment usedCount when the booking lands.
   useEffect(() => {
+    if (!autoCouponTried) return;
     if (newUserDiscount && !discountApplied) {
       validateCoupon(newUserDiscount.code, {
         scope: "SPORTS",
@@ -270,7 +319,7 @@ export function CheckoutClient({
         }
       });
     }
-  }, [newUserDiscount, discountApplied, amount, sport, holdId]);
+  }, [autoCouponTried, newUserDiscount, discountApplied, amount, sport, holdId]);
 
   // Auto-apply launch / fallback coupon if no other discount applied.
   // The sport→code mapping lives in lib/auto-apply-promo.ts so the slot
@@ -278,7 +327,7 @@ export function CheckoutClient({
   // same code we apply here — keeps display + apply in sync if we ever
   // add another sport-specific launch promo.
   useEffect(() => {
-    if (discountApplied || newUserApplied) return;
+    if (!autoCouponTried || discountApplied || newUserApplied) return;
     const fallbackCode = getAutoApplyCodeForSport(sport);
     const fallbackLabel =
       sport === "PICKLEBALL"
@@ -308,7 +357,7 @@ export function CheckoutClient({
     }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amount, sport, newUserApplied, holdId]);
+  }, [amount, sport, newUserApplied, autoCouponTried, holdId]);
 
   // Advance payment calculation — computed against the FINAL payable
   // (post-coupon + post-points), so the 50% advance and remainder

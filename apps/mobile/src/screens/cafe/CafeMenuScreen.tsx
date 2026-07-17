@@ -47,7 +47,7 @@ export function CafeMenuScreen() {
 
   if (isLoading) {
     return (
-      <Screen>
+      <Screen edges={["top", "bottom"]}>
         <View style={styles.loading}>
           <ActivityIndicator color={colors.warning} />
         </View>
@@ -57,7 +57,7 @@ export function CafeMenuScreen() {
 
   if (isError || !data) {
     return (
-      <Screen>
+      <Screen edges={["top", "bottom"]}>
         <View style={styles.errorWrap}>
           <Text variant="body" color={colors.destructive_300} align="center">
             Couldn&apos;t load the cafe menu.
@@ -79,7 +79,7 @@ export function CafeMenuScreen() {
 
 function CafeClosedView() {
   return (
-    <Screen>
+    <Screen edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.closedScroll}>
         <View style={styles.heroCard}>
           <View style={styles.heroIcon}>
@@ -146,7 +146,7 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
   const categories = CATEGORY_ORDER.filter((c) => grouped[c]?.length > 0);
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.menuScroll}>
         <View style={styles.menuHeader}>
           <Text variant="heading" weight="700" color={colors.foreground}>

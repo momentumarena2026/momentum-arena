@@ -168,6 +168,12 @@ enum CouponConditionType {
   // (zero prior app bookings). Distinct from FIRST_PURCHASE, which keys on
   // prior coupon usage. Self-enforces app platform in the validator.
   FIRST_APP_BOOKING
+  // Valid only when the booking's PLAY DATE falls inside a calendar
+  // window: conditionValue {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"} (IST,
+  // inclusive). Distinct from validFrom/validUntil (which gate WHEN the
+  // coupon can be redeemed) — this gates WHICH DAY is being booked.
+  // Used for event promos (e.g. worldcup-final-day football discount).
+  BOOKING_DATE
 }
 
 enum UserGroupType {
@@ -1382,6 +1388,11 @@ model Coupon {
   stackGroup   String?
   isPublic     Boolean @default(true) // visible on customer coupon page
   isSystemCode Boolean @default(false) // auto-applied (new user, referral, etc.)
+  // Admin-flagged checkout auto-apply: both checkouts try these coupons
+  // FIRST (before the new-user / sport fallback codes) — full
+  // validateCoupon eligibility still applies, so an inapplicable
+  // auto-apply coupon silently falls through to the next candidate.
+  autoApply    Boolean @default(false)
 
   validFrom  DateTime
   validUntil DateTime

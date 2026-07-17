@@ -66,6 +66,7 @@ const CONDITION_TYPES: { value: CouponConditionType; label: string }[] = [
   { value: "FIRST_PURCHASE", label: "First Purchase" },
   { value: "TIME_WINDOW", label: "Time Window" },
   { value: "FIRST_APP_BOOKING", label: "First app booking only" },
+  { value: "BOOKING_DATE", label: "Booking date window" },
 ];
 
 // Platform restriction presets. Each maps to the stored validPlatforms
@@ -191,6 +192,7 @@ export function AdminCouponsScreen() {
   const [stackGroup, setStackGroup] = useState("");
   const [isPublic, setIsPublic] = useState(true);
   const [isSystemCode, setIsSystemCode] = useState(false);
+  const [autoApply, setAutoApply] = useState(false);
   // User-picker search
   const [userQuery, setUserQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -236,6 +238,7 @@ export function AdminCouponsScreen() {
     setStackGroup("");
     setIsPublic(true);
     setIsSystemCode(false);
+    setAutoApply(false);
     setUserQuery("");
     setDebouncedQuery("");
     setErr(null);
@@ -271,6 +274,7 @@ export function AdminCouponsScreen() {
     setStackGroup(c.stackGroup ?? "");
     setIsPublic(c.isPublic);
     setIsSystemCode(c.isSystemCode);
+    setAutoApply(c.autoApply);
     setUserQuery("");
     setDebouncedQuery("");
     setErr(null);
@@ -308,6 +312,7 @@ export function AdminCouponsScreen() {
         stackGroup: isStackable ? stackGroup.trim() || null : null,
         isPublic,
         isSystemCode,
+        autoApply,
         validFrom: from,
         validUntil: until,
       };
@@ -365,7 +370,8 @@ export function AdminCouponsScreen() {
       ),
     );
   }
-  function setConditionJson(i: number, json: Record<string, number>) {
+  // number for hour/amount editors, string for BOOKING_DATE's YYYY-MM-DD.
+  function setConditionJson(i: number, json: Record<string, number | string>) {
     setConditions((prev) =>
       prev.map((c, idx) =>
         idx === i ? { ...c, conditionValue: JSON.stringify(json) } : c,
@@ -426,6 +432,7 @@ export function AdminCouponsScreen() {
               if (platTag) tags.push(platTag);
               if (c.isSystemCode) tags.push("System");
               if (!c.isPublic) tags.push("Hidden");
+              if (c.autoApply) tags.push("Auto-apply");
               if (c.isStackable) tags.push("Stackable");
               if (c.eligibleUsers.length || c.eligibleGroups.length)
                 tags.push("Targeted");
@@ -1070,6 +1077,32 @@ export function AdminCouponsScreen() {
                           User must have no prior booking made in the app
                         </Text>
                       ) : null}
+                      {cond.conditionType === "BOOKING_DATE" ? (
+                        <View style={styles.twoCol}>
+                          <View style={{ flex: 1 }}>
+                            <Input
+                              label="Play date from"
+                              placeholder="YYYY-MM-DD"
+                              autoCapitalize="none"
+                              value={json.from != null ? String(json.from) : ""}
+                              onChangeText={(t) =>
+                                setConditionJson(i, { ...json, from: t.trim() })
+                              }
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Input
+                              label="Play date to"
+                              placeholder="YYYY-MM-DD"
+                              autoCapitalize="none"
+                              value={json.to != null ? String(json.to) : ""}
+                              onChangeText={(t) =>
+                                setConditionJson(i, { ...json, to: t.trim() })
+                              }
+                            />
+                          </View>
+                        </View>
+                      ) : null}
                     </View>
                   );
                 })}
@@ -1136,6 +1169,24 @@ export function AdminCouponsScreen() {
                   onValueChange={setIsPublic}
                   trackColor={{ true: colors.emerald500_10, false: colors.zinc700 }}
                   thumbColor={isPublic ? colors.emerald400 : colors.zinc400}
+                />
+              </View>
+
+              <View style={styles.toggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="small" weight="500" color={colors.foreground}>
+                    Auto-apply at checkout
+                  </Text>
+                  <Text variant="tiny" color={colors.zinc500}>
+                    Applied automatically when eligible — outranks the
+                    new-user welcome code
+                  </Text>
+                </View>
+                <Switch
+                  value={autoApply}
+                  onValueChange={setAutoApply}
+                  trackColor={{ true: colors.emerald500_10, false: colors.zinc700 }}
+                  thumbColor={autoApply ? colors.emerald400 : colors.zinc400}
                 />
               </View>
 

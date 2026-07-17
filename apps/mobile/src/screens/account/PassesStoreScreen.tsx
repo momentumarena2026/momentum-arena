@@ -18,15 +18,16 @@ import type {
   PaymentErrorData,
   PaymentSuccessData,
 } from "react-native-razorpay/src/types";
-import { CreditCard, Smartphone, Ticket, X } from "lucide-react-native";
+import { CreditCard, ShieldCheck, Smartphone, Ticket, X } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
+import { PassClock } from "../../components/passes/PassClock";
 import { Text } from "../../components/ui/Text";
 import {
   DqrCheckout,
   type DqrEndpoints,
 } from "../../components/payment/DqrCheckout";
 import { colors, spacing } from "../../theme";
-import { formatRupees } from "../../lib/format";
+import { formatRupees, sportEmoji } from "../../lib/format";
 import { ApiError } from "../../lib/api";
 import { bookingApi } from "../../lib/booking";
 import { passesApi, type PassPlanCard } from "../../lib/passes";
@@ -85,46 +86,73 @@ function PlanCard({
   onBuy: () => void;
 }) {
   const accent = SPORT_ACCENT[plan.sport] ?? "#34d399";
+  const sportTitle =
+    plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase() +
+    (plan.isBowling ? " · Bowling Machine" : "");
+  const restricted = !!plan.bandsSummary && plan.bandsSummary !== "All hours";
   return (
     <View style={[styles.planCard, { borderColor: `${accent}33` }]}>
-      <View style={styles.planTop}>
-        <View style={[styles.hoursBadge, { backgroundColor: `${accent}18` }]}>
-          <Text style={[styles.hoursBig, { color: accent }]}>
-            {fmtH(plan.hours)}
-          </Text>
-          <Text style={[styles.hoursUnit, { color: accent }]}>hrs</Text>
-        </View>
-        <View style={styles.planInfo}>
-          <Text style={styles.planName} numberOfLines={2}>
-            {plan.name}
-          </Text>
-          <Text style={styles.planCourt}>{plan.courtLabel}</Text>
-          {plan.bandsSummary ? (
-            <Text style={styles.planBands}>{plan.bandsSummary}</Text>
-          ) : null}
-        </View>
-        {plan.discountPercent > 0 && (
-          <View style={styles.saveBadge}>
-            <Text style={styles.saveText}>Save {plan.discountPercent}%</Text>
+      {/* Ticket stub — tinted header with sport tile + hours dial,
+          mirroring the web /passes card. */}
+      <View style={[styles.stub, { backgroundColor: `${accent}14` }]}>
+        <View style={styles.stubTop}>
+          <View style={[styles.sportTile, { backgroundColor: `${accent}1f` }]}>
+            <Text style={styles.sportGlyph}>{sportEmoji(plan.sport)}</Text>
           </View>
-        )}
-      </View>
-
-      <View style={styles.planBottom}>
-        <View>
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>{formatRupees(plan.price)}</Text>
-            {plan.baseAmount > plan.price && (
-              <Text style={styles.basePrice}>
-                {formatRupees(plan.baseAmount)}
-              </Text>
+          <View style={styles.dialCol}>
+            <PassClock totalHours={plan.hours} accent={accent} size={80} stroke={8} />
+            {plan.discountPercent > 0 && (
+              <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
+                <Text style={[styles.saveText, { color: accent }]}>
+                  Save {plan.discountPercent}%
+                </Text>
+              </View>
             )}
           </View>
-          <Text style={styles.priceMeta}>
-            ≈ {formatRupees(plan.effectiveHourly)}/hr · valid{" "}
-            {plan.validityDays} days
-          </Text>
         </View>
+        <Text style={styles.sportLabel}>{sportTitle}</Text>
+        <Text style={styles.planName}>{plan.name}</Text>
+      </View>
+
+      {/* Perforation — side notches + dashed divider */}
+      <View style={styles.perforation}>
+        <View style={[styles.notch, styles.notchLeft]} />
+        <View style={styles.dashes} />
+        <View style={[styles.notch, styles.notchRight]} />
+      </View>
+
+      {/* Body */}
+      <View style={styles.body}>
+        <View style={styles.priceRow}>
+          <Text style={styles.price}>{formatRupees(plan.price)}</Text>
+          {plan.baseAmount > plan.price && (
+            <Text style={styles.basePrice}>{formatRupees(plan.baseAmount)}</Text>
+          )}
+        </View>
+        <Text style={[styles.hourlyRow, { color: accent }]}>
+          {formatRupees(plan.effectiveHourly)}/hr
+          {plan.anchorPricePerHour != null ? (
+            <Text style={styles.hourlyMuted}>
+              {"  instead of "}
+              {formatRupees(plan.anchorPricePerHour)}/hr
+            </Text>
+          ) : null}
+        </Text>
+
+        <View style={styles.metaRow}>
+          <View style={styles.metaItem}>
+            <ShieldCheck size={13} color={colors.zinc400} />
+            <Text style={styles.metaText}>Valid {plan.validityDays} days</Text>
+          </View>
+          {restricted && (
+            <View style={[styles.bandChip, { backgroundColor: `${accent}1f` }]}>
+              <Text style={[styles.bandChipText, { color: accent }]}>
+                {plan.bandsSummary}
+              </Text>
+            </View>
+          )}
+        </View>
+
         <Pressable
           onPress={onBuy}
           style={({ pressed }) => [
@@ -475,68 +503,77 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     backgroundColor: colors.zinc900,
+    overflow: "hidden",
+  },
+  stub: {
     padding: spacing["4"],
   },
-  planTop: {
+  stubTop: {
     flexDirection: "row",
-    gap: spacing["3"],
+    alignItems: "flex-start",
+    justifyContent: "space-between",
   },
-  hoursBadge: {
-    width: 62,
-    height: 62,
-    borderRadius: 14,
+  sportTile: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  hoursBig: {
-    fontSize: 22,
-    fontWeight: "800",
-    lineHeight: 24,
+  sportGlyph: {
+    fontSize: 26,
   },
-  hoursUnit: {
-    fontSize: 10,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  planInfo: {
-    flex: 1,
-  },
-  planName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: colors.foreground,
-  },
-  planCourt: {
-    marginTop: 2,
-    fontSize: 12,
-    color: colors.zinc500,
-  },
-  planBands: {
-    marginTop: 2,
-    fontSize: 11,
-    color: colors.zinc400,
+  dialCol: {
+    alignItems: "center",
+    gap: spacing["2"],
   },
   saveBadge: {
-    alignSelf: "flex-start",
     borderRadius: 999,
-    backgroundColor: "rgba(251,191,36,0.14)",
-    paddingHorizontal: spacing["2"],
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   saveText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "700",
-    color: "#fbbf24",
   },
-  planBottom: {
+  sportLabel: {
     marginTop: spacing["3"],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.zinc800,
-    paddingTop: spacing["3"],
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: colors.zinc400,
+  },
+  planName: {
+    marginTop: 2,
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 22,
+    color: colors.foreground,
+  },
+  perforation: {
+    height: 16,
+    justifyContent: "center",
+  },
+  dashes: {
+    marginHorizontal: spacing["4"],
+    borderTopWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.zinc700,
+  },
+  notch: {
+    position: "absolute",
+    top: 0,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  notchLeft: { left: -8 },
+  notchRight: { right: -8 },
+  body: {
+    padding: spacing["4"],
+    paddingTop: spacing["1"],
   },
   priceRow: {
     flexDirection: "row",
@@ -544,29 +581,60 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   price: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "700",
     color: colors.foreground,
   },
   basePrice: {
-    fontSize: 13,
+    fontSize: 14,
     color: colors.zinc500,
     textDecorationLine: "line-through",
   },
-  priceMeta: {
-    marginTop: 2,
-    fontSize: 11,
+  hourlyRow: {
+    marginTop: 3,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  hourlyMuted: {
+    fontSize: 13,
+    fontWeight: "400",
     color: colors.zinc500,
   },
+  metaRow: {
+    marginTop: spacing["3"],
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing["3"],
+  },
+  metaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  metaText: {
+    fontSize: 12,
+    color: colors.zinc400,
+  },
+  bandChip: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  bandChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
   buyBtn: {
+    marginTop: spacing["4"],
     borderRadius: 12,
-    paddingHorizontal: spacing["4"],
-    paddingVertical: 10,
+    alignItems: "center",
+    paddingVertical: 11,
   },
   buyBtnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
-    color: "#022c22",
+    color: "#04140d",
   },
   emptyBox: {
     alignItems: "center",

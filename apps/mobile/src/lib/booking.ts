@@ -455,9 +455,13 @@ export const bookingApi = {
     q.set("sport", sport);
     q.set("amount", String(amount));
     if (category) q.set("category", category);
-    return api.get<{ discount: NewUserDiscount | null }>(
-      `/api/mobile/coupons/new-user?${q.toString()}`,
-    );
+    return api.get<{
+      discount: NewUserDiscount | null;
+      /** Admin-flagged auto-apply codes, newest first — the checkout
+       *  tries these BEFORE the new-user / fallback codes. Optional so
+       *  older server deploys (no field) type-check as undefined. */
+      autoApplyCodes?: string[];
+    }>(`/api/mobile/coupons/new-user?${q.toString()}`);
   },
 
   /** Public list of currently-valid, isPublic coupons for a given scope.

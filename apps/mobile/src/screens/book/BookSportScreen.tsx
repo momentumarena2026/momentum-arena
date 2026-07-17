@@ -73,7 +73,7 @@ export function BookSportScreen() {
   const navigation = useNavigation<Nav>();
 
   return (
-    <Screen scrollable>
+    <Screen scrollable edges={["top", "bottom"]}>
       {/* Rain "all-weather" banner — mirrors web's /book page. Rounded,
           informational (no deep-link; the user is already booking).
           Renders only when getRainBanner() says to. */}

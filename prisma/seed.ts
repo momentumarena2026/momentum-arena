@@ -40,6 +40,59 @@ async function main() {
     },
   });
   console.log("Seeded superadmin user: gamelord");
+
+  // ── WORLDCUP25 — worldcup-final-day football promo ────────────────
+  // 25% off FOOTBALL bookings whose PLAY DATE is 20 Jul 2026 (the
+  // final), auto-applied at checkout AHEAD of the new-user welcome
+  // code (autoApply coupons are tried first by both checkouts).
+  //
+  // CREATE-ONLY upsert (update: {}) per this file's policy — the seed
+  // creates the coupon once per environment (dev now; production when
+  // the branch is promoted to main, via seed-production) and never
+  // clobbers later admin edits. Admins retire it via isActive.
+  const gamelord = await prisma.adminUser.findUnique({
+    where: { username: "gamelord" },
+    select: { id: true },
+  });
+  await prisma.coupon.upsert({
+    where: { code: "WORLDCUP25" },
+    update: {},
+    create: {
+      code: "WORLDCUP25",
+      description:
+        "Worldcup Final Day — 25% off football bookings played on 20 Jul 2026",
+      scope: "SPORTS",
+      type: "PERCENTAGE",
+      value: 2500, // basis points = 25%
+      maxUses: null, // unlimited total
+      maxUsesPerUser: 1_000_000, // effectively unlimited (schema min 1)
+      minAmount: null, // no minimum
+      sportFilter: ["FOOTBALL"],
+      validPlatforms: [], // web + app
+      isStackable: false,
+      isPublic: true,
+      isSystemCode: false,
+      autoApply: true,
+      // Redeemable from now until the end of final day IST — the
+      // BOOKING_DATE condition below is what pins WHICH day is booked.
+      validFrom: new Date("2026-07-16T00:00:00+05:30"),
+      validUntil: new Date("2026-07-20T23:59:59+05:30"),
+      isActive: true,
+      createdBy: gamelord!.id,
+      conditions: {
+        create: [
+          {
+            conditionType: "BOOKING_DATE",
+            conditionValue: JSON.stringify({
+              from: "2026-07-20",
+              to: "2026-07-20",
+            }),
+          },
+        ],
+      },
+    },
+  });
+  console.log("Seeded coupon: WORLDCUP25 (create-only)");
 }
 
 main()

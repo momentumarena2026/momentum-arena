@@ -32,6 +32,7 @@ const conditionSchema = z.object({
     "BIRTHDAY",
     "REFERRAL",
     "FIRST_APP_BOOKING",
+    "BOOKING_DATE",
   ]),
   conditionValue: z.string(), // JSON string
 });
@@ -78,6 +79,8 @@ const couponSchema = z.object({
   stackGroup: z.string().nullable().optional(),
   isPublic: z.boolean().default(true),
   isSystemCode: z.boolean().default(false),
+  // Checkout tries autoApply coupons FIRST (before new-user/fallback).
+  autoApply: z.boolean().default(false),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
   conditions: z.array(conditionSchema).default([]),
@@ -156,6 +159,7 @@ export async function createCoupon(data: {
   stackGroup?: string | null;
   isPublic?: boolean;
   isSystemCode?: boolean;
+  autoApply?: boolean;
   validFrom: string;
   validUntil: string;
   conditions?: { conditionType: CouponConditionType; conditionValue: string }[];
@@ -210,6 +214,7 @@ export async function createCoupon(data: {
         stackGroup: parsed.data.stackGroup ?? null,
         isPublic: parsed.data.isPublic,
         isSystemCode: parsed.data.isSystemCode,
+        autoApply: parsed.data.autoApply,
         validFrom: new Date(parsed.data.validFrom),
         validUntil: new Date(parsed.data.validUntil),
         createdBy: adminId,
@@ -269,6 +274,7 @@ export async function updateCoupon(
     stackGroup?: string | null;
     isPublic?: boolean;
     isSystemCode?: boolean;
+    autoApply?: boolean;
     validFrom?: string;
     validUntil?: string;
     isActive?: boolean;
@@ -299,6 +305,7 @@ export async function updateCoupon(
     if (data.stackGroup !== undefined) updateData.stackGroup = data.stackGroup;
     if (data.isPublic !== undefined) updateData.isPublic = data.isPublic;
     if (data.isSystemCode !== undefined) updateData.isSystemCode = data.isSystemCode;
+    if (data.autoApply !== undefined) updateData.autoApply = data.autoApply;
     if (data.validFrom !== undefined) updateData.validFrom = new Date(data.validFrom);
     if (data.validUntil !== undefined) updateData.validUntil = new Date(data.validUntil);
     if (data.isActive !== undefined) updateData.isActive = data.isActive;

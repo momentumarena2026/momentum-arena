@@ -52,6 +52,7 @@ const conditionSchema = z.object({
     "BIRTHDAY",
     "REFERRAL",
     "FIRST_APP_BOOKING",
+    "BOOKING_DATE",
   ]),
   conditionValue: z.string(), // JSON string
 });
@@ -77,6 +78,8 @@ const createSchema = z.object({
   stackGroup: z.string().nullish(),
   isPublic: z.boolean().default(true),
   isSystemCode: z.boolean().default(false),
+  // Checkout tries autoApply coupons FIRST (before new-user/fallback).
+  autoApply: z.boolean().default(false),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
   conditions: z.array(conditionSchema).default([]),
@@ -116,6 +119,7 @@ export async function GET(request: NextRequest) {
       stackGroup: true,
       isPublic: true,
       isSystemCode: true,
+      autoApply: true,
       isActive: true,
       validFrom: true,
       validUntil: true,
@@ -205,6 +209,7 @@ export async function POST(request: NextRequest) {
       stackGroup: d.stackGroup?.trim() || null,
       isPublic: d.isPublic,
       isSystemCode: d.isSystemCode,
+      autoApply: d.autoApply,
       validFrom: new Date(d.validFrom),
       validUntil: new Date(d.validUntil),
       isActive: true,

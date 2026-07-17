@@ -241,7 +241,7 @@ export function BookBowlingSlotsScreen() {
   const signedIn = state.status === "signedIn";
 
   return (
-    <Screen padded={false} edges={["top"]}>
+    <Screen padded={false} edges={[]}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         // Pin the date-picker section (index 1) so the customer

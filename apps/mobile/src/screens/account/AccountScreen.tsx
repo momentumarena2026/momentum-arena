@@ -147,7 +147,7 @@ export function AccountScreen() {
   const initial = user.name?.charAt(0)?.toUpperCase() ?? "?";
 
   return (
-    <Screen scrollable>
+    <Screen scrollable edges={["top", "bottom"]}>
       {/* ─── Title block ─────────────────────────────────────────────── */}
       <View style={styles.titleBlock}>
         <Text style={styles.title}>My Profile</Text>
@@ -520,7 +520,7 @@ function SignedOutAccount() {
   const rootNav = tabNav?.getParent<RootNav>();
 
   return (
-    <Screen scrollable>
+    <Screen scrollable edges={["top", "bottom"]}>
       <View style={styles.signedOutHero}>
         <View style={styles.signedOutIcon}>
           <UserIcon size={36} color={colors.primary} />

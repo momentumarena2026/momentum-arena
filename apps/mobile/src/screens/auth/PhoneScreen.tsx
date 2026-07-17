@@ -56,7 +56,7 @@ export function PhoneScreen() {
   }
 
   return (
-    <Screen avoidKeyboard>
+    <Screen avoidKeyboard edges={["top", "bottom"]}>
       <Pressable
         onPress={() => navigation.goBack()}
         style={styles.close}
