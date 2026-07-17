@@ -15,21 +15,15 @@ import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
 import { CafeOrdersListScreen } from "../screens/cafe/CafeOrdersListScreen";
 import { CafeOrderDetailScreen } from "../screens/cafe/CafeOrderDetailScreen";
 import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
-import { colors } from "../theme";
 import type { AccountStackParamList } from "./types";
+import { stackHeaderOptions } from "./headerOptions";
 
 const Stack = createNativeStackNavigator<AccountStackParamList>();
 
 export function AccountStack() {
   return (
     <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <Stack.Screen
         name="AccountHome"

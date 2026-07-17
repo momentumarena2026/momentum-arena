@@ -3,8 +3,8 @@ import { ShopHomeScreen } from "../screens/shop/ShopHomeScreen";
 import { ShopCartScreen } from "../screens/shop/ShopCartScreen";
 import { ShopCheckoutScreen } from "../screens/shop/ShopCheckoutScreen";
 import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
-import { colors } from "../theme";
 import type { ShopStackParamList } from "./types";
+import { stackHeaderOptions } from "./headerOptions";
 
 const Stack = createNativeStackNavigator<ShopStackParamList>();
 
@@ -25,14 +25,7 @@ const Stack = createNativeStackNavigator<ShopStackParamList>();
 export function ShopStack() {
   return (
     <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { color: colors.foreground },
-        headerTintColor: colors.primary,
-        headerShadowVisible: false,
-        headerBackButtonDisplayMode: "minimal",
-        contentStyle: { backgroundColor: colors.background },
-      }}
+      screenOptions={stackHeaderOptions}
     >
       <Stack.Screen
         name="ShopHome"
