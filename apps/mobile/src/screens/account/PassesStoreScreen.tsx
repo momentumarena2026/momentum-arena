@@ -19,6 +19,7 @@ import type {
   PaymentSuccessData,
 } from "react-native-razorpay/src/types";
 import { CreditCard, ShieldCheck, Smartphone, Ticket, X } from "lucide-react-native";
+import LinearGradient from "react-native-linear-gradient";
 import { Screen } from "../../components/ui/Screen";
 import { PassClock } from "../../components/passes/PassClock";
 import { SportIcon } from "../../components/passes/SportIcon";
@@ -94,29 +95,40 @@ function PlanCard({
   const restricted = !!plan.bandsSummary && plan.bandsSummary !== "All hours";
   return (
     <View style={[styles.planCard, { borderColor: `${accent}33` }]}>
-      {/* Ticket stub — tinted header with sport tile + hours dial,
-          mirroring the web /passes card. */}
-      <View style={[styles.stub, { backgroundColor: `${accent}14` }]}>
-        <View style={styles.stubTop}>
+      {/* Ticket stub — accent gradient texture (same 135° fade as the
+          web card), sport identity beside the icon, hours dial centred. */}
+      <View style={styles.stub}>
+        <LinearGradient
+          colors={[`${accent}26`, "rgba(0,0,0,0)"]}
+          locations={[0, 0.7]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.stubGradient}
+        />
+        <View style={styles.identRow}>
           <View style={[styles.sportTile, { backgroundColor: `${accent}1f` }]}>
             <SportIcon sport={plan.sport} size={28} color={accent} />
           </View>
-          <View style={styles.dialCol}>
-            <PassClock totalHours={plan.hours} accent={accent} size={80} stroke={8} />
-            {plan.discountPercent > 0 && (
-              <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
-                <Text style={[styles.saveText, { color: accent }]}>
-                  Save {plan.discountPercent}%
-                </Text>
-              </View>
-            )}
+          <View style={styles.identText}>
+            <Text style={styles.sportLabel}>{sportTitle}</Text>
+            <Text style={styles.planName} numberOfLines={2}>
+              {plan.name}
+            </Text>
           </View>
         </View>
-        <Text style={styles.sportLabel}>{sportTitle}</Text>
-        <Text style={styles.planName}>{plan.name}</Text>
+        <View style={styles.dialCenter}>
+          <PassClock totalHours={plan.hours} accent={accent} size={116} stroke={10} />
+          {plan.discountPercent > 0 && (
+            <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
+              <Text style={[styles.saveText, { color: accent }]}>
+                Save {plan.discountPercent}%
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* Perforation — side notches + dashed divider */}
+      {/* Perforation — side notches + dotted centre line */}
       <View style={styles.perforation}>
         <View style={[styles.notch, styles.notchLeft]} />
         <View style={styles.dashes} />
@@ -512,11 +524,22 @@ const styles = StyleSheet.create({
   },
   stub: {
     padding: spacing["4"],
+    overflow: "hidden",
   },
-  stubTop: {
+  stubGradient: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  identRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing["3"],
+  },
+  identText: {
+    flex: 1,
   },
   sportTile: {
     width: 48,
@@ -525,7 +548,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dialCol: {
+  dialCenter: {
+    marginTop: spacing["4"],
     alignItems: "center",
     gap: spacing["2"],
   },
@@ -539,7 +563,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   sportLabel: {
-    marginTop: spacing["3"],
     fontSize: 11,
     fontWeight: "600",
     letterSpacing: 1.2,
@@ -547,8 +570,8 @@ const styles = StyleSheet.create({
     color: colors.zinc400,
   },
   planName: {
-    marginTop: 2,
-    fontSize: 17,
+    marginTop: 3,
+    fontSize: 16,
     fontWeight: "700",
     lineHeight: 22,
     color: colors.foreground,
@@ -560,7 +583,7 @@ const styles = StyleSheet.create({
   dashes: {
     marginHorizontal: spacing["4"],
     borderTopWidth: 1,
-    borderStyle: "dashed",
+    borderStyle: "dotted",
     borderColor: colors.zinc700,
   },
   notch: {
