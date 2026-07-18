@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
@@ -206,7 +206,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  notifyAdminPendingBooking(bookingId).catch(() => {});
+  // MUST be inside after(): a bare fire-and-forget promise is killed
+  // when the serverless function freezes on response, so the admin SMS
+  // only landed when it happened to win that race. Every other
+  // notification path in the codebase already does this.
+  after(async () => {
+    await notifyAdminPendingBooking(bookingId).catch((err) =>
+      console.error("[dqr] admin pending-booking notify failed", err),
+    );
+  });
   logServerAction({
     userId,
     category: AnalyticsCategory.PAYMENT,
