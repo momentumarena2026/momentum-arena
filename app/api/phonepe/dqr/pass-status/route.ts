@@ -31,6 +31,18 @@ export async function GET(request: NextRequest) {
         status.providerReferenceId,
         status.amount,
       );
+      if (res.mismatch) {
+        // Terminal: money captured, no pass issued (plan repriced
+        // inside the QR window). Stop the client polling and tell the
+        // customer rather than spinning forever.
+        return NextResponse.json({
+          state: "FAILED",
+          userPassId: null,
+          paymentReceived: true,
+          error:
+            "Payment received, but this plan's price changed while you paid. Please do NOT pay again — our team will issue your pass or refund you shortly.",
+        });
+      }
       return NextResponse.json({
         state: res.userPassId ? "COMPLETED" : "PENDING",
         userPassId: res.userPassId,

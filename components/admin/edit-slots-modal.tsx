@@ -96,23 +96,19 @@ export function EditSlotsModal({
   const [error, setError] = useState<string | null>(null);
   const [coverWithPass, setCoverWithPass] = useState(false);
 
-  // Minutes this save ADDS, measured the way the server measures them:
-  // only hours not already on the booking create new rows (an hour that
-  // carries both a full slot and a 30-min extension is still one hour),
-  // so a re-save of the same selection adds nothing.
+  // NET minutes delta — the same measure the server gates on. Counting
+  // only "fresh hours" would offer the pass option on a pure SWAP (drop
+  // 10am, add 2pm), where the server sees delta 0, debits nothing, and
+  // silently ignores the checkbox.
   const addedMinutes = isBowlingMode
     ? Math.max(
         0,
         (selectedBowling.size - (currentBowlingSlots?.length ?? 0)) * 30,
       )
-    : (() => {
-        const booked = new Set(currentSlots);
-        let fresh = 0;
-        selectedHours.forEach((h) => {
-          if (!booked.has(h)) fresh += 1;
-        });
-        return fresh * 60;
-      })();
+    : Math.max(
+        0,
+        (selectedHours.size - new Set(currentSlots).size) * 60,
+      );
 
   // A tick left over from a selection the admin then changed into a
   // removal must not travel with the save.

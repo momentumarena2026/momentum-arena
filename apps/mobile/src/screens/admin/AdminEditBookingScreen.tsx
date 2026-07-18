@@ -107,13 +107,14 @@ export function AdminEditBookingScreen() {
     enabled: !!courtConfigId && !!date,
   });
 
-  // Hours not already on the booking — the only ones that create new
-  // rows server-side, so this matches the server's delta exactly.
+  // NET minutes delta — the measure the server gates on (a pure swap is
+  // delta 0 there, so a "fresh hours" count would offer a checkbox that
+  // silently does nothing).
   const bookedHours = useMemo(
     () => new Set((booking?.slots ?? []).map((s) => s.startHour)),
     [booking],
   );
-  const addedMinutes = hours.filter((h) => !bookedHours.has(h)).length * 60;
+  const addedMinutes = Math.max(0, (hours.length - bookedHours.size) * 60);
 
   useEffect(() => {
     if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);

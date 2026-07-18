@@ -170,6 +170,11 @@ export async function materializeUserPass(args: {
   }
 }
 
+/** Sentinel stored in PassPurchaseIntent.consumedUserPassId when a DQR
+ *  capture didn't match the plan price — makes the mismatch terminal
+ *  without a schema change. */
+const PASS_INTENT_MISMATCH = "AMOUNT_MISMATCH";
+
 /** DQR pass confirm — look up the intent by txn, materialise the pass,
  *  stamp the intent. Called by the status poll + S2S callback; both
  *  idempotent. */
@@ -181,7 +186,13 @@ export async function confirmDqrPass(
    *  paths apply — so a plan repriced inside the QR window can't
    *  materialize at the wrong terms. */
   capturedPaise?: number,
-): Promise<{ userPassId: string | null; alreadyDone: boolean }> {
+): Promise<{
+  userPassId: string | null;
+  alreadyDone: boolean;
+  /** Captured amount didn't match the plan price — terminal, money is
+   *  on the orphan worklist. */
+  mismatch?: boolean;
+}> {
   const intent = await db.passPurchaseIntent.findUnique({
     where: { phonePeMerchantTxnId: transactionId },
     select: {
@@ -193,6 +204,10 @@ export async function confirmDqrPass(
     },
   });
   if (!intent) return { userPassId: null, alreadyDone: false };
+  if (intent.consumedUserPassId === PASS_INTENT_MISMATCH) {
+    // Already settled as a price mismatch — terminal, orphan filed once.
+    return { userPassId: null, alreadyDone: true, mismatch: true };
+  }
   if (intent.consumedUserPassId) {
     return { userPassId: intent.consumedUserPassId, alreadyDone: true };
   }
@@ -208,14 +223,28 @@ export async function confirmDqrPass(
         capturedPaise,
         plan?.price ?? "no-plan",
       );
-      recordOrphanPayment({
-        gateway: "PHONEPE_DQR",
-        reason: "pass-price-mismatch",
-        userId: intent.userId,
-        amountRupees: Math.round(capturedPaise / 100),
-        phonePeMerchantTxnId: transactionId,
-      });
-      return { userPassId: null, alreadyDone: false };
+      // Consume the intent so this is TERMINAL: the status poll would
+      // otherwise re-enter this branch on every tick, filing one orphan
+      // per poll and leaving the customer on a QR screen that never
+      // resolves. `mismatch` tells the route to stop polling and say
+      // the money was received.
+      const firstTime = await db.passPurchaseIntent
+        .updateMany({
+          where: { id: intent.id, consumedUserPassId: null },
+          data: { consumedUserPassId: PASS_INTENT_MISMATCH },
+        })
+        .then((r) => r.count === 1)
+        .catch(() => false);
+      if (firstTime) {
+        recordOrphanPayment({
+          gateway: "PHONEPE_DQR",
+          reason: "pass-price-mismatch",
+          userId: intent.userId,
+          amountRupees: Math.round(capturedPaise / 100),
+          phonePeMerchantTxnId: transactionId,
+        });
+      }
+      return { userPassId: null, alreadyDone: false, mismatch: true };
     }
   }
 
@@ -884,6 +913,37 @@ async function passCoversCourt(
   return key(a) === key(b);
 }
 
+/**
+ * Do a pass's pricing bands cover these hours on this date/court?
+ *
+ * A pass is bound to ONE price tier (see lib/pass-bands): a ₹3000
+ * weekday off-peak pass must not silently pay for a Saturday-evening
+ * peak slot worth 2.5× its anchor. Checkout enforces this via
+ * getPassOfferForHold; every ADMIN path (edit, extend, eligibility)
+ * must apply the same rule or the venue gives away peak time.
+ *
+ * Unclassifiable hours (outside the pricing table) are treated as NOT
+ * covered — safer to charge than to hand over untiered time.
+ */
+export async function passBandsCoverHours(
+  pass: { bands: unknown },
+  courtConfigId: string,
+  date: Date,
+  hours: number[],
+): Promise<boolean> {
+  const bands = parseBands(pass.bands);
+  // An unrestricted pass (no bands) covers every tier.
+  if (bands.length === 0 || hours.length === 0) return true;
+  const classified = await getSlotPricesForDate(courtConfigId, date).catch(
+    () => [],
+  );
+  const byHour = new Map(classified.map((s) => [s.hour, s]));
+  return hours.every((h) => {
+    const slot = byHour.get(h);
+    return !!slot && slotInBands(bands, slot);
+  });
+}
+
 /** An eligible pass for covering ADDED minutes on a booking — the
  *  booking's existing redemption pass first, else the customer's best
  *  eligible pass (owner or shared member, court group + play-date
@@ -895,6 +955,8 @@ export async function findPassForBookingDelta(args: {
   bookingDate: Date;
   courtConfigId: string;
   deltaMinutes: number;
+  /** The hours being added — checked against the pass's price bands. */
+  addedHours?: number[];
 }): Promise<{ passId: string; passName: string; remainingMinutes: number } | null> {
   if (!args.bookingUserId || args.deltaMinutes <= 0) return null;
   const now = new Date();
@@ -907,13 +969,20 @@ export async function findPassForBookingDelta(args: {
     startsAt: Date;
     expiresAt: Date;
     remainingMinutes: number;
+    bands: unknown;
   }) =>
     p.status === "ACTIVE" &&
     p.startsAt.getTime() <= args.bookingDate.getTime() &&
     p.expiresAt.getTime() > args.bookingDate.getTime() &&
     p.expiresAt.getTime() > now.getTime() &&
     p.remainingMinutes >= args.deltaMinutes &&
-    (await passCoversCourt(db, p.courtConfigId, args.courtConfigId));
+    (await passCoversCourt(db, p.courtConfigId, args.courtConfigId)) &&
+    (await passBandsCoverHours(
+      p,
+      args.courtConfigId,
+      args.bookingDate,
+      args.addedHours ?? [],
+    ));
 
   // 1. The pass already attached to this booking, if any.
   const red = await db.passRedemption.findUnique({
@@ -980,13 +1049,22 @@ export async function syncPassAfterAdminEdit(
     bookingDate: Date;
     courtConfigId: string;
     newTotalAmount: number;
-    /** Booking.totalAmount BEFORE the edit — the price of the added
-     *  time (newTotal − oldTotal) is the most a pass may newly cover. */
-    oldTotalAmount: number;
     /** Payment.amount AFTER the edit (money actually captured). */
     paymentAmount: number;
     newMinutes: number;
     oldMinutes: number;
+    /** The slot rows the edit actually wrote — court time only. The
+     *  pass's share is RECOMPUTED from these (priciest first, exactly
+     *  how checkout picks coverage) rather than nudged incrementally,
+     *  so date/court moves are symmetric and a move-and-move-back
+     *  lands back where it started. */
+    newSlots: { price: number; durationMinutes: number }[];
+    /** Gear on the booking — a pass never pays for it, so it's excluded
+     *  from everything the pass may cover. */
+    equipmentAmount?: number;
+    /** Hours this edit ADDS — checked against the pass's price bands so
+     *  an off-peak pass can't be made to pay for peak time. */
+    addedHours?: number[];
     coverDeltaWithPass?: boolean;
   },
 ): Promise<
@@ -994,16 +1072,38 @@ export async function syncPassAfterAdminEdit(
   | { ok: false; error: string }
 > {
   const delta = args.newMinutes - args.oldMinutes;
-  const clampCovered = (v: number) =>
-    Math.max(0, Math.min(args.newTotalAmount, v));
-  /** What a pass may cover after this edit: whatever it already covered
-   *  plus the price of the time just added, never more than the money
-   *  still uncaptured. */
-  const grownCovered = (previousCovered: number) =>
-    Math.min(
-      previousCovered + Math.max(0, args.newTotalAmount - args.oldTotalAmount),
-      clampCovered(args.newTotalAmount - args.paymentAmount),
-    );
+  const equipment = Math.max(0, args.equipmentAmount ?? 0);
+  /** Court-time portion of the new total — the ceiling on pass cover. */
+  const slotPortion = Math.max(0, args.newTotalAmount - equipment);
+  const clampCovered = (v: number) => Math.max(0, Math.min(slotPortion, v));
+
+  /**
+   * List price of the `minutes` a pass covers, taken priciest-slot
+   * first (same rule as getPassOfferForHold, so an admin edit values
+   * coverage the way checkout did). Clamped to the court-time portion
+   * of the total, which also absorbs any booking-level discount.
+   */
+  const coveredValueFor = (minutes: number) => {
+    if (minutes <= 0) return 0;
+    let left = minutes;
+    let sum = 0;
+    for (const s of [...args.newSlots].sort((a, b) => b.price - a.price)) {
+      if (left <= 0) break;
+      if (s.durationMinutes <= left) {
+        sum += s.price;
+        left -= s.durationMinutes;
+      } else {
+        // Partial slot (a 60-min row against 30 remaining minutes).
+        sum += Math.round((s.price * left) / s.durationMinutes);
+        left = 0;
+      }
+    }
+    return clampCovered(sum);
+  };
+
+  /** Never claim more than the money still uncaptured. */
+  const settleable = (v: number) =>
+    clampCovered(Math.min(v, args.newTotalAmount - args.paymentAmount));
 
   const red = await tx.passRedemption.findUnique({
     where: { bookingId: args.bookingId },
@@ -1041,7 +1141,15 @@ export async function syncPassAfterAdminEdit(
         p.expiresAt.getTime() > args.bookingDate.getTime() &&
         p.expiresAt.getTime() > now.getTime() &&
         p.remainingMinutes >= delta &&
-        (await passCoversCourt(tx, p.courtConfigId, args.courtConfigId))
+        (await passCoversCourt(tx, p.courtConfigId, args.courtConfigId)) &&
+        // A pass buys ONE price tier — never let it settle peak time it
+        // wasn't sold for (checkout applies the same rule).
+        (await passBandsCoverHours(
+          p,
+          args.courtConfigId,
+          args.bookingDate,
+          args.addedHours ?? [],
+        ))
       ) {
         chosen = p;
         break;
@@ -1051,7 +1159,7 @@ export async function syncPassAfterAdminEdit(
       return {
         ok: false,
         error:
-          "No pass with enough balance covers this court/date — uncheck the pass option to charge instead.",
+          "No pass covers this court, date and price band with enough balance — uncheck the pass option to charge instead.",
       };
     }
     const debited = await tx.userPass.updateMany({
@@ -1068,10 +1176,10 @@ export async function syncPassAfterAdminEdit(
     // A restored redemption row still occupies the unique bookingId —
     // reactivate it with the new debit's figures instead of create
     // (which would P2002 and brick the edit).
-    // Nothing was covered before, so this pass settles the added time
-    // only — an advance remainder or an earlier uncovered edit stays
-    // owed at the venue.
-    const coveredAmount = grownCovered(0);
+    // The pass covers exactly the minutes it just paid for, valued
+    // against the booking's own slots — an advance remainder or an
+    // earlier uncovered edit stays owed at the venue.
+    const coveredAmount = settleable(coveredValueFor(delta));
     if (red) {
       await tx.passRedemption.update({
         where: { id: red.id },
@@ -1103,18 +1211,25 @@ export async function syncPassAfterAdminEdit(
   if (delta > 0 && args.coverDeltaWithPass) {
     const now = new Date();
     const coversCourt = await passCoversCourt(tx, pass.courtConfigId, args.courtConfigId);
+    const coversBands = await passBandsCoverHours(
+      pass,
+      args.courtConfigId,
+      args.bookingDate,
+      args.addedHours ?? [],
+    );
     if (
       pass.status !== "ACTIVE" ||
       pass.startsAt.getTime() > args.bookingDate.getTime() ||
       pass.expiresAt.getTime() <= args.bookingDate.getTime() ||
       pass.expiresAt.getTime() <= now.getTime() ||
       pass.remainingMinutes < delta ||
-      !coversCourt
+      !coversCourt ||
+      !coversBands
     ) {
       return {
         ok: false,
         error:
-          "The booking's pass can't cover the added time (expired, out of balance, or wrong court) — uncheck the pass option to charge instead.",
+          "The booking's pass can't cover the added time (expired, out of balance, wrong court, or outside its price band) — uncheck the pass option to charge instead.",
       };
     }
     const debited = await tx.userPass.updateMany({
@@ -1128,7 +1243,7 @@ export async function syncPassAfterAdminEdit(
       where: { id: pass.id, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
       data: { status: "EXHAUSTED" },
     });
-    const coveredAmount = grownCovered(live.coveredAmount);
+    const coveredAmount = settleable(coveredValueFor(live.minutes + delta));
     await tx.passRedemption.update({
       where: { id: live.id },
       data: {
@@ -1143,12 +1258,10 @@ export async function syncPassAfterAdminEdit(
   if (delta < 0) {
     const restorable =
       pass.status !== "CANCELLED" && pass.expiresAt.getTime() > Date.now();
-    // Realigns may only SHRINK the covered figure (growth = explicit
-    // debits only).
-    const shrunkCovered = Math.min(
-      live.coveredAmount,
-      clampCovered(args.newTotalAmount - args.paymentAmount),
-    );
+    // Recomputed from the surviving slots, so removing the CHEAP hours
+    // from a partly covered booking doesn't strand value on slots the
+    // pass never covered (and gear is excluded throughout).
+    const shrunkCovered = settleable(coveredValueFor(live.minutes));
     if (!restorable) {
       // Dead pass (cancelled/expired): consumed hours stay consumed.
       // Shrinking minutes/value or stamping restoredAt here would make
@@ -1183,7 +1296,7 @@ export async function syncPassAfterAdminEdit(
       data: {
         minutes: newMinutes,
         value: Math.max(0, live.value - passMinutesValue(pass, credit)),
-        coveredAmount: shrunkCovered,
+        coveredAmount: settleable(coveredValueFor(newMinutes)),
         // All covered time gone → the redemption is effectively undone.
         ...(newMinutes <= 0 ? { restoredAt: new Date() } : {}),
       },
@@ -1191,14 +1304,14 @@ export async function syncPassAfterAdminEdit(
     return { ok: true, passUsed: pass.id, coveredAmount: shrunkCovered };
   }
 
-  // delta === 0, or delta > 0 without pass cover: keep minutes/value.
-  // The realign may only SHRINK coveredAmount (repricing down / date
-  // moves) — growing it toward newTotal − payment here would write the
-  // added-but-uncovered time off as pass-settled and zero the owed line.
-  const target = Math.min(
-    live.coveredAmount,
-    clampCovered(args.newTotalAmount - args.paymentAmount),
-  );
+  // delta === 0, or delta > 0 without pass cover: keep minutes/value and
+  // revalue the SAME covered minutes against the new slots. Because the
+  // figure is recomputed (not ratcheted), a date/court move is
+  // symmetric — moving to pricier slots and back restores the original
+  // coverage instead of stranding a bill on the customer. Added-but-
+  // uncovered time still surfaces as owed: those minutes aren't in
+  // live.minutes, so they're not in the recomputed value either.
+  const target = settleable(coveredValueFor(live.minutes));
   if (target !== live.coveredAmount) {
     await tx.passRedemption.update({
       where: { id: live.id },

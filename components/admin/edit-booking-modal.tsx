@@ -67,17 +67,14 @@ export function EditBookingModal({
   const [error, setError] = useState<string | null>(null);
   const [coverWithPass, setCoverWithPass] = useState(false);
 
-  // Hours not already on the booking — the only ones that create new
-  // rows server-side (an hour carrying both a slot and a 30-min
-  // extension appears once in currentSlots' SET, so a re-save adds 0).
-  const addedHours = (() => {
-    const booked = new Set(currentSlots);
-    let fresh = 0;
-    selectedHours.forEach((h) => {
-      if (!booked.has(h)) fresh += 1;
-    });
-    return fresh;
-  })();
+  // NET hour delta — the measure the server gates on. A pure SWAP
+  // (drop one hour, add another) is delta 0 there, so offering the pass
+  // option on "fresh hours" alone would show a checkbox that silently
+  // does nothing.
+  const addedHours = Math.max(
+    0,
+    selectedHours.size - new Set(currentSlots).size,
+  );
 
   // Don't let a tick survive a selection the admin turned into a removal.
   useEffect(() => {

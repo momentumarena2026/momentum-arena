@@ -1,11 +1,13 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { completePassTopup } from "@/lib/pass-topup";
 import {
   restorePassForBooking,
   passMinutesValue,
   syncPassAfterAdminEdit,
   passCoversCourtGroup,
+  passBandsCoverHours,
 } from "@/lib/passes";
 import {
   sendBookingConfirmation,
@@ -2185,6 +2187,27 @@ export async function adminCreateBooking(data: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Do two courts charge the same for every hour on a date? PricingRule
+ * is per courtConfig, so two courts in the same interchangeable group
+ * (sport+size+category) may still be priced differently — only
+ * identical pricing makes carrying slot rows across a court move
+ * money-neutral.
+ */
+async function courtsPriceIdentically(
+  fromCourtConfigId: string,
+  toCourtConfigId: string,
+  date: Date,
+): Promise<boolean> {
+  const [from, to] = await Promise.all([
+    getSlotPricesForDate(fromCourtConfigId, date).catch(() => null),
+    getSlotPricesForDate(toCourtConfigId, date).catch(() => null),
+  ]);
+  if (!from || !to || from.length !== to.length) return false;
+  const toByHour = new Map(to.map((s) => [s.hour, s.price]));
+  return from.every((s) => toByHour.get(s.hour) === s.price);
+}
+
+/**
  * The BookingSlot rows an HOURLY edit writes. Hours already on the
  * booking keep their existing rows verbatim — startMinute, duration and
  * price — so a 30-min extension slot (₹0 pass-paid or admin-priced)
@@ -2525,6 +2548,12 @@ export async function adminEditBookingSlots(
     // changed into a REMOVAL must not suppress the payment realign below
     // (there's no added time for a pass to cover).
     const coverDelta = coverDeltaWithPass && newBookedMinutes > oldBookedMinutes;
+    // Hours this save ADDS — the sync band-checks these so an off-peak
+    // pass can't be made to settle peak time.
+    const previouslyBookedHours = new Set(booking.slots.map((s) => s.startHour));
+    const addedHoursForPass = [
+      ...new Set(effectiveNewHours.filter((h) => !previouslyBookedHours.has(h))),
+    ];
 
     await db.$transaction(async (tx) => {
       // Delete old slots
@@ -2608,10 +2637,22 @@ export async function adminEditBookingSlots(
           bookingDate: dateChanged ? dateOnly! : booking.date,
           courtConfigId: booking.courtConfigId,
           newTotalAmount,
-          oldTotalAmount: booking.totalAmount,
           paymentAmount: paymentAfterEdit,
           newMinutes: newBookedMinutes,
           oldMinutes: oldBookedMinutes,
+          // The rows this edit actually wrote — the sync revalues the
+          // pass's share against them.
+          newSlots: usingBowling
+            ? bowlingSlots!.map((sl) => ({
+                price: bowlingPriceMap!.get(`${sl.hour}:${sl.minute}`) ?? 0,
+                durationMinutes: 30,
+              }))
+            : hourlySlotRows!.map((r) => ({
+                price: r.price,
+                durationMinutes: r.durationMinutes,
+              })),
+          equipmentAmount: equipmentBase,
+          addedHours: addedHoursForPass,
           coverDeltaWithPass: coverDelta,
         });
         if (!passSync.ok) throw new Error(passSync.error);
@@ -2845,9 +2886,19 @@ export async function adminEditBookingFull(
     // A move WITHIN the group (cricket LEFT → RIGHT) is the same product
     // at the same price, so rows carry over untouched — otherwise a
     // 30-min extension would silently inflate into a full-price hour.
+    // Preserve rows only when the destination court PRICES the same —
+    // court-group membership (sport+size+category) doesn't guarantee it,
+    // since PricingRule is per courtConfig. Same prices ⇒ carrying the
+    // rows over is a no-op for money and keeps 30-min extensions
+    // intact; different prices ⇒ re-base so totalAmount reflects the
+    // destination court.
     const courtChangedForRows =
       finalCourtConfigId !== booking.courtConfigId &&
-      !(await passCoversCourtGroup(booking.courtConfigId, finalCourtConfigId));
+      !(await courtsPriceIdentically(
+        booking.courtConfigId,
+        finalCourtConfigId,
+        finalDate,
+      ));
     const newSlotRows = buildHourlySlotRows({
       existingSlots: courtChangedForRows ? [] : booking.slots,
       newHours: finalHours,
@@ -3025,6 +3076,10 @@ export async function adminEditBookingFull(
       // A stale tick from a selection later changed into a removal has
       // no added time to cover.
       const coverDeltaFull = !!data.coverDeltaWithPass && newMinFull > oldMinFull;
+      const previouslyBookedFull = new Set(booking.slots.map((x) => x.startHour));
+      const addedHoursFull = finalHours.filter(
+        (h) => !previouslyBookedFull.has(h),
+      );
       // Mirrors the paymentUpdate branch order below so the sync sees
       // exactly the Payment.amount the edit leaves behind.
       const paymentAfterEdit = booking.payment
@@ -3044,10 +3099,15 @@ export async function adminEditBookingFull(
         bookingDate: finalDate,
         courtConfigId: finalCourtConfigId,
         newTotalAmount,
-        oldTotalAmount: booking.totalAmount,
         paymentAmount: paymentAfterEdit,
         newMinutes: newMinFull,
         oldMinutes: oldMinFull,
+        newSlots: newSlotRows.map((r) => ({
+          price: r.price,
+          durationMinutes: r.durationMinutes,
+        })),
+        equipmentAmount: equipmentBaseFull,
+        addedHours: addedHoursFull,
         coverDeltaWithPass: coverDeltaFull,
       });
       if (!passSync.ok) throw new Error(passSync.error);
@@ -3354,8 +3414,43 @@ export async function recoverRazorpayPayment(
     };
   }
 
+  // 3b. Pass TOP-UP holds settle part of the booking with pass minutes,
+  //     so the generic path below would read the captured remainder as
+  //     an "advance" and bill the customer AGAIN for the hours the pass
+  //     covered — and never debit the pass or write a redemption. Route
+  //     them through the same helper the webhook and client verify use.
+  if (hold.redeemPassId) {
+    const holdWithConfig = await db.slotHold.findUnique({
+      where: { id: hold.id },
+      include: { courtConfig: true },
+    });
+    if (!holdWithConfig?.courtConfig) {
+      return { success: false, error: "Hold is missing its court config" };
+    }
+    const topup = await completePassTopup({
+      hold: holdWithConfig as typeof holdWithConfig & {
+        courtConfig: NonNullable<typeof holdWithConfig.courtConfig>;
+      },
+      razorpayOrderId: rzpPayment.order_id,
+      razorpayPaymentId: rzpPayment.id,
+      razorpaySignature: `admin-recovery:${rzpPayment.id}`,
+    });
+    if (!topup.ok) {
+      return { success: false, error: topup.error };
+    }
+    return {
+      success: true,
+      state: topup.alreadyDone ? "already-linked" : "created",
+      bookingId: topup.bookingId,
+      payment: paymentMeta,
+    };
+  }
+
   // 4. Recreate the booking. Mirror of the verify route's logic —
-  //    derive isAdvance from amount-vs-fullAmount.
+  //    derive isAdvance from amount-vs-fullAmount. Gear rides on the
+  //    hold's equipmentTotalAmount, which createBookingFromHold folds
+  //    into Booking.totalAmount — count it here too or the remainder
+  //    is understated by exactly the gear.
   const appliedDiscount =
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
@@ -3365,7 +3460,10 @@ export async function recoverRazorpayPayment(
       ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
       : 0;
   const fullAmount =
-    hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+    hold.totalAmount -
+    appliedDiscount -
+    pointsRedeemRupees +
+    (hold.equipmentTotalAmount ?? 0);
   const isAdvance = paymentMeta.amountRupees < fullAmount;
   const advanceAmount = isAdvance ? paymentMeta.amountRupees : undefined;
   const remainingAmount = isAdvance
@@ -3638,10 +3736,21 @@ export async function extendBookingByThirtyMin(
       const coversCourt =
         !!pass &&
         (await passCoversCourtGroup(pass.courtConfigId, booking.courtConfigId));
+      // The extension's own hour must sit in the pass's price band —
+      // an off-peak pass must not settle a peak half-hour.
+      const coversBands =
+        !!pass &&
+        (await passBandsCoverHours(
+          pass,
+          booking.courtConfigId,
+          booking.date,
+          [Math.floor(newStartMin / 60) % 24],
+        ));
       if (
         !pass ||
         !bookerCanUsePass ||
         !coversCourt ||
+        !coversBands ||
         pass.status !== "ACTIVE" ||
         pass.startsAt.getTime() > booking.date.getTime() ||
         pass.expiresAt.getTime() <= booking.date.getTime() ||
@@ -3649,7 +3758,8 @@ export async function extendBookingByThirtyMin(
       ) {
         return {
           success: false,
-          error: "Pass isn't valid for this booking (wrong court, not started/expired, or <30 min left)",
+          error:
+            "Pass isn't valid for this booking (wrong court, outside its price band, not started/expired, or <30 min left)",
         };
       }
       passExtendValue = passMinutesValue(pass, 30);

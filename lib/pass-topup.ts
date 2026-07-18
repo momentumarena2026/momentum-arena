@@ -115,7 +115,8 @@ export async function completePassTopup(args: {
   // remainder was priced without them — strip now, at the last possible
   // moment, so an abandoned top-up never costs the customer a discount
   // they could still have used on the normal payment path.
-  if (hold.couponId || (hold.pointsToRedeem ?? 0) > 0) {
+  const hadDiscounts = !!hold.couponId || (hold.pointsToRedeem ?? 0) > 0;
+  if (hadDiscounts) {
     await db.slotHold.update({
       where: { id: hold.id },
       data: {
@@ -126,6 +127,23 @@ export async function completePassTopup(args: {
       },
     });
   }
+  /** Put the discount back if no booking came of this — the hold may
+   *  still be used on the normal payment path, and the strip is a
+   *  separate write from the booking transaction. */
+  const restoreDiscounts = async () => {
+    if (!hadDiscounts) return;
+    await db.slotHold
+      .updateMany({
+        where: { id: hold.id },
+        data: {
+          couponId: hold.couponId,
+          discountAmount: hold.discountAmount,
+          pointsToRedeem: hold.pointsToRedeem,
+          pointsRedeemPaiseSaved: hold.pointsRedeemPaiseSaved,
+        },
+      })
+      .catch(() => {});
+  };
 
   let bookingId: string | null = null;
   try {
@@ -150,6 +168,7 @@ export async function completePassTopup(args: {
     // orphan for the SLOT_CONFLICT case it swallows; this catch only
     // sees the ones it rethrows.
     console.error("[pass-topup] createBookingFromHold failed", err);
+    await restoreDiscounts();
     orphan("create-failed");
     return {
       ok: false,
@@ -168,9 +187,18 @@ export async function completePassTopup(args: {
     if (raced) {
       return { ok: true, bookingId: raced.bookingId, alreadyDone: true };
     }
-    // Genuinely no blueprint left. createBookingFromHold already
-    // recorded a "slot-taken" orphan when it swallowed a conflict, so
-    // don't file a second one for the same money.
+    // Genuinely lost. createBookingFromHold records its own orphan ONLY
+    // for the slot-conflict case it swallows; its other two null
+    // returns (hold vanished between our read and its re-read, or the
+    // consuming delete matched nothing) record nothing — so captured
+    // money would disappear from the worklist entirely. If the hold is
+    // gone and no orphan came from inside, file one here.
+    const holdStillThere = await db.slotHold.findUnique({
+      where: { id: hold.id },
+      select: { id: true },
+    });
+    if (holdStillThere) await restoreDiscounts();
+    else orphan("no-hold");
     return {
       ok: false,
       status: 410,

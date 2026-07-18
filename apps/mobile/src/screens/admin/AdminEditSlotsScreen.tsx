@@ -77,13 +77,14 @@ export function AdminEditSlotsScreen() {
     }
   }, [booking, date]);
 
-  // Minutes this save ADDS, measured the way the server measures them:
-  // only hours not already on the booking create new rows.
+  // NET minutes delta — the measure the server gates on (a pure swap is
+  // delta 0 there, so a "fresh hours" count would offer a checkbox that
+  // silently does nothing).
   const bookedHours = useMemo(
     () => new Set((booking?.slots ?? []).map((s) => s.startHour)),
     [booking],
   );
-  const addedMinutes = hours.filter((h) => !bookedHours.has(h)).length * 60;
+  const addedMinutes = Math.max(0, (hours.length - bookedHours.size) * 60);
 
   // A tick left over from a selection later changed into a removal must
   // not travel with the save.
