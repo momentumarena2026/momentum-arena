@@ -114,6 +114,10 @@ export function PassCheckoutOption({
       <p className="mt-1 text-xs text-zinc-400">
         {offer.fullCoverage
           ? `This booking (${hrs(offer.neededMinutes)}) is fully covered by your pass — nothing to pay.`
+          : offer.coveredMinutes >= offer.neededMinutes
+          ? // All the court time is covered; the remainder is equipment,
+            // which a pass never pays for.
+            `Your pass covers the full ${hrs(offer.neededMinutes)} of court time; pay ${formatPrice(offer.remainderAmount)} for the equipment.`
           : `Your pass covers ${hrs(offer.coveredMinutes)} of ${hrs(offer.neededMinutes)}; pay ${formatPrice(offer.remainderAmount)} for the rest.`}
       </p>
       <button

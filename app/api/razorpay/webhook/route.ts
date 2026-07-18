@@ -118,6 +118,17 @@ export async function POST(request: NextRequest) {
         payment.amount,
         plan?.price ?? "no-plan",
       );
+      // Captured money with no pass issued — make it a worklist item,
+      // not just a log line.
+      recordOrphanPayment({
+        gateway: "RAZORPAY",
+        reason: "pass-price-mismatch",
+        userId: payment.notes.userId,
+        amountRupees: Math.round(payment.amount / 100),
+        razorpayOrderId: payment.order_id,
+        razorpayPaymentId: payment.id,
+        path: request.nextUrl.pathname,
+      });
       return NextResponse.json({ ok: true, reason: "pass-amount-mismatch" });
     }
     const startsAt = payment.notes.startsAt

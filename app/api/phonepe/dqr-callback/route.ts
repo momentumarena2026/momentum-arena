@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    const pass = await confirmDqrPass(transactionId, providerRef);
+    const pass = await confirmDqrPass(transactionId, providerRef, data.amount);
     if (pass.userPassId) {
       console.log(
         `[dqr-callback] pass ${pass.userPassId} confirmed (txn ${transactionId})`,

@@ -74,12 +74,13 @@ export async function POST(request: NextRequest) {
     if (!bookingId) {
       return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
     }
-    // Full coverage settles the whole slot total at list price.
+    // Settle exactly the court time the pass covered — hold.totalAmount
+    // would also swallow any equipment (which a pass never pays for).
     const ok = await debitPass(
       offer.passId,
       offer.coveredMinutes,
       bookingId,
-      hold.totalAmount,
+      offer.coveredAmount,
     );
     if (!ok) {
       // Balance raced away between offer + debit — undo the booking.
@@ -127,10 +128,14 @@ export async function POST(request: NextRequest) {
   // hold (verify + webhook route on it), paymentInitiatedAt buys the
   // 24h late-payment grace in cleanupExpiredHolds, and the TTL bump
   // gives the Razorpay modal time to finish.
+  // NOTE: coupon/points stay on the hold until the top-up is actually
+  // captured (completePassTopup strips them just before it builds the
+  // booking). Dropping them here would silently cost the customer their
+  // discount if they dismissed the Razorpay sheet and paid the normal
+  // way instead.
   await db.slotHold.update({
     where: { id: holdId },
     data: {
-      ...dropDiscounts,
       redeemPassId: offer.passId,
       razorpayOrderId: order.id,
       paymentMethod: "RAZORPAY",

@@ -158,6 +158,9 @@ export async function POST(request: NextRequest) {
         paymentMethod: isAdvance ? "CASH" : "UPI_QR",
         paymentAmount: orderAmount,
         paymentInitiatedAt: new Date(),
+        // Abandoned pass top-up → paying the full way; drop the
+        // attachment so no callback treats this as a top-up.
+        redeemPassId: null,
         expiresAt: new Date(Date.now() + DQR_TTL_MINUTES * 60 * 1000),
       },
     });

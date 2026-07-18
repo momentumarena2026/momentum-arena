@@ -96,6 +96,30 @@ export function EditSlotsModal({
   const [error, setError] = useState<string | null>(null);
   const [coverWithPass, setCoverWithPass] = useState(false);
 
+  // Minutes this save ADDS, measured the way the server measures them:
+  // only hours not already on the booking create new rows (an hour that
+  // carries both a full slot and a 30-min extension is still one hour),
+  // so a re-save of the same selection adds nothing.
+  const addedMinutes = isBowlingMode
+    ? Math.max(
+        0,
+        (selectedBowling.size - (currentBowlingSlots?.length ?? 0)) * 30,
+      )
+    : (() => {
+        const booked = new Set(currentSlots);
+        let fresh = 0;
+        selectedHours.forEach((h) => {
+          if (!booked.has(h)) fresh += 1;
+        });
+        return fresh * 60;
+      })();
+
+  // A tick left over from a selection the admin then changed into a
+  // removal must not travel with the save.
+  useEffect(() => {
+    if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedMinutes, coverWithPass]);
+
   const fetchSlots = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -394,13 +418,7 @@ export function EditSlotsModal({
               <div className="text-sm text-zinc-400">
                 {deltaPass &&
                   (() => {
-                    const dur = isBowlingMode ? 30 : slotDurationMinutes ?? 60;
-                    const newMin =
-                      (isBowlingMode ? selectedBowling.size : selectedHours.size) * dur;
-                    const oldMin =
-                      (currentBowlingSlots?.length ?? currentSlots.length) *
-                      (isBowlingMode ? 30 : slotDurationMinutes ?? 60);
-                    const added = newMin - oldMin;
+                    const added = addedMinutes;
                     if (added <= 0) return null;
                     const enough = deltaPass.remainingMinutes >= added;
                     return (

@@ -675,15 +675,41 @@ export async function adjustPassMinutes(
   if (pass.status === "CANCELLED") {
     return { ok: false, error: "This pass is cancelled — no further changes." };
   }
-  const next = pass.remainingMinutes + deltaMinutes;
-  if (next < 0) return { ok: false, error: "Balance can't go negative." };
-  await db.userPass.update({
-    where: { id },
-    data: {
-      remainingMinutes: next,
-      status: next > 0 && pass.status === "EXHAUSTED" ? "ACTIVE" : pass.status,
+  if (pass.remainingMinutes + deltaMinutes < 0) {
+    return { ok: false, error: "Balance can't go negative." };
+  }
+  // Atomic increment/decrement (never an absolute write from a stale
+  // read): a redemption or extend landing between the read above and
+  // this write must not be undone by the admin's adjustment. The `gte`
+  // guard re-checks the floor at write time.
+  const applied = await db.userPass.updateMany({
+    where: {
+      id,
+      status: { not: "CANCELLED" },
+      ...(deltaMinutes < 0
+        ? { remainingMinutes: { gte: -deltaMinutes } }
+        : {}),
     },
+    data: { remainingMinutes: { increment: deltaMinutes } },
   });
+  if (applied.count === 0) {
+    return {
+      ok: false,
+      error: "Pass balance changed — reload and try again.",
+    };
+  }
+  // Status follows the resulting balance, same as debitPass.
+  if (deltaMinutes > 0) {
+    await db.userPass.updateMany({
+      where: { id, remainingMinutes: { gt: 0 }, status: "EXHAUSTED" },
+      data: { status: "ACTIVE" },
+    });
+  } else {
+    await db.userPass.updateMany({
+      where: { id, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
+      data: { status: "EXHAUSTED" },
+    });
+  }
   revalidatePath("/admin/passes");
   return { ok: true };
 }

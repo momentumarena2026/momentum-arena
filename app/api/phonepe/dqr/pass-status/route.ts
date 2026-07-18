@@ -26,7 +26,11 @@ export async function GET(request: NextRequest) {
   try {
     const status = await qrStatus(transactionId);
     if (status.state === "COMPLETED") {
-      const res = await confirmDqrPass(transactionId, status.providerReferenceId);
+      const res = await confirmDqrPass(
+        transactionId,
+        status.providerReferenceId,
+        status.amount,
+      );
       return NextResponse.json({
         state: res.userPassId ? "COMPLETED" : "PENDING",
         userPassId: res.userPassId,

@@ -67,6 +67,23 @@ export function EditBookingModal({
   const [error, setError] = useState<string | null>(null);
   const [coverWithPass, setCoverWithPass] = useState(false);
 
+  // Hours not already on the booking — the only ones that create new
+  // rows server-side (an hour carrying both a slot and a 30-min
+  // extension appears once in currentSlots' SET, so a re-save adds 0).
+  const addedHours = (() => {
+    const booked = new Set(currentSlots);
+    let fresh = 0;
+    selectedHours.forEach((h) => {
+      if (!booked.has(h)) fresh += 1;
+    });
+    return fresh;
+  })();
+
+  // Don't let a tick survive a selection the admin turned into a removal.
+  useEffect(() => {
+    if (addedHours <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedHours, coverWithPass]);
+
   const fetchSlots = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -440,17 +457,20 @@ export function EditBookingModal({
 
         {/* Pass-cover option — only when the edit ADDS time and the
             customer has an eligible pass. Server re-validates. */}
-        {deltaPass && selectedHours.size > currentSlots.length && (
+        {deltaPass && addedHours > 0 && (
           <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
             <input
               type="checkbox"
               checked={coverWithPass}
               onChange={(e) => setCoverWithPass(e.target.checked)}
+              disabled={deltaPass.remainingMinutes < addedHours * 60}
               className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
             />
-            Cover the added {selectedHours.size - currentSlots.length}h from{" "}
-            {deltaPass.name} (
+            Cover the added {addedHours}h from {deltaPass.name} (
             {(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}h left)
+            {deltaPass.remainingMinutes < addedHours * 60 && (
+              <span className="text-amber-400">— not enough balance</span>
+            )}
           </label>
         )}
 

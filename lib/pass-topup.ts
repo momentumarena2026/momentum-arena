@@ -86,10 +86,16 @@ export async function completePassTopup(args: {
       path: args.path,
     });
 
-  // Server-side recompute — never trust client coverage numbers. If the
-  // pass moved and the remainder no longer equals what was captured,
-  // refuse to build a booking around the stale split.
-  const offer = await getPassOfferForHold(hold);
+  // Server-side recompute — never trust client coverage numbers. Scoped
+  // to the pass the customer COMMITTED to (buying a second pass mid-
+  // payment must not invalidate this one), and judged coupon-free
+  // because the remainder order was priced that way.
+  const offer = await getPassOfferForHold(
+    { ...hold, couponId: null, pointsToRedeem: null },
+    { onlyPassId: hold.redeemPassId },
+  );
+  // If the pass moved and the remainder no longer equals what was
+  // captured, refuse to build a booking around the stale split.
   if (
     !offer ||
     offer.passId !== hold.redeemPassId ||
@@ -103,6 +109,22 @@ export async function completePassTopup(args: {
       error:
         "Payment received, but the pass balance changed while you paid. Please do NOT pay again — our team will confirm your booking or refund you shortly.",
     };
+  }
+
+  // Passes don't combine with coupons/points (v1) and the captured
+  // remainder was priced without them — strip now, at the last possible
+  // moment, so an abandoned top-up never costs the customer a discount
+  // they could still have used on the normal payment path.
+  if (hold.couponId || (hold.pointsToRedeem ?? 0) > 0) {
+    await db.slotHold.update({
+      where: { id: hold.id },
+      data: {
+        couponId: null,
+        discountAmount: null,
+        pointsToRedeem: null,
+        pointsRedeemPaiseSaved: null,
+      },
+    });
   }
 
   let bookingId: string | null = null;
@@ -124,9 +146,11 @@ export async function completePassTopup(args: {
   } catch (err) {
     // Slot re-booked while the payment was in flight (the tx rolled the
     // hold back) or creation failed outright — money is captured either
-    // way, so make it loud.
+    // way, so make it loud. createBookingFromHold records its own
+    // orphan for the SLOT_CONFLICT case it swallows; this catch only
+    // sees the ones it rethrows.
     console.error("[pass-topup] createBookingFromHold failed", err);
-    orphan("slot-taken");
+    orphan("create-failed");
     return {
       ok: false,
       status: 409,
@@ -135,8 +159,18 @@ export async function completePassTopup(args: {
     };
   }
   if (!bookingId) {
-    // Hold consumed with no matching payment row — blueprint gone.
-    orphan("no-hold");
+    // The other path (client verify vs webhook) may simply have won the
+    // race and consumed the hold — that's a success, not a lost payment.
+    const raced = await db.payment.findFirst({
+      where: { razorpayPaymentId: args.razorpayPaymentId },
+      select: { bookingId: true },
+    });
+    if (raced) {
+      return { ok: true, bookingId: raced.bookingId, alreadyDone: true };
+    }
+    // Genuinely no blueprint left. createBookingFromHold already
+    // recorded a "slot-taken" orphan when it swallowed a conflict, so
+    // don't file a second one for the same money.
     return {
       ok: false,
       status: 410,
@@ -152,7 +186,9 @@ export async function completePassTopup(args: {
     offer.passId,
     offer.coveredMinutes,
     bookingId,
-    Math.max(0, hold.totalAmount - orderAmountRupees),
+    // The court time the pass covered — not total − captured, which
+    // would fold equipment into the pass's share.
+    offer.coveredAmount,
   );
   if (!ok) {
     console.error("[pass-topup] debit failed post-booking", bookingId);

@@ -1,6 +1,10 @@
 import { AnalyticsCategory, logServerAction } from "@/lib/server-log";
 
-export type OrphanReason = "no-hold" | "slot-taken" | "create-failed";
+export type OrphanReason =
+  | "no-hold"
+  | "slot-taken"
+  | "create-failed"
+  | "pass-price-mismatch";
 export type OrphanGateway = "RAZORPAY" | "PHONEPE" | "PHONEPE_DQR";
 
 /**
@@ -16,7 +20,10 @@ export type OrphanGateway = "RAZORPAY" | "PHONEPE" | "PHONEPE_DQR";
  *                      cleanupExpiredHolds);
  *   - "slot-taken"   → the slot was re-booked by someone else while this
  *                      payment was in flight, so we refused to double-book;
- *   - "create-failed"→ booking creation failed for another reason.
+ *   - "create-failed"→ booking creation failed for another reason;
+ *   - "pass-price-mismatch" → a pass purchase captured an amount that
+ *                      doesn't match the plan's price (repriced plan or
+ *                      a tampered flow), so no UserPass was issued.
  *
  * This NEVER throws — recording an orphan must not break the (already
  * failed) payment path further. The actual refund is an admin action

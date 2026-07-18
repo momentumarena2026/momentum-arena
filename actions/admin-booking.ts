@@ -2481,12 +2481,15 @@ export async function adminEditBookingSlots(
       newDiscountAmount = Math.min(newDiscountAmount, newPreDiscountTotal);
     }
 
-    const newTotalAmount = Math.max(
-      newPreDiscountTotal - newDiscountAmount,
-      0,
-    );
+    // Booking.totalAmount covers slots AND gear. Rewriting it from the
+    // slot prices alone would drop the equipment base — and
+    // applyEquipmentDelta (which reprices relative to totalAmount) would
+    // then subtract it a second time on the next gear change.
+    const equipmentBase = booking.equipmentTotalAmount ?? 0;
+    const newTotalAmount =
+      Math.max(newPreDiscountTotal - newDiscountAmount, 0) + equipmentBase;
     const newOriginalAmount =
-      newDiscountAmount > 0 ? newPreDiscountTotal : null;
+      newDiscountAmount > 0 ? newPreDiscountTotal + equipmentBase : null;
 
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
@@ -2518,6 +2521,10 @@ export async function adminEditBookingSlots(
     const effectiveNewHours = usingBowling
       ? bowlingSlots!.map((s) => s.hour).sort((a, b) => a - b)
       : newHours;
+    // A stale "cover with pass" tick from a selection the admin then
+    // changed into a REMOVAL must not suppress the payment realign below
+    // (there's no added time for a pass to cover).
+    const coverDelta = coverDeltaWithPass && newBookedMinutes > oldBookedMinutes;
 
     await db.$transaction(async (tx) => {
       // Delete old slots
@@ -2577,7 +2584,7 @@ export async function adminEditBookingSlots(
         booking.payment &&
         !booking.payment.isPartialPayment &&
         !isPassCovered &&
-        !coverDeltaWithPass
+        !coverDelta
       ) {
         await tx.payment.update({
           where: { id: booking.payment.id },
@@ -2591,7 +2598,7 @@ export async function adminEditBookingSlots(
       // owed-at-venue = total − payment − covered stays exact.
       {
         const paymentAfterEdit = booking.payment
-          ? booking.payment.isPartialPayment || isPassCovered || coverDeltaWithPass
+          ? booking.payment.isPartialPayment || isPassCovered || coverDelta
             ? booking.payment.amount
             : newTotalAmount
           : 0;
@@ -2601,10 +2608,11 @@ export async function adminEditBookingSlots(
           bookingDate: dateChanged ? dateOnly! : booking.date,
           courtConfigId: booking.courtConfigId,
           newTotalAmount,
+          oldTotalAmount: booking.totalAmount,
           paymentAmount: paymentAfterEdit,
           newMinutes: newBookedMinutes,
           oldMinutes: oldBookedMinutes,
-          coverDeltaWithPass,
+          coverDeltaWithPass: coverDelta,
         });
         if (!passSync.ok) throw new Error(passSync.error);
       }
@@ -2830,11 +2838,16 @@ export async function adminEditBookingFull(
     );
     // Kept hours preserve their existing rows (a 30-min extension keeps
     // its duration + explicitly-set price); only fresh hours become
-    // 60-min rows, repriced on a date move. A COURT change re-bases
-    // every hour as a fresh 60-min row on the new court's pricing —
-    // durations/prices carried from another court (e.g. the bowling
-    // machine's 30-min grid) aren't meaningful there.
-    const courtChangedForRows = finalCourtConfigId !== booking.courtConfigId;
+    // 60-min rows, repriced on a date move. Moving to a court in a
+    // DIFFERENT group re-bases every hour as a fresh 60-min row on the
+    // new court's pricing — durations/prices carried from another court
+    // (e.g. the bowling machine's 30-min grid) aren't meaningful there.
+    // A move WITHIN the group (cricket LEFT → RIGHT) is the same product
+    // at the same price, so rows carry over untouched — otherwise a
+    // 30-min extension would silently inflate into a full-price hour.
+    const courtChangedForRows =
+      finalCourtConfigId !== booking.courtConfigId &&
+      !(await passCoversCourtGroup(booking.courtConfigId, finalCourtConfigId));
     const newSlotRows = buildHourlySlotRows({
       existingSlots: courtChangedForRows ? [] : booking.slots,
       newHours: finalHours,
@@ -2881,16 +2894,18 @@ export async function adminEditBookingFull(
       newDiscountAmount = Math.min(newDiscountAmount, newPreDiscountTotal);
     }
 
-    const newTotalAmount = Math.max(
-      newPreDiscountTotal - newDiscountAmount,
-      0,
-    );
+    // Slots AND gear — see the slots editor: dropping the equipment base
+    // here would make the next applyEquipmentDelta subtract it twice.
+    const equipmentBaseFull = booking.equipmentTotalAmount ?? 0;
+    const newTotalAmount =
+      Math.max(newPreDiscountTotal - newDiscountAmount, 0) + equipmentBaseFull;
     // originalAmount tracks the pre-discount slot total whenever a
     // discount is applied, so the UI can render the strike-through
     // "₹X" alongside the actual charge. Null it out if the new total
     // is undiscounted (e.g. a FLAT coupon was capped to zero by a
     // tiny new total).
-    const newOriginalAmount = newDiscountAmount > 0 ? newPreDiscountTotal : null;
+    const newOriginalAmount =
+      newDiscountAmount > 0 ? newPreDiscountTotal + equipmentBaseFull : null;
 
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
@@ -3000,6 +3015,44 @@ export async function adminEditBookingFull(
         // slot total.
         booking.payment?.confirmedBy === "PASS_TOPUP";
 
+      // The sync runs FIRST so the payment write below knows how much of
+      // the new total a pass just settled — a partial booking's
+      // "collect at venue" figure must exclude the covered delta.
+      const oldMinFull = booking.slots.reduce((s, x) => s + x.durationMinutes, 0);
+      // Measure what's actually written — kept extension rows stay
+      // 30 min, so an unchanged selection yields delta 0.
+      const newMinFull = newSlotRows.reduce((s, r) => s + r.durationMinutes, 0);
+      // A stale tick from a selection later changed into a removal has
+      // no added time to cover.
+      const coverDeltaFull = !!data.coverDeltaWithPass && newMinFull > oldMinFull;
+      // Mirrors the paymentUpdate branch order below so the sync sees
+      // exactly the Payment.amount the edit leaves behind.
+      const paymentAfterEdit = booking.payment
+        ? isPassCoveredFull
+          ? booking.payment.amount
+          : booking.payment.isPartialPayment && finalAdvance !== null
+            ? finalAdvance
+            : coverDeltaFull
+              ? booking.payment.amount
+              : booking.createdByAdminId
+                ? newTotalAmount
+                : booking.payment.amount
+        : 0;
+      const passSync = await syncPassAfterAdminEdit(tx, {
+        bookingId,
+        bookingUserId: booking.userId,
+        bookingDate: finalDate,
+        courtConfigId: finalCourtConfigId,
+        newTotalAmount,
+        oldTotalAmount: booking.totalAmount,
+        paymentAmount: paymentAfterEdit,
+        newMinutes: newMinFull,
+        oldMinutes: oldMinFull,
+        coverDeltaWithPass: coverDeltaFull,
+      });
+      if (!passSync.ok) throw new Error(passSync.error);
+      const passCovered = passSync.coveredAmount;
+
       if (booking.payment && !isPassCoveredFull) {
         const paymentUpdate: {
           amount?: number;
@@ -3012,8 +3065,12 @@ export async function adminEditBookingFull(
         if (booking.payment.isPartialPayment && finalAdvance !== null) {
           paymentUpdate.amount = finalAdvance;
           paymentUpdate.advanceAmount = finalAdvance;
-          paymentUpdate.remainingAmount = newTotalAmount - finalAdvance;
-        } else if (data.coverDeltaWithPass) {
+          // Anything a pass just settled isn't collectable at the venue.
+          paymentUpdate.remainingAmount = Math.max(
+            0,
+            newTotalAmount - finalAdvance - passCovered,
+          );
+        } else if (coverDeltaFull) {
           // A pass settles the added time — keep the collected/captured
           // figure intact (no fabricated revenue) and don't flip PARTIAL
           // demanding money nobody owes; the sync below records the
@@ -3046,42 +3103,6 @@ export async function adminEditBookingFull(
             data: paymentUpdate,
           });
         }
-      }
-
-      // Keep the pass ledger coherent with the edited booking: debit
-      // added minutes when requested, credit removed minutes back, and
-      // realign coveredAmount to the new total (court/date moves are
-      // honored-as-bought — minutes only move with booked time).
-      {
-        const oldMin = booking.slots.reduce((s, x) => s + x.durationMinutes, 0);
-        // Measure what's actually written — kept extension rows stay
-        // 30 min, so an unchanged selection yields delta 0.
-        const newMin = newSlotRows.reduce((s, r) => s + r.durationMinutes, 0);
-        // Mirrors the paymentUpdate branch order above so the sync sees
-        // exactly the Payment.amount the edit left behind.
-        const paymentAfterEdit = booking.payment
-          ? isPassCoveredFull
-            ? booking.payment.amount
-            : booking.payment.isPartialPayment && finalAdvance !== null
-              ? finalAdvance
-              : data.coverDeltaWithPass
-                ? booking.payment.amount
-                : booking.createdByAdminId
-                  ? newTotalAmount
-                  : booking.payment.amount
-          : 0;
-        const passSync = await syncPassAfterAdminEdit(tx, {
-          bookingId,
-          bookingUserId: booking.userId,
-          bookingDate: finalDate,
-          courtConfigId: finalCourtConfigId,
-          newTotalAmount,
-          paymentAmount: paymentAfterEdit,
-          newMinutes: newMin,
-          oldMinutes: oldMin,
-          coverDeltaWithPass: data.coverDeltaWithPass,
-        });
-        if (!passSync.ok) throw new Error(passSync.error);
       }
 
       // Create edit history entries for each change type

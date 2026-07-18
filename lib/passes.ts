@@ -4,6 +4,7 @@ import { getSlotPricesForDate } from "@/lib/pricing";
 import { parseBands, slotInBands, bandsSummary } from "@/lib/pass-bands";
 import { courtGroupLabel } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
+import { recordOrphanPayment } from "@/lib/payment-orphan";
 
 /**
  * Monthly Passes — purchase plumbing (money-first). No UserPass row
@@ -175,6 +176,11 @@ export async function materializeUserPass(args: {
 export async function confirmDqrPass(
   transactionId: string,
   providerReferenceId?: string,
+  /** Captured amount in PAISE, when the gateway reported one. Checked
+   *  against the plan's price — same guard the Razorpay verify/webhook
+   *  paths apply — so a plan repriced inside the QR window can't
+   *  materialize at the wrong terms. */
+  capturedPaise?: number,
 ): Promise<{ userPassId: string | null; alreadyDone: boolean }> {
   const intent = await db.passPurchaseIntent.findUnique({
     where: { phonePeMerchantTxnId: transactionId },
@@ -189,6 +195,28 @@ export async function confirmDqrPass(
   if (!intent) return { userPassId: null, alreadyDone: false };
   if (intent.consumedUserPassId) {
     return { userPassId: intent.consumedUserPassId, alreadyDone: true };
+  }
+  if (typeof capturedPaise === "number") {
+    const plan = await db.passPlan.findUnique({
+      where: { id: intent.planId },
+      select: { price: true },
+    });
+    if (!plan || capturedPaise !== Math.round(plan.price * 100)) {
+      console.error(
+        "[passes] DQR amount mismatch — pass NOT issued",
+        transactionId,
+        capturedPaise,
+        plan?.price ?? "no-plan",
+      );
+      recordOrphanPayment({
+        gateway: "PHONEPE_DQR",
+        reason: "pass-price-mismatch",
+        userId: intent.userId,
+        amountRupees: Math.round(capturedPaise / 100),
+        phonePeMerchantTxnId: transactionId,
+      });
+      return { userPassId: null, alreadyDone: false };
+    }
   }
 
   const result = await materializeUserPass({
@@ -228,13 +256,18 @@ export function passLiveStatus(p: {
 // ─── Redemption (Phase 3) ────────────────────────────────────────────
 
 /** Eligible pass + coverage math for a hold. Coupons/points don't
- *  combine with passes (v1) — holds carrying either are ineligible. */
-export async function getPassOfferForHold(hold: {
+ *  combine with passes (v1) — holds carrying either are ineligible.
+ *  A pass buys COURT TIME only: equipment rental on the hold is always
+ *  money, and lands in `remainderAmount`. */
+export async function getPassOfferForHold(
+  hold: {
   userId: string;
   courtConfigId: string | null;
   date: Date;
   hours: number[];
   totalAmount: number;
+  /** Gear the customer ticked — never pass-covered. */
+  equipmentTotalAmount?: number | null;
   /** The hold's stored per-slot prices (Json blob, same index order as
    *  `hours` — exactly how createBookingFromHold reads it). Authoritative
    *  for remainder math so covered + remainder reconciles with
@@ -243,7 +276,12 @@ export async function getPassOfferForHold(hold: {
   couponId?: string | null;
   pointsToRedeem?: number | null;
   courtConfig?: { slotDurationMinutes: number } | null;
-}) {
+  },
+  /** Restrict the offer to ONE pass — used after the customer has
+   *  committed to a specific pass, so buying another mid-payment can't
+   *  invalidate the top-up already in flight. */
+  opts?: { onlyPassId?: string | null },
+) {
   if (!hold.courtConfigId) return null;
   if (hold.couponId || (hold.pointsToRedeem ?? 0) > 0) return null;
 
@@ -308,6 +346,7 @@ export async function getPassOfferForHold(hold: {
   // falls inside the corresponding IST day — the comparisons line up.)
   const passes = await db.userPass.findMany({
     where: {
+      ...(opts?.onlyPassId ? { id: opts.onlyPassId } : {}),
       // The booker may be the pass OWNER or an added MEMBER — shared
       // passes redeem identically for both.
       OR: [
@@ -366,14 +405,22 @@ export async function getPassOfferForHold(hold: {
     .forEach((i) => {
       covered[i] = true;
     });
-  const remainderAmount = bookedSlots.reduce(
+  // What the pass settles (court time only) and what stays payable.
+  // Gear is never covered — it rides on the remainder so the customer
+  // is never told "nothing to pay" while equipment money is owed.
+  const coveredAmount = bookedSlots.reduce(
+    (sum, s, i) => (covered[i] ? sum + s.price : sum),
+    0,
+  );
+  const equipmentAmount = Math.max(0, hold.equipmentTotalAmount ?? 0);
+  const uncoveredSlotAmount = bookedSlots.reduce(
     (sum, s, i) => (covered[i] ? sum : sum + s.price),
     0,
   );
+  const remainderAmount = uncoveredSlotAmount + equipmentAmount;
   // A ₹0 remainder must route to the full-coverage path — Razorpay
   // won't mint a ₹0 order for it.
-  const fullCoverage =
-    coveredSlots === bookedSlots.length || remainderAmount <= 0;
+  const fullCoverage = remainderAmount <= 0;
 
   return {
     passId: pass.id,
@@ -381,8 +428,12 @@ export async function getPassOfferForHold(hold: {
     remainingMinutes: pass.remainingMinutes,
     neededMinutes,
     coveredMinutes,
+    /** List price the pass settles — the redemption's coveredAmount. */
+    coveredAmount,
     fullCoverage,
     remainderAmount,
+    /** Portion of the remainder that is gear, not uncovered court time. */
+    equipmentAmount,
   };
 }
 
@@ -489,10 +540,19 @@ export async function restorePassForBooking(bookingId: string) {
       data: { restoredAt: new Date() },
     });
     if (stamped.count !== 1) return;
+    // Re-read INSIDE the tx: an admin edit may have shrunk the
+    // redemption (crediting part of it back) since the pre-tx read, and
+    // crediting the stale figure would fabricate minutes.
+    const current = await tx.passRedemption.findUnique({
+      where: { id: red.id },
+      select: { minutes: true },
+    });
+    const minutes = current?.minutes ?? 0;
+    if (minutes <= 0) return;
     await tx.userPass.update({
       where: { id: pass.id },
       data: {
-        remainingMinutes: { increment: red.minutes },
+        remainingMinutes: { increment: minutes },
         status: "ACTIVE",
       },
     });
@@ -868,7 +928,11 @@ export async function findPassForBookingDelta(args: {
     return null; // attached pass can't cover — don't silently switch passes
   }
 
-  // 2. Otherwise the customer's own or shared passes, most balance first.
+  // 2. Otherwise the customer's own or shared passes, SOONEST-EXPIRING
+  //    first — one ordering shared with syncPassAfterAdminEdit and the
+  //    admin detail page, so the pass the UI names is the pass the save
+  //    actually debits (and the closest-to-expiring balance is used up
+  //    first, same as checkout).
   const candidates = await db.userPass.findMany({
     where: {
       status: "ACTIVE",
@@ -877,7 +941,7 @@ export async function findPassForBookingDelta(args: {
         { members: { some: { userId: args.bookingUserId } } },
       ],
     },
-    orderBy: { remainingMinutes: "desc" },
+    orderBy: { expiresAt: "asc" },
   });
   for (const p of candidates) {
     if (await eligible(p)) {
@@ -896,14 +960,17 @@ export async function findPassForBookingDelta(args: {
  *    wasn't pass-paid yet), grow/create the redemption.
  *  - time ADDED without cover: redemption untouched — the invariant
  *    surfaces the added slots' price as owed-at-venue.
- *  - time REMOVED: credit the freed minutes back to the pass (unless
- *    it's cancelled/expired — dead hours are dead) and shrink the
- *    redemption; a redemption shrunk to zero minutes is stamped
- *    restored.
- *  - realign: coveredAmount only ever SHRINKS toward
- *    clamp(newTotal − paymentAmount, 0..newTotal) so repricing/date
- *    moves stay exact; it grows only via the explicit debit branches,
- *    never as a side effect of the realign.
+ *  - time REMOVED: credit back only the minutes that no longer FIT in
+ *    the booking (a 30-min pass extension on a 3h booking survives the
+ *    removal of a paid hour — those minutes were never pass-covered),
+ *    unless the pass is cancelled/expired — dead hours are dead. A
+ *    redemption shrunk to zero minutes is stamped restored.
+ *  - coveredAmount grows ONLY in the debit branches, and only by the
+ *    price of the time just added (newTotal − oldTotal) — never to the
+ *    whole uncaptured gap, which would write off a pre-existing
+ *    advance remainder or an earlier uncovered edit. Otherwise it only
+ *    ever SHRINKS toward clamp(newTotal − paymentAmount) so repricing
+ *    and date moves stay exact.
  */
 export async function syncPassAfterAdminEdit(
   tx: Tx,
@@ -913,16 +980,30 @@ export async function syncPassAfterAdminEdit(
     bookingDate: Date;
     courtConfigId: string;
     newTotalAmount: number;
+    /** Booking.totalAmount BEFORE the edit — the price of the added
+     *  time (newTotal − oldTotal) is the most a pass may newly cover. */
+    oldTotalAmount: number;
     /** Payment.amount AFTER the edit (money actually captured). */
     paymentAmount: number;
     newMinutes: number;
     oldMinutes: number;
     coverDeltaWithPass?: boolean;
   },
-): Promise<{ ok: true; passUsed: string | null } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; passUsed: string | null; coveredAmount: number }
+  | { ok: false; error: string }
+> {
   const delta = args.newMinutes - args.oldMinutes;
   const clampCovered = (v: number) =>
     Math.max(0, Math.min(args.newTotalAmount, v));
+  /** What a pass may cover after this edit: whatever it already covered
+   *  plus the price of the time just added, never more than the money
+   *  still uncaptured. */
+  const grownCovered = (previousCovered: number) =>
+    Math.min(
+      previousCovered + Math.max(0, args.newTotalAmount - args.oldTotalAmount),
+      clampCovered(args.newTotalAmount - args.paymentAmount),
+    );
 
   const red = await tx.passRedemption.findUnique({
     where: { bookingId: args.bookingId },
@@ -932,7 +1013,9 @@ export async function syncPassAfterAdminEdit(
 
   // ── No pass on the booking yet ──
   if (!live) {
-    if (!args.coverDeltaWithPass || delta <= 0) return { ok: true, passUsed: null };
+    if (!args.coverDeltaWithPass || delta <= 0) {
+      return { ok: true, passUsed: null, coveredAmount: 0 };
+    }
     if (!args.bookingUserId) {
       return { ok: false, error: "Guest bookings can't use a pass." };
     }
@@ -945,7 +1028,10 @@ export async function syncPassAfterAdminEdit(
           { members: { some: { userId: args.bookingUserId } } },
         ],
       },
-      orderBy: { remainingMinutes: "desc" },
+      // Soonest-expiring first — the same ordering findPassForBookingDelta
+      // and the admin detail page use, so the pass the checkbox names is
+      // the pass this debit takes.
+      orderBy: { expiresAt: "asc" },
     });
     const now = new Date();
     let chosen: (typeof candidates)[number] | null = null;
@@ -982,6 +1068,10 @@ export async function syncPassAfterAdminEdit(
     // A restored redemption row still occupies the unique bookingId —
     // reactivate it with the new debit's figures instead of create
     // (which would P2002 and brick the edit).
+    // Nothing was covered before, so this pass settles the added time
+    // only — an advance remainder or an earlier uncovered edit stays
+    // owed at the venue.
+    const coveredAmount = grownCovered(0);
     if (red) {
       await tx.passRedemption.update({
         where: { id: red.id },
@@ -989,7 +1079,7 @@ export async function syncPassAfterAdminEdit(
           userPassId: chosen.id,
           minutes: delta,
           value: passMinutesValue(chosen, delta),
-          coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+          coveredAmount,
           restoredAt: null,
         },
       });
@@ -1000,11 +1090,11 @@ export async function syncPassAfterAdminEdit(
           bookingId: args.bookingId,
           minutes: delta,
           value: passMinutesValue(chosen, delta),
-          coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+          coveredAmount,
         },
       });
     }
-    return { ok: true, passUsed: chosen.id };
+    return { ok: true, passUsed: chosen.id, coveredAmount };
   }
 
   // ── Booking already pass-paid ──
@@ -1038,15 +1128,16 @@ export async function syncPassAfterAdminEdit(
       where: { id: pass.id, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
       data: { status: "EXHAUSTED" },
     });
+    const coveredAmount = grownCovered(live.coveredAmount);
     await tx.passRedemption.update({
       where: { id: live.id },
       data: {
         minutes: { increment: delta },
         value: { increment: passMinutesValue(pass, delta) },
-        coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+        coveredAmount,
       },
     });
-    return { ok: true, passUsed: pass.id };
+    return { ok: true, passUsed: pass.id, coveredAmount };
   }
 
   if (delta < 0) {
@@ -1069,10 +1160,14 @@ export async function syncPassAfterAdminEdit(
           data: { coveredAmount: shrunkCovered },
         });
       }
-      return { ok: true, passUsed: pass.id };
+      return { ok: true, passUsed: pass.id, coveredAmount: shrunkCovered };
     }
-    // Credit freed minutes back (bounded by what this booking holds).
-    const credit = Math.min(-delta, live.minutes);
+    // Credit back only the covered minutes that no longer FIT in the
+    // booking. Removing a PAID hour from a booking that merely carries a
+    // 30-min pass extension frees no pass time — those 30 minutes are
+    // still being played, so crediting them (and stamping the redemption
+    // restored) would hand back minutes for a slot the customer keeps.
+    const credit = Math.min(live.minutes, Math.max(0, live.minutes - args.newMinutes));
     if (credit > 0) {
       await tx.userPass.update({
         where: { id: pass.id },
@@ -1093,7 +1188,7 @@ export async function syncPassAfterAdminEdit(
         ...(newMinutes <= 0 ? { restoredAt: new Date() } : {}),
       },
     });
-    return { ok: true, passUsed: pass.id };
+    return { ok: true, passUsed: pass.id, coveredAmount: shrunkCovered };
   }
 
   // delta === 0, or delta > 0 without pass cover: keep minutes/value.
@@ -1110,5 +1205,5 @@ export async function syncPassAfterAdminEdit(
       data: { coveredAmount: target },
     });
   }
-  return { ok: true, passUsed: null };
+  return { ok: true, passUsed: null, coveredAmount: target };
 }

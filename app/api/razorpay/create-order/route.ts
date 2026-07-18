@@ -95,6 +95,11 @@ export async function POST(request: NextRequest) {
         paymentMethod: isAdvance ? "CASH" : "RAZORPAY",
         paymentAmount: orderAmount,
         paymentInitiatedAt: new Date(),
+        // The customer abandoned any pass top-up and is paying the full
+        // way — clear the attachment so the webhook takes this generic
+        // path instead of the pass-top-up branch (which would refuse the
+        // mismatched amount and orphan a perfectly good payment).
+        redeemPassId: null,
         expiresAt: new Date(
           Date.now() + PAYMENT_ATTEMPT_TTL_MINUTES * 60 * 1000
         ),

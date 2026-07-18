@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { fetchRazorpayOrder, verifyRazorpaySignature } from "@/lib/razorpay";
+import { recordOrphanPayment } from "@/lib/payment-orphan";
 import { materializeUserPass, parseStartDate } from "@/lib/passes";
 
 /** Client-side confirmation after the Razorpay modal succeeds. The
@@ -52,9 +53,24 @@ export async function POST(request: NextRequest) {
   // The captured order must pay the plan's full price (paise) — a
   // repriced plan or a tampered flow never materializes at a discount.
   if (order.amount !== Math.round(plan.price * 100)) {
+    // Money IS captured — never a silent 400. File it as an orphan so an
+    // admin honours or refunds it.
+    recordOrphanPayment({
+      gateway: "RAZORPAY",
+      reason: "pass-price-mismatch",
+      userId: notes.userId,
+      amountRupees: Math.round(order.amount / 100),
+      razorpayOrderId,
+      razorpayPaymentId,
+      path: request.nextUrl.pathname,
+    });
     return NextResponse.json(
-      { error: "Payment amount doesn't match the plan price" },
-      { status: 400 },
+      {
+        error:
+          "Payment received, but this plan's price changed while you paid. Please do NOT pay again — our team will issue your pass or refund you shortly.",
+        paymentReceived: true,
+      },
+      { status: 409 },
     );
   }
 
