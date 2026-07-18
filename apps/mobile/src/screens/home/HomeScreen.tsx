@@ -39,7 +39,7 @@ import { Button } from "../../components/ui/Button";
 import { BookingCard } from "../../components/BookingCard";
 import { RewardsChip } from "../../components/RewardsChip";
 import { RainBanner } from "../../components/RainBanner";
-import { colors, radius, spacing } from "../../theme";
+import { colors, radius, spacing, SPORT_COLORS } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
 import { bookingsApi } from "../../lib/bookings";
 import { bookingApi } from "../../lib/booking";
@@ -65,24 +65,21 @@ const SPORTS = [
     name: "Cricket",
     image: `${ASSETS}/cricket.png`,
     tagline: "Professional turf & bowling machine",
-    tint: "rgba(16, 185, 129, 0.55)",
-    border: colors.primary,
+    ...SPORT_COLORS.CRICKET,
   },
   {
     slug: "FOOTBALL" as const,
     name: "Football",
     image: `${ASSETS}/football.jpeg`,
     tagline: "Full-size turf under floodlights",
-    tint: "rgba(59, 130, 246, 0.55)",
-    border: "#3b82f6",
+    ...SPORT_COLORS.FOOTBALL,
   },
   {
     slug: "PICKLEBALL" as const,
     name: "Pickleball",
     image: `${ASSETS}/pickleball.png`,
     tagline: "Fast-growing sport, professional court",
-    tint: "rgba(234, 179, 8, 0.55)",
-    border: "#eab308",
+    ...SPORT_COLORS.PICKLEBALL,
     // promoLabel is computed at render time from the live PICKLEBALL25
     // coupon (see `pickleballPromoLabel` inside HomeScreen). Flipping
     // isActive=false in /admin/coupons hides the pill on the next

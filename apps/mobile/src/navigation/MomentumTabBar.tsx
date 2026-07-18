@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Animated,
-  Easing,
   Linking,
   Modal,
   Platform,
@@ -13,7 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { Coffee, Home, MapPin, Plus, ShoppingBag, Ticket, Trophy, User } from "lucide-react-native";
 import { Text } from "../components/ui/Text";
-import { colors } from "../theme";
+import { colors, duration, easing, STAGGER_MS } from "../theme";
 import { trackBottomNavClick } from "../lib/analytics";
 
 /** Where the venue is — same pin the Home screen's "Find us" card opens. */
@@ -33,8 +32,7 @@ const ITEM_RADIUS = 74;
 const ITEM_HEIGHT = 66;
 const SHEET_W = 304;
 const SHEET_H = 152;
-const OPEN_MS = 340;
-const CLOSE_MS = 220;
+
 
 /**
  * The four arc items fan out from the FAB along a semicircle: left,
@@ -80,10 +78,10 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
   useEffect(() => {
     Animated.timing(progress, {
       toValue: open ? 1 : 0,
-      duration: open ? OPEN_MS : CLOSE_MS,
-      // Slight overshoot on the way out, plain ease on the way back —
-      // opening should feel like it springs, closing like it's dismissed.
-      easing: open ? Easing.out(Easing.back(1.3)) : Easing.in(Easing.cubic),
+      duration: open ? duration.slow : duration.base,
+      // Summoned by the user, so it may overshoot on the way out;
+      // dismissal is plain. See theme/motion.
+      easing: open ? easing.spring : easing.in,
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished && !open) setArcMounted(false);
@@ -210,7 +208,7 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
                   {
                     bottom: barTop + 6,
                     opacity: progress.interpolate({
-                      inputRange: [0, 0.25 + i * 0.12, 1],
+                      inputRange: [0, 0.25 + (i * STAGGER_MS) / duration.slow, 1],
                       outputRange: [0, 0, 1],
                     }),
                     transform: [
@@ -357,14 +355,18 @@ function TabButton({
       accessibilityLabel={label}
       style={styles.tab}
     >
+      {/* Active state is neutral-bright, not emerald. The accent has one
+          job in this app — "this is the thing to tap" — and spending it
+          on a nav label you've already tapped dilutes it everywhere
+          else. Weight plus brightness carries selection fine. */}
       <Icon
         size={22}
-        color={active ? colors.primary : colors.subtleForeground}
-        strokeWidth={2}
+        color={active ? colors.foreground : colors.subtleForeground}
+        strokeWidth={active ? 2.4 : 2}
       />
       <Text
         variant="tiny"
-        color={active ? colors.primary : colors.subtleForeground}
+        color={active ? colors.foreground : colors.subtleForeground}
         weight={active ? "600" : undefined}
       >
         {label}
