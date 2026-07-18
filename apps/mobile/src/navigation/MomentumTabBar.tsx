@@ -20,7 +20,19 @@ import { trackBottomNavClick } from "../lib/analytics";
 const VENUE_MAPS_URL = "https://maps.google.com/?q=27.509167,77.638917";
 
 const FAB_SIZE = 60;
-const ARC_RADIUS = 92;
+/** Row height of the icons — the arc's flat edge lands on top of this. */
+const BAR_HEIGHT = 62;
+/**
+ * Two radii, deliberately different. ITEM_RADIUS is where the three
+ * icons sit; SHEET_* is the semicircle drawn behind them. The sheet has
+ * to be tall enough to contain an icon PLUS its label at the top of the
+ * arc — size them independently and the top item pokes out through the
+ * curve.
+ */
+const ITEM_RADIUS = 74;
+const ITEM_HEIGHT = 66;
+const SHEET_W = 304;
+const SHEET_H = 152;
 const OPEN_MS = 340;
 const CLOSE_MS = 220;
 
@@ -127,6 +139,10 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
   );
 
   const activeName = state.routes[state.index]?.name;
+  // Distance from the screen bottom to the bar's TOP border. The arc is
+  // anchored here rather than to the safe-area inset, so its flat edge
+  // rests exactly on the border instead of overlapping the icons.
+  const barTop = BAR_HEIGHT + Math.max(insets.bottom, 10);
 
   return (
     <View
@@ -161,7 +177,7 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
             style={[
               styles.arcSheet,
               {
-                bottom: insets.bottom + 34,
+                bottom: barTop,
                 opacity: progress,
                 transform: [
                   {
@@ -184,15 +200,15 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
 
           {ARC_ITEMS.map((item, i) => {
             const rad = (item.angle * Math.PI) / 180;
-            const dx = Math.cos(rad) * ARC_RADIUS;
-            const dy = -Math.sin(rad) * ARC_RADIUS;
+            const dx = Math.cos(rad) * ITEM_RADIUS;
+            const dy = -Math.sin(rad) * ITEM_RADIUS;
             return (
               <Animated.View
                 key={item.key}
                 style={[
                   styles.arcItem,
                   {
-                    bottom: insets.bottom + 40,
+                    bottom: barTop + 6,
                     opacity: progress.interpolate({
                       inputRange: [0, 0.25 + i * 0.12, 1],
                       outputRange: [0, 0, 1],
@@ -403,10 +419,10 @@ const styles = StyleSheet.create({
   arcSheet: {
     position: "absolute",
     alignSelf: "center",
-    width: ARC_RADIUS * 2 + 56,
-    height: ARC_RADIUS + 28,
-    borderTopLeftRadius: ARC_RADIUS + 28,
-    borderTopRightRadius: ARC_RADIUS + 28,
+    width: SHEET_W,
+    height: SHEET_H,
+    borderTopLeftRadius: SHEET_W / 2,
+    borderTopRightRadius: SHEET_W / 2,
     backgroundColor: colors.cardElevated,
     borderWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: 0,
@@ -417,6 +433,11 @@ const styles = StyleSheet.create({
     position: "absolute",
     alignSelf: "center",
     alignItems: "center",
+    // Floor, not a fixed height: SHEET_H is sized to contain an item of
+    // this height at the top of the arc. A user with large accessibility
+    // text will grow the label past it — better that it overflows the
+    // curve slightly than gets clipped.
+    minHeight: ITEM_HEIGHT,
     gap: 4,
     zIndex: 2,
   },
