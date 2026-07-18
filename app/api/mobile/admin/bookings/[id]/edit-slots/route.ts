@@ -16,6 +16,8 @@ const Body = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
+  // Cover ADDED minutes from the customer's eligible pass.
+  coverDeltaWithPass: z.boolean().optional(),
 });
 
 export async function POST(
@@ -40,6 +42,8 @@ export async function POST(
     parsed.data.hours,
     parsed.data.date,
     { id: admin.id, username: admin.username },
+    undefined,
+    parsed.data.coverDeltaWithPass,
   );
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });

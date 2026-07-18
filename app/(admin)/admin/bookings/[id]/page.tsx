@@ -125,6 +125,17 @@ export default async function AdminBookingDetailPage({
   // redemption (this customer, this court, ACTIVE, ≥30 min), with
   // validity judged against the BOOKING's play date: the pass must have
   // started by then and not expire before it.
+  // Court-GROUP matching (both cricket half-courts etc.), not strict
+  // config equality — a pass stored on LEFT must cover a RIGHT booking,
+  // same as checkout redemption.
+  const groupSiblingIds = await (async () => {
+    const bc = booking.courtConfig;
+    const siblings = await db.courtConfig.findMany({
+      where: { sport: bc.sport, size: bc.size, category: bc.category },
+      select: { id: true },
+    });
+    return siblings.map((s) => s.id);
+  })();
   const extendPass = booking.userId
     ? await db.userPass.findFirst({
         where: {
@@ -133,7 +144,7 @@ export default async function AdminBookingDetailPage({
             { userId: booking.userId },
             { members: { some: { userId: booking.userId } } },
           ],
-          courtConfigId: booking.courtConfigId,
+          courtConfigId: { in: groupSiblingIds },
           status: "ACTIVE",
           remainingMinutes: { gte: 30 },
           startsAt: { lte: booking.date },
@@ -690,6 +701,14 @@ export default async function AdminBookingDetailPage({
           Manage this booking
         </h2>
         <AdminBookingActions
+        deltaPass={
+          extendPass
+            ? {
+                name: extendPass.name,
+                remainingMinutes: extendPass.remainingMinutes,
+              }
+            : null
+        }
           bookingId={booking.id}
           bookingStatus={booking.status}
           totalAmount={booking.totalAmount}

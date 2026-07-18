@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
+import { restorePassForBooking } from "@/lib/passes";
 
 /**
  * POST /api/mobile/recurring/cancel  — { recurringBookingId }
@@ -51,6 +52,17 @@ export async function POST(request: NextRequest) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const cancellableIds = (
+    await db.booking.findMany({
+      where: {
+        recurringBookingId,
+        date: { gte: today },
+        status: { in: ["PENDING", "CONFIRMED"] },
+      },
+      select: { id: true },
+    })
+  ).map((b) => b.id);
+
   await db.$transaction([
     db.booking.updateMany({
       where: {
@@ -65,6 +77,12 @@ export async function POST(request: NextRequest) {
       data: { status: "CANCELLED" },
     }),
   ]);
+
+  // Return pass minutes for any pass-covered bookings in the series
+  // (no-op otherwise).
+  for (const id of cancellableIds) {
+    await restorePassForBooking(id).catch(() => {});
+  }
 
   return NextResponse.json({ success: true });
 }

@@ -27,6 +27,9 @@ const DirectionSchema = z.enum(["before", "after"]);
 const Body = z.object({
   direction: DirectionSchema,
   price: z.number().int().min(0),
+  // Debit the 30 min from this pass instead of charging (validated
+  // server-side: owner/member, court group, validity, balance).
+  payWithPassId: z.string().min(1).optional(),
 });
 
 export async function GET(
@@ -73,6 +76,7 @@ export async function POST(
     parsed.data.direction,
     parsed.data.price,
     { id: admin.id, username: admin.username },
+    parsed.data.payWithPassId,
   );
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });

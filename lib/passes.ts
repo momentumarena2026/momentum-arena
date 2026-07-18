@@ -655,3 +655,303 @@ export async function removePassMemberForOwner(
     .catch(() => {});
   return { ok: true };
 }
+
+// ─── Admin-edit pass sync ────────────────────────────────────────────
+// Keeps a booking's PassRedemption coherent when an ADMIN edit changes
+// its slots / date / court / total. Runs INSIDE the editor's
+// transaction so a failed pass debit aborts the whole edit.
+//
+// The invariant every display + report relies on:
+//     owed-at-venue = Booking.totalAmount − Payment.amount − coveredAmount
+// so after any edit: coveredAmount := clamp(newTotal − paymentAmount).
+// Minutes move with booked time: added time can be debited from an
+// eligible pass (coverDeltaWithPass), removed time is credited back.
+
+import { courtGroupKey } from "@/lib/court-config";
+import type { Prisma } from "@prisma/client";
+
+type Tx = Prisma.TransactionClient;
+
+/** Public (non-tx) form of the court-group check — used by the extend
+ *  action and eligibility endpoints. */
+export async function passCoversCourtGroup(
+  passCourtConfigId: string,
+  bookingCourtConfigId: string,
+): Promise<boolean> {
+  return passCoversCourt(db, passCourtConfigId, bookingCourtConfigId);
+}
+
+/** Do the pass and the booking's court belong to the same interchangeable
+ *  court group (both cricket half-courts, both leather pitches, ...)? */
+async function passCoversCourt(
+  tx: Tx,
+  passCourtConfigId: string,
+  bookingCourtConfigId: string,
+): Promise<boolean> {
+  if (passCourtConfigId === bookingCourtConfigId) return true;
+  const [a, b] = await Promise.all([
+    tx.courtConfig.findUnique({
+      where: { id: passCourtConfigId },
+      select: { sport: true, size: true, category: true },
+    }),
+    tx.courtConfig.findUnique({
+      where: { id: bookingCourtConfigId },
+      select: { sport: true, size: true, category: true },
+    }),
+  ]);
+  if (!a || !b) return false;
+  const key = (c: { sport: unknown; size: unknown; category: unknown }) =>
+    courtGroupKey({
+      sport: String(c.sport),
+      size: String(c.size),
+      category: c.category ? String(c.category) : null,
+    });
+  return key(a) === key(b);
+}
+
+/** An eligible pass for covering ADDED minutes on a booking — the
+ *  booking's existing redemption pass first, else the customer's best
+ *  eligible pass (owner or shared member, court group + play-date
+ *  valid, enough balance). Used by the admin edit flows AND by the
+ *  detail endpoints that decide whether to OFFER the option. */
+export async function findPassForBookingDelta(args: {
+  bookingId: string;
+  bookingUserId: string | null;
+  bookingDate: Date;
+  courtConfigId: string;
+  deltaMinutes: number;
+}): Promise<{ passId: string; passName: string; remainingMinutes: number } | null> {
+  if (!args.bookingUserId || args.deltaMinutes <= 0) return null;
+  const now = new Date();
+
+  const eligible = async (p: {
+    id: string;
+    name: string;
+    courtConfigId: string;
+    status: string;
+    startsAt: Date;
+    expiresAt: Date;
+    remainingMinutes: number;
+  }) =>
+    p.status === "ACTIVE" &&
+    p.startsAt.getTime() <= args.bookingDate.getTime() &&
+    p.expiresAt.getTime() > args.bookingDate.getTime() &&
+    p.expiresAt.getTime() > now.getTime() &&
+    p.remainingMinutes >= args.deltaMinutes &&
+    (await passCoversCourt(db, p.courtConfigId, args.courtConfigId));
+
+  // 1. The pass already attached to this booking, if any.
+  const red = await db.passRedemption.findUnique({
+    where: { bookingId: args.bookingId },
+    include: { userPass: true },
+  });
+  if (red && !red.restoredAt) {
+    const p = red.userPass;
+    if (await eligible(p)) {
+      return { passId: p.id, passName: p.name, remainingMinutes: p.remainingMinutes };
+    }
+    return null; // attached pass can't cover — don't silently switch passes
+  }
+
+  // 2. Otherwise the customer's own or shared passes, most balance first.
+  const candidates = await db.userPass.findMany({
+    where: {
+      status: "ACTIVE",
+      OR: [
+        { userId: args.bookingUserId },
+        { members: { some: { userId: args.bookingUserId } } },
+      ],
+    },
+    orderBy: { remainingMinutes: "desc" },
+  });
+  for (const p of candidates) {
+    if (await eligible(p)) {
+      return { passId: p.id, passName: p.name, remainingMinutes: p.remainingMinutes };
+    }
+  }
+  return null;
+}
+
+/**
+ * Sync the booking's pass state after an admin edit. Call INSIDE the
+ * edit transaction, AFTER Booking/Payment rows are written.
+ *
+ *  - time ADDED + coverDeltaWithPass: debit the delta from the
+ *    attached pass (or the customer's eligible pass when the booking
+ *    wasn't pass-paid yet), grow/create the redemption.
+ *  - time ADDED without cover: redemption untouched — the invariant
+ *    surfaces the added slots' price as owed-at-venue.
+ *  - time REMOVED: credit the freed minutes back to the pass (unless
+ *    it's cancelled/expired — dead hours are dead) and shrink the
+ *    redemption; a redemption shrunk to zero minutes is stamped
+ *    restored.
+ *  - always: coveredAmount := clamp(newTotal − paymentAmount, 0..newTotal)
+ *    so the owed-at-venue line stays exact after repricing/date moves.
+ */
+export async function syncPassAfterAdminEdit(
+  tx: Tx,
+  args: {
+    bookingId: string;
+    bookingUserId: string | null;
+    bookingDate: Date;
+    courtConfigId: string;
+    newTotalAmount: number;
+    /** Payment.amount AFTER the edit (money actually captured). */
+    paymentAmount: number;
+    newMinutes: number;
+    oldMinutes: number;
+    coverDeltaWithPass?: boolean;
+  },
+): Promise<{ ok: true; passUsed: string | null } | { ok: false; error: string }> {
+  const delta = args.newMinutes - args.oldMinutes;
+  const clampCovered = (v: number) =>
+    Math.max(0, Math.min(args.newTotalAmount, v));
+
+  const red = await tx.passRedemption.findUnique({
+    where: { bookingId: args.bookingId },
+    include: { userPass: true },
+  });
+  const live = red && !red.restoredAt ? red : null;
+
+  // ── No pass on the booking yet ──
+  if (!live) {
+    if (!args.coverDeltaWithPass || delta <= 0) return { ok: true, passUsed: null };
+    if (!args.bookingUserId) {
+      return { ok: false, error: "Guest bookings can't use a pass." };
+    }
+    // Cover the ADDED minutes from the customer's eligible pass.
+    const candidates = await tx.userPass.findMany({
+      where: {
+        status: "ACTIVE",
+        OR: [
+          { userId: args.bookingUserId },
+          { members: { some: { userId: args.bookingUserId } } },
+        ],
+      },
+      orderBy: { remainingMinutes: "desc" },
+    });
+    const now = new Date();
+    let chosen: (typeof candidates)[number] | null = null;
+    for (const p of candidates) {
+      if (
+        p.startsAt.getTime() <= args.bookingDate.getTime() &&
+        p.expiresAt.getTime() > args.bookingDate.getTime() &&
+        p.expiresAt.getTime() > now.getTime() &&
+        p.remainingMinutes >= delta &&
+        (await passCoversCourt(tx, p.courtConfigId, args.courtConfigId))
+      ) {
+        chosen = p;
+        break;
+      }
+    }
+    if (!chosen) {
+      return {
+        ok: false,
+        error:
+          "No pass with enough balance covers this court/date — uncheck the pass option to charge instead.",
+      };
+    }
+    const debited = await tx.userPass.updateMany({
+      where: { id: chosen.id, remainingMinutes: { gte: delta }, status: "ACTIVE" },
+      data: { remainingMinutes: { decrement: delta } },
+    });
+    if (debited.count === 0) {
+      return { ok: false, error: "Pass balance changed — please retry." };
+    }
+    await tx.userPass.updateMany({
+      where: { id: chosen.id, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
+      data: { status: "EXHAUSTED" },
+    });
+    await tx.passRedemption.create({
+      data: {
+        userPassId: chosen.id,
+        bookingId: args.bookingId,
+        minutes: delta,
+        value: passMinutesValue(chosen, delta),
+        coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+      },
+    });
+    return { ok: true, passUsed: chosen.id };
+  }
+
+  // ── Booking already pass-paid ──
+  const pass = live.userPass;
+
+  if (delta > 0 && args.coverDeltaWithPass) {
+    const now = new Date();
+    const coversCourt = await passCoversCourt(tx, pass.courtConfigId, args.courtConfigId);
+    if (
+      pass.status !== "ACTIVE" ||
+      pass.startsAt.getTime() > args.bookingDate.getTime() ||
+      pass.expiresAt.getTime() <= args.bookingDate.getTime() ||
+      pass.expiresAt.getTime() <= now.getTime() ||
+      pass.remainingMinutes < delta ||
+      !coversCourt
+    ) {
+      return {
+        ok: false,
+        error:
+          "The booking's pass can't cover the added time (expired, out of balance, or wrong court) — uncheck the pass option to charge instead.",
+      };
+    }
+    const debited = await tx.userPass.updateMany({
+      where: { id: pass.id, remainingMinutes: { gte: delta }, status: "ACTIVE" },
+      data: { remainingMinutes: { decrement: delta } },
+    });
+    if (debited.count === 0) {
+      return { ok: false, error: "Pass balance changed — please retry." };
+    }
+    await tx.userPass.updateMany({
+      where: { id: pass.id, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
+      data: { status: "EXHAUSTED" },
+    });
+    await tx.passRedemption.update({
+      where: { id: live.id },
+      data: {
+        minutes: { increment: delta },
+        value: { increment: passMinutesValue(pass, delta) },
+        coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+      },
+    });
+    return { ok: true, passUsed: pass.id };
+  }
+
+  if (delta < 0) {
+    // Credit freed minutes back (bounded by what this booking holds).
+    const credit = Math.min(-delta, live.minutes);
+    const restorable =
+      pass.status !== "CANCELLED" && pass.expiresAt.getTime() > Date.now();
+    if (credit > 0 && restorable) {
+      await tx.userPass.update({
+        where: { id: pass.id },
+        data: {
+          remainingMinutes: { increment: credit },
+          ...(pass.status === "EXHAUSTED" ? { status: "ACTIVE" } : {}),
+        },
+      });
+    }
+    const newMinutes = live.minutes - credit;
+    await tx.passRedemption.update({
+      where: { id: live.id },
+      data: {
+        minutes: newMinutes,
+        value: Math.max(0, live.value - passMinutesValue(pass, credit)),
+        coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+        // All covered time gone → the redemption is effectively undone.
+        ...(newMinutes <= 0 ? { restoredAt: new Date() } : {}),
+      },
+    });
+    return { ok: true, passUsed: pass.id };
+  }
+
+  // delta === 0, or delta > 0 without pass cover: keep minutes/value,
+  // realign coveredAmount to the invariant (repricing / date moves).
+  const target = clampCovered(args.newTotalAmount - args.paymentAmount);
+  if (target !== live.coveredAmount) {
+    await tx.passRedemption.update({
+      where: { id: live.id },
+      data: { coveredAmount: target },
+    });
+  }
+  return { ok: true, passUsed: null };
+}

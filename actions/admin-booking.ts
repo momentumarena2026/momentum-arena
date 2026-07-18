@@ -1,7 +1,12 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { restorePassForBooking, passMinutesValue } from "@/lib/passes";
+import {
+  restorePassForBooking,
+  passMinutesValue,
+  syncPassAfterAdminEdit,
+  passCoversCourtGroup,
+} from "@/lib/passes";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
@@ -261,6 +266,21 @@ export async function markRemainderCollected(
   if (!booking.payment.isPartialPayment) {
     return { success: false, error: "Booking is not a partial payment" };
   }
+  // Defense in depth: a pass-covered booking must never take remainder
+  // money on top of coveredAmount (double-charging the covered hours).
+  {
+    const red = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+      return {
+        success: false,
+        error:
+          "This booking is (partly) paid with a pass — collect only what the booking detail's pass section shows as owed.",
+      };
+    }
+  }
   // Use Payment.remainingAmount only as the "still owed?" gate — the
   // amount to charge at the venue is derived from totalAmount - advance
   // so historical rows where remainingAmount was stored pre-discount
@@ -403,6 +423,19 @@ export async function updateRemainderSplit(
   if (!booking.payment) return { success: false, error: "No payment on this booking" };
   if (!booking.payment.isPartialPayment) {
     return { success: false, error: "Booking is not a partial payment" };
+  }
+  {
+    const red = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+      return {
+        success: false,
+        error:
+          "This booking is (partly) paid with a pass — its split can't be edited here.",
+      };
+    }
   }
   if ((booking.payment.remainingAmount ?? 0) > 0) {
     return { success: false, error: "Remainder not yet collected" };
@@ -753,6 +786,24 @@ export async function adminEditPayment(
   }
   if (!booking.payment) {
     return { success: false as const, error: "No payment row to edit" };
+  }
+  // Pass-covered bookings manage their money through the pass ledger
+  // (Payment.amount + PassRedemption.coveredAmount). Manual payment
+  // surgery here would desync coveredAmount and double-charge or hide
+  // the covered hours — route admins to edit-slots (with the pass
+  // option), cancel, or refund instead.
+  {
+    const red = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+      return {
+        success: false as const,
+        error:
+          "This booking is (partly) paid with a pass — its payment figures are managed automatically. Edit slots (with the pass option), cancel, or refund instead.",
+      };
+    }
   }
   const prior = booking.payment;
 
@@ -2148,6 +2199,10 @@ export async function adminEditBookingSlots(
   // BookingSlot with startMinute=minute + durationMinutes=30. Mutually
   // exclusive with `newHours`.
   bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>,
+  // Cover ADDED minutes from the customer's pass (the booking's own
+  // pass when pass-paid, else their best eligible pass). Validated +
+  // debited atomically by syncPassAfterAdminEdit inside the tx.
+  coverDeltaWithPass?: boolean,
 ) {
   const admin = adminOverride ?? (await requireAdminWithDetails());
 
@@ -2358,6 +2413,25 @@ export async function adminEditBookingSlots(
 
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
+
+    // Pass-paid bookings keep their Payment row untouched (₹0 for full
+    // coverage, the top-up remainder otherwise) — money truth lives in
+    // Payment.amount + PassRedemption.coveredAmount, which the sync
+    // below realigns to the new total.
+    const liveRedemption = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    const isPassCovered =
+      (!!liveRedemption && !liveRedemption.restoredAt) ||
+      booking.payment?.method === "PASS";
+    const oldBookedMinutes = booking.slots.reduce(
+      (sum, s) => sum + s.durationMinutes,
+      0,
+    );
+    const newBookedMinutes = usingBowling
+      ? bowlingSlots!.length * 30
+      : newHours.length * (booking.courtConfig.slotDurationMinutes || 60);
     const effectiveNewHours = usingBowling
       ? bowlingSlots!.map((s) => s.hour).sort((a, b) => a - b)
       : newHours;
@@ -2416,12 +2490,38 @@ export async function adminEditBookingSlots(
       // Update payment amount if exists. Partial-payment bookings have
       // their own edit flow (adminEditBookingFull) that keeps advance +
       // remainder in sync; here we only touch non-partial payments so we
-      // don't clobber the advance figure.
-      if (booking.payment && !booking.payment.isPartialPayment) {
+      // don't clobber the advance figure. Pass-covered bookings are also
+      // left alone — their Payment.amount is the money actually captured
+      // (0 or the top-up remainder), never the slot total.
+      if (booking.payment && !booking.payment.isPartialPayment && !isPassCovered) {
         await tx.payment.update({
           where: { id: booking.payment.id },
           data: { amount: newTotalAmount },
         });
+      }
+
+      // Keep the pass ledger coherent with the new slots: debit added
+      // minutes when requested (validating balance/court/date), credit
+      // removed minutes back, and realign coveredAmount so
+      // owed-at-venue = total − payment − covered stays exact.
+      {
+        const paymentAfterEdit = booking.payment
+          ? booking.payment.isPartialPayment || isPassCovered
+            ? booking.payment.amount
+            : newTotalAmount
+          : 0;
+        const passSync = await syncPassAfterAdminEdit(tx, {
+          bookingId,
+          bookingUserId: booking.userId,
+          bookingDate: dateChanged ? dateOnly! : booking.date,
+          courtConfigId: booking.courtConfigId,
+          newTotalAmount,
+          paymentAmount: paymentAfterEdit,
+          newMinutes: newBookedMinutes,
+          oldMinutes: oldBookedMinutes,
+          coverDeltaWithPass,
+        });
+        if (!passSync.ok) throw new Error(passSync.error);
       }
 
       // Emit a date-change entry first so the history stays chronologically
@@ -2515,6 +2615,9 @@ export async function adminEditBookingFull(
     // as Cash, actually came in via static QR).
     newAdvanceAmount?: number;
     newAdvanceMethod?: "CASH" | "UPI_QR";
+    // Cover ADDED minutes from the customer's pass (validated + debited
+    // atomically inside the tx by syncPassAfterAdminEdit).
+    coverDeltaWithPass?: boolean;
   },
   adminOverride?: { id: string; username: string }
 ) {
@@ -2765,7 +2868,21 @@ export async function adminEditBookingFull(
       //     "collect ₹X extra at venue". If the new total exceeds the
       //     captured amount, flip the payment to PARTIAL with the
       //     remainder so existing partial-payment UX kicks in.
-      if (booking.payment) {
+      // Pass-covered bookings (live PassRedemption or method PASS) keep
+      // their Payment row exactly as captured: ₹0 for full coverage or
+      // the top-up remainder. Flipping them PARTIAL (case 3) or
+      // overwriting amount would double-charge the covered hours — the
+      // pass sync below realigns coveredAmount instead, so
+      // owed-at-venue = total − payment − covered stays exact.
+      const liveRedemptionFull = await tx.passRedemption.findUnique({
+        where: { bookingId },
+        select: { restoredAt: true },
+      });
+      const isPassCoveredFull =
+        (!!liveRedemptionFull && !liveRedemptionFull.restoredAt) ||
+        booking.payment?.method === "PASS";
+
+      if (booking.payment && !isPassCoveredFull) {
         const paymentUpdate: {
           amount?: number;
           advanceAmount?: number;
@@ -2806,6 +2923,37 @@ export async function adminEditBookingFull(
             data: paymentUpdate,
           });
         }
+      }
+
+      // Keep the pass ledger coherent with the edited booking: debit
+      // added minutes when requested, credit removed minutes back, and
+      // realign coveredAmount to the new total (court/date moves are
+      // honored-as-bought — minutes only move with booked time).
+      {
+        const oldMin = booking.slots.reduce((s, x) => s + x.durationMinutes, 0);
+        const slotDur = finalConfig.slotDurationMinutes || 60;
+        const newMin = finalHours.length * slotDur;
+        const paymentAfterEdit = booking.payment
+          ? isPassCoveredFull
+            ? booking.payment.amount
+            : booking.payment.isPartialPayment && finalAdvance !== null
+              ? finalAdvance
+              : booking.createdByAdminId
+                ? newTotalAmount
+                : booking.payment.amount
+          : 0;
+        const passSync = await syncPassAfterAdminEdit(tx, {
+          bookingId,
+          bookingUserId: booking.userId,
+          bookingDate: finalDate,
+          courtConfigId: finalCourtConfigId,
+          newTotalAmount,
+          paymentAmount: paymentAfterEdit,
+          newMinutes: newMin,
+          oldMinutes: oldMin,
+          coverDeltaWithPass: data.coverDeltaWithPass,
+        });
+        if (!passSync.ok) throw new Error(passSync.error);
       }
 
       // Create edit history entries for each change type
@@ -3319,10 +3467,13 @@ export async function extendBookingByThirtyMin(
       const bookerCanUsePass =
         !!pass &&
         (pass.userId === booking.userId || pass.members.length > 0);
+      const coversCourt =
+        !!pass &&
+        (await passCoversCourtGroup(pass.courtConfigId, booking.courtConfigId));
       if (
         !pass ||
         !bookerCanUsePass ||
-        pass.courtConfigId !== booking.courtConfigId ||
+        !coversCourt ||
         pass.status !== "ACTIVE" ||
         pass.startsAt.getTime() > booking.date.getTime() ||
         pass.expiresAt.getTime() <= booking.date.getTime() ||

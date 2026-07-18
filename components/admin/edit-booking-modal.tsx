@@ -22,6 +22,8 @@ interface EditBookingModalProps {
   // its remainder collected yet, the modal also exposes advance-amount and
   // advance-method fields.
   isPartialPayment: boolean;
+  /** Customer's eligible pass for covering ADDED time (server re-validates). */
+  deltaPass?: { name: string; remainingMinutes: number } | null;
   currentAdvanceAmount: number | null;
   currentAdvanceMethod: string | null;
   isOpen: boolean;
@@ -30,6 +32,7 @@ interface EditBookingModalProps {
 }
 
 export function EditBookingModal({
+  deltaPass,
   bookingId,
   currentCourtConfigId,
   currentDate,
@@ -62,6 +65,7 @@ export function EditBookingModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coverWithPass, setCoverWithPass] = useState(false);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -209,6 +213,7 @@ export function EditBookingModal({
         newHours?: number[];
         newAdvanceAmount?: number;
         newAdvanceMethod?: "CASH" | "UPI_QR";
+        coverDeltaWithPass?: boolean;
       } = {};
 
       if (selectedDate !== currentDate) {
@@ -231,6 +236,7 @@ export function EditBookingModal({
         payload.newAdvanceMethod = advanceMethod;
       }
 
+      if (coverWithPass) payload.coverDeltaWithPass = true;
       const result = await adminEditBookingFull(bookingId, payload);
       if (result.success) {
         onSuccess();
@@ -430,6 +436,22 @@ export function EditBookingModal({
               </p>
             )}
           </div>
+        )}
+
+        {/* Pass-cover option — only when the edit ADDS time and the
+            customer has an eligible pass. Server re-validates. */}
+        {deltaPass && selectedHours.size > currentSlots.length && (
+          <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+            <input
+              type="checkbox"
+              checked={coverWithPass}
+              onChange={(e) => setCoverWithPass(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
+            />
+            Cover the added {selectedHours.size - currentSlots.length}h from{" "}
+            {deltaPass.name} (
+            {(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}h left)
+          </label>
         )}
 
         {/* Footer */}

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkSlotsAvailable } from "@/lib/availability";
 import { getSlotPricesForDate, formatBookingDate } from "@/lib/pricing";
+import { restorePassForBooking } from "@/lib/passes";
 
 const MAX_WEEKS_AHEAD = 4; // Initial bookings created upfront
 const MAX_TOTAL_MONTHS = 3; // Maximum recurrence window
@@ -380,6 +381,19 @@ export async function cancelRecurringBooking(
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // Ids first — pass minutes are restored per booking after the bulk
+  // cancel (no-op for non-pass bookings).
+  const cancellableIds = (
+    await db.booking.findMany({
+      where: {
+        recurringBookingId,
+        date: { gte: today },
+        status: { in: ["PENDING", "CONFIRMED"] },
+      },
+      select: { id: true },
+    })
+  ).map((b) => b.id);
+
   // Cancel all future individual bookings and the recurring record
   await db.$transaction([
     db.booking.updateMany({
@@ -395,6 +409,10 @@ export async function cancelRecurringBooking(
       data: { status: "CANCELLED" },
     }),
   ]);
+
+  for (const id of cancellableIds) {
+    await restorePassForBooking(id).catch(() => {});
+  }
 
   return { success: true };
 }

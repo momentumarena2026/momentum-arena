@@ -47,6 +47,8 @@ interface AdminBookingActionsProps {
   // machine (the EditSlotsModal renders a half-hour grid + writes
   // {hour, minute} pairs). 60 / undefined = hourly.
   slotDurationMinutes?: number;
+  /** Customer's eligible pass for covering ADDED time on edits. */
+  deltaPass?: { name: string; remainingMinutes: number } | null;
   // Bowling-machine bookings carry per-slot hour+minute so the modal
   // can pre-select the customer's current 30-min picks (parallel to
   // `currentSlots` which still holds the hour-only summary used by
@@ -78,6 +80,7 @@ export function AdminBookingActions({
   date,
   currentSlots,
   slotDurationMinutes,
+  deltaPass,
   currentBowlingSlots,
   sport,
   courtConfigs,
@@ -593,6 +596,7 @@ export function AdminBookingActions({
         currentSlots={currentSlots}
         currentBowlingSlots={currentBowlingSlots}
         slotDurationMinutes={slotDurationMinutes}
+        deltaPass={deltaPass}
         isOpen={showEditSlots}
         onClose={() => setShowEditSlots(false)}
         onSuccess={() => {
@@ -607,6 +611,7 @@ export function AdminBookingActions({
         currentCourtConfigId={courtConfigId}
         currentDate={date}
         currentSlots={currentSlots}
+        deltaPass={deltaPass}
         sport={sport}
         courtConfigs={courtConfigs}
         isPartialPayment={isPartialPayment && paymentStatus === "PARTIAL"}

@@ -29,6 +29,9 @@ interface EditSlotsModalProps {
    * server action gets called.
    */
   slotDurationMinutes?: number;
+  /** Customer's eligible pass for covering ADDED time (name + balance).
+   *  Null hides the option; the server re-validates on save. */
+  deltaPass?: { name: string; remainingMinutes: number } | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -66,6 +69,7 @@ function formatBowlingRange(hour: number, minute: 0 | 30): string {
 }
 
 export function EditSlotsModal({
+  deltaPass,
   bookingId,
   courtConfigId,
   date,
@@ -90,6 +94,7 @@ export function EditSlotsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coverWithPass, setCoverWithPass] = useState(false);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -206,10 +211,18 @@ export function EditSlotsModal({
           newDate,
           undefined,
           picks,
+          coverWithPass,
         );
       } else {
         const hours = Array.from(selectedHours).sort((a, b) => a - b);
-        result = await adminEditBookingSlots(bookingId, hours, newDate);
+        result = await adminEditBookingSlots(
+          bookingId,
+          hours,
+          newDate,
+          undefined,
+          undefined,
+          coverWithPass,
+        );
       }
       if (result.success) {
         onSuccess();
@@ -379,6 +392,35 @@ export function EditSlotsModal({
 
             <div className="flex items-center justify-between border-t border-zinc-700 pt-4">
               <div className="text-sm text-zinc-400">
+                {deltaPass &&
+                  (() => {
+                    const dur = isBowlingMode ? 30 : slotDurationMinutes ?? 60;
+                    const newMin =
+                      (isBowlingMode ? selectedBowling.size : selectedHours.size) * dur;
+                    const oldMin =
+                      (currentBowlingSlots?.length ?? currentSlots.length) *
+                      (isBowlingMode ? 30 : slotDurationMinutes ?? 60);
+                    const added = newMin - oldMin;
+                    if (added <= 0) return null;
+                    const enough = deltaPass.remainingMinutes >= added;
+                    return (
+                      <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+                        <input
+                          type="checkbox"
+                          checked={coverWithPass}
+                          onChange={(e) => setCoverWithPass(e.target.checked)}
+                          disabled={!enough}
+                          className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
+                        />
+                        Cover the added {added / 60}h from {deltaPass.name} (
+                        {(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}
+                        h left)
+                        {!enough && (
+                          <span className="text-amber-400">— not enough balance</span>
+                        )}
+                      </label>
+                    );
+                  })()}
                 {isBowlingMode ? selectedBowling.size : selectedHours.size} slot
                 {(isBowlingMode ? selectedBowling.size : selectedHours.size) !== 1
                   ? "s"

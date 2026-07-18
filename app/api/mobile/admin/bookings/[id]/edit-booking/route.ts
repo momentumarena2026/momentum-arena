@@ -22,6 +22,8 @@ const Body = z.object({
   newHours: z.array(z.number().int().min(0).max(24)).min(1).optional(),
   newAdvanceAmount: z.number().int().min(0).optional(),
   newAdvanceMethod: z.enum(["CASH", "UPI_QR"]).optional(),
+  // Cover ADDED minutes from the customer's eligible pass.
+  coverDeltaWithPass: z.boolean().optional(),
 });
 
 export async function POST(

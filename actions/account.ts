@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { restorePassForBooking } from "@/lib/passes";
 
 /**
  * Soft-delete + anonymize a user account.
@@ -24,6 +25,19 @@ import { db } from "@/lib/db";
 export async function softDeleteAccount(userId: string): Promise<void> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  // Ids first — pass minutes must be restored per booking after the
+  // bulk cancel (restorePassForBooking no-ops for non-pass bookings).
+  const cancellableIds = (
+    await db.booking.findMany({
+      where: {
+        userId,
+        date: { gte: today },
+        status: { in: ["PENDING", "CONFIRMED"] },
+      },
+      select: { id: true },
+    })
+  ).map((b) => b.id);
 
   await db.$transaction(async (tx) => {
     await tx.booking.updateMany({
@@ -63,6 +77,13 @@ export async function softDeleteAccount(userId: string): Promise<void> {
       },
     });
   });
+
+  // Return pass minutes for any pass-covered bookings we just
+  // cancelled. Best-effort, outside the tx: restorePassForBooking is
+  // a no-op for non-pass bookings and for already-restored rows.
+  for (const id of cancellableIds) {
+    await restorePassForBooking(id).catch(() => {});
+  }
 }
 
 /**
