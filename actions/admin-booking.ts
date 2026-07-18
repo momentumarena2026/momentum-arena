@@ -2,6 +2,8 @@
 
 import { db } from "@/lib/db";
 import { completePassTopup } from "@/lib/pass-topup";
+import { qrStatus } from "@/lib/phonepe-dqr";
+import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import {
   restorePassForBooking,
   passMinutesValue,
@@ -10,6 +12,7 @@ import {
   passBandsCoverHours,
   parseCoveredSlots,
   adoptLegacyCoverage,
+  confirmDqrPass,
   shouldCoverDelta,
 } from "@/lib/passes";
 import {
@@ -4137,4 +4140,107 @@ export async function markBookingAbsent(
   adminOverride?: { id: string; username: string },
 ) {
   return closeOutBooking(bookingId, "ABSENT", adminOverride);
+}
+
+// ---------------------------------------------------------------------------
+// recoverDqrPayment
+// ---------------------------------------------------------------------------
+
+export type RecoverDqrResult =
+  | { success: true; state: "created" | "already-linked"; kind: "booking" | "cafe" | "pass"; id: string }
+  | { success: true; state: "pending"; message: string }
+  | { success: false; error: string };
+
+/**
+ * Complete a PhonePe DQR payment from its transaction id.
+ *
+ * The Razorpay equivalent has existed for a while; DQR had nothing, so
+ * an admin holding a PhonePe txn id for a customer whose money left
+ * their account had no route except editing the database by hand. That
+ * mattered most in exactly the case it was missing: the 2026-07-11
+ * intent incident, where PhonePe leaves a paid transaction PENDING and
+ * neither the callback nor the client poll ever confirms it.
+ *
+ * Probes PhonePe, then routes to whichever confirm path owns the id —
+ * booking, cafe order or pass purchase — all of which are idempotent,
+ * so re-running is safe.
+ *
+ * A PENDING result is reported honestly rather than forced: if PhonePe
+ * still doesn't acknowledge the payment, creating a booking here would
+ * be inventing money we can't see. Reconcile in the PhonePe dashboard
+ * first, then use the ordinary "+ New Booking" flow.
+ */
+export async function recoverDqrPayment(
+  transactionId: string,
+  skipAuth?: boolean,
+): Promise<RecoverDqrResult> {
+  if (!skipAuth) await requireAdmin();
+
+  const txn = transactionId.trim();
+  if (!txn) return { success: false, error: "Enter a PhonePe transaction id" };
+
+  let state: string;
+  let providerReferenceId: string | undefined;
+  try {
+    const status = await qrStatus(txn);
+    state = status.state;
+    providerReferenceId = status.providerReferenceId;
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? `Couldn't reach PhonePe: ${err.message}`
+          : "Couldn't reach PhonePe",
+    };
+  }
+
+  if (state !== "COMPLETED") {
+    return {
+      success: true,
+      state: "pending",
+      message:
+        `PhonePe reports this transaction as ${state}. If the customer's account was debited, this is the known intent-replication gap — reconcile it in the PhonePe Business dashboard, then create the booking manually.`,
+    };
+  }
+
+  // The txn-id prefix tells us which surface minted it (DQR_ booking,
+  // DQRC_ cafe, DQRP_ pass); fall back to trying each.
+  const { revalidatePath } = await import("next/cache");
+  const booking = await confirmDqrBooking(txn, providerReferenceId);
+  if (booking.bookingId) {
+    revalidatePath("/admin/bookings");
+    return {
+      success: true,
+      state: booking.alreadyDone ? "already-linked" : "created",
+      kind: "booking",
+      id: booking.bookingId,
+    };
+  }
+  const cafe = await confirmDqrCafe(txn, providerReferenceId);
+  if (cafe.orderId) {
+    revalidatePath("/admin/cafe");
+    return {
+      success: true,
+      state: cafe.alreadyDone ? "already-linked" : "created",
+      kind: "cafe",
+      id: cafe.orderId,
+    };
+  }
+  const pass = await confirmDqrPass(txn, providerReferenceId);
+  if (pass.userPassId) {
+    revalidatePath("/admin/passes");
+    return {
+      success: true,
+      state: pass.alreadyDone ? "already-linked" : "created",
+      kind: "pass",
+      id: pass.userPassId,
+    };
+  }
+
+  return {
+    success: false,
+    error:
+      "PhonePe confirms this payment, but nothing in our records points at it — the hold or purchase intent is gone (or its transaction id was overwritten). Reconcile in the PhonePe dashboard and create the booking manually.",
+  };
 }

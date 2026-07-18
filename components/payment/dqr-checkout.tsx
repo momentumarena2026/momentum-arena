@@ -325,6 +325,29 @@ export function DqrCheckout({
         setPhase("confirmed");
         return;
       }
+      // Server refused to mint because a prior payment is still being
+      // confirmed (or was confirmed but unbookable). Either way money may
+      // already have moved — never show a fresh payable QR.
+      if (data.pendingTxn || data.paymentReceived) {
+        doneRef.current = true;
+        stopPolling();
+        mayHavePaidRef.current = true;
+        setPaymentReceived(true);
+        setError(
+          data.error ||
+            "A payment on this booking is still being confirmed. Please do NOT pay again.",
+        );
+        try {
+          sessionStorage.setItem(
+            storeKey,
+            JSON.stringify({ terminal: true, message: data.error ?? null }),
+          );
+        } catch {
+          /* best effort */
+        }
+        setPhase("error");
+        return;
+      }
       if (!res.ok || !data.qrImage) {
         setError(data.error || "Couldn't start UPI payment");
         setPhase("error");
