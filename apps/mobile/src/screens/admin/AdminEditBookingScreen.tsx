@@ -18,6 +18,7 @@ import {
   Lock,
   MapPin,
   Save,
+  Ticket,
   XCircle,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -72,6 +73,7 @@ export function AdminEditBookingScreen() {
   const [date, setDate] = useState<string | null>(null);
   const [courtConfigId, setCourtConfigId] = useState<string | null>(null);
   const [hours, setHours] = useState<number[]>([]);
+  const [coverWithPass, setCoverWithPass] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState<string>("");
   const [advanceMethod, setAdvanceMethod] = useState<"CASH" | "UPI_QR">(
     "UPI_QR",
@@ -105,6 +107,18 @@ export function AdminEditBookingScreen() {
     enabled: !!courtConfigId && !!date,
   });
 
+  // Hours not already on the booking — the only ones that create new
+  // rows server-side, so this matches the server's delta exactly.
+  const bookedHours = useMemo(
+    () => new Set((booking?.slots ?? []).map((s) => s.startHour)),
+    [booking],
+  );
+  const addedMinutes = hours.filter((h) => !bookedHours.has(h)).length * 60;
+
+  useEffect(() => {
+    if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedMinutes, coverWithPass]);
+
   const save = useMutation({
     mutationFn: () => {
       const payload: Parameters<typeof adminBookingsApi.editBooking>[1] = {};
@@ -133,6 +147,10 @@ export function AdminEditBookingScreen() {
         (advanceMethod === "CASH" || advanceMethod === "UPI_QR")
       ) {
         payload.newAdvanceMethod = advanceMethod;
+      }
+      // Only meaningful when the edit ADDS time.
+      if (coverWithPass && addedMinutes > 0) {
+        payload.coverDeltaWithPass = true;
       }
       return adminBookingsApi.editBooking(params.bookingId, payload);
     },
@@ -353,6 +371,37 @@ export function AdminEditBookingScreen() {
           </View>
         ) : null}
 
+        {/* Cover the added time from the customer's pass — mirrors the
+            web edit modal; the server re-validates and rejects a pass
+            that can't cover this court/date. */}
+        {booking.extendPass && addedMinutes > 0 ? (
+          <Pressable
+            onPress={() => {
+              if (booking.extendPass!.remainingMinutes < addedMinutes) return;
+              setCoverWithPass((v) => !v);
+            }}
+            style={[
+              styles.passOption,
+              booking.extendPass.remainingMinutes < addedMinutes &&
+                styles.passOptionDisabled,
+            ]}
+          >
+            <Ticket size={14} color="#34d399" />
+            <Text variant="small" color="#34d399" style={{ flex: 1 }}>
+              Cover the added {addedMinutes / 60}h from {booking.extendPass.name}
+              {" ("}
+              {(booking.extendPass.remainingMinutes / 60)
+                .toFixed(1)
+                .replace(/\.0$/, "")}
+              h left)
+              {booking.extendPass.remainingMinutes < addedMinutes
+                ? " — not enough balance"
+                : ""}
+            </Text>
+            {coverWithPass ? <Check size={16} color="#34d399" /> : null}
+          </Pressable>
+        ) : null}
+
         {/* Save / Cancel */}
         <View style={styles.actions}>
           <Pressable
@@ -571,6 +620,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["1.5"],
   },
+  passOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.30)",
+    backgroundColor: "rgba(52, 211, 153, 0.10)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+  },
+  passOptionDisabled: { opacity: 0.5 },
   actions: {
     flexDirection: "row",
     gap: spacing["2"],

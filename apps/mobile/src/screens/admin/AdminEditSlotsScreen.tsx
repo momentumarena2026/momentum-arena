@@ -16,6 +16,7 @@ import {
   Clock,
   Lock,
   Save,
+  Ticket,
   XCircle,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -67,6 +68,7 @@ export function AdminEditSlotsScreen() {
   // Seed local state once the booking loads.
   const [date, setDate] = useState<string | null>(null);
   const [hours, setHours] = useState<number[]>([]);
+  const [coverWithPass, setCoverWithPass] = useState(false);
 
   useEffect(() => {
     if (booking && date === null) {
@@ -74,6 +76,20 @@ export function AdminEditSlotsScreen() {
       setHours(booking.slots.map((s) => s.startHour));
     }
   }, [booking, date]);
+
+  // Minutes this save ADDS, measured the way the server measures them:
+  // only hours not already on the booking create new rows.
+  const bookedHours = useMemo(
+    () => new Set((booking?.slots ?? []).map((s) => s.startHour)),
+    [booking],
+  );
+  const addedMinutes = hours.filter((h) => !bookedHours.has(h)).length * 60;
+
+  // A tick left over from a selection later changed into a removal must
+  // not travel with the save.
+  useEffect(() => {
+    if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedMinutes, coverWithPass]);
 
   const slotsQuery = useQuery({
     queryKey: [
@@ -96,6 +112,9 @@ export function AdminEditSlotsScreen() {
       adminBookingsApi.editSlots(params.bookingId, {
         hours,
         date: date && date !== booking?.date.slice(0, 10) ? date : undefined,
+        // Only meaningful when the edit ADDS time; the server ignores
+        // it otherwise, but don't send a stale tick.
+        coverDeltaWithPass: coverWithPass && addedMinutes > 0 ? true : undefined,
       }),
     onSuccess: () => {
       void qc.invalidateQueries({
@@ -210,6 +229,37 @@ export function AdminEditSlotsScreen() {
             </View>
           )}
         </View>
+
+        {/* Cover the added time from the customer's pass — mirrors the
+            web edit modal. Server re-validates balance, court group and
+            play date, and rejects a pass that can't cover. */}
+        {booking.extendPass && addedMinutes > 0 ? (
+          <Pressable
+            onPress={() => {
+              if (booking.extendPass!.remainingMinutes < addedMinutes) return;
+              setCoverWithPass((v) => !v);
+            }}
+            style={[
+              styles.passOption,
+              booking.extendPass.remainingMinutes < addedMinutes &&
+                styles.passOptionDisabled,
+            ]}
+          >
+            <Ticket size={14} color="#34d399" />
+            <Text variant="small" color="#34d399" style={{ flex: 1 }}>
+              Cover the added {addedMinutes / 60}h from {booking.extendPass.name}
+              {" ("}
+              {(booking.extendPass.remainingMinutes / 60)
+                .toFixed(1)
+                .replace(/\.0$/, "")}
+              h left)
+              {booking.extendPass.remainingMinutes < addedMinutes
+                ? " — not enough balance"
+                : ""}
+            </Text>
+            {coverWithPass ? <Check size={16} color="#34d399" /> : null}
+          </Pressable>
+        ) : null}
 
         {/* Save / Cancel */}
         <View style={styles.actions}>
@@ -397,6 +447,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["1.5"],
   },
+  passOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.30)",
+    backgroundColor: "rgba(52, 211, 153, 0.10)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+  },
+  passOptionDisabled: { opacity: 0.5 },
   actions: {
     flexDirection: "row",
     gap: spacing["2"],

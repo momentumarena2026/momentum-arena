@@ -95,6 +95,22 @@ export interface AdminBookingDetail extends Omit<AdminBookingListItem, "courtCon
     previousAmount: number | null;
     newAmount: number | null;
   }>;
+  /** Live pass redemption on this booking (null once restored). */
+  passRedemption: {
+    passName: string;
+    minutes: number;
+    /** Rupee worth of the redeemed hours (attribution, not cash). */
+    value: number;
+    /** List price the pass settled — part of the owed math below. */
+    coveredAmount: number;
+  } | null;
+  /** The pass that may cover MORE time on this booking: the attached
+   *  one when a redemption is live (the server rejects any other), else
+   *  the customer's soonest-expiring eligible pass. */
+  extendPass: { id: string; name: string; remainingMinutes: number } | null;
+  /** totalAmount − payment.amount − coveredAmount: what staff still
+   *  collect at the venue (equipment, uncovered added time). */
+  owedAtVenue: number;
 }
 
 export interface ListResponse {
@@ -482,7 +498,14 @@ export const adminBookingsApi = {
 
   editSlots(
     id: string,
-    body: { hours: number[]; date?: string },
+    body: {
+      hours: number[];
+      date?: string;
+      /** Debit the ADDED minutes from the customer's eligible pass
+       *  instead of charging them. Server re-validates balance, court
+       *  group and play date. */
+      coverDeltaWithPass?: boolean;
+    },
   ): Promise<{ ok: true }> {
     return request(`/api/mobile/admin/bookings/${id}/edit-slots`, {
       method: "POST",
@@ -498,6 +521,8 @@ export const adminBookingsApi = {
       newHours?: number[];
       newAdvanceAmount?: number;
       newAdvanceMethod?: "CASH" | "UPI_QR";
+      /** See editSlots — covers added time from an eligible pass. */
+      coverDeltaWithPass?: boolean;
     },
   ): Promise<{ ok: true }> {
     return request(`/api/mobile/admin/bookings/${id}/edit-booking`, {
@@ -517,7 +542,14 @@ export const adminBookingsApi = {
    */
   extend(
     id: string,
-    body: { direction: "before" | "after"; price: number },
+    body: {
+      direction: "before" | "after";
+      price: number;
+      /** Take the 30 min from this pass instead of charging. Must be
+       *  the booking's redeemed pass when one is live — the server
+       *  rejects a different id rather than debiting the wrong pass. */
+      payWithPassId?: string;
+    },
   ): Promise<{
     ok: true;
     newSlot: {

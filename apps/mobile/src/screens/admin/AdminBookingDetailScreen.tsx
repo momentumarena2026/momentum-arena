@@ -24,6 +24,7 @@ import {
   Receipt,
   RotateCcw,
   Smartphone,
+  Ticket,
   Trophy,
   UserX,
   XCircle,
@@ -67,6 +68,11 @@ const PAYMENT_METHOD_ICONS: Record<string, typeof CreditCard> = {
   CASH: Banknote,
   FREE: Banknote,
 };
+
+/** "1h" / "1.5h" — the pass module's hour rendering, matching web. */
+function hoursLabel(minutes: number): string {
+  return `${(minutes / 60).toFixed(1).replace(/\.0$/, "")}h`;
+}
 
 export function AdminBookingDetailScreen() {
   const { params } = useRoute<Rt>();
@@ -317,11 +323,16 @@ export function AdminBookingDetailScreen() {
   const [extendOpen, setExtendOpen] = useState<{
     direction: "before" | "after";
     price: string;
+    /** Take the 30 min from the booking's pass instead of charging. */
+    usePass: boolean;
   } | null>(null);
 
   const extend = useMutation({
-    mutationFn: (vars: { direction: "before" | "after"; price: number }) =>
-      adminBookingsApi.extend(params.bookingId, vars),
+    mutationFn: (vars: {
+      direction: "before" | "after";
+      price: number;
+      payWithPassId?: string;
+    }) => adminBookingsApi.extend(params.bookingId, vars),
     onSuccess: (res) => {
       invalidate();
       setExtendOpen(null);
@@ -338,7 +349,7 @@ export function AdminBookingDetailScreen() {
   });
 
   async function openExtend(direction: "before" | "after") {
-    setExtendOpen({ direction, price: "" });
+    setExtendOpen({ direction, price: "", usePass: false });
     try {
       const r = await adminBookingsApi.suggestedExtendPrice(
         params.bookingId,
@@ -348,13 +359,13 @@ export function AdminBookingDetailScreen() {
       // direction or started typing while the request was in flight.
       setExtendOpen((prev) =>
         prev && prev.direction === direction && prev.price === ""
-          ? { direction, price: String(r.suggestedPrice) }
+          ? { ...prev, price: String(r.suggestedPrice) }
           : prev,
       );
     } catch {
       setExtendOpen((prev) =>
         prev && prev.direction === direction && prev.price === ""
-          ? { direction, price: "0" }
+          ? { ...prev, price: "0" }
           : prev,
       );
     }
@@ -654,6 +665,44 @@ export function AdminBookingDetailScreen() {
                   ) : null}
                 </>
               )}
+
+              {/* Pass coverage — Payment.amount is only the money that
+                  changed hands (₹0 for a fully covered booking, the
+                  top-up remainder otherwise), so without this block the
+                  screen reads as "₹0" with no explanation. */}
+              {booking.passRedemption ? (
+                <View style={styles.passBlock}>
+                  <View style={styles.passHead}>
+                    <Ticket size={14} color="#34d399" />
+                    <Text variant="tiny" color="#34d399" style={styles.passHeadText}>
+                      PAID WITH PASS
+                    </Text>
+                  </View>
+                  <KV
+                    label={booking.passRedemption.passName}
+                    value={`${hoursLabel(booking.passRedemption.minutes)} · worth ${formatRupees(
+                      booking.passRedemption.value,
+                    )}`}
+                    smallLabel
+                  />
+                  <KV
+                    label="Settled by pass"
+                    value={formatRupees(booking.passRedemption.coveredAmount)}
+                    smallLabel
+                  />
+                </View>
+              ) : null}
+
+              {/* What's still collectable: equipment, or time added to a
+                  pass booking that the pass didn't cover. */}
+              {booking.owedAtVenue > 0 && !payment.isPartialPayment ? (
+                <KV
+                  label="Collect at venue"
+                  value={formatRupees(booking.owedAtVenue)}
+                  valueColor="#fbbf24"
+                  bold
+                />
+              ) : null}
 
               {payment.isPartialPayment ? (
                 <PartialBlock
@@ -1059,18 +1108,42 @@ export function AdminBookingDetailScreen() {
               adjacent slot&apos;s rate. Set 0 for a free / courtesy
               extension.
             </Text>
-            <TextInput
-              style={styles.collectInput}
-              keyboardType="numeric"
-              value={extendOpen.price}
-              onChangeText={(t) =>
-                setExtendOpen((prev) =>
-                  prev ? { ...prev, price: t } : prev,
-                )
-              }
-              placeholder="0"
-              placeholderTextColor={colors.zinc600}
-            />
+            {/* Pay-with-pass option. The server pins this to the pass
+                the booking already redeems (it rejects any other id),
+                so the payload's extendPass is the ONLY valid choice. */}
+            {booking.extendPass ? (
+              <Pressable
+                onPress={() =>
+                  setExtendOpen((prev) =>
+                    prev ? { ...prev, usePass: !prev.usePass } : prev,
+                  )
+                }
+                style={styles.passOption}
+              >
+                <Ticket size={14} color="#34d399" />
+                <Text variant="small" color="#34d399" style={{ flex: 1 }}>
+                  Take it from {booking.extendPass.name} (
+                  {hoursLabel(booking.extendPass.remainingMinutes)} left)
+                </Text>
+                {extendOpen.usePass ? (
+                  <CheckCircle2 size={16} color="#34d399" />
+                ) : null}
+              </Pressable>
+            ) : null}
+            {!extendOpen.usePass ? (
+              <TextInput
+                style={styles.collectInput}
+                keyboardType="numeric"
+                value={extendOpen.price}
+                onChangeText={(t) =>
+                  setExtendOpen((prev) =>
+                    prev ? { ...prev, price: t } : prev,
+                  )
+                }
+                placeholder="0"
+                placeholderTextColor={colors.zinc600}
+              />
+            ) : null}
             <View style={styles.collectActions}>
               <Pressable
                 onPress={() => setExtendOpen(null)}
@@ -1083,6 +1156,15 @@ export function AdminBookingDetailScreen() {
               </Pressable>
               <Pressable
                 onPress={() => {
+                  // Pass-paid extensions are ₹0 — the pass settles them.
+                  if (extendOpen.usePass && booking.extendPass) {
+                    extend.mutate({
+                      direction: extendOpen.direction,
+                      price: 0,
+                      payWithPassId: booking.extendPass.id,
+                    });
+                    return;
+                  }
                   const parsed = Number.parseInt(extendOpen.price, 10);
                   if (!Number.isFinite(parsed) || parsed < 0) {
                     Alert.alert(
@@ -1805,6 +1887,33 @@ const styles = StyleSheet.create({
   },
   refundHeadText: { letterSpacing: 1, fontWeight: "700" },
   refundHelp: { marginTop: spacing["1"] },
+
+  passBlock: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.30)",
+    backgroundColor: "rgba(52, 211, 153, 0.10)",
+    padding: spacing["3"],
+    gap: spacing["1.5"],
+    marginTop: spacing["1"],
+  },
+  passHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["1.5"],
+  },
+  passHeadText: { letterSpacing: 1, fontWeight: "700" },
+  passOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.30)",
+    backgroundColor: "rgba(52, 211, 153, 0.10)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+  },
 
   actions: { gap: spacing["2"] },
   actionBtn: {
