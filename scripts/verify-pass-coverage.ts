@@ -82,6 +82,51 @@ async function run(
   }
 }
 
+/**
+ * Bowling: two 30-min slots share ONE hour (:00 and :30). Coverage is
+ * keyed by hour AND minute, so dropping 10:30 must leave 10:00 covered
+ * — an hour-only key would drop both and refund twice the time.
+ */
+async function bowling() {
+  const BOWL = "bowling_machine_court";
+  const date = new Date("2026-08-06T00:00:00Z");
+  const rows = [
+    { startHour: 10, startMinute: 0, durationMinutes: 30, price: 300, isNew: false },
+    { startHour: 10, startMinute: 30, durationMinutes: 30, price: 300, isNew: false },
+  ];
+  try {
+    await db.$transaction(async (tx) => {
+      const u = await tx.user.create({ data: { phone: `+9199${Math.floor(Math.random()*9e7+1e7)}`, name: "T" } });
+      const p = await tx.userPass.create({ data: {
+        userId: u.id, name: "Bowl 1h", sport: "CRICKET", courtConfigId: BOWL,
+        totalMinutes: 60, remainingMinutes: 0, price: 600, validityDays: 30,
+        startsAt: new Date("2026-01-01"), expiresAt: new Date("2027-01-01"), bands: [], status: "ACTIVE" } });
+      const b = await tx.booking.create({ data: {
+        userId: u.id, courtConfigId: BOWL, date, status: "CONFIRMED", totalAmount: 600, discountAmount: 0,
+        slots: { create: rows.map(({ isNew: _isNew, ...r }) => r) },
+        payment: { create: { amount: 0, method: "PASS", status: "COMPLETED", confirmedBy: "PASS" } } } });
+      await tx.passRedemption.create({ data: {
+        userPassId: p.id, bookingId: b.id, minutes: 60, value: 600, coveredAmount: 600,
+        coveredSlots: [{ h: 10, m: 0, min: 30 }, { h: 10, m: 30, min: 30 }] } });
+      // Drop only the :30 half.
+      const out = await syncPassAfterAdminEdit(tx, {
+        bookingId: b.id, bookingUserId: u.id, bookingDate: date, courtConfigId: BOWL,
+        newTotalAmount: 300, paymentAmount: 0, equipmentAmount: 0, newSlots: [rows[0]] });
+      const red = await tx.passRedemption.findUnique({ where: { bookingId: b.id } });
+      const up = await tx.userPass.findUnique({ where: { id: p.id } });
+      const ok = out.ok && red?.coveredAmount === 300 && red?.minutes === 30 && up?.remainingMinutes === 30;
+      console.log(`${ok ? "PASS" : "FAIL"}  bowling: drop 10:30 keeps 10:00 [covered 300, 30min back]`);
+      console.log(`      covered=${red?.coveredAmount} redMin=${red?.minutes} passRemaining=${up?.remainingMinutes}`);
+      if (ok) pass++;
+      else fail++;
+      throw new Error(RB);
+    }, { timeout: 30000, maxWait: 15000 });
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (m !== RB) { console.log(`FAIL  bowling\n      threw: ${m}`); fail++; }
+  }
+}
+
 async function main() {
   console.log("Booking: 18/19/20 @ 800 = 2400, fully pass-covered (180 min), payment 0\n");
   await run("swap 20->21, cover ticked  [stays fully covered, pass net 0]", 2400, 2400, 0,
@@ -110,6 +155,7 @@ async function main() {
   // otherwise the overstatement silently eats the next charge.
   await run("50% discount, 2 of 3 covered [covered 800, owed 400]", 800, 1200, 0,
     { newSlots: [S(18), S(19), S(20, true)] }, { coveredHours: [18, 19] });
+  await bowling();
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }

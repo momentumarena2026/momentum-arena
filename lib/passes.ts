@@ -322,6 +322,12 @@ export async function getPassOfferForHold(
    *  for remainder math so covered + remainder reconciles with
    *  totalAmount even after pricing-rule changes. */
   slotPrices?: unknown;
+  /** Parallel to `hours` — the authoritative start minute per slot,
+   *  exactly what createBookingFromHold writes to BookingSlot. The
+   *  slotPrices blob's `minute` is legacy-optional, so coverage MUST be
+   *  recorded from here or the identities won't match the booking rows
+   *  and the first admin edit would drop every covered slot. */
+  startMinutes?: number[];
   couponId?: string | null;
   pointsToRedeem?: number | null;
   courtConfig?: { slotDurationMinutes: number } | null;
@@ -358,8 +364,13 @@ export async function getPassOfferForHold(
       const storedPrice = stored[i]?.price;
       return {
         hour: h,
-        // Bowling holds carry :00 and :30 rows for the same hour.
-        minute: typeof stored[i]?.minute === "number" ? stored[i].minute! : 0,
+        // Same precedence createBookingFromHold uses when it writes
+        // BookingSlot.startMinute — startMinutes first, then the
+        // slotPrices blob, then 0. Bowling holds carry :00 and :30 rows
+        // for the same hour, so this must line up exactly.
+        minute:
+          hold.startMinutes?.[i] ??
+          (typeof stored[i]?.minute === "number" ? stored[i].minute! : 0),
         dayType: cls.dayType,
         timeType: cls.timeType,
         price: typeof storedPrice === "number" ? storedPrice : cls.price,
