@@ -1022,6 +1022,10 @@ model PassRedemption {
 // materialise the UserPass on the status poll / S2S callback.
 model PassPurchaseIntent {
   id                   String   @id @default(cuid())
+  // See CafePaymentIntent.claimedAt — customer-asserted payment awaiting
+  // admin verification. Deliberately does NOT issue the pass: an
+  // unverified pass would be immediately redeemable.
+  claimedAt            DateTime?
   planId               String
   userId               String
   // Scheduled start captured at initiate, carried onto the UserPass.
@@ -1174,6 +1178,11 @@ model CafeItem {
  */
 model CafePaymentIntent {
   id                   String        @id @default(cuid())
+  // The customer told us they paid but the gateway hasn't confirmed it
+  // (the PhonePe intent-replication gap). Surfaces in the admin
+  // "Unconfirmed Payments" queue for manual verification; cleared when
+  // the intent is consumed or the claim is rejected.
+  claimedAt            DateTime?
   userId               String?
   guestName            String?
   guestPhone           String?

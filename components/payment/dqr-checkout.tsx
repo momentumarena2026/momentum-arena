@@ -247,22 +247,34 @@ export function DqrCheckout({
       const res = await fetch("/api/phonepe/dqr/claim-paid", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ holdId, overrideAmount }),
+        body: JSON.stringify({ holdId, overrideAmount, surface }),
       });
       const data = await res.json();
-      if (res.ok && data.bookingId) {
+      const settledId = data.bookingId ?? data.id;
+      if (res.ok && settledId) {
         doneRef.current = true;
         stopPolling();
         clearStore();
-        settledIdRef.current = data.bookingId;
+        settledIdRef.current = settledId;
         // Confirmed outright (PhonePe had settled after all) → the usual
-        // success animation. Otherwise hand off straight to the booking
-        // page, which shows its own awaiting-verification state.
+        // success animation. Otherwise hand off to the detail page,
+        // which shows its own awaiting-verification state.
         if (data.confirmed) setPhase("confirmed");
-        else onConfirmedRef.current(data.bookingId);
+        else onConfirmedRef.current(settledId);
         return;
       }
-      setError(data.error || "Couldn't reserve your slot — please contact us.");
+      if (res.ok && data.claimed) {
+        // Cafe / pass: nothing to navigate to until an admin verifies,
+        // so acknowledge in place rather than routing nowhere.
+        doneRef.current = true;
+        stopPolling();
+        clearStore();
+        setError(
+          "Thanks — we've logged your payment and our team will confirm it shortly. Please do NOT pay again.",
+        );
+        return;
+      }
+      setError(data.error || "Couldn't record your payment — please contact us.");
     } catch {
       setError("Couldn't reach the server — please contact us.");
     } finally {
@@ -896,19 +908,24 @@ export function DqrCheckout({
                 their court and the admin's existing verification queue
                 picks it up — the same safety net the static-QR flow has.
                 Booking surface only; cafe/pass have no such queue. */}
-            {paymentReceived && surface === "booking" && (
+            {paymentReceived && (
               <button
                 onClick={() => void claimPaid()}
                 disabled={claiming}
                 className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
               >
-                {claiming ? "Reserving your slot…" : "I've paid — reserve my slot"}
+                {claiming
+                  ? "Recording your payment…"
+                  : surface === "booking"
+                    ? "I've paid — reserve my slot"
+                    : "I've paid — tell the team"}
               </button>
             )}
-            {paymentReceived && surface === "booking" && (
+            {paymentReceived && (
               <p className="text-center text-xs text-zinc-400">
-                We&apos;ll hold your court and confirm once we&apos;ve
-                checked the payment with PhonePe.
+                {surface === "booking"
+                  ? "We'll hold your court and confirm once we've checked the payment with PhonePe."
+                  : "Our team will verify the payment and confirm it for you."}
               </p>
             )}
             {/* Never offer a retry when the gateway already took the

@@ -4,7 +4,9 @@ import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
 import { notifyAdminPendingBooking } from "@/lib/notifications";
 import { qrStatus } from "@/lib/phonepe-dqr";
-import { confirmDqrBooking } from "@/lib/dqr-confirm";
+import { db } from "@/lib/db";
+import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
+import { confirmDqrPass } from "@/lib/passes";
 import {
   AnalyticsCategory,
   logServerAction,
@@ -41,9 +43,83 @@ export async function POST(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const { holdId, overrideAmount } = await request.json().catch(() => ({}));
+  const { holdId, overrideAmount, surface } = await request
+    .json()
+    .catch(() => ({}));
   if (!holdId) {
     return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
+  }
+
+  // ── Cafe / pass: claim the INTENT, don't materialise anything ──
+  if (surface === "cafe" || surface === "pass") {
+    const intent =
+      surface === "cafe"
+        ? await db.cafePaymentIntent.findUnique({
+            where: { id: holdId },
+            select: { id: true, userId: true, phonePeMerchantTxnId: true, consumedOrderId: true },
+          })
+        : await db.passPurchaseIntent.findUnique({
+            where: { id: holdId },
+            select: { id: true, userId: true, phonePeMerchantTxnId: true, consumedUserPassId: true },
+          });
+    if (!intent || (intent.userId && intent.userId !== userId)) {
+      return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
+    }
+    const consumed =
+      surface === "cafe"
+        ? (intent as { consumedOrderId: string | null }).consumedOrderId
+        : (intent as { consumedUserPassId: string | null }).consumedUserPassId;
+    if (consumed) {
+      return NextResponse.json({ id: consumed, confirmed: true });
+    }
+    const intentTxn = intent.phonePeMerchantTxnId;
+    if (!intentTxn) {
+      return NextResponse.json(
+        { error: "No UPI payment was started for this purchase." },
+        { status: 409 },
+      );
+    }
+    // Settled after all? Take the real path.
+    try {
+      const status = await qrStatus(intentTxn);
+      if (status.state === "COMPLETED") {
+        if (surface === "cafe") {
+          const done = await confirmDqrCafe(intentTxn, status.providerReferenceId);
+          if (done.orderId) {
+            return NextResponse.json({ id: done.orderId, confirmed: true });
+          }
+        } else {
+          const done = await confirmDqrPass(intentTxn, status.providerReferenceId);
+          if (done.userPassId) {
+            return NextResponse.json({ id: done.userPassId, confirmed: true });
+          }
+        }
+      }
+    } catch {
+      /* unreachable — fall through to the claim */
+    }
+    if (surface === "cafe") {
+      await db.cafePaymentIntent.update({
+        where: { id: intent.id },
+        data: { claimedAt: new Date() },
+      });
+    } else {
+      await db.passPurchaseIntent.update({
+        where: { id: intent.id },
+        data: { claimedAt: new Date() },
+      });
+    }
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.dqr.claimed-paid",
+      outcome: "success",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { surface, intentId: intent.id, transactionId: intentTxn },
+    });
+    return NextResponse.json({ claimed: true, confirmed: false });
   }
 
   const hold = await getValidHold(holdId, userId);

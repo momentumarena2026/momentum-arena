@@ -264,7 +264,7 @@ export function AdminBookingsListScreen() {
           </View>
           <View style={{ flex: 1 }}>
             <Text variant="bodyStrong" color={colors.yellow400}>
-              Unconfirmed bookings
+              Unconfirmed payments
               {unconfirmedCount.data !== undefined &&
               unconfirmedCount.data > 0
                 ? ` (${unconfirmedCount.data})`
