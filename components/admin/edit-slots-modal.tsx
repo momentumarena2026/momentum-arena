@@ -103,29 +103,37 @@ export function EditSlotsModal({
   // only "fresh hours" would offer the pass option on a pure SWAP (drop
   // 10am, add 2pm), where the server sees delta 0, debits nothing, and
   // silently ignores the checkbox.
+  // Minutes on rows this save ADDS (a swap adds one even though the
+  // total is unchanged) and minutes it FREES. The pass is debited the
+  // net, so the balance gate uses added − dropped, while the option is
+  // offered whenever anything was added.
+  const bookedHourSet = new Set(currentSlots);
   const addedMinutes = isBowlingMode
-    ? Math.max(
-        0,
-        (selectedBowling.size - (currentBowlingSlots?.length ?? 0)) * 30,
-      )
+    ? [...selectedBowling].filter(
+        (k) =>
+          !(currentBowlingSlots ?? []).some((s) => keyOf(s.hour, s.minute) === k),
+      ).length * 30
     : (() => {
         // Server-side, KEPT hours retain their existing rows (a 30-min
         // extension stays 30) and only genuinely new hours become
         // 60-min rows. Use each hour's REAL minutes — averaging them
         // mislabels the edit and can offer a pass option the server
         // then ignores.
-        const perHour = currentSlotMinutes ?? {};
-        const bookedSet = new Set(currentSlots);
-        const oldMinutes = [...bookedSet].reduce(
-          (sum, h) => sum + (perHour[h] ?? 60),
-          0,
-        );
-        let newMinutes = 0;
+        let added = 0;
         selectedHours.forEach((h) => {
-          newMinutes += bookedSet.has(h) ? (perHour[h] ?? 60) : 60;
+          if (!bookedHourSet.has(h)) added += 60;
         });
-        return Math.max(0, newMinutes - oldMinutes);
+        return added;
       })();
+  const droppedMinutes = isBowlingMode
+    ? (currentBowlingSlots ?? []).filter(
+        (s) => !selectedBowling.has(keyOf(s.hour, s.minute)),
+      ).length * 30
+    : [...bookedHourSet]
+        .filter((h) => !selectedHours.has(h))
+        .reduce((sum, h) => sum + ((currentSlotMinutes ?? {})[h] ?? 60), 0);
+  // What the pass must actually fund after the freed minutes pay their part.
+  const netPassMinutes = Math.max(0, addedMinutes - droppedMinutes);
 
   // A tick left over from a selection the admin then changed into a
   // removal must not travel with the save.
@@ -433,7 +441,7 @@ export function EditSlotsModal({
                   (() => {
                     const added = addedMinutes;
                     if (added <= 0) return null;
-                    const enough = deltaPass.remainingMinutes >= added;
+                    const enough = deltaPass.remainingMinutes >= netPassMinutes;
                     return (
                       <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
                         <input
@@ -443,8 +451,10 @@ export function EditSlotsModal({
                           disabled={!enough}
                           className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
                         />
-                        Cover the added {added / 60}h from {deltaPass.name} (
-                        {(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}
+                        {droppedMinutes > 0 && netPassMinutes === 0
+                          ? `Keep the moved ${added / 60}h on ${deltaPass.name}`
+                          : `Cover the added ${added / 60}h from ${deltaPass.name}`}{" "}
+                        ({(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}
                         h left)
                         {!enough && (
                           <span className="text-amber-400">— not enough balance</span>

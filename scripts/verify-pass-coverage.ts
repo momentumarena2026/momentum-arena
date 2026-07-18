@@ -18,7 +18,7 @@ import { PrismaClient }/**
  * deriving it, these fail.
  */
  from "@prisma/client";
-import { syncPassAfterAdminEdit } from "../lib/passes";
+import { syncPassAfterAdminEdit, shouldCoverDelta } from "../lib/passes";
 const db = new PrismaClient();
 // Any active 60-min court works; override for another environment.
 const COURT = process.env.VERIFY_COURT_CONFIG_ID ?? "cmn5rkkgs000e21074z2nj0wd";
@@ -59,9 +59,16 @@ async function run(
         minutes: (opts.coveredHours ?? [18, 19, 20]).length * 60,
         value: 2400, coveredAmount: 2400,
         coveredSlots: (opts.coveredHours ?? [18, 19, 20]).map((h) => ({ h, m: 0, min: 60 })) } });
+      // Route the request through the SAME gate the server actions use.
+      // Passing coverDeltaWithPass straight into the sync is what let a
+      // broken gate ship: the sync handled swaps correctly while both
+      // editors silently stripped the flag on a net-zero edit.
       const out = await syncPassAfterAdminEdit(tx, {
         bookingId: b.id, bookingUserId: u.id, bookingDate: DATE, courtConfigId: COURT,
-        newTotalAmount: newTotal, paymentAmount: payAmt, equipmentAmount: opts.equip ?? 0, ...args });
+        newTotalAmount: newTotal, paymentAmount: payAmt, equipmentAmount: opts.equip ?? 0,
+        ...args,
+        coverDeltaWithPass: shouldCoverDelta(args.coverDeltaWithPass, args.newSlots),
+      });
       const red = await tx.passRedemption.findUnique({ where: { bookingId: b.id } });
       const up = await tx.userPass.findUnique({ where: { id: p.id } });
       const covered = out.ok ? out.coveredAmount : -1;
@@ -127,6 +134,55 @@ async function bowling() {
   }
 }
 
+/**
+ * A LEGACY redemption (written before coveredSlots existed) records
+ * only a minute count. The first edit must adopt the slots the pass
+ * most likely paid for — priciest-first, the rule checkout used — and
+ * must never adopt MORE minutes than were recorded.
+ */
+async function legacyAdoption() {
+  const date = new Date("2026-08-07T00:00:00Z");
+  // Top-up booking: pass covered 120 of 180 min; customer paid for the
+  // cheapest hour. Rows are deliberately cheap-first in array order, so
+  // an hour-ordered adoption would grab the wrong two.
+  const rows = [
+    { startHour: 18, startMinute: 0, durationMinutes: 60, price: 600, isNew: false },
+    { startHour: 19, startMinute: 0, durationMinutes: 60, price: 800, isNew: false },
+    { startHour: 20, startMinute: 0, durationMinutes: 60, price: 800, isNew: false },
+  ];
+  try {
+    await db.$transaction(async (tx) => {
+      const u = await tx.user.create({ data: { phone: `+9199${Math.floor(Math.random()*9e7+1e7)}`, name: "T" } });
+      const p = await tx.userPass.create({ data: {
+        userId: u.id, name: "Legacy 2h", sport: "PICKLEBALL", courtConfigId: COURT,
+        totalMinutes: 120, remainingMinutes: 0, price: 1600, validityDays: 30,
+        startsAt: new Date("2026-01-01"), expiresAt: new Date("2027-01-01"), bands: [], status: "ACTIVE" } });
+      const b = await tx.booking.create({ data: {
+        userId: u.id, courtConfigId: COURT, date, status: "CONFIRMED", totalAmount: 2200, discountAmount: 0,
+        slots: { create: rows.map(({ isNew: _i, ...r }) => r) },
+        payment: { create: { amount: 600, method: "RAZORPAY", status: "COMPLETED", confirmedBy: "PASS_TOPUP" } } } });
+      await tx.passRedemption.create({ data: {
+        userPassId: p.id, bookingId: b.id, minutes: 120, value: 1600, coveredAmount: 1600,
+        coveredSlots: undefined } }); // legacy: no per-slot record
+      const out = await syncPassAfterAdminEdit(tx, {
+        bookingId: b.id, bookingUserId: u.id, bookingDate: date, courtConfigId: COURT,
+        newTotalAmount: 2200, paymentAmount: 600, equipmentAmount: 0,
+        newSlots: rows });
+      const red = await tx.passRedemption.findUnique({ where: { bookingId: b.id } });
+      // Priciest-first adoption = 19 + 20 = 1600. Owed = 2200-600-1600 = 0.
+      const ok = out.ok && red?.coveredAmount === 1600 && red?.minutes === 120;
+      console.log(`${ok ? "PASS" : "FAIL"}  legacy row adopts priciest 2 of 3 [covered 1600, owed 0]`);
+      console.log(`      covered=${red?.coveredAmount} redMin=${red?.minutes} owed=${2200 - 600 - (red?.coveredAmount ?? 0)}`);
+      if (ok) pass++;
+      else fail++;
+      throw new Error(RB);
+    }, { timeout: 30000, maxWait: 15000 });
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (m !== RB) { console.log(`FAIL  legacy adoption\n      threw: ${m}`); fail++; }
+  }
+}
+
 async function main() {
   console.log("Booking: 18/19/20 @ 800 = 2400, fully pass-covered (180 min), payment 0\n");
   await run("swap 20->21, cover ticked  [stays fully covered, pass net 0]", 2400, 2400, 0,
@@ -156,6 +212,7 @@ async function main() {
   await run("50% discount, 2 of 3 covered [covered 800, owed 400]", 800, 1200, 0,
     { newSlots: [S(18), S(19), S(20, true)] }, { coveredHours: [18, 19] });
   await bowling();
+  await legacyAdoption();
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }

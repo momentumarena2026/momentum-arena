@@ -193,8 +193,20 @@ export function DqrCheckout({
         // stored transaction so a refresh resumes into this terminal
         // message instead of offering a fresh QR (the resume guard added
         // after the July double-payment incident).
-        if (data.paymentReceived) setPaymentReceived(true);
-        else clearStore();
+        if (data.paymentReceived) {
+          setPaymentReceived(true);
+          // TTL-free marker: the QR expiring must NOT turn this back
+          // into a fresh payable QR on reload (the resume branch below
+          // drops expired entries).
+          try {
+            sessionStorage.setItem(
+              storeKey,
+              JSON.stringify({ terminal: true, message: data.error ?? null }),
+            );
+          } catch {
+            /* storage unavailable — best effort */
+          }
+        } else clearStore();
         setError(
           data.paymentReceived && data.error
             ? data.error
@@ -237,8 +249,23 @@ export function DqrCheckout({
           qrString?: string | null;
           mode?: string;
           expiresAt?: number;
+          /** Captured-but-unissued marker — TTL-free, see below. */
+          terminal?: boolean;
+          message?: string | null;
         };
         const msLeft = (saved.expiresAt ?? 0) - Date.now();
+        // Captured-but-unissued: never re-offer a payable QR, whatever
+        // the TTL says.
+        if (saved.terminal) {
+          setPaymentReceived(true);
+          setError(
+            typeof saved.message === "string" && saved.message
+              ? saved.message
+              : "Payment received — please do NOT pay again. Our team will confirm or refund shortly.",
+          );
+          setPhase("error");
+          return;
+        }
         if (saved.txn && saved.qrImage && msLeft > 5_000) {
           txnRef.current = saved.txn;
           setQrDataUrl(saved.qrImage);

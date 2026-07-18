@@ -225,11 +225,29 @@ export async function confirmDqrPass(
   // not-yet-confirmable and let the S2S callback (which does carry the
   // amount) settle it.
   if (capturedPaise === undefined) {
+    // Can't price-check, so don't issue — but this is captured money, so
+    // it must be VISIBLE and TERMINAL. Returning a bare null left the
+    // customer polling a spinner forever with nothing on the worklist.
     console.error(
-      "[passes] DQR capture reported no amount — pass NOT issued yet",
+      "[passes] DQR capture reported no amount — pass NOT issued",
       transactionId,
     );
-    return { userPassId: null, alreadyDone: false };
+    const firstTime = await db.passPurchaseIntent
+      .updateMany({
+        where: { id: intent.id, consumedUserPassId: null },
+        data: { consumedUserPassId: PASS_INTENT_MISMATCH },
+      })
+      .then((r) => r.count === 1)
+      .catch(() => false);
+    if (firstTime) {
+      recordOrphanPayment({
+        gateway: "PHONEPE_DQR",
+        reason: "pass-price-mismatch",
+        userId: intent.userId,
+        phonePeMerchantTxnId: transactionId,
+      });
+    }
+    return { userPassId: null, alreadyDone: false, mismatch: true };
   }
   if (typeof capturedPaise === "number") {
     const plan = await db.passPlan.findUnique({
@@ -961,6 +979,52 @@ async function passCoversCourt(
 }
 
 /**
+ * Reconstruct a coverage set for a LEGACY redemption (written before
+ * coveredSlots existed, so it records only a minute count).
+ *
+ * Picks priciest-first, the same rule getPassOfferForHold used when the
+ * coverage was originally granted — walking in hour order would adopt
+ * the wrong slots on a top-up booking and move money in either
+ * direction. Never overshoots the recorded minutes: a slot that doesn't
+ * fit in what's left is skipped, not taken, so a booking carrying a
+ * 30-min pass extension can't fabricate a whole covered hour.
+ */
+export function adoptLegacyCoverage(
+  slots: { startHour: number; startMinute: number; durationMinutes: number; price: number }[],
+  recordedMinutes: number,
+): CoveredSlot[] {
+  const adopted: CoveredSlot[] = [];
+  let left = recordedMinutes;
+  for (const s of [...slots].sort((a, b) => b.price - a.price)) {
+    if (left <= 0) break;
+    if (s.durationMinutes > left) continue;
+    adopted.push({ h: s.startHour, m: s.startMinute, min: s.durationMinutes });
+    left -= s.durationMinutes;
+  }
+  return adopted;
+}
+
+/**
+ * Should this save actually debit a pass?
+ *
+ * Gate on ADDED ROWS, not on a net minute increase: a swap (drop 8pm,
+ * add 9pm) is net zero but still adds a slot the pass must pay for, and
+ * gating on net silently dropped the request — leaving a fully covered
+ * booking billed for the new hour. syncPassAfterAdminEdit nets the
+ * debit against the minutes the same edit freed, so the customer isn't
+ * charged twice for the move.
+ *
+ * Shared by both editors and by scripts/verify-pass-coverage.ts so the
+ * gate can't drift away from what the tests exercise.
+ */
+export function shouldCoverDelta(
+  coverRequested: boolean | undefined,
+  newSlots: { isNew: boolean }[],
+): boolean {
+  return !!coverRequested && newSlots.some((s) => s.isNew);
+}
+
+/**
  * Do a pass's pricing bands cover these hours on this date/court?
  *
  * A pass is bound to ONE price tier (see lib/pass-bands): a ₹3000
@@ -1204,16 +1268,10 @@ export async function syncPassAfterAdminEdit(
   // collapsing to zero coverage.
   const recorded =
     parseCoveredSlots(live.coveredSlots) ??
-    (() => {
-      const adopted: CoveredSlot[] = [];
-      let left = live.minutes;
-      for (const s of args.newSlots.filter((x) => !x.isNew)) {
-        if (left <= 0) break;
-        adopted.push({ h: s.startHour, m: s.startMinute, min: s.durationMinutes });
-        left -= s.durationMinutes;
-      }
-      return adopted;
-    })();
+    adoptLegacyCoverage(
+      args.newSlots.filter((x) => !x.isNew),
+      live.minutes,
+    );
 
   const survivors = recorded.filter((c) => byKey.has(slotKey(c.h, c.m)));
   const droppedMinutes = recorded

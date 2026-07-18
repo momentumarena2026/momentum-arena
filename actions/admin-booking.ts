@@ -9,6 +9,8 @@ import {
   passCoversCourtGroup,
   passBandsCoverHours,
   parseCoveredSlots,
+  adoptLegacyCoverage,
+  shouldCoverDelta,
 } from "@/lib/passes";
 import {
   sendBookingConfirmation,
@@ -2546,10 +2548,6 @@ export async function adminEditBookingSlots(
     const effectiveNewHours = usingBowling
       ? bowlingSlots!.map((s) => s.hour).sort((a, b) => a - b)
       : newHours;
-    // A stale "cover with pass" tick from a selection the admin then
-    // changed into a REMOVAL must not suppress the payment realign below
-    // (there's no added time for a pass to cover).
-    const coverDelta = coverDeltaWithPass && newBookedMinutes > oldBookedMinutes;
     // Which rows this save ADDS — at SLOT granularity, so the bowling
     // 30-min grid is handled too (adding 14:30 to a booking that already
     // holds 14:00 is a real addition even though the hour is unchanged).
@@ -2573,6 +2571,10 @@ export async function adminEditBookingSlots(
           price: r.price,
           isNew: !bookedSlotKeys.has(`${r.startHour}:${r.startMinute}`),
         }));
+    // Gate on added ROWS, not a net minute increase — a swap adds a slot
+    // the pass must pay for even though the total is unchanged. A stale
+    // tick on a pure REMOVAL still can't cover anything (no new rows).
+    const coverDelta = shouldCoverDelta(coverDeltaWithPass, newSlotsForPass);
 
     await db.$transaction(async (tx) => {
       // Delete old slots
@@ -3084,7 +3086,6 @@ export async function adminEditBookingFull(
       const newMinFull = newSlotRows.reduce((s, r) => s + r.durationMinutes, 0);
       // A stale tick from a selection later changed into a removal has
       // no added time to cover.
-      const coverDeltaFull = !!data.coverDeltaWithPass && newMinFull > oldMinFull;
       const bookedSlotKeysFull = new Set(
         booking.slots.map((x) => `${x.startHour}:${x.startMinute}`),
       );
@@ -3095,6 +3096,10 @@ export async function adminEditBookingFull(
         price: r.price,
         isNew: !bookedSlotKeysFull.has(`${r.startHour}:${r.startMinute}`),
       }));
+      const coverDeltaFull = shouldCoverDelta(
+        data.coverDeltaWithPass,
+        newSlotsForPassFull,
+      );
       // Mirrors the paymentUpdate branch order below so the sync sees
       // exactly the Payment.amount the edit leaves behind.
       const paymentAfterEdit = booking.payment
@@ -3863,7 +3868,22 @@ export async function extendBookingByThirtyMin(
           min: 30,
         };
         if (existingRed && !existingRed.restoredAt) {
-          const prior = parseCoveredSlots(existingRed.coveredSlots) ?? [];
+          // A LEGACY row records only a minute count. Seeding `prior`
+          // with [] would write a set containing just this extension —
+          // the next edit would then price coverage at the extension's
+          // ₹0 slot and demand the whole booking total at the venue,
+          // and drop the rest of the minutes from the ledger.
+          const prior =
+            parseCoveredSlots(existingRed.coveredSlots) ??
+            adoptLegacyCoverage(
+              booking.slots.map((sl) => ({
+                startHour: sl.startHour,
+                startMinute: sl.startMinute,
+                durationMinutes: sl.durationMinutes,
+                price: sl.price,
+              })),
+              existingRed.minutes,
+            );
           await tx.passRedemption.update({
             where: { bookingId },
             data: {

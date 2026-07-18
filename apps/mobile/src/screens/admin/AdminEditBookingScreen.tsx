@@ -128,17 +128,16 @@ export function AdminEditBookingScreen() {
     }
     return m;
   }, [booking]);
-  const oldBookedMinutes = [...bookedHours].reduce(
-    (sum, h) => sum + (minutesByHour[h] ?? 60),
-    0,
-  );
-  const addedMinutes = (() => {
-    let newMinutes = 0;
-    new Set(hours).forEach((h) => {
-      newMinutes += bookedHours.has(h) ? (minutesByHour[h] ?? 60) : 60;
-    });
-    return Math.max(0, newMinutes - oldBookedMinutes);
-  })();
+  // Rows this save ADDS (a swap adds one even at an unchanged total) and
+  // rows it FREES. The pass is debited the net, so the balance gate uses
+  // added − dropped while the option shows on any addition.
+  const selectedHourSet = new Set(hours);
+  const addedMinutes =
+    [...selectedHourSet].filter((h) => !bookedHours.has(h)).length * 60;
+  const droppedMinutes = [...bookedHours]
+    .filter((h) => !selectedHourSet.has(h))
+    .reduce((sum, h) => sum + (minutesByHour[h] ?? 60), 0);
+  const netPassMinutes = Math.max(0, addedMinutes - droppedMinutes);
 
   useEffect(() => {
     if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
@@ -402,24 +401,27 @@ export function AdminEditBookingScreen() {
         {booking.extendPass && addedMinutes > 0 ? (
           <Pressable
             onPress={() => {
-              if (booking.extendPass!.remainingMinutes < addedMinutes) return;
+              if (booking.extendPass!.remainingMinutes < netPassMinutes) return;
               setCoverWithPass((v) => !v);
             }}
             style={[
               styles.passOption,
-              booking.extendPass.remainingMinutes < addedMinutes &&
+              booking.extendPass.remainingMinutes < netPassMinutes &&
                 styles.passOptionDisabled,
             ]}
           >
             <Ticket size={14} color="#34d399" />
             <Text variant="small" color="#34d399" style={{ flex: 1 }}>
-              Cover the added {addedMinutes / 60}h from {booking.extendPass.name}
+              {droppedMinutes > 0 && netPassMinutes === 0
+                ? `Keep the moved ${addedMinutes / 60}h on `
+                : `Cover the added ${addedMinutes / 60}h from `}
+              {booking.extendPass.name}
               {" ("}
               {(booking.extendPass.remainingMinutes / 60)
                 .toFixed(1)
                 .replace(/\.0$/, "")}
               h left)
-              {booking.extendPass.remainingMinutes < addedMinutes
+              {booking.extendPass.remainingMinutes < netPassMinutes
                 ? " — not enough balance"
                 : ""}
             </Text>

@@ -74,22 +74,16 @@ export function EditBookingModal({
   // (drop one hour, add another) is delta 0 there, so offering the pass
   // option on "fresh hours" alone would show a checkbox that silently
   // does nothing.
-  const addedMinutes = (() => {
-    // Mirrors the server: kept hours retain their rows (30-min
-    // extensions included), new hours become 60-min rows. Per-hour
-    // minutes, never an average — see edit-slots-modal.
-    const perHour = currentSlotMinutes ?? {};
-    const bookedSet = new Set(currentSlots);
-    const oldMinutes = [...bookedSet].reduce(
-      (sum, h) => sum + (perHour[h] ?? 60),
-      0,
-    );
-    let newMinutes = 0;
-    selectedHours.forEach((h) => {
-      newMinutes += bookedSet.has(h) ? (perHour[h] ?? 60) : 60;
-    });
-    return Math.max(0, newMinutes - oldMinutes);
-  })();
+  // Rows this save ADDS (a swap adds one even at an unchanged total) and
+  // rows it FREES. The pass is debited the net, so the balance gate uses
+  // added − dropped while the option is offered on any addition.
+  const perHourMinutes = currentSlotMinutes ?? {};
+  const bookedHourSet = new Set(currentSlots);
+  const addedMinutes = [...selectedHours].filter((h) => !bookedHourSet.has(h)).length * 60;
+  const droppedMinutes = [...bookedHourSet]
+    .filter((h) => !selectedHours.has(h))
+    .reduce((sum, h) => sum + (perHourMinutes[h] ?? 60), 0);
+  const netPassMinutes = Math.max(0, addedMinutes - droppedMinutes);
   const addedHours = addedMinutes / 60;
 
   // Don't let a tick survive a selection the admin turned into a removal.
@@ -476,12 +470,15 @@ export function EditBookingModal({
               type="checkbox"
               checked={coverWithPass}
               onChange={(e) => setCoverWithPass(e.target.checked)}
-              disabled={deltaPass.remainingMinutes < addedMinutes}
+              disabled={deltaPass.remainingMinutes < netPassMinutes}
               className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
             />
-            Cover the added {addedHours}h from {deltaPass.name} (
+            {droppedMinutes > 0 && netPassMinutes === 0
+              ? `Keep the moved ${addedHours}h on ${deltaPass.name}`
+              : `Cover the added ${addedHours}h from ${deltaPass.name}`}{" "}
+            (
             {(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}h left)
-            {deltaPass.remainingMinutes < addedMinutes && (
+            {deltaPass.remainingMinutes < netPassMinutes && (
               <span className="text-amber-400">— not enough balance</span>
             )}
           </label>
