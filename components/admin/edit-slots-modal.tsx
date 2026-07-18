@@ -22,8 +22,8 @@ interface EditSlotsModalProps {
    * render the same affordance at slot-granularity.
    */
   currentSlots: number[];
-  /** Real booked minutes (durations summed) — see AdminBookingActions. */
-  currentBookedMinutes?: number;
+  /** Real booked minutes per hour — see AdminBookingActions. */
+  currentSlotMinutes?: Record<number, number>;
   currentBowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
   /**
    * Per-court slot duration in minutes. Bowling-machine courts
@@ -76,7 +76,7 @@ export function EditSlotsModal({
   courtConfigId,
   date,
   currentSlots,
-  currentBookedMinutes,
+  currentSlotMinutes,
   currentBowlingSlots,
   slotDurationMinutes = 60,
   isOpen,
@@ -111,16 +111,20 @@ export function EditSlotsModal({
     : (() => {
         // Server-side, KEPT hours retain their existing rows (a 30-min
         // extension stays 30) and only genuinely new hours become
-        // 60-min rows. Measuring in whole hours would disagree with the
-        // server whenever an extension row is dropped.
+        // 60-min rows. Use each hour's REAL minutes — averaging them
+        // mislabels the edit and can offer a pass option the server
+        // then ignores.
+        const perHour = currentSlotMinutes ?? {};
         const bookedSet = new Set(currentSlots);
-        const oldMinutes = currentBookedMinutes ?? bookedSet.size * 60;
-        const perHour = oldMinutes / Math.max(1, bookedSet.size);
+        const oldMinutes = [...bookedSet].reduce(
+          (sum, h) => sum + (perHour[h] ?? 60),
+          0,
+        );
         let newMinutes = 0;
         selectedHours.forEach((h) => {
-          newMinutes += bookedSet.has(h) ? perHour : 60;
+          newMinutes += bookedSet.has(h) ? (perHour[h] ?? 60) : 60;
         });
-        return Math.max(0, Math.round(newMinutes - oldMinutes));
+        return Math.max(0, newMinutes - oldMinutes);
       })();
 
   // A tick left over from a selection the admin then changed into a

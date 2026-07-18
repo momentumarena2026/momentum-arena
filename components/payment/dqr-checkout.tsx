@@ -110,6 +110,9 @@ export function DqrCheckout({
   const [mode, setMode] = useState<"qr" | "intent">("qr");
   const [isMobile, setIsMobile] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Money WAS captured even though the flow failed (e.g. the plan was
+  // repriced mid-payment). Suppresses every "pay again" affordance.
+  const [paymentReceived, setPaymentReceived] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [launchedApp, setLaunchedApp] = useState<{
     name: string;
@@ -184,10 +187,14 @@ export function DqrCheckout({
       } else if (data.state === "FAILED") {
         doneRef.current = true;
         stopPolling();
-        clearStore();
         // A FAILED state can still mean money WAS captured (e.g. the
         // plan was repriced mid-payment). Never tell that customer to
-        // "try again" — that's how double payments happen.
+        // "try again" — that's how double payments happen — and KEEP the
+        // stored transaction so a refresh resumes into this terminal
+        // message instead of offering a fresh QR (the resume guard added
+        // after the July double-payment incident).
+        if (data.paymentReceived) setPaymentReceived(true);
+        else clearStore();
         setError(
           data.paymentReceived && data.error
             ? data.error
@@ -762,22 +769,31 @@ export function DqrCheckout({
               <AlertCircle className="mx-auto h-9 w-9 text-red-400" />
               <p className="mt-3 text-sm text-red-300">{error}</p>
             </div>
-            <button
-              onClick={() => {
-                setPhase("init");
-                setError(null);
-                initiate();
-              }}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700"
-            >
-              <RefreshCw className="h-4 w-4" /> Try again
-            </button>
+            {/* Never offer a retry when the gateway already took the
+                money — a second QR here is exactly how a customer ends
+                up paying twice. Leaving is the only action. */}
+            {!paymentReceived && (
+              <button
+                onClick={() => {
+                  setPhase("init");
+                  setError(null);
+                  initiate();
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700"
+              >
+                <RefreshCw className="h-4 w-4" /> Try again
+              </button>
+            )}
             {onCancel && (
               <button
                 onClick={onCancel}
-                className="w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
+                className={
+                  paymentReceived
+                    ? "w-full rounded-xl bg-zinc-700 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-600"
+                    : "w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
+                }
               >
-                ← Go back
+                {paymentReceived ? "Close" : "← Go back"}
               </button>
             )}
           </div>

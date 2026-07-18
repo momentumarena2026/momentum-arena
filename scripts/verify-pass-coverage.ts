@@ -40,7 +40,7 @@ async function run(
   newTotal: number,
   payAmt: number,
   args: SyncArgs,
-  opts: { equip?: number; balance?: number } = {},
+  opts: { equip?: number; balance?: number; coveredHours?: number[] } = {},
 ) {
   try {
     await db.$transaction(async (tx) => {
@@ -55,8 +55,10 @@ async function run(
         slots: { create: [18,19,20].map((h) => ({ startHour: h, startMinute: 0, durationMinutes: 60, price: 800 })) },
         payment: { create: { amount: 0, method: "PASS", status: "COMPLETED", confirmedBy: "PASS" } } } });
       await tx.passRedemption.create({ data: {
-        userPassId: p.id, bookingId: b.id, minutes: 180, value: 2400, coveredAmount: 2400,
-        coveredSlots: [18, 19, 20].map((h) => ({ h, m: 0, min: 60 })) } });
+        userPassId: p.id, bookingId: b.id,
+        minutes: (opts.coveredHours ?? [18, 19, 20]).length * 60,
+        value: 2400, coveredAmount: 2400,
+        coveredSlots: (opts.coveredHours ?? [18, 19, 20]).map((h) => ({ h, m: 0, min: 60 })) } });
       const out = await syncPassAfterAdminEdit(tx, {
         bookingId: b.id, bookingUserId: u.id, bookingDate: DATE, courtConfigId: COURT,
         newTotalAmount: newTotal, paymentAmount: payAmt, equipmentAmount: opts.equip ?? 0, ...args });
@@ -102,6 +104,12 @@ async function main() {
     { newSlots: [S(18,false,1000), S(19,false,1000), S(20,false,1000)] });
   await run("no-op re-save              [unchanged 2400]", 2400, 2400, 0,
     { newSlots: [S(18), S(19), S(20)] });
+  // 50% off: slot rows still carry LIST prices (800 each) but the
+  // customer owes 1200. A pass covering 2 of 3 hours settles its share
+  // of the DISCOUNTED liability (800), not the rack rate (1600) —
+  // otherwise the overstatement silently eats the next charge.
+  await run("50% discount, 2 of 3 covered [covered 800, owed 400]", 800, 1200, 0,
+    { newSlots: [S(18), S(19), S(20, true)] }, { coveredHours: [18, 19] });
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }

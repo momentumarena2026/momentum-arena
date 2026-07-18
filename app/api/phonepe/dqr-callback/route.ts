@@ -86,6 +86,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    if (pass.mismatch) {
+      // Money captured, no pass issued (plan repriced inside the QR
+      // window) — already orphaned by confirmDqrPass. Log it as that,
+      // not as unmatched money, or triage chases the wrong class.
+      console.error(
+        `[dqr-callback] pass amount mismatch for txn ${transactionId}, amount ${data.amount} — orphaned`,
+      );
+      return NextResponse.json({ success: true });
+    }
     console.log(
       `[dqr-callback] no matching hold/intent for txn ${transactionId}, amount ${data.amount}`,
     );

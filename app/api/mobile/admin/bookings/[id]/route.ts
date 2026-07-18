@@ -117,15 +117,25 @@ export async function GET(
     name: string;
     remainingMinutes: number;
   } | null = null;
+  // Same rule as the web page: the booking's hours plus the two an
+  // extend could reach; at least one must be in band.
+  const bookedHours = booking.slots.map((s) => s.startHour);
+  const candidateHours = [
+    ...new Set([
+      ...bookedHours,
+      Math.max(0, Math.min(...bookedHours) - 1),
+      (Math.max(...bookedHours) + 1) % 24,
+    ]),
+  ];
   for (const candidate of extendCandidates) {
-    if (
-      await passBandsCoverHours(
-        candidate,
-        booking.courtConfigId,
-        booking.date,
-        booking.slots.map((s) => s.startHour),
+    const covers = (
+      await Promise.all(
+        candidateHours.map((h) =>
+          passBandsCoverHours(candidate, booking.courtConfigId, booking.date, [h]),
+        ),
       )
-    ) {
+    ).some(Boolean);
+    if (covers) {
       extendPass = {
         id: candidate.id,
         name: candidate.name,

@@ -166,6 +166,9 @@ export function DqrCheckout({
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [qrString, setQrString] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Money WAS captured despite the failure — suppresses every retry
+  // affordance so the customer can't pay a second time.
+  const [paymentReceived, setPaymentReceived] = useState(false);
   const [appOpenError, setAppOpenError] = useState<string | null>(null);
   const [waitingApp, setWaitingApp] = useState<{ name: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
@@ -236,6 +239,7 @@ export function DqrCheckout({
         // FAILED can still mean money was captured (e.g. the plan was
         // repriced mid-payment). Telling that customer to "try again"
         // is how double payments happen.
+        if (res.paymentReceived) setPaymentReceived(true);
         setError(
           res.paymentReceived && res.error
             ? res.error
@@ -667,26 +671,41 @@ export function DqrCheckout({
                     {error}
                   </Text>
                 </View>
+                {/* No retry once the gateway has the money — a second QR
+                    here is exactly how a customer pays twice. */}
+                {!paymentReceived ? (
+                  <Pressable
+                    onPress={() => {
+                      setPhase("init");
+                      setError(null);
+                      setAppOpenError(null);
+                      void initiate();
+                    }}
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <RefreshCw size={16} color="#fff" />
+                    <Text variant="body" weight="600" color="#fff">
+                      Try again
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
-                  onPress={() => {
-                    setPhase("init");
-                    setError(null);
-                    setAppOpenError(null);
-                    void initiate();
-                  }}
+                  onPress={onCancel}
                   style={({ pressed }) => [
-                    styles.primaryBtn,
+                    paymentReceived ? styles.primaryBtn : styles.ghostBtn,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <RefreshCw size={16} color="#fff" />
-                  <Text variant="body" weight="600" color="#fff">
-                    Try again
-                  </Text>
-                </Pressable>
-                <Pressable onPress={onCancel} style={styles.ghostBtn}>
-                  <Text variant="small" align="center" color={INK_MUTED}>
-                    Cancel
+                  <Text
+                    variant={paymentReceived ? "body" : "small"}
+                    weight={paymentReceived ? "600" : undefined}
+                    align="center"
+                    color={paymentReceived ? "#fff" : INK_MUTED}
+                  >
+                    {paymentReceived ? "Close" : "Cancel"}
                   </Text>
                 </Pressable>
               </View>

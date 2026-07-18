@@ -10,8 +10,8 @@ interface EditBookingModalProps {
   currentCourtConfigId: string;
   currentDate: string;
   currentSlots: number[];
-  /** Real booked minutes (durations summed) — see AdminBookingActions. */
-  currentBookedMinutes?: number;
+  /** Real booked minutes per hour — see AdminBookingActions. */
+  currentSlotMinutes?: Record<number, number>;
   sport: string;
   courtConfigs: {
     id: string;
@@ -39,7 +39,7 @@ export function EditBookingModal({
   currentCourtConfigId,
   currentDate,
   currentSlots,
-  currentBookedMinutes,
+  currentSlotMinutes,
   sport,
   courtConfigs,
   isPartialPayment,
@@ -76,15 +76,19 @@ export function EditBookingModal({
   // does nothing.
   const addedMinutes = (() => {
     // Mirrors the server: kept hours retain their rows (30-min
-    // extensions included), new hours become 60-min rows.
+    // extensions included), new hours become 60-min rows. Per-hour
+    // minutes, never an average — see edit-slots-modal.
+    const perHour = currentSlotMinutes ?? {};
     const bookedSet = new Set(currentSlots);
-    const oldMinutes = currentBookedMinutes ?? bookedSet.size * 60;
-    const perHour = oldMinutes / Math.max(1, bookedSet.size);
+    const oldMinutes = [...bookedSet].reduce(
+      (sum, h) => sum + (perHour[h] ?? 60),
+      0,
+    );
     let newMinutes = 0;
     selectedHours.forEach((h) => {
-      newMinutes += bookedSet.has(h) ? perHour : 60;
+      newMinutes += bookedSet.has(h) ? (perHour[h] ?? 60) : 60;
     });
-    return Math.max(0, Math.round(newMinutes - oldMinutes));
+    return Math.max(0, newMinutes - oldMinutes);
   })();
   const addedHours = addedMinutes / 60;
 

@@ -118,17 +118,26 @@ export function AdminEditBookingScreen() {
   // extension stays 30 min), only genuinely new hours become 60-min
   // rows. Measuring in whole hours would disagree whenever a booking
   // carries an extension row.
-  const oldBookedMinutes = (booking?.slots ?? []).reduce(
-    (sum, s) => sum + (s.durationMinutes ?? 60),
+  // Real minutes PER HOUR — an hour can hold a full slot plus a 30-min
+  // extension. Averaging them mislabels the edit and can show a pass
+  // option the server then ignores.
+  const minutesByHour = useMemo(() => {
+    const m: Record<number, number> = {};
+    for (const s of booking?.slots ?? []) {
+      m[s.startHour] = (m[s.startHour] ?? 0) + (s.durationMinutes ?? 60);
+    }
+    return m;
+  }, [booking]);
+  const oldBookedMinutes = [...bookedHours].reduce(
+    (sum, h) => sum + (minutesByHour[h] ?? 60),
     0,
   );
   const addedMinutes = (() => {
-    const perHour = oldBookedMinutes / Math.max(1, bookedHours.size);
     let newMinutes = 0;
     new Set(hours).forEach((h) => {
-      newMinutes += bookedHours.has(h) ? perHour : 60;
+      newMinutes += bookedHours.has(h) ? (minutesByHour[h] ?? 60) : 60;
     });
-    return Math.max(0, Math.round(newMinutes - oldBookedMinutes));
+    return Math.max(0, newMinutes - oldBookedMinutes);
   })();
 
   useEffect(() => {

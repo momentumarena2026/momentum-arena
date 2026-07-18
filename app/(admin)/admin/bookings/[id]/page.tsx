@@ -142,7 +142,7 @@ export default async function AdminBookingDetailPage({
   // the booking already redeems (extendBookingByThirtyMin rejects any
   // other), so offer the attached pass if it's still usable — and only
   // fall back to the best-eligible pass when nothing is attached. This
-  // mirrors findPassForBookingDelta's never-silently-switch rule.
+  // never silently switches the customer to a different pass.
   const extendCandidates = booking.userId
     ? await db.userPass.findMany({
         where: passRedemption
@@ -170,21 +170,35 @@ export default async function AdminBookingDetailPage({
         select: { id: true, name: true, remainingMinutes: true, bands: true },
       })
     : [];
-  // Only OFFER a pass whose price bands actually cover this booking's
-  // hours — the server enforces bands on save, so an unfiltered offer
-  // meant admins were shown "cover with pass" and then rejected.
+  // Only OFFER a pass whose price bands can cover time on this booking
+  // — the server enforces bands on save, so an unfiltered offer meant
+  // admins were shown "cover with pass" and then rejected.
   let extendPass: {
     id: string;
     name: string;
     remainingMinutes: number;
   } | null = null;
+  // Which hours might this pass be asked to pay for? The booking's own
+  // hours (an edit adding time beside them) and the two an extend would
+  // reach. Requiring ALL of them would hide the option whenever a
+  // booking sits on a band edge; requiring at least one keeps it
+  // offered, and the server band-checks the exact hour on save.
+  const bookedHours = booking.slots.map((s) => s.startHour);
+  const candidateHours = [
+    ...new Set([
+      ...bookedHours,
+      Math.max(0, Math.min(...bookedHours) - 1),
+      (Math.max(...bookedHours) + 1) % 24,
+    ]),
+  ];
   for (const candidate of extendCandidates) {
-    const covers = await passBandsCoverHours(
-      candidate,
-      booking.courtConfigId,
-      booking.date,
-      booking.slots.map((s) => s.startHour),
-    );
+    const covers = (
+      await Promise.all(
+        candidateHours.map((h) =>
+          passBandsCoverHours(candidate, booking.courtConfigId, booking.date, [h]),
+        ),
+      )
+    ).some(Boolean);
     if (covers) {
       extendPass = {
         id: candidate.id,
@@ -763,9 +777,12 @@ export default async function AdminBookingDetailPage({
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}
           currentSlots={booking.slots.map((s) => s.startHour)}
-          currentBookedMinutes={booking.slots.reduce(
-            (sum, s) => sum + s.durationMinutes,
-            0,
+          currentSlotMinutes={booking.slots.reduce<Record<number, number>>(
+            (acc, s) => {
+              acc[s.startHour] = (acc[s.startHour] ?? 0) + s.durationMinutes;
+              return acc;
+            },
+            {},
           )}
           // Treat the court as 30-min bowling whenever EITHER the
           // explicit slotDurationMinutes is 30 OR the category is

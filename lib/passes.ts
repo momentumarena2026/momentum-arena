@@ -219,6 +219,18 @@ export async function confirmDqrPass(
   if (intent.consumedUserPassId) {
     return { userPassId: intent.consumedUserPassId, alreadyDone: true };
   }
+  // A COMPLETED capture that reports no amount can't be price-checked.
+  // Issuing the pass anyway would reopen the "pay for a cheap plan, get
+  // an expensive one" hole from the Razorpay path, so treat it as
+  // not-yet-confirmable and let the S2S callback (which does carry the
+  // amount) settle it.
+  if (capturedPaise === undefined) {
+    console.error(
+      "[passes] DQR capture reported no amount — pass NOT issued yet",
+      transactionId,
+    );
+    return { userPassId: null, alreadyDone: false };
+  }
   if (typeof capturedPaise === "number") {
     const plan = await db.passPlan.findUnique({
       where: { id: intent.planId },
@@ -968,82 +980,6 @@ export async function passBandsCoverHours(
   });
 }
 
-/** An eligible pass for covering ADDED minutes on a booking — the
- *  booking's existing redemption pass first, else the customer's best
- *  eligible pass (owner or shared member, court group + play-date
- *  valid, enough balance). Used by the admin edit flows AND by the
- *  detail endpoints that decide whether to OFFER the option. */
-export async function findPassForBookingDelta(args: {
-  bookingId: string;
-  bookingUserId: string | null;
-  bookingDate: Date;
-  courtConfigId: string;
-  deltaMinutes: number;
-  /** The hours being added — checked against the pass's price bands. */
-  addedHours?: number[];
-}): Promise<{ passId: string; passName: string; remainingMinutes: number } | null> {
-  if (!args.bookingUserId || args.deltaMinutes <= 0) return null;
-  const now = new Date();
-
-  const eligible = async (p: {
-    id: string;
-    name: string;
-    courtConfigId: string;
-    status: string;
-    startsAt: Date;
-    expiresAt: Date;
-    remainingMinutes: number;
-    bands: unknown;
-  }) =>
-    p.status === "ACTIVE" &&
-    p.startsAt.getTime() <= args.bookingDate.getTime() &&
-    p.expiresAt.getTime() > args.bookingDate.getTime() &&
-    p.expiresAt.getTime() > now.getTime() &&
-    p.remainingMinutes >= args.deltaMinutes &&
-    (await passCoversCourt(db, p.courtConfigId, args.courtConfigId)) &&
-    (await passBandsCoverHours(
-      p,
-      args.courtConfigId,
-      args.bookingDate,
-      args.addedHours ?? [],
-    ));
-
-  // 1. The pass already attached to this booking, if any.
-  const red = await db.passRedemption.findUnique({
-    where: { bookingId: args.bookingId },
-    include: { userPass: true },
-  });
-  if (red && !red.restoredAt) {
-    const p = red.userPass;
-    if (await eligible(p)) {
-      return { passId: p.id, passName: p.name, remainingMinutes: p.remainingMinutes };
-    }
-    return null; // attached pass can't cover — don't silently switch passes
-  }
-
-  // 2. Otherwise the customer's own or shared passes, SOONEST-EXPIRING
-  //    first — one ordering shared with syncPassAfterAdminEdit and the
-  //    admin detail page, so the pass the UI names is the pass the save
-  //    actually debits (and the closest-to-expiring balance is used up
-  //    first, same as checkout).
-  const candidates = await db.userPass.findMany({
-    where: {
-      status: "ACTIVE",
-      OR: [
-        { userId: args.bookingUserId },
-        { members: { some: { userId: args.bookingUserId } } },
-      ],
-    },
-    orderBy: { expiresAt: "asc" },
-  });
-  for (const p of candidates) {
-    if (await eligible(p)) {
-      return { passId: p.id, passName: p.name, remainingMinutes: p.remainingMinutes };
-    }
-  }
-  return null;
-}
-
 /**
  * Sync the booking's pass state after an admin edit. Call INSIDE the
  * edit transaction, AFTER Booking/Payment rows are written.
@@ -1138,14 +1074,23 @@ export async function syncPassAfterAdminEdit(
   );
   const addedSlots = args.newSlots.filter((s) => s.isNew);
 
-  /** Current price of a covered set, capped at the court-time total
-   *  (which also absorbs any booking-level discount). */
+  // Slot rows carry LIST prices; slotPortion is what the customer
+  // actually owes for court time after any booking-level discount. A
+  // pass settles the customer's liability, not the rack rate, so scale
+  // the covered set by the same ratio the discount applied — otherwise
+  // a half-price booking would have its pass "cover" twice the money it
+  // really owes, silently eating the next charge (gear, an added hour).
+  const listTotal = args.newSlots.reduce((acc, s) => acc + s.price, 0);
+  const discountRatio = listTotal > 0 ? Math.min(1, slotPortion / listTotal) : 1;
+
+  /** What the covered set is worth to the customer, capped at the
+   *  court-time total. */
   const priceOf = (covered: CoveredSlot[]) => {
     const sum = covered.reduce(
       (acc, c) => acc + (byKey.get(slotKey(c.h, c.m))?.price ?? 0),
       0,
     );
-    return Math.max(0, Math.min(slotPortion, sum));
+    return Math.max(0, Math.min(slotPortion, Math.round(sum * discountRatio)));
   };
 
   const red = await tx.passRedemption.findUnique({

@@ -109,10 +109,11 @@ export const LOCK_TTL_MINUTES = 5;
 
 /**
  * Live arena operating hours from the ArenaSettings DB row. Falls
- * back to OPERATING_HOURS defaults on read failure. Cached per
- * request via React's fetch dedupe + tag-revalidate so a single
- * page-render that calls this multiple times only hits the DB
- * once. Server-only — exposes the same shape as the action.
+ * back to OPERATING_HOURS defaults on read failure. Server-only —
+ * exposes the same shape as the action.
+ *
+ * NOT cached: this is a bare Prisma call, so every invocation hits the
+ * DB. Hoist it out of loops rather than calling it per iteration.
  */
 export async function getOperatingHours(): Promise<{
   start: number;
