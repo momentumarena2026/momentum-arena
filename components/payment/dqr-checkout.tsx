@@ -810,19 +810,17 @@ export function DqrCheckout({
             >
               {claiming ? "Checking with your bank…" : "I've paid — check status"}
             </button>
-            {launchedApp && (
-              <button
-                onClick={() => launchApp(launchedApp.name, launchedApp.link)}
-                className="mt-2 w-full rounded-xl border border-emerald-500/40 px-4 py-3 text-[15px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10"
-              >
-                Open {launchedApp.name} again
-              </button>
-            )}
+            {/* No "open <app> again" here. It re-fires the SAME upi://
+                link with the amount, and this screen's most common state
+                is "already paid, not yet confirmed" — a second tap there
+                is a second payment. Re-launching is still one tap away
+                via the picker below, which is a deliberate beat of
+                friction on a money action. */}
             <button
               onClick={() => setPhase("apps")}
               className="mt-2 w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
             >
-              Choose another app
+              Pay in a different app
             </button>
             {/* Anti-double-pay: the 2026-07-11 incident was a customer
                 paying twice because the sheet never flipped. Make the

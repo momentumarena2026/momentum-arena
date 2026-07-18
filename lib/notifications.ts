@@ -188,7 +188,21 @@ async function sendSmsConfirmation(
     console.log("MSG91 booking confirmation response:", JSON.stringify(data));
 
     if (data.type === "success") {
-      await logNotification(bookingId, "sms", "sent");
+      // Record MSG91's request id. "sent" only means MSG91 ACCEPTED the
+      // request — delivery is theirs (and DLT's) to do, and identical
+      // template sends to one number in quick succession are commonly
+      // deduped downstream. Without this id there is nothing to search
+      // the MSG91 dashboard with when a customer says no SMS arrived.
+      const reqId =
+        typeof data.message === "string" && data.message
+          ? data.message
+          : (data.request_id ?? null);
+      await logNotification(
+        bookingId,
+        "sms",
+        "sent",
+        reqId ? `msg91:${reqId}` : undefined,
+      );
     } else {
       await logNotification(
         bookingId,

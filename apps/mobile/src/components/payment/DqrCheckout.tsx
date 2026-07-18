@@ -697,26 +697,6 @@ export function DqrCheckout({
                     Expires in {countdown}
                   </Text>
                 ) : null}
-                {waitingApp ? (
-                  <Pressable
-                    onPress={() => {
-                      Linking.openURL(waitingApp.url).catch(() => {
-                        Alert.alert(
-                          "Couldn't open the app",
-                          "Is it installed? Try another option.",
-                        );
-                      });
-                    }}
-                    style={({ pressed }) => [
-                      styles.outlineBtn,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text variant="body" weight="600" color={EMERALD_LIGHT}>
-                      Open {waitingApp.name} again
-                    </Text>
-                  </Pressable>
-                ) : null}
                 {/* The customer is back from their UPI app and the poll
                     hasn't caught the payment. One tap runs the whole
                     ladder server-side — confirm if PhonePe settled,
@@ -737,9 +717,13 @@ export function DqrCheckout({
                       : "I've paid — check status"}
                   </Text>
                 </Pressable>
+                {/* No "open <app> again": it re-fires the same upi://
+                    link with the amount, and this screen usually means
+                    "already paid, not yet confirmed" — a second tap is a
+                    second payment. The picker below still re-launches. */}
                 <Pressable onPress={() => setPhase("apps")} style={styles.ghostBtn}>
                   <Text variant="small" color={INK_MUTED}>
-                    Choose another app
+                    Pay in a different app
                   </Text>
                 </Pressable>
               </View>
