@@ -1,20 +1,11 @@
-import { StyleSheet } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import {
-  Coffee,
-  Home,
-  ShoppingBag,
-  Ticket,
-  Trophy,
-  User,
-} from "lucide-react-native";
 import { HomeScreen } from "../screens/home/HomeScreen";
 import { AccountStack } from "./AccountStack";
 import { BookStack } from "./BookStack";
 import { CafeStack } from "./CafeStack";
 import { PassesStack } from "./PassesStack";
 import { ShopStack } from "./ShopStack";
-import { colors } from "../theme";
+import { MomentumTabBar } from "./MomentumTabBar";
 import { trackBottomNavClick } from "../lib/analytics";
 import type { MainTabsParamList } from "./types";
 
@@ -23,61 +14,22 @@ const Tab = createBottomTabNavigator<MainTabsParamList>();
 export function MainNavigator() {
   return (
     <Tab.Navigator
+      tabBar={(props) => <MomentumTabBar {...props} />}
       screenListeners={({ route }) => ({
         tabPress: () => trackBottomNavClick(route.name),
       })}
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: colors.card,
-          borderTopColor: colors.border,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          height: 72,
-          paddingTop: 6,
-          paddingBottom: 12,
-        },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.subtleForeground,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
-        tabBarIcon: ({ color, size }) => {
-          const props = { color, size: size ?? 20, strokeWidth: 2 } as const;
-          switch (route.name) {
-            case "Home":
-              return <Home {...props} />;
-            case "Sports":
-              // Trophy stands in for the web's 🏟️ stadium emoji — the
-              // best general-purpose "sports" glyph in lucide. The
-              // tab leads into BookStack, where the user picks one of
-              // cricket / football / pickleball.
-              return <Trophy {...props} />;
-            case "Cafe":
-              return <Coffee {...props} />;
-            case "Shop":
-              // Pickup-at-venue product catalog — same surface as
-              // /shop on web. Sits in the 4th slot; Account holds
-              // the rightmost slot.
-              return <ShoppingBag {...props} />;
-            case "Passes":
-              // Monthly-pass wallet + storefront (5th slot).
-              return <Ticket {...props} />;
-            case "Account":
-              return <User {...props} />;
-            default:
-              return null;
-          }
-        },
-      })}
+      screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen
-        name="Sports"
-        component={BookStack}
-        options={{ tabBarLabel: "Sports" }}
-      />
-      <Tab.Screen name="Cafe" component={CafeStack} />
-      <Tab.Screen name="Shop" component={ShopStack} />
+      <Tab.Screen name="Sports" component={BookStack} />
       <Tab.Screen name="Passes" component={PassesStack} />
       <Tab.Screen name="Account" component={AccountStack} />
+      {/* Reachable from the centre button's arc and from deep links —
+          registered here so navigation.navigate("Cafe") still resolves,
+          just not rendered as a bar icon. MomentumTabBar draws only the
+          four it knows about. */}
+      <Tab.Screen name="Cafe" component={CafeStack} />
+      <Tab.Screen name="Shop" component={ShopStack} />
     </Tab.Navigator>
   );
 }
