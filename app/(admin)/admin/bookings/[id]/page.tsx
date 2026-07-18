@@ -110,6 +110,7 @@ export default async function AdminBookingDetailPage({
         value: true,
         coveredAmount: true,
         restoredAt: true,
+        userPassId: true,
         userPass: { select: { name: true } },
       },
     }),
@@ -136,23 +137,40 @@ export default async function AdminBookingDetailPage({
     });
     return siblings.map((s) => s.id);
   })();
+  // A live redemption pins the pass: extends must debit the SAME pass
+  // the booking already redeems (extendBookingByThirtyMin rejects any
+  // other), so offer the attached pass if it's still usable — and only
+  // fall back to the best-eligible pass when nothing is attached. This
+  // mirrors findPassForBookingDelta's never-silently-switch rule.
   const extendPass = booking.userId
-    ? await db.userPass.findFirst({
-        where: {
-          // Owner or shared member — same eligibility as checkout.
-          OR: [
-            { userId: booking.userId },
-            { members: { some: { userId: booking.userId } } },
-          ],
-          courtConfigId: { in: groupSiblingIds },
-          status: "ACTIVE",
-          remainingMinutes: { gte: 30 },
-          startsAt: { lte: booking.date },
-          expiresAt: { gt: booking.date },
-        },
-        orderBy: { expiresAt: "asc" },
-        select: { id: true, name: true, remainingMinutes: true },
-      })
+    ? passRedemption
+      ? await db.userPass.findFirst({
+          where: {
+            id: passRedemption.userPassId,
+            courtConfigId: { in: groupSiblingIds },
+            status: "ACTIVE",
+            remainingMinutes: { gte: 30 },
+            startsAt: { lte: booking.date },
+            expiresAt: { gt: booking.date },
+          },
+          select: { id: true, name: true, remainingMinutes: true },
+        })
+      : await db.userPass.findFirst({
+          where: {
+            // Owner or shared member — same eligibility as checkout.
+            OR: [
+              { userId: booking.userId },
+              { members: { some: { userId: booking.userId } } },
+            ],
+            courtConfigId: { in: groupSiblingIds },
+            status: "ACTIVE",
+            remainingMinutes: { gte: 30 },
+            startsAt: { lte: booking.date },
+            expiresAt: { gt: booking.date },
+          },
+          orderBy: { expiresAt: "asc" },
+          select: { id: true, name: true, remainingMinutes: true },
+        })
     : null;
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];

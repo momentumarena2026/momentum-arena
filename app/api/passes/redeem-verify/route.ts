@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { after } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
-import { getValidHold } from "@/lib/slot-hold";
-import { createBookingFromHold } from "@/actions/booking";
-import { getPassOfferForHold, debitPass } from "@/lib/passes";
-import {
-  sendBookingConfirmation,
-  notifyAdminBookingConfirmed,
-} from "@/lib/notifications";
+import { completePassTopup } from "@/lib/pass-topup";
+import { recordOrphanPayment } from "@/lib/payment-orphan";
 import { verifyRazorpaySignature } from "@/lib/razorpay";
 
 /** Complete a pass top-up: gateway remainder captured → create the
- *  booking (RAZORPAY, remainder amount) and debit the covered hours. */
+ *  booking (RAZORPAY, the ORDER's amount) and debit the covered hours.
+ *  Delegates to completePassTopup — the same helper the
+ *  payment.captured webhook uses — so both paths stay identical. */
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
   if (!userId) {
@@ -27,54 +23,55 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Signature mismatch" }, { status: 400 });
   }
 
-  const hold = await getValidHold(holdId, userId);
-  if (!hold || !hold.redeemPassId) {
-    return NextResponse.json({ error: "Hold expired" }, { status: 404 });
-  }
-  // Server-side recompute — never trust client coverage numbers.
-  const offer = await getPassOfferForHold(hold);
-  if (!offer || offer.passId !== hold.redeemPassId) {
-    return NextResponse.json({ error: "Pass no longer eligible" }, { status: 409 });
+  // Idempotency: the webhook may already have completed this payment.
+  const existing = await db.payment.findFirst({
+    where: { razorpayPaymentId },
+    select: { bookingId: true },
+  });
+  if (existing) {
+    return NextResponse.json({ bookingId: existing.bookingId });
   }
 
-  const bookingId = await createBookingFromHold(
-    hold.id,
-    {
-      method: "RAZORPAY",
-      status: "COMPLETED",
-      amount: offer.remainderAmount,
+  // Fetch WITHOUT the expiry filter — a payment can land after the
+  // 15-min hold TTL, and the stamped order keeps the row alive for the
+  // 24h grace window (cleanupExpiredHolds). A hold that's fully gone
+  // means captured money with no blueprint: an ORPHAN, never a "retry".
+  const hold = await db.slotHold.findUnique({
+    where: { id: holdId },
+    include: { courtConfig: true },
+  });
+  if (!hold) {
+    recordOrphanPayment({
+      gateway: "RAZORPAY",
+      reason: "no-hold",
+      userId,
       razorpayOrderId,
       razorpayPaymentId,
-      razorpaySignature,
-      confirmedAt: new Date(),
-      confirmedBy: "PASS_TOPUP",
-    },
-    "CONFIRMED",
-  );
-  if (!bookingId) {
-    return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
+      holdId,
+      path: request.nextUrl.pathname,
+    });
+    return NextResponse.json(
+      {
+        error:
+          "Payment received, but your slot reservation had expired. Please do NOT pay again — our team will confirm your booking or refund you shortly.",
+        paymentReceived: true,
+      },
+      { status: 410 },
+    );
   }
-  // The pass settles everything the gateway remainder didn't cover.
-  const ok = await debitPass(
-    offer.passId,
-    offer.coveredMinutes,
-    bookingId,
-    Math.max(0, hold.totalAmount - offer.remainderAmount),
-  );
-  if (!ok) {
-    console.error("[passes] topup debit failed post-booking", bookingId);
+  if (hold.userId !== userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  // Same confirmation fan-out as every money path (was missing here).
-  after(async () => {
-    await Promise.allSettled([
-      sendBookingConfirmation(bookingId).catch((err) =>
-        console.error("[passes] booking confirmation failed", err),
-      ),
-      notifyAdminBookingConfirmed(bookingId).catch((err) =>
-        console.error("[passes] admin notify failed", err),
-      ),
-    ]);
+
+  const result = await completePassTopup({
+    hold,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+    path: request.nextUrl.pathname,
   });
-  void db; // (db imported for parity with redeem route)
-  return NextResponse.json({ bookingId });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+  return NextResponse.json({ bookingId: result.bookingId });
 }

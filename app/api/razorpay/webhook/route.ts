@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { materializeUserPass } from "@/lib/passes";
+import { completePassTopup } from "@/lib/pass-topup";
 import { verifyRazorpayWebhookSignature } from "@/lib/razorpay";
 import { createBookingFromHold } from "@/actions/booking";
 import {
@@ -102,6 +103,23 @@ export async function POST(request: NextRequest) {
   // /api/passes/create-order — they have no SlotHold. Materialize the
   // UserPass idempotently (the client verify may have already won).
   if (payment.notes?.type === "PASS" && payment.notes.planId && payment.notes.userId) {
+    // The notes ride from OUR order creation (Razorpay copies order
+    // notes onto the payment), but never materialize a pass the captured
+    // amount doesn't actually pay for (e.g. the plan was repriced
+    // between order and capture).
+    const plan = await db.passPlan.findUnique({
+      where: { id: payment.notes.planId },
+      select: { price: true },
+    });
+    if (!plan || payment.amount !== Math.round(plan.price * 100)) {
+      console.error(
+        "[razorpay-webhook] pass amount mismatch",
+        payment.order_id,
+        payment.amount,
+        plan?.price ?? "no-plan",
+      );
+      return NextResponse.json({ ok: true, reason: "pass-amount-mismatch" });
+    }
     const startsAt = payment.notes.startsAt
       ? new Date(payment.notes.startsAt)
       : undefined;
@@ -140,6 +158,7 @@ export async function POST(request: NextRequest) {
   // reconstruct the booking manually.
   const hold = await db.slotHold.findFirst({
     where: { razorpayOrderId: payment.order_id },
+    include: { courtConfig: true },
   });
   if (!hold) {
     console.warn(
@@ -164,6 +183,30 @@ export async function POST(request: NextRequest) {
       reason: "no-hold",
       orderId: payment.order_id,
     });
+  }
+
+  // Pass TOP-UP orders (minted in /api/passes/redeem) carry a
+  // redeemPassId on their hold. Route them through the same helper the
+  // client's /api/passes/redeem-verify uses so the booking, the
+  // PassRedemption, and the pass debit land identically whichever path
+  // wins — the generic reconstruction below would book the remainder
+  // without ever debiting the pass.
+  if (hold.redeemPassId) {
+    const topup = await completePassTopup({
+      hold,
+      razorpayOrderId: payment.order_id,
+      razorpayPaymentId: payment.id,
+      // Same synthesised-signature rationale as the generic path below.
+      razorpaySignature: `webhook:${payment.id}`,
+      path: request.nextUrl.pathname,
+    });
+    // Always 2xx (webhook reply policy) — failures are already recorded
+    // as orphans / logged inside the helper.
+    return NextResponse.json(
+      topup.ok
+        ? { ok: true, bookingId: topup.bookingId, via: "webhook-pass-topup" }
+        : { ok: true, reason: "pass-topup-failed", error: topup.error },
+    );
   }
 
   // Reconstruct the same payment record the client's /verify path

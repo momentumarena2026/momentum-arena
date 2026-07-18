@@ -14,6 +14,16 @@ import { normalizeIndianPhone } from "@/lib/phone";
 
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
 
+/** Prisma P2002 unique-violation check (same shape as lib/rewards). */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === "object" &&
+    "code" in err &&
+    (err as { code: string }).code === "P2002"
+  );
+}
+
 /** Furthest ahead a pass may be scheduled to start. */
 const MAX_START_AHEAD_DAYS = 90;
 
@@ -114,27 +124,49 @@ export async function materializeUserPass(args: {
   const expiresAt = new Date(
     startsAt.getTime() + plan.validityDays * 24 * 60 * 60 * 1000,
   );
-  const created = await db.userPass.create({
-    data: {
-      planId: plan.id,
-      userId: args.userId,
-      name: plan.name,
-      sport: plan.sport,
-      courtConfigId: plan.courtConfigId,
-      totalMinutes: plan.totalMinutes,
-      price: plan.price,
-      validityDays: plan.validityDays,
-      remainingMinutes: plan.totalMinutes,
-      startsAt,
-      expiresAt,
-      bands: plan.bands ?? [],
-      anchorPrice: plan.anchorPrice,
-      razorpayOrderId: args.razorpayOrderId ?? null,
-      razorpayPaymentId: args.razorpayPaymentId ?? null,
-      phonePeMerchantTxnId: args.phonePeMerchantTxnId ?? null,
-    },
-  });
-  return { userPassId: created.id, alreadyDone: false };
+  try {
+    const created = await db.userPass.create({
+      data: {
+        planId: plan.id,
+        userId: args.userId,
+        name: plan.name,
+        sport: plan.sport,
+        courtConfigId: plan.courtConfigId,
+        totalMinutes: plan.totalMinutes,
+        price: plan.price,
+        validityDays: plan.validityDays,
+        remainingMinutes: plan.totalMinutes,
+        startsAt,
+        expiresAt,
+        bands: plan.bands ?? [],
+        anchorPrice: plan.anchorPrice,
+        razorpayOrderId: args.razorpayOrderId ?? null,
+        razorpayPaymentId: args.razorpayPaymentId ?? null,
+        phonePeMerchantTxnId: args.phonePeMerchantTxnId ?? null,
+      },
+    });
+    return { userPassId: created.id, alreadyDone: false };
+  } catch (err) {
+    // Verify + webhook race the find-then-create: the loser hits the
+    // unique gateway-ref constraint — return the winner's pass.
+    if (isUniqueViolation(err)) {
+      const raced = await db.userPass.findFirst({
+        where: {
+          OR: [
+            args.razorpayOrderId
+              ? { razorpayOrderId: args.razorpayOrderId }
+              : {},
+            args.phonePeMerchantTxnId
+              ? { phonePeMerchantTxnId: args.phonePeMerchantTxnId }
+              : {},
+          ].filter((o) => Object.keys(o).length > 0),
+        },
+        select: { id: true },
+      });
+      if (raced) return { userPassId: raced.id, alreadyDone: true };
+    }
+    throw err;
+  }
 }
 
 /** DQR pass confirm — look up the intent by txn, materialise the pass,
@@ -203,6 +235,11 @@ export async function getPassOfferForHold(hold: {
   date: Date;
   hours: number[];
   totalAmount: number;
+  /** The hold's stored per-slot prices (Json blob, same index order as
+   *  `hours` — exactly how createBookingFromHold reads it). Authoritative
+   *  for remainder math so covered + remainder reconciles with
+   *  totalAmount even after pricing-rule changes. */
+  slotPrices?: unknown;
   couponId?: string | null;
   pointsToRedeem?: number | null;
   courtConfig?: { slotDurationMinutes: number } | null;
@@ -213,18 +250,37 @@ export async function getPassOfferForHold(hold: {
   const slotMinutes = hold.courtConfig?.slotDurationMinutes ?? 60;
   const neededMinutes = hold.hours.length * slotMinutes;
 
-  // Classify every booked slot (dayType + timeType + price) for the date
-  // so we can match slots against each pass's bands and price the
-  // uncovered remainder from the actual slot prices.
-  const slotPrices = await getSlotPricesForDate(
+  // Classify every booked slot (dayType + timeType) for the date so we
+  // can match slots against each pass's bands. One entry PER HOLD SLOT,
+  // tracked by index — bowling holds carry the same hour twice (:00 and
+  // :30), so entries are never collapsed by hour or deduped by object
+  // identity. Prices come from the hold's own slotPrices blob (falling
+  // back to the day's rate for legacy holds without one).
+  const classified = await getSlotPricesForDate(
     hold.courtConfigId,
     hold.date,
   ).catch(() => []);
-  const byHour = new Map(slotPrices.map((s) => [s.hour, s]));
+  const byHour = new Map(classified.map((s) => [s.hour, s]));
+  const stored = Array.isArray(hold.slotPrices)
+    ? (hold.slotPrices as { hour?: number; minute?: number; price?: number }[])
+    : [];
   const bookedSlots = hold.hours
-    .map((h) => byHour.get(h))
+    .map((h, i) => {
+      const cls = byHour.get(h);
+      if (!cls) return null;
+      const storedPrice = stored[i]?.price;
+      return {
+        dayType: cls.dayType,
+        timeType: cls.timeType,
+        price: typeof storedPrice === "number" ? storedPrice : cls.price,
+      };
+    })
     .filter((s): s is NonNullable<typeof s> => !!s);
-  if (bookedSlots.length === 0) return null;
+  // Any unclassifiable slot would leave the remainder mispriced — bail
+  // to the normal payment path instead.
+  if (bookedSlots.length !== hold.hours.length || bookedSlots.length === 0) {
+    return null;
+  }
 
   // Interchangeable court group — a pass bought for the cricket LEFT half
   // must also cover a booking that landed on the RIGHT half (same size,
@@ -269,38 +325,55 @@ export async function getPassOfferForHold(hold: {
 
   // Slot-level coverage: a pass covers the booked slots whose band it
   // carries (sold passes honour their band snapshot — never re-checked
-  // against current price). Pick the pass that covers the MOST booked
-  // minutes, then the soonest-expiring (already ordered).
+  // against current price). Coverage counts in WHOLE slots — a partial
+  // balance covers floor(remaining / slotMinutes) slots and the rest is
+  // paid money, so odd remainders never vaporise minutes and a pass that
+  // can't cover even one slot is skipped. Pick the pass covering the
+  // most slots, then the soonest-expiring (already ordered).
   let best:
-    | { pass: (typeof passes)[number]; matching: typeof bookedSlots }
+    | {
+        pass: (typeof passes)[number];
+        matchingIdx: number[];
+        coveredSlots: number;
+      }
     | null = null;
   for (const pass of passes) {
     const bands = parseBands(pass.bands);
-    const matching = bookedSlots.filter((s) => slotInBands(bands, s));
-    if (matching.length === 0) continue;
-    if (!best || matching.length > best.matching.length) {
-      best = { pass, matching };
+    const matchingIdx: number[] = [];
+    bookedSlots.forEach((s, i) => {
+      if (slotInBands(bands, s)) matchingIdx.push(i);
+    });
+    const coveredSlots = Math.min(
+      matchingIdx.length,
+      Math.floor(pass.remainingMinutes / slotMinutes),
+    );
+    if (coveredSlots === 0) continue;
+    if (!best || coveredSlots > best.coveredSlots) {
+      best = { pass, matchingIdx, coveredSlots };
     }
   }
   if (!best) return null;
 
-  const { pass, matching } = best;
-  const coverableMinutes = matching.length * slotMinutes;
-  const coveredMinutes = Math.min(pass.remainingMinutes, coverableMinutes);
-  const coveredSlots = Math.floor(coveredMinutes / slotMinutes);
+  const { pass, matchingIdx, coveredSlots } = best;
+  const coveredMinutes = coveredSlots * slotMinutes;
   // When the balance can't cover every matching slot, cover the priciest
-  // ones first so the customer pays the least on the remainder.
-  const coveredSet = new Set(
-    [...matching]
-      .sort((a, b) => b.price - a.price)
-      .slice(0, coveredSlots),
+  // ones first so the customer pays the least on the remainder. Coverage
+  // is tracked per index so duplicate-hour bowling entries stay distinct.
+  const covered = new Array<boolean>(bookedSlots.length).fill(false);
+  [...matchingIdx]
+    .sort((a, b) => bookedSlots[b].price - bookedSlots[a].price)
+    .slice(0, coveredSlots)
+    .forEach((i) => {
+      covered[i] = true;
+    });
+  const remainderAmount = bookedSlots.reduce(
+    (sum, s, i) => (covered[i] ? sum : sum + s.price),
+    0,
   );
-  const remainderAmount = bookedSlots
-    .filter((s) => !coveredSet.has(s))
-    .reduce((sum, s) => sum + s.price, 0);
+  // A ₹0 remainder must route to the full-coverage path — Razorpay
+  // won't mint a ₹0 order for it.
   const fullCoverage =
-    matching.length === bookedSlots.length &&
-    coveredMinutes >= coverableMinutes;
+    coveredSlots === bookedSlots.length || remainderAmount <= 0;
 
   return {
     passId: pass.id,
@@ -333,35 +406,71 @@ export async function debitPass(
   bookingId: string,
   coveredAmount = 0,
 ) {
-  const updated = await db.userPass.updateMany({
-    where: {
-      id: passId,
-      remainingMinutes: { gte: minutes },
-      status: "ACTIVE",
-      expiresAt: { gt: new Date() },
-    },
-    data: { remainingMinutes: { decrement: minutes } },
-  });
-  if (updated.count === 0) return false;
-  const pass = await db.userPass.findUnique({
-    where: { id: passId },
-    select: { price: true, totalMinutes: true },
-  });
-  await db.passRedemption.create({
-    data: {
-      userPassId: passId,
-      bookingId,
-      minutes,
-      value: pass ? passMinutesValue(pass, minutes) : 0,
-      coveredAmount,
-    },
-  });
-  // Flip to EXHAUSTED when the balance hits zero (display nicety).
-  await db.userPass.updateMany({
-    where: { id: passId, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
-    data: { status: "EXHAUSTED" },
-  });
-  return true;
+  try {
+    await db.$transaction(async (tx) => {
+      // Duplicate verify/webhook race: if this booking already carries a
+      // live redemption the debit landed — no-op instead of debiting the
+      // balance a second time.
+      const existing = await tx.passRedemption.findUnique({
+        where: { bookingId },
+      });
+      if (existing && !existing.restoredAt) return;
+      const updated = await tx.userPass.updateMany({
+        where: {
+          id: passId,
+          remainingMinutes: { gte: minutes },
+          status: "ACTIVE",
+          expiresAt: { gt: new Date() },
+        },
+        data: { remainingMinutes: { decrement: minutes } },
+      });
+      if (updated.count === 0) throw new Error("PASS_BALANCE_CHANGED");
+      const pass = await tx.userPass.findUnique({
+        where: { id: passId },
+        select: { price: true, totalMinutes: true },
+      });
+      const figures = {
+        userPassId: passId,
+        minutes,
+        value: pass ? passMinutesValue(pass, minutes) : 0,
+        coveredAmount,
+      };
+      if (existing) {
+        // Restored row still occupies the unique bookingId — reactivate
+        // it with this debit's figures.
+        await tx.passRedemption.update({
+          where: { id: existing.id },
+          data: { ...figures, restoredAt: null },
+        });
+      } else {
+        // A concurrent duplicate that slipped past the findUnique above
+        // hits P2002 here, rolling its decrement back with the tx.
+        await tx.passRedemption.create({
+          data: { ...figures, bookingId },
+        });
+      }
+      // Flip to EXHAUSTED when the balance hits zero (display nicety).
+      await tx.userPass.updateMany({
+        where: { id: passId, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
+        data: { status: "EXHAUSTED" },
+      });
+    });
+    return true;
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      // The concurrent duplicate won the race — treat as settled if its
+      // redemption is live.
+      const red = await db.passRedemption.findUnique({
+        where: { bookingId },
+        select: { restoredAt: true },
+      });
+      return !!red && !red.restoredAt;
+    }
+    if (err instanceof Error && err.message === "PASS_BALANCE_CHANGED") {
+      return false;
+    }
+    throw err;
+  }
 }
 
 /** Restore hours on an eligible cancellation. No-op if already
@@ -372,19 +481,22 @@ export async function restorePassForBooking(bookingId: string) {
   if (!red || red.restoredAt) return;
   const pass = await db.userPass.findUnique({ where: { id: red.userPassId } });
   if (!pass || pass.expiresAt.getTime() < Date.now() || pass.status === "CANCELLED") return;
-  await db.$transaction([
-    db.userPass.update({
+  await db.$transaction(async (tx) => {
+    // Stamp-first guard: under a concurrent cancel + refund exactly one
+    // caller flips restoredAt, and only that caller credits the minutes.
+    const stamped = await tx.passRedemption.updateMany({
+      where: { id: red.id, restoredAt: null },
+      data: { restoredAt: new Date() },
+    });
+    if (stamped.count !== 1) return;
+    await tx.userPass.update({
       where: { id: pass.id },
       data: {
         remainingMinutes: { increment: red.minutes },
         status: "ACTIVE",
       },
-    }),
-    db.passRedemption.update({
-      where: { id: red.id },
-      data: { restoredAt: new Date() },
-    }),
-  ]);
+    });
+  });
 }
 
 /**
@@ -663,7 +775,10 @@ export async function removePassMemberForOwner(
 //
 // The invariant every display + report relies on:
 //     owed-at-venue = Booking.totalAmount − Payment.amount − coveredAmount
-// so after any edit: coveredAmount := clamp(newTotal − paymentAmount).
+// After an edit, coveredAmount only ever SHRINKS toward
+// clamp(newTotal − paymentAmount) — it grows solely through the explicit
+// debit branches, so added-but-uncovered time surfaces as owed instead
+// of being silently written off as pass-settled.
 // Minutes move with booked time: added time can be debited from an
 // eligible pass (coverDeltaWithPass), removed time is credited back.
 
@@ -785,8 +900,10 @@ export async function findPassForBookingDelta(args: {
  *    it's cancelled/expired — dead hours are dead) and shrink the
  *    redemption; a redemption shrunk to zero minutes is stamped
  *    restored.
- *  - always: coveredAmount := clamp(newTotal − paymentAmount, 0..newTotal)
- *    so the owed-at-venue line stays exact after repricing/date moves.
+ *  - realign: coveredAmount only ever SHRINKS toward
+ *    clamp(newTotal − paymentAmount, 0..newTotal) so repricing/date
+ *    moves stay exact; it grows only via the explicit debit branches,
+ *    never as a side effect of the realign.
  */
 export async function syncPassAfterAdminEdit(
   tx: Tx,
@@ -862,15 +979,31 @@ export async function syncPassAfterAdminEdit(
       where: { id: chosen.id, remainingMinutes: { lte: 0 }, status: "ACTIVE" },
       data: { status: "EXHAUSTED" },
     });
-    await tx.passRedemption.create({
-      data: {
-        userPassId: chosen.id,
-        bookingId: args.bookingId,
-        minutes: delta,
-        value: passMinutesValue(chosen, delta),
-        coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
-      },
-    });
+    // A restored redemption row still occupies the unique bookingId —
+    // reactivate it with the new debit's figures instead of create
+    // (which would P2002 and brick the edit).
+    if (red) {
+      await tx.passRedemption.update({
+        where: { id: red.id },
+        data: {
+          userPassId: chosen.id,
+          minutes: delta,
+          value: passMinutesValue(chosen, delta),
+          coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+          restoredAt: null,
+        },
+      });
+    } else {
+      await tx.passRedemption.create({
+        data: {
+          userPassId: chosen.id,
+          bookingId: args.bookingId,
+          minutes: delta,
+          value: passMinutesValue(chosen, delta),
+          coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+        },
+      });
+    }
     return { ok: true, passUsed: chosen.id };
   }
 
@@ -917,11 +1050,30 @@ export async function syncPassAfterAdminEdit(
   }
 
   if (delta < 0) {
-    // Credit freed minutes back (bounded by what this booking holds).
-    const credit = Math.min(-delta, live.minutes);
     const restorable =
       pass.status !== "CANCELLED" && pass.expiresAt.getTime() > Date.now();
-    if (credit > 0 && restorable) {
+    // Realigns may only SHRINK the covered figure (growth = explicit
+    // debits only).
+    const shrunkCovered = Math.min(
+      live.coveredAmount,
+      clampCovered(args.newTotalAmount - args.paymentAmount),
+    );
+    if (!restorable) {
+      // Dead pass (cancelled/expired): consumed hours stay consumed.
+      // Shrinking minutes/value or stamping restoredAt here would make
+      // analytics double-count — the pass sale was already recognised
+      // while the booking's covered netting would vanish.
+      if (shrunkCovered !== live.coveredAmount) {
+        await tx.passRedemption.update({
+          where: { id: live.id },
+          data: { coveredAmount: shrunkCovered },
+        });
+      }
+      return { ok: true, passUsed: pass.id };
+    }
+    // Credit freed minutes back (bounded by what this booking holds).
+    const credit = Math.min(-delta, live.minutes);
+    if (credit > 0) {
       await tx.userPass.update({
         where: { id: pass.id },
         data: {
@@ -936,7 +1088,7 @@ export async function syncPassAfterAdminEdit(
       data: {
         minutes: newMinutes,
         value: Math.max(0, live.value - passMinutesValue(pass, credit)),
-        coveredAmount: clampCovered(args.newTotalAmount - args.paymentAmount),
+        coveredAmount: shrunkCovered,
         // All covered time gone → the redemption is effectively undone.
         ...(newMinutes <= 0 ? { restoredAt: new Date() } : {}),
       },
@@ -944,9 +1096,14 @@ export async function syncPassAfterAdminEdit(
     return { ok: true, passUsed: pass.id };
   }
 
-  // delta === 0, or delta > 0 without pass cover: keep minutes/value,
-  // realign coveredAmount to the invariant (repricing / date moves).
-  const target = clampCovered(args.newTotalAmount - args.paymentAmount);
+  // delta === 0, or delta > 0 without pass cover: keep minutes/value.
+  // The realign may only SHRINK coveredAmount (repricing down / date
+  // moves) — growing it toward newTotal − payment here would write the
+  // added-but-uncovered time off as pass-settled and zero the owed line.
+  const target = Math.min(
+    live.coveredAmount,
+    clampCovered(args.newTotalAmount - args.paymentAmount),
+  );
   if (target !== live.coveredAmount) {
     await tx.passRedemption.update({
       where: { id: live.id },

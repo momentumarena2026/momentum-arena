@@ -129,6 +129,49 @@ export interface RazorpayPaymentRecord {
   created_at: number; // unix ts seconds
 }
 
+/**
+ * Fetch an order record from Razorpay by orderId. The client-side
+ * signature only proves a capture happened — WHAT was bought (notes)
+ * and for HOW MUCH (amount, paise) must be re-read from the order we
+ * created server-side, never trusted from the client's payload.
+ *
+ * NOTE: Razorpay serialises empty notes as `[]` — treat non-object
+ * notes as absent.
+ */
+export interface RazorpayOrderRecord {
+  id: string; // order_…
+  entity: "order";
+  amount: number; // paise
+  amount_paid: number; // paise
+  amount_due: number; // paise
+  currency: string;
+  receipt: string | null;
+  status: string; // "created" | "attempted" | "paid"
+  notes: Record<string, string> | string[] | null;
+  created_at: number; // unix ts seconds
+}
+
+export async function fetchRazorpayOrder(
+  orderId: string,
+): Promise<RazorpayOrderRecord> {
+  const auth = Buffer.from(
+    `${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`,
+  ).toString("base64");
+  const response = await fetch(
+    `https://api.razorpay.com/v1/orders/${encodeURIComponent(orderId)}`,
+    {
+      method: "GET",
+      signal: AbortSignal.timeout(8000),
+      headers: { Authorization: `Basic ${auth}` },
+    },
+  );
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Razorpay order fetch failed: ${error}`);
+  }
+  return response.json();
+}
+
 export async function fetchRazorpayPayment(
   paymentId: string,
 ): Promise<RazorpayPaymentRecord> {
