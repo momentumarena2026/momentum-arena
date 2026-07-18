@@ -22,17 +22,19 @@ const FAB_SIZE = 60;
 /** Row height of the icons — the arc's flat edge lands on top of this. */
 const BAR_HEIGHT = 62;
 /**
- * Two radii, deliberately different. ITEM_RADIUS is where the three
- * icons sit; SHEET_* is the semicircle drawn behind them. The sheet has
- * to be tall enough to contain an icon PLUS its label at the top of the
- * arc — size them independently and the top item pokes out through the
- * curve.
+ * ONE radius, shared. The icon centres sit at exactly the sheet's
+ * radius, so the curve passes straight through the middle of each one —
+ * they read as floating on the rim rather than parked inside a bowl.
+ * Size them independently and you get either icons bunched in the
+ * centre with dead space above, or icons drifting off the top.
  */
-const ITEM_RADIUS = 74;
-const ITEM_HEIGHT = 66;
-const SHEET_W = 304;
-const SHEET_H = 152;
-
+const SHEET_R = 118;
+/** Icon puck; its centre is what lands on the curve. */
+const ICON_SIZE = 46;
+/** Label + gap sitting under the icon — the offset from the item's
+ *  bottom edge up to the icon's centre. */
+const LABEL_BLOCK = 18;
+const ICON_CENTRE_OFFSET = LABEL_BLOCK + ICON_SIZE / 2;
 
 /**
  * The four arc items fan out from the FAB along a semicircle: left,
@@ -41,9 +43,9 @@ const SHEET_H = 152;
  * straight up.
  */
 const ARC_ITEMS = [
-  { key: "Cafe", label: "Cafe", angle: 160, Icon: Coffee },
+  { key: "Cafe", label: "Cafe", angle: 145, Icon: Coffee },
   { key: "Location", label: "Reach us", angle: 90, Icon: MapPin },
-  { key: "Shop", label: "Shop", angle: 20, Icon: ShoppingBag },
+  { key: "Shop", label: "Shop", angle: 35, Icon: ShoppingBag },
 ] as const;
 
 const TABS = [
@@ -198,15 +200,18 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
 
           {ARC_ITEMS.map((item, i) => {
             const rad = (item.angle * Math.PI) / 180;
-            const dx = Math.cos(rad) * ITEM_RADIUS;
-            const dy = -Math.sin(rad) * ITEM_RADIUS;
+            const dx = Math.cos(rad) * SHEET_R;
+            // Negative moves up. The item is anchored ICON_CENTRE_OFFSET
+            // below the flat edge, so shifting up by exactly SHEET_R puts
+            // the icon's centre on the curve.
+            const dy = -Math.sin(rad) * SHEET_R;
             return (
               <Animated.View
                 key={item.key}
                 style={[
                   styles.arcItem,
                   {
-                    bottom: barTop + 6,
+                    bottom: barTop - ICON_CENTRE_OFFSET,
                     opacity: progress.interpolate({
                       inputRange: [0, 0.25 + (i * STAGGER_MS) / duration.slow, 1],
                       outputRange: [0, 0, 1],
@@ -421,10 +426,11 @@ const styles = StyleSheet.create({
   arcSheet: {
     position: "absolute",
     alignSelf: "center",
-    width: SHEET_W,
-    height: SHEET_H,
-    borderTopLeftRadius: SHEET_W / 2,
-    borderTopRightRadius: SHEET_W / 2,
+    // width 2R + height R + corner radius R == a true half-disc.
+    width: SHEET_R * 2,
+    height: SHEET_R,
+    borderTopLeftRadius: SHEET_R,
+    borderTopRightRadius: SHEET_R,
     backgroundColor: colors.cardElevated,
     borderWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: 0,
@@ -435,18 +441,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     alignSelf: "center",
     alignItems: "center",
-    // Floor, not a fixed height: SHEET_H is sized to contain an item of
-    // this height at the top of the arc. A user with large accessibility
-    // text will grow the label past it — better that it overflows the
-    // curve slightly than gets clipped.
-    minHeight: ITEM_HEIGHT,
     gap: 4,
     zIndex: 2,
   },
   arcButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    borderRadius: ICON_SIZE / 2,
     backgroundColor: colors.card,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.emerald500_30,
