@@ -232,16 +232,22 @@ export function DqrCheckout({
   // on `phase` — see the confirmed-phase effect below for why.
   const onConfirmedRef = useRef(onConfirmed);
   onConfirmedRef.current = onConfirmed;
-  const [manualCheck, setManualCheck] = useState<"idle" | "checking" | "unpaid">(
-    "idle",
-  );
   /**
-   * "Yes, I've paid" on a stuck payment. Reserves the slot as an
-   * UNCONFIRMED booking (admin verifies) rather than leaving the
-   * customer with nothing — booking-surface only, since cafe orders and
-   * pass purchases have no equivalent pending-verification queue.
+   * "I've paid" — the whole ladder, in one tap.
+   *
+   * The server polls PhonePe for a few seconds first: if the payment
+   * settled, the booking is confirmed and the customer gets the normal
+   * success flow. Only if PhonePe still won't acknowledge it does the
+   * slot get reserved as an UNCONFIRMED booking for an admin to verify —
+   * and either way the customer lands on their booking page rather than
+   * a spinner.
+   *
+   * This is also the "check status" button: a bare status check that
+   * leaves someone on a stuck spinner is the failure this whole path
+   * exists to remove.
    */
   const claimPaid = useCallback(async () => {
+    mayHavePaidRef.current = true;
     setClaiming(true);
     try {
       const res = await fetch("/api/phonepe/dqr/claim-paid", {
@@ -286,15 +292,6 @@ export function DqrCheckout({
       setClaiming(false);
     }
   }, [holdId, overrideAmount, stopPolling, clearStore]);
-
-  const manualCheckStatus = useCallback(async () => {
-    mayHavePaidRef.current = true;
-    setManualCheck("checking");
-    await checkStatus();
-    // On success checkStatus flips the phase to "confirmed" and this
-    // message never shows; otherwise tell them where things stand.
-    setManualCheck(doneRef.current ? "idle" : "unpaid");
-  }, [checkStatus]);
 
   const initiate = useCallback(async () => {
     // No synchronous setState here — this runs from the mount effect.
@@ -751,22 +748,12 @@ export function DqrCheckout({
                 gallery-scan users return here after paying in their UPI
                 app and hit the identical stuck-spinner path. */}
             <button
-              onClick={() => void manualCheckStatus()}
-              disabled={manualCheck === "checking"}
+              onClick={() => void claimPaid()}
+              disabled={claiming}
               className="mt-3 w-full rounded-xl border border-emerald-500/40 px-4 py-2.5 text-sm font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10 disabled:opacity-60"
             >
-              {manualCheck === "checking"
-                ? "Checking with PhonePe…"
-                : "I've paid — check status"}
+              {claiming ? "Checking with your bank…" : "I've paid — check status"}
             </button>
-            {manualCheck === "unpaid" && (
-              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-200">
-                PhonePe hasn&apos;t matched this payment yet. If money left
-                your account, <strong>don&apos;t pay again</strong> — we
-                verify every deducted amount and confirm your booking or
-                refund it.
-              </p>
-            )}
 
             {/* Scan-only mode on the same phone: no intent link to tap, so
                 keep the save-to-gallery workaround alive. */}
@@ -817,22 +804,12 @@ export function DqrCheckout({
               </p>
             )}
             <button
-              onClick={() => void manualCheckStatus()}
-              disabled={manualCheck === "checking"}
+              onClick={() => void claimPaid()}
+              disabled={claiming}
               className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
             >
-              {manualCheck === "checking"
-                ? "Checking with PhonePe…"
-                : "I've paid — check status"}
+              {claiming ? "Checking with your bank…" : "I've paid — check status"}
             </button>
-            {manualCheck === "unpaid" && (
-              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-200">
-                PhonePe hasn&apos;t matched this payment yet. If money left
-                your account, <strong>don&apos;t pay again</strong> — we
-                verify every deducted amount and confirm your booking or
-                refund it.
-              </p>
-            )}
             {launchedApp && (
               <button
                 onClick={() => launchApp(launchedApp.name, launchedApp.link)}

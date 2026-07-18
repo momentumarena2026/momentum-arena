@@ -652,6 +652,24 @@ export function DqrCheckout({
                 <Text variant="tiny" color={INK_FAINT} align="center">
                   Scan with any UPI app — confirms automatically once you pay.
                 </Text>
+                {/* Gallery-scan users pay in another app and come back
+                    here to the same stuck spinner — same one-tap ladder
+                    as the waiting screen. */}
+                <Pressable
+                  onPress={() => void claimPaid()}
+                  disabled={claiming}
+                  style={({ pressed }) => [
+                    styles.outlineBtn,
+                    pressed && styles.pressed,
+                    claiming && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text variant="body" weight="600" color={EMERALD_LIGHT}>
+                    {claiming
+                      ? "Checking with your bank…"
+                      : "I've paid — check status"}
+                  </Text>
+                </Pressable>
                 <View style={styles.bankNotice}>
                   <AlertCircle size={14} color={AMBER_STRIP_TEXT} style={styles.noticeIcon} />
                   <Text variant="tiny" color={AMBER_TEXT} style={styles.noticeBody}>
@@ -699,6 +717,26 @@ export function DqrCheckout({
                     </Text>
                   </Pressable>
                 ) : null}
+                {/* The customer is back from their UPI app and the poll
+                    hasn't caught the payment. One tap runs the whole
+                    ladder server-side — confirm if PhonePe settled,
+                    otherwise reserve the slot for verification — so
+                    nobody is left watching a spinner. */}
+                <Pressable
+                  onPress={() => void claimPaid()}
+                  disabled={claiming}
+                  style={({ pressed }) => [
+                    styles.outlineBtn,
+                    pressed && styles.pressed,
+                    claiming && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text variant="body" weight="600" color={EMERALD_LIGHT}>
+                    {claiming
+                      ? "Checking with your bank…"
+                      : "I've paid — check status"}
+                  </Text>
+                </Pressable>
                 <Pressable onPress={() => setPhase("apps")} style={styles.ghostBtn}>
                   <Text variant="small" color={INK_MUTED}>
                     Choose another app
