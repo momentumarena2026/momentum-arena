@@ -18,6 +18,7 @@ import {
   Lock,
   MapPin,
   Save,
+  Ticket,
   XCircle,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -72,6 +73,7 @@ export function AdminEditBookingScreen() {
   const [date, setDate] = useState<string | null>(null);
   const [courtConfigId, setCourtConfigId] = useState<string | null>(null);
   const [hours, setHours] = useState<number[]>([]);
+  const [coverWithPass, setCoverWithPass] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState<string>("");
   const [advanceMethod, setAdvanceMethod] = useState<"CASH" | "UPI_QR">(
     "UPI_QR",
@@ -105,6 +107,42 @@ export function AdminEditBookingScreen() {
     enabled: !!courtConfigId && !!date,
   });
 
+  // NET minutes delta — the measure the server gates on (a pure swap is
+  // delta 0 there, so a "fresh hours" count would offer a checkbox that
+  // silently does nothing).
+  const bookedHours = useMemo(
+    () => new Set((booking?.slots ?? []).map((s) => s.startHour)),
+    [booking],
+  );
+  // Mirrors the server: KEPT hours retain their existing rows (a 30-min
+  // extension stays 30 min), only genuinely new hours become 60-min
+  // rows. Measuring in whole hours would disagree whenever a booking
+  // carries an extension row.
+  // Real minutes PER HOUR — an hour can hold a full slot plus a 30-min
+  // extension. Averaging them mislabels the edit and can show a pass
+  // option the server then ignores.
+  const minutesByHour = useMemo(() => {
+    const m: Record<number, number> = {};
+    for (const s of booking?.slots ?? []) {
+      m[s.startHour] = (m[s.startHour] ?? 0) + (s.durationMinutes ?? 60);
+    }
+    return m;
+  }, [booking]);
+  // Rows this save ADDS (a swap adds one even at an unchanged total) and
+  // rows it FREES. The pass is debited the net, so the balance gate uses
+  // added − dropped while the option shows on any addition.
+  const selectedHourSet = new Set(hours);
+  const addedMinutes =
+    [...selectedHourSet].filter((h) => !bookedHours.has(h)).length * 60;
+  const droppedMinutes = [...bookedHours]
+    .filter((h) => !selectedHourSet.has(h))
+    .reduce((sum, h) => sum + (minutesByHour[h] ?? 60), 0);
+  const netPassMinutes = Math.max(0, addedMinutes - droppedMinutes);
+
+  useEffect(() => {
+    if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedMinutes, coverWithPass]);
+
   const save = useMutation({
     mutationFn: () => {
       const payload: Parameters<typeof adminBookingsApi.editBooking>[1] = {};
@@ -133,6 +171,10 @@ export function AdminEditBookingScreen() {
         (advanceMethod === "CASH" || advanceMethod === "UPI_QR")
       ) {
         payload.newAdvanceMethod = advanceMethod;
+      }
+      // Only meaningful when the edit ADDS time.
+      if (coverWithPass && addedMinutes > 0) {
+        payload.coverDeltaWithPass = true;
       }
       return adminBookingsApi.editBooking(params.bookingId, payload);
     },
@@ -353,6 +395,40 @@ export function AdminEditBookingScreen() {
           </View>
         ) : null}
 
+        {/* Cover the added time from the customer's pass — mirrors the
+            web edit modal; the server re-validates and rejects a pass
+            that can't cover this court/date. */}
+        {booking.extendPass && addedMinutes > 0 ? (
+          <Pressable
+            onPress={() => {
+              if (booking.extendPass!.remainingMinutes < netPassMinutes) return;
+              setCoverWithPass((v) => !v);
+            }}
+            style={[
+              styles.passOption,
+              booking.extendPass.remainingMinutes < netPassMinutes &&
+                styles.passOptionDisabled,
+            ]}
+          >
+            <Ticket size={14} color="#34d399" />
+            <Text variant="small" color="#34d399" style={{ flex: 1 }}>
+              {droppedMinutes > 0 && netPassMinutes === 0
+                ? `Keep the moved ${addedMinutes / 60}h on `
+                : `Cover the added ${addedMinutes / 60}h from `}
+              {booking.extendPass.name}
+              {" ("}
+              {(booking.extendPass.remainingMinutes / 60)
+                .toFixed(1)
+                .replace(/\.0$/, "")}
+              h left)
+              {booking.extendPass.remainingMinutes < netPassMinutes
+                ? " — not enough balance"
+                : ""}
+            </Text>
+            {coverWithPass ? <Check size={16} color="#34d399" /> : null}
+          </Pressable>
+        ) : null}
+
         {/* Save / Cancel */}
         <View style={styles.actions}>
           <Pressable
@@ -571,6 +647,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["1.5"],
   },
+  passOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.30)",
+    backgroundColor: "rgba(52, 211, 153, 0.10)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2.5"],
+  },
+  passOptionDisabled: { opacity: 0.5 },
   actions: {
     flexDirection: "row",
     gap: spacing["2"],

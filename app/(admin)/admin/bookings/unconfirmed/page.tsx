@@ -6,6 +6,7 @@ import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import { Clock, AlertTriangle, Search } from "lucide-react";
 import { UnconfirmedActions } from "./unconfirmed-actions";
+import { ClaimedActions } from "./claimed-actions";
 
 export default async function UnconfirmedBookingsPage({
   searchParams,
@@ -42,6 +43,48 @@ export default async function UnconfirmedBookingsPage({
     db.booking.count({ where }),
   ]);
 
+  // Customer-claimed cafe/pass payments PhonePe hasn't confirmed. These
+  // stay as INTENTS rather than materialised orders/passes — an
+  // unverified pass would be immediately redeemable — so they're listed
+  // separately with their own verify/dismiss actions.
+  const [claimedCafe, claimedPasses] = await Promise.all([
+    db.cafePaymentIntent.findMany({
+      where: { claimedAt: { not: null }, consumedOrderId: null },
+      orderBy: { claimedAt: "desc" },
+      take: 50,
+    }),
+    db.passPurchaseIntent.findMany({
+      where: { claimedAt: { not: null }, consumedUserPassId: null },
+      orderBy: { claimedAt: "desc" },
+      take: 50,
+    }),
+  ]);
+  const claimedUserIds = [
+    ...new Set(
+      [...claimedCafe, ...claimedPasses]
+        .map((c) => c.userId)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const claimedUsers = claimedUserIds.length
+    ? await db.user.findMany({
+        where: { id: { in: claimedUserIds } },
+        select: { id: true, name: true, phone: true },
+      })
+    : [];
+  const userById = new Map(claimedUsers.map((u) => [u.id, u]));
+  const planById = new Map(
+    claimedPasses.length
+      ? (
+          await db.passPlan.findMany({
+            where: { id: { in: claimedPasses.map((p) => p.planId) } },
+            select: { id: true, name: true, price: true },
+          })
+        ).map((p) => [p.id, p])
+      : [],
+  );
+  const claimedTotal = claimedCafe.length + claimedPasses.length;
+
   const totalPages = Math.ceil(total / limit);
 
   return (
@@ -52,9 +95,11 @@ export default async function UnconfirmedBookingsPage({
             <AlertTriangle className="h-5 w-5 text-amber-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white">Unconfirmed Bookings</h1>
+            <h1 className="text-2xl font-bold text-white">Unconfirmed Payments</h1>
             <p className="text-sm text-zinc-400">
-              {total} booking{total !== 1 ? "s" : ""} awaiting payment verification
+              {total + claimedTotal} payment
+              {total + claimedTotal !== 1 ? "s" : ""} awaiting verification
+              {claimedTotal > 0 ? ` · ${total} booking${total !== 1 ? "s" : ""}, ${claimedTotal} cafe/pass` : ""}
             </p>
           </div>
         </div>
@@ -185,6 +230,112 @@ export default async function UnconfirmedBookingsPage({
               Next
             </Link>
           )}
+        </div>
+      )}
+
+      {/* Cafe orders + pass purchases the customer says they paid for,
+          which PhonePe hasn't confirmed. Kept as intents until verified:
+          materialising early would hand out a redeemable pass or an
+          order nobody has been paid for. */}
+      {claimedTotal > 0 && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              Cafe &amp; pass payments
+            </h2>
+            <p className="text-sm text-zinc-400">
+              Customer reported paying; PhonePe hasn&apos;t confirmed. Verify
+              re-checks with PhonePe — if it still won&apos;t confirm, look the
+              transaction up in the PhonePe Business dashboard before
+              confirming manually.
+            </p>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-zinc-800">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-800 bg-zinc-900/80">
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Customer</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Item</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Amount</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">PhonePe txn</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Claimed</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/50">
+                  {claimedCafe.map((c) => {
+                    const u = c.userId ? userById.get(c.userId) : null;
+                    return (
+                      <tr key={c.id} className="bg-zinc-900/30 hover:bg-zinc-800/50">
+                        <td className="px-4 py-3">
+                          <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[10px] font-medium text-orange-300">Cafe</span>
+                        </td>
+                        <td className="px-4 py-3 text-white">
+                          {u?.name || c.guestName || u?.phone || c.guestPhone || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">Cafe order</td>
+                        <td className="px-4 py-3 font-semibold whitespace-nowrap text-white">
+                          {formatPrice(c.totalAmount)}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-zinc-500">
+                          {c.phonePeMerchantTxnId ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-zinc-400">
+                          {c.claimedAt
+                            ? new Date(c.claimedAt).toLocaleTimeString("en-IN", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                timeZone: "Asia/Kolkata",
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <ClaimedActions kind="cafe" intentId={c.id} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {claimedPasses.map((p) => {
+                    const u = userById.get(p.userId);
+                    const plan = planById.get(p.planId);
+                    return (
+                      <tr key={p.id} className="bg-zinc-900/30 hover:bg-zinc-800/50">
+                        <td className="px-4 py-3">
+                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">Pass</span>
+                        </td>
+                        <td className="px-4 py-3 text-white">
+                          {u?.name || u?.phone || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">
+                          {plan?.name ?? "Pass"}
+                        </td>
+                        <td className="px-4 py-3 font-semibold whitespace-nowrap text-white">
+                          {plan ? formatPrice(plan.price) : "—"}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-zinc-500">
+                          {p.phonePeMerchantTxnId ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-zinc-400">
+                          {p.claimedAt
+                            ? new Date(p.claimedAt).toLocaleTimeString("en-IN", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                timeZone: "Asia/Kolkata",
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <ClaimedActions kind="pass" intentId={p.id} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -116,6 +116,9 @@ export async function POST(request: NextRequest) {
         paymentMethod: isAdvance ? "CASH" : "PHONEPE",
         paymentAmount: orderAmount,
         paymentInitiatedAt: new Date(),
+        // Abandoned pass top-up → paying the full way; drop the
+        // attachment so no callback treats this as a top-up.
+        redeemPassId: null,
         expiresAt: new Date(
           Date.now() + PAYMENT_ATTEMPT_TTL_MINUTES * 60 * 1000
         ),

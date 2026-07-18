@@ -1,7 +1,22 @@
 "use server";
 
+import { after } from "next/server";
+
 import { db } from "@/lib/db";
-import { restorePassForBooking, passMinutesValue } from "@/lib/passes";
+import { completePassTopup } from "@/lib/pass-topup";
+import { qrStatus } from "@/lib/phonepe-dqr";
+import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
+import {
+  restorePassForBooking,
+  passMinutesValue,
+  syncPassAfterAdminEdit,
+  passCoversCourtGroup,
+  passBandsCoverHours,
+  parseCoveredSlots,
+  adoptLegacyCoverage,
+  confirmDqrPass,
+  shouldCoverDelta,
+} from "@/lib/passes";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
@@ -91,7 +106,12 @@ export async function confirmCashPayment(bookingId: string, adminIdOverride?: st
 
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  // after(): a bare fire-and-forget is killed when the function freezes.
+  after(async () => {
+    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
+      console.error("[notify] admin confirmed failed", err),
+    );
+  });
   // Award reward points (idempotent — safe to re-run on retries).
   void awardBookingPoints(bookingId).catch((err) =>
     console.error("[rewards] award failed for", bookingId, err),
@@ -133,7 +153,12 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
 
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  // after(): a bare fire-and-forget is killed when the function freezes.
+  after(async () => {
+    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
+      console.error("[notify] admin confirmed failed", err),
+    );
+  });
   // Award reward points (idempotent — safe to re-run on retries).
   void awardBookingPoints(bookingId).catch((err) =>
     console.error("[rewards] award failed for", bookingId, err),
@@ -189,9 +214,11 @@ export async function confirmBookingManually(
   });
 
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch((err) =>
-    console.error("Notification dispatch failed:", err),
-  );
+  after(async () => {
+    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
+      console.error("[notify] admin confirmed failed", err),
+    );
+  });
   void awardBookingPoints(bookingId).catch((err) =>
     console.error("[rewards] award failed for", bookingId, err),
   );
@@ -260,6 +287,21 @@ export async function markRemainderCollected(
   if (!booking.payment) return { success: false, error: "No payment on this booking" };
   if (!booking.payment.isPartialPayment) {
     return { success: false, error: "Booking is not a partial payment" };
+  }
+  // Defense in depth: a pass-covered booking must never take remainder
+  // money on top of coveredAmount (double-charging the covered hours).
+  {
+    const red = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+      return {
+        success: false,
+        error:
+          "This booking is (partly) paid with a pass — collect only what the booking detail's pass section shows as owed.",
+      };
+    }
   }
   // Use Payment.remainingAmount only as the "still owed?" gate — the
   // amount to charge at the venue is derived from totalAmount - advance
@@ -403,6 +445,19 @@ export async function updateRemainderSplit(
   if (!booking.payment) return { success: false, error: "No payment on this booking" };
   if (!booking.payment.isPartialPayment) {
     return { success: false, error: "Booking is not a partial payment" };
+  }
+  {
+    const red = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+      return {
+        success: false,
+        error:
+          "This booking is (partly) paid with a pass — its split can't be edited here.",
+      };
+    }
   }
   if ((booking.payment.remainingAmount ?? 0) > 0) {
     return { success: false, error: "Remainder not yet collected" };
@@ -753,6 +808,24 @@ export async function adminEditPayment(
   }
   if (!booking.payment) {
     return { success: false as const, error: "No payment row to edit" };
+  }
+  // Pass-covered bookings manage their money through the pass ledger
+  // (Payment.amount + PassRedemption.coveredAmount). Manual payment
+  // surgery here would desync coveredAmount and double-charge or hide
+  // the covered hours — route admins to edit-slots (with the pass
+  // option), cancel, or refund instead.
+  {
+    const red = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+      return {
+        success: false as const,
+        error:
+          "This booking is (partly) paid with a pass — its payment figures are managed automatically. Edit slots (with the pass option), cancel, or refund instead.",
+      };
+    }
   }
   const prior = booking.payment;
 
@@ -1263,6 +1336,7 @@ export async function getAdminStats() {
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { zonesOverlap } from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 async function requireAdminWithDetails() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -2110,8 +2184,16 @@ export async function adminCreateBooking(data: {
       data.paymentMethod === "RAZORPAY" ||
       isPartial;
     if (paymentIsCompleted) {
-      sendBookingConfirmation(bookingId).catch(console.error);
-      notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+      after(async () => {
+        await Promise.allSettled([
+          sendBookingConfirmation(bookingId).catch((err) =>
+            console.error("[notify] booking confirmation failed", err),
+          ),
+          notifyAdminBookingConfirmed(bookingId).catch((err) =>
+            console.error("[notify] admin confirmed failed", err),
+          ),
+        ]);
+      });
       // Intentionally no awardBookingPoints call here: admin-created
       // bookings carry Booking.createdByAdminId, and the gate inside
       // awardBookingPoints skips them. The customer didn't make the
@@ -2132,6 +2214,95 @@ export async function adminCreateBooking(data: {
 // ---------------------------------------------------------------------------
 // adminEditBookingSlots
 // ---------------------------------------------------------------------------
+
+/**
+ * Do two courts charge the same for every hour on a date? PricingRule
+ * is per courtConfig, so two courts in the same interchangeable group
+ * (sport+size+category) may still be priced differently — only
+ * identical pricing makes carrying slot rows across a court move
+ * money-neutral.
+ */
+async function courtsPriceIdentically(
+  fromCourtConfigId: string,
+  toCourtConfigId: string,
+  date: Date,
+): Promise<boolean> {
+  const [from, to] = await Promise.all([
+    getSlotPricesForDate(fromCourtConfigId, date).catch(() => null),
+    getSlotPricesForDate(toCourtConfigId, date).catch(() => null),
+  ]);
+  if (!from || !to || from.length !== to.length) return false;
+  const toByHour = new Map(to.map((s) => [s.hour, s.price]));
+  return from.every((s) => toByHour.get(s.hour) === s.price);
+}
+
+/**
+ * The BookingSlot rows an HOURLY edit writes. Hours already on the
+ * booking keep their existing rows verbatim — startMinute, duration and
+ * price — so a 30-min extension slot (₹0 pass-paid or admin-priced)
+ * survives a re-save instead of being inflated into a repriced 60-min
+ * row; an unchanged visible selection therefore yields a zero
+ * minutes/price delta. Only newly added hours become fresh 60-min rows
+ * at the day's rate, and `reprice` (date/court moved) re-rates kept
+ * FULL-HOUR rows only — extension prices were set explicitly.
+ */
+function buildHourlySlotRows(args: {
+  existingSlots: {
+    startHour: number;
+    startMinute: number;
+    durationMinutes: number;
+    price: number;
+  }[];
+  newHours: number[];
+  priceFor: (hour: number) => number;
+  reprice: boolean;
+}): {
+  startHour: number;
+  startMinute: number;
+  durationMinutes: number;
+  price: number;
+}[] {
+  const byHour = new Map<number, (typeof args.existingSlots)[number][]>();
+  for (const s of args.existingSlots) {
+    const list = byHour.get(s.startHour);
+    if (list) list.push(s);
+    else byHour.set(s.startHour, [s]);
+  }
+  const rows: {
+    startHour: number;
+    startMinute: number;
+    durationMinutes: number;
+    price: number;
+  }[] = [];
+  const seen = new Set<number>();
+  for (const h of args.newHours) {
+    if (seen.has(h)) continue; // an hour with two rows (slot + extension) lists once
+    seen.add(h);
+    const existing = byHour.get(h);
+    if (existing) {
+      for (const s of existing) {
+        rows.push({
+          startHour: s.startHour,
+          startMinute: s.startMinute,
+          durationMinutes: s.durationMinutes,
+          price:
+            args.reprice && s.durationMinutes === 60
+              ? args.priceFor(h)
+              : s.price,
+        });
+      }
+    } else {
+      rows.push({
+        startHour: h,
+        startMinute: 0,
+        durationMinutes: 60,
+        price: args.priceFor(h),
+      });
+    }
+  }
+  return rows;
+}
+
 export async function adminEditBookingSlots(
   bookingId: string,
   // Hourly picks (cricket / football / pickleball). For bowling-
@@ -2148,6 +2319,10 @@ export async function adminEditBookingSlots(
   // BookingSlot with startMinute=minute + durationMinutes=30. Mutually
   // exclusive with `newHours`.
   bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>,
+  // Cover ADDED minutes from the customer's pass (the booking's own
+  // pass when pass-paid, else their best eligible pass). Validated +
+  // debited atomically by syncPassAfterAdminEdit inside the tx.
+  coverDeltaWithPass?: boolean,
 ) {
   const admin = adminOverride ?? (await requireAdminWithDetails());
 
@@ -2203,11 +2378,17 @@ export async function adminEditBookingSlots(
 
     let newPreDiscountTotal: number;
     let bowlingPriceMap: Map<string, number> | null = null;
-    let priceMap: Map<number, number> = new Map();
-    // Off-hours fallback for the hourly path — populated inside the
-    // !usingBowling branch alongside priceMap. Default to 0 here for
-    // the bowling branch which never touches it.
-    let peakPriceForEdit = 0;
+    // The exact rows the hourly path will write — kept-hour rows preserve
+    // their duration/price (incl. 30-min extensions) so the minutes/price
+    // delta below measures what's actually written.
+    let hourlySlotRows:
+      | {
+          startHour: number;
+          startMinute: number;
+          durationMinutes: number;
+          price: number;
+        }[]
+      | null = null;
 
     if (usingBowling) {
       // 30-min path — re-validate via the bowling availability surface
@@ -2307,19 +2488,22 @@ export async function adminEditBookingSlots(
         }
       }
       const slotPrices = await getSlotPricesForDate(config.id, dateOnly);
-      priceMap = new Map<number, number>(
+      const priceMap = new Map<number, number>(
         slotPrices.map((s) => [s.hour, s.price]),
       );
       // Off-hours (admin-only) fall back to PEAK — see the
       // create-booking path for the rationale.
-      peakPriceForEdit = slotPrices.reduce(
+      const peakPriceForEdit = slotPrices.reduce(
         (max, s) => (s.price > max ? s.price : max),
         0,
       );
-      newPreDiscountTotal = newHours.reduce(
-        (sum, h) => sum + (priceMap.get(h) ?? peakPriceForEdit),
-        0,
-      );
+      hourlySlotRows = buildHourlySlotRows({
+        existingSlots: booking.slots,
+        newHours,
+        priceFor: (h) => priceMap.get(h) ?? peakPriceForEdit,
+        reprice: dateChanged,
+      });
+      newPreDiscountTotal = hourlySlotRows.reduce((sum, r) => sum + r.price, 0);
     }
 
     // Carry the booking-level discount through, same as
@@ -2349,18 +2533,73 @@ export async function adminEditBookingSlots(
       newDiscountAmount = Math.min(newDiscountAmount, newPreDiscountTotal);
     }
 
-    const newTotalAmount = Math.max(
-      newPreDiscountTotal - newDiscountAmount,
-      0,
-    );
+    // Booking.totalAmount covers slots AND gear. Rewriting it from the
+    // slot prices alone would drop the equipment base — and
+    // applyEquipmentDelta (which reprices relative to totalAmount) would
+    // then subtract it a second time on the next gear change.
+    const equipmentBase = booking.equipmentTotalAmount ?? 0;
+    const newTotalAmount =
+      Math.max(newPreDiscountTotal - newDiscountAmount, 0) + equipmentBase;
     const newOriginalAmount =
-      newDiscountAmount > 0 ? newPreDiscountTotal : null;
+      newDiscountAmount > 0 ? newPreDiscountTotal + equipmentBase : null;
 
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
+
+    // Pass-paid bookings keep their Payment row untouched (₹0 for full
+    // coverage, the top-up remainder otherwise) — money truth lives in
+    // Payment.amount + PassRedemption.coveredAmount, which the sync
+    // below realigns to the new total.
+    const liveRedemption = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true },
+    });
+    const isPassCovered =
+      (!!liveRedemption && !liveRedemption.restoredAt) ||
+      booking.payment?.method === "PASS" ||
+      // Top-up bookings stay pass-covered even after their redemption is
+      // restored — Payment.amount is the captured remainder, never the
+      // slot total.
+      booking.payment?.confirmedBy === "PASS_TOPUP";
+    const oldBookedMinutes = booking.slots.reduce(
+      (sum, s) => sum + s.durationMinutes,
+      0,
+    );
+    // Measure minutes from the rows actually written — kept extension
+    // slots stay 30 min, so an unchanged selection yields delta 0.
+    const newBookedMinutes = usingBowling
+      ? bowlingSlots!.length * 30
+      : hourlySlotRows!.reduce((sum, r) => sum + r.durationMinutes, 0);
     const effectiveNewHours = usingBowling
       ? bowlingSlots!.map((s) => s.hour).sort((a, b) => a - b)
       : newHours;
+    // Which rows this save ADDS — at SLOT granularity, so the bowling
+    // 30-min grid is handled too (adding 14:30 to a booking that already
+    // holds 14:00 is a real addition even though the hour is unchanged).
+    // The sync band-checks the added hours and refuses to draw pass
+    // coverage from rows the pass was never debited for.
+    const bookedSlotKeys = new Set(
+      booking.slots.map((s) => `${s.startHour}:${s.startMinute}`),
+    );
+    const newSlotsForPass = usingBowling
+      ? bowlingSlots!.map((sl) => ({
+          startHour: sl.hour,
+          startMinute: sl.minute,
+          durationMinutes: 30,
+          price: bowlingPriceMap!.get(`${sl.hour}:${sl.minute}`) ?? 0,
+          isNew: !bookedSlotKeys.has(`${sl.hour}:${sl.minute}`),
+        }))
+      : hourlySlotRows!.map((r) => ({
+          startHour: r.startHour,
+          startMinute: r.startMinute,
+          durationMinutes: r.durationMinutes,
+          price: r.price,
+          isNew: !bookedSlotKeys.has(`${r.startHour}:${r.startMinute}`),
+        }));
+    // Gate on added ROWS, not a net minute increase — a swap adds a slot
+    // the pass must pay for even though the total is unchanged. A stale
+    // tick on a pure REMOVAL still can't cover anything (no new rows).
+    const coverDelta = shouldCoverDelta(coverDeltaWithPass, newSlotsForPass);
 
     await db.$transaction(async (tx) => {
       // Delete old slots
@@ -2383,13 +2622,7 @@ export async function adminEditBookingSlots(
         });
       } else {
         await tx.bookingSlot.createMany({
-          data: newHours.map((h) => ({
-            bookingId,
-            startHour: h,
-            startMinute: 0,
-            durationMinutes: 60,
-            price: priceMap.get(h) ?? peakPriceForEdit,
-          })),
+          data: hourlySlotRows!.map((r) => ({ bookingId, ...r })),
         });
       }
 
@@ -2416,12 +2649,49 @@ export async function adminEditBookingSlots(
       // Update payment amount if exists. Partial-payment bookings have
       // their own edit flow (adminEditBookingFull) that keeps advance +
       // remainder in sync; here we only touch non-partial payments so we
-      // don't clobber the advance figure.
-      if (booking.payment && !booking.payment.isPartialPayment) {
+      // don't clobber the advance figure. Pass-covered bookings are also
+      // left alone — their Payment.amount is the money actually captured
+      // (0 or the top-up remainder), never the slot total. Same when the
+      // admin asked a pass to cover the delta: overwriting to the new
+      // total would fabricate captured revenue and zero the redemption's
+      // coveredAmount below.
+      if (
+        booking.payment &&
+        !booking.payment.isPartialPayment &&
+        !isPassCovered &&
+        !coverDelta
+      ) {
         await tx.payment.update({
           where: { id: booking.payment.id },
           data: { amount: newTotalAmount },
         });
+      }
+
+      // Keep the pass ledger coherent with the new slots: debit added
+      // minutes when requested (validating balance/court/date), credit
+      // removed minutes back, and realign coveredAmount so
+      // owed-at-venue = total − payment − covered stays exact.
+      {
+        const paymentAfterEdit = booking.payment
+          ? booking.payment.isPartialPayment || isPassCovered || coverDelta
+            ? booking.payment.amount
+            : newTotalAmount
+          : 0;
+        const passSync = await syncPassAfterAdminEdit(tx, {
+          bookingId,
+          bookingUserId: booking.userId,
+          bookingDate: dateChanged ? dateOnly! : booking.date,
+          courtConfigId: booking.courtConfigId,
+          newTotalAmount,
+          paymentAmount: paymentAfterEdit,
+          // The rows this edit actually wrote, each flagged as pre-existing
+          // or newly added — the sync draws the pass's share only from
+          // rows it legitimately paid for.
+          newSlots: newSlotsForPass,
+          equipmentAmount: equipmentBase,
+          coverDeltaWithPass: coverDelta,
+        });
+        if (!passSync.ok) throw new Error(passSync.error);
       }
 
       // Emit a date-change entry first so the history stays chronologically
@@ -2515,6 +2785,9 @@ export async function adminEditBookingFull(
     // as Cash, actually came in via static QR).
     newAdvanceAmount?: number;
     newAdvanceMethod?: "CASH" | "UPI_QR";
+    // Cover ADDED minutes from the customer's pass (validated + debited
+    // atomically inside the tx by syncPassAfterAdminEdit).
+    coverDeltaWithPass?: boolean;
   },
   adminOverride?: { id: string; username: string }
 ) {
@@ -2540,7 +2813,12 @@ export async function adminEditBookingFull(
       ? new Date(data.newDate + "T00:00:00Z")
       : booking.date;
     const finalCourtConfigId = data.newCourtConfigId ?? booking.courtConfigId;
-    const finalHours = data.newHours ?? booking.slots.map((s) => s.startHour);
+    // Deduped: a booking with a full-hour slot AND a 30-min extension in
+    // the same hour maps to one visible hour (both rows are preserved by
+    // the slot-row builder below).
+    const finalHours = [
+      ...new Set(data.newHours ?? booking.slots.map((s) => s.startHour)),
+    ];
 
     // Validate hours — admin gets the full 24h clock; see the
     // create-booking validator earlier in this file for the
@@ -2561,6 +2839,20 @@ export async function adminEditBookingFull(
 
     if (!finalConfig) return { success: false as const, error: "Court config not found" };
     if (!finalConfig.isActive) return { success: false as const, error: "Court is not active" };
+    // Bowling-machine bookings live on a 30-min grid this hourly editor
+    // would corrupt into hour rows (and moving an hourly booking ONTO
+    // the machine needs 30-min picks it can't express). The slot editor
+    // (adminEditBookingSlots + bowlingSlots) owns that grid.
+    if (
+      (finalConfig.slotDurationMinutes ?? 60) === 30 ||
+      finalConfig.category === "BOWLING_MACHINE"
+    ) {
+      return {
+        success: false as const,
+        error:
+          "Bowling-machine bookings use the 30-min slot editor — edit slots there instead.",
+      };
+    }
 
     // Check availability excluding current booking
     const activeBookings = await db.booking.findMany({
@@ -2621,8 +2913,36 @@ export async function adminEditBookingFull(
       (max, s) => (s.price > max ? s.price : max),
       0,
     );
-    const newPreDiscountTotal = finalHours.reduce(
-      (sum, h) => sum + (priceMap.get(h) ?? peakPriceForBookingEdit),
+    // Kept hours preserve their existing rows (a 30-min extension keeps
+    // its duration + explicitly-set price); only fresh hours become
+    // 60-min rows, repriced on a date move. Moving to a court in a
+    // DIFFERENT group re-bases every hour as a fresh 60-min row on the
+    // new court's pricing — durations/prices carried from another court
+    // (e.g. the bowling machine's 30-min grid) aren't meaningful there.
+    // A move WITHIN the group (cricket LEFT → RIGHT) is the same product
+    // at the same price, so rows carry over untouched — otherwise a
+    // 30-min extension would silently inflate into a full-price hour.
+    // Preserve rows only when the destination court PRICES the same —
+    // court-group membership (sport+size+category) doesn't guarantee it,
+    // since PricingRule is per courtConfig. Same prices ⇒ carrying the
+    // rows over is a no-op for money and keeps 30-min extensions
+    // intact; different prices ⇒ re-base so totalAmount reflects the
+    // destination court.
+    const courtChangedForRows =
+      finalCourtConfigId !== booking.courtConfigId &&
+      !(await courtsPriceIdentically(
+        booking.courtConfigId,
+        finalCourtConfigId,
+        finalDate,
+      ));
+    const newSlotRows = buildHourlySlotRows({
+      existingSlots: courtChangedForRows ? [] : booking.slots,
+      newHours: finalHours,
+      priceFor: (h) => priceMap.get(h) ?? peakPriceForBookingEdit,
+      reprice: finalDate.getTime() !== booking.date.getTime(),
+    });
+    const newPreDiscountTotal = newSlotRows.reduce(
+      (sum, r) => sum + r.price,
       0,
     );
 
@@ -2661,16 +2981,18 @@ export async function adminEditBookingFull(
       newDiscountAmount = Math.min(newDiscountAmount, newPreDiscountTotal);
     }
 
-    const newTotalAmount = Math.max(
-      newPreDiscountTotal - newDiscountAmount,
-      0,
-    );
+    // Slots AND gear — see the slots editor: dropping the equipment base
+    // here would make the next applyEquipmentDelta subtract it twice.
+    const equipmentBaseFull = booking.equipmentTotalAmount ?? 0;
+    const newTotalAmount =
+      Math.max(newPreDiscountTotal - newDiscountAmount, 0) + equipmentBaseFull;
     // originalAmount tracks the pre-discount slot total whenever a
     // discount is applied, so the UI can render the strike-through
     // "₹X" alongside the actual charge. Null it out if the new total
     // is undiscounted (e.g. a FLAT coupon was capped to zero by a
     // tiny new total).
-    const newOriginalAmount = newDiscountAmount > 0 ? newPreDiscountTotal : null;
+    const newOriginalAmount =
+      newDiscountAmount > 0 ? newPreDiscountTotal + equipmentBaseFull : null;
 
     const previousHours = booking.slots.map((s) => s.startHour).sort((a, b) => a - b);
     const previousAmount = booking.totalAmount;
@@ -2733,14 +3055,11 @@ export async function adminEditBookingFull(
         },
       });
 
-      // Delete old slots, create new
+      // Delete old slots, create new — explicit startMinute/duration so
+      // 30-min extension rows survive and nothing rides schema defaults.
       await tx.bookingSlot.deleteMany({ where: { bookingId } });
       await tx.bookingSlot.createMany({
-        data: finalHours.map((h) => ({
-          bookingId,
-          startHour: h,
-          price: priceMap.get(h) ?? peakPriceForBookingEdit,
-        })),
+        data: newSlotRows.map((r) => ({ bookingId, ...r })),
       });
 
       // Update payment amount / advance fields if payment exists.
@@ -2765,7 +3084,75 @@ export async function adminEditBookingFull(
       //     "collect ₹X extra at venue". If the new total exceeds the
       //     captured amount, flip the payment to PARTIAL with the
       //     remainder so existing partial-payment UX kicks in.
-      if (booking.payment) {
+      // Pass-covered bookings (live PassRedemption or method PASS) keep
+      // their Payment row exactly as captured: ₹0 for full coverage or
+      // the top-up remainder. Flipping them PARTIAL (case 3) or
+      // overwriting amount would double-charge the covered hours — the
+      // pass sync below realigns coveredAmount instead, so
+      // owed-at-venue = total − payment − covered stays exact.
+      const liveRedemptionFull = await tx.passRedemption.findUnique({
+        where: { bookingId },
+        select: { restoredAt: true },
+      });
+      const isPassCoveredFull =
+        (!!liveRedemptionFull && !liveRedemptionFull.restoredAt) ||
+        booking.payment?.method === "PASS" ||
+        // Top-up bookings stay pass-covered even once the redemption is
+        // restored — Payment.amount is the captured remainder, never the
+        // slot total.
+        booking.payment?.confirmedBy === "PASS_TOPUP";
+
+      // The sync runs FIRST so the payment write below knows how much of
+      // the new total a pass just settled — a partial booking's
+      // "collect at venue" figure must exclude the covered delta.
+      const oldMinFull = booking.slots.reduce((s, x) => s + x.durationMinutes, 0);
+      // Measure what's actually written — kept extension rows stay
+      // 30 min, so an unchanged selection yields delta 0.
+      const newMinFull = newSlotRows.reduce((s, r) => s + r.durationMinutes, 0);
+      // A stale tick from a selection later changed into a removal has
+      // no added time to cover.
+      const bookedSlotKeysFull = new Set(
+        booking.slots.map((x) => `${x.startHour}:${x.startMinute}`),
+      );
+      const newSlotsForPassFull = newSlotRows.map((r) => ({
+        startHour: r.startHour,
+        startMinute: r.startMinute,
+        durationMinutes: r.durationMinutes,
+        price: r.price,
+        isNew: !bookedSlotKeysFull.has(`${r.startHour}:${r.startMinute}`),
+      }));
+      const coverDeltaFull = shouldCoverDelta(
+        data.coverDeltaWithPass,
+        newSlotsForPassFull,
+      );
+      // Mirrors the paymentUpdate branch order below so the sync sees
+      // exactly the Payment.amount the edit leaves behind.
+      const paymentAfterEdit = booking.payment
+        ? isPassCoveredFull
+          ? booking.payment.amount
+          : booking.payment.isPartialPayment && finalAdvance !== null
+            ? finalAdvance
+            : coverDeltaFull
+              ? booking.payment.amount
+              : booking.createdByAdminId
+                ? newTotalAmount
+                : booking.payment.amount
+        : 0;
+      const passSync = await syncPassAfterAdminEdit(tx, {
+        bookingId,
+        bookingUserId: booking.userId,
+        bookingDate: finalDate,
+        courtConfigId: finalCourtConfigId,
+        newTotalAmount,
+        paymentAmount: paymentAfterEdit,
+        newSlots: newSlotsForPassFull,
+        equipmentAmount: equipmentBaseFull,
+        coverDeltaWithPass: coverDeltaFull,
+      });
+      if (!passSync.ok) throw new Error(passSync.error);
+      const passCovered = passSync.coveredAmount;
+
+      if (booking.payment && !isPassCoveredFull) {
         const paymentUpdate: {
           amount?: number;
           advanceAmount?: number;
@@ -2777,7 +3164,16 @@ export async function adminEditBookingFull(
         if (booking.payment.isPartialPayment && finalAdvance !== null) {
           paymentUpdate.amount = finalAdvance;
           paymentUpdate.advanceAmount = finalAdvance;
-          paymentUpdate.remainingAmount = newTotalAmount - finalAdvance;
+          // Anything a pass just settled isn't collectable at the venue.
+          paymentUpdate.remainingAmount = Math.max(
+            0,
+            newTotalAmount - finalAdvance - passCovered,
+          );
+        } else if (coverDeltaFull) {
+          // A pass settles the added time — keep the collected/captured
+          // figure intact (no fabricated revenue) and don't flip PARTIAL
+          // demanding money nobody owes; the sync below records the
+          // covered remainder on the redemption instead.
         } else if (booking.createdByAdminId) {
           // Admin-created cash flow — case (2).
           paymentUpdate.amount = newTotalAmount;
@@ -3057,8 +3453,43 @@ export async function recoverRazorpayPayment(
     };
   }
 
+  // 3b. Pass TOP-UP holds settle part of the booking with pass minutes,
+  //     so the generic path below would read the captured remainder as
+  //     an "advance" and bill the customer AGAIN for the hours the pass
+  //     covered — and never debit the pass or write a redemption. Route
+  //     them through the same helper the webhook and client verify use.
+  if (hold.redeemPassId) {
+    const holdWithConfig = await db.slotHold.findUnique({
+      where: { id: hold.id },
+      include: { courtConfig: true },
+    });
+    if (!holdWithConfig?.courtConfig) {
+      return { success: false, error: "Hold is missing its court config" };
+    }
+    const topup = await completePassTopup({
+      hold: holdWithConfig as typeof holdWithConfig & {
+        courtConfig: NonNullable<typeof holdWithConfig.courtConfig>;
+      },
+      razorpayOrderId: rzpPayment.order_id,
+      razorpayPaymentId: rzpPayment.id,
+      razorpaySignature: `admin-recovery:${rzpPayment.id}`,
+    });
+    if (!topup.ok) {
+      return { success: false, error: topup.error };
+    }
+    return {
+      success: true,
+      state: topup.alreadyDone ? "already-linked" : "created",
+      bookingId: topup.bookingId,
+      payment: paymentMeta,
+    };
+  }
+
   // 4. Recreate the booking. Mirror of the verify route's logic —
-  //    derive isAdvance from amount-vs-fullAmount.
+  //    derive isAdvance from amount-vs-fullAmount. Gear rides on the
+  //    hold's equipmentTotalAmount, which createBookingFromHold folds
+  //    into Booking.totalAmount — count it here too or the remainder
+  //    is understated by exactly the gear.
   const appliedDiscount =
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
@@ -3068,7 +3499,10 @@ export async function recoverRazorpayPayment(
       ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
       : 0;
   const fullAmount =
-    hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+    hold.totalAmount -
+    appliedDiscount -
+    pointsRedeemRupees +
+    (hold.equipmentTotalAmount ?? 0);
   const isAdvance = paymentMeta.amountRupees < fullAmount;
   const advanceAmount = isAdvance ? paymentMeta.amountRupees : undefined;
   const remainingAmount = isAdvance
@@ -3262,6 +3696,16 @@ export async function extendBookingByThirtyMin(
       };
     }
 
+    // The redemption already attached to this booking (live or restored)
+    // steers which pass may extend it and whether the Payment row may
+    // flip PARTIAL below.
+    const redemptionRow = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { restoredAt: true, userPassId: true },
+    });
+    const liveRedemption =
+      redemptionRow && !redemptionRow.restoredAt ? redemptionRow : null;
+
     // Compute the new 30-min window in "minutes-since-midnight" terms.
     let newStartMin: number;
     if (direction === "before") {
@@ -3303,6 +3747,15 @@ export async function extendBookingByThirtyMin(
       if (!booking.userId) {
         return { success: false, error: "Guest bookings can't use a pass" };
       }
+      // The redemption row is unique per booking — never grow it with
+      // minutes debited from a DIFFERENT pass than the one it points at.
+      if (liveRedemption && payWithPassId !== liveRedemption.userPassId) {
+        return {
+          success: false,
+          error:
+            "This booking already redeems a different pass — extend with that pass, or charge the extension instead.",
+        };
+      }
       const pass = await db.userPass.findUnique({
         where: { id: payWithPassId },
         include: {
@@ -3319,10 +3772,24 @@ export async function extendBookingByThirtyMin(
       const bookerCanUsePass =
         !!pass &&
         (pass.userId === booking.userId || pass.members.length > 0);
+      const coversCourt =
+        !!pass &&
+        (await passCoversCourtGroup(pass.courtConfigId, booking.courtConfigId));
+      // The extension's own hour must sit in the pass's price band —
+      // an off-peak pass must not settle a peak half-hour.
+      const coversBands =
+        !!pass &&
+        (await passBandsCoverHours(
+          pass,
+          booking.courtConfigId,
+          booking.date,
+          [Math.floor(newStartMin / 60) % 24],
+        ));
       if (
         !pass ||
         !bookerCanUsePass ||
-        pass.courtConfigId !== booking.courtConfigId ||
+        !coversCourt ||
+        !coversBands ||
         pass.status !== "ACTIVE" ||
         pass.startsAt.getTime() > booking.date.getTime() ||
         pass.expiresAt.getTime() <= booking.date.getTime() ||
@@ -3330,7 +3797,8 @@ export async function extendBookingByThirtyMin(
       ) {
         return {
           success: false,
-          error: "Pass isn't valid for this booking (wrong court, not started/expired, or <30 min left)",
+          error:
+            "Pass isn't valid for this booking (wrong court, outside its price band, not started/expired, or <30 min left)",
         };
       }
       passExtendValue = passMinutesValue(pass, 30);
@@ -3417,12 +3885,55 @@ export async function extendBookingByThirtyMin(
         const existingRed = await tx.passRedemption.findUnique({
           where: { bookingId },
         });
-        if (existingRed) {
+        // The extension's own half-hour joins the covered set, so a
+        // later edit that removes it returns exactly these 30 minutes.
+        const extSlot = {
+          h: Math.floor(newStartMin / 60) % 24,
+          m: newStartMin % 60,
+          min: 30,
+        };
+        if (existingRed && !existingRed.restoredAt) {
+          // A LEGACY row records only a minute count. Seeding `prior`
+          // with [] would write a set containing just this extension —
+          // the next edit would then price coverage at the extension's
+          // ₹0 slot and demand the whole booking total at the venue,
+          // and drop the rest of the minutes from the ledger.
+          const prior =
+            parseCoveredSlots(existingRed.coveredSlots) ??
+            adoptLegacyCoverage(
+              booking.slots.map((sl) => ({
+                startHour: sl.startHour,
+                startMinute: sl.startMinute,
+                durationMinutes: sl.durationMinutes,
+                price: sl.price,
+              })),
+              existingRed.minutes,
+            );
           await tx.passRedemption.update({
             where: { bookingId },
             data: {
               minutes: { increment: 30 },
               value: { increment: passExtendValue },
+              coveredSlots: [
+                ...prior,
+                extSlot,
+              ] as unknown as Prisma.InputJsonValue,
+            },
+          });
+        } else if (existingRed) {
+          // Restored row still occupies the unique bookingId — its old
+          // minutes already went back to the pass, so reactivate it with
+          // JUST this extension's figures (incrementing would resurrect
+          // and lose the restored minutes).
+          await tx.passRedemption.update({
+            where: { bookingId },
+            data: {
+              userPassId: payWithPassId,
+              minutes: 30,
+              value: passExtendValue,
+              coveredAmount: 0,
+              coveredSlots: [extSlot] as unknown as Prisma.InputJsonValue,
+              restoredAt: null,
             },
           });
         } else {
@@ -3435,6 +3946,7 @@ export async function extendBookingByThirtyMin(
               // Extends record their slot at ₹0 (never joins the booking
               // total), so there's no list price to settle.
               coveredAmount: 0,
+              coveredSlots: [extSlot] as unknown as Prisma.InputJsonValue,
             },
           });
         }
@@ -3448,7 +3960,16 @@ export async function extendBookingByThirtyMin(
       // If the booking was fully paid and we add a charge, mark it
       // partial with a remainder the admin can collect at the venue.
       // For already-partial bookings we just grow remainingAmount.
-      if (booking.payment && effectivePrice > 0) {
+      // Pass-covered bookings (live redemption / ₹0 PASS / top-up) never
+      // flip: their Payment.amount is money actually captured, and
+      // flipping would demand the whole covered total at the venue — the
+      // owed-at-venue invariant (total − payment − covered) already
+      // surfaces the extension's charge, same as equipment owed.
+      const isPassCoveredBooking =
+        !!liveRedemption ||
+        booking.payment?.method === "PASS" ||
+        booking.payment?.confirmedBy === "PASS_TOPUP";
+      if (booking.payment && effectivePrice > 0 && !isPassCoveredBooking) {
         const currentPaid = booking.payment.amount;
         if (booking.payment.isPartialPayment) {
           await tx.payment.update({
@@ -3641,4 +4162,107 @@ export async function markBookingAbsent(
   adminOverride?: { id: string; username: string },
 ) {
   return closeOutBooking(bookingId, "ABSENT", adminOverride);
+}
+
+// ---------------------------------------------------------------------------
+// recoverDqrPayment
+// ---------------------------------------------------------------------------
+
+export type RecoverDqrResult =
+  | { success: true; state: "created" | "already-linked"; kind: "booking" | "cafe" | "pass"; id: string }
+  | { success: true; state: "pending"; message: string }
+  | { success: false; error: string };
+
+/**
+ * Complete a PhonePe DQR payment from its transaction id.
+ *
+ * The Razorpay equivalent has existed for a while; DQR had nothing, so
+ * an admin holding a PhonePe txn id for a customer whose money left
+ * their account had no route except editing the database by hand. That
+ * mattered most in exactly the case it was missing: the 2026-07-11
+ * intent incident, where PhonePe leaves a paid transaction PENDING and
+ * neither the callback nor the client poll ever confirms it.
+ *
+ * Probes PhonePe, then routes to whichever confirm path owns the id —
+ * booking, cafe order or pass purchase — all of which are idempotent,
+ * so re-running is safe.
+ *
+ * A PENDING result is reported honestly rather than forced: if PhonePe
+ * still doesn't acknowledge the payment, creating a booking here would
+ * be inventing money we can't see. Reconcile in the PhonePe dashboard
+ * first, then use the ordinary "+ New Booking" flow.
+ */
+export async function recoverDqrPayment(
+  transactionId: string,
+  skipAuth?: boolean,
+): Promise<RecoverDqrResult> {
+  if (!skipAuth) await requireAdmin();
+
+  const txn = transactionId.trim();
+  if (!txn) return { success: false, error: "Enter a PhonePe transaction id" };
+
+  let state: string;
+  let providerReferenceId: string | undefined;
+  try {
+    const status = await qrStatus(txn);
+    state = status.state;
+    providerReferenceId = status.providerReferenceId;
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error
+          ? `Couldn't reach PhonePe: ${err.message}`
+          : "Couldn't reach PhonePe",
+    };
+  }
+
+  if (state !== "COMPLETED") {
+    return {
+      success: true,
+      state: "pending",
+      message:
+        `PhonePe reports this transaction as ${state}. If the customer's account was debited, this is the known intent-replication gap — reconcile it in the PhonePe Business dashboard, then create the booking manually.`,
+    };
+  }
+
+  // The txn-id prefix tells us which surface minted it (DQR_ booking,
+  // DQRC_ cafe, DQRP_ pass); fall back to trying each.
+  const { revalidatePath } = await import("next/cache");
+  const booking = await confirmDqrBooking(txn, providerReferenceId);
+  if (booking.bookingId) {
+    revalidatePath("/admin/bookings");
+    return {
+      success: true,
+      state: booking.alreadyDone ? "already-linked" : "created",
+      kind: "booking",
+      id: booking.bookingId,
+    };
+  }
+  const cafe = await confirmDqrCafe(txn, providerReferenceId);
+  if (cafe.orderId) {
+    revalidatePath("/admin/cafe");
+    return {
+      success: true,
+      state: cafe.alreadyDone ? "already-linked" : "created",
+      kind: "cafe",
+      id: cafe.orderId,
+    };
+  }
+  const pass = await confirmDqrPass(txn, providerReferenceId);
+  if (pass.userPassId) {
+    revalidatePath("/admin/passes");
+    return {
+      success: true,
+      state: pass.alreadyDone ? "already-linked" : "created",
+      kind: "pass",
+      id: pass.userPassId,
+    };
+  }
+
+  return {
+    success: false,
+    error:
+      "PhonePe confirms this payment, but nothing in our records points at it — the hold or purchase intent is gone (or its transaction id was overwritten). Reconcile in the PhonePe dashboard and create the booking manually.",
+  };
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
+import { passBandsCoverHours } from "@/lib/passes";
 
 /**
  * GET /api/mobile/admin/bookings/[id]
@@ -54,11 +55,118 @@ export async function GET(
     isRecurringChildPayment = true;
   }
 
+  // ── Pass state (mirrors the web detail page) ──────────────────────
+  // A redemption stamped restoredAt is undone — only a LIVE one settles
+  // money or pins which pass may extend this booking.
+  const redemptionRow = await db.passRedemption.findUnique({
+    where: { bookingId: id },
+    select: {
+      minutes: true,
+      value: true,
+      coveredAmount: true,
+      restoredAt: true,
+      userPassId: true,
+      userPass: { select: { name: true } },
+    },
+  });
+  const live = redemptionRow && !redemptionRow.restoredAt ? redemptionRow : null;
+
+  // Interchangeable courts: a pass bought for the LEFT half covers a
+  // booking on the RIGHT half (same sport + size + category).
+  const groupSiblingIds = await (async () => {
+    const siblings = await db.courtConfig.findMany({
+      where: {
+        sport: booking.courtConfig.sport,
+        size: booking.courtConfig.size,
+        category: booking.courtConfig.category,
+      },
+      select: { id: true },
+    });
+    return siblings.map((s) => s.id);
+  })();
+
+  // A live redemption PINS the pass — extendBookingByThirtyMin rejects
+  // any other id — so offer the attached pass when it's still usable,
+  // and only fall back to the best-eligible pass when none is attached.
+  const eligibility = {
+    courtConfigId: { in: groupSiblingIds },
+    status: "ACTIVE" as const,
+    remainingMinutes: { gte: 30 },
+    startsAt: { lte: booking.date },
+    expiresAt: { gt: booking.date },
+  };
+  const extendCandidates = booking.userId
+    ? await db.userPass.findMany({
+        where: live
+          ? { id: live.userPassId, ...eligibility }
+          : {
+              OR: [
+                { userId: booking.userId },
+                { members: { some: { userId: booking.userId } } },
+              ],
+              ...eligibility,
+            },
+        orderBy: { expiresAt: "asc" },
+        select: { id: true, name: true, remainingMinutes: true, bands: true },
+      })
+    : [];
+  // Only offer a pass whose price bands cover this booking's hours —
+  // the server enforces bands on save (same filter as the web page).
+  let extendPass: {
+    id: string;
+    name: string;
+    remainingMinutes: number;
+  } | null = null;
+  // Same rule as the web page: the booking's hours plus the two an
+  // extend could reach; at least one must be in band.
+  const bookedHours = booking.slots.map((s) => s.startHour);
+  const candidateHours = [
+    ...new Set([
+      ...bookedHours,
+      Math.max(0, Math.min(...bookedHours) - 1),
+      (Math.max(...bookedHours) + 1) % 24,
+    ]),
+  ];
+  for (const candidate of extendCandidates) {
+    const covers = (
+      await Promise.all(
+        candidateHours.map((h) =>
+          passBandsCoverHours(candidate, booking.courtConfigId, booking.date, [h]),
+        ),
+      )
+    ).some(Boolean);
+    if (covers) {
+      extendPass = {
+        id: candidate.id,
+        name: candidate.name,
+        remainingMinutes: candidate.remainingMinutes,
+      };
+      break;
+    }
+  }
+
+  // The invariant staff act on: what's still collectable at the venue
+  // (equipment and any added-but-uncovered time on a pass booking).
+  const owedAtVenue = Math.max(
+    0,
+    booking.totalAmount - (payment?.amount ?? 0) - (live?.coveredAmount ?? 0),
+  );
+
   return NextResponse.json({
     booking: {
       ...booking,
       payment,
       _isRecurringChildPayment: isRecurringChildPayment,
+      passRedemption: live
+        ? {
+            passName: live.userPass.name,
+            minutes: live.minutes,
+            value: live.value,
+            coveredAmount: live.coveredAmount,
+          }
+        : null,
+      extendPass,
+      owedAtVenue,
     },
   });
 }

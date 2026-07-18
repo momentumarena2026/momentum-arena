@@ -996,6 +996,21 @@ model PassRedemption {
   // pass-paid booking never shows "collect at venue". 0 for pass-paid
   // extends (their slots are recorded at ₹0 and never join the total).
   coveredAmount Int   @default(0)
+  // WHICH slots the pass paid for: [{ h, m, min }] — startHour,
+  // startMinute and durationMinutes of each covered slot.
+  //
+  // Without this, coveredAmount had to be re-derived on every admin
+  // edit by guessing which rows the pass covered ("the priciest ones",
+  // "the ones that fit"), and every guess was wrong in some direction:
+  // a slot swap billed a fully-covered customer, a court move let the
+  // pass absorb an upgrade, gear got written off as pass-settled. With
+  // the identities recorded, coveredAmount is simply the current price
+  // of the slots still on the booking, and each editor moves the set
+  // explicitly.
+  //
+  // Null on rows written before this field existed — treated as "no
+  // per-slot record", falling back to the stored coveredAmount.
+  coveredSlots Json?
   createdAt  DateTime @default(now())
   // Set when an eligible cancellation restored these minutes.
   restoredAt DateTime?
@@ -1007,6 +1022,10 @@ model PassRedemption {
 // materialise the UserPass on the status poll / S2S callback.
 model PassPurchaseIntent {
   id                   String   @id @default(cuid())
+  // See CafePaymentIntent.claimedAt — customer-asserted payment awaiting
+  // admin verification. Deliberately does NOT issue the pass: an
+  // unverified pass would be immediately redeemable.
+  claimedAt            DateTime?
   planId               String
   userId               String
   // Scheduled start captured at initiate, carried onto the UserPass.
@@ -1159,6 +1178,11 @@ model CafeItem {
  */
 model CafePaymentIntent {
   id                   String        @id @default(cuid())
+  // The customer told us they paid but the gateway hasn't confirmed it
+  // (the PhonePe intent-replication gap). Surfaces in the admin
+  // "Unconfirmed Payments" queue for manual verification; cleared when
+  // the intent is consumed or the claim is rejected.
+  claimedAt            DateTime?
   userId               String?
   guestName            String?
   guestPhone           String?

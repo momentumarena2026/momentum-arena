@@ -43,10 +43,16 @@ interface AdminBookingActionsProps {
   courtConfigId: string;
   date: string;
   currentSlots: number[];
+  /** Real booked minutes PER HOUR. An hour can hold a full slot plus a
+   *  30-min extension, so the pass delta must be measured from these,
+   *  not from an hour count (or an average of them). */
+  currentSlotMinutes: Record<number, number>;
   // Slot duration in minutes for this booking's court. 30 = bowling
   // machine (the EditSlotsModal renders a half-hour grid + writes
   // {hour, minute} pairs). 60 / undefined = hourly.
   slotDurationMinutes?: number;
+  /** Customer's eligible pass for covering ADDED time on edits. */
+  deltaPass?: { name: string; remainingMinutes: number } | null;
   // Bowling-machine bookings carry per-slot hour+minute so the modal
   // can pre-select the customer's current 30-min picks (parallel to
   // `currentSlots` which still holds the hour-only summary used by
@@ -77,7 +83,9 @@ export function AdminBookingActions({
   courtConfigId,
   date,
   currentSlots,
+  currentSlotMinutes,
   slotDurationMinutes,
+  deltaPass,
   currentBowlingSlots,
   sport,
   courtConfigs,
@@ -591,8 +599,10 @@ export function AdminBookingActions({
         courtConfigId={courtConfigId}
         date={date}
         currentSlots={currentSlots}
+        currentSlotMinutes={currentSlotMinutes}
         currentBowlingSlots={currentBowlingSlots}
         slotDurationMinutes={slotDurationMinutes}
+        deltaPass={deltaPass}
         isOpen={showEditSlots}
         onClose={() => setShowEditSlots(false)}
         onSuccess={() => {
@@ -607,6 +617,8 @@ export function AdminBookingActions({
         currentCourtConfigId={courtConfigId}
         currentDate={date}
         currentSlots={currentSlots}
+        currentSlotMinutes={currentSlotMinutes}
+        deltaPass={deltaPass}
         sport={sport}
         courtConfigs={courtConfigs}
         isPartialPayment={isPartialPayment && paymentStatus === "PARTIAL"}

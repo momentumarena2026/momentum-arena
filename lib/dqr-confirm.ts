@@ -36,9 +36,45 @@ export async function confirmDqrBooking(
   // exists this transaction is done.
   const existing = await db.payment.findFirst({
     where: { phonePeMerchantTxnId: transactionId },
-    select: { bookingId: true },
+    select: { id: true, bookingId: true, status: true },
   });
-  if (existing) return { bookingId: existing.bookingId, alreadyDone: true };
+  if (existing && existing.status === "COMPLETED") {
+    return { bookingId: existing.bookingId, alreadyDone: true };
+  }
+  if (existing) {
+    // A PENDING payment on this txn is the customer's own "I've paid"
+    // claim: we reserved their slot as an unconfirmed booking while
+    // PhonePe hadn't reported the money yet. PhonePe has now reported
+    // it, so settle the claim automatically — the admin never has to
+    // verify a payment the gateway itself just confirmed.
+    await db.$transaction([
+      db.payment.update({
+        where: { id: existing.id },
+        data: {
+          status: "COMPLETED",
+          confirmedAt: new Date(),
+          confirmedBy: "PHONEPE_DQR",
+          ...(providerReferenceId
+            ? { phonePeTransactionId: providerReferenceId }
+            : {}),
+        },
+      }),
+      db.booking.update({
+        where: { id: existing.bookingId },
+        data: { status: "CONFIRMED" },
+      }),
+    ]);
+    console.log(
+      `[dqr] late settlement confirmed claimed booking ${existing.bookingId} (txn ${transactionId})`,
+    );
+    after(async () => {
+      await Promise.allSettled([
+        sendBookingConfirmation(existing.bookingId).catch(() => {}),
+        notifyAdminBookingConfirmed(existing.bookingId).catch(() => {}),
+      ]);
+    });
+    return { bookingId: existing.bookingId, alreadyDone: false };
+  }
 
   const hold = await db.slotHold.findUnique({
     where: { phonePeMerchantTxnId: transactionId },

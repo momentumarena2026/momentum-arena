@@ -10,6 +10,8 @@ interface EditBookingModalProps {
   currentCourtConfigId: string;
   currentDate: string;
   currentSlots: number[];
+  /** Real booked minutes per hour — see AdminBookingActions. */
+  currentSlotMinutes?: Record<number, number>;
   sport: string;
   courtConfigs: {
     id: string;
@@ -22,6 +24,8 @@ interface EditBookingModalProps {
   // its remainder collected yet, the modal also exposes advance-amount and
   // advance-method fields.
   isPartialPayment: boolean;
+  /** Customer's eligible pass for covering ADDED time (server re-validates). */
+  deltaPass?: { name: string; remainingMinutes: number } | null;
   currentAdvanceAmount: number | null;
   currentAdvanceMethod: string | null;
   isOpen: boolean;
@@ -30,10 +34,12 @@ interface EditBookingModalProps {
 }
 
 export function EditBookingModal({
+  deltaPass,
   bookingId,
   currentCourtConfigId,
   currentDate,
   currentSlots,
+  currentSlotMinutes,
   sport,
   courtConfigs,
   isPartialPayment,
@@ -62,6 +68,28 @@ export function EditBookingModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coverWithPass, setCoverWithPass] = useState(false);
+
+  // NET hour delta — the measure the server gates on. A pure SWAP
+  // (drop one hour, add another) is delta 0 there, so offering the pass
+  // option on "fresh hours" alone would show a checkbox that silently
+  // does nothing.
+  // Rows this save ADDS (a swap adds one even at an unchanged total) and
+  // rows it FREES. The pass is debited the net, so the balance gate uses
+  // added − dropped while the option is offered on any addition.
+  const perHourMinutes = currentSlotMinutes ?? {};
+  const bookedHourSet = new Set(currentSlots);
+  const addedMinutes = [...selectedHours].filter((h) => !bookedHourSet.has(h)).length * 60;
+  const droppedMinutes = [...bookedHourSet]
+    .filter((h) => !selectedHours.has(h))
+    .reduce((sum, h) => sum + (perHourMinutes[h] ?? 60), 0);
+  const netPassMinutes = Math.max(0, addedMinutes - droppedMinutes);
+  const addedHours = addedMinutes / 60;
+
+  // Don't let a tick survive a selection the admin turned into a removal.
+  useEffect(() => {
+    if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedMinutes, coverWithPass]);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -209,6 +237,7 @@ export function EditBookingModal({
         newHours?: number[];
         newAdvanceAmount?: number;
         newAdvanceMethod?: "CASH" | "UPI_QR";
+        coverDeltaWithPass?: boolean;
       } = {};
 
       if (selectedDate !== currentDate) {
@@ -231,6 +260,7 @@ export function EditBookingModal({
         payload.newAdvanceMethod = advanceMethod;
       }
 
+      if (coverWithPass) payload.coverDeltaWithPass = true;
       const result = await adminEditBookingFull(bookingId, payload);
       if (result.success) {
         onSuccess();
@@ -430,6 +460,28 @@ export function EditBookingModal({
               </p>
             )}
           </div>
+        )}
+
+        {/* Pass-cover option — only when the edit ADDS time and the
+            customer has an eligible pass. Server re-validates. */}
+        {deltaPass && addedMinutes > 0 && (
+          <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+            <input
+              type="checkbox"
+              checked={coverWithPass}
+              onChange={(e) => setCoverWithPass(e.target.checked)}
+              disabled={deltaPass.remainingMinutes < netPassMinutes}
+              className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
+            />
+            {droppedMinutes > 0 && netPassMinutes === 0
+              ? `Keep the moved ${addedHours}h on ${deltaPass.name}`
+              : `Cover the added ${addedHours}h from ${deltaPass.name}`}{" "}
+            (
+            {(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}h left)
+            {deltaPass.remainingMinutes < netPassMinutes && (
+              <span className="text-amber-400">— not enough balance</span>
+            )}
+          </label>
         )}
 
         {/* Footer */}

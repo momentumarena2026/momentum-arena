@@ -357,7 +357,7 @@ function AdminBookingsStack() {
       <BookingsStack.Screen
         name="AdminUnconfirmedBookingsList"
         component={AdminUnconfirmedBookingsListScreen}
-        options={{ title: "Unconfirmed" }}
+        options={{ title: "Unconfirmed Payments" }}
       />
       <BookingsStack.Screen
         name="AdminBookingDetail"

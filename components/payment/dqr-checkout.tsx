@@ -110,6 +110,9 @@ export function DqrCheckout({
   const [mode, setMode] = useState<"qr" | "intent">("qr");
   const [isMobile, setIsMobile] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Money WAS captured even though the flow failed (e.g. the plan was
+  // repriced mid-payment). Suppresses every "pay again" affordance.
+  const [paymentReceived, setPaymentReceived] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [launchedApp, setLaunchedApp] = useState<{
     name: string;
@@ -184,8 +187,31 @@ export function DqrCheckout({
       } else if (data.state === "FAILED") {
         doneRef.current = true;
         stopPolling();
-        clearStore();
-        setError("Payment failed or expired. Please try again.");
+        // A FAILED state can still mean money WAS captured (e.g. the
+        // plan was repriced mid-payment). Never tell that customer to
+        // "try again" — that's how double payments happen — and KEEP the
+        // stored transaction so a refresh resumes into this terminal
+        // message instead of offering a fresh QR (the resume guard added
+        // after the July double-payment incident).
+        if (data.paymentReceived) {
+          setPaymentReceived(true);
+          // TTL-free marker: the QR expiring must NOT turn this back
+          // into a fresh payable QR on reload (the resume branch below
+          // drops expired entries).
+          try {
+            sessionStorage.setItem(
+              storeKey,
+              JSON.stringify({ terminal: true, message: data.error ?? null }),
+            );
+          } catch {
+            /* storage unavailable — best effort */
+          }
+        } else clearStore();
+        setError(
+          data.paymentReceived && data.error
+            ? data.error
+            : "Payment failed or expired. Please try again.",
+        );
         setPhase("error");
       }
     } catch {
@@ -197,16 +223,75 @@ export function DqrCheckout({
   // showed the button reading as dead: the status probe ran, PhonePe said
   // PENDING, and the UI changed nothing. Surface the outcome explicitly so
   // the customer knows we checked — and that they must NOT pay again.
-  const [manualCheck, setManualCheck] = useState<"idle" | "checking" | "unpaid">(
-    "idle",
-  );
-  const manualCheckStatus = useCallback(async () => {
-    setManualCheck("checking");
-    await checkStatus();
-    // On success checkStatus flips the phase to "confirmed" and this
-    // message never shows; otherwise tell them where things stand.
-    setManualCheck(doneRef.current ? "idle" : "unpaid");
-  }, [checkStatus]);
+  // True once the customer has plausibly moved money: they opened a UPI
+  // app (intent) or told us they paid. From that point on, NOTHING in
+  // this sheet may invite a second payment.
+  const mayHavePaidRef = useRef(false);
+  const [claiming, setClaiming] = useState(false);
+  // onConfirmed via a ref so the confirm-handoff effect can depend only
+  // on `phase` — see the confirmed-phase effect below for why.
+  const onConfirmedRef = useRef(onConfirmed);
+  onConfirmedRef.current = onConfirmed;
+  /**
+   * "I've paid" — the whole ladder, in one tap.
+   *
+   * The server polls PhonePe for a few seconds first: if the payment
+   * settled, the booking is confirmed and the customer gets the normal
+   * success flow. Only if PhonePe still won't acknowledge it does the
+   * slot get reserved as an UNCONFIRMED booking for an admin to verify —
+   * and either way the customer lands on their booking page rather than
+   * a spinner.
+   *
+   * This is also the "check status" button: a bare status check that
+   * leaves someone on a stuck spinner is the failure this whole path
+   * exists to remove.
+   */
+  const claimPaid = useCallback(async () => {
+    mayHavePaidRef.current = true;
+    setClaiming(true);
+    try {
+      const res = await fetch("/api/phonepe/dqr/claim-paid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          holdId,
+          overrideAmount,
+          surface,
+          transactionId: txnRef.current,
+        }),
+      });
+      const data = await res.json();
+      const settledId = data.bookingId ?? data.id;
+      if (res.ok && settledId) {
+        doneRef.current = true;
+        stopPolling();
+        clearStore();
+        settledIdRef.current = settledId;
+        // Confirmed outright (PhonePe had settled after all) → the usual
+        // success animation. Otherwise hand off to the detail page,
+        // which shows its own awaiting-verification state.
+        if (data.confirmed) setPhase("confirmed");
+        else onConfirmedRef.current(settledId);
+        return;
+      }
+      if (res.ok && data.claimed) {
+        // Cafe / pass: nothing to navigate to until an admin verifies,
+        // so acknowledge in place rather than routing nowhere.
+        doneRef.current = true;
+        stopPolling();
+        clearStore();
+        setError(
+          "Thanks — we've logged your payment and our team will confirm it shortly. Please do NOT pay again.",
+        );
+        return;
+      }
+      setError(data.error || "Couldn't record your payment — please contact us.");
+    } catch {
+      setError("Couldn't reach the server — please contact us.");
+    } finally {
+      setClaiming(false);
+    }
+  }, [holdId, overrideAmount, stopPolling, clearStore]);
 
   const initiate = useCallback(async () => {
     // No synchronous setState here — this runs from the mount effect.
@@ -223,8 +308,23 @@ export function DqrCheckout({
           qrString?: string | null;
           mode?: string;
           expiresAt?: number;
+          /** Captured-but-unissued marker — TTL-free, see below. */
+          terminal?: boolean;
+          message?: string | null;
         };
         const msLeft = (saved.expiresAt ?? 0) - Date.now();
+        // Captured-but-unissued: never re-offer a payable QR, whatever
+        // the TTL says.
+        if (saved.terminal) {
+          setPaymentReceived(true);
+          setError(
+            typeof saved.message === "string" && saved.message
+              ? saved.message
+              : "Payment received — please do NOT pay again. Our team will confirm or refund shortly.",
+          );
+          setPhase("error");
+          return;
+        }
         if (saved.txn && saved.qrImage && msLeft > 5_000) {
           txnRef.current = saved.txn;
           setQrDataUrl(saved.qrImage);
@@ -277,6 +377,29 @@ export function DqrCheckout({
         clearStore();
         settledIdRef.current = paidId;
         setPhase("confirmed");
+        return;
+      }
+      // Server refused to mint because a prior payment is still being
+      // confirmed (or was confirmed but unbookable). Either way money may
+      // already have moved — never show a fresh payable QR.
+      if (data.pendingTxn || data.paymentReceived) {
+        doneRef.current = true;
+        stopPolling();
+        mayHavePaidRef.current = true;
+        setPaymentReceived(true);
+        setError(
+          data.error ||
+            "A payment on this booking is still being confirmed. Please do NOT pay again.",
+        );
+        try {
+          sessionStorage.setItem(
+            storeKey,
+            JSON.stringify({ terminal: true, message: data.error ?? null }),
+          );
+        } catch {
+          /* best effort */
+        }
+        setPhase("error");
         return;
       }
       if (!res.ok || !data.qrImage) {
@@ -360,8 +483,34 @@ export function DqrCheckout({
     if (secondsLeft <= 0) {
       doneRef.current = true;
       stopPolling();
-      clearStore();
-      setError("This QR has expired. Generate a new one to continue.");
+      // A customer who already tapped through to a UPI app may well have
+      // paid: PhonePe can leave an intent txn PENDING long after the
+      // money left their account (the 2026-07-11 intent-replication
+      // incident). Telling THEM to "generate a new one" is how a stuck
+      // payment becomes a double payment — so branch on it, keep the
+      // stored txn, and put the money on the admin worklist.
+      if (mayHavePaidRef.current) {
+        setPaymentReceived(true);
+        setError(
+          "This QR expired before we could confirm your payment. If money left your account, please do NOT pay again — our team will confirm your booking or refund you shortly.",
+        );
+        void fetch("/api/phonepe/dqr/report-stuck", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transactionId: txnRef.current, surface }),
+        }).catch(() => {});
+        try {
+          sessionStorage.setItem(
+            storeKey,
+            JSON.stringify({ terminal: true, message: null }),
+          );
+        } catch {
+          /* best effort */
+        }
+      } else {
+        clearStore();
+        setError("This QR has expired. Generate a new one to continue.");
+      }
       setPhase("error");
       return;
     }
@@ -400,8 +549,6 @@ export function DqrCheckout({
   // timeout — if the parent re-renders faster than CONFIRM_HOLD_MS (e.g. a
   // ticking countdown), the handoff NEVER fires and the sheet hangs on the
   // success screen. That exact hang shipped on mobile; guard both surfaces.
-  const onConfirmedRef = useRef(onConfirmed);
-  onConfirmedRef.current = onConfirmed;
   const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
@@ -417,6 +564,9 @@ export function DqrCheckout({
   const launchApp = useCallback(
     (name: string, link: string) => {
       trackUpiAppLaunched(displayAmount);
+      // They're leaving for a UPI app — from here a payment may exist
+      // even if PhonePe never reports it.
+      mayHavePaidRef.current = true;
       setLaunchedApp({ name, link });
       setPhase("waiting");
       window.location.href = link;
@@ -598,22 +748,12 @@ export function DqrCheckout({
                 gallery-scan users return here after paying in their UPI
                 app and hit the identical stuck-spinner path. */}
             <button
-              onClick={() => void manualCheckStatus()}
-              disabled={manualCheck === "checking"}
+              onClick={() => void claimPaid()}
+              disabled={claiming}
               className="mt-3 w-full rounded-xl border border-emerald-500/40 px-4 py-2.5 text-sm font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10 disabled:opacity-60"
             >
-              {manualCheck === "checking"
-                ? "Checking with PhonePe…"
-                : "I've paid — check status"}
+              {claiming ? "Checking with your bank…" : "I've paid — check status"}
             </button>
-            {manualCheck === "unpaid" && (
-              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-200">
-                PhonePe hasn&apos;t matched this payment yet. If money left
-                your account, <strong>don&apos;t pay again</strong> — we
-                verify every deducted amount and confirm your booking or
-                refund it.
-              </p>
-            )}
 
             {/* Scan-only mode on the same phone: no intent link to tap, so
                 keep the save-to-gallery workaround alive. */}
@@ -664,35 +804,23 @@ export function DqrCheckout({
               </p>
             )}
             <button
-              onClick={() => void manualCheckStatus()}
-              disabled={manualCheck === "checking"}
+              onClick={() => void claimPaid()}
+              disabled={claiming}
               className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
             >
-              {manualCheck === "checking"
-                ? "Checking with PhonePe…"
-                : "I've paid — check status"}
+              {claiming ? "Checking with your bank…" : "I've paid — check status"}
             </button>
-            {manualCheck === "unpaid" && (
-              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-200">
-                PhonePe hasn&apos;t matched this payment yet. If money left
-                your account, <strong>don&apos;t pay again</strong> — we
-                verify every deducted amount and confirm your booking or
-                refund it.
-              </p>
-            )}
-            {launchedApp && (
-              <button
-                onClick={() => launchApp(launchedApp.name, launchedApp.link)}
-                className="mt-2 w-full rounded-xl border border-emerald-500/40 px-4 py-3 text-[15px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10"
-              >
-                Open {launchedApp.name} again
-              </button>
-            )}
+            {/* No "open <app> again" here. It re-fires the SAME upi://
+                link with the amount, and this screen's most common state
+                is "already paid, not yet confirmed" — a second tap there
+                is a second payment. Re-launching is still one tap away
+                via the picker below, which is a deliberate beat of
+                friction on a money action. */}
             <button
               onClick={() => setPhase("apps")}
               className="mt-2 w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
             >
-              Choose another app
+              Pay in a different app
             </button>
             {/* Anti-double-pay: the 2026-07-11 incident was a customer
                 paying twice because the sheet never flipped. Make the
@@ -755,22 +883,56 @@ export function DqrCheckout({
               <AlertCircle className="mx-auto h-9 w-9 text-red-400" />
               <p className="mt-3 text-sm text-red-300">{error}</p>
             </div>
-            <button
-              onClick={() => {
-                setPhase("init");
-                setError(null);
-                initiate();
-              }}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700"
-            >
-              <RefreshCw className="h-4 w-4" /> Try again
-            </button>
+            {/* Money may have moved but PhonePe won't confirm it: hold
+                the slot as an UNCONFIRMED booking so the customer keeps
+                their court and the admin's existing verification queue
+                picks it up — the same safety net the static-QR flow has.
+                Booking surface only; cafe/pass have no such queue. */}
+            {paymentReceived && (
+              <button
+                onClick={() => void claimPaid()}
+                disabled={claiming}
+                className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {claiming
+                  ? "Checking with your bank…"
+                  : surface === "booking"
+                    ? "I've paid — reserve my slot"
+                    : "I've paid — tell the team"}
+              </button>
+            )}
+            {paymentReceived && (
+              <p className="text-center text-xs text-zinc-400">
+                {surface === "booking"
+                  ? "We'll hold your court and confirm once we've checked the payment with PhonePe."
+                  : "Our team will verify the payment and confirm it for you."}
+              </p>
+            )}
+            {/* Never offer a retry when the gateway already took the
+                money — a second QR here is exactly how a customer ends
+                up paying twice. Leaving is the only action. */}
+            {!paymentReceived && (
+              <button
+                onClick={() => {
+                  setPhase("init");
+                  setError(null);
+                  initiate();
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700"
+              >
+                <RefreshCw className="h-4 w-4" /> Try again
+              </button>
+            )}
             {onCancel && (
               <button
                 onClick={onCancel}
-                className="w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
+                className={
+                  paymentReceived
+                    ? "w-full rounded-xl bg-zinc-700 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-600"
+                    : "w-full py-2 text-sm text-zinc-400 hover:text-zinc-200"
+                }
               >
-                ← Go back
+                {paymentReceived ? "Close" : "← Go back"}
               </button>
             )}
           </div>

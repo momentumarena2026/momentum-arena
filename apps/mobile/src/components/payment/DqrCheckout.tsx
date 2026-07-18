@@ -32,6 +32,7 @@ import { Text } from "../ui/Text";
 import { radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 import { bookingApi } from "../../lib/booking";
+import { api } from "../../lib/api";
 import { UPI_ICON_DATA, MOMENTUM_LOGO_DATA } from "./upi-icons.generated";
 import {
   trackUpiAppLaunched,
@@ -57,6 +58,9 @@ export interface DqrFlowInit {
 export interface DqrFlowStatus {
   state: "PENDING" | "COMPLETED" | "FAILED";
   confirmedId?: string | null;
+  /** FAILED but money WAS captured — show `error`, never "try again". */
+  paymentReceived?: boolean;
+  error?: string;
 }
 export interface DqrEndpoints {
   initiate: () => Promise<DqrFlowInit>;
@@ -66,6 +70,9 @@ export interface DqrEndpoints {
 interface Props {
   /** Booking-hold flow. Required unless `endpoints` is provided. */
   holdId?: string;
+  /** Which claim path a stuck payment should take. Bookings reserve the
+   *  slot as an unconfirmed booking; cafe/pass only log the claim. */
+  claimSurface?: "booking" | "cafe" | "pass";
   amount: number;
   /** Full net payable (post coupon + points); sent as overrideAmount so the
    *  route charges the discounted total, not the gross hold amount. */
@@ -147,6 +154,7 @@ const UPI_APPS: {
  */
 export function DqrCheckout({
   holdId,
+  claimSurface = "booking",
   amount,
   overrideAmount,
   isAdvance,
@@ -163,6 +171,13 @@ export function DqrCheckout({
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [qrString, setQrString] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Money WAS captured despite the failure — suppresses every retry
+  // affordance so the customer can't pay a second time.
+  const [paymentReceived, setPaymentReceived] = useState(false);
+  // The customer has plausibly moved money (opened a UPI app). From here
+  // nothing may invite a second payment — mirrors the web sheet.
+  const mayHavePaidRef = useRef(false);
+  const [claiming, setClaiming] = useState(false);
   const [appOpenError, setAppOpenError] = useState<string | null>(null);
   const [waitingApp, setWaitingApp] = useState<{ name: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
@@ -230,7 +245,15 @@ export function DqrCheckout({
       } else if (res.state === "FAILED") {
         doneRef.current = true;
         stopPolling();
-        setError("Payment failed or expired. Please try again.");
+        // FAILED can still mean money was captured (e.g. the plan was
+        // repriced mid-payment). Telling that customer to "try again"
+        // is how double payments happen.
+        if (res.paymentReceived) setPaymentReceived(true);
+        setError(
+          res.paymentReceived && res.error
+            ? res.error
+            : "Payment failed or expired. Please try again.",
+        );
         setPhase("error");
       }
     } catch {
@@ -297,7 +320,18 @@ export function DqrCheckout({
     if (secondsLeft <= 0) {
       doneRef.current = true;
       stopPolling();
-      setError("This payment request expired. Start again to continue.");
+      // Someone who already tapped through to a UPI app may well have
+      // paid: PhonePe can leave an intent transaction PENDING long after
+      // the money left their account. Telling THEM to start again is how
+      // a stuck payment becomes a double payment.
+      if (mayHavePaidRef.current) {
+        setPaymentReceived(true);
+        setError(
+          "This payment request expired before we could confirm your payment. If money left your account, please do NOT pay again — our team will confirm or refund shortly.",
+        );
+      } else {
+        setError("This payment request expired. Start again to continue.");
+      }
       setPhase("error");
       return;
     }
@@ -328,6 +362,55 @@ export function DqrCheckout({
   // the sheet hung on the success screen. Fire-once guard for safety.
   const onConfirmedRef = useRef(onConfirmed);
   onConfirmedRef.current = onConfirmed;
+
+  /**
+   * "I've paid" on a stuck payment — reserve the slot as an UNCONFIRMED
+   * booking (or, for cafe/pass, log the claim) so the customer keeps
+   * what they paid for while an admin verifies. Mirrors the web sheet.
+   */
+  const claimPaid = useCallback(async () => {
+    // Bookings need the hold (the slot is reserved from it); cafe/pass
+    // claims are resolved from the transaction id alone.
+    if (claimSurface === "booking" && !holdId) return;
+    if (!txnRef.current) return;
+    setClaiming(true);
+    try {
+      const res = await api.post<{
+        bookingId?: string;
+        id?: string;
+        claimed?: boolean;
+        confirmed?: boolean;
+        error?: string;
+      }>("/api/phonepe/dqr/claim-paid", {
+        holdId,
+        overrideAmount,
+        surface: claimSurface,
+        transactionId: txnRef.current,
+      });
+      const settledId = res.bookingId ?? res.id;
+      if (settledId) {
+        doneRef.current = true;
+        stopPolling();
+        confirmedIdRef.current = settledId;
+        if (res.confirmed) setPhase("confirmed");
+        else onConfirmedRef.current(settledId);
+        return;
+      }
+      if (res.claimed) {
+        doneRef.current = true;
+        stopPolling();
+        setError(
+          "Thanks — we've logged your payment and our team will confirm it shortly. Please do NOT pay again.",
+        );
+        return;
+      }
+      setError(res.error || "Couldn't record your payment — please contact us.");
+    } catch {
+      setError("Couldn't reach the server — please contact us.");
+    } finally {
+      setClaiming(false);
+    }
+  }, [holdId, overrideAmount, claimSurface, stopPolling]);
   const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
@@ -367,6 +450,9 @@ export function DqrCheckout({
       try {
         if (await Linking.canOpenURL(url)) {
           await Linking.openURL(url);
+          // Leaving for a UPI app — a payment may exist from now on even
+          // if PhonePe never reports it.
+          mayHavePaidRef.current = true;
           trackUpiAppLaunched(displayAmount);
           setWaitingApp({ name, url });
           setPhase("waiting");
@@ -566,6 +652,24 @@ export function DqrCheckout({
                 <Text variant="tiny" color={INK_FAINT} align="center">
                   Scan with any UPI app — confirms automatically once you pay.
                 </Text>
+                {/* Gallery-scan users pay in another app and come back
+                    here to the same stuck spinner — same one-tap ladder
+                    as the waiting screen. */}
+                <Pressable
+                  onPress={() => void claimPaid()}
+                  disabled={claiming}
+                  style={({ pressed }) => [
+                    styles.outlineBtn,
+                    pressed && styles.pressed,
+                    claiming && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text variant="body" weight="600" color={EMERALD_LIGHT}>
+                    {claiming
+                      ? "Checking with your bank…"
+                      : "I've paid — check status"}
+                  </Text>
+                </Pressable>
                 <View style={styles.bankNotice}>
                   <AlertCircle size={14} color={AMBER_STRIP_TEXT} style={styles.noticeIcon} />
                   <Text variant="tiny" color={AMBER_TEXT} style={styles.noticeBody}>
@@ -593,29 +697,33 @@ export function DqrCheckout({
                     Expires in {countdown}
                   </Text>
                 ) : null}
-                {waitingApp ? (
-                  <Pressable
-                    onPress={() => {
-                      Linking.openURL(waitingApp.url).catch(() => {
-                        Alert.alert(
-                          "Couldn't open the app",
-                          "Is it installed? Try another option.",
-                        );
-                      });
-                    }}
-                    style={({ pressed }) => [
-                      styles.outlineBtn,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text variant="body" weight="600" color={EMERALD_LIGHT}>
-                      Open {waitingApp.name} again
-                    </Text>
-                  </Pressable>
-                ) : null}
+                {/* The customer is back from their UPI app and the poll
+                    hasn't caught the payment. One tap runs the whole
+                    ladder server-side — confirm if PhonePe settled,
+                    otherwise reserve the slot for verification — so
+                    nobody is left watching a spinner. */}
+                <Pressable
+                  onPress={() => void claimPaid()}
+                  disabled={claiming}
+                  style={({ pressed }) => [
+                    styles.outlineBtn,
+                    pressed && styles.pressed,
+                    claiming && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text variant="body" weight="600" color={EMERALD_LIGHT}>
+                    {claiming
+                      ? "Checking with your bank…"
+                      : "I've paid — check status"}
+                  </Text>
+                </Pressable>
+                {/* No "open <app> again": it re-fires the same upi://
+                    link with the amount, and this screen usually means
+                    "already paid, not yet confirmed" — a second tap is a
+                    second payment. The picker below still re-launches. */}
                 <Pressable onPress={() => setPhase("apps")} style={styles.ghostBtn}>
                   <Text variant="small" color={INK_MUTED}>
-                    Choose another app
+                    Pay in a different app
                   </Text>
                 </Pressable>
               </View>
@@ -657,26 +765,62 @@ export function DqrCheckout({
                     {error}
                   </Text>
                 </View>
+                {/* Money may have moved but PhonePe won't confirm it —
+                    hold what they paid for and let an admin verify,
+                    instead of leaving them with nothing. */}
+                {paymentReceived && (holdId || claimSurface !== "booking") ? (
+                  <Pressable
+                    onPress={() => void claimPaid()}
+                    disabled={claiming}
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text variant="body" weight="600" color="#fff">
+                      {claiming
+                        ? "Checking with your bank…"
+                        : claimSurface === "booking"
+                          ? "I've paid — reserve my slot"
+                          : "I've paid — tell the team"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {/* No retry once the gateway has the money — a second QR
+                    here is exactly how a customer pays twice. */}
+                {!paymentReceived ? (
+                  <Pressable
+                    onPress={() => {
+                      setPhase("init");
+                      setError(null);
+                      setAppOpenError(null);
+                      void initiate();
+                    }}
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <RefreshCw size={16} color="#fff" />
+                    <Text variant="body" weight="600" color="#fff">
+                      Try again
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
-                  onPress={() => {
-                    setPhase("init");
-                    setError(null);
-                    setAppOpenError(null);
-                    void initiate();
-                  }}
+                  onPress={onCancel}
                   style={({ pressed }) => [
-                    styles.primaryBtn,
+                    paymentReceived ? styles.primaryBtn : styles.ghostBtn,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <RefreshCw size={16} color="#fff" />
-                  <Text variant="body" weight="600" color="#fff">
-                    Try again
-                  </Text>
-                </Pressable>
-                <Pressable onPress={onCancel} style={styles.ghostBtn}>
-                  <Text variant="small" align="center" color={INK_MUTED}>
-                    Cancel
+                  <Text
+                    variant={paymentReceived ? "body" : "small"}
+                    weight={paymentReceived ? "600" : undefined}
+                    align="center"
+                    color={paymentReceived ? "#fff" : INK_MUTED}
+                  >
+                    {paymentReceived ? "Close" : "Cancel"}
                   </Text>
                 </Pressable>
               </View>

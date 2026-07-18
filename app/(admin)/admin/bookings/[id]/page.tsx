@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { passBandsCoverHours } from "@/lib/passes";
 import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatSlotsAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -110,6 +111,7 @@ export default async function AdminBookingDetailPage({
         value: true,
         coveredAmount: true,
         restoredAt: true,
+        userPassId: true,
         userPass: { select: { name: true } },
       },
     }),
@@ -125,24 +127,87 @@ export default async function AdminBookingDetailPage({
   // redemption (this customer, this court, ACTIVE, ≥30 min), with
   // validity judged against the BOOKING's play date: the pass must have
   // started by then and not expire before it.
-  const extendPass = booking.userId
-    ? await db.userPass.findFirst({
-        where: {
-          // Owner or shared member — same eligibility as checkout.
-          OR: [
-            { userId: booking.userId },
-            { members: { some: { userId: booking.userId } } },
-          ],
-          courtConfigId: booking.courtConfigId,
-          status: "ACTIVE",
-          remainingMinutes: { gte: 30 },
-          startsAt: { lte: booking.date },
-          expiresAt: { gt: booking.date },
-        },
+  // Court-GROUP matching (both cricket half-courts etc.), not strict
+  // config equality — a pass stored on LEFT must cover a RIGHT booking,
+  // same as checkout redemption.
+  const groupSiblingIds = await (async () => {
+    const bc = booking.courtConfig;
+    const siblings = await db.courtConfig.findMany({
+      where: { sport: bc.sport, size: bc.size, category: bc.category },
+      select: { id: true },
+    });
+    return siblings.map((s) => s.id);
+  })();
+  // A live redemption pins the pass: extends must debit the SAME pass
+  // the booking already redeems (extendBookingByThirtyMin rejects any
+  // other), so offer the attached pass if it's still usable — and only
+  // fall back to the best-eligible pass when nothing is attached. This
+  // never silently switches the customer to a different pass.
+  const extendCandidates = booking.userId
+    ? await db.userPass.findMany({
+        where: passRedemption
+          ? {
+              id: passRedemption.userPassId,
+              courtConfigId: { in: groupSiblingIds },
+              status: "ACTIVE",
+              remainingMinutes: { gte: 30 },
+              startsAt: { lte: booking.date },
+              expiresAt: { gt: booking.date },
+            }
+          : {
+              // Owner or shared member — same eligibility as checkout.
+              OR: [
+                { userId: booking.userId },
+                { members: { some: { userId: booking.userId } } },
+              ],
+              courtConfigId: { in: groupSiblingIds },
+              status: "ACTIVE",
+              remainingMinutes: { gte: 30 },
+              startsAt: { lte: booking.date },
+              expiresAt: { gt: booking.date },
+            },
         orderBy: { expiresAt: "asc" },
-        select: { id: true, name: true, remainingMinutes: true },
+        select: { id: true, name: true, remainingMinutes: true, bands: true },
       })
-    : null;
+    : [];
+  // Only OFFER a pass whose price bands can cover time on this booking
+  // — the server enforces bands on save, so an unfiltered offer meant
+  // admins were shown "cover with pass" and then rejected.
+  let extendPass: {
+    id: string;
+    name: string;
+    remainingMinutes: number;
+  } | null = null;
+  // Which hours might this pass be asked to pay for? The booking's own
+  // hours (an edit adding time beside them) and the two an extend would
+  // reach. Requiring ALL of them would hide the option whenever a
+  // booking sits on a band edge; requiring at least one keeps it
+  // offered, and the server band-checks the exact hour on save.
+  const bookedHours = booking.slots.map((s) => s.startHour);
+  const candidateHours = [
+    ...new Set([
+      ...bookedHours,
+      Math.max(0, Math.min(...bookedHours) - 1),
+      (Math.max(...bookedHours) + 1) % 24,
+    ]),
+  ];
+  for (const candidate of extendCandidates) {
+    const covers = (
+      await Promise.all(
+        candidateHours.map((h) =>
+          passBandsCoverHours(candidate, booking.courtConfigId, booking.date, [h]),
+        ),
+      )
+    ).some(Boolean);
+    if (covers) {
+      extendPass = {
+        id: candidate.id,
+        name: candidate.name,
+        remainingMinutes: candidate.remainingMinutes,
+      };
+      break;
+    }
+  }
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
@@ -690,6 +755,14 @@ export default async function AdminBookingDetailPage({
           Manage this booking
         </h2>
         <AdminBookingActions
+        deltaPass={
+          extendPass
+            ? {
+                name: extendPass.name,
+                remainingMinutes: extendPass.remainingMinutes,
+              }
+            : null
+        }
           bookingId={booking.id}
           bookingStatus={booking.status}
           totalAmount={booking.totalAmount}
@@ -704,6 +777,13 @@ export default async function AdminBookingDetailPage({
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}
           currentSlots={booking.slots.map((s) => s.startHour)}
+          currentSlotMinutes={booking.slots.reduce<Record<number, number>>(
+            (acc, s) => {
+              acc[s.startHour] = (acc[s.startHour] ?? 0) + s.durationMinutes;
+              return acc;
+            },
+            {},
+          )}
           // Treat the court as 30-min bowling whenever EITHER the
           // explicit slotDurationMinutes is 30 OR the category is
           // BOWLING_MACHINE. The two signals can drift apart in seed

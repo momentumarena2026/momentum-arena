@@ -22,6 +22,8 @@ interface EditSlotsModalProps {
    * render the same affordance at slot-granularity.
    */
   currentSlots: number[];
+  /** Real booked minutes per hour — see AdminBookingActions. */
+  currentSlotMinutes?: Record<number, number>;
   currentBowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
   /**
    * Per-court slot duration in minutes. Bowling-machine courts
@@ -29,6 +31,9 @@ interface EditSlotsModalProps {
    * server action gets called.
    */
   slotDurationMinutes?: number;
+  /** Customer's eligible pass for covering ADDED time (name + balance).
+   *  Null hides the option; the server re-validates on save. */
+  deltaPass?: { name: string; remainingMinutes: number } | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -66,10 +71,12 @@ function formatBowlingRange(hour: number, minute: 0 | 30): string {
 }
 
 export function EditSlotsModal({
+  deltaPass,
   bookingId,
   courtConfigId,
   date,
   currentSlots,
+  currentSlotMinutes,
   currentBowlingSlots,
   slotDurationMinutes = 60,
   isOpen,
@@ -90,6 +97,49 @@ export function EditSlotsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coverWithPass, setCoverWithPass] = useState(false);
+
+  // NET minutes delta — the same measure the server gates on. Counting
+  // only "fresh hours" would offer the pass option on a pure SWAP (drop
+  // 10am, add 2pm), where the server sees delta 0, debits nothing, and
+  // silently ignores the checkbox.
+  // Minutes on rows this save ADDS (a swap adds one even though the
+  // total is unchanged) and minutes it FREES. The pass is debited the
+  // net, so the balance gate uses added − dropped, while the option is
+  // offered whenever anything was added.
+  const bookedHourSet = new Set(currentSlots);
+  const addedMinutes = isBowlingMode
+    ? [...selectedBowling].filter(
+        (k) =>
+          !(currentBowlingSlots ?? []).some((s) => keyOf(s.hour, s.minute) === k),
+      ).length * 30
+    : (() => {
+        // Server-side, KEPT hours retain their existing rows (a 30-min
+        // extension stays 30) and only genuinely new hours become
+        // 60-min rows. Use each hour's REAL minutes — averaging them
+        // mislabels the edit and can offer a pass option the server
+        // then ignores.
+        let added = 0;
+        selectedHours.forEach((h) => {
+          if (!bookedHourSet.has(h)) added += 60;
+        });
+        return added;
+      })();
+  const droppedMinutes = isBowlingMode
+    ? (currentBowlingSlots ?? []).filter(
+        (s) => !selectedBowling.has(keyOf(s.hour, s.minute)),
+      ).length * 30
+    : [...bookedHourSet]
+        .filter((h) => !selectedHours.has(h))
+        .reduce((sum, h) => sum + ((currentSlotMinutes ?? {})[h] ?? 60), 0);
+  // What the pass must actually fund after the freed minutes pay their part.
+  const netPassMinutes = Math.max(0, addedMinutes - droppedMinutes);
+
+  // A tick left over from a selection the admin then changed into a
+  // removal must not travel with the save.
+  useEffect(() => {
+    if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedMinutes, coverWithPass]);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -206,10 +256,18 @@ export function EditSlotsModal({
           newDate,
           undefined,
           picks,
+          coverWithPass,
         );
       } else {
         const hours = Array.from(selectedHours).sort((a, b) => a - b);
-        result = await adminEditBookingSlots(bookingId, hours, newDate);
+        result = await adminEditBookingSlots(
+          bookingId,
+          hours,
+          newDate,
+          undefined,
+          undefined,
+          coverWithPass,
+        );
       }
       if (result.success) {
         onSuccess();
@@ -379,6 +437,31 @@ export function EditSlotsModal({
 
             <div className="flex items-center justify-between border-t border-zinc-700 pt-4">
               <div className="text-sm text-zinc-400">
+                {deltaPass &&
+                  (() => {
+                    const added = addedMinutes;
+                    if (added <= 0) return null;
+                    const enough = deltaPass.remainingMinutes >= netPassMinutes;
+                    return (
+                      <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+                        <input
+                          type="checkbox"
+                          checked={coverWithPass}
+                          onChange={(e) => setCoverWithPass(e.target.checked)}
+                          disabled={!enough}
+                          className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
+                        />
+                        {droppedMinutes > 0 && netPassMinutes === 0
+                          ? `Keep the moved ${added / 60}h on ${deltaPass.name}`
+                          : `Cover the added ${added / 60}h from ${deltaPass.name}`}{" "}
+                        ({(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}
+                        h left)
+                        {!enough && (
+                          <span className="text-amber-400">— not enough balance</span>
+                        )}
+                      </label>
+                    );
+                  })()}
                 {isBowlingMode ? selectedBowling.size : selectedHours.size} slot
                 {(isBowlingMode ? selectedBowling.size : selectedHours.size) !== 1
                   ? "s"

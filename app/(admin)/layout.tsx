@@ -12,7 +12,7 @@ const allNavItems = [
   { href: "/admin/analytics", label: "Analytics", group: "General", permission: "VIEW_ANALYTICS" },
   { href: "/admin/reports", label: "Reports", group: "General", permission: "VIEW_ANALYTICS" },
   { href: "/admin/bookings", label: "All Bookings", group: "Bookings", permission: "MANAGE_BOOKINGS" },
-  { href: "/admin/bookings/unconfirmed", label: "Unconfirmed", group: "Bookings", permission: "MANAGE_BOOKINGS" },
+  { href: "/admin/bookings/unconfirmed", label: "Unconfirmed Payments", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/bookings/calendar", label: "Calendar", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/bookings/recovery", label: "Payment Recovery", group: "Bookings", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/checkin", label: "Check-in", group: "Bookings", permission: "MANAGE_BOOKINGS" },
