@@ -185,7 +185,14 @@ export function DqrCheckout({
         doneRef.current = true;
         stopPolling();
         clearStore();
-        setError("Payment failed or expired. Please try again.");
+        // A FAILED state can still mean money WAS captured (e.g. the
+        // plan was repriced mid-payment). Never tell that customer to
+        // "try again" — that's how double payments happen.
+        setError(
+          data.paymentReceived && data.error
+            ? data.error
+            : "Payment failed or expired. Please try again.",
+        );
         setPhase("error");
       }
     } catch {

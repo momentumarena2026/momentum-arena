@@ -43,6 +43,10 @@ interface AdminBookingActionsProps {
   courtConfigId: string;
   date: string;
   currentSlots: number[];
+  /** Sum of the booking's actual slot durations — a 30-min extension
+   *  makes this differ from currentSlots.length × 60, and the pass
+   *  delta must be measured the way the server measures it. */
+  currentBookedMinutes: number;
   // Slot duration in minutes for this booking's court. 30 = bowling
   // machine (the EditSlotsModal renders a half-hour grid + writes
   // {hour, minute} pairs). 60 / undefined = hourly.
@@ -79,6 +83,7 @@ export function AdminBookingActions({
   courtConfigId,
   date,
   currentSlots,
+  currentBookedMinutes,
   slotDurationMinutes,
   deltaPass,
   currentBowlingSlots,
@@ -594,6 +599,7 @@ export function AdminBookingActions({
         courtConfigId={courtConfigId}
         date={date}
         currentSlots={currentSlots}
+        currentBookedMinutes={currentBookedMinutes}
         currentBowlingSlots={currentBowlingSlots}
         slotDurationMinutes={slotDurationMinutes}
         deltaPass={deltaPass}
@@ -611,6 +617,7 @@ export function AdminBookingActions({
         currentCourtConfigId={courtConfigId}
         currentDate={date}
         currentSlots={currentSlots}
+        currentBookedMinutes={currentBookedMinutes}
         deltaPass={deltaPass}
         sport={sport}
         courtConfigs={courtConfigs}

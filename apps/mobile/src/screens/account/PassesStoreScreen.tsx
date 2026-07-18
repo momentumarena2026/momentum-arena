@@ -242,7 +242,14 @@ export function PassesStoreScreen() {
       },
       status: async (txn: string) => {
         const r = await passesApi.dqrStatus(txn);
-        return { state: r.state, confirmedId: r.userPassId ?? null };
+        // Carry paymentReceived/error through so a captured-but-
+        // unissued payment shows "do NOT pay again", not "try again".
+        return {
+          state: r.state,
+          confirmedId: r.userPassId ?? null,
+          paymentReceived: r.paymentReceived,
+          error: r.error,
+        };
       },
     }),
     [buyingId, startDate],

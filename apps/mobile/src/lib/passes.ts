@@ -112,6 +112,9 @@ export const passesApi = {
     api.get<{
       state: "PENDING" | "COMPLETED" | "FAILED";
       userPassId?: string | null;
+      /** FAILED but money WAS captured (plan repriced mid-payment). */
+      paymentReceived?: boolean;
+      error?: string;
     }>(
       `/api/phonepe/dqr/pass-status?transactionId=${encodeURIComponent(transactionId)}`,
     ),

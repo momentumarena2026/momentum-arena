@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
+import { passBandsCoverHours } from "@/lib/passes";
 
 /**
  * GET /api/mobile/admin/bookings/[id]
@@ -94,24 +95,45 @@ export async function GET(
     startsAt: { lte: booking.date },
     expiresAt: { gt: booking.date },
   };
-  const extendPass = booking.userId
-    ? live
-      ? await db.userPass.findFirst({
-          where: { id: live.userPassId, ...eligibility },
-          select: { id: true, name: true, remainingMinutes: true },
-        })
-      : await db.userPass.findFirst({
-          where: {
-            OR: [
-              { userId: booking.userId },
-              { members: { some: { userId: booking.userId } } },
-            ],
-            ...eligibility,
-          },
-          orderBy: { expiresAt: "asc" },
-          select: { id: true, name: true, remainingMinutes: true },
-        })
-    : null;
+  const extendCandidates = booking.userId
+    ? await db.userPass.findMany({
+        where: live
+          ? { id: live.userPassId, ...eligibility }
+          : {
+              OR: [
+                { userId: booking.userId },
+                { members: { some: { userId: booking.userId } } },
+              ],
+              ...eligibility,
+            },
+        orderBy: { expiresAt: "asc" },
+        select: { id: true, name: true, remainingMinutes: true, bands: true },
+      })
+    : [];
+  // Only offer a pass whose price bands cover this booking's hours —
+  // the server enforces bands on save (same filter as the web page).
+  let extendPass: {
+    id: string;
+    name: string;
+    remainingMinutes: number;
+  } | null = null;
+  for (const candidate of extendCandidates) {
+    if (
+      await passBandsCoverHours(
+        candidate,
+        booking.courtConfigId,
+        booking.date,
+        booking.slots.map((s) => s.startHour),
+      )
+    ) {
+      extendPass = {
+        id: candidate.id,
+        name: candidate.name,
+        remainingMinutes: candidate.remainingMinutes,
+      };
+      break;
+    }
+  }
 
   // The invariant staff act on: what's still collectable at the venue
   // (equipment and any added-but-uncovered time on a pass booking).

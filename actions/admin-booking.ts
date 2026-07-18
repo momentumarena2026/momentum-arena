@@ -2548,11 +2548,29 @@ export async function adminEditBookingSlots(
     // changed into a REMOVAL must not suppress the payment realign below
     // (there's no added time for a pass to cover).
     const coverDelta = coverDeltaWithPass && newBookedMinutes > oldBookedMinutes;
-    // Hours this save ADDS — the sync band-checks these so an off-peak
-    // pass can't be made to settle peak time.
-    const previouslyBookedHours = new Set(booking.slots.map((s) => s.startHour));
+    // Which rows this save ADDS — at SLOT granularity, so the bowling
+    // 30-min grid is handled too (adding 14:30 to a booking that already
+    // holds 14:00 is a real addition even though the hour is unchanged).
+    // The sync band-checks the added hours and refuses to draw pass
+    // coverage from rows the pass was never debited for.
+    const bookedSlotKeys = new Set(
+      booking.slots.map((s) => `${s.startHour}:${s.startMinute}`),
+    );
+    const newSlotsForPass = usingBowling
+      ? bowlingSlots!.map((sl) => ({
+          price: bowlingPriceMap!.get(`${sl.hour}:${sl.minute}`) ?? 0,
+          durationMinutes: 30,
+          isNew: !bookedSlotKeys.has(`${sl.hour}:${sl.minute}`),
+          startHour: sl.hour,
+        }))
+      : hourlySlotRows!.map((r) => ({
+          price: r.price,
+          durationMinutes: r.durationMinutes,
+          isNew: !bookedSlotKeys.has(`${r.startHour}:${r.startMinute}`),
+          startHour: r.startHour,
+        }));
     const addedHoursForPass = [
-      ...new Set(effectiveNewHours.filter((h) => !previouslyBookedHours.has(h))),
+      ...new Set(newSlotsForPass.filter((r) => r.isNew).map((r) => r.startHour)),
     ];
 
     await db.$transaction(async (tx) => {
@@ -2640,19 +2658,13 @@ export async function adminEditBookingSlots(
           paymentAmount: paymentAfterEdit,
           newMinutes: newBookedMinutes,
           oldMinutes: oldBookedMinutes,
-          // The rows this edit actually wrote — the sync revalues the
-          // pass's share against them.
-          newSlots: usingBowling
-            ? bowlingSlots!.map((sl) => ({
-                price: bowlingPriceMap!.get(`${sl.hour}:${sl.minute}`) ?? 0,
-                durationMinutes: 30,
-              }))
-            : hourlySlotRows!.map((r) => ({
-                price: r.price,
-                durationMinutes: r.durationMinutes,
-              })),
+          // The rows this edit actually wrote, each flagged as pre-existing
+          // or newly added — the sync draws the pass's share only from
+          // rows it legitimately paid for.
+          newSlots: newSlotsForPass,
           equipmentAmount: equipmentBase,
           addedHours: addedHoursForPass,
+          finalHours: [...new Set(newSlotsForPass.map((r) => r.startHour))],
           coverDeltaWithPass: coverDelta,
         });
         if (!passSync.ok) throw new Error(passSync.error);
@@ -3076,10 +3088,20 @@ export async function adminEditBookingFull(
       // A stale tick from a selection later changed into a removal has
       // no added time to cover.
       const coverDeltaFull = !!data.coverDeltaWithPass && newMinFull > oldMinFull;
-      const previouslyBookedFull = new Set(booking.slots.map((x) => x.startHour));
-      const addedHoursFull = finalHours.filter(
-        (h) => !previouslyBookedFull.has(h),
+      const bookedSlotKeysFull = new Set(
+        booking.slots.map((x) => `${x.startHour}:${x.startMinute}`),
       );
+      const newSlotsForPassFull = newSlotRows.map((r) => ({
+        price: r.price,
+        durationMinutes: r.durationMinutes,
+        isNew: !bookedSlotKeysFull.has(`${r.startHour}:${r.startMinute}`),
+        startHour: r.startHour,
+      }));
+      const addedHoursFull = [
+        ...new Set(
+          newSlotsForPassFull.filter((r) => r.isNew).map((r) => r.startHour),
+        ),
+      ];
       // Mirrors the paymentUpdate branch order below so the sync sees
       // exactly the Payment.amount the edit leaves behind.
       const paymentAfterEdit = booking.payment
@@ -3102,12 +3124,10 @@ export async function adminEditBookingFull(
         paymentAmount: paymentAfterEdit,
         newMinutes: newMinFull,
         oldMinutes: oldMinFull,
-        newSlots: newSlotRows.map((r) => ({
-          price: r.price,
-          durationMinutes: r.durationMinutes,
-        })),
+        newSlots: newSlotsForPassFull,
         equipmentAmount: equipmentBaseFull,
         addedHours: addedHoursFull,
+        finalHours,
         coverDeltaWithPass: coverDeltaFull,
       });
       if (!passSync.ok) throw new Error(passSync.error);

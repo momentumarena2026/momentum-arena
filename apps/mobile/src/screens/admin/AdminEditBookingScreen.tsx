@@ -114,7 +114,22 @@ export function AdminEditBookingScreen() {
     () => new Set((booking?.slots ?? []).map((s) => s.startHour)),
     [booking],
   );
-  const addedMinutes = Math.max(0, (hours.length - bookedHours.size) * 60);
+  // Mirrors the server: KEPT hours retain their existing rows (a 30-min
+  // extension stays 30 min), only genuinely new hours become 60-min
+  // rows. Measuring in whole hours would disagree whenever a booking
+  // carries an extension row.
+  const oldBookedMinutes = (booking?.slots ?? []).reduce(
+    (sum, s) => sum + (s.durationMinutes ?? 60),
+    0,
+  );
+  const addedMinutes = (() => {
+    const perHour = oldBookedMinutes / Math.max(1, bookedHours.size);
+    let newMinutes = 0;
+    new Set(hours).forEach((h) => {
+      newMinutes += bookedHours.has(h) ? perHour : 60;
+    });
+    return Math.max(0, Math.round(newMinutes - oldBookedMinutes));
+  })();
 
   useEffect(() => {
     if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);

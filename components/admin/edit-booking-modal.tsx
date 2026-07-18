@@ -10,6 +10,8 @@ interface EditBookingModalProps {
   currentCourtConfigId: string;
   currentDate: string;
   currentSlots: number[];
+  /** Real booked minutes (durations summed) — see AdminBookingActions. */
+  currentBookedMinutes?: number;
   sport: string;
   courtConfigs: {
     id: string;
@@ -37,6 +39,7 @@ export function EditBookingModal({
   currentCourtConfigId,
   currentDate,
   currentSlots,
+  currentBookedMinutes,
   sport,
   courtConfigs,
   isPartialPayment,
@@ -71,15 +74,24 @@ export function EditBookingModal({
   // (drop one hour, add another) is delta 0 there, so offering the pass
   // option on "fresh hours" alone would show a checkbox that silently
   // does nothing.
-  const addedHours = Math.max(
-    0,
-    selectedHours.size - new Set(currentSlots).size,
-  );
+  const addedMinutes = (() => {
+    // Mirrors the server: kept hours retain their rows (30-min
+    // extensions included), new hours become 60-min rows.
+    const bookedSet = new Set(currentSlots);
+    const oldMinutes = currentBookedMinutes ?? bookedSet.size * 60;
+    const perHour = oldMinutes / Math.max(1, bookedSet.size);
+    let newMinutes = 0;
+    selectedHours.forEach((h) => {
+      newMinutes += bookedSet.has(h) ? perHour : 60;
+    });
+    return Math.max(0, Math.round(newMinutes - oldMinutes));
+  })();
+  const addedHours = addedMinutes / 60;
 
   // Don't let a tick survive a selection the admin turned into a removal.
   useEffect(() => {
-    if (addedHours <= 0 && coverWithPass) setCoverWithPass(false);
-  }, [addedHours, coverWithPass]);
+    if (addedMinutes <= 0 && coverWithPass) setCoverWithPass(false);
+  }, [addedMinutes, coverWithPass]);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -454,18 +466,18 @@ export function EditBookingModal({
 
         {/* Pass-cover option — only when the edit ADDS time and the
             customer has an eligible pass. Server re-validates. */}
-        {deltaPass && addedHours > 0 && (
+        {deltaPass && addedMinutes > 0 && (
           <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
             <input
               type="checkbox"
               checked={coverWithPass}
               onChange={(e) => setCoverWithPass(e.target.checked)}
-              disabled={deltaPass.remainingMinutes < addedHours * 60}
+              disabled={deltaPass.remainingMinutes < addedMinutes}
               className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600"
             />
             Cover the added {addedHours}h from {deltaPass.name} (
             {(deltaPass.remainingMinutes / 60).toFixed(1).replace(/\.0$/, "")}h left)
-            {deltaPass.remainingMinutes < addedHours * 60 && (
+            {deltaPass.remainingMinutes < addedMinutes && (
               <span className="text-amber-400">— not enough balance</span>
             )}
           </label>

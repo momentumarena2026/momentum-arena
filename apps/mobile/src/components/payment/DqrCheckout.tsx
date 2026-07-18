@@ -57,6 +57,9 @@ export interface DqrFlowInit {
 export interface DqrFlowStatus {
   state: "PENDING" | "COMPLETED" | "FAILED";
   confirmedId?: string | null;
+  /** FAILED but money WAS captured — show `error`, never "try again". */
+  paymentReceived?: boolean;
+  error?: string;
 }
 export interface DqrEndpoints {
   initiate: () => Promise<DqrFlowInit>;
@@ -230,7 +233,14 @@ export function DqrCheckout({
       } else if (res.state === "FAILED") {
         doneRef.current = true;
         stopPolling();
-        setError("Payment failed or expired. Please try again.");
+        // FAILED can still mean money was captured (e.g. the plan was
+        // repriced mid-payment). Telling that customer to "try again"
+        // is how double payments happen.
+        setError(
+          res.paymentReceived && res.error
+            ? res.error
+            : "Payment failed or expired. Please try again.",
+        );
         setPhase("error");
       }
     } catch {

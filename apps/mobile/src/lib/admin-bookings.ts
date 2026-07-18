@@ -50,6 +50,10 @@ export interface AdminBookingPayment {
 export interface AdminBookingSlot {
   startHour: number;
   price: number;
+  /** Present on the detail endpoint; a 30-min admin extension row
+   *  reports 30 while ordinary slots report the court's duration. */
+  startMinute?: number;
+  durationMinutes?: number;
 }
 
 export interface AdminBookingListItem {

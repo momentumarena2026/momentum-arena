@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { passBandsCoverHours } from "@/lib/passes";
 import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatSlotsAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -142,36 +143,57 @@ export default async function AdminBookingDetailPage({
   // other), so offer the attached pass if it's still usable — and only
   // fall back to the best-eligible pass when nothing is attached. This
   // mirrors findPassForBookingDelta's never-silently-switch rule.
-  const extendPass = booking.userId
-    ? passRedemption
-      ? await db.userPass.findFirst({
-          where: {
-            id: passRedemption.userPassId,
-            courtConfigId: { in: groupSiblingIds },
-            status: "ACTIVE",
-            remainingMinutes: { gte: 30 },
-            startsAt: { lte: booking.date },
-            expiresAt: { gt: booking.date },
-          },
-          select: { id: true, name: true, remainingMinutes: true },
-        })
-      : await db.userPass.findFirst({
-          where: {
-            // Owner or shared member — same eligibility as checkout.
-            OR: [
-              { userId: booking.userId },
-              { members: { some: { userId: booking.userId } } },
-            ],
-            courtConfigId: { in: groupSiblingIds },
-            status: "ACTIVE",
-            remainingMinutes: { gte: 30 },
-            startsAt: { lte: booking.date },
-            expiresAt: { gt: booking.date },
-          },
-          orderBy: { expiresAt: "asc" },
-          select: { id: true, name: true, remainingMinutes: true },
-        })
-    : null;
+  const extendCandidates = booking.userId
+    ? await db.userPass.findMany({
+        where: passRedemption
+          ? {
+              id: passRedemption.userPassId,
+              courtConfigId: { in: groupSiblingIds },
+              status: "ACTIVE",
+              remainingMinutes: { gte: 30 },
+              startsAt: { lte: booking.date },
+              expiresAt: { gt: booking.date },
+            }
+          : {
+              // Owner or shared member — same eligibility as checkout.
+              OR: [
+                { userId: booking.userId },
+                { members: { some: { userId: booking.userId } } },
+              ],
+              courtConfigId: { in: groupSiblingIds },
+              status: "ACTIVE",
+              remainingMinutes: { gte: 30 },
+              startsAt: { lte: booking.date },
+              expiresAt: { gt: booking.date },
+            },
+        orderBy: { expiresAt: "asc" },
+        select: { id: true, name: true, remainingMinutes: true, bands: true },
+      })
+    : [];
+  // Only OFFER a pass whose price bands actually cover this booking's
+  // hours — the server enforces bands on save, so an unfiltered offer
+  // meant admins were shown "cover with pass" and then rejected.
+  let extendPass: {
+    id: string;
+    name: string;
+    remainingMinutes: number;
+  } | null = null;
+  for (const candidate of extendCandidates) {
+    const covers = await passBandsCoverHours(
+      candidate,
+      booking.courtConfigId,
+      booking.date,
+      booking.slots.map((s) => s.startHour),
+    );
+    if (covers) {
+      extendPass = {
+        id: candidate.id,
+        name: candidate.name,
+        remainingMinutes: candidate.remainingMinutes,
+      };
+      break;
+    }
+  }
 
   const sportInfo = SPORT_INFO[booking.courtConfig.sport];
   const sizeInfo = SIZE_INFO[booking.courtConfig.size];
@@ -741,6 +763,10 @@ export default async function AdminBookingDetailPage({
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}
           currentSlots={booking.slots.map((s) => s.startHour)}
+          currentBookedMinutes={booking.slots.reduce(
+            (sum, s) => sum + s.durationMinutes,
+            0,
+          )}
           // Treat the court as 30-min bowling whenever EITHER the
           // explicit slotDurationMinutes is 30 OR the category is
           // BOWLING_MACHINE. The two signals can drift apart in seed
