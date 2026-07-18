@@ -28,7 +28,7 @@ const BAR_HEIGHT = 62;
  * Size them independently and you get either icons bunched in the
  * centre with dead space above, or icons drifting off the top.
  */
-const SHEET_R = 118;
+const SHEET_R = 100;
 /** Icon puck; its centre is what lands on the curve. */
 const ICON_SIZE = 46;
 /** Label + gap sitting under the icon — the offset from the item's
