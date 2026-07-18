@@ -223,10 +223,15 @@ export function DqrCheckout({
   // showed the button reading as dead: the status probe ran, PhonePe said
   // PENDING, and the UI changed nothing. Surface the outcome explicitly so
   // the customer knows we checked — and that they must NOT pay again.
+  // True once the customer has plausibly moved money: they opened a UPI
+  // app (intent) or told us they paid. From that point on, NOTHING in
+  // this sheet may invite a second payment.
+  const mayHavePaidRef = useRef(false);
   const [manualCheck, setManualCheck] = useState<"idle" | "checking" | "unpaid">(
     "idle",
   );
   const manualCheckStatus = useCallback(async () => {
+    mayHavePaidRef.current = true;
     setManualCheck("checking");
     await checkStatus();
     // On success checkStatus flips the phase to "confirmed" and this
@@ -401,8 +406,34 @@ export function DqrCheckout({
     if (secondsLeft <= 0) {
       doneRef.current = true;
       stopPolling();
-      clearStore();
-      setError("This QR has expired. Generate a new one to continue.");
+      // A customer who already tapped through to a UPI app may well have
+      // paid: PhonePe can leave an intent txn PENDING long after the
+      // money left their account (the 2026-07-11 intent-replication
+      // incident). Telling THEM to "generate a new one" is how a stuck
+      // payment becomes a double payment — so branch on it, keep the
+      // stored txn, and put the money on the admin worklist.
+      if (mayHavePaidRef.current) {
+        setPaymentReceived(true);
+        setError(
+          "This QR expired before we could confirm your payment. If money left your account, please do NOT pay again — our team will confirm your booking or refund you shortly.",
+        );
+        void fetch("/api/phonepe/dqr/report-stuck", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transactionId: txnRef.current, surface }),
+        }).catch(() => {});
+        try {
+          sessionStorage.setItem(
+            storeKey,
+            JSON.stringify({ terminal: true, message: null }),
+          );
+        } catch {
+          /* best effort */
+        }
+      } else {
+        clearStore();
+        setError("This QR has expired. Generate a new one to continue.");
+      }
       setPhase("error");
       return;
     }
@@ -458,6 +489,9 @@ export function DqrCheckout({
   const launchApp = useCallback(
     (name: string, link: string) => {
       trackUpiAppLaunched(displayAmount);
+      // They're leaving for a UPI app — from here a payment may exist
+      // even if PhonePe never reports it.
+      mayHavePaidRef.current = true;
       setLaunchedApp({ name, link });
       setPhase("waiting");
       window.location.href = link;
