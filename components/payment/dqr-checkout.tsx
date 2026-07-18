@@ -227,9 +227,49 @@ export function DqrCheckout({
   // app (intent) or told us they paid. From that point on, NOTHING in
   // this sheet may invite a second payment.
   const mayHavePaidRef = useRef(false);
+  const [claiming, setClaiming] = useState(false);
+  // onConfirmed via a ref so the confirm-handoff effect can depend only
+  // on `phase` — see the confirmed-phase effect below for why.
+  const onConfirmedRef = useRef(onConfirmed);
+  onConfirmedRef.current = onConfirmed;
   const [manualCheck, setManualCheck] = useState<"idle" | "checking" | "unpaid">(
     "idle",
   );
+  /**
+   * "Yes, I've paid" on a stuck payment. Reserves the slot as an
+   * UNCONFIRMED booking (admin verifies) rather than leaving the
+   * customer with nothing — booking-surface only, since cafe orders and
+   * pass purchases have no equivalent pending-verification queue.
+   */
+  const claimPaid = useCallback(async () => {
+    setClaiming(true);
+    try {
+      const res = await fetch("/api/phonepe/dqr/claim-paid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ holdId, overrideAmount }),
+      });
+      const data = await res.json();
+      if (res.ok && data.bookingId) {
+        doneRef.current = true;
+        stopPolling();
+        clearStore();
+        settledIdRef.current = data.bookingId;
+        // Confirmed outright (PhonePe had settled after all) → the usual
+        // success animation. Otherwise hand off straight to the booking
+        // page, which shows its own awaiting-verification state.
+        if (data.confirmed) setPhase("confirmed");
+        else onConfirmedRef.current(data.bookingId);
+        return;
+      }
+      setError(data.error || "Couldn't reserve your slot — please contact us.");
+    } catch {
+      setError("Couldn't reach the server — please contact us.");
+    } finally {
+      setClaiming(false);
+    }
+  }, [holdId, overrideAmount, stopPolling, clearStore]);
+
   const manualCheckStatus = useCallback(async () => {
     mayHavePaidRef.current = true;
     setManualCheck("checking");
@@ -495,8 +535,6 @@ export function DqrCheckout({
   // timeout — if the parent re-renders faster than CONFIRM_HOLD_MS (e.g. a
   // ticking countdown), the handoff NEVER fires and the sheet hangs on the
   // success screen. That exact hang shipped on mobile; guard both surfaces.
-  const onConfirmedRef = useRef(onConfirmed);
-  onConfirmedRef.current = onConfirmed;
   const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
@@ -853,6 +891,26 @@ export function DqrCheckout({
               <AlertCircle className="mx-auto h-9 w-9 text-red-400" />
               <p className="mt-3 text-sm text-red-300">{error}</p>
             </div>
+            {/* Money may have moved but PhonePe won't confirm it: hold
+                the slot as an UNCONFIRMED booking so the customer keeps
+                their court and the admin's existing verification queue
+                picks it up — the same safety net the static-QR flow has.
+                Booking surface only; cafe/pass have no such queue. */}
+            {paymentReceived && surface === "booking" && (
+              <button
+                onClick={() => void claimPaid()}
+                disabled={claiming}
+                className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {claiming ? "Reserving your slot…" : "I've paid — reserve my slot"}
+              </button>
+            )}
+            {paymentReceived && surface === "booking" && (
+              <p className="text-center text-xs text-zinc-400">
+                We&apos;ll hold your court and confirm once we&apos;ve
+                checked the payment with PhonePe.
+              </p>
+            )}
             {/* Never offer a retry when the gateway already took the
                 money — a second QR here is exactly how a customer ends
                 up paying twice. Leaving is the only action. */}
