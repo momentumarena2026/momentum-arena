@@ -31,8 +31,11 @@ export async function resolveClaimedPayment(
   kind: ClaimKind,
   intentId: string,
   mode: "verify" | "force" | "reject",
+  // The mobile admin route authenticates via JWT + MANAGE_BOOKINGS
+  // before calling; web call sites keep the cookie gate.
+  skipAuth?: boolean,
 ): Promise<ClaimResult> {
-  await requireAdmin();
+  if (!skipAuth) await requireAdmin();
 
   if (mode === "reject") {
     if (kind === "cafe") {

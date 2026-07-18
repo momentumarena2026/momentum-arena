@@ -43,23 +43,28 @@ export async function POST(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const { holdId, overrideAmount, surface } = await request
+  const { holdId, overrideAmount, surface, transactionId } = await request
     .json()
     .catch(() => ({}));
-  if (!holdId) {
-    return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
-  }
 
   // ── Cafe / pass: claim the INTENT, don't materialise anything ──
+  // Resolved by TRANSACTION id, not `holdId` — on these surfaces holdId
+  // carries the plan/cart reference, not the intent's own id.
   if (surface === "cafe" || surface === "pass") {
+    if (!transactionId) {
+      return NextResponse.json(
+        { error: "Missing transactionId" },
+        { status: 400 },
+      );
+    }
     const intent =
       surface === "cafe"
         ? await db.cafePaymentIntent.findUnique({
-            where: { id: holdId },
+            where: { phonePeMerchantTxnId: transactionId },
             select: { id: true, userId: true, phonePeMerchantTxnId: true, consumedOrderId: true },
           })
         : await db.passPurchaseIntent.findUnique({
-            where: { id: holdId },
+            where: { phonePeMerchantTxnId: transactionId },
             select: { id: true, userId: true, phonePeMerchantTxnId: true, consumedUserPassId: true },
           });
     if (!intent || (intent.userId && intent.userId !== userId)) {
@@ -120,6 +125,10 @@ export async function POST(request: NextRequest) {
       metadata: { surface, intentId: intent.id, transactionId: intentTxn },
     });
     return NextResponse.json({ claimed: true, confirmed: false });
+  }
+
+  if (!holdId) {
+    return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
   }
 
   const hold = await getValidHold(holdId, userId);

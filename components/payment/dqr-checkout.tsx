@@ -247,7 +247,12 @@ export function DqrCheckout({
       const res = await fetch("/api/phonepe/dqr/claim-paid", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ holdId, overrideAmount, surface }),
+        body: JSON.stringify({
+          holdId,
+          overrideAmount,
+          surface,
+          transactionId: txnRef.current,
+        }),
       });
       const data = await res.json();
       const settledId = data.bookingId ?? data.id;

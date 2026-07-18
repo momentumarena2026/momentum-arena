@@ -47,6 +47,16 @@ export interface AdminBookingPayment {
   confirmedAt: string | null;
 }
 
+export interface AdminClaimedPayment {
+  kind: "cafe" | "pass";
+  id: string;
+  customer: string | null;
+  label: string;
+  amount: number;
+  transactionId: string | null;
+  claimedAt: string | null;
+}
+
 export interface AdminBookingSlot {
   startHour: number;
   price: number;
@@ -119,6 +129,9 @@ export interface AdminBookingDetail extends Omit<AdminBookingListItem, "courtCon
 
 export interface ListResponse {
   bookings: AdminBookingListItem[];
+  /** Customer-claimed cafe/pass payments PhonePe hasn't confirmed.
+   *  Present on page 1 only — a short queue, not a paginated list. */
+  claims?: AdminClaimedPayment[];
   total: number;
   page: number;
   totalPages: number;
@@ -567,6 +580,22 @@ export const adminBookingsApi = {
     return request(`/api/mobile/admin/bookings/${id}/extend`, {
       method: "POST",
       body,
+    });
+  },
+
+  /** Resolve a claimed cafe/pass payment — see the web
+   *  "Unconfirmed Payments" actions; the server action is shared. */
+  resolveClaim(
+    kind: "cafe" | "pass",
+    intentId: string,
+    mode: "verify" | "force" | "reject",
+  ): Promise<
+    | { ok: true; id?: string; via?: "gateway" | "manual"; rejected?: boolean }
+    | { ok: false; error: string }
+  > {
+    return request("/api/mobile/admin/claimed-payments", {
+      method: "POST",
+      body: { kind, intentId, mode },
     });
   },
 

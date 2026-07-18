@@ -494,6 +494,7 @@ export function PassesStoreScreen() {
       {buying && showDqr ? (
         <DqrCheckout
           amount={buying.price}
+          claimSurface="pass"
           endpoints={dqrEndpoints}
           successNote="Your pass is ready"
           onConfirmed={(userPassId) => {

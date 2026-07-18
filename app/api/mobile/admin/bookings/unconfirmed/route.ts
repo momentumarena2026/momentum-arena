@@ -63,8 +63,79 @@ export async function GET(request: NextRequest) {
     _isRecurringChildPayment: false,
   }));
 
+  // Customer-claimed cafe/pass payments PhonePe hasn't confirmed. Kept
+  // as intents (materialising early would issue a redeemable pass), so
+  // they ride alongside the bookings rather than inside them. Only sent
+  // on page 1 — this is a short list, not a paginated one.
+  const claims =
+    page === 1
+      ? await (async () => {
+          const [cafe, passes] = await Promise.all([
+            db.cafePaymentIntent.findMany({
+              where: { claimedAt: { not: null }, consumedOrderId: null },
+              orderBy: { claimedAt: "desc" },
+              take: 25,
+            }),
+            db.passPurchaseIntent.findMany({
+              where: { claimedAt: { not: null }, consumedUserPassId: null },
+              orderBy: { claimedAt: "desc" },
+              take: 25,
+            }),
+          ]);
+          const userIds = [
+            ...new Set(
+              [...cafe, ...passes]
+                .map((c) => c.userId)
+                .filter((id): id is string => !!id),
+            ),
+          ];
+          const [users, plans] = await Promise.all([
+            userIds.length
+              ? db.user.findMany({
+                  where: { id: { in: userIds } },
+                  select: { id: true, name: true, phone: true },
+                })
+              : [],
+            passes.length
+              ? db.passPlan.findMany({
+                  where: { id: { in: passes.map((p) => p.planId) } },
+                  select: { id: true, name: true, price: true },
+                })
+              : [],
+          ]);
+          const userById = new Map(users.map((u) => [u.id, u]));
+          const planById = new Map(plans.map((p) => [p.id, p]));
+          return [
+            ...cafe.map((c) => ({
+              kind: "cafe" as const,
+              id: c.id,
+              customer:
+                userById.get(c.userId ?? "")?.name ??
+                c.guestName ??
+                userById.get(c.userId ?? "")?.phone ??
+                c.guestPhone ??
+                null,
+              label: "Cafe order",
+              amount: c.totalAmount,
+              transactionId: c.phonePeMerchantTxnId,
+              claimedAt: c.claimedAt,
+            })),
+            ...passes.map((p) => ({
+              kind: "pass" as const,
+              id: p.id,
+              customer: userById.get(p.userId)?.name ?? userById.get(p.userId)?.phone ?? null,
+              label: planById.get(p.planId)?.name ?? "Pass",
+              amount: planById.get(p.planId)?.price ?? 0,
+              transactionId: p.phonePeMerchantTxnId,
+              claimedAt: p.claimedAt,
+            })),
+          ];
+        })()
+      : [];
+
   return NextResponse.json({
     bookings: enriched,
+    claims,
     total,
     page,
     totalPages: Math.ceil(total / limit),

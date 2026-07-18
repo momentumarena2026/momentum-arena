@@ -1,4 +1,5 @@
 import {
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -8,6 +9,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -21,6 +23,7 @@ import { colors, radius, spacing } from "../../theme";
 import {
   adminBookingsApi,
   type AdminBookingListItem,
+  type AdminClaimedPayment,
 } from "../../lib/admin-bookings";
 import {
   formatDateLong,
@@ -58,6 +61,46 @@ export function AdminUnconfirmedBookingsListScreen() {
   });
 
   const bookings = query.data?.bookings ?? [];
+  const claims = query.data?.claims ?? [];
+  const [resolving, setResolving] = useState<string | null>(null);
+
+  async function resolve(
+    claim: AdminClaimedPayment,
+    mode: "verify" | "force" | "reject",
+  ) {
+    setResolving(claim.id);
+    try {
+      const res = await adminBookingsApi.resolveClaim(claim.kind, claim.id, mode);
+      if (res.ok) {
+        Alert.alert(
+          "Done",
+          "rejected" in res && res.rejected
+            ? "Claim dismissed."
+            : res.via === "gateway"
+              ? "Confirmed — PhonePe had settled it."
+              : "Confirmed manually.",
+        );
+        void query.refetch();
+      } else {
+        // PhonePe wouldn't confirm — offer the manual override, which is
+        // only sound once a human has checked the dashboard.
+        if (/still reports this as/.test(res.error) && mode === "verify") {
+          Alert.alert("Not confirmed by PhonePe", res.error, [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Confirm anyway",
+              style: "destructive",
+              onPress: () => void resolve(claim, "force"),
+            },
+          ]);
+        } else {
+          Alert.alert("Couldn't resolve", res.error);
+        }
+      }
+    } finally {
+      setResolving(null);
+    }
+  }
   const total = query.data?.total ?? 0;
   const refreshing =
     (query.isFetching && !query.isLoading) || query.isRefetching;
@@ -152,8 +195,89 @@ export function AdminUnconfirmedBookingsListScreen() {
             ))}
           </View>
         )}
+
+        {/* Cafe / pass payments a customer says they made but PhonePe
+            hasn't confirmed. Held as intents until verified — issuing an
+            unverified pass would be immediately redeemable. */}
+        {claims.length > 0 && (
+          <View style={styles.claimsBlock}>
+            <Text variant="bodyStrong" color={colors.zinc300}>
+              Cafe &amp; pass payments
+            </Text>
+            <Text variant="tiny" color={colors.zinc500}>
+              Verify re-checks with PhonePe. If it still won&apos;t confirm,
+              look the transaction up in the PhonePe dashboard first.
+            </Text>
+            {claims.map((c) => (
+              <ClaimRow
+                key={`${c.kind}:${c.id}`}
+                claim={c}
+                busy={resolving === c.id}
+                onResolve={(mode) => resolve(c, mode)}
+              />
+            ))}
+          </View>
+        )}
       </ScrollView>
     </Screen>
+  );
+}
+
+/** One claimed cafe/pass payment awaiting verification. */
+function ClaimRow({
+  claim,
+  busy,
+  onResolve,
+}: {
+  claim: AdminClaimedPayment;
+  busy: boolean;
+  onResolve: (mode: "verify" | "force" | "reject") => void;
+}) {
+  return (
+    <View style={styles.claimRow}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <View style={styles.claimHead}>
+          <Text
+            variant="tiny"
+            color={claim.kind === "cafe" ? "#fdba74" : colors.emerald400}
+            style={styles.claimKind}
+          >
+            {claim.kind === "cafe" ? "CAFE" : "PASS"}
+          </Text>
+          <Text variant="small" color={colors.zinc300}>
+            {claim.customer ?? "—"}
+          </Text>
+        </View>
+        <Text variant="tiny" color={colors.zinc500}>
+          {claim.label} · {formatRupees(claim.amount)}
+        </Text>
+        {claim.transactionId ? (
+          <Text variant="tiny" color={colors.zinc600}>
+            {claim.transactionId}
+          </Text>
+        ) : null}
+      </View>
+      <View style={{ gap: spacing["1.5"] }}>
+        <Pressable
+          onPress={() => onResolve("verify")}
+          disabled={busy}
+          style={[styles.claimBtn, busy && { opacity: 0.5 }]}
+        >
+          <Text variant="tiny" color="#fff" weight="600">
+            {busy ? "…" : "Verify"}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => onResolve("reject")}
+          disabled={busy}
+          style={[styles.claimBtnGhost, busy && { opacity: 0.5 }]}
+        >
+          <Text variant="tiny" color={colors.zinc400}>
+            Dismiss
+          </Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -285,6 +409,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(250, 204, 21, 0.30)",
     backgroundColor: "rgba(250, 204, 21, 0.10)",
+  },
+  claimsBlock: {
+    gap: spacing["2"],
+    marginTop: spacing["4"],
+  },
+  claimRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["3"],
+  },
+  claimHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+  },
+  claimKind: { letterSpacing: 1, fontWeight: "700" },
+  claimBtn: {
+    borderRadius: radius.sm,
+    backgroundColor: colors.emerald500,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["1.5"],
+    alignItems: "center",
+  },
+  claimBtnGhost: {
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["1"],
+    alignItems: "center",
   },
   list: { gap: spacing["2"] },
   row: {
