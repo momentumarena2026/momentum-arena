@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
       offer.coveredMinutes,
       bookingId,
       offer.coveredAmount,
+      offer.coveredSlots,
     );
     if (!ok) {
       // Balance raced away between offer + debit — undo the booking.

@@ -8,6 +8,7 @@ import {
   syncPassAfterAdminEdit,
   passCoversCourtGroup,
   passBandsCoverHours,
+  parseCoveredSlots,
 } from "@/lib/passes";
 import {
   sendBookingConfirmation,
@@ -1316,6 +1317,7 @@ export async function getAdminStats() {
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { zonesOverlap } from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 async function requireAdminWithDetails() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -2558,20 +2560,19 @@ export async function adminEditBookingSlots(
     );
     const newSlotsForPass = usingBowling
       ? bowlingSlots!.map((sl) => ({
-          price: bowlingPriceMap!.get(`${sl.hour}:${sl.minute}`) ?? 0,
-          durationMinutes: 30,
-          isNew: !bookedSlotKeys.has(`${sl.hour}:${sl.minute}`),
           startHour: sl.hour,
+          startMinute: sl.minute,
+          durationMinutes: 30,
+          price: bowlingPriceMap!.get(`${sl.hour}:${sl.minute}`) ?? 0,
+          isNew: !bookedSlotKeys.has(`${sl.hour}:${sl.minute}`),
         }))
       : hourlySlotRows!.map((r) => ({
-          price: r.price,
-          durationMinutes: r.durationMinutes,
-          isNew: !bookedSlotKeys.has(`${r.startHour}:${r.startMinute}`),
           startHour: r.startHour,
+          startMinute: r.startMinute,
+          durationMinutes: r.durationMinutes,
+          price: r.price,
+          isNew: !bookedSlotKeys.has(`${r.startHour}:${r.startMinute}`),
         }));
-    const addedHoursForPass = [
-      ...new Set(newSlotsForPass.filter((r) => r.isNew).map((r) => r.startHour)),
-    ];
 
     await db.$transaction(async (tx) => {
       // Delete old slots
@@ -2656,15 +2657,11 @@ export async function adminEditBookingSlots(
           courtConfigId: booking.courtConfigId,
           newTotalAmount,
           paymentAmount: paymentAfterEdit,
-          newMinutes: newBookedMinutes,
-          oldMinutes: oldBookedMinutes,
           // The rows this edit actually wrote, each flagged as pre-existing
           // or newly added — the sync draws the pass's share only from
           // rows it legitimately paid for.
           newSlots: newSlotsForPass,
           equipmentAmount: equipmentBase,
-          addedHours: addedHoursForPass,
-          finalHours: [...new Set(newSlotsForPass.map((r) => r.startHour))],
           coverDeltaWithPass: coverDelta,
         });
         if (!passSync.ok) throw new Error(passSync.error);
@@ -3092,16 +3089,12 @@ export async function adminEditBookingFull(
         booking.slots.map((x) => `${x.startHour}:${x.startMinute}`),
       );
       const newSlotsForPassFull = newSlotRows.map((r) => ({
-        price: r.price,
-        durationMinutes: r.durationMinutes,
-        isNew: !bookedSlotKeysFull.has(`${r.startHour}:${r.startMinute}`),
         startHour: r.startHour,
+        startMinute: r.startMinute,
+        durationMinutes: r.durationMinutes,
+        price: r.price,
+        isNew: !bookedSlotKeysFull.has(`${r.startHour}:${r.startMinute}`),
       }));
-      const addedHoursFull = [
-        ...new Set(
-          newSlotsForPassFull.filter((r) => r.isNew).map((r) => r.startHour),
-        ),
-      ];
       // Mirrors the paymentUpdate branch order below so the sync sees
       // exactly the Payment.amount the edit leaves behind.
       const paymentAfterEdit = booking.payment
@@ -3122,12 +3115,8 @@ export async function adminEditBookingFull(
         courtConfigId: finalCourtConfigId,
         newTotalAmount,
         paymentAmount: paymentAfterEdit,
-        newMinutes: newMinFull,
-        oldMinutes: oldMinFull,
         newSlots: newSlotsForPassFull,
         equipmentAmount: equipmentBaseFull,
-        addedHours: addedHoursFull,
-        finalHours,
         coverDeltaWithPass: coverDeltaFull,
       });
       if (!passSync.ok) throw new Error(passSync.error);
@@ -3866,12 +3855,24 @@ export async function extendBookingByThirtyMin(
         const existingRed = await tx.passRedemption.findUnique({
           where: { bookingId },
         });
+        // The extension's own half-hour joins the covered set, so a
+        // later edit that removes it returns exactly these 30 minutes.
+        const extSlot = {
+          h: Math.floor(newStartMin / 60) % 24,
+          m: newStartMin % 60,
+          min: 30,
+        };
         if (existingRed && !existingRed.restoredAt) {
+          const prior = parseCoveredSlots(existingRed.coveredSlots) ?? [];
           await tx.passRedemption.update({
             where: { bookingId },
             data: {
               minutes: { increment: 30 },
               value: { increment: passExtendValue },
+              coveredSlots: [
+                ...prior,
+                extSlot,
+              ] as unknown as Prisma.InputJsonValue,
             },
           });
         } else if (existingRed) {
@@ -3886,6 +3887,7 @@ export async function extendBookingByThirtyMin(
               minutes: 30,
               value: passExtendValue,
               coveredAmount: 0,
+              coveredSlots: [extSlot] as unknown as Prisma.InputJsonValue,
               restoredAt: null,
             },
           });
@@ -3899,6 +3901,7 @@ export async function extendBookingByThirtyMin(
               // Extends record their slot at ₹0 (never joins the booking
               // total), so there's no list price to settle.
               coveredAmount: 0,
+              coveredSlots: [extSlot] as unknown as Prisma.InputJsonValue,
             },
           });
         }

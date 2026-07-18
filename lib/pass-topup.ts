@@ -217,6 +217,7 @@ export async function completePassTopup(args: {
     // The court time the pass covered — not total − captured, which
     // would fold equipment into the pass's share.
     offer.coveredAmount,
+    offer.coveredSlots,
   );
   if (!ok) {
     console.error("[pass-topup] debit failed post-booking", bookingId);

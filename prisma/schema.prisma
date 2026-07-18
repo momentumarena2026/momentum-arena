@@ -996,6 +996,21 @@ model PassRedemption {
   // pass-paid booking never shows "collect at venue". 0 for pass-paid
   // extends (their slots are recorded at ₹0 and never join the total).
   coveredAmount Int   @default(0)
+  // WHICH slots the pass paid for: [{ h, m, min }] — startHour,
+  // startMinute and durationMinutes of each covered slot.
+  //
+  // Without this, coveredAmount had to be re-derived on every admin
+  // edit by guessing which rows the pass covered ("the priciest ones",
+  // "the ones that fit"), and every guess was wrong in some direction:
+  // a slot swap billed a fully-covered customer, a court move let the
+  // pass absorb an upgrade, gear got written off as pass-settled. With
+  // the identities recorded, coveredAmount is simply the current price
+  // of the slots still on the booking, and each editor moves the set
+  // explicitly.
+  //
+  // Null on rows written before this field existed — treated as "no
+  // per-slot record", falling back to the stored coveredAmount.
+  coveredSlots Json?
   createdAt  DateTime @default(now())
   // Set when an eligible cancellation restored these minutes.
   restoredAt DateTime?
