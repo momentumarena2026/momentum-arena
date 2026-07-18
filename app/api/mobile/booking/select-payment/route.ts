@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
@@ -190,7 +190,13 @@ export async function POST(request: NextRequest) {
   }
 
   // Fire-and-forget — same behaviour as the web actions.
-  notifyAdminPendingBooking(bookingId).catch(() => {});
+  // after(): the app's equivalent of the web static-QR path — same
+  // freeze-on-response race that lost admin alerts at random.
+  after(async () => {
+    await notifyAdminPendingBooking(bookingId).catch((err) =>
+      console.error("[notify] admin pending booking failed", err),
+    );
+  });
 
   logServerAction({
     userId: user.id,

@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -767,8 +768,16 @@ export async function confirmRazorpayPayment(
     return { success: false, error: "Failed to create booking" };
   }
 
-  sendBookingConfirmation(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
-  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  after(async () => {
+    await Promise.allSettled([
+      sendBookingConfirmation(bookingId).catch((err) =>
+        console.error("[notify] booking confirmation failed", err),
+      ),
+      notifyAdminBookingConfirmed(bookingId).catch((err) =>
+        console.error("[notify] admin confirmed failed", err),
+      ),
+    ]);
+  });
 
   return { success: true, bookingId };
 }
@@ -863,7 +872,16 @@ export async function selectUpiPayment(
     return { success: false, error: "Failed to create booking" };
   }
 
-  notifyAdminPendingBooking(bookingId).catch(console.error);
+  // Notification dispatch MUST be wrapped in after(). A bare
+  // fire-and-forget promise is killed when the serverless function
+  // freezes on response, so the SMS/push only went out when it happened
+  // to win that race — the cause of admin alerts going missing at random
+  // since the static-QR flow shipped.
+  after(async () => {
+    await notifyAdminPendingBooking(bookingId).catch((err) =>
+      console.error("[notify] admin pending booking failed", err),
+    );
+  });
 
   logWebServerAction("actions/booking.selectUpiPayment", {
     userId: session.user.id,
@@ -1003,7 +1021,16 @@ export async function selectCashPayment(
     return { success: false, error: "Failed to create booking" };
   }
 
-  notifyAdminPendingBooking(bookingId).catch(console.error);
+  // Notification dispatch MUST be wrapped in after(). A bare
+  // fire-and-forget promise is killed when the serverless function
+  // freezes on response, so the SMS/push only went out when it happened
+  // to win that race — the cause of admin alerts going missing at random
+  // since the static-QR flow shipped.
+  after(async () => {
+    await notifyAdminPendingBooking(bookingId).catch((err) =>
+      console.error("[notify] admin pending booking failed", err),
+    );
+  });
 
   logWebServerAction("actions/booking.selectCashPayment", {
     userId: session.user.id,

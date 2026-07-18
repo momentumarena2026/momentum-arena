@@ -1,5 +1,7 @@
 "use server";
 
+import { after } from "next/server";
+
 import { db } from "@/lib/db";
 import { completePassTopup } from "@/lib/pass-topup";
 import { qrStatus } from "@/lib/phonepe-dqr";
@@ -104,7 +106,12 @@ export async function confirmCashPayment(bookingId: string, adminIdOverride?: st
 
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  // after(): a bare fire-and-forget is killed when the function freezes.
+  after(async () => {
+    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
+      console.error("[notify] admin confirmed failed", err),
+    );
+  });
   // Award reward points (idempotent — safe to re-run on retries).
   void awardBookingPoints(bookingId).catch((err) =>
     console.error("[rewards] award failed for", bookingId, err),
@@ -146,7 +153,12 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
 
   // Send booking confirmation to the customer + ping admins
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  // after(): a bare fire-and-forget is killed when the function freezes.
+  after(async () => {
+    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
+      console.error("[notify] admin confirmed failed", err),
+    );
+  });
   // Award reward points (idempotent — safe to re-run on retries).
   void awardBookingPoints(bookingId).catch((err) =>
     console.error("[rewards] award failed for", bookingId, err),
@@ -202,9 +214,11 @@ export async function confirmBookingManually(
   });
 
   await sendBookingConfirmation(bookingId);
-  notifyAdminBookingConfirmed(bookingId).catch((err) =>
-    console.error("Notification dispatch failed:", err),
-  );
+  after(async () => {
+    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
+      console.error("[notify] admin confirmed failed", err),
+    );
+  });
   void awardBookingPoints(bookingId).catch((err) =>
     console.error("[rewards] award failed for", bookingId, err),
   );
@@ -2170,8 +2184,16 @@ export async function adminCreateBooking(data: {
       data.paymentMethod === "RAZORPAY" ||
       isPartial;
     if (paymentIsCompleted) {
-      sendBookingConfirmation(bookingId).catch(console.error);
-      notifyAdminBookingConfirmed(bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+      after(async () => {
+        await Promise.allSettled([
+          sendBookingConfirmation(bookingId).catch((err) =>
+            console.error("[notify] booking confirmation failed", err),
+          ),
+          notifyAdminBookingConfirmed(bookingId).catch((err) =>
+            console.error("[notify] admin confirmed failed", err),
+          ),
+        ]);
+      });
       // Intentionally no awardBookingPoints call here: admin-created
       // bookings carry Booking.createdByAdminId, and the gate inside
       // awardBookingPoints skips them. The customer didn't make the

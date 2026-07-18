@@ -1,5 +1,7 @@
 "use server";
 
+import { after } from "next/server";
+
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -188,7 +190,11 @@ export async function verifyBookingUtr(
 
   // Send booking confirmation to the customer
   await sendBookingConfirmation(payment.bookingId);
-  notifyAdminBookingConfirmed(payment.bookingId).catch((err) => console.error("Notification dispatch failed:", err));
+  after(async () => {
+    await notifyAdminBookingConfirmed(payment.bookingId).catch((err) =>
+      console.error("[notify] admin confirmed failed", err),
+    );
+  });
 
   return { success: true };
 }
