@@ -8,6 +8,47 @@ import {
 } from "@/lib/server-log";
 
 /**
+ * Ask PhonePe a few times before concluding a payment hasn't settled.
+ *
+ * A single probe races the gateway: UPI settlement commonly lands a few
+ * seconds after the customer returns to the browser, so one PENDING
+ * answer is weak evidence. Polling briefly resolves most "stuck"
+ * payments outright, which is always better than parking one in a queue
+ * for a human — the manual path should be the last resort, not the
+ * first response.
+ *
+ * Bounded deliberately: the customer is watching a spinner, so this
+ * trades a few seconds for a large share of claims that never need to
+ * be reviewed at all.
+ */
+export async function probeUntilSettled(
+  transactionId: string,
+  attempts = 4,
+  delayMs = 1800,
+): Promise<{ state: string; providerReferenceId?: string }> {
+  let last: { state: string; providerReferenceId?: string } = {
+    state: "UNKNOWN",
+  };
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const status = await qrStatus(transactionId);
+      last = {
+        state: status.state,
+        providerReferenceId: status.providerReferenceId,
+      };
+      // COMPLETED and FAILED are both terminal — no point waiting.
+      if (status.state !== "PENDING") return last;
+    } catch {
+      // Transient gateway error; keep trying within the budget.
+    }
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return last;
+}
+
+/**
  * Decide what to do about a DQR transaction already attached to a hold,
  * BEFORE minting another one.
  *

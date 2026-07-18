@@ -920,7 +920,7 @@ export function DqrCheckout({
                 className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
               >
                 {claiming
-                  ? "Recording your payment…"
+                  ? "Checking with your bank…"
                   : surface === "booking"
                     ? "I've paid — reserve my slot"
                     : "I've paid — tell the team"}

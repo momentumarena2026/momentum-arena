@@ -757,7 +757,7 @@ export function DqrCheckout({
                   >
                     <Text variant="body" weight="600" color="#fff">
                       {claiming
-                        ? "Recording your payment…"
+                        ? "Checking with your bank…"
                         : claimSurface === "booking"
                           ? "I've paid — reserve my slot"
                           : "I've paid — tell the team"}

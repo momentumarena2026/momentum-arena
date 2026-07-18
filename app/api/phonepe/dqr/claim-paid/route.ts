@@ -3,7 +3,7 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
 import { notifyAdminPendingBooking } from "@/lib/notifications";
-import { qrStatus } from "@/lib/phonepe-dqr";
+import { probeUntilSettled } from "@/lib/dqr-inflight";
 import { db } from "@/lib/db";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import { confirmDqrPass } from "@/lib/passes";
@@ -84,9 +84,11 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
-    // Settled after all? Take the real path.
-    try {
-      const status = await qrStatus(intentTxn);
+    // Try to settle it properly FIRST — poll PhonePe for a few seconds
+    // rather than taking one PENDING as final. Most "stuck" payments
+    // resolve here and never reach a human.
+    {
+      const status = await probeUntilSettled(intentTxn);
       if (status.state === "COMPLETED") {
         if (surface === "cafe") {
           const done = await confirmDqrCafe(intentTxn, status.providerReferenceId);
@@ -100,8 +102,6 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-    } catch {
-      /* unreachable — fall through to the claim */
     }
     if (surface === "cafe") {
       await db.cafePaymentIntent.update({
@@ -146,10 +146,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // If PhonePe has actually settled it, take the real path — a confirmed
-  // booking beats an unconfirmed one every time.
-  try {
-    const status = await qrStatus(txn);
+  // Try to settle it properly FIRST: a confirmed booking beats an
+  // unconfirmed one every time, and one PENDING answer isn't proof —
+  // UPI settlement often lands seconds after the customer gets back.
+  // Only a payment PhonePe still won't acknowledge falls through to the
+  // manual queue.
+  {
+    const status = await probeUntilSettled(txn);
     if (status.state === "COMPLETED") {
       const confirmed = await confirmDqrBooking(txn, status.providerReferenceId);
       if (confirmed.bookingId) {
@@ -168,9 +171,6 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
-  } catch {
-    // PhonePe unreachable — the claim path below is exactly what that
-    // situation is for.
   }
 
   const amount =

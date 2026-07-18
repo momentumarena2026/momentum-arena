@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
-import { qrStatus } from "@/lib/phonepe-dqr";
+import { probeUntilSettled } from "@/lib/dqr-inflight";
 import { confirmDqrCafe } from "@/lib/dqr-confirm";
 import { confirmDqrPass, materializeUserPass } from "@/lib/passes";
 import { materializeOrderFromIntent } from "@/lib/cafe-intent";
@@ -62,18 +62,10 @@ export async function resolveClaimedPayment(
   if (!txn) return { ok: false, error: "No PhonePe transaction on this purchase" };
 
   if (mode === "verify") {
-    let state = "UNKNOWN";
-    let providerReferenceId: string | undefined;
-    try {
-      const status = await qrStatus(txn);
-      state = status.state;
-      providerReferenceId = status.providerReferenceId;
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? `PhonePe: ${err.message}` : "PhonePe unreachable",
-      };
-    }
+    // Same patient probe the customer's claim used — a single PENDING
+    // is weak evidence, and an admin re-checking minutes later has a
+    // good chance of catching a late settlement.
+    const { state, providerReferenceId } = await probeUntilSettled(txn);
     if (state !== "COMPLETED") {
       return {
         ok: false,
