@@ -76,8 +76,37 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const paymentAmount =
-      overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
+    // The charge is derived from the hold, never from the request body.
+    // `overrideAmount` is still accepted (and logged) so client/server
+    // drift is visible, but taking it at face value let a tampered app
+    // POST {overrideAmount: 1} and get a CONFIRMED full-price booking for
+    // ₹1. This mirrors the `effectiveTotal` math in createBookingFromHold
+    // so the captured payment and Booking.totalAmount can never disagree.
+    const appliedDiscount =
+      hold.couponId && hold.discountAmount && hold.discountAmount > 0
+        ? hold.discountAmount
+        : 0;
+    const pointsRedeemRupees =
+      hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
+        ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+        : 0;
+    const paymentAmount = Math.max(
+      0,
+      hold.totalAmount -
+        appliedDiscount -
+        pointsRedeemRupees +
+        (hold.equipmentTotalAmount ?? 0)
+    );
+
+    // Fully covered by coupon + points — there is nothing to charge, and
+    // Razorpay would reject a zero-value order anyway. The client hides
+    // the pay button in this state, so this is a tamper/drift guard.
+    if (paymentAmount <= 0) {
+      return NextResponse.json(
+        { error: "Nothing left to pay for this booking" },
+        { status: 400 }
+      );
+    }
 
     let orderAmount = paymentAmount;
     let advanceAmount: number | undefined;
@@ -118,6 +147,7 @@ export async function POST(request: NextRequest) {
         holdId,
         orderId: order.id,
         amount: orderAmount,
+        clientAmount: overrideAmount ?? null,
         isAdvance: !!isAdvance,
         advanceAmount: advanceAmount ?? null,
         remainingAmount: remainingAmount ?? null,

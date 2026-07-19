@@ -3,6 +3,9 @@
 import { after } from "next/server";
 
 import { db } from "@/lib/db";
+// Type-only — the runtime helper stays behind the existing dynamic
+// import()s at the bowling call sites.
+import type { BowlingSlot } from "@/lib/bowling-availability";
 import { completePassTopup } from "@/lib/pass-topup";
 import { qrStatus } from "@/lib/phonepe-dqr";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
@@ -44,6 +47,39 @@ async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
   return user.id;
 }
+
+// Which bookings block an hour from being SOLD at the admin counter.
+// PENDING/CONFIRMED are obvious; COMPLETED is included because the front
+// desk often closes a session out while it is still running, and dropping
+// it would put an occupied court back on sale.
+//
+// ABSENT is deliberately NOT here, and this list therefore does NOT match
+// its namesakes in lib/availability.ts (customer-facing sale) or
+// actions/admin-calendar.ts (cell rendering) — do not "align" them. A
+// no-show's court is empty, and the counter must be able to re-sell it;
+// the only alternative is cancelling the booking, which would also throw
+// away the forfeited advance the venue is entitled to keep. The calendar
+// still renders the ABSENT pill, so the double-booked cell is explained.
+//
+// The bowling machine's 30-min grid doesn't query bookings here — it
+// goes through lib/bowling-availability.ts, which uses the customer
+// rule. reopenNoShowBowlingSlots below re-applies this one on top of
+// that result so both admin surfaces re-sell no-shows the same way.
+const OCCUPYING_BOOKING_STATUSES = [
+  "CONFIRMED",
+  "PENDING",
+  "COMPLETED",
+] as const;
+
+// Same idea for the money: a closed-out booking keeps the advance as
+// earnings, so it must stay in the revenue/count KPIs it was in while
+// CONFIRMED — otherwise the dashboard drifts below actual takings every
+// time the front desk uses the closeout buttons. Note this widens the
+// "Total Bookings" tile from CONFIRMED-only to "every booking that
+// stood": no-shows are counted, matching the revenue they contribute
+// (closeOutBooking writes the uncollected remainder off the total, so
+// the two tiles stay in step).
+const EARNING_BOOKING_STATUSES = ["CONFIRMED", "COMPLETED", "ABSENT"] as const;
 
 /**
  * Bust the App Router cache for every page that renders the booking
@@ -108,14 +144,18 @@ export async function confirmCashPayment(bookingId: string, adminIdOverride?: st
   await sendBookingConfirmation(bookingId);
   // after(): a bare fire-and-forget is killed when the function freezes.
   after(async () => {
-    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
-      console.error("[notify] admin confirmed failed", err),
-    );
+    await Promise.allSettled([
+      notifyAdminBookingConfirmed(bookingId).catch((err) =>
+        console.error("[notify] admin confirmed failed", err),
+      ),
+      // Award reward points (idempotent — safe to re-run on retries).
+      // Nothing re-invokes this, so losing it to the freeze loses the
+      // customer's points permanently.
+      awardBookingPoints(bookingId).catch((err) =>
+        console.error("[rewards] award failed for", bookingId, err),
+      ),
+    ]);
   });
-  // Award reward points (idempotent — safe to re-run on retries).
-  void awardBookingPoints(bookingId).catch((err) =>
-    console.error("[rewards] award failed for", bookingId, err),
-  );
 
   await revalidateBookingPaths(bookingId);
 
@@ -155,14 +195,18 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
   await sendBookingConfirmation(bookingId);
   // after(): a bare fire-and-forget is killed when the function freezes.
   after(async () => {
-    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
-      console.error("[notify] admin confirmed failed", err),
-    );
+    await Promise.allSettled([
+      notifyAdminBookingConfirmed(bookingId).catch((err) =>
+        console.error("[notify] admin confirmed failed", err),
+      ),
+      // Award reward points (idempotent — safe to re-run on retries).
+      // Nothing re-invokes this, so losing it to the freeze loses the
+      // customer's points permanently.
+      awardBookingPoints(bookingId).catch((err) =>
+        console.error("[rewards] award failed for", bookingId, err),
+      ),
+    ]);
   });
-  // Award reward points (idempotent — safe to re-run on retries).
-  void awardBookingPoints(bookingId).catch((err) =>
-    console.error("[rewards] award failed for", bookingId, err),
-  );
 
   await revalidateBookingPaths(bookingId);
 
@@ -215,13 +259,15 @@ export async function confirmBookingManually(
 
   await sendBookingConfirmation(bookingId);
   after(async () => {
-    await notifyAdminBookingConfirmed(bookingId).catch((err) =>
-      console.error("[notify] admin confirmed failed", err),
-    );
+    await Promise.allSettled([
+      notifyAdminBookingConfirmed(bookingId).catch((err) =>
+        console.error("[notify] admin confirmed failed", err),
+      ),
+      awardBookingPoints(bookingId).catch((err) =>
+        console.error("[rewards] award failed for", bookingId, err),
+      ),
+    ]);
   });
-  void awardBookingPoints(bookingId).catch((err) =>
-    console.error("[rewards] award failed for", bookingId, err),
-  );
 
   await revalidateBookingPaths(bookingId);
 
@@ -407,9 +453,11 @@ export async function markRemainderCollected(
   // idempotent (@@unique([type=EARNED_BOOKING_REMAINDER, bookingId]))
   // + self-gates on Payment.status === "COMPLETED" and the
   // admin-created flag, so calling unconditionally is safe.
-  void awardBookingRemainderPoints(bookingId).catch((err) =>
-    console.error("[rewards] remainder award failed for", bookingId, err),
-  );
+  after(async () => {
+    await awardBookingRemainderPoints(bookingId).catch((err) =>
+      console.error("[rewards] remainder award failed for", bookingId, err),
+    );
+  });
 
   await revalidateBookingPaths(bookingId);
 
@@ -606,27 +654,33 @@ export async function cancelBooking(
 
   await revalidateBookingPaths(bookingId);
 
-  // Push notification to the customer. Best-effort — fire-and-forget so
-  // the admin's confirmation roundtrip stays fast and a flaky FCM call
-  // doesn't surface as a UI error on a successful cancellation.
-  void notifyBookingCancelled(bookingId, reason);
-  // Same fire-and-forget pattern for the floor-staff fan-out: the
-  // OTHER admins on the team learn about the cancel without paging
-  // them via SMS.
-  void notifyAdminBookingCancelled(bookingId, reason, false);
-  // Fan out to anyone waitlisted for the now-freed slots. Race is
-  // resolved by the existing 10-min slot lock, so we deliberately
-  // notify EVERY matching waitlister at once.
-  void notifyWaitlistersForFreedSlots({
-    courtConfigId: booking.courtConfigId,
-    date: booking.date,
-    hours: booking.slots.map((s) => s.startHour),
+  // Deferred so the admin's roundtrip stays fast and a flaky FCM call
+  // doesn't surface as a UI error on a successful cancellation — but via
+  // after(), because a bare fire-and-forget is killed when the serverless
+  // instance freezes on the response, before any of these even reach
+  // their first query.
+  after(async () => {
+    await Promise.allSettled([
+      // Push notification to the customer.
+      notifyBookingCancelled(bookingId, reason),
+      // Floor-staff fan-out: the OTHER admins on the team learn about
+      // the cancel without paging them via SMS.
+      notifyAdminBookingCancelled(bookingId, reason, false),
+      // Fan out to anyone waitlisted for the now-freed slots. Race is
+      // resolved by the existing 10-min slot lock, so we deliberately
+      // notify EVERY matching waitlister at once.
+      notifyWaitlistersForFreedSlots({
+        courtConfigId: booking.courtConfigId,
+        date: booking.date,
+        hours: booking.slots.map((s) => s.startHour),
+      }),
+      // Unwind reward points — revoke any earn + refund any redemption.
+      // Idempotent so safe to run from both cancel + refund paths.
+      revokeBookingRewards(bookingId).catch((err) =>
+        console.error("[rewards] revoke failed for", bookingId, err),
+      ),
+    ]);
   });
-  // Unwind reward points — revoke any earn + refund any redemption.
-  // Idempotent so safe to run from both cancel + refund paths.
-  void revokeBookingRewards(bookingId).catch((err) =>
-    console.error("[rewards] revoke failed for", bookingId, err),
-  );
 
   return { success: true };
 }
@@ -724,30 +778,38 @@ export async function refundBooking(
         status: "REFUNDED",
         refundedBy: adminId,
         refundedAt: new Date(),
-        refundReason: `[${refundMethodStr}]${isPartialRefund ? ` [Partial: ₹${(actualRefundAmount / 100).toFixed(0)}]` : ""} ${reason}`,
+        // No /100 here — Payment.amount and refundAmount are already in
+        // rupees, and this string is rendered verbatim to the customer.
+        refundReason: `[${refundMethodStr}]${isPartialRefund ? ` [Partial: ₹${actualRefundAmount}]` : ""} ${reason}`,
       },
     }),
   ]);
 
   await revalidateBookingPaths(bookingId);
 
-  // Same lock-screen notification as plain cancellation, but with the
-  // refunded copy + the refund_processed kind so analytics can split
-  // the two outcomes downstream.
-  void notifyBookingCancelled(bookingId, reason, true);
-  // Mirror to the admin team — the `refunded=true` flag flips the
-  // admin push body to mention the refund instead of cancellation.
-  void notifyAdminBookingCancelled(bookingId, reason, true);
-  // Refund frees the slot just like a cancel — notify waitlisters.
-  void notifyWaitlistersForFreedSlots({
-    courtConfigId: booking.courtConfigId,
-    date: booking.date,
-    hours: booking.slots.map((s) => s.startHour),
+  // after() for the same reason as cancelBooking — a bare fire-and-forget
+  // dies with the frozen instance.
+  after(async () => {
+    await Promise.allSettled([
+      // Same lock-screen notification as plain cancellation, but with the
+      // refunded copy + the refund_processed kind so analytics can split
+      // the two outcomes downstream.
+      notifyBookingCancelled(bookingId, reason, true),
+      // Mirror to the admin team — the `refunded=true` flag flips the
+      // admin push body to mention the refund instead of cancellation.
+      notifyAdminBookingCancelled(bookingId, reason, true),
+      // Refund frees the slot just like a cancel — notify waitlisters.
+      notifyWaitlistersForFreedSlots({
+        courtConfigId: booking.courtConfigId,
+        date: booking.date,
+        hours: booking.slots.map((s) => s.startHour),
+      }),
+      // Same rewards unwind as cancelBooking.
+      revokeBookingRewards(bookingId).catch((err) =>
+        console.error("[rewards] revoke failed for", bookingId, err),
+      ),
+    ]);
   });
-  // Same rewards unwind as cancelBooking.
-  void revokeBookingRewards(bookingId).catch((err) =>
-    console.error("[rewards] revoke failed for", bookingId, err),
-  );
 
   return { success: true };
 }
@@ -1181,9 +1243,11 @@ export async function getAdminStats() {
     firstBooking,
     todayEarningAgg,
   ] = await Promise.all([
-    db.booking.count({ where: { status: "CONFIRMED" } }),
     db.booking.count({
-      where: { date: today, status: "CONFIRMED" },
+      where: { status: { in: [...EARNING_BOOKING_STATUSES] } },
+    }),
+    db.booking.count({
+      where: { date: today, status: { in: [...EARNING_BOOKING_STATUSES] } },
     }),
     db.user.count({ where: { deletedAt: null } }),
     // Revenue is summed from Booking.totalAmount (post-discount) rather
@@ -1200,7 +1264,7 @@ export async function getAdminStats() {
     // recognized today".
     db.booking.aggregate({
       where: {
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
         payment: {
           status: "COMPLETED",
           confirmedAt: { gte: today, lt: tomorrow },
@@ -1222,7 +1286,7 @@ export async function getAdminStats() {
     // ~₹2,000 mystery gap admins kept asking about.
     db.booking.aggregate({
       where: {
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
         payment: {
           status: "COMPLETED",
           confirmedAt: { not: null },
@@ -1249,19 +1313,19 @@ export async function getAdminStats() {
     // recognized money) because the tile's intent is "how much did our
     // sports operation gross on a typical day".
     db.booking.aggregate({
-      where: { status: "CONFIRMED" },
+      where: { status: { in: [...EARNING_BOOKING_STATUSES] } },
       _sum: { totalAmount: true, originalAmount: true, discountAmount: true },
     }),
     // Earliest Booking.date seeds the denominator for the daily
     // average. Using Booking.date (not createdAt) so a retroactively
     // logged historical booking stretches the denominator correctly.
     db.booking.findFirst({
-      where: { status: "CONFIRMED" },
+      where: { status: { in: [...EARNING_BOOKING_STATUSES] } },
       orderBy: { date: "asc" },
       select: { date: true },
     }),
     // ── "Today's Earning" — slot-date sum ─────────────────────────
-    // Sum of Booking.totalAmount for every CONFIRMED booking whose
+    // Sum of Booking.totalAmount for every booking that stood whose
     // slot date is today. This is the BOOKED revenue for today's
     // sessions — not the cash flow recognised today. Front desk
     // wants to see "what does today's calendar bring in" at a
@@ -1269,14 +1333,17 @@ export async function getAdminStats() {
     // confirmed (an advance paid last week for a slot today still
     // counts in today's earning).
     //
-    // Filter on Booking.date (the slot date), status=CONFIRMED so
-    // cancelled bookings don't inflate the figure. Doesn't care
-    // about Payment.status — partial-payment bookings count their
-    // full agreed total because the slot is locked in for today.
+    // Filter on Booking.date (the slot date), non-cancelled statuses
+    // so cancellations don't inflate the figure. Deliberately does
+    // NOT gate on Payment.status — a partial-payment booking counts
+    // its full agreed total because the slot is locked in for today.
+    // That is also why closeOutBooking has to write an ABSENT
+    // booking's uncollected balance off totalAmount: nothing here
+    // would filter it out.
     db.booking.aggregate({
       where: {
         date: today,
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
       },
       _sum: { totalAmount: true },
     }),
@@ -1286,6 +1353,10 @@ export async function getAdminStats() {
   // Booking.originalAmount is only populated when a discount was applied,
   // so we can't just sum it; reconstructing from totalAmount + discount
   // avoids missing the unrelieved-by-discount bookings.
+  //
+  // This is the one revenue figure that adds money BACK, so closeOut-
+  // Booking must not park its uncollected write-off in discountAmount —
+  // it would land right back here. See the comment there.
   const grossEarnings =
     (lifetimeEarnings._sum.totalAmount ?? 0) +
     (lifetimeEarnings._sum.discountAmount ?? 0);
@@ -1426,6 +1497,108 @@ export async function createCustomerForBooking(
 }
 
 // ---------------------------------------------------------------------------
+// reopenNoShowBowlingSlots
+// ---------------------------------------------------------------------------
+// The 30-min grid comes from `getBowlingMachineAvailability`, which uses
+// the CUSTOMER-facing occupancy rule in lib/availability.ts — and that
+// one counts ABSENT, so a no-show holds its bowling slot off the admin
+// grid forever. The hourly admin paths in this file query bookings
+// directly with the narrower OCCUPYING_BOOKING_STATUSES above and can
+// already re-sell a no-show's court; this brings the bowling paths in
+// line without widening the shared helper (the customer picker feeds
+// off the same call and must keep treating ABSENT as sold).
+//
+// Only "booked" flips, and only when an ABSENT booking is the SOLE
+// occupier of that key: a live booking, an in-flight SlotHold or an
+// admin SlotBlock on the same key all keep the slot shut. "blocked"
+// already outranks "booked" in the helper, so slot blocks need no
+// re-check here; holds do, because a key that is both hold-locked and
+// ABSENT-booked surfaces as "booked".
+async function reopenNoShowBowlingSlots(
+  courtConfigId: string,
+  dateOnly: Date,
+  slots: BowlingSlot[],
+  excludeBookingId?: string,
+): Promise<BowlingSlot[]> {
+  if (!slots.some((s) => s.status === "booked")) return slots;
+
+  const config = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+    select: { zones: true },
+  });
+  if (!config) return slots;
+
+  const keyOf = (h: number, m: number) => `${h}:${m}`;
+  const zoneOverlap = { zones: { hasSome: config.zones as CourtZone[] } };
+
+  const [bookings, holds] = await Promise.all([
+    db.booking.findMany({
+      where: {
+        date: dateOnly,
+        status: { in: ["ABSENT", ...OCCUPYING_BOOKING_STATUSES] },
+        courtConfig: zoneOverlap,
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+      select: {
+        status: true,
+        slots: {
+          select: {
+            startHour: true,
+            startMinute: true,
+            durationMinutes: true,
+          },
+        },
+      },
+    }),
+    db.slotHold.findMany({
+      where: {
+        date: dateOnly,
+        expiresAt: { gt: new Date() },
+        courtConfig: zoneOverlap,
+      },
+      select: { hours: true, startMinutes: true },
+    }),
+  ]);
+
+  const absentKeys = new Set<string>();
+  const stillOccupied = new Set<string>();
+  for (const booking of bookings) {
+    const into = booking.status === "ABSENT" ? absentKeys : stillOccupied;
+    for (const slot of booking.slots) {
+      // An hour-granular turf booking on the overlapping zones takes
+      // BOTH halves of its hour — same expansion the helper does.
+      if (slot.durationMinutes === 30) {
+        into.add(keyOf(slot.startHour, slot.startMinute));
+      } else {
+        into.add(keyOf(slot.startHour, 0));
+        into.add(keyOf(slot.startHour, 30));
+      }
+    }
+  }
+  for (const hold of holds) {
+    for (let i = 0; i < hold.hours.length; i++) {
+      const h = hold.hours[i];
+      // Empty startMinutes = a legacy 60-min hold blocking both halves.
+      if (hold.startMinutes.length === 0) {
+        stillOccupied.add(keyOf(h, 0));
+        stillOccupied.add(keyOf(h, 30));
+      } else {
+        stillOccupied.add(keyOf(h, hold.startMinutes[i] ?? 0));
+      }
+    }
+  }
+
+  return slots.map((slot) => {
+    const key = keyOf(slot.hour, slot.minute);
+    return slot.status === "booked" &&
+      absentKeys.has(key) &&
+      !stillOccupied.has(key)
+      ? { ...slot, status: "available" as const }
+      : slot;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // getAvailableBowlingSlots
 // ---------------------------------------------------------------------------
 // Wraps the half-hour `getBowlingMachineAvailability` helper for the
@@ -1451,11 +1624,13 @@ export async function getAvailableBowlingSlots(
     // of the day, not just the customer-facing window. Conflicts /
     // holds / admin slot blocks stay enforced — they protect real
     // physical resources and matter from the admin side too.
-    const raw = await getBowlingMachineAvailability(
+    const raw = await reopenNoShowBowlingSlots(
       courtConfigId,
       dateOnly,
+      await getBowlingMachineAvailability(courtConfigId, dateOnly, excludeBookingId, {
+        adminOverride: true,
+      }),
       excludeBookingId,
-      { adminOverride: true },
     );
     const slots = raw.map((s) => ({
       hour: s.hour,
@@ -1501,7 +1676,7 @@ export async function getAvailableSlots(
     const activeBookings = await db.booking.findMany({
       where: {
         date: dateOnly,
-        status: { in: ["CONFIRMED", "PENDING"] },
+        status: { in: [...OCCUPYING_BOOKING_STATUSES] },
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       include: {
@@ -1746,7 +1921,7 @@ export async function adminCreateBooking(data: {
       const activeBookings = await db.booking.findMany({
         where: {
           date: dateOnly,
-          status: { in: ["CONFIRMED", "PENDING"] },
+          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
         },
         include: { courtConfig: true, slots: true },
       });
@@ -1800,11 +1975,12 @@ export async function adminCreateBooking(data: {
       const { getBowlingMachineAvailability } = await import(
         "@/lib/bowling-availability"
       );
-      const avail = await getBowlingMachineAvailability(
+      const avail = await reopenNoShowBowlingSlots(
         config.id,
         dateOnly,
-        undefined,
-        { adminOverride: true },
+        await getBowlingMachineAvailability(config.id, dateOnly, undefined, {
+          adminOverride: true,
+        }),
       );
       const keyOf = (h: number, m: number) => `${h}:${m}`;
       const lookup = new Map(
@@ -2399,11 +2575,13 @@ export async function adminEditBookingSlots(
       const { getBowlingMachineAvailability } = await import(
         "@/lib/bowling-availability"
       );
-      const avail = await getBowlingMachineAvailability(
+      const avail = await reopenNoShowBowlingSlots(
         config.id,
         dateOnly,
+        await getBowlingMachineAvailability(config.id, dateOnly, bookingId, {
+          adminOverride: true,
+        }),
         bookingId,
-        { adminOverride: true },
       );
       const keyOf = (h: number, m: number) => `${h}:${m}`;
       const lookup = new Map(
@@ -2440,7 +2618,7 @@ export async function adminEditBookingSlots(
         where: {
           date: dateOnly,
           id: { not: bookingId },
-          status: { in: ["CONFIRMED", "PENDING"] },
+          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
         },
         include: { courtConfig: true, slots: true },
       });
@@ -2646,10 +2824,10 @@ export async function adminEditBookingSlots(
         data: bookingPatch,
       });
 
-      // Update payment amount if exists. Partial-payment bookings have
-      // their own edit flow (adminEditBookingFull) that keeps advance +
-      // remainder in sync; here we only touch non-partial payments so we
-      // don't clobber the advance figure. Pass-covered bookings are also
+      // Update payment amount if exists. Partial-payment bookings keep
+      // their advance untouched here (adminEditBookingFull owns editing
+      // it) — only their remainder is re-derived, further below, once the
+      // pass sync has reported what it covers. Pass-covered bookings are also
       // left alone — their Payment.amount is the money actually captured
       // (0 or the top-up remainder), never the slot total. Same when the
       // admin asked a pass to cover the delta: overwriting to the new
@@ -2692,6 +2870,34 @@ export async function adminEditBookingSlots(
           coverDeltaWithPass: coverDelta,
         });
         if (!passSync.ok) throw new Error(passSync.error);
+
+        // The advance is what it always was, but the venue-side balance
+        // has to follow the new total — left stale, Payment.remainingAmount
+        // keeps quoting the pre-edit figure and the "Cash Due at Venue" KPI
+        // (a straight _sum over Payment) over-reports forever. Anything a
+        // pass settled isn't collectable at the venue, and pass-covered
+        // bookings are skipped entirely (same gate adminEditBookingFull
+        // uses) — their balance is owned by the redemption's coveredAmount.
+        //
+        // Derived from Payment.amount, NOT advanceAmount: markRemainderCollected
+        // leaves isPartialPayment = true after settling the balance, so the
+        // flag alone doesn't mean money is still owed. Payment.amount is what
+        // actually came in in both states (it equals the advance while still
+        // PARTIAL, and advance + collected afterwards), so a booking whose
+        // remainder the venue already took isn't billed for it twice.
+        if (booking.payment?.isPartialPayment && !isPassCovered) {
+          await tx.payment.update({
+            where: { id: booking.payment.id },
+            data: {
+              remainingAmount: Math.max(
+                0,
+                newTotalAmount -
+                  booking.payment.amount -
+                  passSync.coveredAmount,
+              ),
+            },
+          });
+        }
       }
 
       // Emit a date-change entry first so the history stays chronologically
@@ -2754,10 +2960,14 @@ export async function adminEditBookingSlots(
       ? previousHours
       : previousHours.filter((h) => !newHourSet.has(h));
     if (freedHours.length > 0) {
-      void notifyWaitlistersForFreedSlots({
-        courtConfigId: booking.courtConfigId,
-        date: booking.date, // OLD date — booking was loaded pre-tx
-        hours: freedHours,
+      after(async () => {
+        await notifyWaitlistersForFreedSlots({
+          courtConfigId: booking.courtConfigId,
+          date: booking.date, // OLD date — booking was loaded pre-tx
+          hours: freedHours,
+        }).catch((err) =>
+          console.error("[waitlist] freed-slot fan-out failed", err),
+        );
       });
     }
 
@@ -2859,7 +3069,7 @@ export async function adminEditBookingFull(
       where: {
         date: finalDate,
         id: { not: bookingId },
-        status: { in: ["CONFIRMED", "PENDING"] },
+        status: { in: [...OCCUPYING_BOOKING_STATUSES] },
       },
       include: { courtConfig: true, slots: true },
     });
@@ -3125,13 +3335,21 @@ export async function adminEditBookingFull(
         data.coverDeltaWithPass,
         newSlotsForPassFull,
       );
+      // markRemainderCollected settles the balance but deliberately leaves
+      // isPartialPayment = true, so that flag alone doesn't mean money is
+      // still owed. Once the venue has collected, the advance is no longer
+      // the money received — Payment.amount is — and rewriting amount back
+      // down to the advance would erase the collection from the books.
+      const remainderOutstanding = booking.payment?.status === "PARTIAL";
       // Mirrors the paymentUpdate branch order below so the sync sees
       // exactly the Payment.amount the edit leaves behind.
       const paymentAfterEdit = booking.payment
         ? isPassCoveredFull
           ? booking.payment.amount
           : booking.payment.isPartialPayment && finalAdvance !== null
-            ? finalAdvance
+            ? remainderOutstanding
+              ? finalAdvance
+              : booking.payment.amount
             : coverDeltaFull
               ? booking.payment.amount
               : booking.createdByAdminId
@@ -3162,12 +3380,22 @@ export async function adminEditBookingFull(
         } = {};
 
         if (booking.payment.isPartialPayment && finalAdvance !== null) {
-          paymentUpdate.amount = finalAdvance;
-          paymentUpdate.advanceAmount = finalAdvance;
+          // Only re-stamp the advance while the remainder is still owed —
+          // see remainderOutstanding above. Post-collection the money
+          // received is Payment.amount, so the balance is derived from
+          // that instead and comes out at 0 for an unchanged total rather
+          // than re-billing the customer for what they already paid.
+          const received = remainderOutstanding
+            ? finalAdvance
+            : booking.payment.amount;
+          if (remainderOutstanding) {
+            paymentUpdate.amount = finalAdvance;
+            paymentUpdate.advanceAmount = finalAdvance;
+          }
           // Anything a pass just settled isn't collectable at the venue.
           paymentUpdate.remainingAmount = Math.max(
             0,
-            newTotalAmount - finalAdvance - passCovered,
+            newTotalAmount - received - passCovered,
           );
         } else if (coverDeltaFull) {
           // A pass settles the added time — keep the collected/captured
@@ -3811,7 +4039,7 @@ export async function extendBookingByThirtyMin(
       where: {
         date: booking.date,
         id: { not: bookingId },
-        status: { in: ["CONFIRMED", "PENDING"] },
+        status: { in: [...OCCUPYING_BOOKING_STATUSES] },
       },
       include: { courtConfig: true, slots: true },
     });
@@ -4080,10 +4308,77 @@ async function closeOutBooking(
     const previousPaymentStatus = booking.payment?.status ?? null;
     const previousAmount = booking.totalAmount;
 
+    // Money the closeout leaves uncollected has to come off the booking
+    // total: closed-out bookings count toward the revenue tiles (which sum
+    // Booking.totalAmount), so leaving the full agreed figure books money
+    // the venue never took.
+    //
+    // Two ways that happens:
+    //
+    //  (a) PARTIAL — advance in, remainder forfeit. remainingAmount (not
+    //      total − amount) is the right source; it is already net of
+    //      anything a pass settled, so a pass-covered booking doesn't get
+    //      its covered hours written off as lost revenue. Gated on
+    //      PARTIAL, not just isPartialPayment: adminEditPayment can leave
+    //      a stale remainingAmount on a payment it marked COMPLETED, and
+    //      writing that off would erase revenue the venue did collect.
+    //
+    //  (b) PENDING + ABSENT — the front desk's "book now, pay at the
+    //      counter" flow (adminCreateBooking's CASH/UPI_QR branch, and
+    //      confirmBookingManually) leaves Payment.status PENDING with
+    //      amount = the AGREED price, not money received. Nobody who
+    //      never showed up paid at the counter, so on a no-show the whole
+    //      ticket is uncollected — and the tiles that DON'T gate on
+    //      payment status (todayEarning here, the daily/monthly earnings
+    //      charts in admin-analytics) would otherwise book every rupee of
+    //      it. Deliberately ABSENT-only: a COMPLETED session was attended
+    //      and staff routinely take the cash without pressing
+    //      confirmCashPayment first, so writing that off would erase real
+    //      takings. Pass-settled rupees are real money (recognised at
+    //      pass purchase) and stay on the total.
+    const redemption = await db.passRedemption.findUnique({
+      where: { bookingId },
+      select: { coveredAmount: true, restoredAt: true },
+    });
+    const passCovered =
+      redemption && !redemption.restoredAt ? redemption.coveredAmount : 0;
+    let forfeitedRemainder = 0;
+    if (
+      booking.payment?.isPartialPayment &&
+      booking.payment.status === "PARTIAL"
+    ) {
+      forfeitedRemainder = Math.max(0, booking.payment.remainingAmount ?? 0);
+    } else if (
+      booking.payment?.status === "PENDING" &&
+      closingStatus === "ABSENT"
+    ) {
+      forfeitedRemainder = booking.payment.isPartialPayment
+        ? Math.max(0, booking.payment.remainingAmount ?? 0)
+        : Math.max(0, booking.totalAmount - passCovered);
+    }
+    const retainedTotal = booking.totalAmount - forfeitedRemainder;
+    // The write-off is NOT a discount. Folding it into discountAmount (as
+    // this used to) let getAdminStats' average-per-day tile add it right
+    // back — that tile grosses up by discountAmount on purpose, so coupon
+    // spend doesn't drag the headline down. Instead take the same shape
+    // adminEditPayment uses: total drops, discountAmount is untouched,
+    // originalAmount re-derived off the invariant. The agreed price stays
+    // legible in the BookingEditHistory row written below.
+    const retainedOriginal =
+      booking.discountAmount > 0 ? retainedTotal + booking.discountAmount : null;
+
     await db.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
-        data: { status: closingStatus },
+        data: {
+          status: closingStatus,
+          ...(forfeitedRemainder > 0
+            ? {
+                totalAmount: retainedTotal,
+                originalAmount: retainedOriginal,
+              }
+            : {}),
+        },
       });
 
       // Settle the payment row so the closeout doesn't leave a
@@ -4127,11 +4422,14 @@ async function closeOutBooking(
               ? "MARKED_COMPLETED"
               : "MARKED_ABSENT",
           previousAmount,
-          newAmount: previousAmount,
+          newAmount: retainedTotal,
           note:
-            closingStatus === "COMPLETED"
+            (closingStatus === "COMPLETED"
               ? `Booking closed out as COMPLETED (was ${previousStatus}, payment was ${previousPaymentStatus ?? "—"}). Advance retained as earnings.`
-              : `Booking closed out as ABSENT — customer no-show (was ${previousStatus}, payment was ${previousPaymentStatus ?? "—"}). Advance retained as earnings.`,
+              : `Booking closed out as ABSENT — customer no-show (was ${previousStatus}, payment was ${previousPaymentStatus ?? "—"}). Advance retained as earnings.`) +
+            (forfeitedRemainder > 0
+              ? ` Uncollected remainder Rs.${forfeitedRemainder} written off — total ${previousAmount} → ${retainedTotal}.`
+              : ""),
         },
       });
     });
@@ -4203,10 +4501,12 @@ export async function recoverDqrPayment(
 
   let state: string;
   let providerReferenceId: string | undefined;
+  let capturedPaise: number | undefined;
   try {
     const status = await qrStatus(txn);
     state = status.state;
     providerReferenceId = status.providerReferenceId;
+    capturedPaise = status.amount;
   } catch (err) {
     return {
       success: false,
@@ -4249,7 +4549,11 @@ export async function recoverDqrPayment(
       id: cafe.orderId,
     };
   }
-  const pass = await confirmDqrPass(txn, providerReferenceId);
+  // The captured amount MUST be forwarded: without it confirmDqrPass
+  // can't price-check, and instead of declining harmlessly it burns the
+  // intent with the terminal AMOUNT_MISMATCH sentinel — after which no
+  // later S2S callback or status poll can ever issue the pass.
+  const pass = await confirmDqrPass(txn, providerReferenceId, capturedPaise);
   if (pass.userPassId) {
     revalidatePath("/admin/passes");
     return {
@@ -4257,6 +4561,15 @@ export async function recoverDqrPayment(
       state: pass.alreadyDone ? "already-linked" : "created",
       kind: "pass",
       id: pass.userPassId,
+    };
+  }
+  if (pass.mismatch) {
+    // The intent WAS found — saying "nothing points at it" would send the
+    // admin hunting for a record that exists.
+    return {
+      success: false,
+      error:
+        "PhonePe confirms this payment and we found its pass purchase, but the captured amount doesn't match the plan's price — the plan was repriced while the customer paid. It's on the orphan-payments worklist: issue the pass manually or refund from the PhonePe dashboard.",
     };
   }
 

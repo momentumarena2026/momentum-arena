@@ -5,6 +5,7 @@ import { createRazorpayOrder, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getValidHold } from "@/lib/slot-hold";
 import { LOCK_TTL_MINUTES } from "@/lib/court-config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
+import { deriveHoldCharge, splitAdvancePayment } from "@/lib/booking-amounts";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
@@ -15,7 +16,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { holdId, offerId, isAdvance, overrideAmount } = await request.json();
+  const { holdId, offerId, isAdvance, overrideAmount, recurring } =
+    await request.json();
 
   if (!holdId) {
     return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
@@ -64,9 +66,31 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // overrideAmount accounts for discounts/recurring total
-    const paymentAmount =
-      overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
+    // The charge is derived server-side, never taken from the request body.
+    // Taking `overrideAmount` at face value let a tampered client POST
+    // {overrideAmount: 1} and get a CONFIRMED full-price booking for ₹1 —
+    // lib/auth-unified accepts the mobile JWT here too, so hardening only
+    // the /api/mobile twin was bypassable. lib/booking-amounts owns the
+    // whole rule (including the recurring multiplier, which is NOT stored
+    // on the hold — read its docblock before changing anything here).
+    const charge = await deriveHoldCharge(hold, {
+      clientAmount: overrideAmount,
+      recurring,
+    });
+    const paymentAmount = charge.payableAmount;
+
+    // Fully covered by coupon + points — Razorpay rejects a zero-value
+    // order. Committing the booking straight from here was tried and
+    // reverted: it needed an unauthenticated server action, and no client
+    // understands a `fullyCovered` response, so the booking was created
+    // while checkout still showed a failure. Failing cleanly is the safer
+    // half of that trade until a client can complete the flow.
+    if (paymentAmount <= 0) {
+      return NextResponse.json(
+        { error: "Nothing left to pay for this booking" },
+        { status: 400 }
+      );
+    }
 
     // Advance payment splits the amount: 50% online, remainder at venue
     let orderAmount = paymentAmount;
@@ -74,8 +98,7 @@ export async function POST(request: NextRequest) {
     let remainingAmount: number | undefined;
 
     if (isAdvance) {
-      advanceAmount = Math.ceil(paymentAmount * 0.5);
-      remainingAmount = paymentAmount - advanceAmount;
+      ({ advanceAmount, remainingAmount } = splitAdvancePayment(paymentAmount));
       orderAmount = advanceAmount;
     }
 
@@ -118,6 +141,9 @@ export async function POST(request: NextRequest) {
         holdId,
         orderId: order.id,
         amount: orderAmount,
+        clientAmount: overrideAmount ?? null,
+        clientAmountUnexplained: charge.clientAmountUnexplained,
+        recurringCount: charge.recurringCount,
         isAdvance: !!isAdvance,
         advanceAmount: advanceAmount ?? null,
         remainingAmount: remainingAmount ?? null,

@@ -1,16 +1,28 @@
 "use server";
 
+import { after } from "next/server";
+
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
-import { createCafePaymentIntent } from "@/lib/cafe-intent";
+import {
+  createCafePaymentIntent,
+  burnCafeCoupon,
+  CafeCouponLimitError,
+} from "@/lib/cafe-intent";
 import { isCheckoutMethodEnabled } from "@/actions/admin-payment-settings";
 import {
   isPlatformAllowed,
   platformRestrictionMessage,
   type CouponPlatform,
 } from "@/lib/coupon-platform";
+
+// Thrown from inside the order transaction when a stock decrement loses
+// the race, so the whole order rolls back instead of leaving a phantom
+// row behind. Carries the customer-facing message; the catch at the
+// bottom of createCafeOrder surfaces it instead of the generic error.
+class CafeStockRaceError extends Error {}
 
 async function getOptionalCustomerId(): Promise<string | null> {
   try {
@@ -210,71 +222,101 @@ export async function createCafeOrder(data: {
     );
     const orderStatus: "PENDING" | "COMPLETED" = allReady ? "COMPLETED" : "PENDING";
 
-    const order = await db.cafeOrder.create({
-      data: {
-        orderNumber,
-        userId: userId || null,
-        guestName: !userId ? (data.guestName?.trim() || "Guest") : null,
-        guestPhone: !userId ? (guestPhoneNormalized || null) : null,
-        tableNumber: data.tableNumber || null,
-        status: orderStatus,
-        totalAmount,
-        originalAmount,
-        discountAmount,
-        discountCodeId,
-        note: data.note?.trim() || null,
-        items: { create: orderItems },
-        payment: {
-          create: {
-            method: data.paymentMethod,
-            status: "PENDING",
-            amount: totalAmount,
+    // The order row, the stock decrements and the coupon burn all
+    // land or none of them do. Previously the create committed on its
+    // own, so an order that lost the decrement race left a phantom
+    // CafeOrder (plus items and payment) on the kitchen board after
+    // the customer had been told the order failed.
+    const stockLines = [...data.items].sort((a, b) =>
+      a.cafeItemId.localeCompare(b.cafeItemId),
+    );
+
+    const order = await db.$transaction(async (tx) => {
+      const created = await tx.cafeOrder.create({
+        data: {
+          orderNumber,
+          userId: userId || null,
+          guestName: !userId ? (data.guestName?.trim() || "Guest") : null,
+          guestPhone: !userId ? (guestPhoneNormalized || null) : null,
+          tableNumber: data.tableNumber || null,
+          status: orderStatus,
+          totalAmount,
+          originalAmount,
+          discountAmount,
+          discountCodeId,
+          note: data.note?.trim() || null,
+          items: { create: orderItems },
+          payment: {
+            create: {
+              method: data.paymentMethod,
+              status: "PENDING",
+              amount: totalAmount,
+            },
           },
         },
-      },
-      include: { items: true, payment: true },
-    });
-
-    // Stock decrement for in-person path. Sequential + gte guard
-    // so a concurrent order can't drive stock negative.
-    for (const line of data.items) {
-      const cafeItem = itemMap.get(line.cafeItemId)!;
-      if (cafeItem.quantity === null) continue;
-      const updated = await db.cafeItem.updateMany({
-        where: {
-          id: line.cafeItemId,
-          quantity: { gte: line.quantity },
-        },
-        data: { quantity: { decrement: line.quantity } },
+        include: { items: true, payment: true },
       });
-      if (updated.count === 0) {
-        return {
-          success: false,
-          error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
-        };
+
+      // Stock decrement for in-person path. Sequential + gte guard
+      // so a concurrent order can't drive stock negative.
+      //
+      // Iterated in a fixed id order rather than the client's cart
+      // order: these row locks are held until the transaction
+      // commits, so two orders touching the same items in opposite
+      // order would deadlock (Postgres 40P01) and surface to the
+      // customer as a generic failure.
+      for (const line of stockLines) {
+        const cafeItem = itemMap.get(line.cafeItemId)!;
+        if (cafeItem.quantity === null) continue;
+        const updated = await tx.cafeItem.updateMany({
+          where: {
+            id: line.cafeItemId,
+            quantity: { gte: line.quantity },
+          },
+          data: { quantity: { decrement: line.quantity } },
+        });
+        if (updated.count === 0) {
+          throw new CafeStockRaceError(
+            `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
+          );
+        }
       }
-    }
 
-    // Burn coupon usage. For in-person orders this is safe at
-    // create time — there's no abandon path. For online orders
-    // it's burned inside materializeOrderFromIntent instead.
-    if (discountCodeId && discountAmount > 0) {
-      await db.cafeDiscount.update({
-        where: { id: discountCodeId },
-        data: { usedCount: { increment: 1 } },
-      });
-    }
+      // Burn coupon usage. For in-person orders this is safe at
+      // create time — there's no abandon path. For online orders
+      // it's burned inside materializeOrderFromIntent instead.
+      //
+      // enforceLimits: true — nothing is charged yet, so a cap that
+      // filled between validate and commit (two concurrent submits,
+      // both of which passed the pre-check) must fail the order
+      // rather than over-issue the coupon.
+      if (discountCodeId && discountAmount > 0) {
+        await burnCafeCoupon(tx, {
+          discountId: discountCodeId,
+          userId,
+          orderId: created.id,
+          discountAmount,
+          enforceLimits: true,
+        });
+      }
+
+      return created;
+    });
 
     // Parity with the admin status-transition path (admin-cafe-orders.ts):
     // an order that lands DIRECTLY in COMPLETED (all items ready, no kitchen
     // step) still earns cafe reward points. The transition path only fires
     // when an order is *moved* to COMPLETED, so without this an all-ready
-    // order would never earn. Idempotent + fire-and-forget at the lib layer.
+    // order would never earn. Idempotent at the lib layer, and inside
+    // after() — nothing re-invokes this, so a bare fire-and-forget promise
+    // killed by the serverless freeze loses the points outright.
     if (orderStatus === "COMPLETED" && userId) {
-      const { awardCafePoints } = await import("@/lib/rewards/earn");
-      void awardCafePoints(order.id).catch((err) =>
-        console.error("[rewards] cafe award failed for", order.id, err),
-      );
+      after(async () => {
+        const { awardCafePoints } = await import("@/lib/rewards/earn");
+        await awardCafePoints(order.id).catch((err) =>
+          console.error("[rewards] cafe award failed for", order.id, err),
+        );
+      });
     }
 
     return {
@@ -283,6 +325,12 @@ export async function createCafeOrder(data: {
       orderNumber: order.orderNumber,
     };
   } catch (error) {
+    if (
+      error instanceof CafeStockRaceError ||
+      error instanceof CafeCouponLimitError
+    ) {
+      return { success: false, error: error.message };
+    }
     console.error("Failed to create cafe order:", error);
     return { success: false, error: "Failed to create order" };
   }

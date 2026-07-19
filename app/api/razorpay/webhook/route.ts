@@ -4,6 +4,8 @@ import { materializeUserPass } from "@/lib/passes";
 import { completePassTopup } from "@/lib/pass-topup";
 import { verifyRazorpayWebhookSignature } from "@/lib/razorpay";
 import { createBookingFromHold } from "@/actions/booking";
+import { confirmOrderAfterRazorpay } from "@/actions/shop-order";
+import { materializeOrderFromIntent } from "@/lib/cafe-intent";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
@@ -27,9 +29,17 @@ import { recordOrphanPayment } from "@/lib/payment-orphan";
  * Razorpay captures the payment, independent of the client, and
  * creates the Booking ourselves.
  *
+ * The same reasoning applies to every other thing Razorpay can be
+ * paid for, so this route reconciles all of them: slot bookings
+ * (SlotHold), pass purchases, pass top-ups, shop orders
+ * (ProductOrder) and cafe orders (CafePaymentIntent).
+ *
  * Idempotency: `createBookingFromHold` short-circuits on duplicate
  * `razorpayPaymentId`. If the client's verify call also lands, only
- * one Booking is created — whichever path wins the race.
+ * one Booking is created — whichever path wins the race. The shop and
+ * cafe helpers short-circuit the same way (already-CONFIRMED order /
+ * already-consumed intent), so re-delivery and out-of-order delivery
+ * are safe.
  *
  * Events handled:
  *   - payment.captured  → primary creation path
@@ -172,6 +182,117 @@ export async function POST(request: NextRequest) {
     include: { courtConfig: true },
   });
   if (!hold) {
+    // Not every Razorpay order is a slot booking. Shop and cafe checkouts
+    // mint their own order/intent rows and are confirmed ONLY by their
+    // client-side verify calls — which is exactly the call that never
+    // lands when the browser/app dies right after capture. Reconcile them
+    // here (same server-side backstop the booking path gets) before
+    // treating the payment as unrecognised.
+
+    // Shop: the razorpayOrderId is stamped on the ProductOrderPayment by
+    // /api/shop/razorpay/create-order. confirmOrderAfterRazorpay is
+    // idempotent (returns success on an already CONFIRMED/FULFILLED
+    // order), so re-delivery is safe.
+    const shopPayment = await db.productOrderPayment.findFirst({
+      where: { razorpayOrderId: payment.order_id },
+      select: { order: { select: { id: true, userId: true } } },
+    });
+    if (shopPayment?.order) {
+      const res = await confirmOrderAfterRazorpay(
+        shopPayment.order.id,
+        payment.id,
+        payment.order_id,
+        // Same synthesised-signature rationale as the booking path below.
+        `webhook:${payment.id}`,
+        shopPayment.order.userId,
+      );
+      if (!res.success) {
+        console.error(
+          "[razorpay-webhook] shop confirm failed",
+          shopPayment.order.id,
+          res.error,
+        );
+        // Captured money on an order we could not confirm (cancelled or
+        // otherwise non-PENDING) — worklist item, not just a log line.
+        recordOrphanPayment({
+          gateway: "RAZORPAY",
+          reason: "create-failed",
+          userId: shopPayment.order.userId,
+          amountRupees: Math.round(payment.amount / 100),
+          razorpayOrderId: payment.order_id,
+          razorpayPaymentId: payment.id,
+          path: request.nextUrl.pathname,
+        });
+      }
+      return NextResponse.json(
+        res.success
+          ? { ok: true, orderId: shopPayment.order.id, via: "webhook-shop" }
+          : { ok: true, reason: "shop-confirm-failed", error: res.error },
+      );
+    }
+
+    // Cafe: no CafeOrder exists until the intent is materialised, so the
+    // intent (keyed by razorpayOrderId) is the only pointer back. The
+    // helper short-circuits on an already-consumed intent.
+    const cafeIntent = await db.cafePaymentIntent.findUnique({
+      where: { razorpayOrderId: payment.order_id },
+      select: { id: true, userId: true },
+    });
+    if (cafeIntent) {
+      const result = await materializeOrderFromIntent(cafeIntent.id, {
+        razorpayOrderId: payment.order_id,
+        razorpayPaymentId: payment.id,
+        razorpaySignature: `webhook:${payment.id}`,
+      });
+      if (!result.ok) {
+        console.error(
+          "[razorpay-webhook] cafe materialize failed",
+          cafeIntent.id,
+          result.error,
+        );
+        // A sold-out race still materialises a CANCELLED order for the
+        // refund trail (result.refundOrderId); anything else leaves the
+        // money with nothing attached, so record it.
+        if (!result.refundOrderId) {
+          recordOrphanPayment({
+            gateway: "RAZORPAY",
+            reason: "create-failed",
+            userId: cafeIntent.userId,
+            amountRupees: Math.round(payment.amount / 100),
+            razorpayOrderId: payment.order_id,
+            razorpayPaymentId: payment.id,
+            path: request.nextUrl.pathname,
+          });
+        }
+      }
+      return NextResponse.json(
+        result.ok
+          ? { ok: true, orderId: result.orderId, via: "webhook-cafe" }
+          : {
+              ok: true,
+              reason: "cafe-materialize-failed",
+              error: result.error,
+              refundOrderId: result.refundOrderId ?? null,
+            },
+      );
+    }
+
+    // The intent is deleted once consumed + swept, so a late re-delivery
+    // finds no intent even though the order exists. Match the client
+    // verify route's fallback and look the payment up directly rather
+    // than logging a false orphan.
+    const existingCafePayment = await db.cafePayment.findFirst({
+      where: { razorpayOrderId: payment.order_id },
+      select: { orderId: true },
+    });
+    if (existingCafePayment?.orderId) {
+      return NextResponse.json({
+        ok: true,
+        orderId: existingCafePayment.orderId,
+        via: "cafe-already-created",
+      });
+    }
+
     console.warn(
       "[razorpay-webhook] no hold for order",
       payment.order_id,
@@ -232,8 +353,16 @@ export async function POST(request: NextRequest) {
     hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
       ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
       : 0;
+  // Gear picked at lock time is PLUSed on top of the slot total — the
+  // same `effectiveTotal` math createBookingFromHold uses for
+  // Booking.totalAmount, and what create-order actually charged. Leaving
+  // it out made a 50% advance on an equipment-heavy booking look like a
+  // full payment, so the remainder was never flagged or collected.
   const fullAmount =
-    hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+    hold.totalAmount -
+    appliedDiscount -
+    pointsRedeemRupees +
+    (hold.equipmentTotalAmount ?? 0);
   const isAdvance = paymentAmountRupees < fullAmount;
   const advanceAmount = isAdvance ? paymentAmountRupees : undefined;
   const remainingAmount = isAdvance

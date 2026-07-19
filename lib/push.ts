@@ -27,6 +27,9 @@ import type { Messaging } from "firebase-admin/messaging";
 
 let cachedMessaging: Messaging | null = null;
 
+/** FCM's hard cap on tokens per `sendEachForMulticast` call. */
+const FCM_MULTICAST_LIMIT = 500;
+
 async function getMessaging(): Promise<Messaging> {
   if (cachedMessaging) return cachedMessaging;
 
@@ -232,8 +235,7 @@ export async function sendToTokens(
     return { attempted: tokens.length, succeeded: 0, failed: tokens.length, cleanedUp: 0 };
   }
 
-  const message = {
-    tokens,
+  const baseMessage = {
     notification: { title: payload.title, body: payload.body },
     data: payload.data,
     // iOS-side: ensure the OS treats it as a normal alert.
@@ -247,25 +249,40 @@ export async function sendToTokens(
     android: { priority: "high" as const, notification: { sound: "default" } },
   };
 
-  const result = await messaging.sendEachForMulticast(message);
-
   const deadTokens: string[] = [];
-  result.responses.forEach((resp, i) => {
-    if (resp.success) return;
-    const code = resp.error?.code;
-    if (
-      code === "messaging/registration-token-not-registered" ||
-      code === "messaging/invalid-registration-token"
-    ) {
-      deadTokens.push(tokens[i]);
-    } else if (resp.error) {
-      console.warn(
-        `[push] send failed for token ${tokens[i].slice(0, 12)}…:`,
-        resp.error.code,
-        resp.error.message,
-      );
-    }
-  });
+  let succeeded = 0;
+  let failed = 0;
+
+  // FCM rejects a multicast of more than 500 tokens by throwing *before*
+  // dispatching any of them, so a single oversized call would drop the
+  // whole broadcast rather than just the overflow. Fan out in batches.
+  for (let offset = 0; offset < tokens.length; offset += FCM_MULTICAST_LIMIT) {
+    const batch = tokens.slice(offset, offset + FCM_MULTICAST_LIMIT);
+    const result = await messaging.sendEachForMulticast({
+      ...baseMessage,
+      tokens: batch,
+    });
+
+    succeeded += result.successCount;
+    failed += result.failureCount;
+
+    result.responses.forEach((resp, i) => {
+      if (resp.success) return;
+      const code = resp.error?.code;
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token"
+      ) {
+        deadTokens.push(batch[i]);
+      } else if (resp.error) {
+        console.warn(
+          `[push] send failed for token ${batch[i].slice(0, 12)}…:`,
+          resp.error.code,
+          resp.error.message,
+        );
+      }
+    });
+  }
 
   let cleanedUp = 0;
   if (deadTokens.length > 0) {
@@ -283,8 +300,8 @@ export async function sendToTokens(
 
   const sendResult: SendResult = {
     attempted: tokens.length,
-    succeeded: result.successCount,
-    failed: result.failureCount,
+    succeeded,
+    failed,
     cleanedUp,
   };
   await logDispatch(payload, sendResult, meta);

@@ -517,6 +517,10 @@ export const adminBookingsApi = {
     id: string,
     body: {
       hours: number[];
+      /** Bowling-machine 30-min picks. Mutually exclusive with hours[]
+       *  — the server rejects whichever shape doesn't match the court's
+       *  slot duration, so a 30-min court must send these with hours: []. */
+      bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
       date?: string;
       /** Debit the ADDED minutes from the customer's eligible pass
        *  instead of charging them. Server re-validates balance, court

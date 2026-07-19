@@ -33,8 +33,8 @@ import { colors, radius, spacing } from "../../theme";
 import { bookingsApi } from "../../lib/bookings";
 import {
   formatDateLong,
-  formatHoursAsRanges,
   formatRupees,
+  formatSlotsAsRanges,
   sportLabel,
 } from "../../lib/format";
 import type {
@@ -56,14 +56,15 @@ function pad2(n: number): string {
 
 /**
  * Floating-time stamp (YYYYMMDDTHHmmSS) for a Google Calendar template URL,
- * built from the booking's local date + hour (hour=24 rolls to next day).
+ * built from the booking's local date + minutes-from-midnight (so a
+ * bowling-machine slot keeps its :30 boundary; ≥1440 rolls to next day).
  * Floating (no Z) means the user's device TZ — IST for our audience — which
  * matches the booking's timezone.
  */
-function gcalStamp(date: string, hour: number): string {
+function gcalStamp(date: string, totalMinutes: number): string {
   const [y, m, d] = date.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  dt.setHours(hour, 0, 0, 0);
+  dt.setHours(0, totalMinutes, 0, 0);
   return `${dt.getFullYear()}${pad2(dt.getMonth() + 1)}${pad2(dt.getDate())}T${pad2(dt.getHours())}${pad2(dt.getMinutes())}00`;
 }
 
@@ -153,13 +154,16 @@ function getStatusConfig(
   }
 }
 
-// Mirror of web's `paymentLabel` map.
-const PAYMENT_LABEL: Record<PaymentMethod, string> = {
+// Mirror of web's `paymentLabel` map. `PASS` is widened in locally because
+// the shared PaymentMethod union doesn't carry it yet — the redeem route
+// still writes it, so without the entry the receipt renders a bare "via ".
+const PAYMENT_LABEL: Record<PaymentMethod | "PASS", string> = {
   RAZORPAY: "Online (Razorpay)",
   PHONEPE: "Online (PhonePe)",
   UPI_QR: "UPI QR",
   CASH: "Cash at Venue",
   FREE: "Complimentary",
+  PASS: "Monthly Pass",
 };
 
 // Mirror of web's `paymentStatusLabel` map.
@@ -221,7 +225,7 @@ export function BookingDetailScreen() {
     return (
       <Screen>
         <Card>
-          <Text variant="bodyStrong">Couldn't load this booking</Text>
+          <Text variant="bodyStrong">Couldn&apos;t load this booking</Text>
           <Text variant="small" color={colors.mutedForeground}>
             It may have been cancelled or moved. Try again in a moment.
           </Text>
@@ -231,7 +235,17 @@ export function BookingDetailScreen() {
   }
 
   const payment = data.payment;
-  const timeRange = formatHoursAsRanges(data.slots.map((s) => s.startHour));
+  // The API returns startMinute/durationMinutes on every slot row, but the
+  // shared BookingSlot type doesn't declare them yet — read them defensively
+  // so a 30-min bowling booking isn't rounded down to the whole hour.
+  const slotDurationMinutes =
+    (data.slots[0] as { durationMinutes?: number } | undefined)
+      ?.durationMinutes ?? 60;
+  const slotTimes = data.slots.map((s) => ({
+    hour: s.startHour,
+    minute: (s as { startMinute?: number }).startMinute ?? 0,
+  }));
+  const timeRange = formatSlotsAsRanges(slotTimes, slotDurationMinutes);
   const courtLabel = data.wasBookedAsHalfCourt
     ? "Half Court (40×90)"
     : data.courtConfig.label;
@@ -239,10 +253,11 @@ export function BookingDetailScreen() {
 
   function addToCalendar() {
     if (!data) return;
-    const startHours = data.slots.map((s) => s.startHour);
-    const startH = Math.min(...startHours);
-    const endH = Math.max(...startHours) + 1;
-    const dates = `${gcalStamp(data.date, startH)}/${gcalStamp(data.date, endH)}`;
+    if (slotTimes.length === 0) return;
+    const startsAt = slotTimes.map((t) => t.hour * 60 + t.minute);
+    const start = Math.min(...startsAt);
+    const end = Math.max(...startsAt) + slotDurationMinutes;
+    const dates = `${gcalStamp(data.date, start)}/${gcalStamp(data.date, end)}`;
     const url =
       "https://calendar.google.com/calendar/render?action=TEMPLATE" +
       `&text=${encodeURIComponent(`${sportName} at Momentum Arena`)}` +

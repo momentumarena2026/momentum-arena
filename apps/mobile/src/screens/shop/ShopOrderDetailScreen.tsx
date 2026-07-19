@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,14 +16,26 @@ import {
 } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, QrCode, Wallet, X } from "lucide-react-native";
+import {
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  QrCode,
+  Wallet,
+  X,
+} from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { colors, radius, spacing } from "../../theme";
-import { shopApi } from "../../lib/shop";
+import {
+  payShopOrderWithRazorpay,
+  shopApi,
+  shopPaymentInFlight,
+} from "../../lib/shop";
 import { formatRupees } from "../../lib/format";
+import { useAuth } from "../../providers/AuthProvider";
 // ShopOrderDetail is registered in BOTH stacks — ShopStack reaches it
 // from the post-checkout success path, AccountStack reaches it from the
 // orders list. The screen only calls `goBack()` on its navigator, so we
@@ -51,10 +63,20 @@ export function ShopOrderDetailScreen() {
   const route = useRoute<Rt>();
   const navigation = useNavigation<Nav>();
   const qc = useQueryClient();
+  const { state } = useAuth();
+  const signedInUser = state.status === "signedIn" ? state.user : null;
+  const [paying, setPaying] = useState(false);
 
   const orderQuery = useQuery({
     queryKey: ["shop-order", route.params.orderId],
-    queryFn: () => shopApi.orderDetail(route.params.orderId),
+    queryFn: () =>
+      shopApi.orderDetail(route.params.orderId, {
+        // Every read on this screen — mount, focus, pull-to-refresh, the
+        // post-payment refetch — runs through here, and after a capture this
+        // screen holds the customer's only reference to the payment. A 401
+        // must not sign them out and take it off screen with them.
+        keepSessionOn401: shopPaymentInFlight(route.params.orderId),
+      }),
     // Order status moves on the venue side — treat data as immediately
     // stale so every screen focus triggers a fresh fetch.
     staleTime: 0,
@@ -97,6 +119,40 @@ export function ShopOrderDetailScreen() {
     );
   }
 
+  // The cart is drained the moment the order exists, so this screen is the
+  // only place a PENDING online order can still be paid — without it a
+  // dismissed sheet (or a backgrounded app) leaves the order unpayable.
+  async function handlePayNow(orderId: string) {
+    setPaying(true);
+    try {
+      await payShopOrderWithRazorpay({
+        orderId,
+        themeColor: colors.primary,
+        prefill: {
+          name: signedInUser?.name ?? undefined,
+          email: signedInUser?.email ?? undefined,
+          contact: signedInUser?.phone ?? undefined,
+        },
+      });
+    } catch (err) {
+      Alert.alert(
+        "Payment not confirmed",
+        `${err instanceof Error ? err.message : "Payment failed"}\n\nIf money was debited, don't pay again — show this order at the front desk.`,
+      );
+    } finally {
+      setPaying(false);
+      // Mark stale only: the orders list is still mounted beneath this screen,
+      // and its read is not session-safe — refetching it here would hand a
+      // post-capture 401 straight to the global sign-out. It refetches on
+      // focus anyway, which is the only time its contents are looked at.
+      void qc.invalidateQueries({
+        queryKey: ["shop-orders"],
+        refetchType: "none",
+      });
+      void orderQuery.refetch();
+    }
+  }
+
   if (orderQuery.isLoading) {
     return (
       <Screen>
@@ -112,7 +168,7 @@ export function ShopOrderDetailScreen() {
       <Screen>
         <Card style={styles.errorCard}>
           <Text variant="bodyStrong" align="center">
-            Couldn't load order
+            Couldn&apos;t load order
           </Text>
           <Button
             label="Back"
@@ -130,6 +186,7 @@ export function ShopOrderDetailScreen() {
   const isConfirmed = order.status === "CONFIRMED";
   const isFulfilled = order.status === "FULFILLED";
   const totalRupees = Math.round(order.totalPaise / 100);
+  const canPayOnline = isPending && order.payment?.method === "RAZORPAY";
 
   function statusBanner() {
     if (isFulfilled) {
@@ -157,8 +214,9 @@ export function ShopOrderDetailScreen() {
     if (order.payment?.method === "RAZORPAY") {
       return (
         <BannerLine icon={Clock} tone="amber">
-          Awaiting payment. Restart the Razorpay flow from your shop cart
-          if you cancelled the popup.
+          Payment not completed. Tap Pay below to finish. If money was
+          already debited, don&apos;t pay again — show this order at the front
+          desk and we&apos;ll confirm it.
         </BannerLine>
       );
     }
@@ -166,7 +224,7 @@ export function ShopOrderDetailScreen() {
       return (
         <BannerLine icon={QrCode} tone="amber">
           Scan the UPI QR at the counter and share the UTR with the
-          attendant. We'll mark the order paid once verified.
+          attendant. We&apos;ll mark the order paid once verified.
         </BannerLine>
       );
     }
@@ -272,13 +330,29 @@ export function ShopOrderDetailScreen() {
         </Card>
 
         {isPending ? (
-          <Button
-            label="Cancel order"
-            variant="ghost"
-            onPress={handleCancel}
-            loading={cancelMutation.isPending}
-            leadingIcon={<X size={16} color={colors.destructive} />}
-          />
+          <View style={styles.actions}>
+            {canPayOnline ? (
+              <Button
+                label={`Pay ${formatRupees(totalRupees)}`}
+                onPress={() => void handlePayNow(order.id)}
+                loading={paying}
+                fullWidth
+                leadingIcon={
+                  <CreditCard size={16} color={colors.primaryForeground} />
+                }
+              />
+            ) : null}
+            <Button
+              label="Cancel order"
+              variant="ghost"
+              onPress={handleCancel}
+              loading={cancelMutation.isPending}
+              // Cancelling mid-payment would leave the order un-confirmable
+              // with the money already captured.
+              disabled={paying}
+              leadingIcon={<X size={16} color={colors.destructive} />}
+            />
+          </View>
         ) : null}
       </ScrollView>
     </Screen>
@@ -418,5 +492,8 @@ const styles = StyleSheet.create({
   monoValue: {
     fontFamily: "Menlo",
     fontSize: 11,
+  },
+  actions: {
+    gap: spacing["2"],
   },
 });

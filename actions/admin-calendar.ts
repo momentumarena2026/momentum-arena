@@ -3,11 +3,26 @@
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { zonesOverlap } from "@/lib/court-config";
+// Shared with the customer-facing sale path on purpose: the calendar
+// has to render everything the booking engine considers sold, or the
+// front desk sees a court as free that a customer can't book. Imported
+// rather than re-declared so the two can't drift.
+//
+// It deliberately does NOT match the same-named list in
+// actions/admin-booking.ts, which drops ABSENT. That one answers "may
+// the counter re-SELL this hour?"; this one answers "is there a
+// booking to DRAW in this cell?". A no-show is re-sellable but still
+// has to show its pill, otherwise the resulting double-booked cell is
+// unexplained. Do not align them.
+import { OCCUPYING_BOOKING_STATUSES } from "@/lib/availability";
 import type { CourtZone, Sport, ConfigSize } from "@prisma/client";
 
 export interface CellBooking {
   id: string;
-  status: "CONFIRMED" | "PENDING";
+  // Includes the terminal closeouts: the front desk marking a session
+  // COMPLETED or the customer ABSENT must not erase the booking from
+  // the calendar, so those statuses reach the cell too.
+  status: "CONFIRMED" | "PENDING" | "COMPLETED" | "ABSENT";
   userName: string;
   userEmail: string | null;
   userPhone: string | null;
@@ -42,7 +57,20 @@ export interface CellBooking {
 }
 
 export interface CellData {
+  // First entry of `bookings`. Redundant for every in-tree consumer
+  // (they all read `bookings` now) but NOT removable: the shipped
+  // TestFlight/store builds of AdminCalendarScreen only know about
+  // `booking`, and they hit this same backend. Dropping it would
+  // blank their calendar until they take an update. Remove once no
+  // supported build reads it.
   booking?: CellBooking;
+  // EVERY booking that occupies this cell. The bowling machine sells
+  // 30-minute slots, so 14:00-14:30 and 14:30-15:00 are routinely two
+  // different customers in the same hour cell; the half-court configs
+  // can likewise put two distinct bookings under one overlapping
+  // parent row. Collapsing to a single booking made the front desk
+  // see a half-free hour and double-sell it.
+  bookings?: CellBooking[];
   blocked?: boolean;
   blockReason?: string;
 }
@@ -97,7 +125,7 @@ export async function getCalendarData(
   const bookings = await db.booking.findMany({
     where: {
       date: { in: [dateOnly, dateOnlyPrev] },
-      status: { in: ["CONFIRMED", "PENDING"] },
+      status: { in: [...OCCUPYING_BOOKING_STATUSES] },
     },
     include: {
       user: { select: { name: true, email: true, phone: true } },
@@ -172,6 +200,21 @@ export async function getCalendarData(
         (recordHour === null || recordHour === storageHour),
     );
 
+  // Minute-of-hour at which a booking starts inside a given display
+  // cell — the smallest startMinute among the slots that actually
+  // land on that cell. Used only to order the cell's bookings.
+  const cellStartMinute = (
+    booking: (typeof bookings)[number],
+    coords: Array<{ storageDate: Date; storageHour: number }>,
+  ): number =>
+    Math.min(
+      ...booking.slots
+        .filter((slot) =>
+          matchesAnyCoord(coords, booking.date, slot.startHour),
+        )
+        .map((slot) => slot.startMinute),
+    );
+
   // Build the grid: configId -> hour -> CellData
   const grid: Record<string, Record<number, CellData>> = {};
 
@@ -237,7 +280,7 @@ export async function getCalendarData(
       // matches ANY of the cell's storage coords. The
       // .some-over-slots × .some-over-coords combination is small —
       // 1 or 2 coords, a handful of slots per booking.
-      const matchingBooking = bookings.find((booking) => {
+      const matchingBookings = bookings.filter((booking) => {
         const slotMatch = booking.slots.some((slot) =>
           matchesAnyCoord(coords, booking.date, slot.startHour),
         );
@@ -250,10 +293,18 @@ export async function getCalendarData(
         );
       });
 
-      if (matchingBooking) {
-        cellData.booking = {
+      // Order the cell's bookings by where they start inside the hour
+      // so the half-hour pair reads 14:00-14:30 then 14:30-15:00, and
+      // the legacy single `booking` field is the earlier of the two
+      // instead of whatever order the DB happened to return.
+      matchingBookings.sort(
+        (a, b) => cellStartMinute(a, coords) - cellStartMinute(b, coords),
+      );
+
+      for (const matchingBooking of matchingBookings) {
+        const cellBooking: CellBooking = {
           id: matchingBooking.id,
-          status: matchingBooking.status as "CONFIRMED" | "PENDING",
+          status: matchingBooking.status as CellBooking["status"],
           userName:
             matchingBooking.user.name ||
             matchingBooking.user.email ||
@@ -278,6 +329,8 @@ export async function getCalendarData(
           courtLabel: matchingBooking.courtConfig.label,
           courtSport: matchingBooking.courtConfig.sport,
         };
+        (cellData.bookings ??= []).push(cellBooking);
+        cellData.booking ??= cellBooking;
       }
 
       // Only add cell data if there's something to show

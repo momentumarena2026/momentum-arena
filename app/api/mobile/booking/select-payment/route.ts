@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
+import { deriveHoldCharge, splitAdvancePayment } from "@/lib/booking-amounts";
 import { notifyAdminPendingBooking } from "@/lib/notifications";
 import {
   AnalyticsCategory,
@@ -119,28 +120,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const amount =
-    overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
-
-  // For the 50% advance flow the customer paid `amount` (already
-  // post-discount + post-points, passed from the client) via UPI QR.
-  // Compute the remainder against the post-discount + post-redemption
-  // total so neither the coupon nor the points are clawed back at
-  // the venue.
-  const appliedDiscount =
-    hold.couponId && hold.discountAmount && hold.discountAmount > 0
-      ? hold.discountAmount
-      : 0;
-  const pointsRedeemRupees =
-    hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
-      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
-      : 0;
-  const effectiveTotal =
-    hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+  // Payment.amount is derived server-side, never read off the request:
+  // this route sets it directly, so `overrideAmount: 1` used to buy a
+  // full-price booking for ₹1. The client figure survives only as a
+  // recurring-series hint — see lib/booking-amounts for the whole rule.
+  // On the advance flow the client sends the HALF it collected by QR, so
+  // it is matched against the halves rather than the full totals.
+  const charge = await deriveHoldCharge(hold, {
+    clientAmount: overrideAmount,
+    clientAmountIsAdvance: advance,
+  });
+  // The remainder is computed against the post-discount + post-redemption
+  // total so neither the coupon nor the points are clawed back at the venue.
+  const effectiveTotal = charge.payableAmount;
+  const split = splitAdvancePayment(effectiveTotal);
+  const amount = advance ? split.advanceAmount : effectiveTotal;
   const advanceAmount = advance ? amount : undefined;
-  const remainingAmount = advance
-    ? Math.max(effectiveTotal - amount, 0)
-    : undefined;
+  const remainingAmount = advance ? split.remainingAmount : undefined;
 
   // method === "CASH" + isAdvance: the customer paid the advance via QR, so we
   // record UPI_QR as the payment method (admin confirms on the WhatsApp

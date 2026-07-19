@@ -3,8 +3,23 @@ import { formatHourRangeCompact, SPORT_INFO } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { sendTemplatedToUser } from "@/lib/push-templates";
 import type { PushKind } from "@/lib/push";
+import { getCurrentHourIST, getTodayIST } from "@/lib/ist-date";
 
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
+
+/**
+ * Start of the IST calendar day `dayOffset` days from now, as the UTC
+ * midnight that `Booking.date` (@db.Date) is stored at.
+ *
+ * The cron runs on a UTC server, so deriving the day from the server
+ * clock puts us a day behind between 00:00 and 05:30 IST. Everything
+ * here is the venue's calendar day, which is IST.
+ */
+function istDayStartUtc(dayOffset: number): Date {
+  const [year, month, day] = getTodayIST().split("-").map(Number);
+  // Date.UTC normalises month/day overflow, so +1 works across month ends.
+  return new Date(Date.UTC(year, month - 1, day + dayOffset));
+}
 
 async function sendSmsReminder(
   phone: string,
@@ -45,10 +60,12 @@ async function sendSmsReminder(
   }
 }
 
-// Fire-and-forget push reminder. Mirrors the SMS but lands silently on
-// the lock screen for users who installed the mobile app — avoids the
-// SMS delay (and DLT cost) for the common case. SMS still goes out so
-// users without the app aren't left without a reminder.
+// Best-effort push reminder — swallows its own errors so callers can
+// await it without letting a push failure gate the SMS-sent state.
+// Mirrors the SMS but lands silently on the lock screen for users who
+// installed the mobile app — avoids the SMS delay (and DLT cost) for
+// the common case. SMS still goes out so users without the app aren't
+// left without a reminder.
 async function sendPushReminder(
   userId: string,
   bookingId: string,
@@ -63,7 +80,7 @@ async function sendPushReminder(
     // admin dashboard copy + toggle apply per reminder stage.
     await sendTemplatedToUser(userId, kind, vars, { kind, bookingId });
   } catch (error) {
-    console.error(`Push reminder  failed for booking :`, error);
+    console.error(`Push reminder ${kind} failed for booking ${bookingId}:`, error);
   }
 }
 
@@ -73,17 +90,15 @@ export async function sendBookingReminders(): Promise<{
   sent1h: number;
   errors: number;
 }> {
-  const now = new Date();
+  // BookingSlot.startHour is an IST venue hour, so every clock read in
+  // here has to be IST too — the server clock is UTC.
+  const currentHourIST = getCurrentHourIST();
   const results = { sent24h: 0, sent2h: 0, sent1h: 0, errors: 0 };
 
   // -- 24-hour reminders --
   // Find bookings where date is tomorrow
-  const tomorrowStart = new Date(now);
-  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-  tomorrowStart.setHours(0, 0, 0, 0);
-
-  const tomorrowEnd = new Date(tomorrowStart);
-  tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+  const tomorrowStart = istDayStartUtc(1);
+  const tomorrowEnd = istDayStartUtc(2);
 
   const bookingsFor24h = await db.booking.findMany({
     where: {
@@ -118,7 +133,10 @@ export async function sendBookingReminders(): Promise<{
 
       // Push goes out alongside SMS — best-effort, doesn't gate the
       // 24h-sent state. If push fails the user still gets the SMS.
-      void sendPushReminder(booking.userId, booking.id, "booking_reminder_24h", {
+      // Must be awaited: this runs in a serverless cron invocation that
+      // is frozen the moment the route's response resolves, so a
+      // detached promise would be killed mid-send.
+      await sendPushReminder(booking.userId, booking.id, "booking_reminder_24h", {
         sport: sportName,
         time: timeStr,
       });
@@ -140,14 +158,11 @@ export async function sendBookingReminders(): Promise<{
 
   // -- 2-hour reminders --
   // Find bookings happening today within the next ~2 hours
-  const todayDate = new Date(now);
-  todayDate.setHours(0, 0, 0, 0);
-
-  const todayEnd = new Date(todayDate);
-  todayEnd.setDate(todayEnd.getDate() + 1);
+  const todayDate = istDayStartUtc(0);
+  const todayEnd = istDayStartUtc(1);
 
   // Current hour + 2 (the slot starting in approximately 2 hours)
-  const targetHour = now.getHours() + 2;
+  const targetHour = currentHourIST + 2;
 
   const bookingsFor2h = await db.booking.findMany({
     where: {
@@ -185,7 +200,9 @@ export async function sendBookingReminders(): Promise<{
 
       const sent = await sendSmsReminder(booking.user.phone, message);
 
-      void sendPushReminder(booking.userId, booking.id, "booking_reminder_2h", {
+      // Awaited for the same reason as the 24h stage above — the
+      // invocation freezes as soon as the cron route responds.
+      await sendPushReminder(booking.userId, booking.id, "booking_reminder_2h", {
         sport: sportName,
         time: timeStr,
       });
@@ -213,7 +230,7 @@ export async function sendBookingReminders(): Promise<{
   // Requires reminder2SentAt to be set so first-time users without the
   // 2h reminder (e.g. same-day bookings created within the 2h window)
   // don't get a stranded 1h-only ping.
-  const oneHourTargetHour = now.getHours() + 1;
+  const oneHourTargetHour = currentHourIST + 1;
   const bookingsFor1h = await db.booking.findMany({
     where: {
       status: "CONFIRMED",

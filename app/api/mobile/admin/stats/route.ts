@@ -8,9 +8,19 @@ import { getMobileAdmin } from "@/lib/mobile-auth";
  * Mirrors the core of `getAdminStats` (actions/admin-booking.ts) but reads the
  * bearer-token admin instead of the NextAuth web session. Viewable by any
  * admin (no specific permission, like the web). Revenue is summed from
- * Booking.totalAmount (post-discount, authoritative) scoped to CONFIRMED
+ * Booking.totalAmount (post-discount, authoritative) scoped to non-cancelled
  * bookings + COMPLETED payments — same reconciliation the web dashboard uses.
  */
+
+// Local copy of getAdminStats' EARNING_BOOKING_STATUSES. It can't be
+// imported: actions/admin-booking.ts is a "use server" module, so every
+// export there has to be an async function. Keep the two in step — a
+// booking that stood still earned, so the front desk's closeout buttons
+// (COMPLETED / ABSENT) must not delete it from these KPIs. Only
+// CANCELLED is out. What keeps ABSENT honest is closeOutBooking writing
+// the uncollected balance off Booking.totalAmount.
+const EARNING_BOOKING_STATUSES = ["CONFIRMED", "COMPLETED", "ABSENT"] as const;
+
 export async function GET(request: NextRequest) {
   const admin = await getMobileAdmin(request);
   if (!admin) {
@@ -31,12 +41,16 @@ export async function GET(request: NextRequest) {
     pendingPayments,
     venueDueAgg,
   ] = await Promise.all([
-    db.booking.count({ where: { status: "CONFIRMED" } }),
-    db.booking.count({ where: { date: today, status: "CONFIRMED" } }),
+    db.booking.count({
+      where: { status: { in: [...EARNING_BOOKING_STATUSES] } },
+    }),
+    db.booking.count({
+      where: { date: today, status: { in: [...EARNING_BOOKING_STATUSES] } },
+    }),
     db.user.count({ where: { deletedAt: null } }),
     db.booking.aggregate({
       where: {
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
         payment: {
           status: "COMPLETED",
           confirmedAt: { gte: today, lt: tomorrow },
@@ -46,12 +60,15 @@ export async function GET(request: NextRequest) {
     }),
     db.booking.aggregate({
       where: {
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
         payment: { status: "COMPLETED", confirmedAt: { not: null } },
       },
       _sum: { totalAmount: true },
     }),
     db.payment.count({ where: { status: "PENDING" } }),
+    // Cash still owed at the venue. Deliberately stays CONFIRMED-only
+    // while the tiles above widened: once a booking is closed out the
+    // remainder has been collected or forfeited, so nothing is due.
     db.payment.aggregate({
       where: {
         isPartialPayment: true,

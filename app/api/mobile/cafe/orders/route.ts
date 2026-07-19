@@ -1,9 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
 import { PaymentMethod } from "@prisma/client";
-import { createCafePaymentIntent } from "@/lib/cafe-intent";
+import {
+  createCafePaymentIntent,
+  burnCafeCoupon,
+  CafeCouponLimitError,
+} from "@/lib/cafe-intent";
+import { awardCafePoints } from "@/lib/rewards/earn";
 import { validateCafeCoupon } from "@/actions/cafe-orders";
 import { isCheckoutMethodEnabled } from "@/actions/admin-payment-settings";
 
@@ -21,6 +26,12 @@ import { isCheckoutMethodEnabled } from "@/actions/admin-payment-settings";
  * PhonePe is intentionally not exposed on mobile — the only
  * supported gateway is Razorpay (matches the booking flow).
  */
+
+// Thrown inside the in-person order transaction when a stock
+// decrement loses the race, so the order rolls back instead of
+// leaving a phantom row on the kitchen board after the customer has
+// been told the item sold out. Carries the customer-facing message.
+class CafeStockRaceError extends Error {}
 const Body = z.object({
   items: z
     .array(
@@ -183,49 +194,98 @@ export async function POST(request: NextRequest) {
     };
   });
 
-  const order = await db.cafeOrder.create({
-    data: {
-      orderNumber,
-      userId: user.id,
-      status: orderStatus,
-      totalAmount,
-      originalAmount,
-      discountAmount,
-      discountCodeId,
-      note: data.note ?? null,
-      items: { create: orderItemsData },
-      payment: {
-        create: {
-          method: data.paymentMethod as PaymentMethod,
-          status: "PENDING",
-          amount: totalAmount,
-        },
-      },
-    },
-  });
+  // Iterated in a fixed id order rather than the client's cart order:
+  // the decrement's row locks are held until the transaction commits,
+  // so two orders touching the same items in opposite order would
+  // deadlock (Postgres 40P01).
+  const stockLines = [...data.items].sort((a, b) =>
+    a.cafeItemId.localeCompare(b.cafeItemId),
+  );
 
-  // Atomic stock decrement with gte race guard.
-  for (const line of data.items) {
-    const ci = itemMap.get(line.cafeItemId)!;
-    if (ci.quantity === null) continue;
-    const updated = await db.cafeItem.updateMany({
-      where: { id: line.cafeItemId, quantity: { gte: line.quantity } },
-      data: { quantity: { decrement: line.quantity } },
-    });
-    if (updated.count === 0) {
-      return NextResponse.json(
-        {
-          error: `${ci.name} sold out before we could record the order. Please try again with reduced quantity.`,
+  // Order row, stock decrements and coupon burn all land or none of
+  // them do. Previously the create committed on its own, so an order
+  // that lost the decrement race left a phantom CafeOrder behind
+  // after the customer had been told the item sold out.
+  let order;
+  try {
+    order = await db.$transaction(async (tx) => {
+      const created = await tx.cafeOrder.create({
+        data: {
+          orderNumber,
+          userId: user.id,
+          status: orderStatus,
+          totalAmount,
+          originalAmount,
+          discountAmount,
+          discountCodeId,
+          note: data.note ?? null,
+          items: { create: orderItemsData },
+          payment: {
+            create: {
+              method: data.paymentMethod as PaymentMethod,
+              status: "PENDING",
+              amount: totalAmount,
+            },
+          },
         },
-        { status: 409 },
-      );
+      });
+
+      // Atomic stock decrement with gte race guard.
+      for (const line of stockLines) {
+        const ci = itemMap.get(line.cafeItemId)!;
+        if (ci.quantity === null) continue;
+        const updated = await tx.cafeItem.updateMany({
+          where: { id: line.cafeItemId, quantity: { gte: line.quantity } },
+          data: { quantity: { decrement: line.quantity } },
+        });
+        if (updated.count === 0) {
+          throw new CafeStockRaceError(
+            `${ci.name} sold out before we could record the order. Please try again with reduced quantity.`,
+          );
+        }
+      }
+
+      // enforceLimits: true — in-person, nothing charged yet. The
+      // helper also writes the CafeDiscountUsage ledger row that
+      // validateCafeCoupon counts for maxUsesPerUser; without it the
+      // per-user cap never trips.
+      if (discountCodeId && discountAmount > 0) {
+        await burnCafeCoupon(tx, {
+          discountId: discountCodeId,
+          userId: user.id,
+          orderId: created.id,
+          discountAmount,
+          enforceLimits: true,
+        });
+      }
+
+      return created;
+    });
+  } catch (error) {
+    if (
+      error instanceof CafeStockRaceError ||
+      error instanceof CafeCouponLimitError
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
     }
+    console.error("[mobile] failed to create cafe order:", error);
+    return NextResponse.json(
+      { error: "Failed to create order" },
+      { status: 500 },
+    );
   }
 
-  if (discountCodeId && discountAmount > 0) {
-    await db.cafeDiscount.update({
-      where: { id: discountCodeId },
-      data: { usedCount: { increment: 1 } },
+  // Parity with the web createCafeOrder path: an order that lands
+  // DIRECTLY in COMPLETED never *transitions* into it, so the admin
+  // status-transition hook that normally awards cafe points never
+  // fires. Without this the same all-ready order earns on web and
+  // earns nothing in the app. Idempotent at the lib layer; rides
+  // after() because a bare promise dies at the serverless freeze.
+  if (orderStatus === "COMPLETED") {
+    after(async () => {
+      await awardCafePoints(order.id).catch((err) =>
+        console.error("[rewards] cafe award failed for", order.id, err),
+      );
     });
   }
 

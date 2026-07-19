@@ -259,8 +259,10 @@ export async function notifyAdminPendingBooking(
   // FCM fan-out to every signed-in admin device. Best-effort —
   // a missing service-account key just no-ops sendToAdmins. The
   // mobile shell tap handler routes this kind to the unconfirmed
-  // queue. Runs in parallel with the SMS path below.
-  void sendTemplatedToAdmins(
+  // queue. Must be awaited: callers wrap us in after(), and the
+  // serverless freeze kills any promise still in flight when we
+  // return — including on the no-admin-phones path below.
+  await sendTemplatedToAdmins(
     "admin_pending_booking",
     { customerName: details.userName },
     { kind: "admin_pending_booking", bookingId },
@@ -365,8 +367,11 @@ export async function notifyAdminBookingConfirmed(
   // FCM fan-out to admin devices. Tap routes to AdminBookingDetail.
   // Independent of the SMS path (which depends on the DLT template
   // env vars) so the mobile alert lands even when SMS isn't set up.
+  // Must be awaited: callers wrap us in after(), and returning early
+  // (no admin phones / no template id) would otherwise let the
+  // serverless freeze kill the send before it reaches FCM.
   const customerName = booking.user?.name?.trim() || "A customer";
-  void sendTemplatedToAdmins(
+  await sendTemplatedToAdmins(
     "admin_booking_confirmed",
     { customerName, date, amount },
     { kind: "admin_booking_confirmed", bookingId },
@@ -436,11 +441,16 @@ export async function notifyAdminBookingCancelled(
   if (!details) return;
 
   const trimmedReason = reason.trim();
-  void sendTemplatedToAdmins(
+  // Awaited, not detached: this send is the whole function body, so a
+  // `void` here resolves the caller's after() before FCM is even reached.
+  await sendTemplatedToAdmins(
     refunded ? "admin_booking_refunded" : "admin_booking_cancelled",
     {
       customerName: details.userName,
-      reason: trimmedReason ? ` — ` : "",
+      // Template body is "{customerName} cancelled{reason}", so the
+      // separator has to travel with the text — capped like the
+      // customer-facing sibling to keep the push body readable.
+      reason: trimmedReason ? ` — ${trimmedReason.slice(0, 120)}` : "",
     },
     {
       kind: "admin_booking_cancelled",

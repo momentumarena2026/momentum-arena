@@ -82,7 +82,13 @@ export async function GET(request: NextRequest) {
       }),
       db.booking.count({ where: { ...where, status: "CONFIRMED" } }),
       db.booking.aggregate({
-        where: { ...where, status: { in: ["CONFIRMED", "PENDING"] } },
+        // Money spent is historical: a played (COMPLETED) or no-showed
+        // (ABSENT) booking was still paid for, so closing a booking out
+        // must not make the "Spent" tile drop. Only CANCELLED is excluded.
+        where: {
+          ...where,
+          status: { in: ["CONFIRMED", "PENDING", "COMPLETED", "ABSENT"] },
+        },
         _sum: { totalAmount: true },
       }),
     ]);

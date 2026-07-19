@@ -9,6 +9,16 @@ import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
+import { releaseCafeCoupon } from "@/lib/cafe-intent";
+
+// Fields releaseCafeCoupon needs off the cancelled order. Selected on the
+// payment's `order` relation by both cafe-cancelling paths below.
+const CAFE_COUPON_ORDER_SELECT = {
+  id: true,
+  status: true,
+  discountCodeId: true,
+  discountAmount: true,
+} as const;
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -262,19 +272,24 @@ export async function rejectUtr(
   if (type === "cafe") {
     const payment = await db.cafePayment.findUnique({
       where: { id: paymentId },
+      include: { order: { select: CAFE_COUPON_ORDER_SELECT } },
     });
     if (!payment) return { success: false, error: "Payment not found" };
 
-    await db.$transaction([
-      db.cafePayment.update({
+    await db.$transaction(async (tx) => {
+      await tx.cafePayment.update({
         where: { id: paymentId },
         data: { status: "FAILED" },
-      }),
-      db.cafeOrder.update({
+      });
+      await tx.cafeOrder.update({
         where: { id: payment.orderId },
         data: { status: "CANCELLED" },
-      }),
-    ]);
+      });
+      // Rejecting the UTR kills the order, so the coupon has to go back
+      // — same release cancelCafeOrder does. Without it the customer's
+      // per-user slot stays burned on an order they never got.
+      await releaseCafeCoupon(tx, payment.order);
+    });
   } else {
     const payment = await db.payment.findUnique({
       where: { id: paymentId },
@@ -452,19 +467,23 @@ export async function expireUnverifiedUtrs(): Promise<{ expiredCount: number }> 
       utrExpiresAt: { lt: now },
       utrNumber: { not: null },
     },
+    include: { order: { select: CAFE_COUPON_ORDER_SELECT } },
   });
 
   for (const payment of expiredCafePayments) {
-    await db.$transaction([
-      db.cafePayment.update({
+    await db.$transaction(async (tx) => {
+      await tx.cafePayment.update({
         where: { id: payment.id },
         data: { status: "FAILED" },
-      }),
-      db.cafeOrder.update({
+      });
+      await tx.cafeOrder.update({
         where: { id: payment.orderId },
         data: { status: "CANCELLED" },
-      }),
-    ]);
+      });
+      // Expiry cancels the order, so the coupon claim goes back too —
+      // see the reject path above.
+      await releaseCafeCoupon(tx, payment.order);
+    });
   }
 
   return { expiredCount: expiredBookingPayments.length + expiredCafePayments.length };

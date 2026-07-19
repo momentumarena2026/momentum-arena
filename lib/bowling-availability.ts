@@ -1,5 +1,6 @@
 import { BookingCategory, CourtZone, DayType } from "@prisma/client";
 import { db } from "./db";
+import { OCCUPYING_BOOKING_STATUSES } from "./availability";
 import {
   getCurrentHourIST,
   getCurrentMinuteIST,
@@ -120,7 +121,7 @@ export async function getBowlingMachineAvailability(
   const conflictingBookings = await db.booking.findMany({
     where: {
       date: dateOnly,
-      status: { in: ["CONFIRMED", "PENDING"] },
+      status: { in: [...OCCUPYING_BOOKING_STATUSES] },
       courtConfig: {
         zones: { hasSome: config.zones as CourtZone[] },
       },
@@ -146,7 +147,9 @@ export async function getBowlingMachineAvailability(
   }
 
   for (const booking of conflictingBookings) {
-    const status = booking.status === "CONFIRMED" ? "booked" : "locked";
+    // Only PENDING is provisional; CONFIRMED and the closed-out
+    // COMPLETED / ABSENT sessions are firmly "booked".
+    const status = booking.status === "PENDING" ? "locked" : "booked";
     for (const s of booking.slots) {
       if (s.durationMinutes === 30) {
         set(keyOf(s.startHour, s.startMinute), status);
@@ -347,7 +350,7 @@ export async function verifyBowlingHoldStillBookable(
   const conflictingBookings = await db.booking.findMany({
     where: {
       date: dateOnly,
-      status: { in: ["CONFIRMED", "PENDING"] },
+      status: { in: [...OCCUPYING_BOOKING_STATUSES] },
       courtConfig: {
         zones: { hasSome: config.zones as CourtZone[] },
       },

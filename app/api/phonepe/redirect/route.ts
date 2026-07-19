@@ -101,8 +101,15 @@ export async function GET(request: NextRequest) {
         hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
           ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
           : 0;
+      // Gear picked at lock time is PLUSed on top of the slot total — the
+      // same `effectiveTotal` math createBookingFromHold uses for
+      // Booking.totalAmount. Leaving it out understated remainingAmount by
+      // the equipment total, so "Due at Venue" was less than the counter asks.
       const fullAmount =
-        hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+        hold.totalAmount -
+        appliedDiscount -
+        pointsRedeemRupees +
+        (hold.equipmentTotalAmount ?? 0);
       const advanceAmount = isAdvance ? paymentAmount : undefined;
       const remainingAmount = isAdvance
         ? fullAmount - paymentAmount

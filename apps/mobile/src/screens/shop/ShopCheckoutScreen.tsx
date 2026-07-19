@@ -10,18 +10,18 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import RazorpayCheckout from "react-native-razorpay";
-import type {
-  PaymentErrorData,
-  PaymentSuccessData,
-} from "react-native-razorpay/src/types";
 import { CreditCard, QrCode, Wallet } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { colors, radius, spacing } from "../../theme";
-import { shopApi, type ShopPaymentMethod } from "../../lib/shop";
+import {
+  payShopOrderWithRazorpay,
+  shopApi,
+  shopOrderIsPayable,
+  type ShopPaymentMethod,
+} from "../../lib/shop";
 import { formatRupees } from "../../lib/format";
 import { useAuth } from "../../providers/AuthProvider";
 import { ApiError } from "../../lib/api";
@@ -74,40 +74,42 @@ export function ShopCheckoutScreen() {
   const availableLines = cart.lines.filter((l) => !l.unavailable);
   const totalRupees = Math.round(cart.totalPaise / 100);
 
-  async function handleRazorpay(orderId: string, amount: number) {
-    const initRes = await shopApi.razorpayCreateOrder(orderId);
-    let success: PaymentSuccessData;
-    try {
-      success = (await RazorpayCheckout.open({
-        key: initRes.keyId,
-        amount: Math.round(amount * 100),
-        currency: initRes.currency,
-        name: "Momentum Arena",
-        description: `Shop order #${orderId.slice(-6).toUpperCase()}`,
-        order_id: initRes.razorpayOrderId,
-        prefill: {
-          name: signedInUser?.name ?? undefined,
-          email: signedInUser?.email ?? undefined,
-          contact: signedInUser?.phone ?? undefined,
-        },
-        theme: { color: colors.primary },
-      })) as PaymentSuccessData;
-    } catch (err) {
-      const e = err as PaymentErrorData;
-      if (e?.code === 2 || e?.description?.toLowerCase().includes("cancel")) {
-        // User dismissed the modal — leave the order PENDING; they
-        // can either retry via the order detail screen or cancel it.
-        navigation.replace("ShopOrderDetail", { orderId });
-        return;
-      }
-      throw new Error(e?.description || "Payment failed");
-    }
-    await shopApi.razorpayVerify({
+  async function handleRazorpay(orderId: string) {
+    const outcome = await payShopOrderWithRazorpay({
       orderId,
-      razorpayPaymentId: success.razorpay_payment_id,
-      razorpayOrderId: success.razorpay_order_id,
-      razorpaySignature: success.razorpay_signature,
+      themeColor: colors.primary,
+      prefill: {
+        name: signedInUser?.name ?? undefined,
+        email: signedInUser?.email ?? undefined,
+        contact: signedInUser?.phone ?? undefined,
+      },
     });
+    if (outcome === "paid") return;
+    // User dismissed the sheet. placeOrder already drained the cart and
+    // decremented stock, so this prompt is the fastest route back to a
+    // payable sheet — the order detail screen carries the same pay action
+    // for anyone who declines here.
+    const retry = await new Promise<boolean>((resolve) => {
+      Alert.alert(
+        "Payment cancelled",
+        "Your order is saved but unpaid. Retry now, or pay later from the order.",
+        [
+          {
+            text: "Not now",
+            style: "cancel",
+            onPress: () => resolve(false),
+          },
+          { text: "Retry payment", onPress: () => resolve(true) },
+        ],
+        { cancelable: false },
+      );
+    });
+    // Re-opening the sheet re-stamps the payment row's razorpayOrderId, so
+    // only retry while the order is still payable — an order confirmed at
+    // the counter meanwhile would come back from create-order as a 404.
+    if (retry && (await shopOrderIsPayable(orderId))) {
+      await handleRazorpay(orderId);
+    }
   }
 
   async function handleConfirm() {
@@ -117,11 +119,13 @@ export function ShopCheckoutScreen() {
     }
     setError(null);
     setProcessing(true);
+    let placedOrderId: string | null = null;
     try {
       const place = await shopApi.placeOrder(method);
+      placedOrderId = place.orderId;
       void qc.invalidateQueries({ queryKey: ["shop-cart"] });
       if (method === "RAZORPAY") {
-        await handleRazorpay(place.orderId, totalRupees);
+        await handleRazorpay(place.orderId);
       }
       navigation.replace("ShopOrderDetail", { orderId: place.orderId });
     } catch (err) {
@@ -131,6 +135,25 @@ export function ShopCheckoutScreen() {
           : err instanceof Error
             ? err.message
             : "Checkout failed";
+      // The order exists and the cart is gone the moment placeOrder returns,
+      // so a payment-stage failure must still hand over the order — leaving
+      // the customer on an empty checkout gives them no reference to a
+      // payment that may well have been captured.
+      if (placedOrderId) {
+        const orderId = placedOrderId;
+        setError(msg);
+        Alert.alert(
+          "Payment not confirmed",
+          `${msg}\n\nYour order was placed. If money was debited, don't pay again — show this order at the front desk. Otherwise you can retry the payment from the order.`,
+          [
+            {
+              text: "View order",
+              onPress: () => navigation.replace("ShopOrderDetail", { orderId }),
+            },
+          ],
+        );
+        return;
+      }
       setError(msg);
       Alert.alert("Checkout failed", msg);
     } finally {
@@ -153,7 +176,7 @@ export function ShopCheckoutScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text variant="title">Checkout</Text>
         <Text variant="small" color={colors.mutedForeground}>
-          Pickup at venue. We'll text when it's ready.
+          Pickup at venue. We&apos;ll text when it&apos;s ready.
         </Text>
 
         <Card style={styles.summary}>

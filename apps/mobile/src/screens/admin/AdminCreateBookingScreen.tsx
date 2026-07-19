@@ -287,6 +287,14 @@ export function AdminCreateBookingScreen() {
   const remaining =
     isPartial && advanceValid ? effectiveTotal - parsedAdvance : 0;
 
+  // When partial, the advance method the customer actually used IS the
+  // method recorded on the Payment row — the top "PAYMENT METHOD" chip
+  // only describes the remainder, which gets its own method later via
+  // the mark-collected flow. Mirror of the web form's
+  // effectivePaymentMethod so a UPI/Razorpay advance isn't filed as cash.
+  const effectiveMethod: Method =
+    isPartial && advanceValid ? advanceMethod : method;
+
   // ---- Derived UI gating ----
   const filteredCourts: AdminCourt[] = useMemo(
     () => (courtsQuery.data?.courts ?? []).filter((c) => c.sport === sport),
@@ -340,9 +348,11 @@ export function AdminCreateBookingScreen() {
         hours: isBowlingConfig ? [] : hours,
         bowlingSlots: isBowlingConfig ? bowlingSlots : undefined,
         userId: customer.id,
-        paymentMethod: method,
+        paymentMethod: effectiveMethod,
+        // Server only persists razorpayPaymentId when paymentMethod is
+        // RAZORPAY, so key it off the same effective method.
         razorpayPaymentId:
-          method === "RAZORPAY" || (isPartial && advanceMethod === "RAZORPAY")
+          effectiveMethod === "RAZORPAY"
             ? razorpayId.trim() || undefined
             : undefined,
         // Only send when the admin actually changed the figure — null
@@ -375,7 +385,7 @@ export function AdminCreateBookingScreen() {
     selectedSlotCount > 0 &&
     (method === "FREE" || effectiveTotal > 0) &&
     advanceValid &&
-    (method !== "RAZORPAY" || razorpayId.trim().length > 0) &&
+    (effectiveMethod !== "RAZORPAY" || razorpayId.trim().length > 0) &&
     !createBooking.isPending;
 
   // ---- Reset selections when court swaps ----
@@ -1053,7 +1063,7 @@ export function AdminCreateBookingScreen() {
               />
               <ReviewLine
                 label="Method"
-                value={`${METHOD_LABEL[method]}${isPartial ? " · Partial" : ""}${customAmountOverride ? " · Negotiated" : ""}`}
+                value={`${METHOD_LABEL[effectiveMethod]}${isPartial ? " · Partial" : ""}${customAmountOverride ? " · Negotiated" : ""}`}
               />
               <View style={styles.totalRowReview}>
                 <Text variant="small" color={colors.zinc400}>

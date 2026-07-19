@@ -359,14 +359,15 @@ export default async function AdminBookingsPage({
           {/* Multi-select chips — "All" is exclusive (clears the
               specific picks); the rest toggle in/out of statusList.
               Defaults to Confirmed + Absent (the front desk's daily
-              working view). COMPLETED is intentionally dropped — the
-              admin closeout status that doesn't drive a useful filter
-              on its own; the Absent + Confirmed pair already covers
-              the operational case. */}
+              working view). Completed is off the default but needs a
+              chip of its own: closing a session out is the terminal
+              state for most bookings, and without a chip those rows
+              were only reachable by clearing every filter. */}
           {[
             { label: "All", value: "ALL", dot: "" },
             { label: "Confirmed", value: "CONFIRMED", dot: "bg-emerald-400" },
             { label: "Pending", value: "PENDING", dot: "bg-yellow-400" },
+            { label: "Completed", value: "COMPLETED", dot: "bg-sky-400" },
             { label: "Cancelled", value: "CANCELLED", dot: "bg-red-400" },
             { label: "Absent", value: "ABSENT", dot: "bg-amber-300" },
           ].map((opt) => {

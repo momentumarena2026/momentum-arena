@@ -36,7 +36,10 @@ export async function getAvailableEquipment(
         where: {
           booking: {
             date: { gte: bookingDate, lt: bookingDateEnd },
-            status: { in: ["PENDING", "CONFIRMED"] },
+            // COMPLETED / ABSENT bookings still hold their gear for their
+            // window — only CANCELLED releases it. Leaving them out let the
+            // same units be rented twice once a booking was closed out.
+            status: { in: ["PENDING", "CONFIRMED", "COMPLETED", "ABSENT"] },
           },
         },
         include: {
@@ -138,7 +141,9 @@ export async function addEquipmentToBooking(
         where: {
           booking: {
             date: { gte: bookingDate, lt: bookingDateEnd },
-            status: { in: ["PENDING", "CONFIRMED"] },
+            // See getAvailableEquipment — closed-out bookings still hold
+            // their gear.
+            status: { in: ["PENDING", "CONFIRMED", "COMPLETED", "ABSENT"] },
             id: { not: bookingId },
           },
         },

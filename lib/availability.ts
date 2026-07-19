@@ -63,6 +63,20 @@ export interface SlotAvailability {
   lockHour?: number;
 }
 
+/**
+ * A booking occupies its slot in every state except CANCELLED. The
+ * terminal closeouts (COMPLETED / ABSENT) are sessions that HAPPENED,
+ * so leaving them out of an occupancy check puts the slot back on sale
+ * while the customer is still on the court. Shared by the hold and
+ * bowling-grid paths so one rule governs every occupancy query.
+ */
+export const OCCUPYING_BOOKING_STATUSES = [
+  "CONFIRMED",
+  "PENDING",
+  "COMPLETED",
+  "ABSENT",
+] as const;
+
 // Severity ordering for ConfigSize → used to sort blockedBy /
 // alternatives so the FULL court appears above MEDIUM appears
 // above XS. Keeps the alternatives sheet stable and predictable.
@@ -89,11 +103,13 @@ export async function getSlotAvailability(
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const now = new Date();
 
-  // 1. Bookings that reserve the slot: CONFIRMED (paid) or PENDING (awaiting admin verification)
+  // 1. Bookings that reserve the slot: anything not CANCELLED — CONFIRMED
+  //    (paid), PENDING (awaiting admin verification) and the closed-out
+  //    COMPLETED / ABSENT sessions (see OCCUPYING_BOOKING_STATUSES)
   const conflictingBookings = await db.booking.findMany({
     where: {
       date: dateOnly,
-      status: { in: ["CONFIRMED", "PENDING"] },
+      status: { in: [...OCCUPYING_BOOKING_STATUSES] },
       courtConfig: {
         zones: { hasSome: config.zones as CourtZone[] },
       },
@@ -108,9 +124,11 @@ export async function getSlotAvailability(
   const occupiedHours = new Map<number, SlotStatus>();
   for (const booking of conflictingBookings) {
     for (const slot of booking.slots) {
+      // Only PENDING is provisional ("locked"); a CONFIRMED or closed-out
+      // booking is a firm "booked".
       occupiedHours.set(
         slot.startHour,
-        booking.status === "CONFIRMED" ? "booked" : "locked"
+        booking.status === "PENDING" ? "locked" : "booked"
       );
     }
   }

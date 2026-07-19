@@ -399,6 +399,17 @@ export function AdminBookingDetailScreen() {
   const isPending = booking.status === "PENDING";
   const isConfirmed = booking.status === "CONFIRMED";
   const payment = booking.payment;
+  // The detail endpoint returns the full courtConfig row, but the
+  // shared type only declares the display fields — read the two
+  // bowling-machine signals (older rows still carry 60) off a
+  // narrowed view.
+  const court = booking.courtConfig as typeof booking.courtConfig & {
+    category?: string | null;
+    slotDurationMinutes?: number;
+  };
+  const isBowlingCourt =
+    court.category === "BOWLING_MACHINE" || court.slotDurationMinutes === 30;
+  const banner = BANNER[booking.status] ?? BANNER.CANCELLED;
 
   const canConfirmUpi =
     isPending &&
@@ -418,11 +429,16 @@ export function AdminBookingDetailScreen() {
   // Post-session closeouts — terminal. Advance becomes earnings;
   // remainder forfeit.
   const canCloseOut = isConfirmed;
+  // Edit Slots now renders a 30-min grid for bowling courts, so it
+  // covers both granularities.
   const canEditSlots = isConfirmed;
   // Same gate as the web: editing is allowed on any confirmed booking
   // — gateway-paid customer bookings are now editable too. The action
   // surfaces a refund-due / collect-extra pill when totals diverge.
-  const canEditBooking = isConfirmed;
+  // Bowling courts stay excluded (as on the web): this surface is
+  // court-swap + hour-granular, and there is only one bowling court —
+  // Edit Slots is the half-hour path.
+  const canEditBooking = isConfirmed && !isBowlingCourt;
   // Edit-payment is the escape hatch for stuck states — admin can
   // change method, status, total, advance, gateway IDs on any non-
   // cancelled booking that has a payment row.
@@ -513,20 +529,12 @@ export function AdminBookingDetailScreen() {
         <View
           style={[
             styles.statusBanner,
-            {
-              borderColor: bannerBorder(booking.status),
-              backgroundColor: bannerBg(booking.status),
-            },
+            { borderColor: banner.border, backgroundColor: banner.bg },
           ]}
         >
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: bannerDot(booking.status) },
-            ]}
-          />
-          <Text variant="bodyStrong" color={bannerText(booking.status)}>
-            {bannerLabel(booking.status)}
+          <View style={[styles.statusDot, { backgroundColor: banner.tone }]} />
+          <Text variant="bodyStrong" color={banner.tone}>
+            {banner.label}
           </Text>
         </View>
 
@@ -1754,37 +1762,47 @@ function sportEmoji(s: string): string {
   return s === "CRICKET" ? "🏏" : s === "FOOTBALL" ? "⚽" : "🏓";
 }
 
-function bannerLabel(s: string): string {
-  return s === "CONFIRMED" ? "Confirmed" : s === "PENDING" ? "Pending" : "Cancelled";
-}
-
-function bannerDot(s: string): string {
-  return s === "CONFIRMED"
-    ? colors.emerald400
-    : s === "PENDING"
-      ? colors.yellow400
-      : colors.destructive;
-}
-
-function bannerText(s: string): string {
-  return bannerDot(s);
-}
-
-function bannerBorder(s: string): string {
-  return s === "CONFIRMED"
-    ? "rgba(34, 197, 94, 0.30)"
-    : s === "PENDING"
-      ? "rgba(245, 158, 11, 0.40)"
-      : "rgba(239, 68, 68, 0.30)";
-}
-
-function bannerBg(s: string): string {
-  return s === "CONFIRMED"
-    ? "rgba(34, 197, 94, 0.10)"
-    : s === "PENDING"
-      ? "rgba(245, 158, 11, 0.10)"
-      : "rgba(239, 68, 68, 0.10)";
-}
+/**
+ * Status banner presentation. COMPLETED and ABSENT are terminal but
+ * NOT cancelled — the venue kept the advance as earnings — so they get
+ * their own label + tone instead of reading as a red "Cancelled",
+ * which the Payment card directly contradicts for ABSENT.
+ */
+const BANNER: Record<
+  string,
+  { label: string; tone: string; border: string; bg: string }
+> = {
+  CONFIRMED: {
+    label: "Confirmed",
+    tone: colors.emerald400,
+    border: "rgba(34, 197, 94, 0.30)",
+    bg: "rgba(34, 197, 94, 0.10)",
+  },
+  PENDING: {
+    label: "Pending",
+    tone: colors.yellow400,
+    border: "rgba(245, 158, 11, 0.40)",
+    bg: "rgba(245, 158, 11, 0.10)",
+  },
+  COMPLETED: {
+    label: "Completed",
+    tone: colors.emerald400,
+    border: "rgba(34, 197, 94, 0.30)",
+    bg: "rgba(34, 197, 94, 0.10)",
+  },
+  ABSENT: {
+    label: "Absent · no-show",
+    tone: colors.warning,
+    border: "rgba(245, 158, 11, 0.40)",
+    bg: "rgba(245, 158, 11, 0.10)",
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    tone: colors.destructive,
+    border: "rgba(239, 68, 68, 0.30)",
+    bg: "rgba(239, 68, 68, 0.10)",
+  },
+};
 
 // ─── Styles ─────────────────────────────────────────────────────────────────
 

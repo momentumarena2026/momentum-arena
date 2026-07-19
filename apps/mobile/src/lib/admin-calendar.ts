@@ -32,7 +32,9 @@ export type AdminCalendarZone =
 
 export interface CellBooking {
   id: string;
-  status: "CONFIRMED" | "PENDING";
+  // Closed-out bookings stay on the calendar — the session happened,
+  // so marking it COMPLETED / ABSENT must not blank the cell.
+  status: "CONFIRMED" | "PENDING" | "COMPLETED" | "ABSENT";
   userName: string;
   userEmail: string | null;
   userPhone: string | null;
@@ -61,7 +63,14 @@ export interface CellBooking {
 }
 
 export interface CellData {
+  // Legacy first-entry field the server still emits for older shipped
+  // builds. Optional here too — new code reads `bookings`.
   booking?: CellBooking;
+  // EVERY booking in this hour cell. The bowling machine sells
+  // 30-minute slots, so 14:00-14:30 and 14:30-15:00 are routinely two
+  // different customers in one cell; rendering only `booking` hid the
+  // second one. Optional for back-compat with a stale server.
+  bookings?: CellBooking[];
   blocked?: boolean;
   blockReason?: string;
 }

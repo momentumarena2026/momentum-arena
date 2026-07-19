@@ -46,9 +46,7 @@ type Nav = NativeStackNavigationProp<
 
 // Multi-select chip option. Each non-ALL row toggles in/out of the
 // list; the ALL row clears the list (= "no filter"). Mirrors the
-// web /admin/bookings chip rows. "Completed" is intentionally
-// omitted from the Status row — same as the web, the Absent +
-// Confirmed pair already covers the operational case.
+// web /admin/bookings chip rows.
 type ChipOption<V extends string> = {
   label: string;
   value: V;
@@ -56,10 +54,17 @@ type ChipOption<V extends string> = {
   emoji?: string;
 };
 
-const STATUS_OPTIONS: Array<ChipOption<"ALL" | "CONFIRMED" | "PENDING" | "CANCELLED" | "ABSENT">> = [
+// Completed is off the default pair but needs a chip of its own:
+// closing a session out is the terminal state for most bookings, and
+// without a chip those rows are only reachable by clearing every
+// filter. Same fix as the web Status row.
+const STATUS_OPTIONS: Array<
+  ChipOption<"ALL" | "CONFIRMED" | "PENDING" | "COMPLETED" | "CANCELLED" | "ABSENT">
+> = [
   { label: "All", value: "ALL" },
   { label: "Confirmed", value: "CONFIRMED", dot: colors.emerald400 },
   { label: "Pending", value: "PENDING", dot: colors.yellow400 },
+  { label: "Completed", value: "COMPLETED", dot: colors.emerald400 },
   { label: "Cancelled", value: "CANCELLED", dot: colors.destructive },
   { label: "Absent", value: "ABSENT", dot: colors.warning },
 ];
@@ -120,12 +125,17 @@ function isChipActive<V extends string>(
   return current?.includes(value as V) ?? false;
 }
 
-const STATUS_TEXT: Record<string, string> = {
-  CONFIRMED: colors.emerald400,
-  PENDING: colors.yellow400,
-  CANCELLED: colors.destructive,
-  COMPLETED: colors.emerald400,
-  ABSENT: colors.warning,
+// Row status pill. Label and tone live together so the two can't
+// drift apart — COMPLETED and ABSENT are terminal but NOT cancelled
+// (the venue kept the advance), so they read as their own states
+// rather than a red "Cancelled". Same labels/tones as the detail
+// screen's BANNER.
+const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
+  CONFIRMED: { label: "Confirmed", tone: colors.emerald400 },
+  PENDING: { label: "Pending", tone: colors.yellow400 },
+  CANCELLED: { label: "Cancelled", tone: colors.destructive },
+  COMPLETED: { label: "Completed", tone: colors.emerald400 },
+  ABSENT: { label: "Absent · no-show", tone: colors.warning },
 };
 
 const SPORT_EMOJI: Record<string, string> = {
@@ -623,7 +633,10 @@ function BookingRow({
   booking: AdminBookingListItem;
   onPress: () => void;
 }) {
-  const statusColor = STATUS_TEXT[booking.status] ?? colors.zinc400;
+  const status = STATUS_TEXT[booking.status] ?? {
+    label: booking.status,
+    tone: colors.zinc400,
+  };
   const initial =
     booking.user.name?.charAt(0).toUpperCase() ??
     booking.user.phone?.slice(-2) ??
@@ -692,15 +705,16 @@ function BookingRow({
           <View
             style={[
               styles.statusDot,
-              { backgroundColor: statusColor },
+              { backgroundColor: status.tone },
             ]}
           />
-          <Text variant="tiny" color={statusColor} weight="500">
-            {booking.status === "CONFIRMED"
-              ? "Confirmed"
-              : booking.status === "PENDING"
-                ? "Pending"
-                : "Cancelled"}
+          <Text
+            variant="tiny"
+            color={status.tone}
+            weight="500"
+            numberOfLines={1}
+          >
+            {status.label}
           </Text>
         </View>
         {venueDue > 0 ? (

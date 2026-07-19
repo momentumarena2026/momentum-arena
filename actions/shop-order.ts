@@ -241,6 +241,18 @@ export async function confirmOrderAfterRazorpay(
   if (order.status !== "PENDING") {
     return { success: false, error: `Order is ${order.status.toLowerCase()}` };
   }
+  // A valid signature only proves Razorpay captured SOME payment — it says
+  // nothing about WHICH order was paid for. Without this bind the triple from
+  // a ₹49 order confirms (and re-confirms) any other PENDING order of the
+  // same user. razorpayOrderId is stamped on the payment row by
+  // /api/shop/razorpay/create-order; mirrors the hold check in
+  // /api/razorpay/verify.
+  if (
+    !order.payment?.razorpayOrderId ||
+    order.payment.razorpayOrderId !== razorpayOrderId
+  ) {
+    return { success: false, error: "Order mismatch" };
+  }
 
   await db.$transaction(async (tx) => {
     await tx.productOrder.update({

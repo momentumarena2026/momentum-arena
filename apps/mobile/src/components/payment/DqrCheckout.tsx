@@ -32,7 +32,7 @@ import { Text } from "../ui/Text";
 import { radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 import { bookingApi } from "../../lib/booking";
-import { api } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { UPI_ICON_DATA, MOMENTUM_LOGO_DATA } from "./upi-icons.generated";
 import {
   trackUpiAppLaunched,
@@ -178,6 +178,15 @@ export function DqrCheckout({
   // nothing may invite a second payment — mirrors the web sheet.
   const mayHavePaidRef = useRef(false);
   const [claiming, setClaiming] = useState(false);
+  // A claim that didn't settle anything — shown in place on the qr/waiting
+  // screens, which must keep polling; `error` only renders in phase "error".
+  const [claimNotice, setClaimNotice] = useState<string | null>(null);
+  // The claim reached its end (logged for verification, or terminal): no
+  // point offering "I've paid" again.
+  const [claimLogged, setClaimLogged] = useState(false);
+  // The claim SUCCEEDED — phase "error" is just where terminal messages
+  // live, so the card must read as an acknowledgment, not a failure.
+  const [claimAcknowledged, setClaimAcknowledged] = useState(false);
   const [appOpenError, setAppOpenError] = useState<string | null>(null);
   const [waitingApp, setWaitingApp] = useState<{ name: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
@@ -373,13 +382,19 @@ export function DqrCheckout({
     // claims are resolved from the transaction id alone.
     if (claimSurface === "booking" && !holdId) return;
     if (!txnRef.current) return;
+    // They're telling us money moved — from here nothing may invite a
+    // second payment (notably the TTL branch, which otherwise offers a
+    // restart). Mirrors the web sheet.
+    mayHavePaidRef.current = true;
     setClaiming(true);
+    setClaimNotice(null);
     try {
       const res = await api.post<{
         bookingId?: string;
         id?: string;
         claimed?: boolean;
         confirmed?: boolean;
+        paymentReceived?: boolean;
         error?: string;
       }>("/api/phonepe/dqr/claim-paid", {
         holdId,
@@ -397,16 +412,71 @@ export function DqrCheckout({
         return;
       }
       if (res.claimed) {
+        // Cafe / pass: nothing to navigate to until an admin verifies, so
+        // acknowledge in place. Polling is over and `error` only renders in
+        // phase "error", so this MUST switch phase or the customer keeps
+        // staring at a spinner that can never resolve. paymentReceived
+        // suppresses every retry affordance — the money already moved.
         doneRef.current = true;
         stopPolling();
+        setClaimLogged(true);
+        setPaymentReceived(true);
+        setClaimAcknowledged(true);
         setError(
           "Thanks — we've logged your payment and our team will confirm it shortly. Please do NOT pay again.",
         );
+        setPhase("error");
         return;
       }
-      setError(res.error || "Couldn't record your payment — please contact us.");
-    } catch {
-      setError("Couldn't reach the server — please contact us.");
+      // 200 + paymentReceived means captured but terminal (a pass price
+      // mismatch — already filed as an orphan, no queue will pick it up),
+      // so end here instead of polling for a confirmation that won't come.
+      if (res.paymentReceived) {
+        doneRef.current = true;
+        stopPolling();
+        setClaimLogged(true);
+        setPaymentReceived(true);
+        setError(res.error || "Couldn't record your payment — please contact us.");
+        setPhase("error");
+        return;
+      }
+      // Non-terminal: say so on the current screen and leave polling (plus
+      // the S2S callback backstop) running — a payment can still land.
+      setClaimNotice(
+        res.error || "Couldn't record your payment — please contact us.",
+      );
+    } catch (err) {
+      // api.post throws on any non-2xx. A 404 means the hold/intent is gone
+      // for good: no poll and no callback can turn it into a booking, so
+      // leaving the QR, the amount and "I've paid" on screen would invite a
+      // payment against a dead reservation. End the flow on the route's own
+      // (customer-facing) copy instead.
+      if (err instanceof ApiError && err.status === 404) {
+        doneRef.current = true;
+        stopPolling();
+        setClaimLogged(true);
+        setPaymentReceived(true);
+        // The booking 404 carries copy the route wrote for the customer; the
+        // cafe/pass one is a bare "Purchase not found" — machine copy to put
+        // in front of someone who has just told us they paid.
+        setError(
+          claimSurface === "booking"
+            ? err.message
+            : "We couldn't match this payment to your purchase. Please contact us — do NOT pay again.",
+        );
+        setPhase("error");
+        return;
+      }
+      // A 409 is the route's own customer-facing copy ("your bank reported
+      // this payment as failed") — the one non-2xx body worth rendering.
+      // Every other ApiError message is machine copy ("Unauthorized",
+      // "Request failed with 500") — never show that mid-payment.
+      console.warn("[dqr] claim-paid failed", err);
+      setClaimNotice(
+        err instanceof ApiError && err.status === 409
+          ? err.message
+          : "Couldn't check your payment right now — please contact us.",
+      );
     } finally {
       setClaiming(false);
     }
@@ -670,6 +740,7 @@ export function DqrCheckout({
                       : "I've paid — check status"}
                   </Text>
                 </Pressable>
+                {claimNotice ? <ClaimNotice text={claimNotice} /> : null}
                 <View style={styles.bankNotice}>
                   <AlertCircle size={14} color={AMBER_STRIP_TEXT} style={styles.noticeIcon} />
                   <Text variant="tiny" color={AMBER_TEXT} style={styles.noticeBody}>
@@ -717,6 +788,7 @@ export function DqrCheckout({
                       : "I've paid — check status"}
                   </Text>
                 </Pressable>
+                {claimNotice ? <ClaimNotice text={claimNotice} /> : null}
                 {/* No "open <app> again": it re-fires the same upi://
                     link with the amount, and this screen usually means
                     "already paid, not yet confirmed" — a second tap is a
@@ -759,16 +831,28 @@ export function DqrCheckout({
 
             {phase === "error" ? (
               <View style={styles.centerBlock}>
-                <View style={styles.errorCard}>
-                  <AlertCircle size={40} color={RED} />
-                  <Text variant="small" align="center" color={RED}>
+                <View
+                  style={[styles.errorCard, claimAcknowledged && styles.ackCard]}
+                >
+                  {claimAcknowledged ? (
+                    <Check size={40} color={EMERALD_LIGHT} />
+                  ) : (
+                    <AlertCircle size={40} color={RED} />
+                  )}
+                  <Text
+                    variant="small"
+                    align="center"
+                    color={claimAcknowledged ? EMERALD_LIGHT : RED}
+                  >
                     {error}
                   </Text>
                 </View>
                 {/* Money may have moved but PhonePe won't confirm it —
                     hold what they paid for and let an admin verify,
                     instead of leaving them with nothing. */}
-                {paymentReceived && (holdId || claimSurface !== "booking") ? (
+                {paymentReceived &&
+                !claimLogged &&
+                (holdId || claimSurface !== "booking") ? (
                   <Pressable
                     onPress={() => void claimPaid()}
                     disabled={claiming}
@@ -786,6 +870,10 @@ export function DqrCheckout({
                     </Text>
                   </Pressable>
                 ) : null}
+                {/* Claiming from THIS screen can also settle nothing, and
+                    "we've logged your payment" is the one thing worth
+                    saying to someone staring at an error. */}
+                {claimNotice ? <ClaimNotice text={claimNotice} /> : null}
                 {/* No retry once the gateway has the money — a second QR
                     here is exactly how a customer pays twice. */}
                 {!paymentReceived ? (
@@ -793,6 +881,7 @@ export function DqrCheckout({
                     onPress={() => {
                       setPhase("init");
                       setError(null);
+                      setClaimNotice(null);
                       setAppOpenError(null);
                       void initiate();
                     }}
@@ -840,6 +929,19 @@ export function DqrCheckout({
 function Tile({ dark, children }: { dark?: boolean; children: ReactNode }) {
   return (
     <View style={[styles.tile, dark && styles.tileDark]}>{children}</View>
+  );
+}
+
+/** Feedback for an "I've paid" tap that settled nothing — shown under the
+ *  button so the screen it belongs to (and its polling) stays up. */
+function ClaimNotice({ text }: { text: string }) {
+  return (
+    <View style={[styles.openErrorBox, styles.claimNoticeBox]}>
+      <AlertCircle size={14} color={RED} style={styles.noticeIcon} />
+      <Text variant="tiny" color={RED} style={styles.noticeBody}>
+        {text}
+      </Text>
+    </View>
   );
 }
 
@@ -991,6 +1093,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing["2"],
     marginBottom: spacing["2"],
   },
+  // Sits BELOW its button, and must stretch: the qr/waiting phases centre
+  // their children, so a content-width row would collapse the notice text.
+  claimNoticeBox: {
+    alignSelf: "stretch",
+    marginTop: spacing["2"],
+    marginBottom: 0,
+  },
 
   // ── QR phase ────────────────────────────────────────────────────────────
   qrBlock: { alignItems: "center", gap: spacing["2"] },
@@ -1069,6 +1178,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(248, 113, 113, 0.3)",
     backgroundColor: "rgba(248, 113, 113, 0.08)",
     padding: spacing["6"],
+  },
+  // Same card, emerald: a logged claim is a good outcome, not a failure.
+  ackCard: {
+    borderColor: "rgba(16, 185, 129, 0.3)",
+    backgroundColor: "rgba(16, 185, 129, 0.08)",
   },
   successCircle: {
     width: 72,

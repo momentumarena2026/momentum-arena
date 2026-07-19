@@ -6,7 +6,7 @@ import { notifyAdminPendingBooking } from "@/lib/notifications";
 import { probeUntilSettled } from "@/lib/dqr-inflight";
 import { db } from "@/lib/db";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
-import { confirmDqrPass } from "@/lib/passes";
+import { confirmDqrPass, PASS_MISMATCH_MESSAGE } from "@/lib/passes";
 import {
   AnalyticsCategory,
   logServerAction,
@@ -96,9 +96,52 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ id: done.orderId, confirmed: true });
           }
         } else {
-          const done = await confirmDqrPass(intentTxn, status.providerReferenceId);
-          if (done.userPassId) {
-            return NextResponse.json({ id: done.userPassId, confirmed: true });
+          // confirmDqrPass price-checks the capture, and calling it with
+          // no amount is TERMINAL: it stamps the mismatch sentinel on the
+          // intent, which withholds the pass AND hides the claim from both
+          // admin queues (they match consumedUserPassId: null). So only
+          // confirm when the probe actually carried an amount back —
+          // without it, falling through to the manual queue is correct.
+          const capturedPaise = status.amount;
+          if (capturedPaise !== undefined) {
+            const done = await confirmDqrPass(
+              intentTxn,
+              status.providerReferenceId,
+              capturedPaise,
+            );
+            if (done.userPassId) {
+              return NextResponse.json({ id: done.userPassId, confirmed: true });
+            }
+            if (done.mismatch) {
+              // Terminal, and confirmDqrPass has already filed the orphan.
+              // The intent can no longer surface in the admin queue, so the
+              // customer must be told here rather than given the "our team
+              // will confirm it shortly" line below. Logged here too: this
+              // exit skips the shared log at the end of the branch, and a
+              // price mismatch is exactly the case analytics must see.
+              logServerAction({
+                userId,
+                category: AnalyticsCategory.PAYMENT,
+                action: "payment.dqr.claimed-paid",
+                outcome: "error",
+                path: request.nextUrl.pathname,
+                method: "POST",
+                platform: resolveRequestPlatform(request),
+                metadata: {
+                  surface,
+                  intentId: intent.id,
+                  transactionId: intentTxn,
+                  capturedPaise,
+                  mismatch: true,
+                },
+                error: PASS_MISMATCH_MESSAGE,
+              });
+              return NextResponse.json({
+                confirmed: false,
+                paymentReceived: true,
+                error: PASS_MISMATCH_MESSAGE,
+              });
+            }
           }
         }
       }
@@ -173,11 +216,38 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const amount =
-    overrideAmount && overrideAmount > 0
-      ? overrideAmount
-      : (hold.paymentAmount ?? hold.totalAmount);
   const isAdvance = hold.paymentMethod === "CASH";
+  // fullAmount is POST-discount (coupon + points redemption) and PLUS the
+  // gear locked with the hold — the same `effectiveTotal` math
+  // createBookingFromHold uses for Booking.totalAmount. Omitting equipment
+  // understated remainingAmount by the whole gear total, so the venue was
+  // told to collect less than the booking says is due. Same math as
+  // phonepe/callback, razorpay/verify and dqr-confirm.
+  const appliedDiscount =
+    hold.couponId && hold.discountAmount && hold.discountAmount > 0
+      ? hold.discountAmount
+      : 0;
+  const pointsRedeemRupees =
+    hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
+      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
+      : 0;
+  const fullAmount = Math.max(
+    0,
+    hold.totalAmount -
+      appliedDiscount -
+      pointsRedeemRupees +
+      (hold.equipmentTotalAmount ?? 0),
+  );
+
+  // Derived from the hold, never from the request body. hold.paymentAmount
+  // is what dqr/initiate actually minted the QR for; the server-side
+  // fullAmount is the only fallback. `overrideAmount` from the client is
+  // the FULL payable (the same value initiate receives and then halves for
+  // the 50%-advance option), so preferring it recorded the whole booking as
+  // paid and left the venue collecting ₹0 on every advance claim — and a
+  // tampered client could name any figure. It is logged only so
+  // client/server drift stays visible.
+  const amount = hold.paymentAmount ?? fullAmount;
 
   const bookingId = await createBookingFromHold(
     holdId,
@@ -190,7 +260,7 @@ export async function POST(request: NextRequest) {
         ? {
             isPartialPayment: true,
             advanceAmount: amount,
-            remainingAmount: hold.totalAmount - amount,
+            remainingAmount: Math.max(fullAmount - amount, 0),
           }
         : {}),
     },
@@ -223,7 +293,13 @@ export async function POST(request: NextRequest) {
     path: request.nextUrl.pathname,
     method: "POST",
     platform: resolveRequestPlatform(request),
-    metadata: { holdId, bookingId, transactionId: txn, amount },
+    metadata: {
+      holdId,
+      bookingId,
+      transactionId: txn,
+      amount,
+      clientAmount: overrideAmount ?? null,
+    },
   });
 
   return NextResponse.json({ bookingId, confirmed: false });

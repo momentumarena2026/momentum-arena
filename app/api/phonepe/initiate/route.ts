@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { initiatePhonePePayment } from "@/lib/phonepe";
 import { getValidHold } from "@/lib/slot-hold";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
+import { deriveHoldCharge, splitAdvancePayment } from "@/lib/booking-amounts";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 const PAYMENT_ATTEMPT_TTL_MINUTES = 15;
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { holdId, isAdvance, overrideAmount } = await request.json();
+  const { holdId, isAdvance, overrideAmount, recurring } = await request.json();
 
   if (!holdId) {
     return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
@@ -62,16 +63,35 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const paymentAmount =
-      overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
+    // The charge is derived server-side, never taken from the request body
+    // — see /api/razorpay/create-order for the ₹1 exploit this closes, and
+    // lib/booking-amounts for the rule itself (recurring multiplier
+    // included; it is NOT stored on the hold).
+    const charge = await deriveHoldCharge(hold, {
+      clientAmount: overrideAmount,
+      recurring,
+    });
+    const paymentAmount = charge.payableAmount;
+
+    // Fully covered by coupon + points — PhonePe rejects a zero-value
+    // order. Committing the booking straight from here was tried and
+    // reverted: it needed an unauthenticated server action, and the two
+    // sibling routes' clients don't understand a `fullyCovered` response,
+    // so the booking was created while checkout still showed a failure.
+    // See /api/razorpay/create-order.
+    if (paymentAmount <= 0) {
+      return NextResponse.json(
+        { error: "Nothing left to pay for this booking" },
+        { status: 400 }
+      );
+    }
 
     let orderAmount = paymentAmount;
     let advanceAmount: number | undefined;
     let remainingAmount: number | undefined;
 
     if (isAdvance) {
-      advanceAmount = Math.ceil(paymentAmount * 0.5);
-      remainingAmount = paymentAmount - advanceAmount;
+      ({ advanceAmount, remainingAmount } = splitAdvancePayment(paymentAmount));
       orderAmount = advanceAmount;
     }
 
@@ -87,7 +107,7 @@ export async function POST(request: NextRequest) {
       process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
 
-    // Booking amounts (hold.totalAmount, overrideAmount) are stored in
+    // Booking amounts on the hold are stored in
     // *rupees* — same convention as Razorpay's create-order which does
     // its own ×100 internally. PhonePe v2's /checkout/v2/pay expects
     // paise, so convert here before handing off. Without this, ₹1600
@@ -137,6 +157,9 @@ export async function POST(request: NextRequest) {
         holdId,
         merchantOrderId,
         amount: orderAmount,
+        clientAmount: overrideAmount ?? null,
+        clientAmountUnexplained: charge.clientAmountUnexplained,
+        recurringCount: charge.recurringCount,
         isAdvance: !!isAdvance,
         advanceAmount: advanceAmount ?? null,
         remainingAmount: remainingAmount ?? null,

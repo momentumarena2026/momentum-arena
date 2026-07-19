@@ -104,7 +104,11 @@ export function PassCheckoutOption({
       <Text style={styles.coverage}>
         {offer.fullCoverage
           ? `This booking (${hrs(offer.neededMinutes)}) is fully covered by your pass — nothing to pay.`
-          : `Your pass covers ${hrs(offer.coveredMinutes)} of ${hrs(offer.neededMinutes)}; pay ${formatRupees(offer.remainderAmount)} for the rest.`}
+          : offer.coveredMinutes >= offer.neededMinutes
+            ? // All the court time is covered; the remainder is equipment,
+              // which a pass never pays for.
+              `Your pass covers the full ${hrs(offer.neededMinutes)} of court time; pay ${formatRupees(offer.remainderAmount)} for the equipment.`
+            : `Your pass covers ${hrs(offer.coveredMinutes)} of ${hrs(offer.neededMinutes)}; pay ${formatRupees(offer.remainderAmount)} for the rest.`}
       </Text>
       <Pressable
         onPress={() => void redeem()}
