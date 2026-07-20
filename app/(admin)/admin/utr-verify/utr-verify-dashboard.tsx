@@ -131,9 +131,9 @@ export function UtrVerifyDashboard({
     setLoading(item.id);
     try {
       if (item.type === "booking") {
-        await verifyBookingUtr(item.id, "admin");
+        await verifyBookingUtr(item.id);
       } else {
-        await verifyCafeUtr(item.id, "admin");
+        await verifyCafeUtr(item.id);
       }
       router.refresh();
     } catch {
@@ -146,7 +146,7 @@ export function UtrVerifyDashboard({
     if (!rejectReason.trim()) return;
     setLoading(id);
     try {
-      await rejectUtr(id, "admin", rejectReason);
+      await rejectUtr(id, rejectReason);
       setRejectId(null);
       setRejectReason("");
       router.refresh();

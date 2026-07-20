@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ customers: [] });
   }
 
-  const result = await searchCustomers(q, true);
+  const result = await searchCustomers(q);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

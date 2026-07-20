@@ -7,19 +7,14 @@ import type { BannerPlacement, Sport } from "@prisma/client";
 
 /**
  * Promotion banners — admin CRUD (web "Web & App Config" section + the
- * mobile admin route, which authenticates via requireMobileAdmin and
- * passes { skipAuth, adminId } like the passes actions do).
+ * mobile admin route). Both surfaces are authenticated by `gate()` below:
+ * requireAdmin resolves the caller from the web cookie session or the
+ * mobile Bearer JWT, so no caller-supplied auth context exists.
  */
 
 const PERMISSION = "MANAGE_PROMO_BANNERS" as const;
 
-export interface PromoBannerCtx {
-  skipAuth: true;
-  adminId: string;
-}
-
-async function gate(ctx?: PromoBannerCtx): Promise<{ id: string }> {
-  if (ctx?.skipAuth) return { id: ctx.adminId };
+async function gate(): Promise<{ id: string }> {
   return requireAdmin(PERMISSION);
 }
 
@@ -115,8 +110,8 @@ function normalise(input: PromoBannerInput): Normalised {
 }
 
 /** All banners + the lightweight coupon list the form's picker needs. */
-export async function getPromoBannersAdminData(ctx?: PromoBannerCtx) {
-  await gate(ctx);
+export async function getPromoBannersAdminData() {
+  await gate();
   const now = new Date();
   const [banners, coupons] = await Promise.all([
     db.promoBanner.findMany({
@@ -215,9 +210,8 @@ export async function getPromoBannersAdminData(ctx?: PromoBannerCtx) {
 
 export async function createPromoBanner(
   input: PromoBannerInput,
-  ctx?: PromoBannerCtx,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const admin = await gate(ctx);
+  const admin = await gate();
   const parsed = normalise(input);
   if (parsed.error !== undefined) return { ok: false, error: parsed.error };
   const created = await db.promoBanner.create({
@@ -231,9 +225,8 @@ export async function createPromoBanner(
 export async function updatePromoBanner(
   id: string,
   input: PromoBannerInput,
-  ctx?: PromoBannerCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
   const parsed = normalise(input);
   if (parsed.error !== undefined) return { ok: false, error: parsed.error };
   await db.promoBanner.update({ where: { id }, data: parsed.data });
@@ -244,19 +237,15 @@ export async function updatePromoBanner(
 export async function togglePromoBanner(
   id: string,
   isActive: boolean,
-  ctx?: PromoBannerCtx,
 ): Promise<{ ok: true }> {
-  await gate(ctx);
+  await gate();
   await db.promoBanner.update({ where: { id }, data: { isActive } });
   revalidateBannerSurfaces();
   return { ok: true };
 }
 
-export async function deletePromoBanner(
-  id: string,
-  ctx?: PromoBannerCtx,
-): Promise<{ ok: true }> {
-  await gate(ctx);
+export async function deletePromoBanner(id: string): Promise<{ ok: true }> {
+  await gate();
   await db.promoBanner.delete({ where: { id } }).catch(() => {});
   revalidateBannerSurfaces();
   return { ok: true };

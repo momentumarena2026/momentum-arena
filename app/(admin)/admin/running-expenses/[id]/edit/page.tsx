@@ -17,7 +17,7 @@ export default async function EditRunningExpensePage({
   const { id } = await params;
   const [expense, options] = await Promise.all([
     getExpenseById(id),
-    listActiveExpenseOptionsByField(undefined, "RUNNING"),
+    listActiveExpenseOptionsByField("RUNNING"),
   ]);
   if (!expense) notFound();
 

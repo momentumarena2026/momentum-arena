@@ -16,11 +16,11 @@ import {
  * live action is a per-transaction status refresh (refreshPhonePeStatus). All
  * monetary fields are already in RUPEES (no paise conversion).
  *
- * Mobile bearer callers can't satisfy the web actions' cookie-session
- * requireAdmin gate, so this route authorizes with requireMobileAdmin(
- * VIEW_RAZORPAY) — the SAME permission the Razorpay dashboard uses — then calls
- * the actions with skipAuth=true. SUPERADMIN bypasses, 401/403 mirror the
- * razorpay mobile route.
+ * This route authorizes with requireMobileAdmin(VIEW_RAZORPAY) — the SAME
+ * permission the Razorpay dashboard uses — so unauthorized callers get proper
+ * 401/403 JSON. The actions independently re-enforce VIEW_RAZORPAY via
+ * requireAdmin, which resolves this request's bearer token. SUPERADMIN
+ * bypasses, 401/403 mirror the razorpay mobile route.
  *
  * GET  ?from&to&status&type&page  → { overview, transactions }
  * GET  ?refresh=<merchantTxnId>   → { status }   (live PhonePe state)
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   // Live per-transaction status refresh shortcut.
   const refresh = searchParams.get("refresh");
   if (refresh) {
-    const status = await refreshPhonePeStatus(refresh, true);
+    const status = await refreshPhonePeStatus(refresh);
     return NextResponse.json({ status });
   }
 
@@ -50,8 +50,8 @@ export async function GET(request: NextRequest) {
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
 
   const [overview, transactions] = await Promise.all([
-    getPhonePeOverview(from, to, true),
-    getPhonePeTransactions({ from, to, status, type, page, skipAuth: true }),
+    getPhonePeOverview(from, to),
+    getPhonePeTransactions({ from, to, status, type, page }),
   ]);
 
   return NextResponse.json({ overview, transactions });
@@ -72,6 +72,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const status = await refreshPhonePeStatus(merchantTxnId, true);
+  const status = await refreshPhonePeStatus(merchantTxnId);
   return NextResponse.json({ status });
 }

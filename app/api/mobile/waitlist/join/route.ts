@@ -25,10 +25,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await joinWaitlist({
-    ...parsed.data,
-    userIdOverride: user.id,
-  });
+  // No user id passed: joinWaitlist resolves identity from this same
+  // request's Bearer token itself. Accepting one as an argument let any
+  // caller join on another customer's behalf.
+  const result = await joinWaitlist(parsed.data);
 
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });

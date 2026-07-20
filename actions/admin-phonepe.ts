@@ -18,8 +18,9 @@ import { DQR_CONFIRMED_BY } from "@/lib/phonepe-dqr";
  * refresh (`refreshPhonePeStatus` → checkPhonePeStatus), read-only.
  *
  * Gated on VIEW_RAZORPAY (the existing "view payment-gateway data" permission)
- * so it shares the same access as the Razorpay dashboard. Mobile admin routes
- * pre-authenticate the bearer token and pass skipAuth=true.
+ * so it shares the same access as the Razorpay dashboard. requireAdmin resolves
+ * the web cookie session OR the mobile Bearer JWT, so the mobile admin routes
+ * reuse these actions with no bypass.
  */
 
 const PAGE_SIZE = 20;
@@ -88,9 +89,8 @@ export interface PhonePeOverview {
 export async function getPhonePeOverview(
   from?: string,
   to?: string,
-  skipAuth = false,
 ): Promise<PhonePeOverview> {
-  if (!skipAuth) await requireGatewayAccess();
+  await requireGatewayAccess();
   const { dateFrom, dateTo } = defaultRange(from, to);
 
   const [payments, cafe] = await Promise.all([
@@ -157,9 +157,8 @@ export async function getPhonePeTransactions(params: {
   status?: string; // PaymentStatus filter, optional
   type?: PhonePeTxnType; // booking | cafe, optional
   page?: number;
-  skipAuth?: boolean;
 }): Promise<PhonePeTxnPage> {
-  if (!params.skipAuth) await requireGatewayAccess();
+  await requireGatewayAccess();
   const { dateFrom, dateTo } = defaultRange(params.from, params.to);
   const page = Math.max(params.page ?? 1, 1);
 
@@ -278,9 +277,8 @@ export interface PhonePeStatusResult {
  */
 export async function refreshPhonePeStatus(
   merchantTxnId: string,
-  skipAuth = false,
 ): Promise<PhonePeStatusResult> {
-  if (!skipAuth) await requireGatewayAccess();
+  await requireGatewayAccess();
   if (!merchantTxnId) return { ok: false, error: "No PhonePe merchant txn id on this payment" };
   try {
     const s = await checkPhonePeStatus(merchantTxnId);

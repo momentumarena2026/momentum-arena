@@ -89,36 +89,28 @@ async function resolveBandsAnchor(
 const PERMISSION = "MANAGE_PASSES" as const;
 
 /**
- * Mobile bypass: the /api/mobile/admin/passes routes authenticate +
- * authorize via requireMobileAdmin("MANAGE_PASSES") at the route
- * boundary, then call these actions with { skipAuth: true, adminId } —
- * so the web-session gate is skipped (it already ran). Web callers
- * simply omit ctx.
+ * Every export here is a public server-action endpoint, so the
+ * permission gate must run server-side on EVERY call with no
+ * caller-supplied escape hatch. requireAdmin resolves the caller from
+ * either the web cookie session or the mobile Bearer JWT, so the
+ * mobile admin routes (which call these actions in-process) are
+ * covered by the same gate.
  */
-export interface AdminPassCtx {
-  skipAuth: true;
-  adminId: string;
-}
-
-async function gate(ctx?: AdminPassCtx): Promise<{ id: string }> {
-  if (ctx?.skipAuth) return { id: ctx.adminId };
+async function gate(): Promise<{ id: string }> {
   return requireAdmin(PERMISSION);
 }
 
 /** Storefront master switch — reads/writes ArenaSettings.passesEnabled. */
-export async function getPassesEnabled(ctx?: AdminPassCtx): Promise<boolean> {
-  await gate(ctx);
+export async function getPassesEnabled(): Promise<boolean> {
+  await gate();
   const settings = await db.arenaSettings.findFirst({
     select: { passesEnabled: true },
   });
   return settings?.passesEnabled ?? false;
 }
 
-export async function setPassesEnabled(
-  enabled: boolean,
-  ctx?: AdminPassCtx,
-): Promise<{ ok: true }> {
-  await gate(ctx);
+export async function setPassesEnabled(enabled: boolean): Promise<{ ok: true }> {
+  await gate();
   const existing = await db.arenaSettings.findFirst({ select: { id: true } });
   if (existing) {
     await db.arenaSettings.update({
@@ -147,8 +139,8 @@ export interface PassConfigOption {
   rates: { dayType: string; timeType: string; pricePerSlot: number }[];
 }
 
-export async function getPassAdminData(ctx?: AdminPassCtx) {
-  await gate(ctx);
+export async function getPassAdminData() {
+  await gate();
 
   const [configs, plans] = await Promise.all([
     db.courtConfig.findMany({
@@ -262,8 +254,8 @@ export async function createPassPlan(input: {
   discountPercent: number;
   validityDays: number;
   name?: string;
-}, ctx?: AdminPassCtx): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  await gate();
 
   const { courtConfigId, totalHours, discountPercent, validityDays } = input;
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
@@ -326,9 +318,8 @@ export async function updatePassPlan(
     validityDays: number;
     name?: string;
   },
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
 
   const { totalHours, discountPercent, validityDays } = input;
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
@@ -382,9 +373,8 @@ export async function updatePassPlan(
 export async function togglePassPlan(
   id: string,
   isActive: boolean,
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
   await db.passPlan.update({ where: { id }, data: { isActive } });
   revalidatePath("/admin/passes");
   return { ok: true };
@@ -392,9 +382,8 @@ export async function togglePassPlan(
 
 export async function deletePassPlan(
   id: string,
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
   const sold = await db.userPass.count({ where: { planId: id } });
   if (sold > 0) {
     return {
@@ -431,8 +420,8 @@ export async function issuePassToUser(input: {
   amountCollected?: number;
   offlineRef?: string;
   startDate?: string;
-}, ctx?: AdminPassCtx): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
-  const admin = await gate(ctx);
+}): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
+  const admin = await gate();
 
   const { planId, userId, paymentMethod } = input;
   if (!["CASH", "UPI_QR", "FREE"].includes(paymentMethod)) {
@@ -509,8 +498,8 @@ export async function giftCustomPass(input: {
   value?: number;
   note?: string;
   startDate?: string;
-}, ctx?: AdminPassCtx): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
-  const admin = await gate(ctx);
+}): Promise<{ ok: true; userPassId: string } | { ok: false; error: string }> {
+  const admin = await gate();
 
   const { userId, courtConfigId, totalHours, validityDays } = input;
   if (!Number.isFinite(totalHours) || totalHours <= 0 || totalHours > 200) {
@@ -602,8 +591,8 @@ function passMethodLabel(p: {
 
 // ─── Sold passes (Phase 4) ──────────────────────────────────────────
 
-export async function getSoldPasses(ctx?: AdminPassCtx) {
-  await gate(ctx);
+export async function getSoldPasses() {
+  await gate();
   const passes = await db.userPass.findMany({
     include: {
       user: { select: { name: true, phone: true } },
@@ -634,9 +623,8 @@ export async function getSoldPasses(ctx?: AdminPassCtx) {
 export async function extendPassValidity(
   id: string,
   extraDays: number,
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
   if (!Number.isInteger(extraDays) || extraDays < 1 || extraDays > 365) {
     return { ok: false, error: "Days must be 1–365." };
   }
@@ -663,9 +651,8 @@ export async function extendPassValidity(
 export async function adjustPassMinutes(
   id: string,
   deltaMinutes: number,
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
   if (!Number.isInteger(deltaMinutes) || deltaMinutes === 0) {
     return { ok: false, error: "Delta must be a non-zero minute count." };
   }
@@ -716,9 +703,8 @@ export async function adjustPassMinutes(
 
 export async function cancelUserPass(
   id: string,
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
   await db.userPass.update({ where: { id }, data: { status: "CANCELLED" } });
   revalidatePath("/admin/passes");
   return { ok: true };
@@ -734,9 +720,8 @@ export async function cancelUserPass(
 export async function setPassSharingLimit(
   courtConfigId: string,
   max: number,
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate(ctx);
+  await gate();
   if (!Number.isInteger(max) || max < 0 || max > 30) {
     return { ok: false, error: "Members must be 0–30." };
   }
@@ -758,8 +743,8 @@ export async function setPassSharingLimit(
 }
 
 /** Members of a pass + the court's cap, for the admin Members modal. */
-export async function adminGetPassMembers(passId: string, ctx?: AdminPassCtx) {
-  await gate(ctx);
+export async function adminGetPassMembers(passId: string) {
+  await gate();
   const pass = await db.userPass.findUnique({
     where: { id: passId },
     select: {
@@ -791,12 +776,11 @@ export async function adminGetPassMembers(passId: string, ctx?: AdminPassCtx) {
 export async function adminAddPassMember(
   passId: string,
   phoneRaw: string,
-  ctx?: AdminPassCtx,
 ): Promise<
   | { ok: true }
   | { ok: false; error: string; notRegistered?: boolean; phone?: string }
 > {
-  const admin = await gate(ctx);
+  const admin = await gate();
 
   const pass = await db.userPass.findUnique({
     where: { id: passId },
@@ -851,9 +835,8 @@ export async function adminAddPassMember(
 export async function adminRemovePassMember(
   passId: string,
   memberUserId: string,
-  ctx?: AdminPassCtx,
 ): Promise<{ ok: true }> {
-  await gate(ctx);
+  await gate();
   await db.passMember
     .delete({
       where: {

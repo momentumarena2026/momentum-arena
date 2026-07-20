@@ -7,8 +7,11 @@ import type { Sport } from "@prisma/client";
 
 /**
  * Mobile admin sports management. Mirrors actions/admin-slots.ts —
- * getAllSportsWithConfigs (read, has a skipAuth flag) + toggleSportActive /
- * toggleConfigActive (write, replicated here) under MANAGE_SPORTS.
+ * getAllSportsWithConfigs (read) + toggleSportActive / toggleConfigActive
+ * (write, replicated here) under MANAGE_SPORTS.
+ *
+ * This guard stays even though the action re-checks: it returns a proper
+ * 401/403 JSON response, whereas the action's guard throws (a 500).
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -25,7 +28,7 @@ async function guard(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const g = await guard(request);
   if ("error" in g) return g.error;
-  const configs = await getAllSportsWithConfigs(true);
+  const configs = await getAllSportsWithConfigs();
   return NextResponse.json({ configs });
 }
 

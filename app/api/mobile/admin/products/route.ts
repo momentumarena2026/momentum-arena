@@ -6,9 +6,10 @@ import { createProduct } from "@/actions/admin-products";
 
 /**
  * Mobile admin product catalog. GET replicates listProductsForAdmin +
- * listProductCategories (reads); POST reuses createProduct via adminIdOverride
- * (keeps the stock-movement audit). Under MANAGE_SHOP_CATALOG. Image upload
- * stays on web (Vercel Blob) — mobile create/edit leaves imageUrl untouched.
+ * listProductCategories (reads); POST reuses createProduct, which resolves the
+ * acting admin (and enforces MANAGE_SHOP_CATALOG) from the bearer token itself.
+ * The guard below stays for correct 401/403 status codes. Image upload stays on
+ * web (Vercel Blob) — mobile create/edit leaves imageUrl untouched.
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -66,7 +67,6 @@ export async function POST(request: NextRequest) {
       lowStockThreshold: body.lowStockThreshold != null ? Math.trunc(Number(body.lowStockThreshold)) : undefined,
       categoryId: body.categoryId || null,
     },
-    g.admin.id,
   );
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });

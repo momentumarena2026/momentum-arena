@@ -6,8 +6,10 @@ import { deleteUserGroup, updateUserGroup } from "@/actions/admin-user-groups";
 
 /**
  * Mobile admin user-group rename/edit + (soft) delete. Wraps the web
- * `updateUserGroup` / `deleteUserGroup` server actions (skipAuth — the
- * JWT admin is verified here).
+ * `updateUserGroup` / `deleteUserGroup` server actions. The guard below
+ * is the route's own boundary (proper 401/403 JSON); the actions
+ * independently re-check via requireAdmin, which resolves the same
+ * bearer JWT in-process.
  *
  * Permission: MANAGE_COUPONS (SUPERADMIN bypass).
  */
@@ -46,7 +48,7 @@ export async function PATCH(
     );
   }
 
-  const result = await updateUserGroup(id, parsed.data, true);
+  const result = await updateUserGroup(id, parsed.data);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
@@ -61,7 +63,7 @@ export async function DELETE(
   if ("error" in auth) return auth.error;
   const { id } = await params;
 
-  const result = await deleteUserGroup(id, true);
+  const result = await deleteUserGroup(id);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

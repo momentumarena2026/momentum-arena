@@ -13,9 +13,11 @@ import {
  *      (items + customer + payment) for the mobile detail view.
  * POST /api/mobile/admin/product-orders/[id] — per-order admin action.
  *      body: { action: "confirm" | "fulfill" | "cancel", utrNumber?, reason? }
- *      Reuses the shared shop-order actions via adminOverride so the
- *      bearer-JWT identity is captured in the audit (confirmedById /
- *      fulfilledById). Money is returned in PAISE; client ÷100 for ₹.
+ *      Reuses the shared shop-order actions, which resolve the bearer-JWT
+ *      identity themselves via requireAdmin for the audit columns
+ *      (confirmedById / fulfilledById). The guard below stays as this
+ *      route's boundary (proper 401/403 JSON).
+ *      Money is returned in PAISE; client ÷100 for ₹.
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -87,25 +89,24 @@ export async function POST(
 
   const body = await request.json().catch(() => null);
   const action = body?.action as string | undefined;
-  const override = { id: g.admin.id, username: g.admin.username };
 
   let result: { success: boolean; error?: string };
   switch (action) {
     case "confirm":
-      result = await adminConfirmOrderPayment(
-        { orderId: id, utrNumber: body?.utrNumber || undefined },
-        override,
-      );
+      result = await adminConfirmOrderPayment({
+        orderId: id,
+        utrNumber: body?.utrNumber || undefined,
+      });
       break;
     case "fulfill":
-      result = await adminMarkFulfilled(id, override);
+      result = await adminMarkFulfilled(id);
       break;
     case "cancel": {
       const reason = (body?.reason as string | undefined)?.trim();
       if (!reason) {
         return NextResponse.json({ error: "A reason is required" }, { status: 400 });
       }
-      result = await adminCancelOrder(id, reason, override);
+      result = await adminCancelOrder(id, reason);
       break;
     }
     default:

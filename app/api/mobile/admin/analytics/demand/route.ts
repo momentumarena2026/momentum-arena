@@ -33,6 +33,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const data = await getDemandHeatmap(from, to, true);
+  const data = await getDemandHeatmap(from, to);
   return NextResponse.json(data);
 }

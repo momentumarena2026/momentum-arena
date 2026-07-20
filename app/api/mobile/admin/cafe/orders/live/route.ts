@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_CAFE_ORDERS");
   if ("error" in gate) return gate.error;
 
-  const grouped = await getLiveCafeOrders(true);
+  const grouped = await getLiveCafeOrders();
 
   function trim(o: (typeof grouped)["PENDING"][number]) {
     return {

@@ -20,7 +20,6 @@ export async function POST(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_CAFE_ORDERS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -31,10 +30,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const result = await cancelCafeOrder(id, parsed.data.reason, {
-    id: admin.id,
-    username: admin.username,
-  });
+  const result = await cancelCafeOrder(id, parsed.data.reason);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

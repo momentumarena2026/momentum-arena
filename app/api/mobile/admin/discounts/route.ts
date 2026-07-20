@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   const showInactive = url.searchParams.get("showInactive") === "1";
   const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1);
 
-  const data = await getDiscountCodes({ page, showInactive }, true);
+  const data = await getDiscountCodes({ page, showInactive });
   // Strip the action's _count include down to the usages count the
   // client renders, keeping the wire payload lean.
   return NextResponse.json({
@@ -103,7 +103,6 @@ export async function POST(request: NextRequest) {
       validFrom: d.validFrom,
       validUntil: d.validUntil,
     },
-    g.admin.id,
   );
   if (!result.success) {
     return NextResponse.json(

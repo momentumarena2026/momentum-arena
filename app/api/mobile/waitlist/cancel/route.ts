@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await cancelWaitlist(parsed.data.waitlistId, user.id);
+  const result = await cancelWaitlist(parsed.data.waitlistId);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

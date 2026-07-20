@@ -7,6 +7,6 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const before = request.nextUrl.searchParams.get("before") ?? undefined;
   const limit = Number(request.nextUrl.searchParams.get("limit") ?? 20);
-  const result = await getMyRewardTransactions({ before, limit }, user.id);
+  const result = await getMyRewardTransactions({ before, limit });
   return NextResponse.json(result);
 }

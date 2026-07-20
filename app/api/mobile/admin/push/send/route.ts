@@ -5,11 +5,11 @@ import { sendBroadcast, type BroadcastAudience } from "@/actions/admin-push";
 
 /**
  * Mobile admin push send. Reuses actions/admin-push.ts `sendBroadcast`
- * — the same code path the web /admin/push form uses — but since the
- * mobile client authenticates with a bearer JWT (requireMobileAdmin)
- * and has no NextAuth web session, we guard MANAGE_PUSH here and pass
- * the verified AdminUser.id via `adminOverride` so sendBroadcast skips
- * its own requireAdmin() session check while still attributing the send.
+ * — the same code path the web /admin/push form uses. We guard
+ * MANAGE_PUSH here so an unauthorized caller gets a proper 401/403 JSON
+ * response; sendBroadcast independently re-enforces MANAGE_PUSH via
+ * requireAdmin, which resolves this request's bearer JWT and attributes
+ * the send to that verified identity.
  *
  * Audience targeting now matches the web broadcast form:
  *   - { kind: "all" }                    → every registered device
@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
     body: parsed.data.body,
     destination: parsed.data.screen,
     dryRun: parsed.data.dryRun,
-    adminOverride: { id: gate.admin.id },
   });
 
   if (!result.ok) {

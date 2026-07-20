@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { formatBookingDate } from "@/lib/pricing";
@@ -33,14 +33,12 @@ export async function joinWaitlist(data: {
   endHour: number;
   guestPhone?: string;
   guestEmail?: string;
-  // Mobile routes pre-authenticate via JWT and pass the user id here
-  // so we don't require a NextAuth web cookie. Web call sites omit
-  // and we fall back to auth().
-  userIdOverride?: string;
 }): Promise<WaitlistResult> {
-  const session = data.userIdOverride
-    ? { user: { id: data.userIdOverride } }
-    : await auth();
+  // Identity comes from the request (web cookie or mobile Bearer), never
+  // from an argument — a caller-supplied id would let anyone join, or
+  // later cancel, on another customer's behalf.
+  const authedId = await getAuthUserId();
+  const session = authedId ? { user: { id: authedId } } : null;
 
   // Either logged in OR guest contact required.
   if (!session?.user?.id && !data.guestPhone && !data.guestEmail) {
@@ -130,9 +128,8 @@ export async function joinWaitlist(data: {
 
 export async function cancelWaitlist(
   waitlistId: string,
-  userIdOverride?: string,
 ): Promise<WaitlistResult> {
-  const userId = userIdOverride ?? (await auth())?.user?.id;
+  const userId = await getAuthUserId();
   if (!userId) {
     return { success: false, error: "Not authenticated" };
   }
@@ -161,8 +158,8 @@ export async function cancelWaitlist(
   return { success: true };
 }
 
-export async function getUserWaitlist(userIdOverride?: string) {
-  const userId = userIdOverride ?? (await auth())?.user?.id;
+export async function getUserWaitlist() {
+  const userId = await getAuthUserId();
   if (!userId) {
     return { success: false, error: "Not authenticated", entries: [] };
   }

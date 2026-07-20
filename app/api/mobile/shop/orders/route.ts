@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const orders = await listMyOrders(user.id);
+  const orders = await listMyOrders();
   return NextResponse.json({ orders });
 }
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   if (!body.method) {
     return NextResponse.json({ error: "method is required" }, { status: 400 });
   }
-  const res = await placeCustomerOrder(body.method, user.id);
+  const res = await placeCustomerOrder(body.method);
   if (!res.success) {
     return NextResponse.json({ error: res.error }, { status: 400 });
   }

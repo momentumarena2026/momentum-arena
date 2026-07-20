@@ -17,8 +17,9 @@ import type { PaymentMethod } from "@prisma/client";
  *        markPaid?: boolean,            // mark order CONFIRMED + payment COMPLETED
  *        utrNumber?: string,
  *      }
- *      Reuses placeAdminOrder via adminOverride so the full web logic
- *      (atomic stock decrement, snapshots, audit) is shared. Money in PAISE.
+ *      Reuses placeAdminOrder so the full web logic (atomic stock
+ *      decrement, snapshots, audit) is shared. That action resolves the
+ *      admin from this request's Bearer JWT itself. Money in PAISE.
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -73,9 +74,10 @@ export async function POST(request: NextRequest) {
   }
 
   // Resolve (or create) the customer — idempotent on phone, same path
-  // the web POS uses via createCustomerForBooking. skipAuth=true since
-  // the bearer JWT has already been verified by `guard`.
-  const cust = await createCustomerForBooking({ name, phone }, true);
+  // the web POS uses via createCustomerForBooking. The action runs its
+  // own admin gate, resolving this request's Bearer JWT; `guard` above
+  // stays so an unauthorized call gets a 401/403 instead of a 500.
+  const cust = await createCustomerForBooking({ name, phone });
   if (!cust.success) {
     return NextResponse.json(
       { error: cust.error ?? "Could not resolve customer" },
@@ -96,7 +98,6 @@ export async function POST(request: NextRequest) {
       utrNumber:
         method === "UPI_QR" && body.utrNumber ? String(body.utrNumber).trim() : undefined,
     },
-    { id: g.admin.id, username: g.admin.username },
   );
 
   if (!result.success || !result.orderId) {

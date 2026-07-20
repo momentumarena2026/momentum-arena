@@ -24,20 +24,20 @@ import { parseBands } from "@/lib/pass-bands";
  * MANAGE_PASSES. GET returns everything the screen renders (storefront
  * switch, grouped court configs w/ rates + sharing caps, plans w/
  * pricing-valid flags, sold passes); POST dispatches every mutation via
- * { action, ...payload }. The actions re-run their own validation; auth
- * is enforced HERE via requireMobileAdmin and passed down as
- * { skipAuth: true, adminId } (see AdminPassCtx in the actions file).
+ * { action, ...payload }. requireMobileAdmin here returns proper
+ * 401/403 JSON; the actions independently re-run requireAdmin
+ * ("MANAGE_PASSES"), which resolves this request's Bearer JWT, so the
+ * gate holds even if this route is ever bypassed.
  */
 
 export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_PASSES");
   if ("error" in gate) return gate.error;
-  const ctx = { skipAuth: true as const, adminId: gate.admin.id };
 
   const [enabled, adminData, sold] = await Promise.all([
-    getPassesEnabled(ctx),
-    getPassAdminData(ctx),
-    getSoldPasses(ctx),
+    getPassesEnabled(),
+    getPassAdminData(),
+    getSoldPasses(),
   ]);
   return NextResponse.json({
     enabled,
@@ -50,7 +50,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_PASSES");
   if ("error" in gate) return gate.error;
-  const ctx = { skipAuth: true as const, adminId: gate.admin.id };
 
   const body = (await request.json().catch(() => null)) as Record<
     string,
@@ -66,7 +65,7 @@ export async function POST(request: NextRequest) {
   try {
     switch (body.action) {
       case "set-enabled": {
-        await setPassesEnabled(!!body.enabled, ctx);
+        await setPassesEnabled(!!body.enabled);
         return NextResponse.json({ ok: true });
       }
       case "create-plan": {
@@ -79,8 +78,7 @@ export async function POST(request: NextRequest) {
             validityDays: num("validityDays"),
             name: str("name") || undefined,
           },
-          ctx,
-        );
+    );
         return NextResponse.json(result);
       }
       case "update-plan": {
@@ -93,16 +91,15 @@ export async function POST(request: NextRequest) {
             validityDays: num("validityDays"),
             name: str("name") || undefined,
           },
-          ctx,
-        );
+    );
         return NextResponse.json(result);
       }
       case "toggle-plan": {
-        const result = await togglePassPlan(str("id"), !!body.isActive, ctx);
+        const result = await togglePassPlan(str("id"), !!body.isActive);
         return NextResponse.json(result);
       }
       case "delete-plan": {
-        const result = await deletePassPlan(str("id"), ctx);
+        const result = await deletePassPlan(str("id"));
         return NextResponse.json(result);
       }
       case "issue": {
@@ -120,8 +117,7 @@ export async function POST(request: NextRequest) {
             offlineRef: str("offlineRef") || undefined,
             startDate: str("startDate") || undefined,
           },
-          ctx,
-        );
+    );
         return NextResponse.json(result);
       }
       case "gift": {
@@ -137,28 +133,26 @@ export async function POST(request: NextRequest) {
             note: str("note") || undefined,
             startDate: str("startDate") || undefined,
           },
-          ctx,
-        );
+    );
         return NextResponse.json(result);
       }
       case "extend": {
-        const result = await extendPassValidity(str("id"), num("extraDays"), ctx);
+        const result = await extendPassValidity(str("id"), num("extraDays"));
         return NextResponse.json(result);
       }
       case "adjust-minutes": {
-        const result = await adjustPassMinutes(str("id"), num("deltaMinutes"), ctx);
+        const result = await adjustPassMinutes(str("id"), num("deltaMinutes"));
         return NextResponse.json(result);
       }
       case "cancel": {
-        const result = await cancelUserPass(str("id"), ctx);
+        const result = await cancelUserPass(str("id"));
         return NextResponse.json(result);
       }
       case "set-sharing": {
         const result = await setPassSharingLimit(
           str("courtConfigId"),
           num("max"),
-          ctx,
-        );
+    );
         return NextResponse.json(result);
       }
       default:

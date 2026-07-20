@@ -79,9 +79,8 @@ export async function GET(request: NextRequest) {
         sources: csv("sources"),
         scope,
       },
-      true,
     ),
-    getDispatchedKinds(true),
+    getDispatchedKinds(),
   ]);
 
   return NextResponse.json({ analytics, kinds });

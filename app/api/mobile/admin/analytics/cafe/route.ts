@@ -35,9 +35,10 @@ import {
  * All cafe money is in RUPEES (Float) — the cafe migration converted
  * every cafe price column to rupees, so no /100 conversion is needed.
  *
- * Auth: the mobile JWT + VIEW_ANALYTICS permission is checked here, then
- * every action is called with skipAuth=true so the web cookie-session
- * check is bypassed (it would fail under a bearer-token request).
+ * Auth: the mobile JWT + VIEW_ANALYTICS permission is checked here so
+ * rejections come back as clean 401/403 JSON. Every action independently
+ * enforces VIEW_ANALYTICS too — requireAdmin resolves this request's
+ * Bearer token directly, since the actions run in-process.
  */
 export async function GET(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -81,8 +82,7 @@ export async function GET(request: NextRequest) {
           .split("T")[0];
   }
 
-  // Fire every fetcher in parallel — each is pre-authenticated above so
-  // we pass skipAuth=true to bypass the web cookie-session requireAdmin.
+  // Fire every fetcher in parallel — each re-checks VIEW_ANALYTICS itself.
   const [
     kpiR,
     revR,
@@ -97,18 +97,18 @@ export async function GET(request: NextRequest) {
     dowR,
     invR,
   ] = await Promise.all([
-    getCafeKPIStats(dateFrom, dateTo, true),
-    getCafeRevenueOverTime(dateFrom, dateTo, groupBy, true),
-    getCafeCategoryBreakdown(dateFrom, dateTo, true),
-    getCafeTopItems(dateFrom, dateTo, 10, true),
-    getCafePaymentMethodBreakdown(dateFrom, dateTo, true),
-    getCafePeakHours(dateFrom, dateTo, true),
-    getCafeStatusBreakdown(dateFrom, dateTo, true),
-    getCafeVegBreakdown(dateFrom, dateTo, true),
-    getCafeFulfilmentBreakdown(dateFrom, dateTo, true),
-    getCafeTopCustomers(dateFrom, dateTo, 10, true),
-    getCafeDayOfWeekBreakdown(dateFrom, dateTo, true),
-    getCafeItemInventoryTable(dateFrom, dateTo, invPage, invPageSize, true),
+    getCafeKPIStats(dateFrom, dateTo),
+    getCafeRevenueOverTime(dateFrom, dateTo, groupBy),
+    getCafeCategoryBreakdown(dateFrom, dateTo),
+    getCafeTopItems(dateFrom, dateTo, 10),
+    getCafePaymentMethodBreakdown(dateFrom, dateTo),
+    getCafePeakHours(dateFrom, dateTo),
+    getCafeStatusBreakdown(dateFrom, dateTo),
+    getCafeVegBreakdown(dateFrom, dateTo),
+    getCafeFulfilmentBreakdown(dateFrom, dateTo),
+    getCafeTopCustomers(dateFrom, dateTo, 10),
+    getCafeDayOfWeekBreakdown(dateFrom, dateTo),
+    getCafeItemInventoryTable(dateFrom, dateTo, invPage, invPageSize),
   ]);
 
   // KPI is the one block we hard-fail on — without it the screen has

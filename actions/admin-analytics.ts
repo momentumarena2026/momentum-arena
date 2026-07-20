@@ -62,12 +62,8 @@ export async function getRevenueOverTime(
     scope: "all" | "sports" | "cafe";
     groupBy: "day" | "week" | "month";
   },
-  // Mobile admin routes pre-authenticate via JWT (getMobileAdmin +
-  // hasPermission) and pass skipAuth=true so this server action doesn't
-  // re-run the web cookie-session check, which would throw there.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const { dateFrom, dateTo, scope, groupBy } = filters;
@@ -202,10 +198,8 @@ export async function getRevenueOverTime(
 export async function getSportRevenueBreakdown(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -314,10 +308,8 @@ export async function getSportRevenueBreakdown(
 export async function getSportRevenueByMonth(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -524,10 +516,8 @@ export async function getCafeCategoryBreakdown(
 export async function getPeakHourAnalysis(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -574,10 +564,8 @@ export async function getTopCustomers(
   dateFrom: string,
   dateTo: string,
   limit: number = 10,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -723,10 +711,8 @@ export async function getTopCustomers(
 export async function getPaymentMethodBreakdown(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -798,12 +784,8 @@ export async function getPaymentMethodBreakdown(
 export async function getKPIStats(
   dateFrom: string,
   dateTo: string,
-  // Mobile admin routes pre-authenticate via JWT (getMobileAdmin +
-  // hasPermission) and pass skipAuth=true so this server action doesn't
-  // re-run the web cookie-session check, which would throw there.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -979,10 +961,8 @@ export async function getKPIStats(
 export async function getDailyEarningsForMonth(
   year: number,
   month: number, // 1-12
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     if (
@@ -1088,10 +1068,8 @@ export async function getDailyEarningsForMonth(
 // month, padding months with no bookings to zero.
 export async function getMonthlyEarningsForYear(
   year: number,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     if (!Number.isInteger(year)) {

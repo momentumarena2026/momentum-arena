@@ -1,15 +1,17 @@
 "use server";
 
-import { auth } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import { previewRedemption } from "@/lib/rewards/redeem";
 import { readBalance } from "@/lib/rewards/balance";
 
 /**
- * Customer-side rewards server actions. Web call sites use the
- * NextAuth cookie; mobile routes pass `userIdOverride` from the
- * JWT-derived user (same pattern as actions/waitlist.ts).
+ * Customer-side rewards server actions. Identity always comes from the
+ * request — getAuthUserId resolves the web cookie or the mobile Bearer
+ * token itself. These used to accept a caller-supplied id, which in a
+ * "use server" module meant anyone could read any customer's points
+ * balance and ledger by passing it. See lib/auth-unified.
  */
 
 // ---------- Balance + meta ----------
@@ -42,10 +44,8 @@ export interface RewardOverview {
   };
 }
 
-export async function getMyRewardOverview(
-  userIdOverride?: string,
-): Promise<RewardOverview | null> {
-  const userId = userIdOverride ?? (await auth())?.user?.id;
+export async function getMyRewardOverview(): Promise<RewardOverview | null> {
+  const userId = await getAuthUserId();
   if (!userId) return null;
 
   const [balance, cfg] = await Promise.all([
@@ -119,9 +119,8 @@ export async function getMyRewardTransactions(
     before?: string;
     limit?: number;
   } = {},
-  userIdOverride?: string,
 ): Promise<MyTxnsResult | null> {
-  const userId = userIdOverride ?? (await auth())?.user?.id;
+  const userId = await getAuthUserId();
   if (!userId) return null;
 
   const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
@@ -158,7 +157,6 @@ export async function getMyRewardTransactions(
 
 export async function getRedemptionPreview(
   args: { billPaise: number },
-  userIdOverride?: string,
 ): Promise<{
   enabled: boolean;
   maxPoints: number;
@@ -168,7 +166,7 @@ export async function getRedemptionPreview(
   minPoints: number;
   blockedReason?: string;
 } | null> {
-  const userId = userIdOverride ?? (await auth())?.user?.id;
+  const userId = await getAuthUserId();
   if (!userId) return null;
 
   const [preview, balance, cfg] = await Promise.all([

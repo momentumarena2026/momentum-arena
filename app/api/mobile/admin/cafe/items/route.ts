@@ -29,14 +29,11 @@ export async function GET(request: NextRequest) {
   const search = searchParams.get("search") || undefined;
   const showUnavailable = searchParams.get("showUnavailable") !== "0";
 
-  const result = await getCafeItems(
-    {
-      category: category as CafeItemCategory | undefined,
-      search,
-      showUnavailable,
-    },
-    true,
-  );
+  const result = await getCafeItems({
+    category: category as CafeItemCategory | undefined,
+    search,
+    showUnavailable,
+  });
 
   return NextResponse.json({ items: result.items, grouped: result.grouped });
 }
@@ -49,8 +46,9 @@ export async function GET(request: NextRequest) {
  * derived from `quantity`: null = kitchen-prepared (PREP, no stock
  * tracking), an integer = ready-to-serve (READY, stock-tracked).
  *
- * Auth: requireMobileAdmin re-enforces MANAGE_CAFE_MENU here, then we
- * call the web action with skipAuth=true to bypass its NextAuth gate.
+ * Auth: requireMobileAdmin gates the route so callers get a proper
+ * 401/403 JSON response; the action re-checks MANAGE_CAFE_MENU itself
+ * (it reads the mobile Bearer JWT from the in-process request).
  */
 export async function POST(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_CAFE_MENU");
@@ -83,26 +81,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Price must be positive" }, { status: 400 });
   }
 
-  const result = await createCafeItem(
-    {
-      name: name.trim(),
-      description:
-        typeof description === "string" && description.trim()
-          ? description.trim()
-          : undefined,
-      category: category as CafeItemCategory,
-      price: priceNum,
-      costPrice:
-        costPrice === null || costPrice === undefined || costPrice === ""
-          ? null
-          : Number(costPrice),
-      quantity:
-        quantity === null || quantity === undefined ? null : Math.trunc(Number(quantity)),
-      isVeg: !!isVeg,
-      tags: Array.isArray(tags) ? tags.map((t) => String(t)) : [],
-    },
-    true,
-  );
+  const result = await createCafeItem({
+    name: name.trim(),
+    description:
+      typeof description === "string" && description.trim()
+        ? description.trim()
+        : undefined,
+    category: category as CafeItemCategory,
+    price: priceNum,
+    costPrice:
+      costPrice === null || costPrice === undefined || costPrice === ""
+        ? null
+        : Number(costPrice),
+    quantity:
+      quantity === null || quantity === undefined ? null : Math.trunc(Number(quantity)),
+    isVeg: !!isVeg,
+    tags: Array.isArray(tags) ? tags.map((t) => String(t)) : [],
+  });
 
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });

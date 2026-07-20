@@ -4,7 +4,7 @@ import { materializeUserPass } from "@/lib/passes";
 import { completePassTopup } from "@/lib/pass-topup";
 import { verifyRazorpayWebhookSignature } from "@/lib/razorpay";
 import { createBookingFromHold } from "@/actions/booking";
-import { confirmOrderAfterRazorpay } from "@/actions/shop-order";
+import { confirmShopOrderPaid } from "@/lib/shop-confirm";
 import { materializeOrderFromIntent } from "@/lib/cafe-intent";
 import {
   sendBookingConfirmation,
@@ -198,14 +198,18 @@ export async function POST(request: NextRequest) {
       select: { order: { select: { id: true, userId: true } } },
     });
     if (shopPayment?.order) {
-      const res = await confirmOrderAfterRazorpay(
-        shopPayment.order.id,
-        payment.id,
-        payment.order_id,
+      // The internal helper, not the server action: there is no session
+      // on a webhook, and the action no longer accepts a caller-supplied
+      // user id (that parameter was an IDOR). The owner is read from the
+      // order row we just looked up.
+      const res = await confirmShopOrderPaid({
+        orderId: shopPayment.order.id,
+        userId: shopPayment.order.userId,
+        razorpayPaymentId: payment.id,
+        razorpayOrderId: payment.order_id,
         // Same synthesised-signature rationale as the booking path below.
-        `webhook:${payment.id}`,
-        shopPayment.order.userId,
-      );
+        razorpaySignature: `webhook:${payment.id}`,
+      });
       if (!res.success) {
         console.error(
           "[razorpay-webhook] shop confirm failed",

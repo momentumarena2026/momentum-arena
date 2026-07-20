@@ -21,28 +21,6 @@ function clampPercent(value: number): number {
 }
 
 /**
- * Auth options for the mutating actions below.
- *
- * Web call-sites omit this → `skipAuth` is false → the action runs the
- * cookie-based `requireAdmin()` exactly as before. The mobile admin route
- * (app/api/mobile/admin/ota) has ALREADY authorized the request via bearer
- * token + MANAGE_APP_RELEASES (getMobileAdmin/hasPermission), so it passes
- * `{ skipAuth: true, adminId: admin.id }` — mirroring the `skipAuth` option
- * the read action `listOtaReleases` already exposes. The resolved adminId is
- * used wherever a release row stamps `publishedBy`, so skipAuth callers still
- * attribute the rollout/rollback correctly.
- */
-interface AdminAuthOpts {
-  skipAuth?: boolean;
-  adminId?: string;
-}
-
-async function resolveAdminId(opts: AdminAuthOpts): Promise<string> {
-  if (opts.skipAuth) return opts.adminId!;
-  return requireAdmin();
-}
-
-/**
  * Public, serializable shape so the client never sees Prisma-internal
  * relations. One entry per release; the page groups by (channel, platform).
  */
@@ -65,17 +43,12 @@ export interface OtaReleaseRow {
 /**
  * List every OTA release (newest-first per slot).
  *
- * `skipAuth` lets a call-site that has ALREADY authorized the request via a
- * different mechanism reuse this query without the cookie-session check. The
- * mobile admin route (app/api/mobile/admin/ota) authenticates with a bearer
- * token + MANAGE_APP_RELEASES via getMobileAdmin/hasPermission, so it passes
- * `skipAuth: true` — the cookie-based requireAdmin() would otherwise reject a
- * mobile request that has no admin session cookie.
+ * requireAdmin resolves the caller from either the web cookie session or the
+ * mobile bearer JWT, so the mobile admin route (app/api/mobile/admin/ota) can
+ * reuse this query directly — no auth bypass needed.
  */
-export async function listOtaReleases({
-  skipAuth = false,
-}: { skipAuth?: boolean } = {}): Promise<OtaReleaseRow[]> {
-  if (!skipAuth) await requireAdmin();
+export async function listOtaReleases(): Promise<OtaReleaseRow[]> {
+  await requireAdmin();
 
   const releases = await db.otaRelease.findMany({
     // Group key first (channel → platform → runtimeVersion), newest
@@ -115,10 +88,9 @@ export async function listOtaReleases({
  */
 export async function rolloutOtaRelease(
   releaseId: string,
-  rolloutPercent: number,
-  opts: AdminAuthOpts = {}
+  rolloutPercent: number
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await resolveAdminId(opts);
+  const adminId = await requireAdmin();
 
   if (!releaseId) {
     return { error: "Release id is required" };
@@ -192,10 +164,9 @@ export async function rolloutOtaRelease(
  */
 export async function setOtaRolloutPercent(
   releaseId: string,
-  percent: number,
-  opts: AdminAuthOpts = {}
+  percent: number
 ): Promise<{ success: true } | { error: string }> {
-  await resolveAdminId(opts);
+  await requireAdmin();
 
   if (!releaseId) {
     return { error: "Release id is required" };
@@ -224,10 +195,9 @@ export async function setOtaRolloutPercent(
  * no prior release to fall back to, we just archive this one.
  */
 export async function rollbackOtaRelease(
-  releaseId: string,
-  opts: AdminAuthOpts = {}
+  releaseId: string
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await resolveAdminId(opts);
+  const adminId = await requireAdmin();
 
   if (!releaseId) {
     return { error: "Release id is required" };
@@ -277,10 +247,9 @@ export async function rollbackOtaRelease(
 }
 
 export async function archiveOtaRelease(
-  releaseId: string,
-  opts: AdminAuthOpts = {}
+  releaseId: string
 ): Promise<{ success: true } | { error: string }> {
-  await resolveAdminId(opts);
+  await requireAdmin();
 
   if (!releaseId) {
     return { error: "Release id is required" };

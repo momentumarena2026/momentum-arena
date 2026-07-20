@@ -254,7 +254,6 @@ export function EditSlotsModal({
           bookingId,
           [],
           newDate,
-          undefined,
           picks,
           coverWithPass,
         );
@@ -264,7 +263,6 @@ export function EditSlotsModal({
           bookingId,
           hours,
           newDate,
-          undefined,
           undefined,
           coverWithPass,
         );

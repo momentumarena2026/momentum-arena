@@ -28,7 +28,7 @@ export async function GET(
   if ("error" in gate) return gate.error;
 
   const { id } = await params;
-  const expense = await getExpenseById(id, true);
+  const expense = await getExpenseById(id);
   if (!expense) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -69,7 +69,6 @@ export async function PATCH(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const parsed = PatchBody.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -81,10 +80,7 @@ export async function PATCH(
 
   const { id } = await params;
   const { editNote, ...input } = parsed.data;
-  const result = await updateExpense(id, input, editNote, {
-    id: admin.id,
-    name: admin.username,
-  });
+  const result = await updateExpense(id, input, editNote);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
@@ -98,7 +94,7 @@ export async function DELETE(
   const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
   if ("error" in gate) return gate.error;
   const { id } = await params;
-  const result = await deleteExpense(id, true);
+  const result = await deleteExpense(id);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

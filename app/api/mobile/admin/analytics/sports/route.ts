@@ -28,10 +28,12 @@ import {
  * ?monthlyYear to drive the calendar-keyed daily / monthly earnings
  * charts (default = current month / current year, matching web).
  *
- * Each analytics server action is invoked with skipAuth=true — this route
- * already authenticated via getMobileAdmin + the VIEW_ANALYTICS check
- * below, so the actions must NOT re-run the web cookie-session check
- * (which would throw in the mobile request context).
+ * Auth: the getMobileAdmin + VIEW_ANALYTICS check below returns proper
+ * 401/403 JSON. Each analytics action ALSO enforces VIEW_ANALYTICS via
+ * requireAdmin, which resolves this request's Bearer token itself (the
+ * actions run in-process, so headers() sees this request). Defense in
+ * depth — the route gate is what turns a rejection into a clean status
+ * code instead of a 500.
  *
  * Money is in RUPEES everywhere (the actions normalize cafe paise →
  * rupees server-side), so the screen renders with formatRupees directly.
@@ -101,18 +103,15 @@ export async function GET(request: NextRequest) {
     dailyRes,
     monthlyRes,
   ] = await Promise.all([
-    getKPIStats(dateFrom, dateTo, true),
-    getRevenueOverTime(
-      { dateFrom, dateTo, scope: "sports", groupBy },
-      true,
-    ),
-    getSportRevenueBreakdown(dateFrom, dateTo, true),
-    getSportRevenueByMonth(dateFrom, dateTo, true),
-    getPeakHourAnalysis(dateFrom, dateTo, true),
-    getTopCustomers(dateFrom, dateTo, 10, true),
-    getPaymentMethodBreakdown(dateFrom, dateTo, true),
-    getDailyEarningsForMonth(year, month, true),
-    getMonthlyEarningsForYear(monthlyYear, true),
+    getKPIStats(dateFrom, dateTo),
+    getRevenueOverTime({ dateFrom, dateTo, scope: "sports", groupBy }),
+    getSportRevenueBreakdown(dateFrom, dateTo),
+    getSportRevenueByMonth(dateFrom, dateTo),
+    getPeakHourAnalysis(dateFrom, dateTo),
+    getTopCustomers(dateFrom, dateTo, 10),
+    getPaymentMethodBreakdown(dateFrom, dateTo),
+    getDailyEarningsForMonth(year, month),
+    getMonthlyEarningsForYear(monthlyYear),
   ]);
 
   if (!kpiRes.success || !kpiRes.data) {

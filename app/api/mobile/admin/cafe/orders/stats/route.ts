@@ -13,6 +13,6 @@ export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_CAFE_ORDERS");
   if ("error" in gate) return gate.error;
 
-  const stats = await getCafeOrderStats(true);
+  const stats = await getCafeOrderStats();
   return NextResponse.json(stats);
 }

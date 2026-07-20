@@ -17,8 +17,9 @@ import {
  *   DELETE { id }                   → revoke (unregister) one device token
  *   DELETE { pruneStale: true }     → bulk-prune devices idle 90+ days
  *
- * All reuse the same web actions the dashboard calls, with skipAuth=true
- * since we already guard MANAGE_PUSH here via the JWT.
+ * All reuse the same web actions the dashboard calls. We guard MANAGE_PUSH
+ * here for correct 401/403 JSON responses; the actions independently
+ * re-enforce it via requireAdmin, which reads this request's Bearer token.
  */
 const STALE_DAYS = 90;
 
@@ -31,14 +32,11 @@ export async function GET(request: NextRequest) {
   const page = Number(url.searchParams.get("page") ?? "1");
   const limit = Number(url.searchParams.get("limit") ?? "25");
 
-  const result = await getPushDevices(
-    {
-      platform: platform === "android" || platform === "ios" ? platform : undefined,
-      page: Number.isFinite(page) && page > 0 ? page : 1,
-      limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 25,
-    },
-    true,
-  );
+  const result = await getPushDevices({
+    platform: platform === "android" || platform === "ios" ? platform : undefined,
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+    limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 25,
+  });
 
   return NextResponse.json({
     devices: result.devices.map((d) => ({
@@ -76,12 +74,12 @@ export async function DELETE(request: NextRequest) {
   }
 
   if ("pruneStale" in parsed.data) {
-    const r = await pruneStalePushDevices(STALE_DAYS, true);
+    const r = await pruneStalePushDevices(STALE_DAYS);
     return NextResponse.json({ ok: true, deleted: r.deleted });
   }
 
   try {
-    await deletePushDeviceById(parsed.data.id, true);
+    await deletePushDeviceById(parsed.data.id);
   } catch {
     // Already gone (e.g. pruned or the user uninstalled) — treat as success
     // so the client can optimistically drop the row either way.

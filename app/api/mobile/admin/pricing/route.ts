@@ -20,11 +20,9 @@ import type { DayType, TimeType } from "@prisma/client";
  *   - "rain-banner": banner mode + custom copy  (mirrors setRainBanner)
  *
  * Authorization: requireMobileAdmin(MANAGE_PRICING) — the SAME permission the
- * web actions enforce. The web server actions guard via a cookie-session
- * requireAdmin() that a mobile bearer caller can't satisfy and they expose no
- * skipAuth flag, so this route inlines the equivalent DB writes (and replicates
- * the band overlap / hour-ordering checks verbatim) with the route as the
- * authorization boundary.
+ * web actions enforce. This route inlines the equivalent DB writes (and
+ * replicates the band overlap / hour-ordering checks verbatim) with the route
+ * as the authorization boundary.
  *
  * UNITS: pricePerSlot is WHOLE RUPEES (the unit PricingRule stores). Band hours
  * are half-open [startHour, endHour); 0..29 where ≥24 = next day.

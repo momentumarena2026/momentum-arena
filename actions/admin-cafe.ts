@@ -10,17 +10,19 @@ async function requireCafeMenuAdmin() {
 }
 
 /**
- * Mobile admin routes pre-authenticate via JWT and pass `skipAuth:
- * true` here to bypass the NextAuth web cookie gate. Web call sites
- * omit the flag.
+ * Every export in this "use server" module is a public POST endpoint
+ * whose arguments come from the client, so the permission gate must
+ * run unconditionally. `requireAdmin` resolves the caller from either
+ * the web cookie session or the mobile Bearer JWT, so mobile admin
+ * routes calling these actions in-process authenticate fine.
  */
 
 export async function getCafeItems(filters?: {
   category?: CafeItemCategory;
   search?: string;
   showUnavailable?: boolean;
-}, skipAuth?: boolean) {
-  if (!skipAuth) await requireCafeMenuAdmin();
+}) {
+  await requireCafeMenuAdmin();
 
   const where: Record<string, unknown> = {};
 
@@ -71,8 +73,8 @@ export async function createCafeItem(data: {
   image?: string;
   isVeg: boolean;
   tags?: string[];
-}, skipAuth?: boolean) {
-  if (!skipAuth) await requireCafeMenuAdmin();
+}) {
+  await requireCafeMenuAdmin();
 
   try {
     if (!data.name || !data.category || !data.price) {
@@ -150,9 +152,8 @@ export async function updateCafeItem(
     isVeg: boolean;
     tags: string[];
   }>,
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireCafeMenuAdmin();
+  await requireCafeMenuAdmin();
 
   try {
     const existing = await db.cafeItem.findUnique({ where: { id } });
@@ -197,8 +198,8 @@ export async function updateCafeItem(
   }
 }
 
-export async function deleteCafeItem(id: string, skipAuth?: boolean) {
-  if (!skipAuth) await requireCafeMenuAdmin();
+export async function deleteCafeItem(id: string) {
+  await requireCafeMenuAdmin();
 
   try {
     const existing = await db.cafeItem.findUnique({ where: { id } });
@@ -212,11 +213,8 @@ export async function deleteCafeItem(id: string, skipAuth?: boolean) {
   }
 }
 
-export async function toggleCafeItemAvailability(
-  id: string,
-  skipAuth?: boolean,
-) {
-  if (!skipAuth) await requireCafeMenuAdmin();
+export async function toggleCafeItemAvailability(id: string) {
+  await requireCafeMenuAdmin();
 
   try {
     const item = await db.cafeItem.findUnique({ where: { id } });

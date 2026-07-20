@@ -9,8 +9,10 @@ import {
 
 /**
  * Mobile admin rewards config. Reuses getAdminRewardConfigFull /
- * updateAdminRewardConfig via their skipAuth flag under MANAGE_REWARDS. The
- * client sends the full config object back (16 fields) so the update's
+ * updateAdminRewardConfig, both of which enforce MANAGE_REWARDS themselves
+ * (requireAdmin resolves this request's Bearer token in-process). The guard
+ * below is kept so a rejection surfaces as 401/403 JSON rather than a 500.
+ * The client sends the full config object back (16 fields) so the update's
  * schema.parse is satisfied without a server-side merge.
  */
 async function guard(request: NextRequest) {
@@ -28,7 +30,7 @@ async function guard(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const g = await guard(request);
   if ("error" in g) return g.error;
-  const config = await getAdminRewardConfigFull(true);
+  const config = await getAdminRewardConfigFull();
   return NextResponse.json({ config });
 }
 
@@ -40,7 +42,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
   try {
-    await updateAdminRewardConfig(body as AdminRewardConfigInput, true);
+    await updateAdminRewardConfig(body as AdminRewardConfigInput);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Invalid config" },

@@ -18,7 +18,7 @@ export async function POST(
   if ("error" in gate) return gate.error;
 
   const { id } = await params;
-  const result = await toggleCafeItemAvailability(id, true);
+  const result = await toggleCafeItemAvailability(id);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

@@ -15,10 +15,9 @@ export async function POST(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const { id } = await params;
-  const result = await confirmCashPayment(id, admin.id);
+  const result = await confirmCashPayment(id);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

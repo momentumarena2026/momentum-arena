@@ -54,8 +54,9 @@ export async function GET(request: NextRequest) {
           createdAt: true,
         },
       }),
-      // Reuse the web action (skipAuth — we already guarded MANAGE_PUSH).
-      getActiveUserGroupsForPush(true),
+      // Reuse the web action — its own requireAdmin(MANAGE_PUSH) resolves
+      // this request's Bearer token, on top of the gate above.
+      getActiveUserGroupsForPush(),
     ]);
 
   return NextResponse.json({

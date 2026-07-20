@@ -20,9 +20,10 @@ const CATEGORIES: CafeItemCategory[] = [
  * integer = ready-to-serve (READY, on-hand count). `costPrice: null`
  * clears a previously-set cost.
  *
- * Auth: requireMobileAdmin re-enforces MANAGE_CAFE_MENU; the web
- * action runs with skipAuth=true (NextAuth web-cookie bypass), the
- * same convention as the items list + availability routes.
+ * Auth: requireMobileAdmin gates the route so callers get a proper
+ * 401/403 JSON response; the web action independently re-checks
+ * MANAGE_CAFE_MENU (it reads the mobile Bearer JWT from the
+ * in-process request), the same as the items list route.
  */
 export async function PATCH(
   request: NextRequest,
@@ -64,7 +65,7 @@ export async function PATCH(
   if (b.tags !== undefined)
     data.tags = Array.isArray(b.tags) ? b.tags.map((t) => String(t)) : [];
 
-  const result = await updateCafeItem(id, data, true);
+  const result = await updateCafeItem(id, data);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
@@ -85,7 +86,7 @@ export async function DELETE(
   if ("error" in gate) return gate.error;
 
   const { id } = await params;
-  const result = await deleteCafeItem(id, true);
+  const result = await deleteCafeItem(id);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

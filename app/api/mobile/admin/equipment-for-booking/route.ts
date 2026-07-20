@@ -17,7 +17,6 @@ import { listEquipmentForBookingCreate } from "@/actions/admin-equipment-rental"
 export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const { searchParams } = new URL(request.url);
   const sport = searchParams.get("sport");
@@ -30,7 +29,6 @@ export async function GET(request: NextRequest) {
   const items = await listEquipmentForBookingCreate(
     sport,
     category && category.length > 0 ? category : null,
-    admin.id,
   );
   return NextResponse.json({ items });
 }

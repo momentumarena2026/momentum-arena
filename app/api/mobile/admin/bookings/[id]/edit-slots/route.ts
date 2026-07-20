@@ -42,7 +42,6 @@ export async function POST(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -57,7 +56,6 @@ export async function POST(
     id,
     parsed.data.hours,
     parsed.data.date,
-    { id: admin.id, username: admin.username },
     parsed.data.bowlingSlots,
     parsed.data.coverDeltaWithPass,
   );

@@ -28,6 +28,6 @@ export async function GET(request: NextRequest) {
     ? Math.min(Math.max(parsed, 1), 26)
     : 8;
 
-  const data = await getCohortRetention(weeks, true);
+  const data = await getCohortRetention(weeks);
   return NextResponse.json(data);
 }

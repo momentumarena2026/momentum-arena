@@ -93,14 +93,12 @@ export interface CalendarData {
 export async function getCalendarData(
   date: string,
   sportFilter?: string,
-  // Mobile admin routes authenticate via JWT before calling this
-  // server action. Pass true to skip the NextAuth cookie check that
-  // `requireAdmin` performs. Web call sites omit the flag.
-  skipAuth?: boolean,
 ): Promise<CalendarData> {
-  if (!skipAuth) {
-    await requireAdmin("MANAGE_BOOKINGS");
-  }
+  // Unconditional — this is a "use server" export, so its arguments
+  // are attacker-controlled. `requireAdmin` resolves the caller from
+  // the web cookie session OR the mobile Bearer JWT, so the mobile
+  // admin route (which calls this in-process) authenticates here too.
+  await requireAdmin("MANAGE_BOOKINGS");
 
   const dateOnly = new Date(date + "T00:00:00Z");
   // Prior calendar date. Bookings stored as `(date = X-1,

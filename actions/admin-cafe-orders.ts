@@ -31,10 +31,12 @@ async function requireCafeAdminWithDetails() {
 }
 
 /**
- * Mobile admin routes pre-authenticate via JWT. Reads accept
- * `skipAuth: true` and writes that need an admin identity accept
- * `adminOverride: { id, username }` so the mobile JWT identity flows
- * through to the audit log + push-notification author.
+ * Every action below is gated behind MANAGE_CAFE_ORDERS for every caller.
+ * `requireAdmin` resolves the caller from the web cookie session OR the
+ * mobile Bearer JWT, so the mobile admin routes call these plainly and the
+ * resolved identity still flows through to the audit log +
+ * push-notification author. There is no auth-bypass argument — in a
+ * "use server" module the arguments come from the client.
  */
 
 export async function getCafeOrders(
@@ -44,9 +46,8 @@ export async function getCafeOrders(
     search?: string;
     page?: number;
   },
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireCafeAdmin();
+  await requireCafeAdmin();
 
   const page = filters?.page ?? 1;
   const limit = 20;
@@ -105,8 +106,8 @@ export async function getCafeOrders(
   return { orders, total, page, totalPages: Math.ceil(total / limit) };
 }
 
-export async function getCafeOrderStats(skipAuth?: boolean) {
-  if (!skipAuth) await requireCafeAdmin();
+export async function getCafeOrderStats() {
+  await requireCafeAdmin();
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -161,8 +162,8 @@ export async function getCafeOrderStats(skipAuth?: boolean) {
   };
 }
 
-export async function getLiveCafeOrders(skipAuth?: boolean) {
-  if (!skipAuth) await requireCafeAdmin();
+export async function getLiveCafeOrders() {
+  await requireCafeAdmin();
 
   // Bound the result so a runaway queue can't OOM the serverless worker.
   // A kitchen realistically never has more than ~50 open orders; 200 is a
@@ -206,9 +207,8 @@ const STATUS_PIPELINE: Record<CafeOrderStatus, CafeOrderStatus[]> = {
 export async function updateCafeOrderStatus(
   orderId: string,
   newStatus: CafeOrderStatus,
-  adminOverride?: { id: string; username: string },
 ) {
-  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
+  const admin = await requireCafeAdminWithDetails();
 
   try {
     const order = await db.cafeOrder.findUnique({
@@ -332,10 +332,10 @@ export async function adminCreateCafeOrder(data: {
   // (post-discount), and at least one of them must be > 0.
   split?: { cashAmount: number; upiAmount: number };
   note?: string;
-}, adminOverride?: { id: string; username: string }) {
-  // adminOverride lets the mobile admin route (bearer auth, no NextAuth
-  // session) reuse this action — same pattern as cancelCafeOrder below.
-  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
+}) {
+  // Resolves the acting admin from the web session or the mobile bearer
+  // token — the mobile admin route reuses this action directly.
+  const admin = await requireCafeAdminWithDetails();
 
   try {
     if (!data.items || data.items.length === 0) {
@@ -622,9 +622,8 @@ export async function adminCreateCafeOrder(data: {
 export async function cancelCafeOrder(
   orderId: string,
   reason: string,
-  adminOverride?: { id: string; username: string },
 ) {
-  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
+  const admin = await requireCafeAdminWithDetails();
 
   try {
     const order = await db.cafeOrder.findUnique({

@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
   const g = await guard(request, "MANAGE_BOOKINGS");
   if ("error" in g) return g.error;
 
-  const data = await getPendingUtrPayments(true);
+  const data = await getPendingUtrPayments();
   return NextResponse.json(data);
 }
 
@@ -74,15 +74,13 @@ export async function POST(request: NextRequest) {
   if (action === "verify") {
     result =
       type === "cafe"
-        ? await verifyCafeUtr(paymentId, g.admin.id, true)
-        : await verifyBookingUtr(paymentId, g.admin.id, true);
+        ? await verifyCafeUtr(paymentId)
+        : await verifyBookingUtr(paymentId);
   } else {
     result = await rejectUtr(
       paymentId,
-      g.admin.id,
       reason ?? "Rejected by admin",
       type,
-      true,
     );
   }
 

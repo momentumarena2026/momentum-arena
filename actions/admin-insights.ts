@@ -48,9 +48,8 @@ export async function getFunnel(
   key: FunnelKey,
   dateFrom: string,
   dateTo: string,
-  skipAuth = false,
 ): Promise<FunnelResult> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+  await requireAdmin("VIEW_ANALYTICS");
 
   const fdef = FUNNELS[key];
   const from = new Date(`${dateFrom}T00:00:00.000Z`);
@@ -132,9 +131,8 @@ export async function listAnalyticsEvents(
     before?: string;
     limit?: number;
   },
-  skipAuth = false,
 ): Promise<EventsListResult> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+  await requireAdmin("VIEW_ANALYTICS");
 
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
 
@@ -212,11 +210,8 @@ export interface CohortGridResult {
  * `weeks` controls how many cohorts (and how many follow-up weeks)
  * we compute; default 8 for a 2-month window.
  */
-export async function getCohortRetention(
-  weeks: number = 8,
-  skipAuth = false,
-): Promise<CohortGridResult> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+export async function getCohortRetention(weeks: number = 8): Promise<CohortGridResult> {
+  await requireAdmin("VIEW_ANALYTICS");
 
   // Anchor at the start of the current ISO week (Mon 00:00 IST), then
   // walk back `weeks` cohorts. Same IST math as ensureUserCohort in
@@ -334,9 +329,8 @@ export interface DemandResult {
 export async function getDemandHeatmap(
   dateFrom: string,
   dateTo: string,
-  skipAuth = false,
 ): Promise<DemandResult> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+  await requireAdmin("VIEW_ANALYTICS");
 
   const from = new Date(`${dateFrom}T00:00:00.000Z`);
   const to = new Date(`${dateTo}T23:59:59.999Z`);
@@ -415,9 +409,8 @@ export interface OverviewKpis {
 export async function getInsightsOverview(
   dateFrom: string,
   dateTo: string,
-  skipAuth = false,
 ): Promise<OverviewKpis> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+  await requireAdmin("VIEW_ANALYTICS");
   const from = new Date(`${dateFrom}T00:00:00.000Z`);
   const to = new Date(`${dateTo}T23:59:59.999Z`);
 
@@ -464,8 +457,8 @@ export async function getInsightsOverview(
 
 /** Distinct event names that have fired in the last 30 days — used to
  *  populate the Events log filter dropdown. */
-export async function listEventNames(skipAuth = false): Promise<string[]> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+export async function listEventNames(): Promise<string[]> {
+  await requireAdmin("VIEW_ANALYTICS");
   const cutoff = new Date();
   cutoff.setUTCDate(cutoff.getUTCDate() - 30);
   type Row = { name: string };
@@ -512,9 +505,8 @@ export async function listServerActionLogs(
     before?: string;
     limit?: number;
   },
-  skipAuth = false,
 ): Promise<ServerLogsListResult> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+  await requireAdmin("VIEW_ANALYTICS");
 
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
 
@@ -600,10 +592,8 @@ export async function listServerActionLogs(
 }
 
 /** Distinct server action names (all time). */
-export async function listServerActionNames(
-  skipAuth = false,
-): Promise<string[]> {
-  if (!skipAuth) await requireAdmin("VIEW_ANALYTICS");
+export async function listServerActionNames(): Promise<string[]> {
+  await requireAdmin("VIEW_ANALYTICS");
   type Row = { action: string };
   const rows = await db.$queryRaw<Row[]>`
     SELECT DISTINCT "action"

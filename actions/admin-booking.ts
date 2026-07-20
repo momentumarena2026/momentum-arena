@@ -104,14 +104,13 @@ async function revalidateBookingPaths(bookingId?: string) {
   }
 }
 
-// `adminIdOverride` lets the mobile-admin API routes call this action
-// after authenticating via JWT (instead of NextAuth web cookie). When
-// provided, the regular `requireAdmin()` check is skipped — the
-// caller is responsible for ensuring it has already validated an
-// AdminUser. Web call sites pass nothing and get the existing
-// cookie-based gate.
-export async function confirmCashPayment(bookingId: string, adminIdOverride?: string) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+// `requireAdmin()` resolves the caller from EITHER the web cookie
+// session or the mobile Bearer JWT (see lib/admin-auth.ts), so the
+// mobile-admin API routes reuse this action unchanged — no caller-
+// supplied identity, which would be client-controlled input on a
+// public server-action endpoint.
+export async function confirmCashPayment(bookingId: string) {
+  const adminId = await requireAdmin();
 
   const payment = await db.payment.findUnique({
     where: { bookingId },
@@ -162,8 +161,8 @@ export async function confirmCashPayment(bookingId: string, adminIdOverride?: st
   return { success: true };
 }
 
-export async function confirmUpiPayment(bookingId: string, adminIdOverride?: string) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+export async function confirmUpiPayment(bookingId: string) {
+  const adminId = await requireAdmin();
 
   const payment = await db.payment.findUnique({
     where: { bookingId },
@@ -229,11 +228,8 @@ export async function confirmUpiPayment(bookingId: string, adminIdOverride?: str
  * specific paths fire, so customers learn about the confirmation
  * the same way regardless of which path got them there.
  */
-export async function confirmBookingManually(
-  bookingId: string,
-  adminIdOverride?: string,
-) {
-  if (!adminIdOverride) await requireAdmin();
+export async function confirmBookingManually(bookingId: string) {
+  await requireAdmin();
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -308,9 +304,8 @@ function describeSplit(cash: number, upi: number, discount: number = 0): string 
 export async function markRemainderCollected(
   bookingId: string,
   split: RemainderSplit,
-  adminIdOverride?: string
 ) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+  const adminId = await requireAdmin();
 
   const cashAmount = Math.trunc(split.cashAmount ?? 0);
   const upiAmount = Math.trunc(split.upiAmount ?? 0);
@@ -474,9 +469,8 @@ export async function markRemainderCollected(
 export async function updateRemainderSplit(
   bookingId: string,
   split: RemainderSplit,
-  adminIdOverride?: string
 ) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+  const adminId = await requireAdmin();
 
   const cashAmount = Math.trunc(split.cashAmount ?? 0);
   const upiAmount = Math.trunc(split.upiAmount ?? 0);
@@ -617,12 +611,8 @@ export async function updateRemainderSplit(
   return { success: true };
 }
 
-export async function cancelBooking(
-  bookingId: string,
-  reason: string,
-  adminIdOverride?: string
-) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+export async function cancelBooking(bookingId: string, reason: string) {
+  await requireAdmin();
 
   if (!reason.trim()) {
     return { success: false, error: "Cancellation reason is required" };
@@ -735,9 +725,8 @@ export async function refundBooking(
   reason: string,
   refundMethod?: "ORIGINAL" | "CASH" | "UPI" | "BANK_TRANSFER",
   refundAmount?: number,
-  adminIdOverride?: string
 ) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+  const adminId = await requireAdmin();
 
   if (!reason.trim()) {
     return { success: false, error: "Refund reason is required" };
@@ -857,9 +846,8 @@ export async function adminEditPayment(
     utrNumber?: string | null;
     note?: string;
   },
-  adminOverride?: { id: string; username: string },
 ) {
-  const admin = adminOverride ?? (await requireAdminWithDetails());
+  const admin = await requireAdminWithDetails();
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -1419,8 +1407,8 @@ async function requireAdminWithDetails() {
 // ---------------------------------------------------------------------------
 // searchCustomers
 // ---------------------------------------------------------------------------
-export async function searchCustomers(query: string, skipAuth?: boolean) {
-  if (!skipAuth) await requireAdmin();
+export async function searchCustomers(query: string) {
+  await requireAdmin();
 
   try {
     const customers = await db.user.findMany({
@@ -1453,9 +1441,8 @@ export async function createCustomerForBooking(
     phone: string;
     email?: string;
   },
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireAdmin();
+  await requireAdmin();
 
   try {
     // Client-side PhoneInput already caps at 10 digits, but we normalize
@@ -1610,9 +1597,8 @@ export async function getAvailableBowlingSlots(
   courtConfigId: string,
   dateStr: string,
   excludeBookingId?: string,
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireAdmin();
+  await requireAdmin();
 
   try {
     const dateOnly = new Date(dateStr + "T00:00:00Z");
@@ -1658,9 +1644,8 @@ export async function getAvailableSlots(
   courtConfigId: string,
   dateStr: string,
   excludeBookingId?: string,
-  skipAuth?: boolean
 ) {
-  if (!skipAuth) await requireAdmin();
+  await requireAdmin();
 
   try {
     const dateOnly = new Date(dateStr + "T00:00:00Z");
@@ -1814,8 +1799,8 @@ export async function adminCreateBooking(data: {
   // same convention the equipment editor uses for negotiated rows).
   equipment?: Array<{ equipmentId: string; quantity: number }>;
   note?: string;
-}, adminOverride?: { id: string; username: string }) {
-  const admin = adminOverride ?? (await requireAdminWithDetails());
+}) {
+  const admin = await requireAdminWithDetails();
 
   try {
     // Validate hours
@@ -2490,7 +2475,6 @@ export async function adminEditBookingSlots(
   // re-validated against the target date (availability, blocks, pricing).
   // Passing undefined keeps the booking's current date.
   newDate?: string,
-  adminOverride?: { id: string; username: string },
   // Bowling-machine 30-min picks. Each {hour, minute(0|30)} maps to a
   // BookingSlot with startMinute=minute + durationMinutes=30. Mutually
   // exclusive with `newHours`.
@@ -2500,7 +2484,7 @@ export async function adminEditBookingSlots(
   // debited atomically by syncPassAfterAdminEdit inside the tx.
   coverDeltaWithPass?: boolean,
 ) {
-  const admin = adminOverride ?? (await requireAdminWithDetails());
+  const admin = await requireAdminWithDetails();
 
   try {
     const usingBowling = Array.isArray(bowlingSlots) && bowlingSlots.length > 0;
@@ -2999,9 +2983,8 @@ export async function adminEditBookingFull(
     // atomically inside the tx by syncPassAfterAdminEdit).
     coverDeltaWithPass?: boolean;
   },
-  adminOverride?: { id: string; username: string }
 ) {
-  const admin = adminOverride ?? (await requireAdminWithDetails());
+  const admin = await requireAdminWithDetails();
 
   try {
     const booking = await db.booking.findUnique({
@@ -3601,12 +3584,8 @@ export interface RecoverRazorpayResult {
  */
 export async function recoverRazorpayPayment(
   paymentId: string,
-  // `skipAuth` lets the mobile-admin API route call this after it has
-  // already authenticated via JWT + checked MANAGE_BOOKINGS. Web call
-  // sites pass nothing and keep the cookie-based gate.
-  skipAuth?: boolean,
 ): Promise<RecoverRazorpayResult> {
-  if (!skipAuth) await requireAdminBase("MANAGE_BOOKINGS");
+  await requireAdminBase("MANAGE_BOOKINGS");
 
   const trimmed = paymentId.trim();
   if (!trimmed.startsWith("pay_")) {
@@ -3875,7 +3854,6 @@ export async function extendBookingByThirtyMin(
   bookingId: string,
   direction: ExtendDirection,
   priceOverride: number,
-  adminOverride?: { id: string; username: string },
   // When set, the extra 30 min is paid by debiting this UserPass
   // instead of charging money (priceOverride is ignored → the slot is
   // recorded at ₹0). The pass must belong to the booking's customer,
@@ -3894,7 +3872,7 @@ export async function extendBookingByThirtyMin(
     }
   | { success: false; error: string }
 > {
-  const admin = adminOverride ?? (await requireAdminWithDetails());
+  const admin = await requireAdminWithDetails();
 
   try {
     if (!payWithPassId && (!Number.isInteger(priceOverride) || priceOverride < 0)) {
@@ -4285,9 +4263,8 @@ type ClosingStatus = "COMPLETED" | "ABSENT";
 async function closeOutBooking(
   bookingId: string,
   closingStatus: ClosingStatus,
-  adminOverride?: { id: string; username: string },
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const admin = adminOverride ?? (await requireAdminWithDetails());
+  const admin = await requireAdminWithDetails();
 
   try {
     const booking = await db.booking.findUnique({
@@ -4448,18 +4425,12 @@ async function closeOutBooking(
   }
 }
 
-export async function markBookingCompleted(
-  bookingId: string,
-  adminOverride?: { id: string; username: string },
-) {
-  return closeOutBooking(bookingId, "COMPLETED", adminOverride);
+export async function markBookingCompleted(bookingId: string) {
+  return closeOutBooking(bookingId, "COMPLETED");
 }
 
-export async function markBookingAbsent(
-  bookingId: string,
-  adminOverride?: { id: string; username: string },
-) {
-  return closeOutBooking(bookingId, "ABSENT", adminOverride);
+export async function markBookingAbsent(bookingId: string) {
+  return closeOutBooking(bookingId, "ABSENT");
 }
 
 // ---------------------------------------------------------------------------
@@ -4492,9 +4463,8 @@ export type RecoverDqrResult =
  */
 export async function recoverDqrPayment(
   transactionId: string,
-  skipAuth?: boolean,
 ): Promise<RecoverDqrResult> {
-  if (!skipAuth) await requireAdmin();
+  await requireAdmin();
 
   const txn = transactionId.trim();
   if (!txn) return { success: false, error: "Enter a PhonePe transaction id" };

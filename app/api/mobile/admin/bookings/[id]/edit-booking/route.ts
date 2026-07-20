@@ -32,7 +32,6 @@ export async function POST(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -40,10 +39,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const result = await adminEditBookingFull(id, parsed.data, {
-    id: admin.id,
-    username: admin.username,
-  });
+  const result = await adminEditBookingFull(id, parsed.data);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

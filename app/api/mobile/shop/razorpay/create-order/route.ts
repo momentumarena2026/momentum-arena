@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing orderId" }, { status: 400 });
   }
 
-  const orderInfo = await getOrderForRazorpay(orderId, user.id);
+  const orderInfo = await getOrderForRazorpay(orderId);
   if (!orderInfo) {
     return NextResponse.json(
       { error: "Order not found or already paid" },

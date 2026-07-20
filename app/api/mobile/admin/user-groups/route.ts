@@ -7,8 +7,9 @@ import { createUserGroup, listUserGroups } from "@/actions/admin-user-groups";
 /**
  * Mobile admin user groups — named cohorts used for coupon/push
  * targeting. Wraps the web `listUserGroups` / `createUserGroup` server
- * actions with bearer auth (skipAuth on the action; the JWT admin is
- * verified here).
+ * actions. The guard below is the route's own boundary (proper 401/403
+ * JSON); the actions independently re-check via requireAdmin, which
+ * resolves the same bearer JWT in-process.
  *
  * Permission: MANAGE_COUPONS per the web sidebar grouping (SUPERADMIN
  * bypass).
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
   const search = new URL(request.url).searchParams.get("search")?.trim() || undefined;
 
   try {
-    const groups = await listUserGroups({ search }, true);
+    const groups = await listUserGroups({ search });
     return NextResponse.json({ groups });
   } catch (err) {
     return NextResponse.json(
@@ -61,10 +62,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await createUserGroup(
-    { name: parsed.data.name, description: parsed.data.description },
-    { skipAuth: true, adminId: auth.admin.id },
-  );
+  const result = await createUserGroup({
+    name: parsed.data.name,
+    description: parsed.data.description,
+  });
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

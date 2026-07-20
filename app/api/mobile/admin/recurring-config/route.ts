@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await updateRecurringConfig(parsed.data, true);
+  const result = await updateRecurringConfig(parsed.data);
   if (!result.success) {
     return NextResponse.json(
       { error: result.error ?? "Update failed" },

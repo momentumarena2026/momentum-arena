@@ -5,11 +5,12 @@ import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { isDqrConfigured } from "@/lib/phonepe-dqr";
 import type { PaymentGateway } from "@prisma/client";
 
-async function requireAdmin(skipAuth = false) {
-  // Mobile admin routes authenticate the bearer token themselves (via
-  // getMobileAdmin) before delegating here, so they pass skipAuth=true to
-  // bypass the cookie-session check that wouldn't apply to a JWT request.
-  if (skipAuth) return null;
+// `requireAdminBase` resolves the caller from EITHER the web cookie
+// session or the mobile Bearer JWT, so mobile admin routes delegate here
+// with no auth-bypass argument. Never add one: every export in a
+// "use server" module is a public endpoint whose arguments come from the
+// client.
+async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_PAYMENT_SETTINGS");
   return user.id;
 }
@@ -53,11 +54,8 @@ export async function getPaymentGatewayConfig(): Promise<PaymentSettings> {
   return readOrInit();
 }
 
-export async function setActivePaymentGateway(
-  gateway: PaymentGateway,
-  skipAuth = false,
-) {
-  await requireAdmin(skipAuth);
+export async function setActivePaymentGateway(gateway: PaymentGateway) {
+  await requireAdmin();
 
   if (gateway !== "PHONEPE" && gateway !== "RAZORPAY") {
     return { success: false, error: "Invalid gateway" };
@@ -81,9 +79,8 @@ export async function setActivePaymentGateway(
  */
 export async function setDqrEnabled(
   enabled: boolean,
-  skipAuth = false,
 ): Promise<{ success: boolean; error?: string }> {
-  await requireAdmin(skipAuth);
+  await requireAdmin();
   await db.paymentGatewayConfig.upsert({
     where: { id: "singleton" },
     update: { dqrEnabled: enabled },
@@ -104,9 +101,8 @@ export type UpiQrMode = "STATIC" | "DQR" | "OFF";
  */
 export async function setUpiQrMode(
   mode: UpiQrMode,
-  skipAuth = false,
 ): Promise<{ success: boolean; error?: string }> {
-  await requireAdmin(skipAuth);
+  await requireAdmin();
 
   if (mode !== "STATIC" && mode !== "DQR" && mode !== "OFF") {
     return { success: false, error: "Invalid UPI mode" };
@@ -153,9 +149,8 @@ export async function setUpiQrMode(
  */
 export async function setIntentEnabled(
   enabled: boolean,
-  skipAuth = false,
 ): Promise<{ success: boolean; error?: string }> {
-  await requireAdmin(skipAuth);
+  await requireAdmin();
   await db.paymentGatewayConfig.upsert({
     where: { id: "singleton" },
     update: { intentEnabled: enabled },
@@ -173,9 +168,8 @@ export type PaymentMethodFlag = "online" | "upi_qr" | "advance";
 export async function setPaymentMethodEnabled(
   method: PaymentMethodFlag,
   enabled: boolean,
-  skipAuth = false,
 ): Promise<{ success: boolean; error?: string }> {
-  await requireAdmin(skipAuth);
+  await requireAdmin();
 
   // Safety: never let the admin disable all three, or checkout has no
   // way forward. Re-read current state and reject the toggle if it

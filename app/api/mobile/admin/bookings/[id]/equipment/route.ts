@@ -21,13 +21,12 @@ export async function GET(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const { id } = await params;
   try {
     const [snapshot, catalog] = await Promise.all([
-      getBookingEquipmentSnapshot(id, admin.id),
-      listEquipmentForAdmin(id, admin.id),
+      getBookingEquipmentSnapshot(id),
+      listEquipmentForAdmin(id),
     ]);
     return NextResponse.json({
       rentals: snapshot.rentals,
@@ -60,7 +59,6 @@ export async function POST(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const { id } = await params;
   let body: {
@@ -87,7 +85,6 @@ export async function POST(
         id,
         body.equipmentId,
         body.quantity,
-        admin.id,
       );
       return NextResponse.json(res);
     }
@@ -102,7 +99,6 @@ export async function POST(
         id,
         body.rentalId,
         body.quantity,
-        admin.id,
       );
       return NextResponse.json(res);
     }
@@ -113,7 +109,7 @@ export async function POST(
           { status: 400 },
         );
       }
-      const res = await removeBookingEquipment(id, body.rentalId, admin.id);
+      const res = await removeBookingEquipment(id, body.rentalId);
       return NextResponse.json(res);
     }
     return NextResponse.json({ error: "Unknown op" }, { status: 400 });

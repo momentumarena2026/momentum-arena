@@ -29,6 +29,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const result = await resolveClaimedPayment(kind, intentId, mode, true);
+  const result = await resolveClaimedPayment(kind, intentId, mode);
   return NextResponse.json(result, { status: result.ok ? 200 : 409 });
 }

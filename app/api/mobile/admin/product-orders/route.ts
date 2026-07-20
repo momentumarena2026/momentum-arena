@@ -10,10 +10,11 @@ import type { ProductOrderStatus } from "@prisma/client";
 /**
  * GET /api/mobile/admin/product-orders?status=&q=&page=
  *
- * Mirrors the web /admin/product-orders list. Reuses listOrdersForAdmin
- * (with adminOverride so the bearer-JWT identity flows through) plus the
- * shop analytics roll-up. Money is returned in PAISE — the client divides
- * by 100 for ₹ display.
+ * Mirrors the web /admin/product-orders list. Reuses listOrdersForAdmin plus
+ * the shop analytics roll-up — those actions resolve the bearer-JWT identity
+ * themselves via requireAdmin, so nothing is threaded through from here. The
+ * guard below stays as this route's boundary (proper 401/403 JSON).
+ * Money is returned in PAISE — the client divides by 100 for ₹ display.
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -46,8 +47,8 @@ export async function GET(request: NextRequest) {
   const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
 
   const [{ orders, total, totalPages }, summary] = await Promise.all([
-    listOrdersForAdmin({ status, search, page }, { id: g.admin.id, username: g.admin.username }),
-    getShopAnalyticsSummary({ id: g.admin.id, username: g.admin.username }),
+    listOrdersForAdmin({ status, search, page }),
+    getShopAnalyticsSummary(),
   ]);
 
   return NextResponse.json({

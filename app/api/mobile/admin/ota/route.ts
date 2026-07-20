@@ -44,17 +44,17 @@ async function authorize(request: NextRequest) {
  * dev/preview/local → "development").
  *
  * Gated behind MANAGE_APP_RELEASES, the same permission the web OTA actions use.
- * The web actions auth via the cookie session (requireAdmin); a mobile bearer
- * request has no such cookie, so we authorize here with getMobileAdmin +
- * hasPermission and call the list actions with `skipAuth: true`.
+ * The actions' own requireAdmin resolves the caller from the bearer JWT as well
+ * as the cookie session, so they are called plainly; the authorize() check here
+ * stays so an unauthorized request gets a 401/403 instead of a thrown 500.
  */
 export async function GET(request: NextRequest) {
   const auth = await authorize(request);
   if (auth.error) return auth.error;
 
   const [releases, gates] = await Promise.all([
-    listOtaReleases({ skipAuth: true }),
-    listAppVersionGates({ skipAuth: true }),
+    listOtaReleases(),
+    listAppVersionGates(),
   ]);
 
   // Lock to THIS deployment's environment: the production domain
@@ -71,9 +71,9 @@ export async function GET(request: NextRequest) {
  *
  * Dispatches on the request body's `action` field to the matching web action,
  * mirroring the web /admin/ota controls (rollout management + version gates).
- * We authorize ONCE here (bearer + MANAGE_APP_RELEASES) then call each action with
- * `{ skipAuth: true, adminId: admin.id }` so the cookie-based requireAdmin()
- * is bypassed while createdBy/updatedBy attribution stays correct.
+ * We authorize here (bearer + MANAGE_APP_RELEASES) for correct 401/403 status
+ * codes; each action independently re-checks MANAGE_APP_RELEASES and resolves
+ * the acting admin from the same bearer JWT for createdBy/updatedBy attribution.
  *
  * Supported actions:
  *  - rollout      { releaseId, percent }
@@ -87,8 +87,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authorize(request);
   if (auth.error) return auth.error;
-  const { admin } = auth;
-  const authOpts = { skipAuth: true as const, adminId: admin.id };
 
   let body: Record<string, unknown>;
   try {
@@ -107,35 +105,30 @@ export async function POST(request: NextRequest) {
     case "rollout":
       result = await rolloutOtaRelease(
         str(body.releaseId),
-        num(body.percent),
-        authOpts
+        num(body.percent)
       );
       break;
     case "setPercent":
       result = await setOtaRolloutPercent(
         str(body.releaseId),
-        num(body.percent),
-        authOpts
+        num(body.percent)
       );
       break;
     case "rollback":
-      result = await rollbackOtaRelease(str(body.releaseId), authOpts);
+      result = await rollbackOtaRelease(str(body.releaseId));
       break;
     case "archive":
-      result = await archiveOtaRelease(str(body.releaseId), authOpts);
+      result = await archiveOtaRelease(str(body.releaseId));
       break;
     case "saveGate":
-      result = await upsertAppVersionGate(
-        {
-          platform: str(body.platform),
-          channel: str(body.channel),
-          latestBuild: num(body.latestBuild),
-          latestVersionName: str(body.latestVersionName),
-          storeUrl: str(body.storeUrl),
-          message: str(body.message),
-        },
-        authOpts
-      );
+      result = await upsertAppVersionGate({
+        platform: str(body.platform),
+        channel: str(body.channel),
+        latestBuild: num(body.latestBuild),
+        latestVersionName: str(body.latestVersionName),
+        storeUrl: str(body.storeUrl),
+        message: str(body.message),
+      });
       // The web upsert also persists minSupportedBuild only via the dedicated
       // setMin/force actions; if the mobile client sent one explicitly, apply
       // it as a follow-up so the single "Save" gesture matches the web editor's
@@ -144,8 +137,7 @@ export async function POST(request: NextRequest) {
         result = await setMinSupportedBuild(
           str(body.platform),
           str(body.channel),
-          num(body.minSupportedBuild),
-          authOpts
+          num(body.minSupportedBuild)
         );
       }
       break;
@@ -153,15 +145,13 @@ export async function POST(request: NextRequest) {
       result = await setMinSupportedBuild(
         str(body.platform),
         str(body.channel),
-        num(body.build),
-        authOpts
+        num(body.build)
       );
       break;
     case "forceUpdate":
       result = await forceUpdateToLatest(
         str(body.platform),
-        str(body.channel),
-        authOpts
+        str(body.channel)
       );
       break;
     default:

@@ -17,8 +17,10 @@ import type { PaymentGateway } from "@prisma/client";
  * Mobile admin payment-gateway settings. GET returns the full PaymentSettings
  * shape; POST applies one change at a time (active gateway, DQR toggle, or a
  * per-method enablement flag) and returns the refreshed config. The underlying
- * actions are reused with skipAuth=true since the bearer token is validated
- * here. Permission: MANAGE_PAYMENT_SETTINGS (mirrors the web /admin/payment-settings
+ * actions are reused as-is: the guard below is this route's boundary (proper
+ * 401/403 JSON) and each action independently re-checks via requireAdmin,
+ * which resolves the same bearer JWT in-process.
+ * Permission: MANAGE_PAYMENT_SETTINGS (mirrors the web /admin/payment-settings
  * sidebar gate; superadmin always passes).
  */
 async function guard(
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest) {
       if (body.gateway !== "PHONEPE" && body.gateway !== "RAZORPAY") {
         return NextResponse.json({ error: "Invalid gateway" }, { status: 400 });
       }
-      const r = await setActivePaymentGateway(body.gateway, true);
+      const r = await setActivePaymentGateway(body.gateway);
       if (!r.success) {
         return NextResponse.json(
           { error: r.error ?? "Failed" },
@@ -72,7 +74,7 @@ export async function POST(request: NextRequest) {
         );
       }
     } else if (body.action === "dqr") {
-      const r = await setDqrEnabled(Boolean(body.enabled), true);
+      const r = await setDqrEnabled(Boolean(body.enabled));
       if (!r.success) {
         return NextResponse.json(
           { error: r.error ?? "Failed" },
@@ -90,7 +92,6 @@ export async function POST(request: NextRequest) {
       const r = await setPaymentMethodEnabled(
         body.method,
         Boolean(body.enabled),
-        true,
       );
       if (!r.success) {
         return NextResponse.json(
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json({ error: "Invalid UPI mode" }, { status: 400 });
       }
-      const r = await setUpiQrMode(body.upiMode, true);
+      const r = await setUpiQrMode(body.upiMode);
       if (!r.success) {
         return NextResponse.json(
           { error: r.error ?? "Failed" },
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
         );
       }
     } else if (body.action === "intent") {
-      const r = await setIntentEnabled(Boolean(body.enabled), true);
+      const r = await setIntentEnabled(Boolean(body.enabled));
       if (!r.success) {
         return NextResponse.json(
           { error: r.error ?? "Failed" },

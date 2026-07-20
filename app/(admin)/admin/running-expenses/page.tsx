@@ -49,7 +49,7 @@ export default async function AdminRunningExpensesPage({
       page,
       pageSize: 50,
     }),
-    listActiveExpenseOptionsByField(undefined, "RUNNING"),
+    listActiveExpenseOptionsByField("RUNNING"),
   ]);
 
   function buildUrl(overrides: Record<string, string | undefined>) {
