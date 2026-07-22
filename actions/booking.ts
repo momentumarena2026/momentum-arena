@@ -1458,8 +1458,19 @@ export async function createBookingFromHold(
     // callers treat it as "couldn't create" — never a double-book.
     const isCouponLimit =
       err instanceof Error && err.message === "COUPON_LIMIT_EXCEEDED";
+    // A rewards-balance shortfall (the customer applied the same points to two
+    // holds and paid both, so commitRedeemInTx finds the balance already spent)
+    // rolls back the booking exactly like the coupon-limit case. Real gateway
+    // money is already captured, so it MUST take the same orphan-recording path
+    // — rethrowing lets it escape /api/razorpay/verify's unguarded call and
+    // lose the money with no recovery record. Detect by the exact phrase from
+    // lib/rewards/redeem.ts's "Insufficient reward balance: X available, ...".
+    const isRewardShortfall =
+      err instanceof Error &&
+      err.message.includes("Insufficient reward balance");
     if (
       isCouponLimit ||
+      isRewardShortfall ||
       (err instanceof Error && err.message.includes("SLOT_CONFLICT"))
     ) {
       const gateway: OrphanGateway | null = payment.razorpayPaymentId
@@ -1472,7 +1483,7 @@ export async function createBookingFromHold(
       if (gateway) {
         recordOrphanPayment({
           gateway,
-          reason: isCouponLimit ? "create-failed" : "slot-taken",
+          reason: isCouponLimit || isRewardShortfall ? "create-failed" : "slot-taken",
           userId: hold.userId,
           amountRupees: payment.amount,
           razorpayOrderId: payment.razorpayOrderId ?? null,

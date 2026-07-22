@@ -80,7 +80,18 @@ function getClient(): PrismaClient {
     throw new Error("DATABASE_URL is not set");
   }
   const adapter = new PrismaNeon({ connectionString });
-  cachedClient = new PrismaClient({ adapter });
+  cachedClient = new PrismaClient({
+    adapter,
+    // Prisma's default interactive-transaction ceiling is maxWait 2s /
+    // timeout 5s. Over the Neon serverless driver that is too tight: on a
+    // cold start (compute auto-pauses after ~5 min idle) the first
+    // transaction's WebSocket round-trips can exceed 5s, and Prisma then
+    // aborts it with "Transaction not found" — which on a money path
+    // (redeem points, commit a booking) surfaces to the customer as a
+    // failed payment. These ceilings only bound how long a txn MAY run
+    // before being force-aborted; they change no logic.
+    transactionOptions: { maxWait: 15000, timeout: 20000 },
+  });
 
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = cachedClient;

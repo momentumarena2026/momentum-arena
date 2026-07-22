@@ -71,6 +71,12 @@ export async function confirmDqrBooking(
       await Promise.allSettled([
         sendBookingConfirmation(existing.bookingId).catch(() => {}),
         notifyAdminBookingConfirmed(existing.bookingId).catch(() => {}),
+        // Late-settled "I've paid" bookings earn points too — same as the
+        // fresh-booking branch below. awardBookingPoints is idempotent
+        // (@@unique[type,bookingId]) and earns on Payment.amount only.
+        awardBookingPoints(existing.bookingId).catch((err) =>
+          console.error("[dqr] rewards award failed", existing.bookingId, err),
+        ),
       ]);
     });
     return { bookingId: existing.bookingId, alreadyDone: false };

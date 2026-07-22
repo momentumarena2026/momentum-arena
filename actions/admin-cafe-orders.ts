@@ -609,6 +609,25 @@ export async function adminCreateCafeOrder(data: {
       return created;
     });
 
+    // Parity with the other direct-COMPLETED cafe paths
+    // (actions/cafe-orders.ts, app/api/mobile/cafe/orders/route.ts,
+    // lib/cafe-intent.ts): an all-ready order lands STRAIGHT in
+    // COMPLETED and never *transitions* into it, so the
+    // status-transition award hook in updateCafeOrderStatus never
+    // fires — a counter sale of ready-to-serve items would earn 0
+    // without this. Only when bound to a real resolved customer;
+    // guest/walk-in orders (resolvedUserId null) never earn.
+    // Idempotent at the lib layer, and inside after() — a bare
+    // fire-and-forget promise is killed by the serverless freeze.
+    if (orderStatus === "COMPLETED" && resolvedUserId) {
+      after(async () => {
+        const { awardCafePoints } = await import("@/lib/rewards/earn");
+        await awardCafePoints(order.id).catch((err) =>
+          console.error("[rewards] cafe award failed for", order.id, err),
+        );
+      });
+    }
+
     return { success: true, order };
   } catch (error) {
     if (error instanceof CafeStockRaceError) {
@@ -1237,6 +1256,24 @@ export async function updateCafePayment(
         },
       }),
     ]);
+
+    // Refunding a cafe order must claw back the EARNED_CAFE points the
+    // order accrued on completion — otherwise the customer keeps
+    // redeemable credit on money that was returned to them.
+    // cancelCafeOrder refuses COMPLETED orders, so this REFUNDED branch
+    // is the only refund route for exactly the orders that earned.
+    // Fires on the transition INTO refunded; revokeCafeRewards is
+    // idempotent (a REVOKED row for the order → no-op) so a re-refund
+    // or an after() retry can't double-claw. after(): a bare
+    // fire-and-forget promise is killed by the serverless freeze.
+    if (data.status === "REFUNDED" && prev.status !== "REFUNDED") {
+      after(async () => {
+        const { revokeCafeRewards } = await import("@/lib/rewards/revoke");
+        await revokeCafeRewards(orderId).catch((err) =>
+          console.error("[rewards] cafe revoke failed for", orderId, err),
+        );
+      });
+    }
 
     return { success: true };
   } catch (error) {

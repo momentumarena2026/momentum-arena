@@ -32,9 +32,17 @@ export async function POST(request: NextRequest) {
         },
       });
       const newUserId = user.id;
-      after(() => {
-        void awardSignupBonus(newUserId).catch(() => {});
-        void applyReferralForNewUser(newUserId, referralCode).catch(() => {});
+      // Must be awaited inside after() — a synchronous callback returns
+      // undefined immediately, so the serverless freeze kills the floating
+      // promises and the signup/referral points are silently lost. Run
+      // sequentially: both earns touch the same new user's balance row.
+      after(async () => {
+        await awardSignupBonus(newUserId).catch((err) =>
+          console.error("[verify-phone-otp] signup bonus failed", err),
+        );
+        await applyReferralForNewUser(newUserId, referralCode).catch((err) =>
+          console.error("[verify-phone-otp] referral apply failed", err),
+        );
       });
     } else if (!user.phoneVerified) {
       await db.user.update({

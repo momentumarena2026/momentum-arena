@@ -117,10 +117,18 @@ export async function verifyOtpAndLogin(
     });
     // One-time signup reward + optional referral attribution (both no-ops
     // when the admin has the respective points at 0 / disabled).
+    // Must be awaited inside after() — a synchronous callback returns
+    // undefined immediately, so the serverless freeze kills the floating
+    // promises and the points are silently lost. Run sequentially: both
+    // earns touch the same new user's balance row.
     const newUserId = user.id;
-    after(() => {
-      void awardSignupBonus(newUserId).catch(() => {});
-      void applyReferralForNewUser(newUserId, referralCode).catch(() => {});
+    after(async () => {
+      await awardSignupBonus(newUserId).catch((err) =>
+        console.error("[verifyOtpAndLogin] signup bonus failed", err),
+      );
+      await applyReferralForNewUser(newUserId, referralCode).catch((err) =>
+        console.error("[verifyOtpAndLogin] referral apply failed", err),
+      );
     });
   } else if (!user.phoneVerified) {
     await db.user.update({

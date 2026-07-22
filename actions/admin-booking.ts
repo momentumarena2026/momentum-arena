@@ -33,8 +33,11 @@ import { notifyWaitlistersForFreedSlots } from "@/actions/waitlist";
 import {
   awardBookingPoints,
   awardBookingRemainderPoints,
+  previewBookingEarn,
 } from "@/lib/rewards/earn";
 import { revokeBookingRewards } from "@/lib/rewards/revoke";
+import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
+import { ensureBalance, applyBalanceDelta } from "@/lib/rewards/balance";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { computeAutoApplyDiscount } from "@/lib/auto-apply-promo";
 import {
@@ -608,6 +611,17 @@ export async function updateRemainderSplit(
 
   await revalidateBookingPaths(bookingId);
 
+  // The venue-collected total (cash + UPI) that backs Payment.amount just
+  // changed, so the earn credited on it is now stale. Re-sync it to the
+  // new amount the way markRemainderCollected does — top up or adjust
+  // down. Deferred via after() (a bare fire-and-forget dies on freeze);
+  // self-gates to a no-op when the collected total didn't move.
+  after(async () => {
+    await reconcileBookingEarn(bookingId).catch((err) =>
+      console.error("[rewards] reconcile failed for", bookingId, err),
+    );
+  });
+
   return { success: true };
 }
 
@@ -801,6 +815,203 @@ export async function refundBooking(
   });
 
   return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// reconcileBookingEarn
+// ---------------------------------------------------------------------------
+// Bring a booking's EARNED points back in line with the amount the
+// customer ACTUALLY paid, after an admin rewrites Payment.amount out
+// from under an already-credited earn (adminEditPayment total edits,
+// updateRemainderSplit re-attribution). Without this, lowering a bill
+// leaves points over-credited (an indirect-currency money leak) and
+// raising it leaves the customer short-changed.
+//
+// Posts a SINGLE balancing adjustment for the delta between what the
+// new paid amount OUGHT to earn and the net earn already on the ledger
+// for this booking:
+//   - under-credited → EARNED_ADJUSTMENT (credit the shortfall)
+//   - over-credited  → ADJUSTMENT_DEBIT  (claw the excess back)
+//
+// Invariant-safe by construction: every write goes through
+// applyBalanceDelta in the SAME $transaction as its ledger row (balance
+// and ledger can't diverge), and a downward adjustment is capped at the
+// customer's available balance so pointsAvailable never goes negative
+// (mirrors revoke.ts). Any capped shortfall raises the same
+// PARTIAL_REVOKE_SHORTFALL alert — once per booking — for admin follow-up.
+//
+// Only touches bookings that were ALREADY credited an earn: if no
+// EARNED_BOOKING row exists (admin-created, still PENDING, rewards off
+// at confirm time) there is nothing to reconcile and the normal
+// confirm/remainder paths award on the new amount later. A booking whose
+// earn was already revoked (cancel/refund) is terminal and left alone.
+// Idempotent: the @@unique([type, bookingId]) index makes each
+// adjustment single-shot (a retry lands on P2002 and no-ops), and a
+// re-run after convergence computes a zero delta.
+async function reconcileBookingEarn(bookingId: string): Promise<void> {
+  const cfg = await getRewardConfig();
+  // Rewards globally off / zero rate → leave the ledger untouched. Never
+  // claw back historical earn just because the programme was paused.
+  if (!cfg.enabled || cfg.earnRateBookingBps <= 0) return;
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true, courtConfig: { select: { sport: true } } },
+  });
+  if (!booking || !booking.payment) return;
+  const payment = booking.payment;
+
+  // A booking whose remainder is still owed gets its TOTAL earn
+  // reconciled against EARNED_BOOKING by awardBookingRemainderPoints when
+  // the venue collection is recorded (markRemainderCollected). That
+  // top-up keys off the EARNED_BOOKING row alone, so an adjustment posted
+  // here would be invisible to its math and end up double-counted — leave
+  // pending-remainder bookings to that path.
+  if (payment.isPartialPayment && (payment.remainingAmount ?? 0) > 0) return;
+
+  // The booking's own earn credits, keyed by bookingId (one EARNED_BOOKING
+  // and at most one EARNED_BOOKING_REMAINDER, guaranteed by
+  // @@unique([type, bookingId])). Redemptions are a separate lifecycle and
+  // are deliberately excluded.
+  const bookingRows = await db.rewardTransaction.findMany({
+    where: {
+      bookingId,
+      type: {
+        in: ["EARNED_BOOKING", "EARNED_BOOKING_REMAINDER", "REVOKED"],
+      },
+    },
+  });
+  const initialEarn = bookingRows.find((r) => r.type === "EARNED_BOOKING");
+  if (!initialEarn) return; // never earned → nothing to reconcile
+  // Already revoked (cancel/refund) → terminal, don't resurrect the earn.
+  if (bookingRows.some((r) => r.type === "REVOKED")) return;
+
+  // Prior reconcile adjustments are linked to the initial earn by
+  // sourceTxnId, NOT by bookingId. @@unique([type, bookingId]) caps a
+  // booking at one EARNED_ADJUSTMENT and one ADJUSTMENT_DEBIT for life, so
+  // keying them on bookingId made every payment edit after the first hit a
+  // unique violation that got swallowed — leaving the customer over- or
+  // under-credited. sourceTxnId has no such constraint, so each edit posts
+  // a fresh adjustment and the running total below stays exact.
+  const adjRows = await db.rewardTransaction.findMany({
+    where: {
+      sourceTxnId: initialEarn.id,
+      type: { in: ["EARNED_ADJUSTMENT", "ADJUSTMENT_DEBIT"] },
+    },
+  });
+  const earnRows = [...bookingRows, ...adjRows];
+
+  // What the new paid amount OUGHT to earn. previewBookingEarn is the
+  // canonical mirror of awardBookingPoints' formula; enabledSports:[]
+  // skips the sport-policy gate on purpose — this booking already proved
+  // eligible when it earned, so a payment edit must not hinge on whether
+  // the sport is still enabled today.
+  const target = previewBookingEarn({
+    billPaise: payment.amount * 100,
+    sport: booking.courtConfig.sport,
+    createdByAdmin: false,
+    config: {
+      enabled: cfg.enabled,
+      earnRateBookingBps: cfg.earnRateBookingBps,
+      enabledSports: [],
+    },
+  });
+
+  const current = earnRows.reduce((sum, r) => sum + r.points, 0);
+  const delta = target - current;
+  if (delta === 0) return;
+
+  const userId = initialEarn.userId;
+  const now = new Date();
+
+  if (delta > 0) {
+    // Under-credited — top the customer up. bookingId is null on purpose:
+    // attribution flows through sourceTxnId → the EARNED_BOOKING row (which
+    // carries the bookingId), and a null bookingId sidesteps the
+    // @@unique([type, bookingId]) cap so repeated edits each post cleanly.
+    await db.$transaction(async (tx) => {
+      await ensureBalance(tx, userId);
+      await tx.rewardTransaction.create({
+        data: {
+          type: "EARNED_ADJUSTMENT",
+          points: delta,
+          pointsValuePaise: pointsToPaise(delta, cfg),
+          userId,
+          bookingId: null,
+          sourceTxnId: initialEarn.id,
+          reason: `Payment edited (booking ${bookingId}) — earn topped up to match Rs.${payment.amount} paid`,
+        },
+      });
+      await applyBalanceDelta(tx, { userId, points: delta, type: "EARNED", now });
+    });
+    return;
+  }
+
+  // Over-credited — claw the excess back, capped at what the customer
+  // still has so pointsAvailable never goes negative (mirrors revoke.ts).
+  const wanted = -delta;
+  const balance = await db.rewardBalance.findUnique({ where: { userId } });
+  const available = balance?.pointsAvailable ?? 0;
+  const actual = Math.min(available, wanted);
+  if (actual > 0) {
+    // bookingId null / sourceTxnId link — same reasoning as the top-up
+    // branch above: dodges the one-adjustment-per-booking unique cap.
+    await db.$transaction(async (tx) => {
+      await ensureBalance(tx, userId);
+      await tx.rewardTransaction.create({
+        data: {
+          type: "ADJUSTMENT_DEBIT",
+          points: -actual,
+          pointsValuePaise: -pointsToPaise(actual, cfg),
+          userId,
+          bookingId: null,
+          sourceTxnId: initialEarn.id,
+          reason: `Payment edited (booking ${bookingId}) — earn reduced to match Rs.${payment.amount} paid`,
+        },
+      });
+      await applyBalanceDelta(tx, {
+        userId,
+        points: -actual,
+        type: "ADJUSTMENT_DEBIT",
+        now,
+      });
+    });
+  }
+
+  // Couldn't fully claw back (customer already spent the excess) — flag
+  // it, once per booking, the same way revoke.ts does.
+  const shortfall = wanted - actual;
+  if (shortfall > 0) {
+    const openAlerts = await db.rewardAlert.findMany({
+      where: { userId, kind: "PARTIAL_REVOKE_SHORTFALL", status: "OPEN" },
+      select: { details: true },
+    });
+    const alreadyFlagged = openAlerts.some(
+      (a) =>
+        a.details !== null &&
+        typeof a.details === "object" &&
+        !Array.isArray(a.details) &&
+        (a.details as Record<string, unknown>).bookingId === bookingId,
+    );
+    if (!alreadyFlagged) {
+      await db.rewardAlert.create({
+        data: {
+          userId,
+          kind: "PARTIAL_REVOKE_SHORTFALL",
+          severity: "MEDIUM",
+          status: "OPEN",
+          details: {
+            bookingId,
+            wantedClawback: wanted,
+            actualClawback: actual,
+            shortfall,
+            earnTxnId: initialEarn.id,
+            source: "adminEditPayment",
+          },
+        },
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1035,6 +1246,28 @@ export async function adminEditPayment(
   });
 
   await revalidateBookingPaths(bookingId);
+
+  // Reconcile rewards to the money that actually changed. Deferred via
+  // after() because a bare fire-and-forget dies when the serverless
+  // instance freezes on the response.
+  after(async () => {
+    if (newStatus === "REFUNDED") {
+      // Money's been refunded — claw the earn back like the cancel/refund
+      // paths (revoke is idempotent + also returns any redeemed points).
+      // adminEditPayment leaves Booking.status alone, so the alerts.ts
+      // REFUND_THEN_RETAIN backstop (which keys off status=CANCELLED)
+      // never fires here — this direct revoke is the clawback.
+      await revokeBookingRewards(bookingId).catch((err) =>
+        console.error("[rewards] revoke failed for", bookingId, err),
+      );
+    } else {
+      // Payment.amount / total was rewritten — re-sync the earn to the
+      // new paid amount so we neither over- nor under-credit.
+      await reconcileBookingEarn(bookingId).catch((err) =>
+        console.error("[rewards] reconcile failed for", bookingId, err),
+      );
+    }
+  });
 
   return { success: true as const };
 }

@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
@@ -312,12 +313,29 @@ export async function getAllMatchingUserIdsForRewards(args: {
 }
 
 const grantSchema = z.object({
-  // Bumped from 1000 to 10000 so "Select all matching" can hit the
-  // full customer base in a single grant. Anything above 10k should
-  // be done via a cron-driven bulk distribute (not yet implemented).
-  userIds: z.array(z.string().min(1)).min(1).max(10_000),
-  points: z.number().int().min(1).max(1_000_000),
+  // Recipient count is bounded to match getAllMatchingUserIdsForRewards'
+  // CAP so "Select all matching" round-trips cleanly. Anything above 10k
+  // should be done via a cron-driven bulk distribute (not yet implemented).
+  userIds: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(10_000, "Bulk grant is limited to 10,000 recipients per run"),
+  // Per-user ceiling. 1,000,000 pts (₹1,00,000 at the default 1pt=₹1)
+  // was a money-leak-sized blast radius for a fat-fingered bulk grant —
+  // a promo is tens-to-hundreds of points — so cap well below that while
+  // still allowing a large one-off correction.
+  points: z
+    .number()
+    .int()
+    .min(1)
+    .max(100_000, "Bulk grant is limited to 100,000 points per user"),
   reason: z.string().min(3).max(500),
+  // Optional idempotency handle for the whole batch. When set, it (and
+  // only it) identifies the run, so an admin can edit the selection
+  // between a failed run and its retry — or re-run a recurring campaign
+  // on a later day — without double-crediting anyone already done. When
+  // omitted we fall back to a hash of the exact selection (see below).
+  batchLabel: z.string().trim().min(1).max(120).optional(),
 });
 
 export type AdminGrantPointsInput = z.infer<typeof grantSchema>;
@@ -325,22 +343,76 @@ export type AdminGrantPointsInput = z.infer<typeof grantSchema>;
 export async function adminBulkGrantPoints(input: AdminGrantPointsInput) {
   const adminId = await requireAdmin();
   const parsed = grantSchema.parse(input);
+
+  // Idempotency marker for the whole batch. Two ways in:
+  //   • batchLabel supplied → the label alone is the identity, so a
+  //     retry with an edited selection (or a later re-run of the same
+  //     campaign) skips whoever was already credited under that label.
+  //   • no label → hash the exact selection {sortedUserIds, points,
+  //     reason}. An identical re-submit — the "timed out, admin saw
+  //     'failed', hit grant again" case — reproduces the same marker and
+  //     no-ops every user already reached; changing any input starts a
+  //     fresh batch.
+  // The marker rides inside each ADJUSTMENT row's `reason` (a schema-free
+  // ledger field), and we skip any user who already carries it. That is
+  // what turns a mid-run kill from a double-credit into a resumable batch.
+  const identity = parsed.batchLabel
+    ? `label:${parsed.batchLabel}`
+    : `auto:${JSON.stringify({
+        u: [...parsed.userIds].sort(),
+        p: parsed.points,
+        r: parsed.reason,
+      })}`;
+  const marker = createHash("sha256").update(identity).digest("hex").slice(0, 16);
+  const grantReason = `${parsed.reason} [grant:${marker}]`;
+
+  // De-dupe so a user listed twice is credited at most once per run and
+  // in-run concurrency can never race a user against itself.
+  const userIds = Array.from(new Set(parsed.userIds));
+
   let granted = 0;
+  let alreadyGranted = 0;
   let skipped = 0;
-  for (const userId of parsed.userIds) {
+
+  async function grantOne(userId: string): Promise<void> {
+    // Pre-check the marker. Not atomic with the grant — adminGrantPoints
+    // owns its own transaction in lib/rewards/earn.ts, which this action
+    // may not edit — but it closes the dominant failure mode (a killed
+    // run re-submitted). A truly atomic guard needs the findFirst inside
+    // that transaction or a unique index; see needsFollowUp.
+    const done = await db.rewardTransaction.findFirst({
+      where: { userId, type: "EARNED_ADJUSTMENT", reason: grantReason },
+      select: { id: true },
+    });
+    if (done) {
+      alreadyGranted++;
+      return;
+    }
     const r = await adminGrantPoints({
       userId,
       points: parsed.points,
       actorAdminId: adminId,
-      reason: parsed.reason,
+      reason: grantReason,
     });
     if (r.awarded) granted++;
     else skipped++;
   }
+
+  // Process in modest concurrent chunks: a handful of grants in flight
+  // cuts wall-clock time (and thus the chance of a mid-run kill) without
+  // opening enough transactions at once to starve the connection pool.
+  const CHUNK = 10;
+  for (let i = 0; i < userIds.length; i += CHUNK) {
+    await Promise.all(userIds.slice(i, i + CHUNK).map(grantOne));
+  }
+
   revalidatePath("/admin/rewards");
   return {
     granted,
-    skipped,
+    // alreadyGranted (idempotent no-ops) are folded into skipped so
+    // `granted + skipped` still equals the recipient count the UI shows.
+    skipped: skipped + alreadyGranted,
+    alreadyGranted,
     totalPointsAwarded: granted * parsed.points,
   };
 }
@@ -499,8 +571,12 @@ export async function listRewardTransactions(
       creditValuePaise += r.pointsValuePaise;
       creditCount++;
     } else if (r.points < 0) {
+      // Debits accumulate as positive magnitudes. pointsValuePaise is
+      // stored negative on redeem/expire/revoke rows, so Math.abs it to
+      // match debitPoints — otherwise the two accumulators carry opposite
+      // signs and any credit-minus-debit net comes out wrong.
       debitPoints += Math.abs(r.points);
-      debitValuePaise += r.pointsValuePaise;
+      debitValuePaise += Math.abs(r.pointsValuePaise);
       debitCount++;
     }
   }
