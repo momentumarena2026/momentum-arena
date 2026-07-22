@@ -27,9 +27,33 @@ declare global {
   interface Window {
     Razorpay: new (options: Record<string, unknown>) => {
       open: () => void;
-      on: (event: string, callback: () => void) => void;
+      on: (
+        event: string,
+        callback: (response: { error?: RazorpayFailure }) => void,
+      ) => void;
     };
   }
+}
+
+/** The subset of Razorpay's `payment.failed` error payload we act on. */
+type RazorpayFailure = {
+  description?: string;
+  step?: string;
+  metadata?: { payment_id?: string };
+};
+
+/**
+ * Whether a Razorpay rejection leaves any doubt that money moved.
+ * Razorpay only mints `metadata.payment_id` once it has created a real
+ * payment attempt, and only leaves the `payment_initiation` step once the
+ * request has reached the bank. A failure carrying neither never touched a
+ * payment instrument, so the debit warning there just frightens customers
+ * whose card was plainly declined.
+ */
+function mayHaveDebited(error?: RazorpayFailure): boolean {
+  if (error?.metadata?.payment_id) return true;
+  const step = error?.step;
+  return !!step && step !== "payment_initiation";
 }
 
 export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHONEPE", dqrEnabled = false }: { isLoggedIn?: boolean; gateway?: "PHONEPE" | "RAZORPAY"; dqrEnabled?: boolean }) {
@@ -191,30 +215,22 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
           return;
         }
 
-        // Cancel-on-dismiss helper. Called when the customer
-        // closes the Razorpay modal without paying, or when the
-        // gateway reports payment.failed. Hits the cafe-cancel
-        // endpoint which flips the order to CANCELLED so it never
-        // shows up on the admin board, and rolls back the coupon
-        // burn so the customer can retry with the same code.
-        // Stock is not touched — PENDING_PAYMENT orders never
-        // decremented inventory.
-        const cancelPendingPaymentOrder = async (reason: string) => {
-          try {
-            await fetch("/api/razorpay/cafe-cancel", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ orderId: result.orderId, reason }),
-            });
-          } catch (cancelErr) {
-            // Best-effort — if the cancel POST fails (network
-            // hiccup) the server-side sweep cron will clean up
-            // any PENDING_PAYMENT orders eventually. We don't
-            // surface the error to the customer; they already
-            // know payment didn't go through.
-            console.error("[cafe-cancel] best-effort cancel failed", cancelErr);
-          }
-        };
+        // Neither exit below cancels the intent — /api/razorpay/cafe-cancel
+        // hard-DELETES it (deleteCafePaymentIntent), and its only guard is
+        // `consumedAt`, which is still null whenever Razorpay captured but
+        // verify never ran. That is exactly the case that matters: a charged
+        // customer whose cart record we would then destroy, with no cafe
+        // branch in the Razorpay webhook to rebuild it from. The intent
+        // reserves no stock (re-validated at materialise time), so leaving
+        // it costs nothing and keeps a captured payment reconcilable.
+        //
+        // The surviving intent is deliberately NOT stamped `claimedAt`: that
+        // field feeds the admin unconfirmed queue, whose verify/force actions
+        // both resolve through PhonePe and bail with "No PhonePe transaction
+        // on this purchase" for a Razorpay intent. Parking one there would
+        // show staff a row they cannot action, so the copy below promises a
+        // trace rather than a confirmed order.
+        let paymentFailed = false;
 
         const razorpay = new window.Razorpay({
           key: rpData.keyId,
@@ -263,21 +279,33 @@ export function CafeCheckoutClient({ isLoggedIn: initialLoggedIn, gateway = "PHO
           modal: {
             // ondismiss fires when the customer closes the modal
             // without completing payment (clicks the X, taps the
-            // backdrop, hits back, etc). Treat this as a hard
-            // cancel — release the PENDING_PAYMENT order so the
-            // admin tab stays clean.
-            ondismiss: async () => {
-              await cancelPendingPaymentOrder("Customer dismissed Razorpay modal");
-              setError("Payment cancelled. Your order was not placed.");
+            // backdrop, hits back, etc). It carries no payment
+            // information, and Razorpay can auto-capture while the
+            // sheet sits on the bank's page — so the close that
+            // follows may be hiding a captured payment. Warn rather
+            // than reassure.
+            ondismiss: () => {
+              // payment.failed fires first and knows more than we do
+              // here; don't clobber its better-scoped message.
+              if (!paymentFailed) {
+                setError(
+                  "Payment cancelled. If your account was debited, do NOT pay again — contact the cafe counter and we'll trace the payment.",
+                );
+              }
               setLoading(false);
             },
           },
           theme: { color: "#059669" },
         });
 
-        razorpay.on("payment.failed", async function () {
-          await cancelPendingPaymentOrder("Razorpay reported payment.failed");
-          setError("Payment failed. Please try again.");
+        razorpay.on("payment.failed", function (response) {
+          paymentFailed = true;
+          const reason = response?.error?.description || "Payment failed";
+          setError(
+            mayHaveDebited(response?.error)
+              ? `${reason} — if your account was debited, do NOT pay again; contact the cafe counter and we'll trace it.`
+              : `${reason}. Please try again.`,
+          );
           setLoading(false);
         });
 

@@ -9,8 +9,9 @@ import {
 
 /**
  * Mobile admin product edit/delete + stock adjust. Reuses updateProduct /
- * deleteProduct / adjustProductStock via adminIdOverride (keeps the
- * stock-movement audit). Under MANAGE_SHOP_CATALOG.
+ * deleteProduct / adjustProductStock, which each resolve the acting admin
+ * (and enforce MANAGE_SHOP_CATALOG) from the bearer token themselves. The
+ * guard below stays for correct 401/403 status codes.
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -39,7 +40,6 @@ export async function PATCH(
   if (typeof body.stockDelta === "number" && body.stockDelta !== 0) {
     const r = await adjustProductStock(
       { productId: id, delta: Math.trunc(body.stockDelta), note: body.stockNote || "Mobile admin adjustment" },
-      g.admin.id,
     );
     if (!r.success) return NextResponse.json({ error: r.error }, { status: 400 });
   }
@@ -55,7 +55,7 @@ export async function PATCH(
   if (body.isActive !== undefined) data.isActive = !!body.isActive;
 
   if (Object.keys(data).length > 0) {
-    const r = await updateProduct(id, data, g.admin.id);
+    const r = await updateProduct(id, data);
     if (!r.success) return NextResponse.json({ error: r.error }, { status: 400 });
   }
   return NextResponse.json({ ok: true });
@@ -68,7 +68,7 @@ export async function DELETE(
   const g = await guard(request);
   if ("error" in g) return g.error;
   const { id } = await params;
-  const r = await deleteProduct(id, g.admin.id);
+  const r = await deleteProduct(id);
   if (!r.success) return NextResponse.json({ error: r.error }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

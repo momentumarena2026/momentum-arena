@@ -11,25 +11,22 @@ import {
 
 /**
  * Mobile admin — promotion banners (Web & App Config). Mirrors the web
- * manager; auth enforced here via requireMobileAdmin, then the shared
- * actions run with { skipAuth, adminId }. Image FILE uploads happen on
- * the web admin (the app has no native picker); the app can still set
- * an image URL directly and edit every other field.
+ * manager; requireMobileAdmin here returns proper 401/403 JSON, and the
+ * shared actions independently enforce MANAGE_PROMO_BANNERS against this
+ * request's Bearer token. Image FILE uploads happen on the web admin (the
+ * app has no native picker); the app can still set an image URL directly
+ * and edit every other field.
  */
 export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_PROMO_BANNERS");
   if ("error" in gate) return gate.error;
-  const data = await getPromoBannersAdminData({
-    skipAuth: true,
-    adminId: gate.admin.id,
-  });
+  const data = await getPromoBannersAdminData();
   return NextResponse.json(data);
 }
 
 export async function POST(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_PROMO_BANNERS");
   if ("error" in gate) return gate.error;
-  const ctx = { skipAuth: true as const, adminId: gate.admin.id };
 
   const body = (await request.json().catch(() => null)) as
     | ({ action?: string; id?: string; isActive?: boolean } & {
@@ -44,24 +41,24 @@ export async function POST(request: NextRequest) {
     switch (body.action) {
       case "create": {
         if (!body.banner) return NextResponse.json({ ok: false, error: "Missing banner" });
-        const result = await createPromoBanner(body.banner, ctx);
+        const result = await createPromoBanner(body.banner);
         return NextResponse.json(result);
       }
       case "update": {
         if (!body.id || !body.banner) {
           return NextResponse.json({ ok: false, error: "Missing id/banner" });
         }
-        const result = await updatePromoBanner(body.id, body.banner, ctx);
+        const result = await updatePromoBanner(body.id, body.banner);
         return NextResponse.json(result);
       }
       case "toggle": {
         if (!body.id) return NextResponse.json({ ok: false, error: "Missing id" });
-        const result = await togglePromoBanner(body.id, !!body.isActive, ctx);
+        const result = await togglePromoBanner(body.id, !!body.isActive);
         return NextResponse.json(result);
       }
       case "delete": {
         if (!body.id) return NextResponse.json({ ok: false, error: "Missing id" });
-        const result = await deletePromoBanner(body.id, ctx);
+        const result = await deletePromoBanner(body.id);
         return NextResponse.json(result);
       }
       default:

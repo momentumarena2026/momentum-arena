@@ -28,12 +28,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = await getAvailableBowlingSlots(
-    courtConfigId,
-    date,
-    undefined,
-    true, // skipAuth: mobile already authed via getMobileAdmin
-  );
+  const result = await getAvailableBowlingSlots(courtConfigId, date);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

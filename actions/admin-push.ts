@@ -160,20 +160,17 @@ export interface PushDeviceRow {
   userPhone: string | null;
 }
 
-export async function getPushDevices(
-  filters?: {
-    platform?: string;
-    page?: number;
-    limit?: number;
-  },
-  skipAuth = false,
-): Promise<{
+export async function getPushDevices(filters?: {
+  platform?: string;
+  page?: number;
+  limit?: number;
+}): Promise<{
   devices: PushDeviceRow[];
   total: number;
   page: number;
   totalPages: number;
 }> {
-  if (!skipAuth) await requireAdmin(PERMISSION);
+  await requireAdmin(PERMISSION);
 
   const page = filters?.page ?? 1;
   const limit = filters?.limit ?? 50;
@@ -213,11 +210,10 @@ export async function getPushDevices(
 // with its member count and how many of those members have a registered
 // push device — so admins know the actual reach before they hit Send.
 //
-// skipAuth: mobile admin routes pre-authenticate via JWT + re-enforce
-// MANAGE_PUSH in requireMobileAdmin, so they pass skipAuth=true to skip
-// the web cookie-session check here (mirrors actions/admin-push-analytics.ts).
-export async function getActiveUserGroupsForPush(skipAuth = false) {
-  if (!skipAuth) await requireAdmin(PERMISSION);
+// requireAdmin resolves the caller from the web cookie session OR the
+// mobile Bearer JWT, so mobile admin routes reuse this as-is.
+export async function getActiveUserGroupsForPush() {
+  await requireAdmin(PERMISSION);
 
   const groups = await db.userGroup.findMany({
     where: { deletedAt: null },
@@ -253,8 +249,8 @@ export async function getActiveUserGroupsForPush(skipAuth = false) {
 // User search for the broadcast form's "specific user" audience. Restricted
 // to phone / name match — admins searching for "amazon" shouldn't enumerate
 // every user in the DB by typing a single character.
-export async function searchUsersForPush(query: string, skipAuth = false) {
-  if (!skipAuth) await requireAdmin(PERMISSION);
+export async function searchUsersForPush(query: string) {
+  await requireAdmin(PERMISSION);
   const q = query.trim();
   if (q.length < 2) return [];
 
@@ -310,19 +306,13 @@ export interface BroadcastInput {
   // When true, the call returns the audience size without actually
   // sending — used by the form's "Send to N devices" preview.
   dryRun?: boolean;
-  // Mobile-admin override. The web form relies on the NextAuth admin
-  // session via requireAdmin(); the mobile admin route authenticates
-  // with a bearer JWT (getMobileAdmin) and has no web session, so it
-  // passes the already-verified AdminUser.id here to skip requireAdmin
-  // while still attributing the send. The mobile route MUST guard
-  // MANAGE_PUSH itself before calling with this set.
-  adminOverride?: { id: string };
 }
 
 export async function sendBroadcast(input: BroadcastInput) {
-  const admin = input.adminOverride
-    ? input.adminOverride
-    : await requireAdmin(PERMISSION);
+  // Attribution comes from the verified identity only — never from the
+  // client. requireAdmin resolves the web cookie session OR the mobile
+  // Bearer JWT, so the mobile admin route needs no override.
+  const admin = await requireAdmin(PERMISSION);
 
   // Validation. We don't want admins to send empty pushes or accidentally
   // send something with shoddy formatting (the empty-title push shows up
@@ -435,14 +425,17 @@ export async function sendTestPushToUser(userId: string) {
 // customer. It also lets the admin preview exactly how their composed
 // broadcast will look on a lock screen before sending it for real.
 //
-// adminId is the AdminUser.id; the mobile route passes its JWT-verified
-// admin.id here after guarding MANAGE_PUSH. No requireAdmin() session
-// check — there is no web caller for this (the web dashboard tests
-// against a customer, not the admin's own phone).
-export async function sendTestPushToAdmin(
-  adminId: string,
-  override?: { title?: string; body?: string },
-) {
+// The target adminId is the CALLER's own verified identity — it is never
+// accepted from the client. (It used to be a parameter, which made this
+// public "use server" export a way for anyone to push to any admin's
+// devices.) requireAdmin resolves the mobile Bearer JWT as well as a web
+// session, so the mobile admin route needs no override.
+export async function sendTestPushToAdmin(override?: {
+  title?: string;
+  body?: string;
+}) {
+  const { id: adminId } = await requireAdmin(PERMISSION);
+
   const devices = await db.adminPushDevice.findMany({
     where: { adminId },
     select: { token: true },
@@ -473,8 +466,8 @@ export async function sendTestPushToAdmin(
   return { ok: true as const, ...result };
 }
 
-export async function deletePushDeviceById(id: string, skipAuth = false) {
-  if (!skipAuth) await requireAdmin(PERMISSION);
+export async function deletePushDeviceById(id: string) {
+  await requireAdmin(PERMISSION);
   await db.pushDevice.delete({ where: { id } });
   return { ok: true as const };
 }
@@ -483,8 +476,8 @@ export async function deletePushDeviceById(id: string, skipAuth = false) {
 // runs after each send only catches tokens FCM explicitly rejects;
 // devices that simply stopped checking in (uninstall, sign-out from
 // another device) are caught here.
-export async function pruneStalePushDevices(olderThanDays = 90, skipAuth = false) {
-  if (!skipAuth) await requireAdmin(PERMISSION);
+export async function pruneStalePushDevices(olderThanDays = 90) {
+  await requireAdmin(PERMISSION);
   const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
   const result = await db.pushDevice.deleteMany({
     where: { lastSeenAt: { lt: cutoff } },
@@ -513,10 +506,8 @@ export interface PushTemplateView {
 }
 
 /** Registry merged with DB overrides — what the dashboards render. */
-export async function listPushTemplates(
-  skipAuth = false,
-): Promise<PushTemplateView[]> {
-  if (!skipAuth) await requireAdmin(PERMISSION);
+export async function listPushTemplates(): Promise<PushTemplateView[]> {
+  await requireAdmin(PERMISSION);
   const overrides = await db.pushTemplate.findMany();
   const byKey = new Map(overrides.map((o) => [o.key, o]));
   return PUSH_TEMPLATES.map((def) => {
@@ -547,14 +538,8 @@ export async function listPushTemplates(
 export async function updatePushTemplate(
   key: string,
   input: { enabled?: boolean; title?: string; body?: string },
-  skipAuth = false,
-  adminId?: string,
 ): Promise<{ success: boolean; error?: string }> {
-  let actorId = adminId ?? null;
-  if (!skipAuth) {
-    const admin = await requireAdmin(PERMISSION);
-    actorId = admin.id;
-  }
+  const actorId = (await requireAdmin(PERMISSION)).id;
 
   const def = PUSH_TEMPLATES.find((t) => t.key === key);
   if (!def) return { success: false, error: "Unknown template" };

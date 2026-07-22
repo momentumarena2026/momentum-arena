@@ -869,7 +869,7 @@ export function CouponsManager({
                     <span className="text-zinc-600">
                       {form.type === "PERCENTAGE"
                         ? "(basis pts, 1000=10%)"
-                        : "(paise, 10000=₹100)"}
+                        : "(₹, 100=₹100)"}
                     </span>
                   </label>
                   <input
@@ -878,9 +878,7 @@ export function CouponsManager({
                     onChange={(e) =>
                       setForm((p) => ({ ...p, value: e.target.value }))
                     }
-                    placeholder={
-                      form.type === "PERCENTAGE" ? "1000" : "10000"
-                    }
+                    placeholder={form.type === "PERCENTAGE" ? "1000" : "100"}
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
                   />
                 </div>
@@ -888,7 +886,7 @@ export function CouponsManager({
                   <div>
                     <label className="block text-xs font-medium text-zinc-400 mb-1">
                       Max Discount{" "}
-                      <span className="text-zinc-600">(paise, optional)</span>
+                      <span className="text-zinc-600">(₹, optional)</span>
                     </label>
                     <input
                       type="number"
@@ -899,7 +897,7 @@ export function CouponsManager({
                           maxDiscount: e.target.value,
                         }))
                       }
-                      placeholder="e.g. 50000 = ₹500"
+                      placeholder="e.g. 500 for ₹500"
                       className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
                     />
                   </div>

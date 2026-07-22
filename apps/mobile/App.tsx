@@ -25,20 +25,6 @@ export default function App() {
     ensureOtaRolloutBucket();
   }, []);
 
-  // Auto-apply OTA updates. expo-updates downloads a new bundle in the
-  // background on launch; by default it would only be applied on the NEXT
-  // relaunch (the old "force-close twice" dance). Instead, the moment a
-  // downloaded update is pending, reload straight into it. On the reloaded
-  // launch there's no new update, so isUpdatePending stays false — no loop.
-  const { isUpdatePending } = useUpdates();
-  useEffect(() => {
-    if (isUpdatePending && Updates.isEnabled) {
-      Updates.reloadAsync().catch(() => {
-        /* best-effort — if the reload fails the current bundle keeps running */
-      });
-    }
-  }, [isUpdatePending]);
-
   // Show the animated splash on every cold start. The native
   // LaunchScreen.storyboard is a plain black background, so the JS
   // splash takes over invisibly the moment the bundle is ready.
@@ -46,6 +32,25 @@ export default function App() {
   // there's no way to re-show the splash without a fresh launch,
   // which is what we want.
   const [splashDone, setSplashDone] = useState(false);
+
+  // Auto-apply OTA updates, but ONLY while the splash is still up. On a slow
+  // connection the background download can land minutes into the session, and
+  // reloadAsync() tears the JS context down: a live Razorpay sheet dies before
+  // verifyOrder/settledByWebhook can run (a captured cafe payment has no
+  // webhook branch, so it orphans), and DqrCheckout's txnRef/doneRef are
+  // in-memory only, so an in-flight PhonePe poll loses its transaction id.
+  // Before RootNavigator mounts none of that can be in flight. If the update
+  // arrives later we simply leave it pending — expo-updates launches it on the
+  // next cold start by itself, so nothing is lost, just deferred one launch.
+  const { isUpdatePending } = useUpdates();
+  useEffect(() => {
+    if (splashDone) return;
+    if (isUpdatePending && Updates.isEnabled) {
+      Updates.reloadAsync().catch(() => {
+        /* best-effort — if the reload fails the current bundle keeps running */
+      });
+    }
+  }, [isUpdatePending, splashDone]);
 
   // ── In-app version / update gate ───────────────────────────────
   // Result of the most recent backend version-check. `null` means we

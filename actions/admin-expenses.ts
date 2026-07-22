@@ -25,10 +25,12 @@ async function requireExpenseAdmin() {
 }
 
 /**
- * Mobile admin routes pre-authenticate via JWT and pass `skipAuth`
- * (reads, delete) or `adminOverride: { id, name }` (create, update)
- * so the cookie-based gate doesn't fire and the audit trail still
- * records the mobile admin's identity.
+ * `requireExpenseAdmin()` resolves the caller from EITHER the web
+ * cookie session or the mobile Bearer JWT (see lib/admin-auth.ts), so
+ * the mobile admin routes reuse these actions unchanged and the audit
+ * trail still records the mobile admin's identity. Identity is never
+ * taken from a caller-supplied argument — every export here is a
+ * public server-action endpoint whose arguments come from the client.
  */
 
 // ---------------------------------------------------------------------
@@ -152,9 +154,8 @@ export interface ListExpensesFilters {
 
 export async function listExpenses(
   filters: ListExpensesFilters = {},
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireExpenseAdmin();
+  await requireExpenseAdmin();
 
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(200, Math.max(10, filters.pageSize ?? 50));
@@ -199,8 +200,8 @@ export async function listExpenses(
   };
 }
 
-export async function getExpenseById(id: string, skipAuth?: boolean) {
-  if (!skipAuth) await requireExpenseAdmin();
+export async function getExpenseById(id: string) {
+  await requireExpenseAdmin();
   const expense = await db.expense.findUnique({
     where: { id },
     include: {
@@ -214,11 +215,8 @@ export async function getExpenseById(id: string, skipAuth?: boolean) {
 // Create + update + delete
 // ---------------------------------------------------------------------
 
-export async function createExpense(
-  input: ExpenseInput,
-  adminOverride?: { id: string; name: string },
-) {
-  const admin = adminOverride ?? (await requireExpenseAdmin());
+export async function createExpense(input: ExpenseInput) {
+  const admin = await requireExpenseAdmin();
 
   const parsed = expenseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -262,9 +260,7 @@ export async function createExpense(
           expenseId: expense.id,
           adminId: admin.id,
           adminUsername:
-            admin.name ||
-            ("email" in admin ? admin.email : undefined) ||
-            "admin",
+            admin.name || admin.email || "admin",
           editType: "CREATED",
           changes: [] as unknown as Prisma.InputJsonValue,
         },
@@ -288,9 +284,8 @@ export async function updateExpense(
   id: string,
   input: ExpenseInput,
   note?: string,
-  adminOverride?: { id: string; name: string },
 ) {
-  const admin = adminOverride ?? (await requireExpenseAdmin());
+  const admin = await requireExpenseAdmin();
 
   const parsed = expenseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -342,9 +337,7 @@ export async function updateExpense(
               expenseId: id,
               adminId: admin.id,
               adminUsername:
-            admin.name ||
-            ("email" in admin ? admin.email : undefined) ||
-            "admin",
+            admin.name || admin.email || "admin",
               editType: "UPDATED",
               changes: [] as unknown as Prisma.InputJsonValue,
               note: note.trim(),
@@ -361,9 +354,7 @@ export async function updateExpense(
           expenseId: id,
           adminId: admin.id,
           adminUsername:
-            admin.name ||
-            ("email" in admin ? admin.email : undefined) ||
-            "admin",
+            admin.name || admin.email || "admin",
           editType: "UPDATED",
           changes: changes as unknown as Prisma.InputJsonValue,
           note: note?.trim() || null,
@@ -381,8 +372,8 @@ export async function updateExpense(
   }
 }
 
-export async function deleteExpense(id: string, skipAuth?: boolean) {
-  if (!skipAuth) await requireExpenseAdmin();
+export async function deleteExpense(id: string) {
+  await requireExpenseAdmin();
 
   // READ-ONLY guard: GENERAL (the original Expenses tab) accepts no deletes.
   const target = await db.expense.findUnique({
@@ -422,9 +413,8 @@ export interface AnalyticsFilters {
 
 export async function getExpenseAnalytics(
   filters: AnalyticsFilters = {},
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireExpenseAdmin();
+  await requireExpenseAdmin();
 
   const where: Prisma.ExpenseWhereInput = { module: filters.module ?? "GENERAL" };
   if (filters.from || filters.to) {
@@ -511,10 +501,9 @@ export async function listExpenseOptions(
 }
 
 export async function listActiveExpenseOptionsByField(
-  skipAuth?: boolean,
   module: "GENERAL" | "RUNNING" = "GENERAL",
 ) {
-  if (!skipAuth) await requireExpenseAdmin();
+  await requireExpenseAdmin();
   const rows = await db.expenseOption.findMany({
     where: { isActive: true, module },
     orderBy: [{ sortOrder: "asc" }, { label: "asc" }],

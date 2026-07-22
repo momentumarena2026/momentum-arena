@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/auth-unified";
+import { confirmShopOrderPaid } from "@/lib/shop-confirm";
 import { db } from "@/lib/db";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { buildOrderNumber, decrementStock, incrementStock, recordStockMovement } from "@/lib/product";
@@ -58,13 +59,8 @@ interface OrderForRazorpay {
  */
 export async function placeCustomerOrder(
   method: "RAZORPAY" | "UPI_QR" | "CASH",
-  userIdOverride?: string,
 ): Promise<OrderResult> {
-  let userId: string | undefined = userIdOverride;
-  if (!userId) {
-    const session = await auth();
-    userId = session?.user?.id;
-  }
+  const userId = await getAuthUserId();
   if (!userId) {
     return { success: false, error: "Please sign in to place an order." };
   }
@@ -193,13 +189,8 @@ export async function placeCustomerOrder(
 /** Read-side helper — used by /api/shop/razorpay/create-order. */
 export async function getOrderForRazorpay(
   orderId: string,
-  userIdOverride?: string,
 ): Promise<OrderForRazorpay | null> {
-  let userId: string | undefined = userIdOverride;
-  if (!userId) {
-    const session = await auth();
-    userId = session?.user?.id;
-  }
+  const userId = await getAuthUserId();
   if (!userId) return null;
 
   const order = await db.productOrder.findFirst({
@@ -220,50 +211,16 @@ export async function confirmOrderAfterRazorpay(
   razorpayPaymentId: string,
   razorpayOrderId: string,
   razorpaySignature: string,
-  userIdOverride?: string,
 ): Promise<{ success: boolean; error?: string }> {
-  let userId: string | undefined = userIdOverride;
-  if (!userId) {
-    const session = await auth();
-    userId = session?.user?.id;
-  }
-  if (!userId) {
-    return { success: false, error: "Unauthorized" };
-  }
-  const order = await db.productOrder.findFirst({
-    where: { id: orderId, userId },
-    include: { payment: true },
+  const userId = await getAuthUserId();
+  if (!userId) return { success: false, error: "Unauthorized" };
+  return confirmShopOrderPaid({
+    orderId,
+    userId,
+    razorpayPaymentId,
+    razorpayOrderId,
+    razorpaySignature,
   });
-  if (!order) return { success: false, error: "Order not found" };
-  if (order.status === "CONFIRMED" || order.status === "FULFILLED") {
-    return { success: true };
-  }
-  if (order.status !== "PENDING") {
-    return { success: false, error: `Order is ${order.status.toLowerCase()}` };
-  }
-
-  await db.$transaction(async (tx) => {
-    await tx.productOrder.update({
-      where: { id: orderId },
-      data: { status: "CONFIRMED" },
-    });
-    if (order.payment) {
-      await tx.productOrderPayment.update({
-        where: { id: order.payment.id },
-        data: {
-          status: "COMPLETED",
-          razorpayPaymentId,
-          razorpayOrderId,
-          razorpaySignature,
-          confirmedAt: new Date(),
-        },
-      });
-    }
-  });
-
-  revalidatePath(`/shop/orders/${orderId}`);
-  revalidatePath("/admin/product-orders");
-  return { success: true };
 }
 
 // ─── Customer / admin: cancel + release stock ────────────────────────
@@ -271,13 +228,8 @@ export async function confirmOrderAfterRazorpay(
 export async function cancelOrder(
   orderId: string,
   reason: string,
-  userIdOverride?: string,
 ): Promise<{ success: boolean; error?: string }> {
-  let userId: string | undefined = userIdOverride;
-  if (!userId) {
-    const session = await auth();
-    userId = session?.user?.id;
-  }
+  const userId = await getAuthUserId();
   if (!userId) return { success: false, error: "Unauthorized" };
 
   // Customer can only cancel their own PENDING orders. Admins use
@@ -321,15 +273,11 @@ export async function cancelOrder(
 // ─── Admin: confirm payment / mark fulfilled / cancel ────────────────
 
 /**
- * Resolve the acting admin id. The web surface authenticates via
- * NextAuth (requireAdminBase); the mobile-admin routes authenticate
- * via a bearer JWT and pass the already-verified admin identity
- * through `adminOverride` so the full action logic is shared rather
- * than re-implemented. Mirrors the adminOverride pattern in
- * actions/admin-cafe-orders.ts.
+ * Resolve the acting admin id. requireAdminBase resolves the caller from
+ * EITHER the web cookie session or the mobile-admin bearer JWT, so both
+ * surfaces share one enforced gate — there is no caller-supplied override.
  */
-async function requireOrdersAdmin(adminOverride?: { id: string; username: string }) {
-  if (adminOverride) return adminOverride.id;
+async function requireOrdersAdmin() {
   const user = await requireAdminBase("MANAGE_SHOP_ORDERS");
   return user.id;
 }
@@ -342,8 +290,8 @@ async function requireOrdersAdmin(adminOverride?: { id: string; username: string
 export async function adminConfirmOrderPayment(args: {
   orderId: string;
   utrNumber?: string;
-}, adminOverride?: { id: string; username: string }): Promise<{ success: boolean; error?: string }> {
-  const adminId = await requireOrdersAdmin(adminOverride);
+}): Promise<{ success: boolean; error?: string }> {
+  const adminId = await requireOrdersAdmin();
   const order = await db.productOrder.findUnique({
     where: { id: args.orderId },
     include: { payment: true },
@@ -378,9 +326,8 @@ export async function adminConfirmOrderPayment(args: {
 
 export async function adminMarkFulfilled(
   orderId: string,
-  adminOverride?: { id: string; username: string },
 ): Promise<{ success: boolean; error?: string }> {
-  const adminId = await requireOrdersAdmin(adminOverride);
+  const adminId = await requireOrdersAdmin();
   const order = await db.productOrder.findUnique({ where: { id: orderId } });
   if (!order) return { success: false, error: "Order not found" };
   if (order.status !== "CONFIRMED") {
@@ -402,9 +349,8 @@ export async function adminMarkFulfilled(
 export async function adminCancelOrder(
   orderId: string,
   reason: string,
-  adminOverride?: { id: string; username: string },
 ): Promise<{ success: boolean; error?: string }> {
-  const adminId = await requireOrdersAdmin(adminOverride);
+  const adminId = await requireOrdersAdmin();
   const order = await db.productOrder.findUnique({
     where: { id: orderId },
     include: { items: true },
@@ -459,8 +405,8 @@ export async function placeAdminOrder(args: {
   method: PaymentMethod;
   markPaid?: boolean;
   utrNumber?: string;
-}, adminOverride?: { id: string; username: string }): Promise<OrderResult> {
-  const adminId = await requireOrdersAdmin(adminOverride);
+}): Promise<OrderResult> {
+  const adminId = await requireOrdersAdmin();
   if (args.items.length === 0) {
     return { success: false, error: "Add at least one item" };
   }
@@ -569,13 +515,8 @@ export async function placeAdminOrder(args: {
 
 export async function getOrderForCustomer(
   orderId: string,
-  userIdOverride?: string,
 ) {
-  let userId: string | undefined = userIdOverride;
-  if (!userId) {
-    const session = await auth();
-    userId = session?.user?.id;
-  }
+  const userId = await getAuthUserId();
   if (!userId) return null;
   return db.productOrder.findFirst({
     where: { id: orderId, userId },
@@ -586,12 +527,8 @@ export async function getOrderForCustomer(
   });
 }
 
-export async function listMyOrders(userIdOverride?: string) {
-  let userId: string | undefined = userIdOverride;
-  if (!userId) {
-    const session = await auth();
-    userId = session?.user?.id;
-  }
+export async function listMyOrders() {
+  const userId = await getAuthUserId();
   if (!userId) return [];
   return db.productOrder.findMany({
     where: { userId },
@@ -605,8 +542,8 @@ export async function listOrdersForAdmin(filters?: {
   status?: ProductOrderStatus;
   search?: string;
   page?: number;
-}, adminOverride?: { id: string; username: string }) {
-  await requireOrdersAdmin(adminOverride);
+}) {
+  await requireOrdersAdmin();
   const page = filters?.page ?? 1;
   const limit = 50;
   const where: Prisma.ProductOrderWhereInput = {};
@@ -665,10 +602,8 @@ export interface ShopAnalyticsSummary {
   };
 }
 
-export async function getShopAnalyticsSummary(
-  adminOverride?: { id: string; username: string },
-): Promise<ShopAnalyticsSummary> {
-  await requireOrdersAdmin(adminOverride);
+export async function getShopAnalyticsSummary(): Promise<ShopAnalyticsSummary> {
+  await requireOrdersAdmin();
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);

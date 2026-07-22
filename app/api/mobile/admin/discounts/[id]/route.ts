@@ -74,7 +74,6 @@ export async function PATCH(
       validUntil: d.validUntil,
       isActive: d.isActive,
     },
-    true,
   );
   return NextResponse.json({ ok: true });
 }
@@ -87,7 +86,7 @@ export async function DELETE(
   if ("error" in g) return g.error;
   const { id } = await params;
 
-  const result = await deleteDiscountCode(id, true);
+  const result = await deleteDiscountCode(id);
   if (!result.success) {
     return NextResponse.json(
       { error: result.error ?? "Delete failed" },

@@ -170,7 +170,16 @@ export async function POST(request: NextRequest) {
     hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
       ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
       : 0;
-  const fullAmount = hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+  // Gear picked at lock time is PLUSed on top of the slot total — the same
+  // `effectiveTotal` math createBookingFromHold uses for Booking.totalAmount,
+  // and what create-order actually charged. Leaving it out understated
+  // remainingAmount by the equipment total, and this route usually beats the
+  // webhook on mobile, so its wrong figure is the one that sticks.
+  const fullAmount =
+    hold.totalAmount -
+    appliedDiscount -
+    pointsRedeemRupees +
+    (hold.equipmentTotalAmount ?? 0);
   const advanceAmount = isAdvance ? paymentAmount : undefined;
   const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
 

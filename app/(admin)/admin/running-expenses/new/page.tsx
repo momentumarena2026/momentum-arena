@@ -10,7 +10,7 @@ function todayISO(): string {
 }
 
 export default async function NewRunningExpensePage() {
-  const options = await listActiveExpenseOptionsByField(undefined, "RUNNING");
+  const options = await listActiveExpenseOptionsByField("RUNNING");
 
   return (
     <div className="space-y-6">

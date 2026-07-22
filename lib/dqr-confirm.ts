@@ -71,6 +71,12 @@ export async function confirmDqrBooking(
       await Promise.allSettled([
         sendBookingConfirmation(existing.bookingId).catch(() => {}),
         notifyAdminBookingConfirmed(existing.bookingId).catch(() => {}),
+        // Late-settled "I've paid" bookings earn points too — same as the
+        // fresh-booking branch below. awardBookingPoints is idempotent
+        // (@@unique[type,bookingId]) and earns on Payment.amount only.
+        awardBookingPoints(existing.bookingId).catch((err) =>
+          console.error("[dqr] rewards award failed", existing.bookingId, err),
+        ),
       ]);
     });
     return { bookingId: existing.bookingId, alreadyDone: false };
@@ -106,7 +112,15 @@ export async function confirmDqrBooking(
     hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
       ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
       : 0;
-  const fullAmount = hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+  // Gear picked at lock time is PLUSed on top of the slot total — the same
+  // `effectiveTotal` math createBookingFromHold uses for Booking.totalAmount.
+  // Leaving it out understated remainingAmount by the equipment total, so
+  // the venue was told to collect less than markRemainderCollected demands.
+  const fullAmount =
+    hold.totalAmount -
+    appliedDiscount -
+    pointsRedeemRupees +
+    (hold.equipmentTotalAmount ?? 0);
   const advanceAmount = isAdvance ? paymentAmount : undefined;
   const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
 

@@ -11,9 +11,12 @@ import {
 } from "@/actions/admin-bowling-machine";
 
 /**
- * Mobile admin bowling-machine settings. Reuses the web actions via their
- * skipAuth flag (read + enable/half/windows writes keep all the validation,
- * zone-swap and transaction logic) under MANAGE_SPORTS.
+ * Mobile admin bowling-machine settings. Reuses the web actions directly (read
+ * + enable/half/windows writes keep all the validation, zone-swap and
+ * transaction logic) under MANAGE_SPORTS.
+ *
+ * The guard below exists so an unauthorised call answers 401/403 JSON; the
+ * actions re-check MANAGE_SPORTS themselves off the same bearer token.
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -30,7 +33,7 @@ async function guard(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const g = await guard(request);
   if ("error" in g) return g.error;
-  const settings = await getBowlingMachineSettings(true);
+  const settings = await getBowlingMachineSettings();
   return NextResponse.json({ settings });
 }
 
@@ -45,13 +48,12 @@ export async function POST(request: NextRequest) {
 
   let result: { success: boolean; error?: string };
   if (body.action === "enabled") {
-    result = await setBowlingMachineEnabled(!!body.enabled, true);
+    result = await setBowlingMachineEnabled(!!body.enabled);
   } else if (body.action === "half") {
-    result = await setBowlingMachineHalf(body.half as BowlingHalf, true);
+    result = await setBowlingMachineHalf(body.half as BowlingHalf);
   } else if (body.action === "windows") {
     result = await updateBowlingMachineWindows(
       (body.windows ?? []) as WindowInput[],
-      true,
     );
   } else {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

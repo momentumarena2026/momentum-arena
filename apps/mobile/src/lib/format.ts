@@ -104,6 +104,38 @@ export function formatHoursAsRanges(hours: number[]): string {
     .join(", ");
 }
 
+/**
+ * Mirror of web's `formatSlotsAsRanges` in @/lib/court-config. Unlike
+ * `formatHoursAsRanges` it respects the slot's start minute, so a
+ * bowling-machine 6:30-7:00 pick reads as "6:30pm - 7pm" instead of being
+ * rounded down to the whole hour. Consecutive slots merge into one range.
+ */
+export function formatSlotsAsRanges(
+  slots: { hour: number; minute: number }[],
+  durationMinutes: number
+): string {
+  if (slots.length === 0) return "";
+  const ranges: [number, number][] = slots
+    .map((s) => {
+      const start = s.hour * 60 + s.minute;
+      return [start, start + durationMinutes] as [number, number];
+    })
+    .sort((a, b) => a[0] - b[0]);
+
+  const merged: [number, number][] = [];
+  for (const [start, end] of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && last[1] === start) {
+      last[1] = end;
+    } else {
+      merged.push([start, end]);
+    }
+  }
+  return merged
+    .map(([s, e]) => `${formatHourMinuteCompact(s)} - ${formatHourMinuteCompact(e)}`)
+    .join(", ");
+}
+
 /** Given sorted start hours [18, 19, 20], produce "6 PM – 9 PM". */
 export function formatHourRange(hours: number[]): string {
   if (hours.length === 0) return "";

@@ -48,7 +48,6 @@ export async function PATCH(
         role: parsed.data.role as UserRole,
       }),
     },
-    true,
   );
 
   if (!result.success) {
@@ -68,13 +67,10 @@ export async function DELETE(
   if ("error" in gate) return gate.error;
   const { id } = await params;
 
-  // Pass the JWT admin's id so deleteUser's self-deletion + active-booking
-  // guards run exactly as on web (it normally reads the actor from the cookie
-  // session, which is absent for bearer-token callers).
-  const result = await deleteUser(id, {
-    skipAuth: true,
-    adminId: gate.admin.id,
-  });
+  // deleteUser resolves the acting admin itself (cookie session or this
+  // request's Bearer token), so its self-deletion + active-booking guards run
+  // exactly as on web.
+  const result = await deleteUser(id);
   if (!result.success) {
     return NextResponse.json(
       { error: result.error ?? "Failed to delete user" },

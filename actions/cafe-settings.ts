@@ -70,26 +70,22 @@ export type SetCafeOpenResult =
  */
 export async function setCafeOpen(
   isOpen: boolean,
-  skipAuth?: boolean,
 ): Promise<SetCafeOpenResult> {
-  // Auth — same surface as every other cafe-menu admin action. If
-  // the call would throw (no session / no permission) we catch it
-  // and convert into a failure result rather than letting it bubble
-  // across the server-action boundary as a digest error.
-  //
-  // Mobile admin routes pre-authenticate via JWT + re-enforce the
-  // MANAGE_CAFE_MENU permission in `requireMobileAdmin`, then pass
-  // `skipAuth: true` to bypass the NextAuth web-cookie gate — the
-  // same convention actions/admin-cafe.ts uses.
-  if (!skipAuth) {
-    try {
-      await requireAdmin("MANAGE_CAFE_MENU");
-    } catch {
-      return {
-        ok: false,
-        error: "You don't have permission to change the cafe state.",
-      };
-    }
+  // Auth — same surface as every other cafe-menu admin action, and
+  // unconditional: this is a "use server" export, so its arguments
+  // come from the client. `requireAdmin` accepts either the web
+  // cookie session or the mobile Bearer JWT, so mobile admin routes
+  // calling this in-process authenticate here too. If the call would
+  // throw (no session / no permission) we catch it and convert into a
+  // failure result rather than letting it bubble across the
+  // server-action boundary as a digest error.
+  try {
+    await requireAdmin("MANAGE_CAFE_MENU");
+  } catch {
+    return {
+      ok: false,
+      error: "You don't have permission to change the cafe state.",
+    };
   }
 
   // DB write — findFirst by id only, so the read succeeds even if a

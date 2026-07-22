@@ -18,6 +18,39 @@ function paiseToRupees(paise: number): number {
   return Math.round(paise / 100);
 }
 
+// Bookings that count as real, non-cancelled business. Mirrors
+// EARNING_BOOKING_STATUSES in actions/admin-booking.ts.
+//
+// COMPLETED and ABSENT are the front desk's two closeout buttons, and
+// both are terminal states a CONFIRMED booking passes into after the
+// session. Filtering on CONFIRMED alone meant every closeout silently
+// deleted that booking's money from the dashboard — and retroactively,
+// since past dates get closed out in bulk. ABSENT belongs here for the
+// same reason as COMPLETED: a no-show forfeits its advance, so the
+// venue keeps the money and it must stay counted. Only CANCELLED
+// (money refunded / never taken) is excluded.
+//
+// What keeps that honest is closeOutBooking (actions/admin-booking.ts)
+// writing the UNCOLLECTED balance off Booking.totalAmount, so a no-show
+// contributes only the advance it actually forfeited. Do not assume the
+// Payment.status = COMPLETED join does that job — getDailyEarningsForMonth
+// and getMonthlyEarningsForYear bucket on Booking.date and join no
+// Payment at all.
+const EARNING_BOOKING_STATUSES = ["CONFIRMED", "COMPLETED", "ABSENT"] as const;
+
+// Same list for raw-SQL call sites: `b.status IN (...)`.
+const EARNING_BOOKING_STATUSES_SQL = Prisma.join([
+  ...EARNING_BOOKING_STATUSES,
+]);
+
+// Bookings that CONSUMED court time — demand, not money. Identical
+// membership to EARNING_BOOKING_STATUSES today, but they answer
+// different questions: a booking can stop being revenue (unpaid, fully
+// written off) while still having held the court against other
+// customers. Named separately so a money-side edit to the list above
+// can't silently redefine what "peak hour" means.
+const DEMAND_BOOKING_STATUSES = ["CONFIRMED", "COMPLETED", "ABSENT"] as const;
+
 // ===========================
 // 1. Revenue Over Time
 // ===========================
@@ -29,12 +62,8 @@ export async function getRevenueOverTime(
     scope: "all" | "sports" | "cafe";
     groupBy: "day" | "week" | "month";
   },
-  // Mobile admin routes pre-authenticate via JWT (getMobileAdmin +
-  // hasPermission) and pass skipAuth=true so this server action doesn't
-  // re-run the web cookie-session check, which would throw there.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const { dateFrom, dateTo, scope, groupBy } = filters;
@@ -65,7 +94,7 @@ export async function getRevenueOverTime(
             LEFT JOIN "PassRedemption" pr
               ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
             WHERE p.status = 'COMPLETED'
-              AND b.status = 'CONFIRMED'
+              AND b.status IN (${EARNING_BOOKING_STATUSES_SQL})
               AND p."confirmedAt" >= ${from}
               AND p."confirmedAt" <= ${to}
             GROUP BY period
@@ -169,10 +198,8 @@ export async function getRevenueOverTime(
 export async function getSportRevenueBreakdown(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -184,7 +211,7 @@ export async function getSportRevenueBreakdown(
     // admin price negotiations reduce the final bill.
     const results = await db.booking.findMany({
       where: {
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
         payment: {
           status: "COMPLETED",
           confirmedAt: { gte: from, lte: to },
@@ -281,10 +308,8 @@ export async function getSportRevenueBreakdown(
 export async function getSportRevenueByMonth(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -293,7 +318,7 @@ export async function getSportRevenueByMonth(
 
     const results = await db.booking.findMany({
       where: {
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
         payment: {
           status: "COMPLETED",
           confirmedAt: { gte: from, lte: to },
@@ -491,10 +516,8 @@ export async function getCafeCategoryBreakdown(
 export async function getPeakHourAnalysis(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -504,7 +527,10 @@ export async function getPeakHourAnalysis(
     const slots = await db.bookingSlot.findMany({
       where: {
         booking: {
-          status: "CONFIRMED",
+          // Occupancy, not money: a closed-out session still consumed
+          // that hour, and a no-show still held the court against
+          // other customers. Both must count as peak-hour demand.
+          status: { in: [...DEMAND_BOOKING_STATUSES] },
           date: { gte: from, lte: to },
         },
       },
@@ -538,10 +564,8 @@ export async function getTopCustomers(
   dateFrom: string,
   dateTo: string,
   limit: number = 10,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -554,7 +578,7 @@ export async function getTopCustomers(
     // bounded on large windows.
     const sportsBookings = await db.booking.findMany({
       where: {
-        status: "CONFIRMED",
+        status: { in: [...EARNING_BOOKING_STATUSES] },
         payment: {
           status: "COMPLETED",
           confirmedAt: { gte: from, lte: to },
@@ -687,10 +711,8 @@ export async function getTopCustomers(
 export async function getPaymentMethodBreakdown(
   dateFrom: string,
   dateTo: string,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -762,12 +784,8 @@ export async function getPaymentMethodBreakdown(
 export async function getKPIStats(
   dateFrom: string,
   dateTo: string,
-  // Mobile admin routes pre-authenticate via JWT (getMobileAdmin +
-  // hasPermission) and pass skipAuth=true so this server action doesn't
-  // re-run the web cookie-session check, which would throw there.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     const from = new Date(dateFrom);
@@ -794,8 +812,8 @@ export async function getKPIStats(
       // bill, Booking.totalAmount is authoritative. The LEFT JOIN nets
       // out the pass-settled portion (cash basis: that money was
       // recognised at pass purchase, counted separately below).
-      // Filter: CONFIRMED bookings whose payment lands COMPLETED inside
-      // the selected window.
+      // Filter: non-cancelled bookings whose payment lands COMPLETED
+      // inside the selected window.
       db.$queryRaw<{ revenue: bigint | null; cnt: bigint }[]>(Prisma.sql`
         SELECT SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS revenue,
                COUNT(*)::bigint AS cnt
@@ -803,7 +821,7 @@ export async function getKPIStats(
         INNER JOIN "Payment" p ON p."bookingId" = b.id
         LEFT JOIN "PassRedemption" pr
           ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
-        WHERE b.status = 'CONFIRMED'
+        WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
           AND p.status = 'COMPLETED'
           AND p."confirmedAt" >= ${from}
           AND p."confirmedAt" <= ${to}
@@ -825,10 +843,13 @@ export async function getKPIStats(
         _sum: { amount: true },
         _count: { id: true },
       }),
-      // Total confirmed bookings
+      // Total non-cancelled bookings. Also the cancellation-rate
+      // denominator, so closeouts must stay in it — otherwise the
+      // rate creeps toward 100% for past windows as the front desk
+      // works through them.
       db.booking.count({
         where: {
-          status: "CONFIRMED",
+          status: { in: [...EARNING_BOOKING_STATUSES] },
           date: { gte: from, lte: to },
         },
       }),
@@ -849,7 +870,7 @@ export async function getKPIStats(
       // Distinct sports customers
       db.booking.findMany({
         where: {
-          status: "CONFIRMED",
+          status: { in: [...EARNING_BOOKING_STATUSES] },
           date: { gte: from, lte: to },
         },
         select: { userId: true },
@@ -940,10 +961,8 @@ export async function getKPIStats(
 export async function getDailyEarningsForMonth(
   year: number,
   month: number, // 1-12
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     if (
@@ -979,7 +998,7 @@ export async function getDailyEarningsForMonth(
       FROM "Booking" b
       LEFT JOIN "PassRedemption" pr
         ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
-      WHERE b.status = 'CONFIRMED'
+      WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
         AND b.date >= ${start}
         AND b.date < ${nextStart}
       GROUP BY day
@@ -1049,10 +1068,8 @@ export async function getDailyEarningsForMonth(
 // month, padding months with no bookings to zero.
 export async function getMonthlyEarningsForYear(
   year: number,
-  // See getKPIStats — mobile admin routes pre-authenticate and pass true.
-  skipAuth = false,
 ) {
-  if (!skipAuth) await requireAnalyticsAccess();
+  await requireAnalyticsAccess();
 
   try {
     if (!Number.isInteger(year)) {
@@ -1076,7 +1093,7 @@ export async function getMonthlyEarningsForYear(
       FROM "Booking" b
       LEFT JOIN "PassRedemption" pr
         ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
-      WHERE b.status = 'CONFIRMED'
+      WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
         AND b.date >= ${start}
         AND b.date < ${nextStart}
       GROUP BY month

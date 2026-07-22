@@ -33,7 +33,6 @@ export async function POST(request: NextRequest) {
     razorpayPaymentId,
     razorpayOrderId,
     razorpaySignature,
-    user.id,
   );
   if (!res.success) {
     return NextResponse.json({ error: res.error }, { status: 400 });

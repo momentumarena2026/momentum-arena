@@ -6,8 +6,8 @@ import { restoreUser } from "@/actions/admin-users";
  * POST /api/mobile/admin/users/[id]/restore
  *
  * Un-soft-deletes a user (clears deletedAt). Mirrors restoreUser in
- * actions/admin-users.ts. skipAuth: this route already authorized via the JWT
- * gate below.
+ * actions/admin-users.ts, which runs its own requireAdmin gate; the gate below
+ * stays for proper 401/403 JSON and defence in depth.
  *
  * Permission: MANAGE_USERS (SUPERADMIN bypass) — the same key the web enforces.
  */
@@ -19,7 +19,7 @@ export async function POST(
   if ("error" in gate) return gate.error;
   const { id } = await params;
 
-  const result = await restoreUser(id, true);
+  const result = await restoreUser(id);
   if (!result.success) {
     return NextResponse.json(
       { error: "Failed to restore user" },

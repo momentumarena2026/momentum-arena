@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const blocks = await getSlotBlocks(date, true);
+  const blocks = await getSlotBlocks(date);
 
   // Trim to a mobile-friendly shape — drop nested timestamps the
   // floor-staff don't need, and surface the courtConfig label inline
@@ -62,7 +62,6 @@ const Body = z.object({
 export async function POST(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_SLOTS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -72,7 +71,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await blockSlot(parsed.data, admin.id);
+  const result = await blockSlot(parsed.data);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

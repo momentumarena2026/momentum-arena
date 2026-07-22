@@ -23,8 +23,8 @@ export type AccountStackParamList = {
   // Shop order history lives here (not in ShopStack) because the only
   // entry point is the Account screen's "Shop orders" tile. Registering
   // it here means:
-  //   - the Shop tab can never get "stuck" on ShopOrders (Shop tab tap
-  //     in the bottom nav always lands on ShopHome)
+  //   - the Shop route can never get "stuck" on ShopOrders (opening
+  //     Shop from the arc always lands on ShopHome)
   //   - back from ShopOrders pops to AccountHome naturally — no
   //     special headerLeft override needed
   // ShopOrderDetail is registered in BOTH AccountStack (reached from
@@ -79,9 +79,9 @@ export type MainTabsParamList = {
   // they're picking a sport, not a date.
   Sports: NavigatorScreenParams<BookStackParamList>;
   Cafe: NavigatorScreenParams<CafeStackParamList>;
-  // Shop sits at the 4th position — pickup-at-venue product catalog
-  // for items the customer can buy alongside or independently of a
-  // booking. Account stays on the right edge of the nav.
+  // Shop and Cafe are no longer bar icons — they're reached from the
+  // centre button's arc in MomentumTabBar (and from deep links). Still
+  // registered as tab routes so navigate("Shop") keeps working.
   Shop: NavigatorScreenParams<ShopStackParamList>;
   // Passes tab — wallet-first (My Passes home) with the storefront one
   // tap away. Same screens stay registered in AccountStack so the

@@ -22,6 +22,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ users: [] });
   }
 
-  const users = await searchUsersForPush(q, true);
+  const users = await searchUsersForPush(q);
   return NextResponse.json({ users });
 }

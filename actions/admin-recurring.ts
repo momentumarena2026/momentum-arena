@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { adminAuth } from "@/lib/admin-auth-session";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export interface RecurringTier {
   weeks: number;
@@ -64,27 +64,24 @@ export async function getRecurringConfig(): Promise<RecurringConfigData> {
   };
 }
 
-export async function updateRecurringConfig(
-  data: {
-    tiers: RecurringTier[];
-    allowedDays: number[];
-    maxWeeks: number;
-    minWeeks: number;
-    dailyTiers: DailyTier[];
-    maxDays: number;
-    minDays: number;
-    enabled: boolean;
-  },
-  // `skipAuth` lets the mobile-admin API route call this after it has
-  // already authenticated via JWT + checked MANAGE_PRICING. Web call
-  // sites pass nothing and keep the cookie-based session gate.
-  skipAuth?: boolean,
-): Promise<{ success: boolean; error?: string }> {
-  if (!skipAuth) {
-    const session = await adminAuth();
-    if (!session?.user) {
-      return { success: false, error: "Unauthorized" };
-    }
+export async function updateRecurringConfig(data: {
+  tiers: RecurringTier[];
+  allowedDays: number[];
+  maxWeeks: number;
+  minWeeks: number;
+  dailyTiers: DailyTier[];
+  maxDays: number;
+  minDays: number;
+  enabled: boolean;
+}): Promise<{ success: boolean; error?: string }> {
+  // requireAdmin resolves the caller from the web cookie session OR the
+  // mobile Bearer JWT, so both surfaces are gated here with no
+  // caller-supplied bypass. Kept as a returned error (not a throw) so the
+  // web form's existing error handling is unchanged.
+  try {
+    await requireAdmin();
+  } catch {
+    return { success: false, error: "Unauthorized" };
   }
 
   // Validate weekly tiers

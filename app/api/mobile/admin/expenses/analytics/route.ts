@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
       from: sp.get("from") || undefined,
       to: sp.get("to") || undefined,
     },
-    true,
   );
   return NextResponse.json(data);
 }

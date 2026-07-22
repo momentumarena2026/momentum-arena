@@ -15,8 +15,10 @@ import { ALL_PERMISSIONS, SUPERADMIN_ONLY_PERMISSIONS } from "@/lib/permissions"
  * actions take a password directly and write a usable account in one step.
  * They share the same authorization rule (requireSuperadmin) and the same
  * SUPERADMIN_ONLY_PERMISSIONS filtering, but accept plain JSON args (not
- * FormData) so the mobile route can call them with skipAuth=true after it has
- * already authenticated the bearer token.
+ * FormData) so the mobile route can call them directly. requireSuperadmin
+ * resolves the caller from either the web cookie session or the mobile bearer
+ * token, so there is no auth-skipping argument — every export here is a public
+ * POST endpoint whose arguments come from the client.
  */
 
 const ROLES = ["ADMIN", "STAFF"] as const;
@@ -34,10 +36,6 @@ export interface AdminAccountRow {
   passwordSet: boolean;
 }
 
-async function ensureSuperadmin(skipAuth: boolean) {
-  if (!skipAuth) await requireSuperadmin();
-}
-
 /** Strip permissions a non-superadmin role may never hold. */
 function sanitizePermissions(role: CreatableRole, permissions: string[]) {
   if (role === "STAFF") return [];
@@ -47,10 +45,8 @@ function sanitizePermissions(role: CreatableRole, permissions: string[]) {
   );
 }
 
-export async function listAdminAccounts(
-  skipAuth = false,
-): Promise<AdminAccountRow[]> {
-  await ensureSuperadmin(skipAuth);
+export async function listAdminAccounts(): Promise<AdminAccountRow[]> {
+  await requireSuperadmin();
   const admins = await db.adminUser.findMany({
     select: {
       id: true,
@@ -98,9 +94,8 @@ export type CreateAdminAccountInput = z.input<typeof CreateSchema>;
 
 export async function createAdminAccount(
   input: CreateAdminAccountInput,
-  skipAuth = false,
 ): Promise<AdminAccountRow> {
-  await ensureSuperadmin(skipAuth);
+  await requireSuperadmin();
 
   const parsed = CreateSchema.safeParse(input);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
@@ -168,9 +163,8 @@ export type UpdateAdminAccountInput = z.input<typeof UpdateSchema>;
 export async function updateAdminAccount(
   id: string,
   input: UpdateAdminAccountInput,
-  skipAuth = false,
 ): Promise<AdminAccountRow> {
-  await ensureSuperadmin(skipAuth);
+  await requireSuperadmin();
 
   const parsed = UpdateSchema.safeParse(input);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
@@ -237,9 +231,8 @@ export async function updateAdminAccount(
 
 export async function deleteAdminAccount(
   id: string,
-  skipAuth = false,
 ): Promise<{ success: true }> {
-  await ensureSuperadmin(skipAuth);
+  await requireSuperadmin();
   const admin = await db.adminUser.findUnique({ where: { id } });
   if (!admin) throw new Error("Admin account not found");
   if (admin.role === "SUPERADMIN" || !admin.isDeletable) {

@@ -17,7 +17,11 @@ export const colors = {
   // Text
   foreground: "#fafafa",
   mutedForeground: "#a1a1aa",
-  subtleForeground: "#71717a",
+  // Deliberately lighter than Tailwind zinc-500 (#71717a). On the pure
+  // black canvas that hex measures 4.35:1 — under the 4.5:1 AA floor
+  // for body text, and the app gets read outdoors in daylight. #8b8b94
+  // clears it at 5.6:1. Same reasoning applies to zinc500 below.
+  subtleForeground: "#8b8b94",
 
   // Accent — emerald (matches --primary: oklch(0.6 0.18 155))
   primary: "#10b981",
@@ -39,7 +43,10 @@ export const colors = {
   // secondary text. Mirror every zinc step the web uses.
   zinc300: "#d4d4d8",
   zinc400: "#a1a1aa",
-  zinc500: "#71717a",
+  // Lightened from Tailwind's #71717a for AA on black — see
+  // subtleForeground. Used as a TEXT colour in ~550 places and nowhere
+  // as a border, so raising the luminance is safe.
+  zinc500: "#8b8b94",
   zinc600: "#52525b",
   zinc700: "#3f3f46",
   zinc800: "#27272a",

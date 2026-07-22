@@ -262,9 +262,11 @@ export function AdminBookingActions({
       return;
     }
 
+    // Payment.amount is stored in rupees (not paise) — send rupees so
+    // refundBooking compares like with like.
     const refundAmount =
       refundType === "partial" && partialAmount
-        ? Math.round(parseFloat(partialAmount) * 100)
+        ? Math.round(parseFloat(partialAmount))
         : undefined;
 
     if (refundType === "partial") {
@@ -491,7 +493,7 @@ export function AdminBookingActions({
               >
                 Full Refund
                 {paymentAmount
-                  ? ` (₹${(paymentAmount / 100).toLocaleString()})`
+                  ? ` (₹${paymentAmount.toLocaleString("en-IN")})`
                   : ""}
               </button>
               <button
@@ -517,10 +519,10 @@ export function AdminBookingActions({
                 type="number"
                 value={partialAmount}
                 onChange={(e) => setPartialAmount(e.target.value)}
-                placeholder={`Max ₹${paymentAmount ? (paymentAmount / 100).toLocaleString() : "0"}`}
+                placeholder={`Max ₹${paymentAmount ? paymentAmount.toLocaleString("en-IN") : "0"}`}
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-3 text-sm text-white placeholder-zinc-500 focus:border-red-500 focus:outline-none"
                 min="1"
-                max={paymentAmount ? paymentAmount / 100 : undefined}
+                max={paymentAmount ?? undefined}
               />
             </div>
           )}

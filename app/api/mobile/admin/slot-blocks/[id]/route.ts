@@ -18,7 +18,7 @@ export async function DELETE(
   if ("error" in gate) return gate.error;
 
   const { id } = await params;
-  const result = await unblockSlot(id, true);
+  const result = await unblockSlot(id);
   if (!result.success) {
     return NextResponse.json(
       { error: "Failed to remove block" },

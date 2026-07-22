@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
   }
 
   const [funnel, overview] = await Promise.all([
-    getFunnel(key as FunnelKey, from, to, true),
-    getInsightsOverview(from, to, true),
+    getFunnel(key as FunnelKey, from, to),
+    getInsightsOverview(from, to),
   ]);
 
   return NextResponse.json({ funnel, overview });

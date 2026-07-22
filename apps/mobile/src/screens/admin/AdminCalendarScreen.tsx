@@ -27,6 +27,7 @@ import {
   adminCalendarApi,
   type AdminCalendarSport,
   type CalendarData,
+  type CellBooking,
 } from "../../lib/admin-calendar";
 import { formatHourCompact, sportLabel } from "../../lib/format";
 import { getTodayIST } from "../../lib/ist-date";
@@ -285,7 +286,7 @@ interface HourEntry {
   bookings: Array<{
     id: string;
     sport: AdminCalendarSport;
-    status: "CONFIRMED" | "PENDING";
+    status: CellBooking["status"];
     courtLabel: string;
     // Customer name surfaced on the chip after the sport label so an
     // admin scanning a packed grid can pick out who's booked without
@@ -306,20 +307,25 @@ function buildHourMap(data: CalendarData | null): Map<number, HourEntry> {
       const h = Number(hStr);
       const entry = map.get(h);
       if (!entry) continue;
-      if (cell.booking) {
+      // One hour cell can hold several bookings (the bowling machine's
+      // two half-hour slots), so walk the whole `bookings` array —
+      // `cell.booking` is only the legacy first entry and reading it
+      // alone dropped every booking after the first.
+      for (const cellBooking of cell.bookings ??
+        (cell.booking ? [cell.booking] : [])) {
         // Multiple courts may register the same booking when zones
         // overlap (e.g. a Cricket Full Field booking shows up under
         // Medium (Left Half) too). Dedup by booking id so the cell
         // renders one chip per booking, and read sport/courtLabel
         // from the BOOKING — not the iterated config — so the chip
         // always reflects the booking's actual owning court.
-        if (!entry.bookings.some((b) => b.id === cell.booking!.id)) {
+        if (!entry.bookings.some((b) => b.id === cellBooking.id)) {
           entry.bookings.push({
-            id: cell.booking.id,
-            sport: cell.booking.courtSport,
-            status: cell.booking.status,
-            courtLabel: cell.booking.courtLabel,
-            userName: cell.booking.userName ?? null,
+            id: cellBooking.id,
+            sport: cellBooking.courtSport,
+            status: cellBooking.status,
+            courtLabel: cellBooking.courtLabel,
+            userName: cellBooking.userName ?? null,
           });
         }
       }

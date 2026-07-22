@@ -10,6 +10,6 @@ export async function GET(request: NextRequest) {
   if (!Number.isFinite(billPaise) || billPaise < 0) {
     return NextResponse.json({ error: "Invalid billPaise" }, { status: 400 });
   }
-  const preview = await getRedemptionPreview({ billPaise }, user.id);
+  const preview = await getRedemptionPreview({ billPaise });
   return NextResponse.json({ preview });
 }

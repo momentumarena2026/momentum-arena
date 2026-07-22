@@ -38,9 +38,16 @@ export async function POST(request: Request) {
         },
       });
       const newUserId = user.id;
-      after(() => {
-        void awardSignupBonus(newUserId).catch(() => {});
-        void applyReferralForNewUser(newUserId, referralCode).catch(() => {});
+      // Must be awaited inside after() — floating promises are killed by the
+      // serverless freeze, silently losing the signup/referral points. Run
+      // sequentially: both earns touch the same user's balance row.
+      after(async () => {
+        await awardSignupBonus(newUserId).catch((err) =>
+          console.error("[verify-otp] signup bonus failed", err),
+        );
+        await applyReferralForNewUser(newUserId, referralCode).catch((err) =>
+          console.error("[verify-otp] referral apply failed", err),
+        );
       });
     } else if (!user.phoneVerified) {
       user = await db.user.update({

@@ -16,10 +16,8 @@ export async function GET(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_PASSES");
   if ("error" in gate) return gate.error;
-  const ctx = { skipAuth: true as const, adminId: gate.admin.id };
-
   const { id } = await params;
-  const data = await adminGetPassMembers(id, ctx);
+  const data = await adminGetPassMembers(id);
   if (!data) {
     return NextResponse.json({ error: "Pass not found" }, { status: 404 });
   }
@@ -32,8 +30,6 @@ export async function POST(
 ) {
   const gate = await requireMobileAdmin(request, "MANAGE_PASSES");
   if ("error" in gate) return gate.error;
-  const ctx = { skipAuth: true as const, adminId: gate.admin.id };
-
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as {
     phone?: string;
@@ -41,12 +37,12 @@ export async function POST(
   };
 
   if (body.remove) {
-    const result = await adminRemovePassMember(id, body.remove, ctx);
+    const result = await adminRemovePassMember(id, body.remove);
     return NextResponse.json(result);
   }
   if (!body.phone) {
     return NextResponse.json({ ok: false, error: "Phone number required" });
   }
-  const result = await adminAddPassMember(id, body.phone, ctx);
+  const result = await adminAddPassMember(id, body.phone);
   return NextResponse.json(result);
 }

@@ -17,7 +17,7 @@ import {
 export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_PUSH");
   if ("error" in gate) return gate.error;
-  const templates = await listPushTemplates(true);
+  const templates = await listPushTemplates();
   return NextResponse.json({ templates });
 }
 
@@ -38,13 +38,11 @@ export async function POST(request: NextRequest) {
   const result = await updatePushTemplate(
     body.key,
     { enabled: body.enabled, title: body.title, body: body.body },
-    true,
-    gate.admin.id,
   );
   if (!result.success) {
     return NextResponse.json({ error: result.error ?? "Failed" }, { status: 400 });
   }
 
-  const templates = await listPushTemplates(true);
+  const templates = await listPushTemplates();
   return NextResponse.json({ templates });
 }

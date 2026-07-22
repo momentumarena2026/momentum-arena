@@ -11,11 +11,11 @@ import type { UserRole } from "@prisma/client";
  * Thin wrapper over the web `getAdminUsers` / `createUser` server actions so the
  * RN admin reaches parity with the web /admin/users page: search by
  * name/email/phone, role filter, pagination, show soft-deleted, and create.
- * Both actions are called with `skipAuth: true` — the JWT admin is verified by
- * the gate below (the real authZ), and the actions' own cookie-based
- * requireAdmin would otherwise reject bearer-token callers. `createUser`
- * mirrors the web exactly: it creates a bare User row (no password, no invite
- * email).
+ * The actions run their own requireAdmin gate, which reads this request's
+ * Bearer token; the requireMobileAdmin gate below stays for defence in depth
+ * and for proper 401/403 JSON (the action would throw a 500 instead).
+ * `createUser` mirrors the web exactly: it creates a bare User row (no
+ * password, no invite email).
  *
  * Permission: MANAGE_USERS (SUPERADMIN bypass) — the same key the web action
  * enforces.
@@ -32,10 +32,13 @@ export async function GET(request: NextRequest) {
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
 
   try {
-    const result = await getAdminUsers(
-      { search, role, page, limit: 20, showDeleted },
-      true,
-    );
+    const result = await getAdminUsers({
+      search,
+      role,
+      page,
+      limit: 20,
+      showDeleted,
+    });
 
     return NextResponse.json({
       users: result.users.map((u) => ({
@@ -80,17 +83,13 @@ export async function POST(request: NextRequest) {
   }
 
   // createUser re-validates (incl. "email or phone required") and uniqueness,
-  // and returns { success, error? } rather than throwing. skipAuth: this route
-  // already authorized via the JWT gate above.
-  const result = await createUser(
-    {
-      name: parsed.data.name,
-      email: parsed.data.email,
-      phone: parsed.data.phone,
-      role: parsed.data.role as UserRole,
-    },
-    true,
-  );
+  // and returns { success, error? } rather than throwing.
+  const result = await createUser({
+    name: parsed.data.name,
+    email: parsed.data.email,
+    phone: parsed.data.phone,
+    role: parsed.data.role as UserRole,
+  });
 
   if (!result.success) {
     return NextResponse.json(

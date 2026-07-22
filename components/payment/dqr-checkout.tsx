@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   AlertCircle,
+  Check,
   Download,
   Loader2,
   QrCode,
@@ -63,6 +64,17 @@ function isMobileBrowser(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
+/** Feedback for an "I've paid" tap that settled nothing — rendered under the
+ *  button so the screen it belongs to (and its polling) stays up. */
+function ClaimNotice({ text }: { text: string }) {
+  return (
+    <div className="mt-2 flex w-full items-start gap-2 rounded-lg bg-red-500/10 px-3 py-2">
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+      <p className="text-xs leading-relaxed text-red-300">{text}</p>
+    </div>
+  );
+}
+
 const SHEET_KEYFRAMES = `
 @keyframes dqr-fade-in { from { opacity: 0 } to { opacity: 1 } }
 @keyframes dqr-sheet-up { from { transform: translateY(100%) } to { transform: translateY(0) } }
@@ -113,6 +125,15 @@ export function DqrCheckout({
   // Money WAS captured even though the flow failed (e.g. the plan was
   // repriced mid-payment). Suppresses every "pay again" affordance.
   const [paymentReceived, setPaymentReceived] = useState(false);
+  // A claim that settled nothing — shown in place on the qr/waiting screens,
+  // which must keep polling; `error` only renders in phase "error".
+  const [claimNotice, setClaimNotice] = useState<string | null>(null);
+  // The claim reached its end (logged for verification, or terminal): no
+  // point offering "I've paid" again.
+  const [claimLogged, setClaimLogged] = useState(false);
+  // The claim SUCCEEDED — phase "error" is just where terminal messages
+  // live, so the card must read as an acknowledgment, not a failure.
+  const [claimAcknowledged, setClaimAcknowledged] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [launchedApp, setLaunchedApp] = useState<{
     name: string;
@@ -161,6 +182,32 @@ export function DqrCheckout({
       /* storage unavailable (private mode) — resume is best-effort */
     }
   }, [storeKey]);
+  /** Park a TTL-free "money may have moved" marker so a reload resumes into
+   *  the terminal message instead of minting a fresh payable QR. The claim
+   *  flags ride along: without them a reload re-offered "I've paid" on a
+   *  claim already logged, and rendered a claim that LANDED as a red
+   *  failure card. */
+  const markTerminal = useCallback(
+    (
+      message: string | null,
+      claim?: { logged?: boolean; acknowledged?: boolean },
+    ) => {
+      try {
+        sessionStorage.setItem(
+          storeKey,
+          JSON.stringify({
+            terminal: true,
+            message,
+            claimLogged: !!claim?.logged,
+            claimAcknowledged: !!claim?.acknowledged,
+          }),
+        );
+      } catch {
+        /* storage unavailable — best effort */
+      }
+    },
+    [storeKey],
+  );
 
   const checkStatus = useCallback(async () => {
     const txn = txnRef.current;
@@ -249,6 +296,7 @@ export function DqrCheckout({
   const claimPaid = useCallback(async () => {
     mayHavePaidRef.current = true;
     setClaiming(true);
+    setClaimNotice(null);
     try {
       const res = await fetch("/api/phonepe/dqr/claim-paid", {
         method: "POST",
@@ -275,23 +323,81 @@ export function DqrCheckout({
         return;
       }
       if (res.ok && data.claimed) {
-        // Cafe / pass: nothing to navigate to until an admin verifies,
-        // so acknowledge in place rather than routing nowhere.
+        // Cafe / pass: nothing to navigate to until an admin verifies, so
+        // acknowledge in place rather than routing nowhere. Polling is over
+        // and `error` only renders in phase "error", so this MUST switch
+        // phase or the customer keeps staring at a spinner that can never
+        // resolve. paymentReceived suppresses every retry affordance — the
+        // money already moved, so keep the marker instead of clearing it.
         doneRef.current = true;
         stopPolling();
-        clearStore();
-        setError(
-          "Thanks — we've logged your payment and our team will confirm it shortly. Please do NOT pay again.",
-        );
+        const message =
+          "Thanks — we've logged your payment and our team will confirm it shortly. Please do NOT pay again.";
+        setClaimLogged(true);
+        setPaymentReceived(true);
+        setClaimAcknowledged(true);
+        markTerminal(message, { logged: true, acknowledged: true });
+        setError(message);
+        setPhase("error");
         return;
       }
-      setError(data.error || "Couldn't record your payment — please contact us.");
+      // 200 + paymentReceived means captured but terminal (a pass price
+      // mismatch — already filed as an orphan, no queue will pick it up),
+      // so end here instead of polling for a confirmation that won't come.
+      if (res.ok && data.paymentReceived) {
+        doneRef.current = true;
+        stopPolling();
+        // Park the SAME copy we render — storing the raw `error` while
+        // rendering a fallback made a reload say something different.
+        const message =
+          data.error || "Couldn't record your payment — please contact us.";
+        setClaimLogged(true);
+        setPaymentReceived(true);
+        markTerminal(message, { logged: true });
+        setError(message);
+        setPhase("error");
+        return;
+      }
+      // 404 = the hold/intent is gone for good: no poll and no callback can
+      // turn it into a booking, so leaving the QR and the amount on screen
+      // would invite a payment against a dead reservation.
+      if (res.status === 404) {
+        doneRef.current = true;
+        stopPolling();
+        // The booking 404 carries copy the route wrote for the customer; the
+        // cafe/pass one is a bare "Purchase not found" — machine copy to put
+        // in front of someone who has just told us they paid.
+        const message =
+          surface === "booking"
+            ? data.error ||
+              "This reservation has expired. Please contact us — do NOT pay again."
+            : "We couldn't match this payment to your purchase. Please contact us — do NOT pay again.";
+        setClaimLogged(true);
+        setPaymentReceived(true);
+        markTerminal(message, { logged: true });
+        setError(message);
+        setPhase("error");
+        return;
+      }
+      // Non-terminal: say so on the current screen and leave polling (plus
+      // the S2S callback backstop) running — a payment can still land.
+      // Only the route's 409s are copy written for a customer ("your bank
+      // reported this payment as failed"); every other body is machine text
+      // ("Unauthorized", a 500 payload) and must never surface mid-payment.
+      if (res.status !== 409) {
+        console.warn("[dqr] claim-paid failed", res.status, data?.error);
+      }
+      setClaimNotice(
+        res.status === 409 && data.error
+          ? data.error
+          : "Couldn't check your payment right now — please contact us.",
+      );
     } catch {
-      setError("Couldn't reach the server — please contact us.");
+      setClaimNotice("Couldn't reach the server — please contact us.");
     } finally {
       setClaiming(false);
     }
-  }, [holdId, overrideAmount, stopPolling, clearStore]);
+  }, [holdId, overrideAmount, surface, stopPolling, clearStore, markTerminal]);
 
   const initiate = useCallback(async () => {
     // No synchronous setState here — this runs from the mount effect.
@@ -311,12 +417,16 @@ export function DqrCheckout({
           /** Captured-but-unissued marker — TTL-free, see below. */
           terminal?: boolean;
           message?: string | null;
+          claimLogged?: boolean;
+          claimAcknowledged?: boolean;
         };
         const msLeft = (saved.expiresAt ?? 0) - Date.now();
         // Captured-but-unissued: never re-offer a payable QR, whatever
         // the TTL says.
         if (saved.terminal) {
           setPaymentReceived(true);
+          if (saved.claimLogged) setClaimLogged(true);
+          if (saved.claimAcknowledged) setClaimAcknowledged(true);
           setError(
             typeof saved.message === "string" && saved.message
               ? saved.message
@@ -754,6 +864,7 @@ export function DqrCheckout({
             >
               {claiming ? "Checking with your bank…" : "I've paid — check status"}
             </button>
+            {claimNotice && <ClaimNotice text={claimNotice} />}
 
             {/* Scan-only mode on the same phone: no intent link to tap, so
                 keep the save-to-gallery workaround alive. */}
@@ -810,6 +921,7 @@ export function DqrCheckout({
             >
               {claiming ? "Checking with your bank…" : "I've paid — check status"}
             </button>
+            {claimNotice && <ClaimNotice text={claimNotice} />}
             {/* No "open <app> again" here. It re-fires the SAME upi://
                 link with the amount, and this screen's most common state
                 is "already paid, not yet confirmed" — a second tap there
@@ -879,16 +991,37 @@ export function DqrCheckout({
 
         {phase === "error" && (
           <div className="space-y-4 px-5 py-6">
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-center">
-              <AlertCircle className="mx-auto h-9 w-9 text-red-400" />
-              <p className="mt-3 text-sm text-red-300">{error}</p>
+            {/* Same card, emerald when the claim LANDED — phase "error" is
+                just where terminal messages live, and a logged claim
+                presented in red reads as a failed payment. */}
+            <div
+              className={
+                claimAcknowledged
+                  ? "rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-center"
+                  : "rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-center"
+              }
+            >
+              {claimAcknowledged ? (
+                <Check className="mx-auto h-9 w-9 text-emerald-400" />
+              ) : (
+                <AlertCircle className="mx-auto h-9 w-9 text-red-400" />
+              )}
+              <p
+                className={
+                  claimAcknowledged
+                    ? "mt-3 text-sm text-emerald-300"
+                    : "mt-3 text-sm text-red-300"
+                }
+              >
+                {error}
+              </p>
             </div>
             {/* Money may have moved but PhonePe won't confirm it: hold
                 the slot as an UNCONFIRMED booking so the customer keeps
                 their court and the admin's existing verification queue
                 picks it up — the same safety net the static-QR flow has.
                 Booking surface only; cafe/pass have no such queue. */}
-            {paymentReceived && (
+            {paymentReceived && !claimLogged && (
               <button
                 onClick={() => void claimPaid()}
                 disabled={claiming}
@@ -901,13 +1034,14 @@ export function DqrCheckout({
                     : "I've paid — tell the team"}
               </button>
             )}
-            {paymentReceived && (
+            {paymentReceived && !claimLogged && (
               <p className="text-center text-xs text-zinc-400">
                 {surface === "booking"
                   ? "We'll hold your court and confirm once we've checked the payment with PhonePe."
                   : "Our team will verify the payment and confirm it for you."}
               </p>
             )}
+            {claimNotice && <ClaimNotice text={claimNotice} />}
             {/* Never offer a retry when the gateway already took the
                 money — a second QR here is exactly how a customer ends
                 up paying twice. Leaving is the only action. */}
@@ -916,6 +1050,7 @@ export function DqrCheckout({
                 onClick={() => {
                   setPhase("init");
                   setError(null);
+                  setClaimNotice(null);
                   initiate();
                 }}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-emerald-700"

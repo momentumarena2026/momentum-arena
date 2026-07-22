@@ -86,7 +86,6 @@ export function ExtendBookingControls({
           bookingId,
           open,
           0,
-          undefined,
           pass.id,
         );
         if (!res.success) {

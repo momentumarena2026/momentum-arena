@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = await getAvailableSlots(courtConfigId, date, undefined, true);
+  const result = await getAvailableSlots(courtConfigId, date);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

@@ -25,12 +25,12 @@ import { revalidatePath } from "next/cache";
  * pill computed off (Booking.totalAmount − Payment.amount).
  */
 
-// Mobile callers authenticate via JWT outside the NextAuth cookie
-// flow that `requireAdminBase` expects. The mobile API routes pass
-// `adminIdOverride` once they've validated the JWT so this gate
-// short-circuits cleanly instead of failing on a missing cookie.
-async function requireBookingsAdmin(adminIdOverride?: string) {
-  if (adminIdOverride) return adminIdOverride;
+// `requireAdminBase` resolves the caller from EITHER the web cookie
+// session or the mobile Bearer JWT, so mobile API routes reuse these
+// actions with no caller-supplied admin id. Never reintroduce one:
+// every export in a "use server" module is a public endpoint whose
+// arguments come from the client.
+async function requireBookingsAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
   return user.id;
 }
@@ -161,9 +161,8 @@ async function applyEquipmentDelta(
  */
 export async function getBookingEquipmentSnapshot(
   bookingId: string,
-  adminIdOverride?: string,
 ): Promise<AdminEquipmentSnapshot> {
-  await requireBookingsAdmin(adminIdOverride);
+  await requireBookingsAdmin();
   // Read-only — page renders must never write totals (see
   // readEquipmentSnapshot's history note).
   return readEquipmentSnapshot(bookingId);
@@ -218,9 +217,8 @@ export async function addBookingEquipment(
   bookingId: string,
   equipmentId: string,
   quantity: number,
-  adminIdOverride?: string,
 ): Promise<{ success: boolean; error?: string } & Partial<AdminEquipmentSnapshot>> {
-  await requireBookingsAdmin(adminIdOverride);
+  await requireBookingsAdmin();
   if (!Number.isInteger(quantity) || quantity <= 0) {
     return { success: false, error: "Quantity must be a positive integer" };
   }
@@ -270,9 +268,8 @@ export async function addBookingEquipment(
 export async function removeBookingEquipment(
   bookingId: string,
   rentalId: string,
-  adminIdOverride?: string,
 ): Promise<{ success: boolean; error?: string } & Partial<AdminEquipmentSnapshot>> {
-  await requireBookingsAdmin(adminIdOverride);
+  await requireBookingsAdmin();
 
   const rental = await db.equipmentRental.findUnique({
     where: { id: rentalId },
@@ -295,9 +292,8 @@ export async function updateBookingEquipmentQuantity(
   bookingId: string,
   rentalId: string,
   quantity: number,
-  adminIdOverride?: string,
 ): Promise<{ success: boolean; error?: string } & Partial<AdminEquipmentSnapshot>> {
-  await requireBookingsAdmin(adminIdOverride);
+  await requireBookingsAdmin();
   if (!Number.isInteger(quantity) || quantity < 0) {
     return { success: false, error: "Quantity must be a non-negative integer" };
   }
@@ -336,7 +332,6 @@ export async function updateBookingEquipmentQuantity(
  */
 export async function listEquipmentForAdmin(
   bookingId: string,
-  adminIdOverride?: string,
 ): Promise<
   Array<{
     id: string;
@@ -346,7 +341,7 @@ export async function listEquipmentForAdmin(
     category: string | null;
   }>
 > {
-  await requireBookingsAdmin(adminIdOverride);
+  await requireBookingsAdmin();
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -398,7 +393,6 @@ export async function listEquipmentForAdmin(
 export async function listEquipmentForBookingCreate(
   sport: string,
   category: string | null,
-  adminIdOverride?: string,
 ): Promise<
   Array<{
     id: string;
@@ -408,7 +402,7 @@ export async function listEquipmentForBookingCreate(
     category: string | null;
   }>
 > {
-  await requireBookingsAdmin(adminIdOverride);
+  await requireBookingsAdmin();
 
   const rows = await db.equipment.findMany({
     where: {

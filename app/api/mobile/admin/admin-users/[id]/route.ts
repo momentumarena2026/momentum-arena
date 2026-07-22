@@ -36,7 +36,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
   try {
-    const admin = await updateAdminAccount(id, body, true);
+    const admin = await updateAdminAccount(id, body);
     return NextResponse.json({ admin });
   } catch (e) {
     return NextResponse.json(
@@ -55,7 +55,7 @@ export async function DELETE(
   const { id } = await params;
 
   try {
-    await deleteAdminAccount(id, true);
+    await deleteAdminAccount(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(

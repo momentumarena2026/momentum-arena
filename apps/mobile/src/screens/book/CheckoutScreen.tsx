@@ -43,8 +43,7 @@ import { rewardsApi } from "../../lib/rewards";
 import { ApiError } from "../../lib/api";
 import {
   formatDateLong,
-  formatHourRangeCompact,
-  formatHoursAsRanges,
+  formatHourMinuteCompact,
   formatRupees,
   sportLabel,
 } from "../../lib/format";
@@ -131,7 +130,7 @@ export function CheckoutScreen() {
   // same defaults the server returns for a fresh DB so the tiles are
   // never blocked on this network call (previously the checkout could
   // get stuck on a spinner if the endpoint was unreachable).
-  const { data: configData } = useQuery({
+  const { data: configData, isPending: configPending } = useQuery({
     queryKey: ["payment-config"],
     queryFn: () => bookingApi.paymentConfig(),
     staleTime: 60_000,
@@ -353,6 +352,10 @@ export function CheckoutScreen() {
     }
   }
 
+  // UPI QR screen shows inline (same layout as web's `showUpiQr` flag).
+  // Declared above the countdown because the hold-expiry effect reads it.
+  const [showUpiQr, setShowUpiQr] = useState(false);
+
   // ── Countdown ──────────────────────────────────────────────────────────────
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -368,6 +371,13 @@ export function CheckoutScreen() {
   const expiredFired = useRef(false);
   useEffect(() => {
     if (!hold) return;
+    // Never fire while a UPI sheet (DQR or static QR) is up — mirrors web's
+    // `{!showUpiQr && <CountdownTimer .../>}`. `/dqr/initiate` extends the
+    // hold to 15 min server-side but the cached ['hold'] query still holds
+    // the original 5-min `expiresAt`, so the reset below would otherwise
+    // unmount the sheet (and its polling + "I've paid" claim button) out
+    // from under an in-flight payment.
+    if (showUpiQr) return;
     if (msLeft > 0) return;
     if (expiredFired.current) return;
     expiredFired.current = true;
@@ -388,7 +398,7 @@ export function CheckoutScreen() {
         },
       ]
     );
-  }, [hold, msLeft, navigation]);
+  }, [hold, msLeft, navigation, showUpiQr]);
 
   // ── Method selection ───────────────────────────────────────────────────────
   // Pick the first enabled tile so the user never lands on a hidden method.
@@ -403,8 +413,48 @@ export function CheckoutScreen() {
     config.upiQrEnabled ? "upi" : "gateway",
   );
 
-  // UPI QR screen shows inline (same layout as web's `showUpiQr` flag).
-  const [showUpiQr, setShowUpiQr] = useState(false);
+  // The seeds above run once, and on a cold start they run against
+  // DEFAULT_PAYMENT_CONFIG (the ['payment-config'] query isn't persisted, so
+  // a fresh launch has an empty cache). Re-sync once the real config lands:
+  // with only one method enabled PaymentMethodTiles hides the method toggle
+  // entirely, so a stale "upi" seed would strand the customer on a rail the
+  // admin switched off with no way to move. Only invalid selections are
+  // rewritten, so a deliberate user choice is never clobbered on refetch.
+  useEffect(() => {
+    if (!configData) return;
+    setMethod((m) => {
+      if (m === "upi" && !configData.upiQrEnabled && configData.onlineEnabled) {
+        return "gateway";
+      }
+      if (m === "gateway" && !configData.onlineEnabled && configData.upiQrEnabled) {
+        return "upi";
+      }
+      return m;
+    });
+    setAmountMode((a) => {
+      const fullEnabled = configData.onlineEnabled || configData.upiQrEnabled;
+      if (a === "full" && !fullEnabled && configData.advanceEnabled) {
+        return "advance";
+      }
+      if (a === "advance" && !configData.advanceEnabled && fullEnabled) {
+        return "full";
+      }
+      return a;
+    });
+  }, [configData]);
+
+  // Hard cap on how long the Pay button waits for that config. lib/api sets no
+  // request timeout, so `retry: 1` doesn't bound a hanging endpoint and the CTA
+  // would spin forever — the exact opposite of the "never blocked on this call"
+  // intent above. Past the cap we commit to DEFAULT_PAYMENT_CONFIG; if the real
+  // config lands later the re-sync effect still corrects an invalid method.
+  const [configWaitElapsed, setConfigWaitElapsed] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setConfigWaitElapsed(true), 6000);
+    return () => clearTimeout(id);
+  }, []);
+  const configGating = configPending && !configWaitElapsed;
+
   const [processing, setProcessing] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
@@ -707,13 +757,26 @@ export function CheckoutScreen() {
     );
   }
 
-  const sortedSlots = [...hold.slotPrices].sort((a, b) => a.hour - b.hour);
+  // Bowling-machine holds carry per-slot start minutes (0 or 30) parallel to
+  // `hours` / `slotPrices`; hourly holds send an empty array. An empty array
+  // is the same discriminator lib/slot-hold.ts uses for "hour-granular hold".
+  const slotDurationMinutes = (hold.startMinutes?.length ?? 0) > 0 ? 30 : 60;
+  const sortedSlots = hold.slotPrices
+    .map((s, i) => ({ ...s, minute: hold.startMinutes?.[i] ?? 0 }))
+    .sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute));
   const discountActive = serverDiscount > 0;
   const applying = applyCouponMutation.isPending;
   const sportKey = hold.courtConfig.sport;
 
   const { activeGateway: gateway, onlineEnabled, upiQrEnabled, advanceEnabled } =
     config;
+
+  // Degenerate config: "advance" is only a 50% split of the SAME two rails,
+  // not a rail of its own, so with both online + UPI QR off there is nothing
+  // to charge with regardless of advanceEnabled. The method re-sync effect
+  // above can't correct for this (there is no valid method to move to), so
+  // say it plainly instead of rendering a Pay button that cannot work.
+  const noPaymentRail = !onlineEnabled && !upiQrEnabled;
 
   // CTA label matches web's two-level wording.
   const ctaLabel =
@@ -784,7 +847,7 @@ export function CheckoutScreen() {
             <KVRow label="Date" value={formatDateLong(hold.date)} />
             <KVRow
               label="Slots"
-              value={formatHoursAsRanges(sortedSlots.map((s) => s.hour))}
+              value={formatSlotsAsRanges(sortedSlots, slotDurationMinutes)}
             />
           </View>
 
@@ -793,9 +856,12 @@ export function CheckoutScreen() {
           {sortedSlots.length > 1 ? (
             <View style={styles.breakdown}>
               {sortedSlots.map((slot) => (
-                <View key={slot.hour} style={styles.breakdownRow}>
+                <View
+                  key={`${slot.hour}:${slot.minute}`}
+                  style={styles.breakdownRow}
+                >
                   <Text variant="small" color={colors.subtleForeground}>
-                    {formatHourRangeCompact(slot.hour)}
+                    {formatSlotsAsRanges([slot], slotDurationMinutes)}
                   </Text>
                   <Text variant="small" color={colors.zinc300}>
                     {formatRupees(slot.price)}
@@ -967,41 +1033,46 @@ export function CheckoutScreen() {
           />
         ) : null}
 
-        {/* Payment method */}
-        <View style={styles.sectionBlock}>
-          <Text variant="bodyStrong" style={styles.sectionTitle}>
-            Payment Method
-          </Text>
-          <PaymentMethodTiles
-            amountMode={amountMode}
-            onAmountModeChange={(m) => {
-              setAmountMode(m);
-              trackPaymentMethodSelected(`${m}_${method}`);
-              if (hold?.id) {
-                bookingApi
-                  .logPaymentMethod({ holdId: hold.id, paymentMethod: `${m}_${method}` })
-                  .catch(() => {});
-              }
-            }}
-            method={method}
-            onMethodChange={(m) => {
-              setMethod(m);
-              trackPaymentMethodSelected(`${amountMode}_${m}`);
-              if (hold?.id) {
-                bookingApi
-                  .logPaymentMethod({ holdId: hold.id, paymentMethod: `${amountMode}_${m}` })
-                  .catch(() => {});
-              }
-            }}
-            gateway={gateway}
-            fullAmount={payableAmount}
-            advanceAmount={advanceAmount}
-            remainingAmount={remainingAmount}
-            onlineEnabled={onlineEnabled}
-            upiQrEnabled={upiQrEnabled}
-            advanceEnabled={advanceEnabled}
-          />
-        </View>
+        {/* Payment method — hidden under noPaymentRail. The tiles gate the
+            advance card on advanceEnabled alone, so it would still render a
+            selectable "Pay 50% Now" radio for a split of two rails that are
+            both off, directly above the footer saying payment is unavailable. */}
+        {noPaymentRail ? null : (
+          <View style={styles.sectionBlock}>
+            <Text variant="bodyStrong" style={styles.sectionTitle}>
+              Payment Method
+            </Text>
+            <PaymentMethodTiles
+              amountMode={amountMode}
+              onAmountModeChange={(m) => {
+                setAmountMode(m);
+                trackPaymentMethodSelected(`${m}_${method}`);
+                if (hold?.id) {
+                  bookingApi
+                    .logPaymentMethod({ holdId: hold.id, paymentMethod: `${m}_${method}` })
+                    .catch(() => {});
+                }
+              }}
+              method={method}
+              onMethodChange={(m) => {
+                setMethod(m);
+                trackPaymentMethodSelected(`${amountMode}_${m}`);
+                if (hold?.id) {
+                  bookingApi
+                    .logPaymentMethod({ holdId: hold.id, paymentMethod: `${amountMode}_${m}` })
+                    .catch(() => {});
+                }
+              }}
+              gateway={gateway}
+              fullAmount={payableAmount}
+              advanceAmount={advanceAmount}
+              remainingAmount={remainingAmount}
+              onlineEnabled={onlineEnabled}
+              upiQrEnabled={upiQrEnabled}
+              advanceEnabled={advanceEnabled}
+            />
+          </View>
+        )}
 
         {paymentError ? (
           <View style={styles.errorBox}>
@@ -1013,16 +1084,32 @@ export function CheckoutScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <Button
-          label={ctaLabel}
-          onPress={handleContinue}
-          loading={processing || applying}
-          disabled={
-            msLeft <= 0 || payableAmount <= 0 || !signedInUser
-          }
-          size="lg"
-          fullWidth
-        />
+        {noPaymentRail ? (
+          <Text variant="small" align="center" color={colors.mutedForeground}>
+            Online payments are temporarily unavailable. Your slot is still
+            held — please contact the venue to complete this booking.
+          </Text>
+        ) : (
+          <>
+            <Button
+              label={ctaLabel}
+              onPress={handleContinue}
+              // The config wait rides `loading` rather than `disabled` so the
+              // button spins instead of sitting greyed-out and dead-looking:
+              // a fast tap still can't commit to the seeded method before we
+              // know which rails the admin actually left on.
+              loading={processing || applying || configGating}
+              disabled={msLeft <= 0 || payableAmount <= 0 || !signedInUser}
+              size="lg"
+              fullWidth
+            />
+            {configGating ? (
+              <Text variant="tiny" align="center" color={colors.zinc500}>
+                Checking payment options…
+              </Text>
+            ) : null}
+          </>
+        )}
       </View>
 
       {/* DQR: auto-confirming UPI checkout in a Razorpay-style bottom sheet.
@@ -1102,6 +1189,42 @@ export function CheckoutScreen() {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Mirror of web's `formatSlotsAsRanges` in @/lib/court-config. Unlike
+ * `formatHoursAsRanges` it respects the slot's start minute, so a
+ * bowling-machine 6:30-7:00 pick reads as "6:30pm - 7pm" instead of being
+ * rounded down to the whole hour. Consecutive slots merge into one range.
+ *
+ * Local to this screen rather than in lib/format.ts because React Native has
+ * no path alias to the web /lib and the mobile formatter is hour-only — same
+ * reasoning as FALLBACK_CODE above.
+ */
+function formatSlotsAsRanges(
+  slots: { hour: number; minute: number }[],
+  durationMinutes: number
+): string {
+  if (slots.length === 0) return "";
+  const ranges: [number, number][] = slots
+    .map((s) => {
+      const start = s.hour * 60 + s.minute;
+      return [start, start + durationMinutes] as [number, number];
+    })
+    .sort((a, b) => a[0] - b[0]);
+
+  const merged: [number, number][] = [];
+  for (const [start, end] of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && last[1] === start) {
+      last[1] = end;
+    } else {
+      merged.push([start, end]);
+    }
+  }
+  return merged
+    .map(([s, e]) => `${formatHourMinuteCompact(s)} - ${formatHourMinuteCompact(e)}`)
+    .join(", ");
+}
 
 /** Mirror of web's `customerFacingCourtLabel` in @/lib/court-config. */
 function customerFacingCourtLabel(

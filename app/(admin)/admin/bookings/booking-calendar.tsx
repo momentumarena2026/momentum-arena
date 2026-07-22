@@ -57,6 +57,36 @@ const SPORT_STYLE: Record<
   },
 };
 
+// Status chip styling for the booking detail modal. Closed-out
+// bookings (COMPLETED / ABSENT) reach the calendar too, so this can't
+// be a confirmed/pending binary — the old ternary labelled a
+// completed session "Pending".
+const STATUS_CHIP: Record<
+  CellBooking["status"],
+  { label: string; chip: string; dot: string }
+> = {
+  CONFIRMED: {
+    label: "Confirmed",
+    chip: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+    dot: "bg-emerald-400",
+  },
+  PENDING: {
+    label: "Pending",
+    chip: "border-yellow-500/30 bg-yellow-500/10 text-yellow-400",
+    dot: "bg-yellow-400",
+  },
+  COMPLETED: {
+    label: "Completed",
+    chip: "border-sky-500/30 bg-sky-500/10 text-sky-400",
+    dot: "bg-sky-400",
+  },
+  ABSENT: {
+    label: "Absent",
+    chip: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+    dot: "bg-amber-300",
+  },
+};
+
 const SPORT_LABELS: Record<Sport, string> = {
   CRICKET: "Cricket",
   FOOTBALL: "Football",
@@ -143,18 +173,24 @@ function buildHourMap(data: CalendarData): Map<number, HourEntry> {
       const entry = map.get(h);
       if (!entry) continue;
 
-      if (cell.booking) {
+      // An hour cell can hold more than one booking — the bowling
+      // machine sells 30-minute slots, so 14:00-14:30 and 14:30-15:00
+      // are routinely two different customers. Read the full
+      // `bookings` array; `cell.booking` is only the legacy first
+      // entry and rendering it alone hid the second booking.
+      for (const cellBooking of cell.bookings ??
+        (cell.booking ? [cell.booking] : [])) {
         // The same booking shows up under every config whose zones
         // overlap with the booking's court (e.g. Cricket Full Field
         // → Medium (Left Half) too). Dedup by booking id, and read
         // sport/courtLabel from the BOOKING itself so the chip
         // always reflects the owning court instead of whichever
         // overlapping config we iterated first.
-        if (!entry.bookings.some((b) => b.booking.id === cell.booking!.id)) {
+        if (!entry.bookings.some((b) => b.booking.id === cellBooking.id)) {
           entry.bookings.push({
-            booking: cell.booking,
-            sport: cell.booking.courtSport,
-            courtLabel: cell.booking.courtLabel,
+            booking: cellBooking,
+            sport: cellBooking.courtSport,
+            courtLabel: cellBooking.courtLabel,
           });
         }
       }
@@ -623,7 +659,7 @@ function BookingDetailModal({
   onClose: () => void;
 }) {
   const palette = SPORT_STYLE[sport];
-  const isConfirmed = booking.status === "CONFIRMED";
+  const statusChip = STATUS_CHIP[booking.status];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -646,18 +682,10 @@ function BookingDetailModal({
         <div className="space-y-4 px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
-                isConfirmed
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                  : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-              }`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusChip.chip}`}
             >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isConfirmed ? "bg-emerald-400" : "bg-yellow-400"
-                }`}
-              />
-              {isConfirmed ? "Confirmed" : "Pending"}
+              <span className={`h-1.5 w-1.5 rounded-full ${statusChip.dot}`} />
+              {statusChip.label}
             </span>
             {booking.paymentStatus && (
               <span

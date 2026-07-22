@@ -12,10 +12,12 @@ import { getCafeSettings, setCafeOpen } from "@/actions/cafe-settings";
  * Drives the customer-facing /cafe page + mobile Cafe tab. Admin
  * walk-in ordering is unaffected.
  *
- * Auth: requireMobileAdmin re-enforces MANAGE_CAFE_MENU here, then the
- * web action runs with skipAuth=true (NextAuth web-cookie bypass).
- * getCafeSettings has no auth gate of its own (it's read by the public
- * /cafe page too), so the GET only needs the route-level guard.
+ * Auth: requireMobileAdmin gates the route so callers get a proper
+ * 401/403 JSON response; setCafeOpen independently re-checks
+ * MANAGE_CAFE_MENU (it reads the mobile Bearer JWT from the
+ * in-process request). getCafeSettings has no auth gate of its own
+ * (it's read by the public /cafe page too), so the GET relies on the
+ * route-level guard alone.
  */
 export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_CAFE_MENU");
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "isOpen (boolean) required" }, { status: 400 });
   }
 
-  const result = await setCafeOpen((body as { isOpen: boolean }).isOpen, true);
+  const result = await setCafeOpen((body as { isOpen: boolean }).isOpen);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

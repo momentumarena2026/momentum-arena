@@ -219,7 +219,15 @@ export async function awardCafePoints(
   });
   if (!order) return { awarded: false, reason: "no order" };
   if (!order.userId) return { awarded: false, reason: "guest order" };
-  if (order.status === "CANCELLED" || order.status === "PENDING") {
+  // PENDING_PAYMENT is the payment-first online state: the order exists but
+  // the money has NOT been captured (the CafePayment is still unpaid and the
+  // order is invisible to admin tabs). Awarding here credits points for an
+  // order nobody has paid for — exclude it alongside CANCELLED/PENDING.
+  if (
+    order.status === "CANCELLED" ||
+    order.status === "PENDING" ||
+    order.status === "PENDING_PAYMENT"
+  ) {
     return { awarded: false, reason: "wrong status" };
   }
   if (!order.payment) return { awarded: false, reason: "no payment" };
@@ -252,6 +260,8 @@ export async function awardSignupBonus(userId: string): Promise<EarnResult> {
     points: cfg.signupBonusPoints,
     cfg,
     reason: "Signup bonus",
+    // Once per user, ever.
+    dedupeWhere: { userId, type: "EARNED_SIGNUP" },
   });
 }
 
@@ -266,6 +276,14 @@ export async function awardBirthdayBonus(userId: string): Promise<EarnResult> {
     points: cfg.birthdayBonusPoints,
     cfg,
     reason: "Birthday bonus",
+    // At most once per birthday window. 200 days comfortably de-dupes a
+    // sweep that runs twice (or spans midnight) while still allowing next
+    // year's birthday, which is ~365 days out.
+    dedupeWhere: {
+      userId,
+      type: "EARNED_BIRTHDAY",
+      createdAt: { gte: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000) },
+    },
   });
 }
 
@@ -281,6 +299,14 @@ export async function awardReferralBonus(args: {
         points: cfg.referralEarnerPoints,
         cfg,
         reason: `Referral bonus (referred user ${args.referredId})`,
+        // Once per (earner, referred friend) pair — the reason string
+        // carries the friend id, so a replay for the same friend no-ops
+        // while a genuine second referral still credits.
+        dedupeWhere: {
+          userId: args.earnerId,
+          type: "EARNED_REFERRAL",
+          reason: `Referral bonus (referred user ${args.referredId})`,
+        },
       })
     : { awarded: false, reason: "zero" };
   const referred = cfg.referralReferredPoints > 0
@@ -290,6 +316,8 @@ export async function awardReferralBonus(args: {
         points: cfg.referralReferredPoints,
         cfg,
         reason: `Welcome bonus (referred by ${args.earnerId})`,
+        // A user can only be referred once, ever.
+        dedupeWhere: { userId: args.referredId, type: "EARNED_REFERRAL" },
       })
     : { awarded: false, reason: "zero" };
   return { earner, referred };
@@ -487,10 +515,23 @@ async function insertBonusEarn(args: {
   points: number;
   cfg: { pointExpiryMonths: number; pointValuePaise: number };
   reason: string;
+  // Idempotency predicate. Signup/referral/birthday bonuses carry no
+  // bookingId/cafeOrderId, so @@unique([type, bookingId]) can't dedupe them
+  // (NULL bookingId is unique-tolerant in Postgres). If a row already
+  // matches this predicate the award is a no-op — a retried signup, a
+  // replayed referral, or a birthday cron that runs twice cannot
+  // double-credit. Checked inside the tx to close the obvious race.
+  dedupeWhere?: Prisma.RewardTransactionWhereInput;
 }): Promise<EarnResult> {
   const now = new Date();
   const result = await db.$transaction(async (tx) => {
     await ensureBalance(tx, args.userId);
+    if (args.dedupeWhere) {
+      const existing = await tx.rewardTransaction.findFirst({
+        where: args.dedupeWhere,
+      });
+      if (existing) return null;
+    }
     const txn = await tx.rewardTransaction.create({
       data: {
         type: args.type,
@@ -509,6 +550,9 @@ async function insertBonusEarn(args: {
     });
     return txn;
   });
+  // Deduped — a matching bonus row already existed, so nothing was
+  // written and there is nothing to notify about.
+  if (!result) return { awarded: false, reason: "already awarded" };
   void sendEarnedPush({
     userId: args.userId,
     points: args.points,

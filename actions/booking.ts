@@ -23,6 +23,7 @@ import { AnalyticsCategory, logWebServerAction } from "@/lib/server-log";
 import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
+import { deriveHoldCharge, splitAdvancePayment } from "@/lib/booking-amounts";
 import { snapshotEquipmentForHold } from "@/lib/equipment";
 import { recordOrphanPayment, type OrphanGateway } from "@/lib/payment-orphan";
 import { Prisma, BookingCategory, CourtZone } from "@prisma/client";
@@ -684,7 +685,8 @@ export interface RazorpayInitState {
 // Booking is NOT created here; it's created atomically on verify success.
 export async function initiateRazorpayPayment(
   holdId: string,
-  overrideAmount?: number
+  overrideAmount?: number,
+  recurring?: { mode?: string | null; count?: number | null }
 ): Promise<RazorpayInitState> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -696,8 +698,15 @@ export async function initiateRazorpayPayment(
     return { success: false, error: "Hold not found or expired" };
   }
 
-  const amount =
-    overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
+  // Server-derived charge — `overrideAmount` is a hint about the recurring
+  // series length only, never the amount. Taking it at face value here
+  // minted a REAL Razorpay order for whatever the caller asked for; this
+  // is a server action, so the caller need not be our checkout page.
+  const charge = await deriveHoldCharge(hold, {
+    clientAmount: overrideAmount,
+    recurring,
+  });
+  const amount = charge.payableAmount;
 
   try {
     const order = await createRazorpayOrder(amount, holdId);
@@ -810,7 +819,8 @@ export async function logPaymentMethodSelected(
 
 export async function selectUpiPayment(
   holdId: string,
-  overrideAmount?: number
+  overrideAmount?: number,
+  recurring?: { mode?: string | null; count?: number | null }
 ): Promise<BookingState> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -851,8 +861,14 @@ export async function selectUpiPayment(
     return { success: false, error: stillOk.reason };
   }
 
-  const amount =
-    overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
+  // Server-derived — the customer scanned a QR for whatever the checkout
+  // showed, but only this side may decide what Payment.amount records.
+  // `overrideAmount` is a recurring-length hint (see lib/booking-amounts).
+  const charge = await deriveHoldCharge(hold, {
+    clientAmount: overrideAmount,
+    recurring,
+  });
+  const amount = charge.payableAmount;
 
   const bookingId = await createBookingFromHold(holdId, {
     method: "UPI_QR",
@@ -911,14 +927,20 @@ export async function selectUpiPayment(
 //   - Payment.advanceAmount = overrideAmount
 //   - Payment.remainingAmount = effectiveTotal - overrideAmount
 //     (effectiveTotal = hold.totalAmount minus any coupon applied on the
-//     hold — using pre-discount here makes the venue collect the discount
-//     back, e.g. ₹1,050 instead of ₹950 when FLAT100 trimmed ₹2,000 → ₹1,900)
+//     hold and minus any points redeemed, plus rental gear — using
+//     pre-discount here makes the venue collect the discount back, e.g.
+//     ₹1,050 instead of ₹950 when FLAT100 trimmed ₹2,000 → ₹1,900, and
+//     dropping the gear term makes the remainder short by the full
+//     equipment amount)
 // so the booking confirmation and admin views correctly show the advance
 // breakdown instead of "full payment due".
 export async function selectCashPayment(
   holdId: string,
   overrideAmount?: number,
-  options?: { isAdvance?: boolean }
+  options?: {
+    isAdvance?: boolean;
+    recurring?: { mode?: string | null; count?: number | null };
+  }
 ): Promise<BookingState> {
   const isAdvance = !!options?.isAdvance;
   const action = isAdvance
@@ -966,27 +988,21 @@ export async function selectCashPayment(
     return { success: false, error: stillOk.reason };
   }
 
-  const amount =
-    overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
-  // effectiveTotal is POST-discount. `amount` is the advance the customer
-  // paid via UPI QR (already post-discount via overrideAmount from the
-  // checkout client). Subtracting the advance from pre-discount hold.total
-  // would make the venue collect the coupon back.
-  const appliedDiscount =
-    hold.couponId && hold.discountAmount && hold.discountAmount > 0
-      ? hold.discountAmount
-      : 0;
-  // Subtract redeemed points too (mirror the mobile select-payment route),
-  // else the venue collects the redeemed value back on the 50% advance flow.
-  const pointsRedeemRupees =
-    hold.pointsToRedeem && hold.pointsRedeemPaiseSaved
-      ? Math.floor(hold.pointsRedeemPaiseSaved / 100)
-      : 0;
-  const effectiveTotal = hold.totalAmount - appliedDiscount - pointsRedeemRupees;
+  // effectiveTotal is the whole POST-discount bill (a recurring series
+  // total when the checkout was recurring — see lib/booking-amounts);
+  // `amount` is what the customer actually handed over now. On the
+  // advance flow the caller's `overrideAmount` is the HALF they paid by
+  // QR, so it is matched against the halves, not the full totals.
+  const charge = await deriveHoldCharge(hold, {
+    clientAmount: overrideAmount,
+    clientAmountIsAdvance: isAdvance,
+    recurring: options?.recurring,
+  });
+  const effectiveTotal = charge.payableAmount;
+  const split = splitAdvancePayment(effectiveTotal);
+  const amount = isAdvance ? split.advanceAmount : effectiveTotal;
   const advanceAmount = isAdvance ? amount : undefined;
-  const remainingAmount = isAdvance
-    ? Math.max(effectiveTotal - amount, 0)
-    : undefined;
+  const remainingAmount = isAdvance ? split.remainingAmount : undefined;
   const paymentMethod = isAdvance ? "UPI_QR" : "CASH";
 
   const bookingId = await createBookingFromHold(holdId, {
@@ -1211,8 +1227,11 @@ export async function createBookingFromHold(
 
       const conflictingBookings = await tx.booking.findMany({
         where: {
+          // COMPLETED / ABSENT still occupy their slot — only CANCELLED
+          // frees it. Omitting them let an admin close a booking out and
+          // silently reopen its zones to a second booking.
+          status: { in: ["CONFIRMED", "PENDING", "COMPLETED", "ABSENT"] },
           date: hold.date,
-          status: { in: ["CONFIRMED", "PENDING"] },
           courtConfig: {
             zones: { hasSome: config.zones as CourtZone[] },
           },
@@ -1255,8 +1274,10 @@ export async function createBookingFromHold(
       if (!config) throw new Error("Court config not found");
       const conflictingBookings = await tx.booking.findMany({
         where: {
+          // COMPLETED / ABSENT still occupy their slot — only CANCELLED
+          // frees it.
+          status: { in: ["CONFIRMED", "PENDING", "COMPLETED", "ABSENT"] },
           date: hold.date,
-          status: { in: ["CONFIRMED", "PENDING"] },
           courtConfig: {
             zones: { hasSome: config.zones as CourtZone[] },
           },
@@ -1349,7 +1370,41 @@ export async function createBookingFromHold(
       // Record the coupon usage + increment its counter so validators honor
       // max-uses/per-user limits on the next booking. Kept inside the same
       // transaction as the Booking insert so either both land or neither.
+      //
+      // The limit check done when the coupon was applied to the hold is NOT a
+      // reservation: the same user can carry the same coupon on several live
+      // holds (holds are only de-duplicated per court+date) and then pay for
+      // each one, so without re-claiming here maxUses / maxUsesPerUser can
+      // both be blown. The claim must therefore happen at commit time.
       if (hold.couponId && appliedDiscount > 0) {
+        const coupon = await tx.coupon.findUnique({
+          where: { id: hold.couponId },
+          select: { maxUses: true, maxUsesPerUser: true },
+        });
+        if (!coupon) throw new Error("COUPON_LIMIT_EXCEEDED");
+
+        // Conditional increment: Postgres re-evaluates the WHERE clause after
+        // a concurrent writer's row lock is released, so the global cap holds
+        // even when two payments commit at once. It also serialises the
+        // per-user count below onto the same coupon row.
+        const claimed = await tx.coupon.updateMany({
+          where: {
+            id: hold.couponId,
+            ...(coupon.maxUses !== null
+              ? { usedCount: { lt: coupon.maxUses } }
+              : {}),
+          },
+          data: { usedCount: { increment: 1 } },
+        });
+        if (claimed.count === 0) throw new Error("COUPON_LIMIT_EXCEEDED");
+
+        const priorUserUsage = await tx.couponUsage.count({
+          where: { couponId: hold.couponId, userId: hold.userId },
+        });
+        if (priorUserUsage >= coupon.maxUsesPerUser) {
+          throw new Error("COUPON_LIMIT_EXCEEDED");
+        }
+
         await tx.couponUsage.create({
           data: {
             couponId: hold.couponId,
@@ -1357,10 +1412,6 @@ export async function createBookingFromHold(
             bookingId: booking.id,
             discountAmount: appliedDiscount,
           },
-        });
-        await tx.coupon.update({
-          where: { id: hold.couponId },
-          data: { usedCount: { increment: 1 } },
         });
       }
 
@@ -1397,12 +1448,31 @@ export async function createBookingFromHold(
     );
   } catch (err) {
     // A slot-conflict throw (bowling or standard) means the slot was taken
-    // by someone else between hold-expiry and this (late) payment. The
-    // transaction rolled back, restoring the hold. If real gateway money
-    // was captured, record an orphan so an admin refunds it instead of the
-    // customer silently losing both the slot and the money. Then return
-    // null so callers treat it as "couldn't create" — never a double-book.
-    if (err instanceof Error && err.message.includes("SLOT_CONFLICT")) {
+    // by someone else between hold-expiry and this (late) payment. A
+    // COUPON_LIMIT_EXCEEDED throw means the coupon on the hold could no
+    // longer be claimed (its max-uses / per-user cap was consumed by another
+    // booking after it was applied). Either way the transaction rolled back,
+    // restoring the hold. If real gateway money was captured, record an
+    // orphan so an admin honours or refunds it instead of the customer
+    // silently losing both the slot and the money. Then return null so
+    // callers treat it as "couldn't create" — never a double-book.
+    const isCouponLimit =
+      err instanceof Error && err.message === "COUPON_LIMIT_EXCEEDED";
+    // A rewards-balance shortfall (the customer applied the same points to two
+    // holds and paid both, so commitRedeemInTx finds the balance already spent)
+    // rolls back the booking exactly like the coupon-limit case. Real gateway
+    // money is already captured, so it MUST take the same orphan-recording path
+    // — rethrowing lets it escape /api/razorpay/verify's unguarded call and
+    // lose the money with no recovery record. Detect by the exact phrase from
+    // lib/rewards/redeem.ts's "Insufficient reward balance: X available, ...".
+    const isRewardShortfall =
+      err instanceof Error &&
+      err.message.includes("Insufficient reward balance");
+    if (
+      isCouponLimit ||
+      isRewardShortfall ||
+      (err instanceof Error && err.message.includes("SLOT_CONFLICT"))
+    ) {
       const gateway: OrphanGateway | null = payment.razorpayPaymentId
         ? "RAZORPAY"
         : payment.method === "PHONEPE"
@@ -1413,7 +1483,7 @@ export async function createBookingFromHold(
       if (gateway) {
         recordOrphanPayment({
           gateway,
-          reason: "slot-taken",
+          reason: isCouponLimit || isRewardShortfall ? "create-failed" : "slot-taken",
           userId: hold.userId,
           amountRupees: payment.amount,
           razorpayOrderId: payment.razorpayOrderId ?? null,

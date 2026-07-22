@@ -6,9 +6,12 @@ import type { PaymentMethod } from "@prisma/client";
 
 /**
  * POST /api/mobile/admin/cafe/orders/create — admin rings up a cafe order
- * (walk-in or phone-first customer). Reuses adminCreateCafeOrder via its
- * adminOverride param so the full web logic (stock guard, split payment,
- * customer-create, order-status routing) is shared, not re-implemented.
+ * (walk-in or phone-first customer). Reuses adminCreateCafeOrder so the full
+ * web logic (stock guard, split payment, customer-create, order-status
+ * routing) is shared, not re-implemented. That action resolves the acting
+ * admin from this request's own bearer token and re-checks
+ * MANAGE_CAFE_ORDERS itself; the check below stays so an unauthorized
+ * request gets a 401/403 instead of a thrown 500.
  */
 export async function POST(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -30,18 +33,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await adminCreateCafeOrder(
-    {
-      items: body.items,
-      customerPhone: body.customerPhone,
-      customerName: body.customerName,
-      discountAmount: body.discountAmount,
-      paymentMethod: (body.paymentMethod ?? "CASH") as PaymentMethod,
-      split: body.split,
-      note: body.note,
-    },
-    { id: admin.id, username: admin.username },
-  );
+  const result = await adminCreateCafeOrder({
+    items: body.items,
+    customerPhone: body.customerPhone,
+    customerName: body.customerName,
+    discountAmount: body.discountAmount,
+    paymentMethod: (body.paymentMethod ?? "CASH") as PaymentMethod,
+    split: body.split,
+    note: body.note,
+  });
 
   if (!result.success || !result.order) {
     return NextResponse.json(

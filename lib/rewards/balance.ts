@@ -70,6 +70,43 @@ export async function applyBalanceDelta(
 }
 
 /**
+ * Atomic guarded DEBIT for the redemption path.
+ *
+ * applyBalanceDelta's read-then-write is unsafe for debits: two
+ * concurrent redemptions can both read the same pointsAvailable and
+ * both pass an application-level "available >= points" check before
+ * either writes, double-spending into a NEGATIVE balance. This issues
+ * a SINGLE conditional decrement the database evaluates under a row
+ * lock — the WHERE re-checks `pointsAvailable >= points` at write time,
+ * so of two racing debits at most one can match.
+ *
+ * Returns true when the debit was applied, false when the balance was
+ * insufficient at write time (the caller must roll its transaction
+ * back). REDEEMED-only: it bumps pointsLifetimeRedeemed, mirroring the
+ * "REDEEMED" branch of applyBalanceDelta; other debit kinds keep using
+ * applyBalanceDelta.
+ */
+export async function applyGuardedDebit(
+  tx: Prisma.TransactionClient,
+  args: {
+    userId: string;
+    points: number; // POSITIVE magnitude to debit
+    now: Date;
+  },
+): Promise<boolean> {
+  const { userId, points, now } = args;
+  const res = await tx.rewardBalance.updateMany({
+    where: { userId, pointsAvailable: { gte: points } },
+    data: {
+      pointsAvailable: { decrement: points },
+      pointsLifetimeRedeemed: { increment: points },
+      lastTransactionAt: now,
+    },
+  });
+  return res.count > 0;
+}
+
+/**
  * Read-only balance for a single user. Returns a zeroed-out row
  * if the user has never had a points transaction.
  */

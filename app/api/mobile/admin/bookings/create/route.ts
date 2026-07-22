@@ -7,9 +7,13 @@ import { adminCreateBooking } from "@/actions/admin-booking";
  * POST /api/mobile/admin/bookings/create
  *
  * Mobile mirror of the web admin create-booking form. Accepts the
- * same payload shape adminCreateBooking takes; admin identity flows
- * through `adminOverride` from the JWT. customTotalAmount is
- * optional — when omitted, the server uses the slot-sum.
+ * same payload shape adminCreateBooking takes; the action resolves
+ * the admin itself from this request's Bearer JWT. customTotalAmount
+ * is optional — when omitted, the server uses the slot-sum.
+ *
+ * The requireMobileAdmin gate below is kept on purpose: it turns an
+ * unauthenticated/unauthorized call into a proper 401/403 JSON body,
+ * where the action's own guard would throw and surface as a 500.
  */
 const Body = z
   .object({
@@ -65,7 +69,6 @@ const Body = z
 export async function POST(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -75,10 +78,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await adminCreateBooking(parsed.data, {
-    id: admin.id,
-    username: admin.username,
-  });
+  const result = await adminCreateBooking(parsed.data);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

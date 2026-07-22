@@ -573,7 +573,11 @@ export function buildLedgerWorkbook(
       totalCreditPaise += r.pointsValuePaise;
     } else if (r.points < 0) {
       totalDebitPts += Math.abs(r.points);
-      totalDebitPaise += r.pointsValuePaise;
+      // Debit rows store pointsValuePaise as negative; accumulate the
+      // magnitude so the TOTAL row and the summary's "Debit value (₹)"
+      // use the same positive convention as totalDebitPts. Without this
+      // the credits − debits subtraction double-negates and inflates net.
+      totalDebitPaise += Math.abs(r.pointsValuePaise);
     }
     detail.addRow({
       createdAt: fmtIstDateTime(r.createdAt),

@@ -35,6 +35,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Pass the identity this route already resolved — getAuthUserId also
+  // accepts a mobile bearer token, which the action's own auth() fallback
+  // cannot see (matches the mobile twin).
   const res = await confirmOrderAfterRazorpay(
     orderId,
     razorpayPaymentId,

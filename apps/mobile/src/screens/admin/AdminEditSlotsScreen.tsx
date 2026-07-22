@@ -26,9 +26,11 @@ import { colors, radius, spacing } from "../../theme";
 import {
   adminBookingsApi,
   AdminApiError,
+  type AvailableBowlingSlot,
   type AvailableSlot,
 } from "../../lib/admin-bookings";
 import {
+  formatHourMinuteCompact,
   formatHourRangeCompact,
   formatRupees,
 } from "../../lib/format";
@@ -65,17 +67,49 @@ export function AdminEditSlotsScreen() {
 
   const booking = detail.data?.booking;
 
+  // The detail endpoint returns the full courtConfig row, but the shared
+  // type only declares the display fields. Older bowling rows still
+  // carry slotDurationMinutes 60, so both signals are ORed — same test
+  // the create form uses.
+  const court = booking?.courtConfig as
+    | (NonNullable<typeof booking>["courtConfig"] & {
+        category?: string | null;
+        slotDurationMinutes?: number;
+      })
+    | undefined;
+  const isBowling =
+    court?.category === "BOWLING_MACHINE" || court?.slotDurationMinutes === 30;
+
   // Seed local state once the booking loads.
   const [date, setDate] = useState<string | null>(null);
   const [hours, setHours] = useState<number[]>([]);
+  // Parallel selection for a 30-min court. Only one of the two is ever
+  // populated — the server rejects the shape that doesn't match the
+  // court's slot duration.
+  const [bowlingSlots, setBowlingSlots] = useState<
+    Array<{ hour: number; minute: 0 | 30 }>
+  >([]);
   const [coverWithPass, setCoverWithPass] = useState(false);
 
   useEffect(() => {
     if (booking && date === null) {
       setDate(booking.date.slice(0, 10));
-      setHours(booking.slots.map((s) => s.startHour));
+      if (isBowling) {
+        setBowlingSlots(toBowlingPicks(booking.slots));
+      } else {
+        setHours(booking.slots.map((s) => s.startHour));
+      }
     }
-  }, [booking, date]);
+  }, [booking, date, isBowling]);
+
+  // The booking's own current picks — the availability endpoint has no
+  // exclude-this-booking hook, so these come back flagged "Booked" and
+  // would otherwise be un-deselectable. Mirrors the web modal's
+  // `isCurrent` exception.
+  const currentBowlingSlots = useMemo(
+    () => toBowlingPicks(booking?.slots ?? []),
+    [booking],
+  );
 
   // NET minutes delta — the measure the server gates on (a pure swap is
   // delta 0 there, so a "fresh hours" count would offer a checkbox that
@@ -102,11 +136,17 @@ export function AdminEditSlotsScreen() {
   // rows it FREES. The pass is debited the net, so the balance gate uses
   // added − dropped while the option shows on any addition.
   const selectedHourSet = new Set(hours);
-  const addedMinutes =
-    [...selectedHourSet].filter((h) => !bookedHours.has(h)).length * 60;
-  const droppedMinutes = [...bookedHours]
-    .filter((h) => !selectedHourSet.has(h))
-    .reduce((sum, h) => sum + (minutesByHour[h] ?? 60), 0);
+  // A 30-min court's rows are uniformly half-hours, so its delta is a
+  // straight count of added / dropped picks rather than the hourly
+  // path's per-hour minute lookup.
+  const addedMinutes = isBowling
+    ? bowlingSlots.filter((s) => !hasPick(currentBowlingSlots, s)).length * 30
+    : [...selectedHourSet].filter((h) => !bookedHours.has(h)).length * 60;
+  const droppedMinutes = isBowling
+    ? currentBowlingSlots.filter((s) => !hasPick(bowlingSlots, s)).length * 30
+    : [...bookedHours]
+        .filter((h) => !selectedHourSet.has(h))
+        .reduce((sum, h) => sum + (minutesByHour[h] ?? 60), 0);
   const netPassMinutes = Math.max(0, addedMinutes - droppedMinutes);
 
   // A tick left over from a selection later changed into a removal must
@@ -128,13 +168,28 @@ export function AdminEditSlotsScreen() {
         booking!.courtConfig.id,
         date!,
       ),
-    enabled: !!booking && !!date,
+    enabled: !!booking && !!date && !isBowling,
+  });
+
+  const bowlingQuery = useQuery({
+    queryKey: [
+      "admin-available-bowling-slots",
+      booking?.courtConfig.id ?? null,
+      date,
+    ],
+    queryFn: () =>
+      adminBookingsApi.availableBowlingSlots(booking!.courtConfig.id, date!),
+    enabled: !!booking && !!date && isBowling,
   });
 
   const save = useMutation({
     mutationFn: () =>
       adminBookingsApi.editSlots(params.bookingId, {
-        hours,
+        // Exactly one shape travels: the server picks its validation
+        // and write path off the court's slot duration and refuses the
+        // other one.
+        hours: isBowling ? [] : hours,
+        bowlingSlots: isBowling ? bowlingSlots : undefined,
         date: date && date !== booking?.date.slice(0, 10) ? date : undefined,
         // Only meaningful when the edit ADDS time; the server ignores
         // it otherwise, but don't send a stale tick.
@@ -156,11 +211,17 @@ export function AdminEditSlotsScreen() {
   });
 
   const previewTotal = useMemo(() => {
+    if (isBowling) {
+      if (!bowlingQuery.data) return null;
+      return bowlingQuery.data.slots
+        .filter((s) => hasPick(bowlingSlots, s))
+        .reduce((sum, s) => sum + s.price, 0);
+    }
     if (!slotsQuery.data) return null;
     return slotsQuery.data.slots
       .filter((s) => hours.includes(s.hour))
       .reduce((sum, s) => sum + s.price, 0);
-  }, [slotsQuery.data, hours]);
+  }, [isBowling, bowlingQuery.data, bowlingSlots, slotsQuery.data, hours]);
 
   if (detail.isLoading || !booking || date === null) {
     return <LoadingShell />;
@@ -174,18 +235,41 @@ export function AdminEditSlotsScreen() {
     );
   }
 
-  const dirty =
-    date !== booking.date.slice(0, 10) ||
-    hours.length !== booking.slots.length ||
-    hours.some((h, i) => h !== booking.slots[i]?.startHour);
+  function toggleBowling(slot: AvailableBowlingSlot, isCurrent: boolean) {
+    if (slot.isBlocked) return;
+    // The booking's own slots read as "Booked" here — let those through
+    // so the admin can drop them.
+    if (slot.isBooked && !isCurrent) return;
+    setBowlingSlots((curr) =>
+      hasPick(curr, slot)
+        ? curr.filter((s) => !(s.hour === slot.hour && s.minute === slot.minute))
+        : [...curr, { hour: slot.hour, minute: slot.minute }].sort(
+            (a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute),
+          ),
+    );
+  }
+
+  // Only the picks made on the booking's ORIGINAL date can claim the
+  // "already yours" exception; on a moved date they're someone else's.
+  const isOriginalDate = date === booking.date.slice(0, 10);
+  const selectedCount = isBowling ? bowlingSlots.length : hours.length;
+
+  const dirty = isBowling
+    ? date !== booking.date.slice(0, 10) ||
+      bowlingSlots.length !== currentBowlingSlots.length ||
+      bowlingSlots.some((s) => !hasPick(currentBowlingSlots, s))
+    : date !== booking.date.slice(0, 10) ||
+      hours.length !== booking.slots.length ||
+      hours.some((h, i) => h !== booking.slots[i]?.startHour);
 
   return (
     <Screen padded={false}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text variant="title">Edit Slots</Text>
         <Text variant="small" color={colors.zinc500}>
-          {booking.courtConfig.label} · pick a new date or change the slot
-          range. Pricing recomputes on save.
+          {booking.courtConfig.label} · pick a new date or change the{" "}
+          {isBowling ? "30-minute slots" : "slot range"}. Pricing recomputes
+          on save.
         </Text>
 
         {/* Date input */}
@@ -215,7 +299,7 @@ export function AdminEditSlotsScreen() {
           <View style={styles.cardHead}>
             <Clock size={14} color={colors.zinc500} />
             <Text variant="tiny" color={colors.zinc500} style={styles.cardTitle}>
-              SLOTS · {hours.length} selected
+              {isBowling ? "30-MIN SLOTS" : "SLOTS"} · {selectedCount} selected
             </Text>
             {previewTotal !== null ? (
               <Text variant="small" color={colors.emerald400} style={styles.totalChip}>
@@ -223,7 +307,42 @@ export function AdminEditSlotsScreen() {
               </Text>
             ) : null}
           </View>
-          {slotsQuery.isLoading ? (
+          {isBowling ? (
+            bowlingQuery.isLoading ? (
+              <View style={styles.grid}>
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <Skeleton key={i} width="48%" height={48} rounded="md" />
+                ))}
+              </View>
+            ) : bowlingQuery.isError ? (
+              <View style={{ gap: spacing["1"] }}>
+                <Text variant="small" color={colors.destructive}>
+                  Couldn&apos;t load availability. Pull back and retry.
+                </Text>
+                <Text variant="tiny" color={colors.zinc500}>
+                  {bowlingQuery.error instanceof Error
+                    ? bowlingQuery.error.message
+                    : "Unknown error"}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.grid}>
+                {bowlingQuery.data?.slots.map((s) => {
+                  const isCurrent =
+                    isOriginalDate && hasPick(currentBowlingSlots, s);
+                  return (
+                    <BowlingSlotTile
+                      key={`${s.hour}:${s.minute}`}
+                      slot={s}
+                      selected={hasPick(bowlingSlots, s)}
+                      isCurrent={isCurrent}
+                      onToggle={() => toggleBowling(s, isCurrent)}
+                    />
+                  );
+                })}
+              </View>
+            )
+          ) : slotsQuery.isLoading ? (
             <View style={styles.grid}>
               {Array.from({ length: 12 }).map((_, i) => (
                 <Skeleton key={i} width="48%" height={48} rounded="md" />
@@ -301,11 +420,11 @@ export function AdminEditSlotsScreen() {
           </Pressable>
           <Pressable
             onPress={() => save.mutate()}
-            disabled={!dirty || save.isPending || hours.length === 0}
+            disabled={!dirty || save.isPending || selectedCount === 0}
             style={[
               styles.actionBtn,
               styles.actionPrimary,
-              (!dirty || save.isPending || hours.length === 0) && {
+              (!dirty || save.isPending || selectedCount === 0) && {
                 opacity: 0.5,
               },
             ]}
@@ -381,6 +500,92 @@ function SlotTile({
       </Text>
     </Pressable>
   );
+}
+
+function BowlingSlotTile({
+  slot,
+  selected,
+  isCurrent,
+  onToggle,
+}: {
+  slot: AvailableBowlingSlot;
+  selected: boolean;
+  isCurrent: boolean;
+  onToggle: () => void;
+}) {
+  // A slot this booking already holds comes back "Booked" from the
+  // availability endpoint — keep it live so it can be dropped.
+  const disabled = slot.isBlocked || (slot.isBooked && !isCurrent);
+  const start = slot.hour * 60 + slot.minute;
+  return (
+    <Pressable
+      onPress={onToggle}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.tile,
+        selected && styles.tileSelected,
+        disabled && styles.tileDisabled,
+        pressed && !disabled && { opacity: 0.7 },
+      ]}
+    >
+      <View style={styles.tileTop}>
+        {disabled ? (
+          <Lock size={12} color={colors.zinc600} />
+        ) : selected ? (
+          <Check size={12} color={colors.emerald400} />
+        ) : null}
+        <Text
+          variant="small"
+          color={
+            disabled
+              ? colors.zinc600
+              : selected
+                ? colors.emerald400
+                : colors.foreground
+          }
+          weight="600"
+        >
+          {formatHourMinuteCompact(start)} - {formatHourMinuteCompact(start + 30)}
+        </Text>
+      </View>
+      <Text
+        variant="tiny"
+        color={
+          disabled
+            ? colors.zinc700
+            : selected
+              ? colors.emerald400
+              : colors.zinc500
+        }
+      >
+        {disabled
+          ? slot.isBooked
+            ? "Booked"
+            : "Blocked"
+          : formatRupees(slot.price)}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Booking rows → 30-min picks. A bowling row's startMinute is 0 or 30;
+ *  the field is optional on the shared type, so default to the hour. */
+function toBowlingPicks(
+  slots: Array<{ startHour: number; startMinute?: number }>,
+): Array<{ hour: number; minute: 0 | 30 }> {
+  return slots
+    .map((s) => ({
+      hour: s.startHour,
+      minute: (s.startMinute === 30 ? 30 : 0) as 0 | 30,
+    }))
+    .sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute));
+}
+
+function hasPick(
+  picks: Array<{ hour: number; minute: number }>,
+  slot: { hour: number; minute: number },
+): boolean {
+  return picks.some((p) => p.hour === slot.hour && p.minute === slot.minute);
 }
 
 function LoadingShell() {

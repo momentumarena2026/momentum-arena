@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { zonesOverlap, LOCK_TTL_MINUTES } from "./court-config";
 import { CourtZone, Prisma, Sport } from "@prisma/client";
-import { getMediumConfigs } from "./availability";
+import { getMediumConfigs, OCCUPYING_BOOKING_STATUSES } from "./availability";
 
 export interface HoldResult {
   success: boolean;
@@ -93,7 +93,7 @@ export async function createSlotHold(
         const activeBookings = await tx.booking.findMany({
           where: {
             date: dateOnly,
-            status: { in: ["PENDING", "CONFIRMED"] },
+            status: { in: [...OCCUPYING_BOOKING_STATUSES] },
           },
           include: {
             courtConfig: true,
@@ -145,6 +145,10 @@ export async function createSlotHold(
         }
 
         // 6. Check admin blocks
+        //    The zone-overlap clause catches blocks placed on a *sibling*
+        //    config on the same physical ground (e.g. admin blocks Full
+        //    Field; this hold is for Left Half). getAvailability greys
+        //    those hours out, so the write path must reject them too.
         const blocks = await tx.slotBlock.findMany({
           where: {
             date: dateOnly,
@@ -152,6 +156,7 @@ export async function createSlotHold(
               { courtConfigId },
               { sport: config.sport },
               { courtConfigId: null, sport: null },
+              { courtConfig: { zones: { hasSome: config.zones } } },
             ],
           },
         });
@@ -267,7 +272,7 @@ export async function createMediumHalfCourtHold(
           const activeBookings = await tx.booking.findMany({
             where: {
               date: dateOnly,
-              status: { in: ["PENDING", "CONFIRMED"] },
+              status: { in: [...OCCUPYING_BOOKING_STATUSES] },
             },
             include: { courtConfig: true, slots: true },
           });
@@ -304,7 +309,9 @@ export async function createMediumHalfCourtHold(
           if (hours.some((h) => occupied.has(h))) return false;
 
           // Admin blocks — any requested hour blocked on this specific half,
-          // on the sport, or globally, disqualifies the half.
+          // on the sport, globally, or on a sibling config sharing this
+          // half's zones (e.g. a Full Field block covers both halves)
+          // disqualifies the half.
           const blocks = await tx.slotBlock.findMany({
             where: {
               date: dateOnly,
@@ -312,6 +319,7 @@ export async function createMediumHalfCourtHold(
                 { courtConfigId: configId },
                 { sport: config.sport },
                 { courtConfigId: null, sport: null },
+                { courtConfig: { zones: { hasSome: config.zones } } },
               ],
             },
           });
@@ -445,7 +453,7 @@ export async function createBowlingMachineHold(
         const conflictingBookings = await tx.booking.findMany({
           where: {
             date: dateOnly,
-            status: { in: ["CONFIRMED", "PENDING"] },
+            status: { in: [...OCCUPYING_BOOKING_STATUSES] },
             courtConfig: {
               zones: { hasSome: config.zones as CourtZone[] },
             },
@@ -504,10 +512,20 @@ export async function createBowlingMachineHold(
         }
 
         // 5. Slot-block check
+        //    Same zone-overlap clause as createSlotHold: a block on a
+        //    sibling config sharing this bowling court's zones (e.g. the
+        //    cricket Full Field) takes the physical ground out of play,
+        //    and the hold is the only place admin blocks are enforced
+        //    before the Booking is written.
         const blocks = await tx.slotBlock.findMany({
           where: {
             date: dateOnly,
-            OR: [{ courtConfigId }, { sport: config.sport }, { courtConfigId: null, sport: null }],
+            OR: [
+              { courtConfigId },
+              { sport: config.sport },
+              { courtConfigId: null, sport: null },
+              { courtConfig: { zones: { hasSome: config.zones } } },
+            ],
           },
         });
         for (const b of blocks) {

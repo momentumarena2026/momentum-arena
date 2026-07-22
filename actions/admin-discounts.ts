@@ -36,13 +36,11 @@ export async function createDiscountCode(
     validUntil: string;
     isSystemCode?: boolean;
   },
-  // `adminIdOverride` lets the mobile-admin API route call this after it
-  // has already authenticated via JWT + checked MANAGE_DISCOUNTS; the
-  // supplied id is stamped as `createdBy`. Web call sites pass nothing
-  // and keep the cookie-based gate.
-  adminIdOverride?: string,
 ) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+  // requireAdmin resolves the caller from the web cookie session OR the
+  // mobile bearer JWT, so both surfaces share this gate. The resolved id is
+  // stamped as `createdBy`.
+  const adminId = await requireAdmin();
 
   const parsed = discountSchema.safeParse(data);
   if (!parsed.success) {
@@ -91,11 +89,8 @@ export async function updateDiscountCode(
     validUntil: string;
     isActive: boolean;
   }>,
-  // `skipAuth` — see createDiscountCode. Skips the cookie gate once the
-  // mobile route has authenticated via JWT + checked MANAGE_DISCOUNTS.
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireAdmin();
+  await requireAdmin();
 
   const updateData: Record<string, unknown> = {};
   if (data.value !== undefined) updateData.value = data.value;
@@ -111,9 +106,8 @@ export async function updateDiscountCode(
   return { success: true };
 }
 
-export async function deleteDiscountCode(id: string, skipAuth?: boolean) {
-  // `skipAuth` — see createDiscountCode.
-  if (!skipAuth) await requireAdmin();
+export async function deleteDiscountCode(id: string) {
+  await requireAdmin();
 
   const code = await db.discountCode.findUnique({ where: { id } });
   if (!code) return { success: false, error: "Code not found" };
@@ -128,10 +122,8 @@ export async function getDiscountCodes(
     page?: number;
     showInactive?: boolean;
   },
-  // `skipAuth` — see createDiscountCode.
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireAdmin();
+  await requireAdmin();
 
   const page = filters?.page ?? 1;
   const limit = 20;

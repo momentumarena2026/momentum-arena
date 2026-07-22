@@ -14,8 +14,10 @@ import { recoverRazorpayPayment } from "@/actions/admin-booking";
  *
  * The action already returns a structured RecoverRazorpayResult
  * (success/state/bookingId/payment/error), so we authenticate, gate on
- * MANAGE_BOOKINGS, then call it with `skipAuth` and forward the result
- * verbatim.
+ * MANAGE_BOOKINGS, then call it and forward the result verbatim. The
+ * action re-checks MANAGE_BOOKINGS itself (resolving this request's
+ * Bearer JWT); the gate here is kept so an unauthorized call gets a
+ * proper 401/403 JSON body instead of a thrown 500.
  */
 async function guard(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -45,6 +47,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await recoverRazorpayPayment(parsed.data.paymentId, true);
+  const result = await recoverRazorpayPayment(parsed.data.paymentId);
   return NextResponse.json(result);
 }

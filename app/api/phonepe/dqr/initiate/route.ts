@@ -5,6 +5,7 @@ import { getValidHold } from "@/lib/slot-hold";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
 import { isDqrConfigured, qrInit, intentInit } from "@/lib/phonepe-dqr";
 import { settlePriorDqrTxn } from "@/lib/dqr-inflight";
+import { deriveHoldCharge, splitAdvancePayment } from "@/lib/booking-amounts";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
 // QR validity / hold extension. 15 min comfortably covers scanning +
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { holdId, isAdvance, overrideAmount } = await request.json();
+  const { holdId, isAdvance, overrideAmount, recurring } = await request.json();
   if (!holdId) {
     return NextResponse.json({ error: "Missing holdId" }, { status: 400 });
   }
@@ -79,15 +80,33 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const paymentAmount =
-      overrideAmount && overrideAmount > 0 ? overrideAmount : hold.totalAmount;
+    // The charge is derived server-side, never taken from the request body
+    // — see /api/razorpay/create-order for the ₹1 exploit this closes, and
+    // lib/booking-amounts for the rule itself (recurring multiplier
+    // included; it is NOT stored on the hold).
+    const charge = await deriveHoldCharge(hold, {
+      clientAmount: overrideAmount,
+      recurring,
+    });
+    const paymentAmount = charge.payableAmount;
+
+    // Fully covered by coupon + points — a zero-value QR is meaningless.
+    // Committing the booking straight from here was tried and reverted:
+    // it needed an unauthenticated server action, and no client
+    // understands a `fullyCovered` response, so the booking was created
+    // while checkout still showed a failure. See /api/razorpay/create-order.
+    if (paymentAmount <= 0) {
+      return NextResponse.json(
+        { error: "Nothing left to pay for this booking" },
+        { status: 400 },
+      );
+    }
 
     let orderAmount = paymentAmount;
     let advanceAmount: number | undefined;
     let remainingAmount: number | undefined;
     if (isAdvance) {
-      advanceAmount = Math.ceil(paymentAmount * 0.5);
-      remainingAmount = paymentAmount - advanceAmount;
+      ({ advanceAmount, remainingAmount } = splitAdvancePayment(paymentAmount));
       orderAmount = advanceAmount;
     }
 
@@ -152,7 +171,15 @@ export async function POST(request: NextRequest) {
       path: request.nextUrl.pathname,
       method: "POST",
       platform: resolveRequestPlatform(request),
-      metadata: { holdId, transactionId, amount: orderAmount, isAdvance: !!isAdvance },
+      metadata: {
+        holdId,
+        transactionId,
+        amount: orderAmount,
+        clientAmount: overrideAmount ?? null,
+        clientAmountUnexplained: charge.clientAmountUnexplained,
+        recurringCount: charge.recurringCount,
+        isAdvance: !!isAdvance,
+      },
     });
 
     return NextResponse.json({

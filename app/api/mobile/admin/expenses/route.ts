@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     pageSize: sp.get("pageSize") ? Number(sp.get("pageSize")) : undefined,
   };
 
-  const result = await listExpenses(filters, true);
+  const result = await listExpenses(filters);
   return NextResponse.json({
     rows: result.rows.map((r) => ({
       ...r,
@@ -68,7 +68,6 @@ const Body = z.object({
 export async function POST(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_EXPENSES");
   if ("error" in gate) return gate.error;
-  const admin = gate.admin;
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -78,10 +77,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await createExpense(parsed.data, {
-    id: admin.id,
-    name: admin.username,
-  });
+  const result = await createExpense(parsed.data);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

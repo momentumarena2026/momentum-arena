@@ -1,10 +1,19 @@
 "use server";
 
+import { after } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { CafeOrderStatus, PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { sendTemplatedToUser } from "@/lib/push-templates";
+import { releaseCafeCoupon } from "@/lib/cafe-intent";
+
+// Thrown inside the order transaction when a stock decrement loses
+// the race, so the whole order rolls back instead of leaving a
+// phantom row (with an already-COMPLETED payment) behind after the
+// admin was told the item sold out. Carries the operator-facing
+// message; the catch in adminCreateCafeOrder surfaces it.
+class CafeStockRaceError extends Error {}
 
 async function requireCafeAdmin() {
   const user = await requireAdmin("MANAGE_CAFE_ORDERS");
@@ -22,10 +31,12 @@ async function requireCafeAdminWithDetails() {
 }
 
 /**
- * Mobile admin routes pre-authenticate via JWT. Reads accept
- * `skipAuth: true` and writes that need an admin identity accept
- * `adminOverride: { id, username }` so the mobile JWT identity flows
- * through to the audit log + push-notification author.
+ * Every action below is gated behind MANAGE_CAFE_ORDERS for every caller.
+ * `requireAdmin` resolves the caller from the web cookie session OR the
+ * mobile Bearer JWT, so the mobile admin routes call these plainly and the
+ * resolved identity still flows through to the audit log +
+ * push-notification author. There is no auth-bypass argument — in a
+ * "use server" module the arguments come from the client.
  */
 
 export async function getCafeOrders(
@@ -35,9 +46,8 @@ export async function getCafeOrders(
     search?: string;
     page?: number;
   },
-  skipAuth?: boolean,
 ) {
-  if (!skipAuth) await requireCafeAdmin();
+  await requireCafeAdmin();
 
   const page = filters?.page ?? 1;
   const limit = 20;
@@ -96,8 +106,8 @@ export async function getCafeOrders(
   return { orders, total, page, totalPages: Math.ceil(total / limit) };
 }
 
-export async function getCafeOrderStats(skipAuth?: boolean) {
-  if (!skipAuth) await requireCafeAdmin();
+export async function getCafeOrderStats() {
+  await requireCafeAdmin();
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -152,8 +162,8 @@ export async function getCafeOrderStats(skipAuth?: boolean) {
   };
 }
 
-export async function getLiveCafeOrders(skipAuth?: boolean) {
-  if (!skipAuth) await requireCafeAdmin();
+export async function getLiveCafeOrders() {
+  await requireCafeAdmin();
 
   // Bound the result so a runaway queue can't OOM the serverless worker.
   // A kitchen realistically never has more than ~50 open orders; 200 is a
@@ -197,9 +207,8 @@ const STATUS_PIPELINE: Record<CafeOrderStatus, CafeOrderStatus[]> = {
 export async function updateCafeOrderStatus(
   orderId: string,
   newStatus: CafeOrderStatus,
-  adminOverride?: { id: string; username: string },
 ) {
-  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
+  const admin = await requireCafeAdminWithDetails();
 
   try {
     const order = await db.cafeOrder.findUnique({
@@ -238,24 +247,32 @@ export async function updateCafeOrderStatus(
     // the two the customer cares about; COMPLETED and CANCELLED happen
     // after the customer is already at the venue (or the order died for
     // a reason they already know about), so no push for those.
+    // after(): a bare fire-and-forget is killed when the function freezes.
     if (order.userId && (newStatus === "PREPARING" || newStatus === "READY")) {
       const isReady = newStatus === "READY";
-      void sendTemplatedToUser(
-        order.userId,
-        isReady ? "cafe_order_ready" : "cafe_order_preparing",
-        { orderNumber: String(order.orderNumber) },
-        { kind: "cafe_order_status", cafeOrderId: orderId, status: newStatus },
-      ).catch((err) => console.error("Cafe order push failed:", err));
+      const userId = order.userId;
+      const orderNumber = String(order.orderNumber);
+      after(async () => {
+        await sendTemplatedToUser(
+          userId,
+          isReady ? "cafe_order_ready" : "cafe_order_preparing",
+          { orderNumber },
+          { kind: "cafe_order_status", cafeOrderId: orderId, status: newStatus },
+        ).catch((err) => console.error("Cafe order push failed:", err));
+      });
     }
 
     // Award reward points when the order is COMPLETED (food delivered).
     // Idempotent at the lib layer — safe even if the order toggles
-    // backwards through COMPLETED.
+    // backwards through COMPLETED. Also inside after() — nothing
+    // re-invokes this, so losing it to the freeze loses the points.
     if (newStatus === "COMPLETED" && order.userId) {
-      const { awardCafePoints } = await import("@/lib/rewards/earn");
-      void awardCafePoints(orderId).catch((err) =>
-        console.error("[rewards] cafe award failed for", orderId, err),
-      );
+      after(async () => {
+        const { awardCafePoints } = await import("@/lib/rewards/earn");
+        await awardCafePoints(orderId).catch((err) =>
+          console.error("[rewards] cafe award failed for", orderId, err),
+        );
+      });
     }
 
     return { success: true };
@@ -315,10 +332,10 @@ export async function adminCreateCafeOrder(data: {
   // (post-discount), and at least one of them must be > 0.
   split?: { cashAmount: number; upiAmount: number };
   note?: string;
-}, adminOverride?: { id: string; username: string }) {
-  // adminOverride lets the mobile admin route (bearer auth, no NextAuth
-  // session) reuse this action — same pattern as cancelCafeOrder below.
-  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
+}) {
+  // Resolves the acting admin from the web session or the mobile bearer
+  // token — the mobile admin route reuses this action directly.
+  const admin = await requireCafeAdminWithDetails();
 
   try {
     if (!data.items || data.items.length === 0) {
@@ -494,90 +511,128 @@ export async function adminCreateCafeOrder(data: {
       }
     }
 
-    const order = await db.cafeOrder.create({
-      data: {
-        orderNumber,
-        userId: resolvedUserId,
-        guestName: resolvedGuestName,
-        guestPhone: resolvedGuestPhone,
-        status: orderStatus,
-        totalAmount,
-        originalAmount,
-        discountAmount,
-        note: data.note?.trim() || null,
-        createdByAdminId: admin.id,
-        items: {
-          create: orderItems,
-        },
-        payment: {
-          create: {
-            method: resolvedMethod,
-            status: resolvedPaymentStatus,
-            amount: totalAmount,
-            // Stamp split slices when a split spec was provided.
-            // Stays null on single-method orders so the order
-            // detail page's "is mixed?" check (any non-null slice)
-            // keeps its meaning.
-            splitCashAmount,
-            splitUpiAmount,
-            confirmedAt: resolvedPaymentStatus === "COMPLETED" ? new Date() : null,
-            confirmedBy: resolvedPaymentStatus === "COMPLETED" ? admin.id : null,
+    // Iterated in a fixed id order rather than the caller's item
+    // order: the decrement's row locks are held until the transaction
+    // commits, so two orders touching the same items in opposite
+    // order would deadlock (Postgres 40P01).
+    const stockLines = [...data.items].sort((a, b) =>
+      a.cafeItemId.localeCompare(b.cafeItemId),
+    );
+
+    // The order row (with its payment already stamped COMPLETED) and
+    // the stock decrements land together or not at all. Previously
+    // the create committed on its own, so an order that lost the
+    // decrement race left a phantom CafeOrder carrying a COMPLETED
+    // payment behind after the admin was told the item sold out.
+    const order = await db.$transaction(async (tx) => {
+      const created = await tx.cafeOrder.create({
+        data: {
+          orderNumber,
+          userId: resolvedUserId,
+          guestName: resolvedGuestName,
+          guestPhone: resolvedGuestPhone,
+          status: orderStatus,
+          totalAmount,
+          originalAmount,
+          discountAmount,
+          note: data.note?.trim() || null,
+          createdByAdminId: admin.id,
+          items: {
+            create: orderItems,
+          },
+          payment: {
+            create: {
+              method: resolvedMethod,
+              status: resolvedPaymentStatus,
+              amount: totalAmount,
+              // Stamp split slices when a split spec was provided.
+              // Stays null on single-method orders so the order
+              // detail page's "is mixed?" check (any non-null slice)
+              // keeps its meaning.
+              splitCashAmount,
+              splitUpiAmount,
+              confirmedAt: resolvedPaymentStatus === "COMPLETED" ? new Date() : null,
+              confirmedBy: resolvedPaymentStatus === "COMPLETED" ? admin.id : null,
+            },
+          },
+          editHistory: {
+            create: {
+              adminId: admin.id,
+              adminUsername: admin.username,
+              editType: "ORDER_CREATED",
+              newAmount: totalAmount,
+              note: [
+                `Order created by ${admin.username}`,
+                allReady
+                  ? "all items ready-to-serve, handed over at counter (status: COMPLETED)"
+                  : null,
+                discountAmount > 0
+                  ? `discount ₹${discountAmount} applied`
+                  : null,
+                data.split
+                  ? `split payment Cash ₹${data.split.cashAmount} + UPI ₹${data.split.upiAmount}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" — "),
+            },
           },
         },
-        editHistory: {
-          create: {
-            adminId: admin.id,
-            adminUsername: admin.username,
-            editType: "ORDER_CREATED",
-            newAmount: totalAmount,
-            note: [
-              `Order created by ${admin.username}`,
-              allReady
-                ? "all items ready-to-serve, handed over at counter (status: COMPLETED)"
-                : null,
-              discountAmount > 0
-                ? `discount ₹${discountAmount} applied`
-                : null,
-              data.split
-                ? `split payment Cash ₹${data.split.cashAmount} + UPI ₹${data.split.upiAmount}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" — "),
-          },
+        include: {
+          items: true,
+          payment: true,
         },
-      },
-      include: {
-        items: true,
-        payment: true,
-      },
+      });
+
+      // Atomic stock decrement for trackable items. Same race-safe
+      // pattern as the customer order path — `updateMany` with a
+      // gte guard so two simultaneous orders can't drive stock
+      // negative. NULL-quantity items (kitchen-prepared) skip the
+      // update entirely.
+      for (const line of stockLines) {
+        const cafeItem = itemMap.get(line.cafeItemId)!;
+        if (cafeItem.quantity === null) continue;
+        const updated = await tx.cafeItem.updateMany({
+          where: {
+            id: line.cafeItemId,
+            quantity: { gte: line.quantity },
+          },
+          data: { quantity: { decrement: line.quantity } },
+        });
+        if (updated.count === 0) {
+          throw new CafeStockRaceError(
+            `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
+          );
+        }
+      }
+
+      return created;
     });
 
-    // Atomic stock decrement for trackable items. Same race-safe
-    // pattern as the customer order path — `updateMany` with a
-    // gte guard so two simultaneous orders can't drive stock
-    // negative. NULL-quantity items (kitchen-prepared) skip the
-    // update entirely.
-    for (const line of data.items) {
-      const cafeItem = itemMap.get(line.cafeItemId)!;
-      if (cafeItem.quantity === null) continue;
-      const updated = await db.cafeItem.updateMany({
-        where: {
-          id: line.cafeItemId,
-          quantity: { gte: line.quantity },
-        },
-        data: { quantity: { decrement: line.quantity } },
+    // Parity with the other direct-COMPLETED cafe paths
+    // (actions/cafe-orders.ts, app/api/mobile/cafe/orders/route.ts,
+    // lib/cafe-intent.ts): an all-ready order lands STRAIGHT in
+    // COMPLETED and never *transitions* into it, so the
+    // status-transition award hook in updateCafeOrderStatus never
+    // fires — a counter sale of ready-to-serve items would earn 0
+    // without this. Only when bound to a real resolved customer;
+    // guest/walk-in orders (resolvedUserId null) never earn.
+    // Idempotent at the lib layer, and inside after() — a bare
+    // fire-and-forget promise is killed by the serverless freeze.
+    if (orderStatus === "COMPLETED" && resolvedUserId) {
+      after(async () => {
+        const { awardCafePoints } = await import("@/lib/rewards/earn");
+        await awardCafePoints(order.id).catch((err) =>
+          console.error("[rewards] cafe award failed for", order.id, err),
+        );
       });
-      if (updated.count === 0) {
-        return {
-          success: false,
-          error: `${cafeItem.name} sold out before we could record the order — please try again with reduced quantity`,
-        };
-      }
     }
 
     return { success: true, order };
   } catch (error) {
+    if (error instanceof CafeStockRaceError) {
+      return { success: false, error: error.message };
+    }
     console.error("Failed to create cafe order:", error);
     return { success: false, error: "Failed to create order" };
   }
@@ -586,9 +641,8 @@ export async function adminCreateCafeOrder(data: {
 export async function cancelCafeOrder(
   orderId: string,
   reason: string,
-  adminOverride?: { id: string; username: string },
 ) {
-  const admin = adminOverride ?? (await requireCafeAdminWithDetails());
+  const admin = await requireCafeAdminWithDetails();
 
   try {
     const order = await db.cafeOrder.findUnique({
@@ -626,12 +680,18 @@ export async function cancelCafeOrder(
       // admin flipped an item from Ready → Prepare since the order
       // was placed, quantity is now null (untracked) and there's
       // nothing meaningful to increment.
+      //
+      // Sorted by id for the same reason the create path sorts its
+      // decrements: these row locks are held to commit, so a cancel and a
+      // concurrent order touching the same items in opposite order would
+      // deadlock (Postgres 40P01).
       stockToRestore = order.items
         .filter((line) => currentMap.get(line.cafeItemId)?.quantity !== null)
         .map((line) => ({
           id: line.cafeItemId,
           quantity: line.quantity,
-        }));
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
     }
 
     await db.$transaction(async (tx) => {
@@ -675,6 +735,11 @@ export async function cancelCafeOrder(
           data: { quantity: { increment: item.quantity } },
         });
       }
+
+      // Release the coupon claim too. Shared with the UTR reject /
+      // expiry cancel paths in actions/upi-payment.ts, which flip an
+      // order to CANCELLED without going through this action.
+      await releaseCafeCoupon(tx, order);
     });
     return { success: true };
   } catch (error) {
@@ -701,6 +766,45 @@ export async function searchCafeCustomers(query: string) {
   });
 
   return { customers };
+}
+
+/**
+ * Recompute an order's stored totals after its line items change by
+ * `lineDelta` rupees (negative when lines are removed/shrunk).
+ *
+ * The edit paths must move originalAmount — the undiscounted sum of
+ * the lines — and NOT totalAmount, because line totalPrice is a
+ * pre-discount figure. Subtracting it straight off the already
+ * discounted totalAmount applies the discount a second time and can
+ * drive totalAmount (and CafePayment.amount) negative, which then
+ * makes the order unsettleable in markCafePaymentCollected.
+ *
+ * originalAmount is nullable on older/undiscounted rows; the
+ * `totalAmount + discountAmount` fallback matches how the customer
+ * confirmation page reconstructs it.
+ */
+function recomputeCafeOrderTotals(
+  order: {
+    totalAmount: number;
+    originalAmount: number | null;
+    discountAmount: number;
+  },
+  lineDelta: number,
+) {
+  const originalAmount = Math.max(
+    0,
+    (order.originalAmount ?? order.totalAmount + order.discountAmount) +
+      lineDelta,
+  );
+  // The recorded discount is carried through untouched and the TOTAL is
+  // floored instead. Clamping the discount down to a shrunken subtotal is
+  // lossy and one-way — removing a line and adding it straight back would
+  // return with a permanently smaller discount, overcharging the customer.
+  return {
+    originalAmount,
+    discountAmount: order.discountAmount,
+    totalAmount: Math.max(0, originalAmount - order.discountAmount),
+  };
 }
 
 export async function addItemsToCafeOrder(
@@ -745,7 +849,8 @@ export async function addItemsToCafeOrder(
       };
     });
 
-    const newTotal = order.totalAmount + addedAmount;
+    const totals = recomputeCafeOrderTotals(order, addedAmount);
+    const newTotal = totals.totalAmount;
 
     // Pre-flight stock check + reservation. Add-on items must be
     // stocked the same way createCafeOrder reserves them — gte
@@ -784,7 +889,7 @@ export async function addItemsToCafeOrder(
       db.cafeOrderItem.createMany({ data: newItems }),
       db.cafeOrder.update({
         where: { id: orderId },
-        data: { totalAmount: newTotal },
+        data: totals,
       }),
       db.cafePayment.updateMany({
         where: { orderId },
@@ -849,13 +954,16 @@ export async function cancelItemsFromCafeOrder(
       return cancelCafeOrder(orderId, "All items removed");
     }
 
-    const newTotal = order.totalAmount - removedAmount;
+    const totals = recomputeCafeOrderTotals(order, -removedAmount);
+    const newTotal = totals.totalAmount;
 
     // Stock restore for removed lines. Only restore lines whose
     // CafeItem still tracks stock (quantity != null currently). If
     // the admin flipped an item from Ready → Prepare since the
     // order was placed, quantity is now null and nothing meaningful
-    // can be incremented.
+    // can be incremented. Sorted by id so the in-transaction row locks
+    // are always taken in the same order as every other stock loop —
+    // otherwise a concurrent order deadlocks (Postgres 40P01).
     const removedCafeItemIds = itemsToRemove.map((i) => i.cafeItemId);
     const currentItems = await db.cafeItem.findMany({
       where: { id: { in: removedCafeItemIds } },
@@ -864,7 +972,8 @@ export async function cancelItemsFromCafeOrder(
     const currentMap = new Map(currentItems.map((c) => [c.id, c]));
     const stockToRestore = itemsToRemove
       .filter((line) => currentMap.get(line.cafeItemId)?.quantity !== null)
-      .map((line) => ({ id: line.cafeItemId, quantity: line.quantity }));
+      .map((line) => ({ id: line.cafeItemId, quantity: line.quantity }))
+      .sort((a, b) => a.id.localeCompare(b.id));
 
     await db.$transaction(async (tx) => {
       await tx.cafeOrderItem.deleteMany({
@@ -872,7 +981,7 @@ export async function cancelItemsFromCafeOrder(
       });
       await tx.cafeOrder.update({
         where: { id: orderId },
-        data: { totalAmount: newTotal },
+        data: totals,
       });
       await tx.cafePayment.updateMany({
         where: { orderId },
@@ -935,7 +1044,8 @@ export async function updateCafeItemQuantity(
 
     const newItemTotal = item.unitPrice * newQuantity;
     const priceDiff = newItemTotal - item.totalPrice;
-    const newOrderTotal = order.totalAmount + priceDiff;
+    const totals = recomputeCafeOrderTotals(order, priceDiff);
+    const newOrderTotal = totals.totalAmount;
 
     // Stock delta. If qty went up, we need to decrement the
     // CafeItem.quantity by the increase (with gte race guard so a
@@ -988,7 +1098,7 @@ export async function updateCafeItemQuantity(
         }),
         db.cafeOrder.update({
           where: { id: orderId },
-          data: { totalAmount: newOrderTotal },
+          data: totals,
         }),
         db.cafePayment.updateMany({
           where: { orderId },
@@ -1146,6 +1256,24 @@ export async function updateCafePayment(
         },
       }),
     ]);
+
+    // Refunding a cafe order must claw back the EARNED_CAFE points the
+    // order accrued on completion — otherwise the customer keeps
+    // redeemable credit on money that was returned to them.
+    // cancelCafeOrder refuses COMPLETED orders, so this REFUNDED branch
+    // is the only refund route for exactly the orders that earned.
+    // Fires on the transition INTO refunded; revokeCafeRewards is
+    // idempotent (a REVOKED row for the order → no-op) so a re-refund
+    // or an after() retry can't double-claw. after(): a bare
+    // fire-and-forget promise is killed by the serverless freeze.
+    if (data.status === "REFUNDED" && prev.status !== "REFUNDED") {
+      after(async () => {
+        const { revokeCafeRewards } = await import("@/lib/rewards/revoke");
+        await revokeCafeRewards(orderId).catch((err) =>
+          console.error("[rewards] cafe revoke failed for", orderId, err),
+        );
+      });
+    }
 
     return { success: true };
   } catch (error) {

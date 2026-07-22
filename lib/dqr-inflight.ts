@@ -25,8 +25,11 @@ export async function probeUntilSettled(
   transactionId: string,
   attempts = 4,
   delayMs = 1800,
-): Promise<{ state: string; providerReferenceId?: string }> {
-  let last: { state: string; providerReferenceId?: string } = {
+): Promise<{ state: string; providerReferenceId?: string; amount?: number }> {
+  // `amount` (paise) is carried through because the price-check callers —
+  // confirmDqrPass in particular — need it, and dropping it forced them
+  // into a second qrStatus round trip on top of this one.
+  let last: { state: string; providerReferenceId?: string; amount?: number } = {
     state: "UNKNOWN",
   };
   for (let i = 0; i < attempts; i++) {
@@ -35,6 +38,7 @@ export async function probeUntilSettled(
       last = {
         state: status.state,
         providerReferenceId: status.providerReferenceId,
+        amount: status.amount,
       };
       // COMPLETED and FAILED are both terminal — no point waiting.
       if (status.state !== "PENDING") return last;

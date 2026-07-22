@@ -29,7 +29,7 @@ export async function GET(
     );
   }
 
-  const result = await getAvailableSlots(courtConfigId, date, bookingId, true);
+  const result = await getAvailableSlots(courtConfigId, date, bookingId);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

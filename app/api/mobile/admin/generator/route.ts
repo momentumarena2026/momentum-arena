@@ -11,10 +11,10 @@ import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
  * (SUPERADMIN bypass — matches the web sidebar gating for
  * /admin/generator: layout.tsx → permission: "MANAGE_PRICING").
  *
- * The web server actions only call `requireAdmin()` (session only, no
- * permission arg) so they cannot be reused via skipAuth — the route
- * re-implements the same DB logic and enforces MANAGE_PRICING itself
- * via requireMobileAdmin.
+ * The web server actions call `requireAdmin()` with no permission arg, so
+ * reusing them would drop the MANAGE_PRICING check — this route
+ * re-implements the same DB logic and enforces MANAGE_PRICING itself via
+ * requireMobileAdmin.
  *
  * Money is stored in PAISE. Per-litre prices are accepted in RUPEES
  * over the wire and converted to paise here (matching the web form

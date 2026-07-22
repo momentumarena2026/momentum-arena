@@ -32,28 +32,6 @@ function isChannel(value: string): value is (typeof CHANNELS)[number] {
 }
 
 /**
- * Auth options for the mutating actions below.
- *
- * Web call-sites omit this → `skipAuth` is false → the action runs the
- * cookie-based `requireAdmin()` exactly as before. The mobile admin route
- * (app/api/mobile/admin/ota) has ALREADY authorized the request via bearer
- * token + MANAGE_APP_RELEASES (getMobileAdmin/hasPermission), so it passes
- * `{ skipAuth: true, adminId: admin.id }` — mirroring the `skipAuth` option
- * the read action `listAppVersionGates` already exposes. The resolved adminId
- * is stamped onto the gate's `updatedBy` so skipAuth callers attribute the
- * edit correctly.
- */
-interface AdminAuthOpts {
-  skipAuth?: boolean;
-  adminId?: string;
-}
-
-async function resolveAdminId(opts: AdminAuthOpts): Promise<string> {
-  if (opts.skipAuth) return opts.adminId!;
-  return requireAdmin();
-}
-
-/**
  * Public, serializable shape so the client never sees Prisma-internal
  * fields. One entry per existing AppVersionGate row; the page renders an
  * editor (or a "create" prompt) for every (platform × channel) slot.
@@ -74,16 +52,12 @@ export interface AppVersionGateRow {
 /**
  * List every native version gate.
  *
- * `skipAuth` lets a caller that has already authorized the request reuse this
- * query without the cookie-session check. The mobile admin route
- * (app/api/mobile/admin/ota) authenticates via bearer token + MANAGE_APP_RELEASES
- * (getMobileAdmin/hasPermission) and passes `skipAuth: true`, since the
- * cookie-based requireAdmin() would reject a mobile request with no session.
+ * Gated behind MANAGE_APP_RELEASES for every caller. `requireAdmin` resolves
+ * the caller from the web cookie session OR the mobile Bearer JWT, so the
+ * mobile admin route (app/api/mobile/admin/ota) calls this plainly.
  */
-export async function listAppVersionGates({
-  skipAuth = false,
-}: { skipAuth?: boolean } = {}): Promise<AppVersionGateRow[]> {
-  if (!skipAuth) await requireAdmin();
+export async function listAppVersionGates(): Promise<AppVersionGateRow[]> {
+  await requireAdmin();
 
   const gates = await db.appVersionGate.findMany({
     orderBy: [{ channel: "asc" }, { platform: "asc" }],
@@ -116,10 +90,9 @@ export async function upsertAppVersionGate(
     latestVersionName: string;
     storeUrl: string;
     message: string;
-  },
-  opts: AdminAuthOpts = {}
+  }
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await resolveAdminId(opts);
+  const adminId = await requireAdmin();
 
   if (!isPlatform(input.platform)) {
     return { error: "Invalid platform" };
@@ -173,10 +146,9 @@ export async function upsertAppVersionGate(
 export async function setMinSupportedBuild(
   platform: string,
   channel: string,
-  minSupportedBuild: number,
-  opts: AdminAuthOpts = {}
+  minSupportedBuild: number
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await resolveAdminId(opts);
+  const adminId = await requireAdmin();
 
   if (!isPlatform(platform)) {
     return { error: "Invalid platform" };
@@ -216,10 +188,9 @@ export async function setMinSupportedBuild(
  */
 export async function forceUpdateToLatest(
   platform: string,
-  channel: string,
-  opts: AdminAuthOpts = {}
+  channel: string
 ): Promise<{ success: true } | { error: string }> {
-  const adminId = await resolveAdminId(opts);
+  const adminId = await requireAdmin();
 
   if (!isPlatform(platform)) {
     return { error: "Invalid platform" };

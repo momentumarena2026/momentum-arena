@@ -1,7 +1,55 @@
 import { db } from "@/lib/db";
 import type { Prisma, RewardTransaction, RewardTxnType } from "@prisma/client";
-import { applyBalanceDelta, ensureBalance } from "./balance";
+import { applyBalanceDelta, applyGuardedDebit, ensureBalance } from "./balance";
 import { getRewardConfig, pointsToPaise } from "./config";
+
+/** Credit (EARNED-family) types — the lots a debit can draw from. */
+const EARN_TYPES_FIFO: RewardTxnType[] = [
+  "EARNED_BOOKING",
+  "EARNED_BOOKING_REMAINDER",
+  "EARNED_CAFE",
+  "EARNED_SIGNUP",
+  "EARNED_REFERRAL",
+  "EARNED_BIRTHDAY",
+  "EARNED_ADJUSTMENT",
+  "ADJUSTMENT_REFUND",
+];
+
+/**
+ * Best-effort single-pointer FIFO attribution: the id of the OLDEST
+ * earn lot that still has un-consumed points at this instant. Stamped
+ * on the REDEEMED row's sourceTxnId purely for the liability report —
+ * the expiry sweep does NOT trust this pointer (it reconstructs FIFO
+ * over the whole ledger), so a null or approximate value is harmless.
+ * Returns null when no live lot can be identified.
+ */
+async function oldestLiveEarnId(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<string | null> {
+  const rows = await tx.rewardTransaction.findMany({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, type: true, points: true },
+  });
+  const earnSet = new Set<RewardTxnType>(EARN_TYPES_FIFO);
+  const lots: { id: string; points: number }[] = [];
+  let consumed = 0; // running magnitude of every debit already written
+  for (const r of rows) {
+    if (earnSet.has(r.type)) lots.push({ id: r.id, points: r.points });
+    else if (r.points < 0) consumed += -r.points;
+  }
+  // Drain consumption across lots oldest-first; the first lot with
+  // headroom left is the oldest still-live one.
+  for (const lot of lots) {
+    if (consumed >= lot.points) {
+      consumed -= lot.points;
+    } else {
+      return lot.id;
+    }
+  }
+  return null;
+}
 
 /** Marker so we can swallow the Prisma unique-constraint code without
  *  pulling in the full PrismaClientKnownRequestError type everywhere. */
@@ -136,11 +184,11 @@ export interface RedeemResult {
  * decrements the balance. Always called inside an outer transaction
  * by the caller (e.g. the booking lock-to-checkout flow).
  *
- * `sourceTxnId` is left null on the REDEEMED row itself — FIFO
- * tracking against specific EARNED rows isn't needed for v1
- * (we'd consume from earliest-expiring earns, but the simpler
- * "subtract from pool" model is what the guard rails enforce
- * anyway).
+ * `sourceTxnId` is set to the oldest still-live earn lot at redemption
+ * time (best-effort single-pointer attribution for the liability
+ * report). It is NOT a correctness dependency — the redemption is a
+ * single row and the expiry sweep reconstructs FIFO from the whole
+ * ledger rather than trusting this pointer.
  */
 export async function redeemForBooking(args: {
   userId: string;
@@ -214,21 +262,8 @@ export async function commitRedeemInTx(
 
   await ensureBalance(tx, args.userId);
 
-  // Defensive: balance might have changed between previewRedemption
-  // (at hold-apply time) and now. Refuse rather than risk a negative
-  // balance — the outer createBookingFromHold transaction will roll
-  // back and surface the error to the checkout client.
-  const balance = await tx.rewardBalance.findUnique({
-    where: { userId: args.userId },
-  });
-  const available = balance?.pointsAvailable ?? 0;
-  if (available < args.points) {
-    throw new Error(
-      `Insufficient reward balance: ${available} available, ${args.points} requested`,
-    );
-  }
-
   const discountPaise = args.points * args.cfg.pointValuePaise;
+  const sourceTxnId = await oldestLiveEarnId(tx, args.userId);
   const row = await tx.rewardTransaction.create({
     data: {
       type: args.type,
@@ -237,14 +272,27 @@ export async function commitRedeemInTx(
       userId: args.userId,
       bookingId: args.bookingId,
       cafeOrderId: args.cafeOrderId,
+      sourceTxnId,
     },
   });
-  await applyBalanceDelta(tx, {
+  // Atomic conditional debit: the DB re-checks pointsAvailable >= points
+  // at write time under a row lock, so two concurrent redemptions cannot
+  // both succeed and drive the balance negative. A false return means
+  // the points were spent out from under us between preview and now;
+  // throw so the outer createBookingFromHold transaction rolls back and
+  // the checkout client sees the "balance changed" error. The phrase
+  // "Insufficient reward balance" is load-bearing for the orphan-payment
+  // handler downstream — keep it.
+  const debited = await applyGuardedDebit(tx, {
     userId: args.userId,
-    points: -args.points,
-    type: "REDEEMED",
+    points: args.points,
     now: new Date(),
   });
+  if (!debited) {
+    throw new Error(
+      `Insufficient reward balance: ${args.points} points requested`,
+    );
+  }
 
   return {
     txnId: row.id,
@@ -290,6 +338,7 @@ async function commitRedeem(args: {
   try {
     const txn = await db.$transaction(async (tx) => {
       await ensureBalance(tx, args.userId);
+      const sourceTxnId = await oldestLiveEarnId(tx, args.userId);
       const row = await tx.rewardTransaction.create({
         data: {
           type: args.type,
@@ -298,22 +347,33 @@ async function commitRedeem(args: {
           userId: args.userId,
           bookingId: args.bookingId,
           cafeOrderId: args.cafeOrderId,
+          sourceTxnId,
         },
       });
-      await applyBalanceDelta(tx, {
+      // Atomic conditional debit — see commitRedeemInTx. Guards against a
+      // balance change racing between previewRedemption above and now.
+      const debited = await applyGuardedDebit(tx, {
         userId: args.userId,
-        points: -args.points,
-        type: "REDEEMED",
+        points: args.points,
         now,
       });
+      if (!debited) {
+        throw new Error(
+          `Insufficient reward balance: ${args.points} points requested`,
+        );
+      }
       return row;
     });
 
     // Anti-abuse: flag bulk-redemption at txn time. Cheap and the
     // alert dashboard wants to see this within seconds, not on the
-    // next cron sweep.
+    // next cron sweep. Awaited (was fire-and-forget): a bare promise in a
+    // serverless handler is killed by the freeze, so the flag was being
+    // dropped at random. Its failure must not undo the redemption, hence
+    // the .catch rather than letting it throw.
     if (discountPaise >= cfg.bulkRedemptionPaiseThreshold) {
-      void db.rewardAlert.create({
+      await db.rewardAlert
+        .create({
         data: {
           userId: args.userId,
           kind: "BULK_REDEMPTION",
@@ -328,7 +388,10 @@ async function commitRedeem(args: {
             cafeOrderId: args.cafeOrderId,
           },
         },
-      });
+        })
+        .catch((err) =>
+          console.error("[rewards] BULK_REDEMPTION alert failed", err),
+        );
     }
 
     return {
@@ -359,6 +422,21 @@ export async function refundRedemption(args: {
 }): Promise<{ refunded: boolean; txnId?: string }> {
   if (args.points <= 0) return { refunded: false };
   const cfg = await getRewardConfig();
+  // Idempotency: one refund per booking / cafe order. A cancel that runs
+  // twice, or a webhook + admin action racing, must not re-credit the
+  // points. @@unique([ADJUSTMENT_REFUND, bookingId]) would also collide and
+  // THROW on the second write, so guard first and return cleanly. (When
+  // neither id is set the row is unattributed and this guard is skipped.)
+  if (args.bookingId || args.cafeOrderId) {
+    const existing = await db.rewardTransaction.findFirst({
+      where: {
+        type: "ADJUSTMENT_REFUND",
+        bookingId: args.bookingId ?? undefined,
+        cafeOrderId: args.cafeOrderId ?? undefined,
+      },
+    });
+    if (existing) return { refunded: false, txnId: existing.id };
+  }
   const now = new Date();
   const row = await db.$transaction(async (tx) => {
     await ensureBalance(tx, args.userId);

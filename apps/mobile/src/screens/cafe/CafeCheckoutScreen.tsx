@@ -64,13 +64,29 @@ const METHODS: Array<{
 ];
 
 /**
+ * Whether a Razorpay rejection leaves any doubt that money moved.
+ * Razorpay only mints `metadata.payment_id` once it has created a real
+ * payment attempt, and only leaves the `payment_initiation` step once the
+ * request has reached the bank. A rejection carrying neither never touched a
+ * payment instrument — a dismiss at the method picker, invalid options, a TLS
+ * failure — so the debit warning there just frightens customers whose card
+ * was plainly declined.
+ */
+function mayHaveDebited(e: PaymentErrorData | undefined): boolean {
+  if (e?.metadata?.payment_id) return true;
+  const step = e?.step;
+  return !!step && step !== "payment_initiation";
+}
+
+/**
  * Cafe checkout — mirrors the shop checkout shape. For RAZORPAY:
  * server returns a CafePaymentIntent id; we open the native modal,
  * verify on success → server materialises the real CafeOrder and
  * returns its id, which we navigate to. Modal dismiss / failure →
- * call cafe-cancel so the intent is deleted (no CafeOrder ever
- * gets created for an abandoned payment). For CASH / UPI_QR: order
- * lands immediately, navigate straight to detail.
+ * leave the intent in place: we can't tell an abandoned payment from
+ * a captured one the SDK failed to report, and the intent reserves
+ * nothing. For CASH / UPI_QR: order lands immediately, navigate
+ * straight to detail.
  */
 export function CafeCheckoutScreen() {
   const navigation = useNavigation<Nav>();
@@ -195,21 +211,41 @@ export function CafeCheckoutScreen() {
         })) as PaymentSuccessData;
       } catch (err) {
         const e = err as PaymentErrorData;
+        // Deliberately does NOT cancel the intent. A rejection here
+        // doesn't prove the money stayed put — Razorpay may have
+        // auto-captured while the sheet hung on the bank page, and the
+        // Back press that escapes it arrives as code 2 (the incident
+        // documented in book/CheckoutScreen.tsx). Deleting the intent
+        // would destroy the only record of the cart, and the Razorpay
+        // webhook has no cafe branch to rebuild it from. A surviving
+        // intent reserves nothing (stock is re-validated at
+        // materialise time), so keeping it costs nothing and leaves a
+        // captured payment reconcilable.
+        //
+        // The surviving intent is deliberately NOT stamped `claimedAt`:
+        // that field feeds the admin unconfirmed queue, whose
+        // verify/force actions both resolve through PhonePe and bail
+        // with "No PhonePe transaction on this purchase" for a Razorpay
+        // intent. Parking one there would show staff a row they cannot
+        // action, so the copy promises a trace — which staff really can
+        // do from the Razorpay dashboard — not a confirmed order.
         if (
           e?.code === 2 ||
           e?.description?.toLowerCase().includes("cancel")
         ) {
-          // User dismissed — best-effort delete the intent so it
-          // doesn't linger in the DB. No order was created so the
-          // customer just stays on this screen.
-          await cafeApi.razorpayCancel(intentId).catch(() => undefined);
-          setError("Payment cancelled.");
+          setError(
+            mayHaveDebited(e)
+              ? "Payment cancelled. If your account was debited, do NOT pay again — contact the cafe counter and we'll trace the payment."
+              : "Payment cancelled. Your order was not placed.",
+          );
           return;
         }
-        // Hard failure — same cleanup as dismiss; surface the
-        // gateway's reason if any.
-        await cafeApi.razorpayCancel(intentId).catch(() => undefined);
-        throw new Error(e?.description || "Payment failed");
+        const reason = e?.description || "Payment failed";
+        throw new Error(
+          mayHaveDebited(e)
+            ? `${reason} — if your account was debited, do NOT pay again; contact the cafe counter and we'll trace it.`
+            : reason,
+        );
       }
 
       // `PaymentSuccessData` types its fields as `string | undefined`

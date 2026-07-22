@@ -15,7 +15,7 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  const order = await getOrderForCustomer(id, user.id);
+  const order = await getOrderForCustomer(id);
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
@@ -33,7 +33,7 @@ export async function DELETE(
   const { id } = await params;
   const reason =
     new URL(request.url).searchParams.get("reason") ?? "Cancelled by customer";
-  const res = await cancelOrder(id, reason, user.id);
+  const res = await cancelOrder(id, reason);
   if (!res.success) {
     return NextResponse.json({ error: res.error }, { status: 400 });
   }

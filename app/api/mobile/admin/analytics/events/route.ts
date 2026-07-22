@@ -26,8 +26,9 @@ import { AnalyticsCategory } from "@prisma/client";
  * shaped as { names: string[] }.
  *
  * Returns the matching list result ({ rows, hasMore, nextCursor }).
- * Requires VIEW_ANALYTICS (or SUPERADMIN). This route auth-checks, so
- * the underlying actions are called with skipAuth=true.
+ * Requires VIEW_ANALYTICS (or SUPERADMIN). This route auth-checks for
+ * correct 401/403 status codes; the underlying actions independently
+ * enforce requireAdmin("VIEW_ANALYTICS").
  */
 export async function GET(request: NextRequest) {
   const admin = await getMobileAdmin(request);
@@ -48,8 +49,8 @@ export async function GET(request: NextRequest) {
   if (sp.get("names") === "1") {
     const names =
       tab === "server"
-        ? await listServerActionNames(true)
-        : await listEventNames(true);
+        ? await listServerActionNames()
+        : await listEventNames();
     return NextResponse.json({ names });
   }
 
@@ -71,7 +72,6 @@ export async function GET(request: NextRequest) {
         before,
         limit,
       },
-      true,
     );
     return NextResponse.json(data);
   }
@@ -85,7 +85,6 @@ export async function GET(request: NextRequest) {
       before,
       limit,
     },
-    true,
   );
   return NextResponse.json(data);
 }

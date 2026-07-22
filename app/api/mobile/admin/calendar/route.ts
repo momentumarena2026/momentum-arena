@@ -10,9 +10,10 @@ import { getCalendarData } from "@/actions/admin-calendar";
  * /admin/calendar page does. Sport filter is optional (all courts
  * when omitted).
  *
- * `skipAuth: true` is safe here because we've already verified the
- * admin JWT above — the action's own `requireAdmin` cookie check
- * would otherwise fail for mobile callers.
+ * Auth is enforced twice on purpose: `requireMobileAdmin` here so a
+ * bad caller gets a proper 401/403 JSON response, and the action's own
+ * `requireAdmin("MANAGE_BOOKINGS")`, which resolves the mobile Bearer
+ * JWT from the in-process request.
  */
 export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_BOOKINGS");
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = await getCalendarData(date, sport, true);
+    const data = await getCalendarData(date, sport);
     return NextResponse.json(data);
   } catch (err) {
     return NextResponse.json(

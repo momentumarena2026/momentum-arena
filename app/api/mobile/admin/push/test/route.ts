@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await sendTestPushToAdmin(gate.admin.id, {
+  const result = await sendTestPushToAdmin({
     title: parsed.data.title,
     body: parsed.data.body,
   });

@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await createCustomerForBooking(parsed.data, true);
+  const result = await createCustomerForBooking(parsed.data);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

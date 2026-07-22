@@ -9,6 +9,16 @@ import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
 } from "@/lib/notifications";
+import { releaseCafeCoupon } from "@/lib/cafe-intent";
+
+// Fields releaseCafeCoupon needs off the cancelled order. Selected on the
+// payment's `order` relation by both cafe-cancelling paths below.
+const CAFE_COUPON_ORDER_SELECT = {
+  id: true,
+  status: true,
+  discountCodeId: true,
+  discountAmount: true,
+} as const;
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -145,17 +155,13 @@ export async function submitCafeOrderUtr(
 // ─── Admin: verify a booking UTR payment ────────────────────
 
 export async function verifyBookingUtr(
-  paymentId: string,
-  adminId: string,
-  // `skipAuth` lets the mobile-admin API route call this after it has
-  // already authenticated via JWT + checked MANAGE_BOOKINGS. When set,
-  // the supplied `adminId` is trusted as the confirming admin. Web
-  // call sites pass nothing and keep the cookie-based gate.
-  skipAuth?: boolean
+  paymentId: string
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = skipAuth
-    ? { id: adminId }
-    : await requireAdmin("MANAGE_BOOKINGS");
+  // The confirming admin is whoever the gate resolves — never a
+  // caller-supplied id. requireAdmin accepts the web cookie session or
+  // the mobile Bearer JWT, so the mobile route's in-process call is
+  // authenticated and stamped correctly too.
+  const admin = await requireAdmin("MANAGE_BOOKINGS");
 
   const payment = await db.payment.findUnique({
     where: { id: paymentId },
@@ -202,15 +208,10 @@ export async function verifyBookingUtr(
 // ─── Admin: verify a cafe UTR payment ───────────────────────
 
 export async function verifyCafeUtr(
-  paymentId: string,
-  adminId: string,
-  // `skipAuth` — see verifyBookingUtr. Trusts the supplied adminId when
-  // the mobile route has already gated on MANAGE_CAFE_ORDERS.
-  skipAuth?: boolean
+  paymentId: string
 ): Promise<{ success: boolean; error?: string }> {
-  const admin = skipAuth
-    ? { id: adminId }
-    : await requireAdmin("MANAGE_CAFE_ORDERS");
+  // See verifyBookingUtr — confirming admin comes from the gate only.
+  const admin = await requireAdmin("MANAGE_CAFE_ORDERS");
 
   const payment = await db.cafePayment.findUnique({
     where: { id: paymentId },
@@ -250,31 +251,32 @@ export async function verifyCafeUtr(
 
 export async function rejectUtr(
   paymentId: string,
-  adminId: string,
   reason: string,
-  type: "booking" | "cafe" = "booking",
-  // `skipAuth` — see verifyBookingUtr. Skips the cookie gate once the
-  // mobile route has authenticated via JWT + checked MANAGE_BOOKINGS.
-  skipAuth?: boolean
+  type: "booking" | "cafe" = "booking"
 ): Promise<{ success: boolean; error?: string }> {
-  if (!skipAuth) await requireAdmin("MANAGE_BOOKINGS");
+  await requireAdmin("MANAGE_BOOKINGS");
 
   if (type === "cafe") {
     const payment = await db.cafePayment.findUnique({
       where: { id: paymentId },
+      include: { order: { select: CAFE_COUPON_ORDER_SELECT } },
     });
     if (!payment) return { success: false, error: "Payment not found" };
 
-    await db.$transaction([
-      db.cafePayment.update({
+    await db.$transaction(async (tx) => {
+      await tx.cafePayment.update({
         where: { id: paymentId },
         data: { status: "FAILED" },
-      }),
-      db.cafeOrder.update({
+      });
+      await tx.cafeOrder.update({
         where: { id: payment.orderId },
         data: { status: "CANCELLED" },
-      }),
-    ]);
+      });
+      // Rejecting the UTR kills the order, so the coupon has to go back
+      // — same release cancelCafeOrder does. Without it the customer's
+      // per-user slot stays burned on an order they never got.
+      await releaseCafeCoupon(tx, payment.order);
+    });
   } else {
     const payment = await db.payment.findUnique({
       where: { id: paymentId },
@@ -298,10 +300,8 @@ export async function rejectUtr(
 
 // ─── Admin: get all pending UTR verifications ───────────────
 
-export async function getPendingUtrPayments(skipAuth?: boolean) {
-  // `skipAuth` lets the mobile-admin API route call this after it has
-  // already authenticated via JWT + checked MANAGE_BOOKINGS.
-  if (!skipAuth) await requireAdmin("MANAGE_BOOKINGS");
+export async function getPendingUtrPayments() {
+  await requireAdmin("MANAGE_BOOKINGS");
 
   // Inline expiry: auto-expire overdue UTR payments before fetching
   await expireUnverifiedUtrs();
@@ -452,19 +452,23 @@ export async function expireUnverifiedUtrs(): Promise<{ expiredCount: number }> 
       utrExpiresAt: { lt: now },
       utrNumber: { not: null },
     },
+    include: { order: { select: CAFE_COUPON_ORDER_SELECT } },
   });
 
   for (const payment of expiredCafePayments) {
-    await db.$transaction([
-      db.cafePayment.update({
+    await db.$transaction(async (tx) => {
+      await tx.cafePayment.update({
         where: { id: payment.id },
         data: { status: "FAILED" },
-      }),
-      db.cafeOrder.update({
+      });
+      await tx.cafeOrder.update({
         where: { id: payment.orderId },
         data: { status: "CANCELLED" },
-      }),
-    ]);
+      });
+      // Expiry cancels the order, so the coupon claim goes back too —
+      // see the reject path above.
+      await releaseCafeCoupon(tx, payment.order);
+    });
   }
 
   return { expiredCount: expiredBookingPayments.length + expiredCafePayments.length };

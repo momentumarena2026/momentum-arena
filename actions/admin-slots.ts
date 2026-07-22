@@ -11,10 +11,11 @@ async function requireAdmin() {
 }
 
 /**
- * Mobile admin routes pre-authenticate via JWT, then call these
- * actions with `adminIdOverride` (for create) or `skipAuth: true`
- * (for read/delete) to bypass the NextAuth web cookie gate. Web
- * call sites continue to omit both flags.
+ * Every action below is gated behind MANAGE_SLOTS for every caller.
+ * `requireAdmin` resolves the caller from the web cookie session OR the
+ * mobile Bearer JWT, so the mobile admin routes call these plainly — there
+ * is no auth-bypass argument to pass (and never should be: in a
+ * "use server" module the arguments come from the client).
  */
 
 const blockSlotSchema = z.object({
@@ -33,9 +34,8 @@ export async function blockSlot(
     startHour?: number;
     reason?: string;
   },
-  adminIdOverride?: string,
 ) {
-  const adminId = adminIdOverride ?? (await requireAdmin());
+  const adminId = await requireAdmin();
 
   const parsed = blockSlotSchema.safeParse(data);
   if (!parsed.success) {
@@ -56,15 +56,15 @@ export async function blockSlot(
   return { success: true };
 }
 
-export async function unblockSlot(blockId: string, skipAuth?: boolean) {
-  if (!skipAuth) await requireAdmin();
+export async function unblockSlot(blockId: string) {
+  await requireAdmin();
 
   await db.slotBlock.delete({ where: { id: blockId } });
   return { success: true };
 }
 
-export async function getSlotBlocks(date: string, skipAuth?: boolean) {
-  if (!skipAuth) await requireAdmin();
+export async function getSlotBlocks(date: string) {
+  await requireAdmin();
 
   const blocks = await db.slotBlock.findMany({
     where: { date: new Date(date) },
@@ -97,8 +97,8 @@ export async function toggleConfigActive(configId: string, isActive: boolean) {
   return { success: true };
 }
 
-export async function getAllSportsWithConfigs(skipAuth?: boolean) {
-  if (!skipAuth) await requireAdmin();
+export async function getAllSportsWithConfigs() {
+  await requireAdmin();
 
   const configs = await db.courtConfig.findMany({
     orderBy: [{ sport: "asc" }, { size: "asc" }, { position: "asc" }],

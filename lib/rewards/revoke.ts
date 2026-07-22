@@ -1,5 +1,4 @@
 import { db } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
 import { applyBalanceDelta, ensureBalance } from "./balance";
 import { getRewardConfig, pointsToPaise } from "./config";
 import { refundRedemption } from "./redeem";
@@ -51,13 +50,41 @@ export async function revokeBookingRewards(
   let revokedPoints = 0;
   let refundedPoints = 0;
 
-  // 1. Clawback the earn (only once). Single REVOKED row per
+  // 1. Refund the redemption FIRST if there was one. abs() because the
+  //    stored points on a REDEEMED row is negative. Ordering is
+  //    load-bearing: the earn clawback below caps itself at the CURRENT
+  //    balance, so the redemption re-credit has to land first — else a
+  //    clawback that is actually collectible once the redeemed points
+  //    are handed back gets mis-read as a shortfall.
+  if (redemption) {
+    const existingRefund = await db.rewardTransaction.findFirst({
+      where: { bookingId, type: "ADJUSTMENT_REFUND" },
+    });
+    if (!existingRefund) {
+      const points = Math.abs(redemption.points);
+      const result = await refundRedemption({
+        userId: redemption.userId,
+        points,
+        bookingId,
+        reason: "Booking cancelled — redemption returned",
+      });
+      if (result.refunded) refundedPoints = points;
+    }
+  }
+
+  // 2. Clawback the earn (only once). Single REVOKED row per
   //    booking covers the sum of both earn rows — the
   //    @@unique([type=REVOKED, bookingId]) constraint allows only
   //    one entry. sourceTxnId points to the initial earn row so the
   //    audit trail still has a useful anchor; the breakdown lives
   //    in the `reason` text and the existing earn rows are
   //    discoverable via the bookingId.
+  //
+  //    `available` is read AFTER the redemption refund above, so the
+  //    shortfall is judged against the post-refund balance: a genuine
+  //    shortfall (earned points truly spent elsewhere) still caps the
+  //    clawback and still alerts, but a refund that covers the earn no
+  //    longer trips a false PARTIAL_REVOKE_SHORTFALL.
   if (earns.length > 0 && !existingRevoke) {
     const userId = earns[0].userId;
     const totalEarned = earns.reduce((sum, e) => sum + e.points, 0);
@@ -111,42 +138,184 @@ export async function revokeBookingRewards(
       }
     }
 
-    // Flag partial clawbacks so an admin can decide policy.
+    // Flag partial clawbacks so an admin can decide policy — but only
+    // ONCE per booking. When actualClawback is 0 (earn fully spent) no
+    // REVOKED row is written, so the `!existingRevoke` guard above never
+    // trips on a re-run; without this dedupe a repeated cancel would
+    // re-raise the same shortfall alert every time.
     if (shortfall > 0) {
-      await db.rewardAlert.create({
-        data: {
-          userId,
-          kind: "PARTIAL_REVOKE_SHORTFALL",
-          severity: "MEDIUM",
-          status: "OPEN",
-          details: {
-            bookingId,
-            wantedClawback,
-            actualClawback,
-            shortfall,
-            earnTxnId: sourceTxn.id,
-            includesRemainder: hasRemainder,
-          },
-        },
+      const openAlerts = await db.rewardAlert.findMany({
+        where: { userId, kind: "PARTIAL_REVOKE_SHORTFALL", status: "OPEN" },
+        select: { details: true },
       });
+      const alreadyFlagged = openAlerts.some(
+        (a) =>
+          a.details !== null &&
+          typeof a.details === "object" &&
+          !Array.isArray(a.details) &&
+          (a.details as Record<string, unknown>).bookingId === bookingId,
+      );
+      if (!alreadyFlagged) {
+        await db.rewardAlert.create({
+          data: {
+            userId,
+            kind: "PARTIAL_REVOKE_SHORTFALL",
+            severity: "MEDIUM",
+            status: "OPEN",
+            details: {
+              bookingId,
+              wantedClawback,
+              actualClawback,
+              shortfall,
+              earnTxnId: sourceTxn.id,
+              includesRemainder: hasRemainder,
+            },
+          },
+        });
+      }
     }
   }
 
-  // 2. Refund the redemption if there was one. abs() because the
-  //    stored points on a REDEEMED row is negative.
+  return { revokedPoints, refundedPoints };
+}
+
+/**
+ * Cafe-refund reward unwind — the cafe analogue of
+ * revokeBookingRewards, keyed on cafeOrderId and clawing back
+ * EARNED_CAFE instead of the booking earn types.
+ *
+ * When an admin refunds a completed cafe order (updateCafePayment →
+ * status REFUNDED) the customer gets their money back, so the
+ * EARNED_CAFE points that completion credited must be clawed back too —
+ * otherwise they keep redeemable credit on money that was returned.
+ * cancelCafeOrder refuses COMPLETED orders, so the REFUNDED payment
+ * branch is the only refund route for exactly the orders that earned.
+ * A REDEEMED_CAFE spend on the same order is re-credited via
+ * ADJUSTMENT_REFUND, same as the booking path (and, same as the booking
+ * path, before the clawback so the shortfall is judged post-refund).
+ *
+ * Idempotent — a REVOKED row already present for this order makes the
+ * clawback a no-op (via the `!existingRevoke` guard AND the
+ * @@unique([type, cafeOrderId]) constraint), so a re-refund or an
+ * after() retry can't double-claw. Never drives pointsAvailable
+ * negative; a genuine shortfall (earned points already spent) caps the
+ * clawback at what's available and raises a PARTIAL_REVOKE_SHORTFALL
+ * alert.
+ */
+export async function revokeCafeRewards(
+  cafeOrderId: string,
+): Promise<{ revokedPoints: number; refundedPoints: number }> {
+  const cfg = await getRewardConfig();
+
+  const earns = await db.rewardTransaction.findMany({
+    where: { cafeOrderId, type: "EARNED_CAFE" },
+  });
+  const existingRevoke = await db.rewardTransaction.findFirst({
+    where: { cafeOrderId, type: "REVOKED" },
+  });
+  const redemption = await db.rewardTransaction.findFirst({
+    where: { cafeOrderId, type: "REDEEMED_CAFE" },
+  });
+
+  let revokedPoints = 0;
+  let refundedPoints = 0;
+
+  // 1. Refund the redemption first (see revokeBookingRewards — the
+  //    clawback must judge its shortfall against the post-refund
+  //    balance).
   if (redemption) {
     const existingRefund = await db.rewardTransaction.findFirst({
-      where: { bookingId, type: "ADJUSTMENT_REFUND" },
+      where: { cafeOrderId, type: "ADJUSTMENT_REFUND" },
     });
     if (!existingRefund) {
       const points = Math.abs(redemption.points);
       const result = await refundRedemption({
         userId: redemption.userId,
         points,
-        bookingId,
-        reason: "Booking cancelled — redemption returned",
+        cafeOrderId,
+        reason: "Cafe order refunded — redemption returned",
       });
       if (result.refunded) refundedPoints = points;
+    }
+  }
+
+  // 2. Clawback the EARNED_CAFE credit (only once).
+  if (earns.length > 0 && !existingRevoke) {
+    const userId = earns[0].userId;
+    const totalEarned = earns.reduce((sum, e) => sum + e.points, 0);
+    const balance = await db.rewardBalance.findUnique({
+      where: { userId },
+    });
+    const available = balance?.pointsAvailable ?? 0;
+    const wantedClawback = totalEarned;
+    const actualClawback = Math.min(available, wantedClawback);
+    const shortfall = wantedClawback - actualClawback;
+    const sourceTxn = earns[0];
+
+    if (actualClawback > 0) {
+      const now = new Date();
+      try {
+        await db.$transaction(async (tx) => {
+          await ensureBalance(tx, userId);
+          await tx.rewardTransaction.create({
+            data: {
+              type: "REVOKED",
+              points: -actualClawback,
+              pointsValuePaise: -pointsToPaise(actualClawback, cfg),
+              userId,
+              cafeOrderId,
+              sourceTxnId: sourceTxn.id,
+              reason:
+                shortfall > 0
+                  ? `Cafe order refunded — partial clawback (${actualClawback} of ${wantedClawback} points)`
+                  : "Cafe order refunded — earn revoked",
+            },
+          });
+          await applyBalanceDelta(tx, {
+            userId,
+            points: -actualClawback,
+            type: "REVOKED",
+            now,
+          });
+        });
+        revokedPoints = actualClawback;
+      } catch (err) {
+        // Idempotency violation = already revoked, treat as success.
+        if (!isUniqueViolation(err)) throw err;
+      }
+    }
+
+    // Flag partial clawbacks once per order — same fully-drained re-run
+    // hazard as the booking path above.
+    if (shortfall > 0) {
+      const openAlerts = await db.rewardAlert.findMany({
+        where: { userId, kind: "PARTIAL_REVOKE_SHORTFALL", status: "OPEN" },
+        select: { details: true },
+      });
+      const alreadyFlagged = openAlerts.some(
+        (a) =>
+          a.details !== null &&
+          typeof a.details === "object" &&
+          !Array.isArray(a.details) &&
+          (a.details as Record<string, unknown>).cafeOrderId === cafeOrderId,
+      );
+      if (!alreadyFlagged) {
+        await db.rewardAlert.create({
+          data: {
+            userId,
+            kind: "PARTIAL_REVOKE_SHORTFALL",
+            severity: "MEDIUM",
+            status: "OPEN",
+            details: {
+              cafeOrderId,
+              wantedClawback,
+              actualClawback,
+              shortfall,
+              earnTxnId: sourceTxn.id,
+            },
+          },
+        });
+      }
     }
   }
 
