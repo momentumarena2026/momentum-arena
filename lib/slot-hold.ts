@@ -169,9 +169,13 @@ export async function createSlotHold(
           }
         }
 
-        // 7. Clean up any prior holds by this user for the same config+date
+        // 7. Clean up any prior holds by this user for the same config+date.
+        // paymentInitiatedAt: null keeps a hold with an in-flight payment
+        // alive as a booking-reconstruction blueprint (see releaseSlotHold /
+        // PAYMENT_GRACE_HOURS) — re-locking the same slot must not orphan a
+        // payment the customer already started.
         await tx.slotHold.deleteMany({
-          where: { userId, courtConfigId, date: dateOnly },
+          where: { userId, courtConfigId, date: dateOnly, paymentInitiatedAt: null },
         });
 
         // 8. Calculate total
@@ -343,11 +347,13 @@ export async function createMediumHalfCourtHold(
         }
 
         // Clean up any prior holds this user has on EITHER half for this date
-        // (the old one is superseded).
+        // (the old one is superseded). paymentInitiatedAt: null retains a
+        // hold with an in-flight payment so re-locking can't orphan it.
         await tx.slotHold.deleteMany({
           where: {
             userId,
             date: dateOnly,
+            paymentInitiatedAt: null,
             courtConfigId: { in: [leftId, rightId] },
           },
         });
@@ -543,9 +549,11 @@ export async function createBowlingMachineHold(
           }
         }
 
-        // 6. Clean prior bowling holds from this user on the same date
+        // 6. Clean prior bowling holds from this user on the same date.
+        // paymentInitiatedAt: null retains a hold with an in-flight payment
+        // (booking-reconstruction blueprint) so re-locking can't orphan it.
         await tx.slotHold.deleteMany({
-          where: { userId, courtConfigId, date: dateOnly },
+          where: { userId, courtConfigId, date: dateOnly, paymentInitiatedAt: null },
         });
 
         const totalAmount = slots.reduce((sum, s) => sum + s.price, 0);
@@ -596,8 +604,19 @@ export async function releaseSlotHold(
   holdId: string,
   userId: string
 ): Promise<boolean> {
+  // ONLY release a hold with no payment in flight. This is the explicit
+  // "user left checkout" path (the release-lock beacon fires on navigate-
+  // away). Once a payment has been initiated — paymentInitiatedAt is
+  // stamped the moment a DQR QR / gateway order is created — the hold is
+  // the SOLE blueprint for rebuilding the booking if the money lands late,
+  // so it must survive and ride the PAYMENT_GRACE_HOURS window the cleanup
+  // cron enforces (sweepExpiredHolds, below). Deleting it here orphaned
+  // real captured payments: a customer paid via UPI intent, navigated back,
+  // the beacon fired, and the money had no hold left to reconstruct from.
+  // Availability gates on expiresAt > now, so a retained expired hold does
+  // NOT keep the slot blocked.
   const result = await db.slotHold.deleteMany({
-    where: { id: holdId, userId },
+    where: { id: holdId, userId, paymentInitiatedAt: null },
   });
   return result.count > 0;
 }
