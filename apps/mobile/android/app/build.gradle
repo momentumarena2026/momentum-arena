@@ -92,6 +92,22 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
+    // 16 KB memory page-size support (required by Google Play for apps
+    // targeting Android 15+). RN 0.85 + NDK r27 already compile our native
+    // .so libraries with 16 KB-aligned LOAD segments; the missing piece is
+    // packaging. useLegacyPackaging = false stores native libs UNCOMPRESSED
+    // so the bundler page-aligns them to 16 KB in the AAB — legacy packaging
+    // compresses them, which is what fails Play's 16 KB check. Verify at the
+    // next production build that the Play "16 KB page sizes" warning is gone;
+    // if a specific third-party .so is still flagged, that dependency ships
+    // an unaligned library and must be upgraded (no packaging flag can fix a
+    // pre-linked .so).
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
     namespace "com.momentumarena"
     defaultConfig {
         applicationId "com.momentumarena"
