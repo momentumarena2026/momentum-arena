@@ -83,7 +83,21 @@ platform :ios do
   lane :release do
     configure_ota("production")
     build_ios
-    upload_to_app_store(api_key: asc_key, submit_for_review: false, precheck_include_in_app_purchases: false, force: true)
+    # Binary only. There is no fastlane/metadata dir — the listing, screenshots
+    # and App Privacy answers are maintained by hand in App Store Connect, so
+    # tell deliver not to touch them (without these skips it aborts on missing
+    # metadata). After this uploads the build: attach it to the version, finish
+    # the listing, and Submit for Review in ASC. This build points OTA at
+    # production, which is why an App Store release can't just reuse a
+    # TestFlight (OTA=development) binary.
+    upload_to_app_store(
+      api_key: asc_key,
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false,
+      force: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+    )
   end
 end
 
@@ -109,6 +123,19 @@ platform :android do
       build_type: "Release",
       properties: { "versionCode" => BUILD_NUMBER.to_i, "versionName" => MARKETING_VERSION },
     )
-    upload_to_play_store(track: "production", json_key: ENV["GOOGLE_PLAY_JSON_KEY"], skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+    # release_status "draft": the AAB uploads but nothing goes live — you review
+    # and roll it out from the Play Console. Safest posture for the first public
+    # release; flip to "completed" once you're happy self-publishing updates.
+    # NOTE: the app's FIRST production release must be created + completed once
+    # in the Play Console UI (store listing, Data safety, content rating, target
+    # audience all filled) before this API upload is accepted.
+    upload_to_play_store(
+      track: "production",
+      json_key: ENV["GOOGLE_PLAY_JSON_KEY"],
+      release_status: "draft",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
   end
 end
