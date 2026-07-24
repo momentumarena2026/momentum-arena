@@ -42,6 +42,15 @@ jobs:
       channel: ${{ steps.bn.outputs.channel }}
       version: ${{ steps.bump.outputs.version }}
     steps:
+      # A production Play build carries OTA target = production and goes to real
+      # customers, so it must be cut from `main` — never from development or a
+      # feature branch. Internal testing (track=internal) can still run anywhere.
+      - name: Guard — Play production builds only from main
+        if: ${{ inputs.track == 'production' && github.ref_name != 'main' }}
+        run: |
+          echo "::error::Play production builds (track=production) must run from 'main', not '${{ github.ref_name }}'. Promote to main first, then re-run on main."
+          exit 1
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
