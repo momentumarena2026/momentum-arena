@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MomentumArena</string>
+    <string name="app_name">Momentum Arena</string>
     <string name="expo_runtime_version">2</string>
     <string name="expo_updates_request_headers">{"expo-channel-name":"development"}</string>
     <string name="expo_updates_code_signing_metadata">{"keyid":"main","alg":"rsa-v1_5-sha256"}</string>
