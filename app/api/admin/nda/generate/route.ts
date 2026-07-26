@@ -2,25 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
-import { formatAadhaar, NDA_VERSION, type NdaFields } from "@/lib/nda-template";
-import { renderNdaPdf } from "@/lib/nda-pdf";
+import { decryptAadhaar } from "@/lib/hr-crypto";
+import { buildNdaBlocks, formatAadhaar, NDA_VERSION, type NdaFields } from "@/lib/nda-template";
+import { renderLetter } from "@/lib/letter-pdf";
 
-// Employee details come from the admin HR form. Aadhaar is validated to 12
-// digits; only its last 4 are ever persisted (see below).
-const bodySchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(120),
-  phone: z
-    .string()
-    .trim()
-    .transform((s) => s.replace(/[^\d+]/g, ""))
-    .refine((s) => s.replace(/\D/g, "").length >= 10, "A valid phone number is required"),
-  email: z.string().trim().email("A valid email is required"),
-  aadhaar: z
-    .string()
-    .transform((s) => s.replace(/\D/g, ""))
-    .refine((s) => s.length === 12, "Aadhaar must be exactly 12 digits"),
-  address: z.string().trim().min(1, "Address is required").max(400),
-});
+const bodySchema = z.object({ employeeId: z.string().min(1, "Select an employee") });
 
 function formatTodayIST(): string {
   return new Date().toLocaleDateString("en-IN", {
@@ -32,7 +18,6 @@ function formatTodayIST(): string {
 }
 
 export async function POST(request: Request) {
-  // Gate on the HR/Legal permission (superadmin bypasses per requireAdmin).
   let admin;
   try {
     admin = await requireAdmin("MANAGE_HR");
@@ -43,40 +28,54 @@ export async function POST(request: Request) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid data" }, { status: 400 });
+  }
+
+  const employee = await db.employee.findUnique({ where: { id: parsed.data.employeeId } });
+  if (!employee) {
+    return NextResponse.json({ error: "Employee not found" }, { status: 404 });
+  }
+  if (!employee.aadhaarEnc) {
     return NextResponse.json(
-      { error: parsed.error.issues[0]?.message || "Invalid data" },
+      { error: "This employee has no Aadhaar on file. Add it on the Employees screen first." },
       { status: 400 }
     );
   }
-  const { name, phone, email, aadhaar, address } = parsed.data;
+
+  let aadhaarDigits: string;
+  try {
+    aadhaarDigits = decryptAadhaar(employee.aadhaarEnc);
+  } catch {
+    return NextResponse.json({ error: "Could not read the stored Aadhaar for this employee." }, { status: 500 });
+  }
 
   const fields: NdaFields = {
-    name,
-    phone,
-    email,
-    address,
-    aadhaar: formatAadhaar(aadhaar), // full number on the printed NDA (identifies the signatory)
+    name: employee.name,
+    phone: employee.phone,
+    email: employee.email,
+    address: employee.address,
+    aadhaar: formatAadhaar(aadhaarDigits),
     date: formatTodayIST(),
   };
 
-  // Audit record: who/when + identifying contact, and the LAST 4 of the
-  // Aadhaar ONLY. The full number never touches the database or the logs.
+  // Audit record: snapshot of what was printed + last-4 only.
   await db.ndaRecord.create({
     data: {
-      employeeName: name,
-      employeePhone: phone,
-      employeeEmail: email,
-      employeeAddress: address,
-      aadhaarLast4: aadhaar.slice(-4),
+      employeeId: employee.id,
+      employeeName: employee.name,
+      employeePhone: employee.phone,
+      employeeEmail: employee.email,
+      employeeAddress: employee.address,
+      aadhaarLast4: employee.aadhaarLast4 || aadhaarDigits.slice(-4),
       ndaVersion: NDA_VERSION,
       generatedById: admin.id,
       generatedByName: admin.name || admin.email || "admin",
     },
   });
 
-  const doc = renderNdaPdf(fields);
+  const doc = renderLetter(buildNdaBlocks(fields));
   const buffer = Buffer.from(doc.output("arraybuffer"));
-  const safeName = name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
+  const safeName = employee.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
 
   return new NextResponse(buffer, {
     headers: {

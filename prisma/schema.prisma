@@ -2879,25 +2879,69 @@ model AppVersionGate {
 }
 
 // ── HR / Legal ──────────────────────────────────────────────────────
-// Audit trail of employee NDAs generated from the admin HR tool
-// (/admin/nda). We keep only who/when + the employee's identifying
-// contact so there is a record that an NDA was issued. The Aadhaar is
-// stored as its LAST 4 DIGITS ONLY (aadhaarLast4) — the full number is
-// used to render the PDF in-memory at generation time and is never
-// persisted or logged (DPDP Act, 2023 data-minimisation). History rows
-// therefore cannot re-produce the PDF; to reissue, an admin re-enters
-// the details.
+// Employee master record — the source of truth the NDA and offer-letter
+// generators select from (/admin/employees manages it). The Aadhaar is
+// stored ENCRYPTED at rest (aadhaarEnc = AES-256-GCM ciphertext via
+// lib/hr-crypto) and decrypted only when rendering an NDA; aadhaarLast4
+// is kept in clear for display/audit. Salary is a gross monthly figure
+// in whole rupees.
+model Employee {
+  id            String    @id @default(cuid())
+  name          String
+  phone         String
+  email         String
+  address       String
+  aadhaarEnc    String? // AES-256-GCM ciphertext "v1:iv:tag:data" of the full Aadhaar
+  aadhaarLast4  String? // last 4 digits, for display/audit
+  designation   String?
+  department    String?
+  salaryMonthly Int? // gross ₹ per month
+  dateOfJoining DateTime?
+  status        String    @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  ndaRecords   NdaRecord[]
+  offerRecords OfferLetterRecord[]
+
+  @@index([status])
+}
+
+// Audit trail of employee NDAs generated from /admin/nda. Keeps a snapshot
+// of what was printed (stable even if the employee record later changes)
+// plus the last-4 Aadhaar only, and links back to the Employee.
 model NdaRecord {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
+  employeeId      String?
+  employee        Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   employeeName    String
   employeePhone   String
   employeeEmail   String
   employeeAddress String
-  aadhaarLast4    String // last 4 digits ONLY — full Aadhaar is never stored
-  ndaVersion      String // which NDA template text was issued
-  generatedById   String // id of the admin / AdminUser who generated it
+  aadhaarLast4    String // last 4 digits ONLY on the record — full Aadhaar lives encrypted on Employee
+  ndaVersion      String
+  generatedById   String
   generatedByName String
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@index([createdAt])
+  @@index([employeeId])
+}
+
+// Audit trail of offer letters generated from /admin/offer-letter.
+model OfferLetterRecord {
+  id              String    @id @default(cuid())
+  employeeId      String?
+  employee        Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeName    String
+  designation     String
+  salaryMonthly   Int
+  dateOfJoining   DateTime?
+  offerVersion    String
+  generatedById   String
+  generatedByName String
+  createdAt       DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([employeeId])
 }

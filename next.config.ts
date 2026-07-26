@@ -4,6 +4,15 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // The letter generators (NDA / offer) read the authorised-signatory
+  // signature + company stamp at render time via fs. They live OUTSIDE
+  // /public on purpose — a signature/stamp must never be publicly
+  // downloadable — so they aren't auto-bundled into the serverless
+  // functions. Trace them in explicitly.
+  outputFileTracingIncludes: {
+    "/api/admin/nda/generate": ["./assets/letter-assets/**"],
+    "/api/admin/offer-letter/generate": ["./assets/letter-assets/**"],
+  },
   images: {
     remotePatterns: [
       {
