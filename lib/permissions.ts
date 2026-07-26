@@ -37,6 +37,8 @@ export const ALL_PERMISSIONS = [
   "MANAGE_PROMO_BANNERS",
   // Monthly passes: plan wizard + sold-pass management.
   "MANAGE_PASSES",
+  // HR / Legal: employee NDA generator (/admin/nda) + its audit log.
+  "MANAGE_HR",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -70,6 +72,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_TRUSTED_DEVICES: "Manage Trusted Devices (5-tap admin entry)",
   MANAGE_PROMO_BANNERS: "Manage Promotion Banners (web & app)",
   MANAGE_PASSES: "Manage Monthly Passes",
+  MANAGE_HR: "Manage HR / Legal (Employee NDA Generator)",
 };
 
 export function hasPermission(
