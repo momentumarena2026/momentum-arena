@@ -40,7 +40,9 @@ const allNavItems = [
   { href: "/admin/ota", label: "App Updates (OTA)", group: "Mobile Apps", permission: "MANAGE_APP_RELEASES" },
   { href: "/admin/push", label: "Push Notifications", group: "Mobile Apps", permission: "MANAGE_PUSH" },
   { href: "/admin/push/templates", label: "Auto Push Messages", group: "Mobile Apps", permission: "MANAGE_PUSH" },
+  { href: "/admin/employees", label: "Employees", group: "HR / Legal", permission: "MANAGE_HR" },
   { href: "/admin/nda", label: "NDA Generator", group: "HR / Legal", permission: "MANAGE_HR" },
+  { href: "/admin/offer-letter", label: "Offer Letter", group: "HR / Legal", permission: "MANAGE_HR" },
   { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
   // User Groups is the single source of truth for cohort targeting —
   // coupons, push notifications, and any future segment-specific
