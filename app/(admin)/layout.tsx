@@ -40,6 +40,7 @@ const allNavItems = [
   { href: "/admin/ota", label: "App Updates (OTA)", group: "Mobile Apps", permission: "MANAGE_APP_RELEASES" },
   { href: "/admin/push", label: "Push Notifications", group: "Mobile Apps", permission: "MANAGE_PUSH" },
   { href: "/admin/push/templates", label: "Auto Push Messages", group: "Mobile Apps", permission: "MANAGE_PUSH" },
+  { href: "/admin/nda", label: "NDA Generator", group: "HR / Legal", permission: "MANAGE_HR" },
   { href: "/admin/users", label: "Users", group: "Settings", permission: "MANAGE_USERS" },
   // User Groups is the single source of truth for cohort targeting —
   // coupons, push notifications, and any future segment-specific
@@ -59,7 +60,7 @@ const allNavItems = [
 
 // NOTE: a nav item's `group` must ALSO appear here — unknown group names
 // are silently dropped by the assembly loop below.
-const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Web & App Config", "Operations", "Mobile Apps", "Settings"];
+const GROUP_ORDER = ["General", "Bookings", "Courts & Pricing", "Cafe", "Shop", "Promotions", "Web & App Config", "Operations", "Mobile Apps", "HR / Legal", "Settings"];
 
 export default async function AdminLayout({
   children,
