@@ -2901,8 +2901,9 @@ model Employee {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  ndaRecords   NdaRecord[]
-  offerRecords OfferLetterRecord[]
+  ndaRecords            NdaRecord[]
+  offerRecords          OfferLetterRecord[]
+  responsibilityRecords ResponsibilityLetterRecord[]
 
   @@index([status])
 }
@@ -2941,6 +2942,40 @@ model OfferLetterRecord {
   generatedById   String
   generatedByName String
   createdAt       DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([employeeId])
+}
+
+// Catalogue of responsibility items an admin maintains (/admin/responsibilities).
+// When generating a Responsibility Letter, the admin ticks a subset of the
+// ACTIVE items to assign to the employee. Disabling an item hides it from the
+// picker without deleting past letters (which snapshot the chosen text).
+model ResponsibilityItem {
+  id        String   @id @default(cuid())
+  text      String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+// Audit trail of responsibility letters generated from
+// /admin/responsibility-letter. `responsibilities` is a snapshot of the chosen
+// item texts, so history is stable even if the catalogue later changes.
+model ResponsibilityLetterRecord {
+  id               String    @id @default(cuid())
+  employeeId       String?
+  employee         Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeName     String
+  designation      String?
+  responsibilities String[]
+  letterVersion    String
+  generatedById    String
+  generatedByName  String
+  createdAt        DateTime  @default(now())
 
   @@index([createdAt])
   @@index([employeeId])
