@@ -19,6 +19,7 @@ export type LetterBlock =
   | { type: "heading"; text: string }
   | { type: "paragraph"; text: string }
   | { type: "lines"; lines: string[]; bold?: boolean; size?: number }
+  | { type: "list"; items: string[]; ordered?: boolean }
   | { type: "gap"; mm: number }
   | { type: "rule" }
   | { type: "signoff"; name: string; title: string };
@@ -194,6 +195,28 @@ export function renderLetter(blocks: LetterBlock[]): jsPDF {
           doc.text(ln, margin, y);
           y += 5.2;
         }
+        y += 1;
+        break;
+      }
+      case "list": {
+        // Numbered / bulleted items with a hanging indent so wrapped lines
+        // align under the text, not the marker.
+        const lh = 4.8;
+        const markerW = 7;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.5);
+        doc.setTextColor(30, 30, 30);
+        b.items.forEach((item, i) => {
+          const marker = b.ordered === false ? "•" : `${i + 1}.`;
+          const wrapped = doc.splitTextToSize(item, contentWidth - markerW) as string[];
+          wrapped.forEach((ln, li) => {
+            ensure(lh);
+            if (li === 0) doc.text(marker, margin, y);
+            doc.text(ln, margin + markerW, y);
+            y += lh;
+          });
+          y += 1.4; // small gap between items
+        });
         y += 1;
         break;
       }
