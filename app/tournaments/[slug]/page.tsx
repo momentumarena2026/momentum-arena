@@ -104,6 +104,33 @@ export default async function TournamentPublicPage({
         </div>
       </div>
 
+      {/* Tournament Center quick links */}
+      {["REG_CLOSED", "POOLS_REVEALED", "LIVE", "COMPLETED", "REG_OPEN"].includes(t.status) && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {t.format === "POOLS_KNOCKOUT" && (
+            <Link href={`/tournaments/${t.slug}/reveal`} className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm text-violet-300 hover:bg-violet-500/20">
+              ✨ Pool Reveal
+            </Link>
+          )}
+          {t.format !== "KNOCKOUT" && (
+            <Link href={`/tournaments/${t.slug}/table`} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800">
+              📊 Points Table
+            </Link>
+          )}
+          {t.format !== "LEAGUE" && (
+            <Link href={`/tournaments/${t.slug}/bracket`} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800">
+              🏆 Bracket
+            </Link>
+          )}
+          <Link href={`/tournaments/${t.slug}/matches`} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800">
+            📅 Matches
+          </Link>
+          <Link href={`/tournaments/${t.slug}/leaders`} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800">
+            🥇 Leaderboards
+          </Link>
+        </div>
+      )}
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* Prizes */}
         {(t.prizePool || prizes.length > 0) && (
