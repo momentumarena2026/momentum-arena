@@ -2980,3 +2980,339 @@ model ResponsibilityLetterRecord {
   @@index([createdAt])
   @@index([employeeId])
 }
+
+// ── Tournaments ─────────────────────────────────────────────────────
+// Full tournament engine: admin-configured tournaments (league / knockout /
+// pools→knockout), captain-paid team registration, pools with a timed
+// animated reveal, fixtures that block the booking grid, a configurable
+// points table, per-player stats, and OPTIONAL live scoring (ball-by-ball /
+// goal-by-goal / point-by-point) with audience live screens whose platform
+// availability (app/web) is admin-gated per tournament.
+
+enum TournamentFormat {
+  LEAGUE // single round-robin table, no bracket
+  KNOCKOUT // bracket only
+  POOLS_KNOCKOUT // round-robin pools feeding a knockout bracket
+}
+
+enum TournamentStatus {
+  DRAFT
+  PUBLISHED // visible, registrations not yet open
+  REG_OPEN
+  REG_CLOSED
+  POOLS_REVEALED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum TournamentFeeMode {
+  FULL // whole entry fee online to confirm
+  ADVANCE // advancePct online, rest collected at venue
+  FREE // no fee
+}
+
+enum LiveScreenPlatform {
+  BOTH
+  APP_ONLY // web shows an app-download upsell instead of the live screen
+  WEB_ONLY
+  OFF
+}
+
+enum TournamentTeamStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  WAITLISTED
+  WITHDRAWN
+  REJECTED
+}
+
+enum TournamentMatchStage {
+  LEAGUE
+  POOL
+  R16
+  QF
+  SF
+  THIRD_PLACE
+  FINAL
+}
+
+enum TournamentMatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  WALKOVER
+  CANCELLED
+}
+
+model Tournament {
+  id     String           @id @default(cuid())
+  slug   String           @unique // public URL: /tournaments/[slug]
+  name   String
+  sport  Sport
+  status TournamentStatus @default(DRAFT)
+  format TournamentFormat
+
+  description    String?
+  rules          String? // rich text (markdown) shown on the public page
+  bannerImageUrl String? // hero image (web + app)
+
+  // Capacity & structure
+  totalTeams       Int
+  poolCount        Int     @default(0) // POOLS_KNOCKOUT only
+  teamsPerPool     Int     @default(0)
+  advancePerPool   Int     @default(0) // how many qualify from each pool
+  thirdPlaceMatch  Boolean @default(false)
+  membersPerTeamMin Int    @default(1)
+  membersPerTeamMax Int
+
+  // Fees
+  entryFee          Int               @default(0) // rupees
+  feeMode           TournamentFeeMode @default(FULL)
+  advancePct        Int               @default(50) // ADVANCE mode: % online
+  allowCoupons      Boolean           @default(true)
+  allowRewardPoints Boolean           @default(true)
+  waitlistEnabled   Boolean           @default(true)
+
+  // Timeline
+  regOpenAt  DateTime?
+  regCloseAt DateTime?
+  revealAt   DateTime? // pool-reveal countdown target
+  startDate  DateTime?
+  endDate    DateTime?
+
+  // Points engine (round-robin stages)
+  pointsWin   Int      @default(2)
+  pointsDraw  Int      @default(1)
+  pointsLoss  Int      @default(0)
+  // Ordered tiebreaker chain applied after points. Keys:
+  // H2H | SCORE_DIFF | SCORE_FOR | NAME
+  tiebreakers String[] @default(["H2H", "SCORE_DIFF", "SCORE_FOR"])
+
+  // Per-player stat fields the admin defines for this tournament, e.g.
+  // [{"key":"runs","label":"Runs"},{"key":"wickets","label":"Wickets"}].
+  // Leaderboards aggregate TournamentPlayerStat rows by these keys.
+  statFields Json?
+
+  // Prizes
+  prizePool Int? // total, rupees (display)
+  // [{"place":"Winner","label":"₹20,000 + Trophy"}, ...]
+  prizes    Json?
+
+  // Live scoring (optional per tournament)
+  liveScoringEnabled Boolean            @default(false)
+  liveScreenPlatform LiveScreenPlatform @default(BOTH)
+  scorerCode         String?            @unique // field-scorer console access
+
+  createdBy String? // admin id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pools         TournamentPool[]
+  teams         TournamentTeam[]
+  matches       TournamentMatch[]
+  playerStats   TournamentPlayerStat[]
+  campaignItems TournamentCampaignItem[]
+
+  @@index([status])
+  @@index([sport, status])
+}
+
+model TournamentPool {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  name         String // "Pool A"
+  order        Int        @default(0)
+
+  teams   TournamentTeam[]
+  matches TournamentMatch[]
+
+  @@unique([tournamentId, name])
+  @@index([tournamentId])
+}
+
+model TournamentTeam {
+  id           String               @id @default(cuid())
+  tournamentId String
+  tournament   Tournament           @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  poolId       String?
+  pool         TournamentPool?      @relation(fields: [poolId], references: [id], onDelete: SetNull)
+  status       TournamentTeamStatus @default(PENDING_PAYMENT)
+
+  name    String
+  logoUrl String?
+  color   String? // hex, jersey/badge colour
+  seed    Int? // draw order / bracket seed
+
+  captainUserId String? // customer User.id
+  captainName   String
+  captainPhone  String
+  captainEmail  String?
+
+  // Money (rupees). paidAmount accumulates (advance + venue collection).
+  paidAmount    Int     @default(0)
+  dueAmount     Int     @default(0)
+  paymentMethod String? // RAZORPAY | UPI_DQR | CASH | FREE ...
+  paymentRef    String? // razorpay payment id / phonePe merchantTxnId
+  couponCode    String?
+  discount      Int     @default(0)
+  pointsUsed    Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     TournamentTeamMember[]
+  homeMatches TournamentMatch[]      @relation("homeTeam")
+  awayMatches TournamentMatch[]      @relation("awayTeam")
+  wonMatches  TournamentMatch[]      @relation("winnerTeam")
+  playerStats TournamentPlayerStat[]
+
+  @@index([tournamentId, status])
+  @@index([captainUserId])
+}
+
+model TournamentTeamMember {
+  id        String         @id @default(cuid())
+  teamId    String
+  team      TournamentTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name      String
+  isCaptain Boolean        @default(false)
+  order     Int            @default(0)
+
+  playerStats   TournamentPlayerStat[]
+  potmMatches   TournamentMatch[]      @relation("playerOfMatch")
+  matchEvents   TournamentMatchEvent[]
+
+  @@index([teamId])
+}
+
+model TournamentMatch {
+  id           String                @id @default(cuid())
+  tournamentId String
+  tournament   Tournament            @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  poolId       String?
+  pool         TournamentPool?       @relation(fields: [poolId], references: [id], onDelete: SetNull)
+  stage        TournamentMatchStage
+  status       TournamentMatchStatus @default(SCHEDULED)
+  sequence     Int                   @default(0) // display order within stage
+  roundLabel   String? // "Match 3", "Semi Final 1"
+
+  homeTeamId String?
+  homeTeam   TournamentTeam? @relation("homeTeam", fields: [homeTeamId], references: [id], onDelete: SetNull)
+  awayTeamId String?
+  awayTeam   TournamentTeam? @relation("awayTeam", fields: [awayTeamId], references: [id], onDelete: SetNull)
+
+  // Bracket progression: where each side comes from when not yet decided.
+  // KO chains: winner of another match. Pools→KO seeding: pool + rank.
+  homeSourceMatchId String?
+  awaySourceMatchId String?
+  homeSourceLabel   String? // "Winner Pool A", "Winner SF1" (display until resolved)
+  awaySourceLabel   String?
+
+  // Schedule → booking-grid integration
+  courtConfigId String?
+  scheduledAt   DateTime?
+  durationMins  Int       @default(60)
+  slotBlockIds  String[]  @default([]) // SlotBlock rows created for this match
+
+  // Result
+  homeScore    Int?
+  awayScore    Int?
+  // Sport-specific score labels, e.g. cricket "142/7 (16.0)" — the numeric
+  // homeScore/awayScore stay canonical for points/tiebreakers.
+  homeScoreNote String?
+  awayScoreNote String?
+  isDraw       Boolean @default(false)
+  winnerTeamId String?
+  winnerTeam   TournamentTeam? @relation("winnerTeam", fields: [winnerTeamId], references: [id], onDelete: SetNull)
+  resultNote   String?
+
+  playerOfMatchId String?
+  playerOfMatch   TournamentTeamMember? @relation("playerOfMatch", fields: [playerOfMatchId], references: [id], onDelete: SetNull)
+
+  // Live scoring state
+  // liveState: sport-specific snapshot folded from events, e.g. cricket
+  // {inning, battingTeamId, runs, wickets, balls, target} — kept denormalised
+  // so audience screens read ONE row + recent events.
+  liveState      Json?
+  clockStartedAt DateTime? // football: running-clock anchor (null = paused)
+  clockElapsedSec Int      @default(0) // accumulated paused-at seconds
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events      TournamentMatchEvent[]
+  playerStats TournamentPlayerStat[]
+
+  @@index([tournamentId, stage, sequence])
+  @@index([tournamentId, status])
+  @@index([scheduledAt])
+}
+
+// Append-only live-scoring event log. The score is a fold of events in seq
+// order — undo deletes the highest seq and re-folds, so the on-field scorer
+// can always correct a mistake. kind examples:
+//  cricket: BALL {runs, extra?, wicket?, batterId?, bowlerId?}
+//  football: GOAL {teamId, memberId?}, CARD {...}, CLOCK_START, CLOCK_STOP
+//  pickleball: POINT {teamId}, GAME_END
+model TournamentMatchEvent {
+  id        String          @id @default(cuid())
+  matchId   String
+  match     TournamentMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  seq       Int
+  kind      String
+  teamId    String?
+  memberId  String?
+  member    TournamentTeamMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  data      Json?
+  createdBy String // admin id or "scorer"
+  createdAt DateTime @default(now())
+
+  @@unique([matchId, seq])
+  @@index([matchId, seq])
+}
+
+// Per-player per-match stat values, aggregated for leaderboards. Written by
+// admin score entry and by the live-scoring fold (kept in sync with events).
+model TournamentPlayerStat {
+  id           String               @id @default(cuid())
+  tournamentId String
+  tournament   Tournament           @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  matchId      String
+  match        TournamentMatch      @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  teamId       String
+  team         TournamentTeam       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  memberId     String
+  member       TournamentTeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  statKey      String // matches Tournament.statFields[].key
+  value        Int
+
+  @@unique([matchId, memberId, statKey])
+  @@index([tournamentId, statKey])
+}
+
+// Milestone marketing items auto-drafted when a tournament is created
+// (registrations-open banner+push, closing-soon, reveal, results, champion…).
+// Admin edits copy / toggles / schedules each; firing reuses the existing
+// PromoBanner + push systems. status: DRAFT | SCHEDULED | SENT | SKIPPED.
+model TournamentCampaignItem {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  milestone    String // REG_OPEN | REG_CLOSING | REVEAL_TONIGHT | REVEALED | MATCHDAY | CHAMPION ...
+  kind         String // BANNER | PUSH
+  title        String
+  body         String?
+  imageUrl     String?
+  enabled      Boolean    @default(true)
+  status       String     @default("DRAFT")
+  scheduledAt  DateTime?
+  sentAt       DateTime?
+  bannerId     String? // PromoBanner created when fired
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tournamentId, milestone])
+}

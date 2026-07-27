@@ -27,6 +27,7 @@ const allNavItems = [
   { href: "/admin/products", label: "Products", group: "Shop", permission: "MANAGE_SHOP_CATALOG" },
   { href: "/admin/product-orders", label: "Orders", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
   { href: "/admin/pos", label: "Walk-in Sale", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
+  { href: "/admin/tournaments", label: "Tournaments", group: "Promotions", permission: "MANAGE_TOURNAMENTS" },
   { href: "/admin/coupons", label: "Coupons", group: "Promotions", permission: "MANAGE_COUPONS" },
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/passes", label: "Passes", group: "Promotions", permission: "MANAGE_PASSES" },
