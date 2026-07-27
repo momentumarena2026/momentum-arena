@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
-import { listPublicTournaments } from "@/lib/tournaments";
+import { listPublicTournaments, areTournamentsEnabled } from "@/lib/tournaments";
 
 export const dynamic = "force-dynamic";
 
-/** Lightweight tournament hub list for the mobile app (public). */
+/** Tournament hub list for the mobile app (public). Also carries the
+ *  module master-switch — the app's quick-action arc reads `enabled` to
+ *  decide whether to show the Tournaments entry at all. */
 export async function GET() {
+  const enabled = await areTournamentsEnabled();
+  if (!enabled) {
+    return NextResponse.json({ enabled: false, tournaments: [] });
+  }
   const rows = await listPublicTournaments();
-  return NextResponse.json(
-    rows.map((t) => ({
+  return NextResponse.json({
+    enabled: true,
+    tournaments: rows.map((t) => ({
       id: t.id,
       slug: t.slug,
       name: t.name,
@@ -22,6 +29,6 @@ export async function GET() {
       startDate: t.startDate,
       liveScoringEnabled: t.liveScoringEnabled,
       confirmedTeams: t._count.teams,
-    }))
-  );
+    })),
+  });
 }

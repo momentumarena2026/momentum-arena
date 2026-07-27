@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Plus, Trophy } from "lucide-react";
-import { listTournamentsAdmin } from "@/actions/admin-tournaments";
+import { listTournamentsAdmin, getTournamentsEnabled } from "@/actions/admin-tournaments";
 import { STATUS_LABELS } from "@/lib/tournament-config";
+import { ModuleToggle } from "./module-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -17,23 +18,29 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default async function AdminTournamentsPage() {
-  const tournaments = await listTournamentsAdmin();
+  const [tournaments, enabled] = await Promise.all([
+    listTournamentsAdmin(),
+    getTournamentsEnabled(),
+  ]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Tournaments</h1>
           <p className="mt-1 text-zinc-400">
             Create and run tournaments — teams, pools, fixtures, scoring and marketing.
           </p>
         </div>
-        <Link
-          href="/admin/tournaments/new"
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 px-4 py-3 text-sm font-medium text-emerald-400 hover:bg-emerald-600/20"
-        >
-          <Plus className="h-4 w-4" /> New Tournament
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <ModuleToggle initialEnabled={enabled} />
+          <Link
+            href="/admin/tournaments/new"
+            className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 px-4 py-3 text-sm font-medium text-emerald-400 hover:bg-emerald-600/20"
+          >
+            <Plus className="h-4 w-4" /> New Tournament
+          </Link>
+        </div>
       </div>
 
       {tournaments.length === 0 ? (

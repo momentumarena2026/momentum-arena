@@ -1756,6 +1756,11 @@ model ArenaSettings {
   // purchase API. Already-sold passes keep redeeming at checkout
   // regardless — disabling sales never voids paid hours.
   passesEnabled  Boolean @default(false)
+  // Master switch for the Tournaments module. OFF hides the customer
+  // /tournaments pages, the header/nav entries (web + app quick-arc)
+  // and blocks registration. Admin management keeps working so a
+  // tournament can be prepared before the module goes public.
+  tournamentsEnabled Boolean @default(false)
   updatedAt DateTime @updatedAt
 }
 

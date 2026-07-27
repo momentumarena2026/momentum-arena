@@ -10,10 +10,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { Coffee, Home, MapPin, Plus, ShoppingBag, Ticket, Trophy, User } from "lucide-react-native";
+import { useQuery } from "@tanstack/react-query";
+import { Coffee, Home, MapPin, Medal, Plus, ShoppingBag, Ticket, Trophy, User } from "lucide-react-native";
 import { Text } from "../components/ui/Text";
 import { colors, duration, easing, STAGGER_MS } from "../theme";
 import { trackBottomNavClick } from "../lib/analytics";
+import { fetchTournamentHub } from "../lib/tournaments";
 
 /** Where the venue is — same pin the Home screen's "Find us" card opens. */
 const VENUE_MAPS_URL = "https://maps.google.com/?q=27.509167,77.638917";
@@ -37,16 +39,27 @@ const LABEL_BLOCK = 18;
 const ICON_CENTRE_OFFSET = LABEL_BLOCK + ICON_SIZE / 2;
 
 /**
- * The four arc items fan out from the FAB along a semicircle: left,
- * top, right. Angles are measured from the FAB centre, 0° pointing
- * right, growing anticlockwise — so 180° is due left and 90° is
- * straight up.
+ * The arc items fan out from the FAB along a semicircle: left, top,
+ * right. Angles are measured from the FAB centre, 0° pointing right,
+ * growing anticlockwise — so 180° is due left and 90° is straight up.
+ * The Tournaments entry appears only while the admin module switch is
+ * ON — with it the four items spread evenly; without it the original
+ * three-item fan is kept.
  */
-const ARC_ITEMS = [
+type ArcItem = { key: string; label: string; angle: number; Icon: typeof Coffee };
+
+const ARC_ITEMS_BASE: ArcItem[] = [
   { key: "Cafe", label: "Cafe", angle: 145, Icon: Coffee },
   { key: "Location", label: "Reach us", angle: 90, Icon: MapPin },
   { key: "Shop", label: "Shop", angle: 35, Icon: ShoppingBag },
-] as const;
+];
+
+const ARC_ITEMS_WITH_TOURNAMENTS: ArcItem[] = [
+  { key: "Cafe", label: "Cafe", angle: 150, Icon: Coffee },
+  { key: "Location", label: "Reach us", angle: 108, Icon: MapPin },
+  { key: "Tournaments", label: "Tourneys", angle: 72, Icon: Medal },
+  { key: "Shop", label: "Shop", angle: 30, Icon: ShoppingBag },
+];
 
 const TABS = [
   { name: "Home", label: "Home", Icon: Home },
@@ -76,6 +89,15 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
   // render trips the compiler rule, and this is the pattern the rest of
   // the app already uses (see PassClock).
   const [progress] = useState(() => new Animated.Value(0));
+
+  // Module master-switch — same cached query the Tournaments screens use.
+  // While OFF (or before first load) the arc keeps its original 3 items.
+  const { data: tournamentHub } = useQuery({
+    queryKey: ["tournaments"],
+    queryFn: fetchTournamentHub,
+    staleTime: 5 * 60 * 1000,
+  });
+  const arcItems = tournamentHub?.enabled ? ARC_ITEMS_WITH_TOURNAMENTS : ARC_ITEMS_BASE;
 
   useEffect(() => {
     Animated.timing(progress, {
@@ -133,9 +155,22 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
         Linking.openURL(VENUE_MAPS_URL).catch(() => {});
         return;
       }
+      if (key === "Tournaments") {
+        trackBottomNavClick("Tournaments");
+        // Lives inside the Account stack (no dedicated tab) — navigate
+        // through the tab navigator with nested-screen params. The tab
+        // bar's navigation prop types navigate() too narrowly for nested
+        // params, hence the object-form cast.
+        navigation.navigate({
+          name: "Account",
+          params: { screen: "TournamentsList" },
+          merge: true,
+        } as never);
+        return;
+      }
       go(key);
     },
-    [go, closeArc],
+    [go, closeArc, navigation],
   );
 
   const activeName = state.routes[state.index]?.name;
@@ -198,7 +233,7 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
             pointerEvents="none"
           />
 
-          {ARC_ITEMS.map((item, i) => {
+          {arcItems.map((item, i) => {
             const rad = (item.angle * Math.PI) / 180;
             const dx = Math.cos(rad) * SHEET_R;
             // Negative moves up. The item is anchored ICON_CENTRE_OFFSET
@@ -261,7 +296,7 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
               stays above the scrim and keeps rotating into the ×. */}
           <Fab
             progress={progress}
-            bottom={insets.bottom + 26}
+            bottom={insets.bottom + 8}
             open
             onPress={closeArc}
           />
@@ -292,7 +327,7 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
 
       <Fab
         progress={progress}
-        bottom={insets.bottom + 26}
+        bottom={insets.bottom + 8}
         open={open}
         onPress={open ? closeArc : openArc}
       />

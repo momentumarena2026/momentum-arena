@@ -220,6 +220,31 @@ export async function transitionTournament(
   return { success: true };
 }
 
+// ── Module master switch (mirrors passes) ───────────────────────────
+export async function getTournamentsEnabled(): Promise<boolean> {
+  await gate();
+  const settings = await db.arenaSettings.findFirst({
+    select: { tournamentsEnabled: true },
+  });
+  return settings?.tournamentsEnabled ?? false;
+}
+
+export async function setTournamentsEnabled(enabled: boolean): Promise<{ ok: true }> {
+  await gate();
+  const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+  if (existing) {
+    await db.arenaSettings.update({
+      where: { id: existing.id },
+      data: { tournamentsEnabled: enabled },
+    });
+  } else {
+    await db.arenaSettings.create({ data: { tournamentsEnabled: enabled } });
+  }
+  revalidatePath("/admin/tournaments");
+  revalidatePath("/tournaments");
+  return { ok: true };
+}
+
 // ── Reads ───────────────────────────────────────────────────────────
 export async function listTournamentsAdmin() {
   await gate();

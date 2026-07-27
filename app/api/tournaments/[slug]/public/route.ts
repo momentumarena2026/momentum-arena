@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeStandings } from "@/lib/tournament-points";
+import { areTournamentsEnabled } from "@/lib/tournaments";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,9 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
+  if (!(await areTournamentsEnabled())) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const t = await db.tournament.findUnique({
     where: { slug },
     include: {

@@ -90,10 +90,12 @@ export type TournamentListItem = {
   confirmedTeams: number;
 };
 
-export async function listTournaments(): Promise<TournamentListItem[]> {
-  // The public hub list route is web-page-only; reuse the payload per slug is
-  // heavy — so this dedicated list endpoint keeps the app cheap.
-  return api.get<TournamentListItem[]>("/api/mobile/tournaments", { auth: false });
+export type TournamentHub = { enabled: boolean; tournaments: TournamentListItem[] };
+
+/** Hub list + the module master-switch. The quick-action arc reads
+ *  `enabled` from the same cached query the list screen uses. */
+export async function fetchTournamentHub(): Promise<TournamentHub> {
+  return api.get<TournamentHub>("/api/mobile/tournaments", { auth: false });
 }
 
 export async function getTournament(slug: string): Promise<TournamentPublic> {

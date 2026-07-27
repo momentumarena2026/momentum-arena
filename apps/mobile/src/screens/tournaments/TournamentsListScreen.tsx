@@ -8,7 +8,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius } from "../../theme";
-import { listTournaments, type TournamentListItem } from "../../lib/tournaments";
+import { fetchTournamentHub, type TournamentListItem } from "../../lib/tournaments";
 import type { AccountStackParamList } from "../../navigation/types";
 
 const SPORT_EMOJI: Record<string, string> = { CRICKET: "🏏", FOOTBALL: "⚽", PICKLEBALL: "🎾" };
@@ -24,10 +24,11 @@ const STATUS_LABEL: Record<string, string> = {
 export function TournamentsListScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<AccountStackParamList>>();
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data: hub, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["tournaments"],
-    queryFn: listTournaments,
+    queryFn: fetchTournamentHub,
   });
+  const data = hub?.tournaments;
 
   const open = useCallback(
     (t: TournamentListItem) => navigation.navigate("TournamentDetail", { slug: t.slug }),

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Trash2, Trophy, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Trash2, Trophy, AlertTriangle, Upload } from "lucide-react";
 import {
   createTournament,
   updateTournament,
@@ -81,10 +81,28 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
     initial ? { ...initial } : defaultWizardState()
   );
   const [saving, setSaving] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const set = <K extends keyof TournamentWizardInput>(k: K, v: TournamentWizardInput[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
+
+  const uploadBanner = async (file: File) => {
+    setUploadingBanner(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/tournaments/banner-upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      set("bannerImageUrl", data.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploadingBanner(false);
+    }
+  };
 
   const num = (v: string) => (v === "" ? 0 : parseInt(v.replace(/[^\d]/g, ""), 10) || 0);
 
@@ -143,8 +161,32 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
             </select>
           </div>
           <div>
-            <label className={labelCls}>Hero Banner Image URL</label>
-            <input className={inputCls} placeholder="/banners/mpl.webp or https://…" value={form.bannerImageUrl || ""} onChange={(e) => set("bannerImageUrl", e.target.value)} />
+            <label className={labelCls}>Hero Banner Image</label>
+            <div className="flex items-center gap-3">
+              {form.bannerImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={form.bannerImageUrl} alt="" className="h-12 w-24 rounded-lg border border-zinc-700 object-cover" />
+              ) : (
+                <div className="flex h-12 w-24 items-center justify-center rounded-lg border border-dashed border-zinc-700 text-xs text-zinc-600">
+                  none
+                </div>
+              )}
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800">
+                {uploadingBanner ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                {form.bannerImageUrl ? "Change" : "Upload"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => e.target.files?.[0] && uploadBanner(e.target.files[0])}
+                />
+              </label>
+              {form.bannerImageUrl && (
+                <button onClick={() => set("bannerImageUrl", "")} className="text-xs text-zinc-500 hover:text-red-400">
+                  Remove
+                </button>
+              )}
+            </div>
           </div>
           <div className="sm:col-span-2">
             <label className={labelCls}>Description (public page)</label>

@@ -11,6 +11,18 @@ const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
 // Razorpay order whose NOTES carry what is being bought; verify + webhook
 // both land in confirmTournamentEntry, idempotent on team status).
 
+// ── Module master switch (mirrors arePassesEnabled) ─────────────────
+export async function areTournamentsEnabled(): Promise<boolean> {
+  try {
+    const settings = await db.arenaSettings.findFirst({
+      select: { tournamentsEnabled: true },
+    });
+    return settings?.tournamentsEnabled ?? false;
+  } catch {
+    return false;
+  }
+}
+
 // ── Public reads ────────────────────────────────────────────────────
 export async function listPublicTournaments() {
   return db.tournament.findMany({
@@ -92,6 +104,9 @@ export type RegisterResult =
     };
 
 export async function registerTournamentTeam(input: RegisterInput): Promise<RegisterResult> {
+  if (!(await areTournamentsEnabled())) {
+    return { ok: false, error: "Tournaments aren't available right now" };
+  }
   const t = await db.tournament.findUnique({
     where: { id: input.tournamentId },
     select: {
