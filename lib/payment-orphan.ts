@@ -4,7 +4,11 @@ export type OrphanReason =
   | "no-hold"
   | "slot-taken"
   | "create-failed"
-  | "pass-price-mismatch";
+  | "pass-price-mismatch"
+  // Tournament entry fees: captured money whose team couldn't be
+  // auto-confirmed (amount mismatch, deleted team, …) — the suffix
+  // carries the specific cause for the admin worklist.
+  | `tournament-${string}`;
 export type OrphanGateway = "RAZORPAY" | "PHONEPE" | "PHONEPE_DQR";
 
 /**
