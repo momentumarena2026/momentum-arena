@@ -215,10 +215,14 @@ enum RewardTxnType {
   EARNED_REFERRAL
   EARNED_BIRTHDAY
   EARNED_ADJUSTMENT // admin grants points (bulk distribute / one-off)
+  // Earn on a tournament entry fee (amount actually paid online).
+  EARNED_TOURNAMENT
   ADJUSTMENT_REFUND // re-credit after a cancelled redemption
   // Debits
   REDEEMED_BOOKING
   REDEEMED_CAFE
+  // Points redeemed against a tournament entry fee.
+  REDEEMED_TOURNAMENT
   REVOKED // earn clawed back (booking refund/cancel)
   EXPIRED // expiry cron sweep
   ADJUSTMENT_DEBIT // admin debits manually
@@ -1666,10 +1670,12 @@ model RewardTransaction {
   // on the type:
   //   EARNED_BOOKING / REDEEMED_BOOKING / REVOKED → bookingId
   //   EARNED_CAFE / REDEEMED_CAFE                → cafeOrderId
+  //   EARNED_TOURNAMENT / REDEEMED_TOURNAMENT    → tournamentTeamId
   //   EARNED_SIGNUP / BIRTHDAY / REFERRAL /
-  //   ADJUSTMENT_* / EXPIRED                     → both null
-  bookingId   String?
-  cafeOrderId String?
+  //   ADJUSTMENT_* / EXPIRED                     → all null
+  bookingId        String?
+  cafeOrderId      String?
+  tournamentTeamId String?
 
   // FIFO accounting for debits — REDEEMED / EXPIRED / REVOKED rows
   // point at the EARNED row they consumed. Lets liability reports
@@ -1697,6 +1703,7 @@ model RewardTransaction {
   // is allowed multiple times (Postgres unique-with-null semantics).
   @@unique([type, bookingId])
   @@unique([type, cafeOrderId])
+  @@unique([type, tournamentTeamId])
   @@index([userId, createdAt])
   @@index([userId, type])
   @@index([expiresAt])

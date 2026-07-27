@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { isDqrConfigured } from "@/lib/phonepe-dqr";
 import { getPublicTournamentBySlug } from "@/lib/tournaments";
 import { RegisterClient } from "./register-client";
 
@@ -21,8 +23,15 @@ export default async function TournamentRegisterPage({
   const mine = t.teams.find((x) => x.captainUserId === session.user!.id);
   if (mine) redirect(`/tournaments/${slug}`);
 
+  // UPI (DQR) availability — same gate the booking/pass checkouts use.
+  const gatewayCfg = await db.paymentGatewayConfig
+    .findUnique({ where: { id: "singleton" }, select: { dqrEnabled: true } })
+    .catch(() => null);
+  const dqrAvailable = isDqrConfigured() && !!gatewayCfg?.dqrEnabled;
+
   return (
     <RegisterClient
+      dqrAvailable={dqrAvailable}
       tournament={{
         id: t.id,
         slug: t.slug,

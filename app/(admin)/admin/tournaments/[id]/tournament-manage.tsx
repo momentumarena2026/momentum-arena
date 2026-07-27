@@ -19,6 +19,7 @@ import {
   transitionTournament,
   setTeamStatus,
   recordTeamPayment,
+  adminRegisterTeam,
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
 import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
@@ -101,9 +102,22 @@ const TEAM_STATUS_STYLE: Record<string, string> = {
 
 function toLocalInput(iso: string | null): string {
   if (!iso) return "";
+  // Render the stored instant as IST wall-clock for the datetime-local
+  // input — matching toDate() in actions/admin-tournaments.ts, which pins
+  // saves to +05:30. Using the browser's zone here would round-trip wrong
+  // for any admin whose device isn't set to IST.
   const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 export function TournamentManage({
@@ -121,6 +135,39 @@ export function TournamentManage({
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
   const [collectAmt, setCollectAmt] = useState("");
+  const [showVenueForm, setShowVenueForm] = useState(false);
+  const [venueForm, setVenueForm] = useState({
+    teamName: "",
+    captainName: "",
+    captainPhone: "",
+    members: "",
+    collectedAmount: "",
+    method: "CASH" as "CASH" | "STATIC_QR" | "FREE",
+  });
+
+  const doVenueRegister = async () => {
+    setBusy("venue");
+    setError(null);
+    try {
+      const res = await adminRegisterTeam({
+        tournamentId: t.id,
+        teamName: venueForm.teamName,
+        captainName: venueForm.captainName,
+        captainPhone: venueForm.captainPhone,
+        members: venueForm.members.split(",").map((x) => x.trim()).filter(Boolean),
+        collectedAmount: parseInt(venueForm.collectedAmount.replace(/[^\d]/g, ""), 10) || 0,
+        method: venueForm.method,
+      });
+      if (!res.success) setError(res.error || "Failed");
+      else {
+        setShowVenueForm(false);
+        setVenueForm({ teamName: "", captainName: "", captainPhone: "", members: "", collectedAmount: "", method: "CASH" });
+        router.refresh();
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const confirmed = t.teams.filter((x) => x.status === "CONFIRMED").length;
   const payable = onlinePayable(t.entryFee, t.feeMode, t.advancePct);
@@ -307,6 +354,39 @@ export function TournamentManage({
       {/* ── Teams ── */}
       {tab === "teams" && (
         <div className="space-y-3">
+          <button
+            onClick={() => setShowVenueForm((x) => !x)}
+            className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 px-4 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-600/20"
+          >
+            + Register team (venue — cash / QR)
+          </button>
+          {showVenueForm && (
+            <div className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Team name *" value={venueForm.teamName} onChange={(e) => setVenueForm((f) => ({ ...f, teamName: e.target.value }))} />
+                <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Captain name *" value={venueForm.captainName} onChange={(e) => setVenueForm((f) => ({ ...f, captainName: e.target.value }))} />
+                <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Captain phone *" inputMode="tel" value={venueForm.captainPhone} onChange={(e) => setVenueForm((f) => ({ ...f, captainPhone: e.target.value }))} />
+                <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Players (comma-separated) *" value={venueForm.members} onChange={(e) => setVenueForm((f) => ({ ...f, members: e.target.value }))} />
+                <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder={`Collected now (fee ₹${t.entryFee})`} inputMode="numeric" value={venueForm.collectedAmount} onChange={(e) => setVenueForm((f) => ({ ...f, collectedAmount: e.target.value }))} />
+                <select className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" value={venueForm.method} onChange={(e) => setVenueForm((f) => ({ ...f, method: e.target.value as "CASH" | "STATIC_QR" | "FREE" }))}>
+                  <option value="CASH">Cash</option>
+                  <option value="STATIC_QR">Static QR (UPI at counter)</option>
+                  <option value="FREE">Free entry</option>
+                </select>
+              </div>
+              <p className="text-xs text-zinc-500">
+                Team is confirmed immediately; any unpaid remainder stays as &quot;Due&quot; for the Collect button.
+              </p>
+              <button
+                onClick={doVenueRegister}
+                disabled={busy === "venue" || !venueForm.teamName.trim() || !venueForm.captainName.trim() || !venueForm.members.trim()}
+                className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 px-4 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-40"
+              >
+                {busy === "venue" && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirm registration
+              </button>
+            </div>
+          )}
           {t.teams.length === 0 && (
             <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-sm text-zinc-500">
               No registrations yet. Teams appear here as captains register.

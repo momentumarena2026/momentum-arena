@@ -30,6 +30,7 @@ export const ALL_ADMIN_PERMISSIONS = [
   "MANAGE_TRUSTED_DEVICES",
   "MANAGE_PROMO_BANNERS",
   "MANAGE_PASSES",
+  "MANAGE_TOURNAMENTS",
 ] as const;
 
 export type AdminPermission = (typeof ALL_ADMIN_PERMISSIONS)[number];

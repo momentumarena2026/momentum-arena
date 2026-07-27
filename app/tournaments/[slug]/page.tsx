@@ -97,7 +97,9 @@ export default async function TournamentPublicPage({
               </Link>
             ) : t.status === "PUBLISHED" ? (
               <span className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-300">
-                Registrations opening soon
+                {t.regOpenAt
+                  ? `Registrations open ${new Date(t.regOpenAt).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`
+                  : "Registrations opening soon"}
               </span>
             ) : null}
           </div>

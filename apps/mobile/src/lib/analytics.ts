@@ -720,3 +720,20 @@ function buildSessionMeta() {
     },
   };
 }
+
+// ── Tournaments funnel ──────────────────────────────────────────────
+export function trackTournamentHubView() {
+  trackEvent("tournament_hub_view");
+}
+export function trackTournamentView(slug: string) {
+  trackEvent("tournament_view", { slug });
+}
+export function trackTournamentRegisterStarted(slug: string, fee: number) {
+  trackEvent("tournament_register_started", { slug, fee });
+}
+export function trackTournamentRegisterCompleted(slug: string, state: string, method: string) {
+  trackEvent("tournament_register_completed", { slug, state, method });
+}
+export function trackTournamentLiveView(matchId: string) {
+  trackEvent("tournament_live_view", { match_id: matchId });
+}

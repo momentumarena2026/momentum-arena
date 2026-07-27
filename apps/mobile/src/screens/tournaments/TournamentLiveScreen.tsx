@@ -10,6 +10,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius } from "../../theme";
 import { getLiveMatch, type TeamLite } from "../../lib/tournaments";
 import type { AccountStackParamList } from "../../navigation/types";
+import { trackTournamentLiveView } from "../../lib/analytics";
 
 type Rt = RouteProp<AccountStackParamList, "TournamentLive">;
 
@@ -95,6 +96,10 @@ export function TournamentLiveScreen() {
   const route = useRoute<Rt>();
   const { matchId } = route.params;
   const [clock, setClock] = useState<number | null>(null);
+
+  useEffect(() => {
+    trackTournamentLiveView(matchId);
+  }, [matchId]);
 
   const { data } = useQuery({
     queryKey: ["live", matchId],

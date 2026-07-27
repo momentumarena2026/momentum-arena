@@ -60,8 +60,14 @@ export type TournamentPublic = {
     totalTeams: number;
     advancePerPool: number;
     revealAt: string | null;
+    regOpenAt: string | null;
     startDate: string | null;
     prizePool: number | null;
+    entryFee: number;
+    feeMode: "FULL" | "ADVANCE" | "FREE";
+    advancePct: number;
+    allowRewardPoints: boolean;
+    allowCoupons: boolean;
     liveScoringEnabled: boolean;
     liveScreenPlatform: string;
   };
@@ -90,7 +96,7 @@ export type TournamentListItem = {
   confirmedTeams: number;
 };
 
-export type TournamentHub = { enabled: boolean; tournaments: TournamentListItem[] };
+export type TournamentHub = { enabled: boolean; dqrAvailable?: boolean; tournaments: TournamentListItem[] };
 
 /** Hub list + the module master-switch. The quick-action arc reads
  *  `enabled` from the same cached query the list screen uses. */
@@ -110,6 +116,7 @@ export type RegisterPayload = {
   captainName: string;
   captainPhone: string;
   couponCode?: string | null;
+  pointsToRedeem?: number | null;
 };
 
 export type RegisterResponse = {
@@ -172,4 +179,27 @@ export type LivePayload = {
 
 export async function getLiveMatch(matchId: string): Promise<LivePayload> {
   return api.get<LivePayload>(`/api/tournaments/live/${matchId}?platform=app`, { auth: false });
+}
+
+export async function fetchRewardsPreview(amount: number): Promise<{ maxPoints: number; maxPaise: number }> {
+  return api.get(`/api/tournaments/rewards-preview?amount=${amount}`);
+}
+
+export type DqrInit = {
+  qrImage?: string;
+  qrString?: string;
+  mode: string;
+  transactionId: string;
+  expiresIn: number;
+  amount: number;
+};
+
+export async function initiateTournamentDqr(teamId: string): Promise<DqrInit> {
+  return api.post<DqrInit>("/api/phonepe/dqr/tournament-initiate", { teamId });
+}
+
+export async function pollTournamentDqr(
+  transactionId: string
+): Promise<{ state: string; teamId?: string; error?: string }> {
+  return api.get(`/api/phonepe/dqr/tournament-status?transactionId=${transactionId}`, { auth: false });
 }

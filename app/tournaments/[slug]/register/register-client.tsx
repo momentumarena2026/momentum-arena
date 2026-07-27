@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Trash2, Upload, Ticket, PartyPopper } from "lucide-react";
+import { Loader2, Plus, Trash2, Upload, Ticket, PartyPopper, QrCode, CreditCard, Coins } from "lucide-react";
 import { onlinePayable } from "@/lib/tournament-config";
 import { validateCoupon } from "@/actions/coupon-validation";
 
@@ -27,6 +27,7 @@ const inputCls =
 const labelCls = "mb-1 block text-xs font-medium text-zinc-400";
 
 type Props = {
+  dqrAvailable: boolean;
   tournament: {
     id: string;
     slug: string;
@@ -44,7 +45,7 @@ type Props = {
   prefill: { captainName: string; captainPhone: string; captainEmail: string };
 };
 
-export function RegisterClient({ tournament: t, prefill }: Props) {
+export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) {
   const router = useRouter();
   const [teamName, setTeamName] = useState("");
   const [color, setColor] = useState(COLORS[4]);
@@ -58,16 +59,70 @@ export function RegisterClient({ tournament: t, prefill }: Props) {
   const [coupon, setCoupon] = useState("");
   const [couponApplied, setCouponApplied] = useState<{ code: string; discount: number } | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
+  const [method, setMethod] = useState<"upi" | "razorpay">(dqrAvailable ? "upi" : "razorpay");
+  const [pointsPreview, setPointsPreview] = useState<{ maxPoints: number; maxPaise: number } | null>(null);
+  const [usePoints, setUsePoints] = useState(false);
+  const [dqr, setDqr] = useState<null | { qrImage?: string; qrString?: string; transactionId: string; amount: number; expiresIn: number }>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<null | { state: string }>(null);
 
   const filledMembers = members.map((m) => m.trim()).filter(Boolean);
   const discount = couponApplied?.discount || 0;
-  const netFee = Math.max(0, t.entryFee - discount);
+  const netFeeAfterCoupon = Math.max(0, t.entryFee - discount);
+  const pointsDiscount =
+    usePoints && pointsPreview
+      ? Math.min(netFeeAfterCoupon, Math.round(pointsPreview.maxPaise / 100))
+      : 0;
+  const pointsToRedeem = usePoints && pointsPreview ? pointsPreview.maxPoints : 0;
+  const netFee = Math.max(0, netFeeAfterCoupon - pointsDiscount);
   const payable = onlinePayable(netFee, t.feeMode, t.advancePct);
   const dueAtVenue = netFee - payable;
   const isFull = t.confirmedCount >= t.totalTeams;
+
+  // Points preview follows the after-coupon amount.
+  useEffect(() => {
+    let alive = true;
+    if (t.feeMode === "FREE" || netFeeAfterCoupon <= 0) {
+      setPointsPreview(null);
+      return;
+    }
+    fetch(`/api/tournaments/rewards-preview?amount=${netFeeAfterCoupon}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive) setPointsPreview({ maxPoints: d.maxPoints || 0, maxPaise: d.maxPaise || 0 });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [netFeeAfterCoupon, t.feeMode]);
+
+  // DQR status poll while the QR is showing.
+  useEffect(() => {
+    if (!dqr) return;
+    const iv = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/phonepe/dqr/tournament-status?transactionId=${dqr.transactionId}`);
+        const d = await r.json();
+        if (d.state === "COMPLETED") {
+          clearInterval(iv);
+          setDqr(null);
+          setDone({ state: "CONFIRMED" });
+          router.refresh();
+        } else if (d.state === "FAILED") {
+          clearInterval(iv);
+          setDqr(null);
+          setSubmitting(false);
+          setError(d.error || "Payment failed — please try again");
+        }
+      } catch {
+        /* transient */
+      }
+    }, 3500);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dqr?.transactionId]);
 
   const canSubmit = useMemo(
     () =>
@@ -135,6 +190,7 @@ export function RegisterClient({ tournament: t, prefill }: Props) {
           captainName,
           captainPhone,
           couponCode: couponApplied?.code || null,
+          pointsToRedeem: pointsToRedeem || null,
           platform: "web",
         }),
       });
@@ -145,6 +201,25 @@ export function RegisterClient({ tournament: t, prefill }: Props) {
         setDone({ state: data.state });
         router.refresh();
         return;
+      }
+
+      // UPI (PhonePe DQR): show the QR and poll for completion.
+      if (method === "upi") {
+        const dq = await fetch("/api/phonepe/dqr/tournament-initiate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teamId: data.teamId }),
+        });
+        const dqd = await dq.json();
+        if (!dq.ok) throw new Error(dqd.error || "Couldn't start the UPI payment");
+        setDqr({
+          qrImage: dqd.qrImage,
+          qrString: dqd.qrString,
+          transactionId: dqd.transactionId,
+          amount: dqd.amount,
+          expiresIn: dqd.expiresIn,
+        });
+        return; // the poll effect completes the flow
       }
 
       // Pay the entry fee via Razorpay.
@@ -192,6 +267,35 @@ export function RegisterClient({ tournament: t, prefill }: Props) {
       setSubmitting(false);
     }
   };
+
+  if (dqr) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-12 text-center">
+        <h1 className="text-xl font-bold text-white">Scan to pay ₹{dqr.amount.toLocaleString("en-IN")}</h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          {t.name} — entry fee. Use any UPI app; this screen confirms automatically.
+        </p>
+        {dqr.qrImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={dqr.qrImage} alt="UPI QR" className="mx-auto mt-6 w-64 rounded-2xl bg-white p-3" />
+        ) : (
+          <p className="mt-6 break-all rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-xs text-zinc-400">{dqr.qrString}</p>
+        )}
+        <p className="mt-4 flex items-center justify-center gap-2 text-sm text-zinc-500">
+          <Loader2 className="h-4 w-4 animate-spin text-emerald-500" /> Waiting for payment…
+        </p>
+        <button
+          onClick={() => {
+            setDqr(null);
+            setSubmitting(false);
+          }}
+          className="mt-6 text-sm text-zinc-400 underline"
+        >
+          Cancel and choose another method
+        </button>
+      </div>
+    );
+  }
 
   if (done) {
     return (
@@ -360,6 +464,35 @@ export function RegisterClient({ tournament: t, prefill }: Props) {
                 </button>
               </div>
             )}
+            {pointsPreview && pointsPreview.maxPoints > 0 && (
+              <label className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-zinc-200">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-amber-500"
+                  checked={usePoints}
+                  onChange={(e) => setUsePoints(e.target.checked)}
+                />
+                <Coins className="h-4 w-4 text-amber-400" />
+                Use {pointsPreview.maxPoints.toLocaleString("en-IN")} points (−₹
+                {Math.round(pointsPreview.maxPaise / 100).toLocaleString("en-IN")})
+              </label>
+            )}
+            {dqrAvailable && payable > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setMethod("upi")}
+                  className={`flex items-center justify-center gap-2 rounded-lg border p-2.5 text-sm ${method === "upi" ? "border-emerald-500/50 bg-emerald-600/10 text-emerald-300" : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`}
+                >
+                  <QrCode className="h-4 w-4" /> UPI
+                </button>
+                <button
+                  onClick={() => setMethod("razorpay")}
+                  className={`flex items-center justify-center gap-2 rounded-lg border p-2.5 text-sm ${method === "razorpay" ? "border-emerald-500/50 bg-emerald-600/10 text-emerald-300" : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`}
+                >
+                  <CreditCard className="h-4 w-4" /> Card / Netbanking
+                </button>
+              </div>
+            )}
             <div className="space-y-1.5 border-t border-zinc-800 pt-3 text-sm">
               <div className="flex justify-between text-zinc-400">
                 <span>Entry fee</span>
@@ -369,6 +502,12 @@ export function RegisterClient({ tournament: t, prefill }: Props) {
                 <div className="flex justify-between text-emerald-400">
                   <span>Coupon {couponApplied?.code}</span>
                   <span>− ₹{discount.toLocaleString("en-IN")}</span>
+                </div>
+              )}
+              {pointsDiscount > 0 && (
+                <div className="flex justify-between text-amber-400">
+                  <span>Reward points</span>
+                  <span>− ₹{pointsDiscount.toLocaleString("en-IN")}</span>
                 </div>
               )}
               {dueAtVenue > 0 && (

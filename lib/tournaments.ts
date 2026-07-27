@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
+import { redeemForTournament, refundRedemption } from "@/lib/rewards/redeem";
+import { awardTournamentPoints } from "@/lib/rewards/earn";
 import { onlinePayable } from "@/lib/tournament-config";
 
 // The key secret isn't exported from lib/razorpay — read it like lib/passes does.
@@ -87,6 +89,7 @@ export type RegisterInput = {
   captainPhone: string;
   captainEmail?: string | null;
   couponCode?: string | null;
+  pointsToRedeem?: number | null;
   platform?: "web" | "android" | "ios";
 };
 
@@ -121,6 +124,7 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       feeMode: true,
       advancePct: true,
       allowCoupons: true,
+      allowRewardPoints: true,
       waitlistEnabled: true,
       regCloseAt: true,
     },
@@ -191,11 +195,11 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
     couponCode = input.couponCode.toUpperCase().trim();
   }
 
-  const netFee = Math.max(0, t.entryFee - discount);
-  const payable = isFull ? 0 : onlinePayable(netFee, t.feeMode, t.advancePct);
-  const dueAtVenue = isFull ? 0 : netFee - payable;
+  let netFee = Math.max(0, t.entryFee - discount);
+  let payable = isFull ? 0 : onlinePayable(netFee, t.feeMode, t.advancePct);
+  let dueAtVenue = isFull ? 0 : netFee - payable;
 
-  const state: "CONFIRMED" | "WAITLISTED" | "PENDING_PAYMENT" = isFull
+  let state: "CONFIRMED" | "WAITLISTED" | "PENDING_PAYMENT" = isFull
     ? "WAITLISTED"
     : payable > 0
       ? "PENDING_PAYMENT"
@@ -226,6 +230,49 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       },
     },
   });
+
+  // Reward-points redemption — AFTER the team row exists (the ledger row is
+  // keyed to the team for idempotency + refund). The guarded debit inside
+  // redeemForTournament enforces balance/caps atomically; on any failure the
+  // registration is rolled back so no phantom slot is held.
+  const requestedPoints = Math.max(0, Math.floor(input.pointsToRedeem || 0));
+  if (
+    requestedPoints > 0 &&
+    t.allowRewardPoints &&
+    t.feeMode !== "FREE" &&
+    state === "PENDING_PAYMENT" &&
+    netFee > 0
+  ) {
+    const res = await redeemForTournament({
+      userId: input.userId,
+      tournamentTeamId: team.id,
+      points: requestedPoints,
+      billPaise: netFee * 100,
+    });
+    if (!res.redeemed) {
+      await db.tournamentTeam.delete({ where: { id: team.id } }).catch(() => {});
+      return { ok: false, error: res.error || "Couldn't redeem points" };
+    }
+    const pointsDiscount = Math.min(netFee, Math.round((res.discountPaise || 0) / 100));
+    // Team.discount carries the TOTAL discount (coupon + points) — the
+    // amount-expectation check in confirmTournamentEntry derives the
+    // payable from it; pointsUsed keeps the points leg for refunds.
+    discount += pointsDiscount;
+    netFee = Math.max(0, netFee - pointsDiscount);
+    payable = onlinePayable(netFee, t.feeMode, t.advancePct);
+    dueAtVenue = netFee - payable;
+    if (payable <= 0) state = "CONFIRMED";
+    await db.tournamentTeam.update({
+      where: { id: team.id },
+      data: {
+        discount,
+        pointsUsed: res.pointsConsumed || requestedPoints,
+        status: state,
+        dueAmount: state === "CONFIRMED" ? dueAtVenue : 0,
+        paymentMethod: state === "CONFIRMED" && netFee === 0 ? "POINTS" : null,
+      },
+    });
+  }
 
   if (state === "CONFIRMED" && couponCode) {
     await recordCouponUse(couponCode, input.userId, discount);
@@ -267,7 +314,16 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       dueAtVenue,
     };
   } catch (err) {
-    // Roll the slot back so a gateway hiccup doesn't strand a pending team.
+    // Roll the slot back so a gateway hiccup doesn't strand a pending team
+    // — refunding any points redeemed a moment ago first (idempotent).
+    if (requestedPoints > 0) {
+      await refundRedemption({
+        userId: input.userId,
+        points: requestedPoints,
+        tournamentTeamId: team.id,
+        reason: "tournament order-create failed",
+      }).catch(() => {});
+    }
     await db.tournamentTeam.delete({ where: { id: team.id } }).catch(() => {});
     console.error("[tournaments] order create failed", err);
     return { ok: false, error: "Couldn't start the payment — please try again" };
@@ -288,6 +344,9 @@ export async function confirmTournamentEntry(args: {
   teamId: string;
   razorpayPaymentId: string;
   paidRupees: number;
+  /** Payment surface for the record — defaults to RAZORPAY; the DQR
+   *  status/callback paths pass UPI_DQR. */
+  method?: string;
 }): Promise<{ ok: boolean; already?: boolean; error?: string }> {
   const team = await db.tournamentTeam.findUnique({
     where: { id: args.teamId },
@@ -317,12 +376,56 @@ export async function confirmTournamentEntry(args: {
       status: "CONFIRMED",
       paidAmount: expected,
       dueAmount: netFee - expected,
-      paymentMethod: "RAZORPAY",
+      paymentMethod: args.method || "RAZORPAY",
       paymentRef: args.razorpayPaymentId,
     },
   });
   if (team.couponCode && team.captainUserId) {
     await recordCouponUse(team.couponCode, team.captainUserId, team.discount);
   }
+  // Earn on the amount actually paid — idempotent per team, and its
+  // failure must never fail a captured payment's confirmation.
+  await awardTournamentPoints(team.id).catch(() => {});
   return { ok: true };
+}
+
+// ── UPI DQR entry-fee path ──────────────────────────────────────────
+/** Confirm a tournament entry paid via PhonePe DQR. Called by BOTH the
+ *  client status poll and the S2S callback — idempotent (a CONFIRMED
+ *  team short-circuits). `amountPaise` is PhonePe's captured amount and
+ *  must equal the team's expected online payable; a mismatch orphans the
+ *  money for admin recovery instead of silently confirming. */
+export async function confirmDqrTournament(
+  transactionId: string,
+  providerReferenceId: string | undefined,
+  amountPaise: number | undefined
+): Promise<{ teamId?: string; mismatch?: boolean }> {
+  if (!transactionId.startsWith("DQRT_")) return {};
+  const team = await db.tournamentTeam.findFirst({
+    where: { paymentRef: transactionId },
+    select: { id: true, status: true, captainUserId: true },
+  });
+  if (!team) return {};
+  if (team.status === "CONFIRMED") return { teamId: team.id }; // idempotent
+
+  const paidRupees = Math.round((amountPaise ?? 0) / 100);
+  const res = await confirmTournamentEntry({
+    teamId: team.id,
+    razorpayPaymentId: providerReferenceId || transactionId,
+    paidRupees,
+    method: "UPI_DQR",
+  });
+  if (!res.ok) {
+    const { recordOrphanPayment } = await import("@/lib/payment-orphan");
+    recordOrphanPayment({
+      gateway: "PHONEPE_DQR",
+      reason: `tournament-${res.error || "confirm-failed"}`,
+      userId: team.captainUserId || "unknown",
+      amountRupees: paidRupees,
+      phonePeMerchantTxnId: transactionId,
+      path: "/api/phonepe/dqr/tournament",
+    });
+    return { mismatch: true };
+  }
+  return { teamId: team.id };
 }

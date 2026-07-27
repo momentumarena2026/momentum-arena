@@ -16,6 +16,7 @@ import { formatBookingDate, formatPrice } from "@/lib/pricing";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { getRainBanner } from "@/actions/admin-arena-settings";
 import { arePassesEnabled } from "@/lib/passes";
+import { areTournamentsEnabled } from "@/lib/tournaments";
 import { RainBanner } from "@/components/rain-banner";
 import { PromoBannerSlot } from "@/components/promo-banner-slot";
 
@@ -191,6 +192,7 @@ export default async function Home() {
   // "Rain doesn't slow us down" banner — shown when it's raining in Mathura
   // (AUTO) or forced on by admin. Never throws.
   const passesEnabled = await arePassesEnabled().catch(() => false);
+  const tournamentsEnabled = await areTournamentsEnabled().catch(() => false);
   const rainBanner = await getRainBanner().catch(() => ({
     show: false,
     title: "",
@@ -351,6 +353,14 @@ export default async function Home() {
                   🎟️ Passes
                 </Link>
               )}
+              {tournamentsEnabled && (
+                <Link
+                  href="/tournaments"
+                  className="text-base font-semibold text-zinc-300 hover:text-emerald-400 transition flex items-center gap-2"
+                >
+                  🏆 Tournaments
+                </Link>
+              )}
             </div>
             <LoginButton />
           </div>
@@ -446,6 +456,14 @@ export default async function Home() {
               >
                 ☕ Order Food
               </a>
+              {tournamentsEnabled && (
+                <Link
+                  href="/tournaments"
+                  className="inline-flex items-center gap-2 bg-yellow-600 hover:bg-yellow-500 text-zinc-950 font-bold px-8 py-4 rounded-full text-base md:text-lg transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-yellow-500/25"
+                >
+                  🏆 Tournaments
+                </Link>
+              )}
             </div>
           </div>
 

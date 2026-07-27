@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -16,6 +16,7 @@ import {
   type StandRow,
 } from "../../lib/tournaments";
 import type { AccountStackParamList } from "../../navigation/types";
+import { trackTournamentView } from "../../lib/analytics";
 
 type Nav = NativeStackNavigationProp<AccountStackParamList>;
 type Rt = RouteProp<AccountStackParamList, "TournamentDetail">;
@@ -52,6 +53,10 @@ export function TournamentDetailScreen() {
   const route = useRoute<Rt>();
   const { slug } = route.params;
   const [tab, setTab] = useState<Tab>("Overview");
+
+  useEffect(() => {
+    trackTournamentView(slug);
+  }, [slug]);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["tournament", slug],
@@ -164,6 +169,13 @@ export function TournamentDetailScreen() {
               <Text style={styles.prizeText}>₹{t.prizePool.toLocaleString("en-IN")} prize pool</Text>
             </View>
           ) : null}
+          {t.status === "PUBLISHED" && (
+            <Text style={{ color: "#7dd3fc", fontSize: 13, marginTop: 4 }}>
+              {t.regOpenAt
+                ? `Registrations open ${new Date(t.regOpenAt).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`
+                : "Registrations opening soon"}
+            </Text>
+          )}
           {t.status === "REG_OPEN" && (
             <Pressable
               onPress={() => navigation.navigate("TournamentRegister", { slug })}

@@ -78,7 +78,12 @@ export type TournamentWizardInput = z.infer<typeof wizardSchema>;
 
 function toDate(s: string | undefined): Date | null {
   if (!s) return null;
-  const d = new Date(s);
+  // The wizard's <input type="datetime-local"> submits a bare
+  // "YYYY-MM-DDTHH:mm" — no timezone. `new Date(bare)` parses it in the
+  // SERVER's zone (UTC on Vercel), silently shifting an admin's 6:00 PM
+  // to 11:30 PM IST. Admin times are venue wall-clock, so pin them to IST.
+  const bare = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s);
+  const d = new Date(bare ? `${s}${s.length === 16 ? ":00" : ""}+05:30` : s);
   return isNaN(d.getTime()) ? null : d;
 }
 
@@ -287,7 +292,12 @@ export async function setTeamStatus(
   await gate();
   const team = await db.tournamentTeam.findUnique({
     where: { id: teamId },
-    select: { tournamentId: true, tournament: { select: { totalTeams: true } } },
+    select: {
+      tournamentId: true,
+      pointsUsed: true,
+      captainUserId: true,
+      tournament: { select: { totalTeams: true } },
+    },
   });
   if (!team) return { success: false, error: "Team not found" };
   if (status === "CONFIRMED") {
@@ -299,6 +309,17 @@ export async function setTeamStatus(
     }
   }
   await db.tournamentTeam.update({ where: { id: teamId }, data: { status } });
+  // Kicking a team out returns any reward points its captain redeemed at
+  // registration (idempotent — one refund per team).
+  if ((status === "REJECTED" || status === "WITHDRAWN") && team.pointsUsed > 0 && team.captainUserId) {
+    const { refundRedemption } = await import("@/lib/rewards/redeem");
+    await refundRedemption({
+      userId: team.captainUserId,
+      points: team.pointsUsed,
+      tournamentTeamId: teamId,
+      reason: `tournament team ${status.toLowerCase()}`,
+    }).catch(() => {});
+  }
   revalidatePath(`/admin/tournaments/${team.tournamentId}`);
   return { success: true };
 }
@@ -333,6 +354,73 @@ export async function recordTeamPayment(
   void admin;
   revalidatePath(`/admin/tournaments/${team.tournamentId}`);
   return { success: true };
+}
+
+const adminRegisterSchema = z.object({
+  tournamentId: z.string().min(1),
+  teamName: z.string().trim().min(2).max(60),
+  captainName: z.string().trim().min(1).max(120),
+  captainPhone: z.string().trim().min(6).max(20),
+  members: z.array(z.string().trim().min(1).max(60)).min(1).max(50),
+  /** ₹ collected at the venue right now (0 allowed — collect later). */
+  collectedAmount: z.number().int().min(0).max(10_00_000),
+  method: z.enum(["CASH", "STATIC_QR", "FREE"]),
+});
+
+/** Venue-side registration by an admin — mirrors admin bookings / issue-pass:
+ *  the team is CONFIRMED immediately with the payment marked manually
+ *  (cash / static-QR / free). No coupon/points; the remainder (if any)
+ *  stays on dueAmount for the Collect button. */
+export async function adminRegisterTeam(
+  input: unknown
+): Promise<{ success: boolean; error?: string; teamId?: string }> {
+  await gate();
+  const parsed = adminRegisterSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message || "Invalid data" };
+  }
+  const d = parsed.data;
+  const t = await db.tournament.findUnique({
+    where: { id: d.tournamentId },
+    select: { id: true, totalTeams: true, entryFee: true, feeMode: true },
+  });
+  if (!t) return { success: false, error: "Tournament not found" };
+
+  const taken = await db.tournamentTeam.count({
+    where: { tournamentId: t.id, status: { in: ["CONFIRMED", "PENDING_PAYMENT"] } },
+  });
+  if (taken >= t.totalTeams) return { success: false, error: "Tournament is full" };
+
+  const nameTaken = await db.tournamentTeam.findFirst({
+    where: {
+      tournamentId: t.id,
+      name: { equals: d.teamName, mode: "insensitive" },
+      status: { in: ["CONFIRMED", "PENDING_PAYMENT", "WAITLISTED"] },
+    },
+    select: { id: true },
+  });
+  if (nameTaken) return { success: false, error: "That team name is taken" };
+
+  const fee = t.feeMode === "FREE" || d.method === "FREE" ? 0 : t.entryFee;
+  const paid = Math.min(d.collectedAmount, fee);
+  const team = await db.tournamentTeam.create({
+    data: {
+      tournamentId: t.id,
+      status: "CONFIRMED",
+      name: d.teamName,
+      captainName: d.captainName,
+      captainPhone: d.captainPhone.replace(/[^\d+]/g, ""),
+      paidAmount: paid,
+      dueAmount: Math.max(0, fee - paid),
+      paymentMethod: d.method,
+      members: {
+        create: d.members.map((name, i) => ({ name, order: i, isCaptain: i === 0 })),
+      },
+    },
+    select: { id: true },
+  });
+  revalidatePath(`/admin/tournaments/${t.id}`);
+  return { success: true, teamId: team.id };
 }
 
 /** Admin-side edit of a team's identity/roster (moderation). */

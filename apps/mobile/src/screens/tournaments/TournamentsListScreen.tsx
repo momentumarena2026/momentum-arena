@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
@@ -9,6 +9,7 @@ import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius } from "../../theme";
 import { fetchTournamentHub, type TournamentListItem } from "../../lib/tournaments";
+import { trackTournamentHubView } from "../../lib/analytics";
 import type { AccountStackParamList } from "../../navigation/types";
 
 const SPORT_EMOJI: Record<string, string> = { CRICKET: "🏏", FOOTBALL: "⚽", PICKLEBALL: "🎾" };
@@ -29,6 +30,10 @@ export function TournamentsListScreen() {
     queryFn: fetchTournamentHub,
   });
   const data = hub?.tournaments;
+
+  useEffect(() => {
+    trackTournamentHubView();
+  }, []);
 
   const open = useCallback(
     (t: TournamentListItem) => navigation.navigate("TournamentDetail", { slug: t.slug }),

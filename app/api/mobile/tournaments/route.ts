@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { isDqrConfigured } from "@/lib/phonepe-dqr";
 import { listPublicTournaments, areTournamentsEnabled } from "@/lib/tournaments";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +14,12 @@ export async function GET() {
     return NextResponse.json({ enabled: false, tournaments: [] });
   }
   const rows = await listPublicTournaments();
+  const gatewayCfg = await db.paymentGatewayConfig
+    .findUnique({ where: { id: "singleton" }, select: { dqrEnabled: true } })
+    .catch(() => null);
   return NextResponse.json({
     enabled: true,
+    dqrAvailable: isDqrConfigured() && !!gatewayCfg?.dqrEnabled,
     tournaments: rows.map((t) => ({
       id: t.id,
       slug: t.slug,

@@ -28,6 +28,7 @@ import {
   Ticket,
   Users,
   Wallet,
+  Trophy,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -118,6 +119,12 @@ const GROUPS: Group[] = [
   {
     title: "Courts & Pricing",
     rows: [
+      {
+        label: "Tournaments",
+        icon: ic(Trophy),
+        perm: "MANAGE_TOURNAMENTS",
+        onPress: (nav) => nav.navigate("AdminTournaments"),
+      },
       {
         label: "Sports",
         icon: ic(LayoutGrid),

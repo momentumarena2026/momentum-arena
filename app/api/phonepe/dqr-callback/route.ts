@@ -6,6 +6,7 @@ import {
 } from "@/lib/phonepe-dqr";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import { confirmDqrPass } from "@/lib/passes";
+import { confirmDqrTournament } from "@/lib/tournaments";
 
 /**
  * PhonePe Dynamic QR S2S callback — the authoritative confirmation
@@ -74,6 +75,20 @@ export async function POST(request: NextRequest) {
     if (cafe.orderId) {
       console.log(
         `[dqr-callback] cafe order ${cafe.orderId} confirmed (txn ${transactionId})`,
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    const tournament = await confirmDqrTournament(transactionId, providerRef, data.amount);
+    if (tournament.teamId) {
+      console.log(
+        `[dqr-callback] tournament team ${tournament.teamId} confirmed (txn ${transactionId})`,
+      );
+      return NextResponse.json({ success: true });
+    }
+    if (tournament.mismatch) {
+      console.error(
+        `[dqr-callback] tournament amount mismatch for txn ${transactionId}, amount ${data.amount} — orphaned`,
       );
       return NextResponse.json({ success: true });
     }
