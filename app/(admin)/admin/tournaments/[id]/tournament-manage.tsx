@@ -10,6 +10,8 @@ import {
   ChevronRight,
   IndianRupee,
   Radio,
+  Grid3x3,
+  CalendarClock,
 } from "lucide-react";
 import {
   transitionTournament,
@@ -19,6 +21,8 @@ import {
 } from "@/actions/admin-tournaments";
 import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
 import { TournamentWizard } from "../tournament-wizard";
+import { PoolsTab } from "./pools-tab";
+import { FixturesTab, type MatchRow } from "./fixtures-tab";
 
 // Serialized shapes from getTournamentAdmin (dates as ISO strings).
 type MemberRow = { id: string; name: string; isCaptain: boolean; order: number };
@@ -28,6 +32,7 @@ type TeamRow = {
   status: string;
   color: string | null;
   logoUrl: string | null;
+  poolId: string | null;
   captainName: string;
   captainPhone: string;
   paidAmount: number;
@@ -78,6 +83,7 @@ export type AdminTournament = {
   scorerCode: string | null;
   teams: TeamRow[];
   pools: { id: string; name: string; order: number; teams: { id: string; name: string }[] }[];
+  matches: MatchRow[];
   _count: { matches: number };
 };
 
@@ -96,9 +102,17 @@ function toLocalInput(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function TournamentManage({ tournament: t }: { tournament: AdminTournament }) {
+export function TournamentManage({
+  tournament: t,
+  courts,
+}: {
+  tournament: AdminTournament;
+  courts: { id: string; label: string; size: string }[];
+}) {
   const router = useRouter();
-  const [tab, setTab] = useState<"overview" | "teams" | "settings">("overview");
+  const [tab, setTab] = useState<"overview" | "teams" | "pools" | "fixtures" | "settings">(
+    "overview"
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
@@ -242,6 +256,10 @@ export function TournamentManage({ tournament: t }: { tournament: AdminTournamen
           [
             ["overview", "Overview", LayoutDashboard],
             ["teams", `Teams (${t.teams.length})`, Users],
+            ...(t.format === "POOLS_KNOCKOUT"
+              ? ([["pools", "Pools & Draw", Grid3x3]] as const)
+              : []),
+            ["fixtures", `Fixtures (${t.matches.length})`, CalendarClock],
             ["settings", "Settings", Settings],
           ] as const
         ).map(([key, label, Icon]) => (
@@ -365,6 +383,28 @@ export function TournamentManage({ tournament: t }: { tournament: AdminTournamen
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Pools & Draw ── */}
+      {tab === "pools" && (
+        <PoolsTab
+          tournamentId={t.id}
+          status={t.status}
+          revealAt={t.revealAt}
+          pools={t.pools}
+          teams={t.teams.map((x) => ({
+            id: x.id,
+            name: x.name,
+            status: x.status,
+            poolId: x.poolId,
+            color: x.color,
+          }))}
+        />
+      )}
+
+      {/* ── Fixtures ── */}
+      {tab === "fixtures" && (
+        <FixturesTab tournamentId={t.id} matches={t.matches} courts={courts} />
       )}
 
       {/* ── Settings ── */}

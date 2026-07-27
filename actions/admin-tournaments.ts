@@ -232,6 +232,16 @@ export async function getTournamentAdmin(id: string) {
         orderBy: { createdAt: "asc" },
         include: { members: { orderBy: { order: "asc" } }, pool: { select: { name: true } } },
       },
+      matches: {
+        orderBy: [{ stage: "asc" }, { sequence: "asc" }],
+        include: {
+          homeTeam: { select: { id: true, name: true, color: true } },
+          awayTeam: { select: { id: true, name: true, color: true } },
+          winnerTeam: { select: { id: true, name: true } },
+          pool: { select: { name: true } },
+          courtConfig: { select: { label: true } },
+        },
+      },
       _count: { select: { matches: true } },
     },
   });

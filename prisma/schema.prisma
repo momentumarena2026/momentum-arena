@@ -367,6 +367,8 @@ model CourtConfig {
   zones    CourtZone[]
   isActive Boolean     @default(true)
 
+  tournamentMatches TournamentMatch[]
+
   // Within CRICKET, this distinguishes the regular Box-Cricket
   // configs (full field + the two half courts) from the
   // Bowling-Machine practice config. NULL for FOOTBALL /
@@ -3212,6 +3214,7 @@ model TournamentMatch {
 
   // Schedule → booking-grid integration
   courtConfigId String?
+  courtConfig   CourtConfig? @relation(fields: [courtConfigId], references: [id], onDelete: SetNull)
   scheduledAt   DateTime?
   durationMins  Int       @default(60)
   slotBlockIds  String[]  @default([]) // SlotBlock rows created for this match
