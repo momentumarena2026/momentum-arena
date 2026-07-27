@@ -12,6 +12,7 @@ import {
   Radio,
   Grid3x3,
   CalendarClock,
+  ClipboardList,
 } from "lucide-react";
 import {
   transitionTournament,
@@ -23,6 +24,7 @@ import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-conf
 import { TournamentWizard } from "../tournament-wizard";
 import { PoolsTab } from "./pools-tab";
 import { FixturesTab, type MatchRow } from "./fixtures-tab";
+import { ScoresTab } from "./scores-tab";
 
 // Serialized shapes from getTournamentAdmin (dates as ISO strings).
 type MemberRow = { id: string; name: string; isCaptain: boolean; order: number };
@@ -110,9 +112,9 @@ export function TournamentManage({
   courts: { id: string; label: string; size: string }[];
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"overview" | "teams" | "pools" | "fixtures" | "settings">(
-    "overview"
-  );
+  const [tab, setTab] = useState<
+    "overview" | "teams" | "pools" | "fixtures" | "scores" | "settings"
+  >("overview");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
@@ -260,6 +262,7 @@ export function TournamentManage({
               ? ([["pools", "Pools & Draw", Grid3x3]] as const)
               : []),
             ["fixtures", `Fixtures (${t.matches.length})`, CalendarClock],
+            ["scores", "Scores", ClipboardList],
             ["settings", "Settings", Settings],
           ] as const
         ).map(([key, label, Icon]) => (
@@ -405,6 +408,11 @@ export function TournamentManage({
       {/* ── Fixtures ── */}
       {tab === "fixtures" && (
         <FixturesTab tournamentId={t.id} matches={t.matches} courts={courts} />
+      )}
+
+      {/* ── Scores ── */}
+      {tab === "scores" && (
+        <ScoresTab tournamentId={t.id} matches={t.matches} statFields={t.statFields || []} />
       )}
 
       {/* ── Settings ── */}
