@@ -160,6 +160,9 @@ export async function createTournament(
       createdBy: admin.id,
     },
   });
+  // Auto-draft the marketing campaign (editable from the Campaign tab).
+  const { draftCampaign } = await import("@/lib/tournament-campaign");
+  await draftCampaign(t.id).catch(() => {});
   revalidatePath("/admin/tournaments");
   return { success: true, id: t.id };
 }
@@ -208,6 +211,10 @@ export async function transitionTournament(
     return { success: false, error: "Only pools tournaments can reveal pools" };
   }
   await db.tournament.update({ where: { id }, data: { status: toStatus as never } });
+  // Fire the milestone mapped to this transition (enabled items only).
+  const { TRANSITION_MILESTONE, fireMilestone } = await import("@/lib/tournament-campaign");
+  const milestone = TRANSITION_MILESTONE[toStatus];
+  if (milestone) await fireMilestone(id, milestone).catch(() => {});
   revalidatePath(`/admin/tournaments/${id}`);
   revalidatePath("/admin/tournaments");
   return { success: true };
