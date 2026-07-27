@@ -3,6 +3,13 @@ import type { Sport } from "../lib/types";
 
 export type AccountStackParamList = {
   AccountHome: undefined;
+  // Tournaments — hub, public detail (pools/table/bracket/live), captain
+  // registration and the live match screen. Registered in AccountStack so
+  // Home tiles + promo-banner deep links can reach them without a new tab.
+  TournamentsList: undefined;
+  TournamentDetail: { slug: string };
+  TournamentRegister: { slug: string };
+  TournamentLive: { matchId: string; slug: string };
   EditName: undefined;
   // Customer pass wallet — Active/Inactive tabs with balance rings.
   MyPasses: undefined;

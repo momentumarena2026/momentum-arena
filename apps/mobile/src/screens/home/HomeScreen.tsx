@@ -248,6 +248,14 @@ export function HomeScreen() {
             >
               <Text variant="bodyStrong" color="#fff">☕  Order Food</Text>
             </Pressable>
+            <Pressable
+              onPress={() =>
+                navigation.navigate("Account", { screen: "TournamentsList" })
+              }
+              style={({ pressed }) => [styles.heroBtnAmber, { backgroundColor: "#7c3aed" }, pressed && styles.pressed]}
+            >
+              <Text variant="bodyStrong" color="#fff">🏆  Tournaments</Text>
+            </Pressable>
           </View>
         </View>
 

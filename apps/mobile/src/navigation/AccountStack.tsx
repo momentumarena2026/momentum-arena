@@ -15,6 +15,10 @@ import { ShopOrderDetailScreen } from "../screens/shop/ShopOrderDetailScreen";
 import { CafeOrdersListScreen } from "../screens/cafe/CafeOrdersListScreen";
 import { CafeOrderDetailScreen } from "../screens/cafe/CafeOrderDetailScreen";
 import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
+import { TournamentsListScreen } from "../screens/tournaments/TournamentsListScreen";
+import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailScreen";
+import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
+import { TournamentLiveScreen } from "../screens/tournaments/TournamentLiveScreen";
 import type { AccountStackParamList } from "./types";
 import { stackHeaderOptions } from "./headerOptions";
 
@@ -118,6 +122,26 @@ export function AccountStack() {
         name="CafeOrderDetail"
         component={CafeOrderDetailScreen}
         options={{ title: "Cafe order" }}
+      />
+      <Stack.Screen
+        name="TournamentsList"
+        component={TournamentsListScreen}
+        options={{ title: "Tournaments" }}
+      />
+      <Stack.Screen
+        name="TournamentDetail"
+        component={TournamentDetailScreen}
+        options={{ title: "Tournament" }}
+      />
+      <Stack.Screen
+        name="TournamentRegister"
+        component={TournamentRegisterScreen}
+        options={{ title: "Register team" }}
+      />
+      <Stack.Screen
+        name="TournamentLive"
+        component={TournamentLiveScreen}
+        options={{ title: "Live match" }}
       />
     </Stack.Navigator>
   );
