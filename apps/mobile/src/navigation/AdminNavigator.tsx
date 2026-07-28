@@ -42,6 +42,7 @@ import { AdminRewardsConfigScreen } from "../screens/admin/AdminRewardsConfigScr
 import { AdminDashboardScreen } from "../screens/admin/AdminDashboardScreen";
 import { AdminMoreScreen } from "../screens/admin/AdminMoreScreen";
 import { AdminTournamentsScreen } from "../screens/admin/AdminTournamentsScreen";
+import { ScorerConsoleScreen } from "../screens/tournaments/ScorerConsoleScreen";
 import { AdminSportsScreen } from "../screens/admin/AdminSportsScreen";
 import { AdminEquipmentScreen } from "../screens/admin/AdminEquipmentScreen";
 import { AdminBowlingScreen } from "../screens/admin/AdminBowlingScreen";
@@ -119,6 +120,11 @@ function AdminMoreStackNav() {
         name="AdminTournaments"
         component={AdminTournamentsScreen}
         options={{ title: "Tournaments" }}
+      />
+      <MoreStack.Screen
+        name="AdminScorerConsole"
+        component={ScorerConsoleScreen}
+        options={{ title: "Scoring" }}
       />
       <MoreStack.Screen
         name="AdminSports"

@@ -19,7 +19,9 @@ import {
   type AdminMatchRow,
   type AdminTournamentDetail,
 } from "../../lib/admin-tournaments";
-import { navigateRoot } from "../../navigation/navigationRef";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { AdminMoreStackParamList } from "../../navigation/types";
 
 // Lifecycle transitions mirrored from lib/tournament-config STATUS_FLOW.
 const FLOW: Record<string, string[]> = {
@@ -53,6 +55,9 @@ const input: object = {
 
 export function AdminTournamentsScreen() {
   const queryClient = useQueryClient();
+  // Push onto THIS stack — the console is registered here as well as at
+  // the root, so opening it never has to cross a navigator boundary.
+  const navigation = useNavigation<NativeStackNavigationProp<AdminMoreStackParamList>>();
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [scoreFor, setScoreFor] = useState<string | null>(null);
@@ -146,16 +151,9 @@ export function AdminTournamentsScreen() {
               {/* One tap into the native pad — no retyping a URL on a
                   field phone, and no admin login needed to score. */}
               <Pressable
-                onPress={() => {
-                  const ok = navigateRoot("ScorerConsole", { code: t.scorerCode! });
-                  // Never fail silently — a dead button is the worst outcome.
-                  if (!ok) {
-                    Alert.alert(
-                      "Couldn't open the scorer",
-                      `Open this on the scoring device instead:\n\n/score/${t.scorerCode}`
-                    );
-                  }
-                }}
+                onPress={() =>
+                  navigation.navigate("AdminScorerConsole", { code: t.scorerCode! })
+                }
                 style={[styles.chipBtn, { borderColor: "rgba(248,113,113,0.4)" }]}
               >
                 <Text style={{ color: "#f87171", fontSize: 12 }}>Open scorer</Text>

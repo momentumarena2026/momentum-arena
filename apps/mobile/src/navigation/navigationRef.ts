@@ -2,40 +2,18 @@ import { createNavigationContainerRef } from "@react-navigation/native";
 import type { RootStackParamList } from "./types";
 
 /**
- * Module-level ref to the root navigator.
+ * Module-level ref to the root navigator, used by RootNavigator itself
+ * (push-tap routing) and available to non-component code.
  *
- * Nested screens can normally just call navigation.navigate() and let the
- * action bubble to a parent that owns the route — but that fails silently
- * when it doesn't (a tap that appears to do nothing, with no error). For
- * root-level destinations reached from deep inside another navigator (the
- * admin shell → the scorer console, for instance) this ref is explicit and
- * can't miss.
+ * A caution learned from the scorer console: a screen nested several
+ * navigators deep — More stack → admin tabs → the AdminShell modal —
+ * CANNOT reliably reach a root-stack route with navigation.navigate().
+ * The action is supposed to bubble to a parent that owns the route, and
+ * when it doesn't the tap simply does nothing: no error, no warning.
+ *
+ * Prefer registering the destination in the caller's own stack (see
+ * AdminScorerConsole in AdminNavigator) over trying to hop navigators.
+ * Where a hop is genuinely needed, an explicit getParent() from a known
+ * depth — as AccountScreen does — is the dependable form.
  */
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
-
-/**
- * Navigate to a root-stack screen from anywhere.
- *
- * Returns false when it couldn't (container not mounted, or the navigate
- * threw) so the caller can say something instead of leaving the user
- * staring at a button that appears to do nothing — the exact failure mode
- * this helper exists to eliminate.
- */
-export function navigateRoot<Name extends keyof RootStackParamList>(
-  screen: Name,
-  params?: RootStackParamList[Name]
-): boolean {
-  if (!navigationRef.isReady()) {
-    console.warn("[nav] navigateRoot before the container was ready:", screen);
-    return false;
-  }
-  try {
-    // @ts-expect-error — params is correctly typed per screen at the call
-    // sites; the generic doesn't narrow through the optional parameter.
-    navigationRef.navigate(screen, params);
-    return true;
-  } catch (err) {
-    console.warn("[nav] navigateRoot failed:", screen, err);
-    return false;
-  }
-}

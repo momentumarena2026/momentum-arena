@@ -217,6 +217,12 @@ export type AdminExpensesStackParamList = {
 export type AdminMoreStackParamList = {
   AdminMoreHome: undefined;
   AdminTournaments: undefined;
+  // The scorer console, registered HERE as well as on the root stack.
+  // AdminTournaments sits three navigators deep (More stack → tabs →
+  // AdminShell modal); pushing onto its own stack always works, whereas
+  // reaching a root route from this depth is the fragile path that made
+  // "Open scorer" a dead tap. Same component, no duplicated logic.
+  AdminScorerConsole: { code: string };
   AdminSports: undefined;
   AdminEquipment: undefined;
   AdminBowling: undefined;
