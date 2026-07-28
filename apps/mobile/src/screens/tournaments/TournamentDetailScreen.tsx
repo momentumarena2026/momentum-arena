@@ -171,7 +171,7 @@ export function TournamentDetailScreen() {
           ) : null}
           {t.status === "PUBLISHED" && (
             <Text style={{ color: "#7dd3fc", fontSize: 13, marginTop: 4 }}>
-              {t.regOpenAt
+              {t.regOpenAt && new Date(t.regOpenAt) > new Date()
                 ? `Registrations open ${new Date(t.regOpenAt).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`
                 : "Registrations opening soon"}
             </Text>

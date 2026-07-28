@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeStandings } from "@/lib/tournament-points";
-import { areTournamentsEnabled } from "@/lib/tournaments";
+import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +57,7 @@ export async function GET(
   if (!t || t.status === "DRAFT" || t.status === "CANCELLED") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  t.status = (await applyScheduledTransitions(t)) as typeof t.status;
 
   const poolsRevealed = ["POOLS_REVEALED", "LIVE", "COMPLETED"].includes(t.status);
   const teamNames = new Map(t.teams.map((x) => [x.id, x.name]));

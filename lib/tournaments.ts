@@ -25,9 +25,51 @@ export async function areTournamentsEnabled(): Promise<boolean> {
   }
 }
 
+// ── Scheduled auto-transitions ──────────────────────────────────────
+/** The registration window runs ITSELF: when regOpenAt passes, a PUBLISHED
+ *  tournament flips to REG_OPEN (firing its campaign milestone) and when
+ *  regCloseAt passes, REG_OPEN flips to REG_CLOSED — lazily, on the first
+ *  public read after the moment, so no cron is needed and the "Registrations
+ *  open <time>" copy can never sit in the past. Guarded updateMany makes the
+ *  flip race-safe under concurrent page loads (only one caller wins and
+ *  fires the push). Admin manual transitions still work and simply pre-empt
+ *  the schedule. Returns the effective status. */
+export async function applyScheduledTransitions(t: {
+  id: string;
+  status: string;
+  regOpenAt: Date | null;
+  regCloseAt: Date | null;
+}): Promise<string> {
+  const now = new Date();
+  let status = t.status;
+
+  if (status === "PUBLISHED" && t.regOpenAt && now >= t.regOpenAt) {
+    const res = await db.tournament.updateMany({
+      where: { id: t.id, status: "PUBLISHED" },
+      data: { status: "REG_OPEN" },
+    });
+    status = "REG_OPEN";
+    if (res.count > 0) {
+      // This caller won the race — fire the registrations-open campaign.
+      const { fireMilestone } = await import("@/lib/tournament-campaign");
+      await fireMilestone(t.id, "REG_OPEN").catch(() => {});
+    }
+  }
+
+  if (status === "REG_OPEN" && t.regCloseAt && now > t.regCloseAt) {
+    await db.tournament.updateMany({
+      where: { id: t.id, status: "REG_OPEN" },
+      data: { status: "REG_CLOSED" },
+    });
+    status = "REG_CLOSED";
+  }
+
+  return status;
+}
+
 // ── Public reads ────────────────────────────────────────────────────
 export async function listPublicTournaments() {
-  return db.tournament.findMany({
+  const rows = await db.tournament.findMany({
     where: { status: { notIn: ["DRAFT", "CANCELLED"] } },
     orderBy: [{ startDate: "asc" }, { createdAt: "desc" }],
     select: {
@@ -43,11 +85,22 @@ export async function listPublicTournaments() {
       feeMode: true,
       prizePool: true,
       startDate: true,
+      regOpenAt: true,
       regCloseAt: true,
       liveScoringEnabled: true,
       _count: { select: { teams: { where: { status: "CONFIRMED" } } } },
     },
   });
+  // Lazily run any due window transitions (usually a no-op for every row).
+  for (const row of rows) {
+    if (
+      (row.status === "PUBLISHED" && row.regOpenAt && row.regOpenAt <= new Date()) ||
+      (row.status === "REG_OPEN" && row.regCloseAt && row.regCloseAt < new Date())
+    ) {
+      row.status = (await applyScheduledTransitions(row)) as typeof row.status;
+    }
+  }
+  return rows;
 }
 
 export async function getPublicTournamentBySlug(slug: string) {
@@ -74,6 +127,7 @@ export async function getPublicTournamentBySlug(slug: string) {
     },
   });
   if (!t || t.status === "DRAFT" || t.status === "CANCELLED") return null;
+  t.status = (await applyScheduledTransitions(t)) as typeof t.status;
   return t;
 }
 
@@ -126,11 +180,13 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       allowCoupons: true,
       allowRewardPoints: true,
       waitlistEnabled: true,
+      regOpenAt: true,
       regCloseAt: true,
     },
   });
   if (!t) return { ok: false, error: "Tournament not found" };
-  if (t.status !== "REG_OPEN") return { ok: false, error: "Registrations are not open" };
+  const effectiveStatus = await applyScheduledTransitions(t);
+  if (effectiveStatus !== "REG_OPEN") return { ok: false, error: "Registrations are not open" };
   if (t.regCloseAt && new Date() > t.regCloseAt) {
     return { ok: false, error: "Registrations have closed" };
   }

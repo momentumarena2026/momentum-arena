@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { sendBroadcast } from "@/actions/admin-push";
+import { sendToTokens } from "@/lib/push";
 
 // Tournament marketing autopilot. Creating a tournament drafts one campaign
 // item per milestone below (editable/toggleable from the admin Campaign tab).
@@ -135,13 +135,15 @@ export async function fireMilestone(
     }
     try {
       if (item.kind === "PUSH") {
-        const res = await sendBroadcast({
-          audience: { kind: "all" },
-          title: item.title,
-          body: item.body || "",
-          destination: "home",
-        });
-        if (!res.ok) throw new Error(("error" in res && res.error) || "send failed");
+        // Direct FCM broadcast (lib-level, no admin session) — milestones can
+        // fire from SCHEDULED auto-transitions triggered by public page loads,
+        // where the admin-gated sendBroadcast action would throw.
+        const devices = await db.pushDevice.findMany({ select: { token: true } });
+        const res = await sendToTokens(
+          devices.map((d) => d.token),
+          { title: item.title, body: item.body || "", data: { kind: "broadcast" } }
+        );
+        if (res.attempted > 0 && res.succeeded === 0) throw new Error("push send failed");
         await db.tournamentCampaignItem.update({
           where: { id: item.id },
           data: { status: "SENT", sentAt: new Date() },
