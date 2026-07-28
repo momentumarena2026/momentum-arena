@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import { Trophy, Radio, Users } from "lucide-react-native";
+import { Trophy, Radio, Users, Plus, Trash2, Lock } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius } from "../../theme";
 import {
   getTournament,
+  getMyTeam,
+  updateSquad,
   type MatchLite,
   type TeamLite,
   type StandRow,
 } from "../../lib/tournaments";
+import { useAuth } from "../../providers/AuthProvider";
 import type { AccountStackParamList } from "../../navigation/types";
 import { trackTournamentView } from "../../lib/analytics";
 
@@ -47,6 +50,181 @@ function Badge({ team, size = 26 }: { team: TeamLite | undefined | null; size?: 
     </View>
   );
 }
+
+/** Captain's post-registration squad card — registration only needs the
+ *  captain; the squad is built (optionally) here. Sends the full desired
+ *  list; the server reconciles it stat-safely. */
+function MySquadCard({ slug }: { slug: string }) {
+  const { state: authState } = useAuth();
+  const queryClient = useQueryClient();
+  const { data: team } = useQuery({
+    queryKey: ["myTeam", slug],
+    queryFn: () => getMyTeam(slug),
+    enabled: !!authState.user,
+  });
+  const [editing, setEditing] = useState(false);
+  const [rows, setRows] = useState<{ key: string; name: string; locked: boolean; isCaptain: boolean }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!team) return null;
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await updateSquad(team.id, rows.map((r) => r.name.trim()).filter(Boolean));
+      if (res.error) setError(res.error);
+      else {
+        setEditing(false);
+        queryClient.invalidateQueries({ queryKey: ["myTeam", slug] });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save the squad");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={sqStyles.card}>
+      <View style={sqStyles.rowBetween}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+          <Users size={15} color={colors.emerald400} />
+          <Text style={sqStyles.title} numberOfLines={1}>
+            Your Team — {team.name}
+          </Text>
+        </View>
+        <Text style={{ color: team.status === "CONFIRMED" ? colors.emerald400 : "#fbbf24", fontSize: 11, fontWeight: "700" }}>
+          {team.status.replace("_", " ")}
+        </Text>
+      </View>
+
+      {!editing ? (
+        <>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+            {team.members.map((m) => (
+              <View key={m.id} style={sqStyles.chip}>
+                <Text style={{ color: colors.zinc300, fontSize: 12 }}>
+                  {m.name}
+                  {m.isCaptain ? " ©" : ""}
+                </Text>
+              </View>
+            ))}
+          </View>
+          {team.canEditSquad && (
+            <Pressable
+              onPress={() => {
+                setRows(team.members.map((m) => ({ key: m.id, name: m.name, locked: m.locked, isCaptain: m.isCaptain })));
+                setError(null);
+                setEditing(true);
+              }}
+              style={sqStyles.editBtn}
+            >
+              <Text style={{ color: colors.emerald400, fontSize: 13, fontWeight: "600" }}>
+                {team.members.length <= 1 ? "+ Add your squad" : "✎ Edit squad"}{" "}
+                <Text style={{ color: colors.zinc500, fontSize: 12 }}>
+                  ({team.members.length}/{team.maxMembers})
+                </Text>
+              </Text>
+            </Pressable>
+          )}
+        </>
+      ) : (
+        <View style={{ marginTop: 10, gap: 8 }}>
+          {rows.map((r, i) => (
+            <View key={r.key} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TextInput
+                style={sqStyles.input}
+                placeholder={`Player ${i + 1}`}
+                placeholderTextColor={colors.zinc600}
+                value={r.name}
+                onChangeText={(v) => setRows((arr) => arr.map((x, j) => (j === i ? { ...x, name: v } : x)))}
+              />
+              {r.isCaptain ? (
+                <Text style={{ color: "#fbbf24", fontSize: 12, fontWeight: "700" }}>C</Text>
+              ) : r.locked ? (
+                <Lock size={15} color={colors.zinc600} />
+              ) : (
+                <Pressable onPress={() => setRows((arr) => arr.filter((_, j) => j !== i))} hitSlop={8}>
+                  <Trash2 size={16} color={colors.zinc600} />
+                </Pressable>
+              )}
+            </View>
+          ))}
+          {rows.length < team.maxMembers && (
+            <Pressable
+              onPress={() =>
+                setRows((arr) => [...arr, { key: `new-${arr.length}-${Math.random()}`, name: "", locked: false, isCaptain: false }])
+              }
+              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+            >
+              <Plus size={14} color={colors.emerald400} />
+              <Text style={{ color: colors.emerald400, fontSize: 13 }}>Add player</Text>
+            </Pressable>
+          )}
+          {error && <Text style={{ color: "#f87171", fontSize: 12 }}>{error}</Text>}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable onPress={save} disabled={busy} style={[sqStyles.saveBtn, busy && { opacity: 0.5 }]}>
+              <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>
+                {busy ? "Saving…" : "Save squad"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => setEditing(false)} style={sqStyles.cancelBtn}>
+              <Text style={{ color: colors.zinc400, fontSize: 13 }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const sqStyles = StyleSheet.create({
+  card: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.card,
+    padding: 12,
+  },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  title: { color: colors.foreground, fontSize: 14, fontWeight: "700", flex: 1 },
+  chip: {
+    borderRadius: 999,
+    backgroundColor: colors.zinc900,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  editBtn: { marginTop: 10 },
+  input: {
+    flex: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.zinc900,
+    color: colors.foreground,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 14,
+  },
+  saveBtn: {
+    backgroundColor: colors.emerald500,
+    borderRadius: radius.lg,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  cancelBtn: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+});
 
 export function TournamentDetailScreen() {
   const navigation = useNavigation<Nav>();
@@ -185,6 +363,9 @@ export function TournamentDetailScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* Captain's squad manager (post-registration, optional) */}
+        <MySquadCard slug={slug} />
 
         {/* LIVE strip */}
         {liveOk &&

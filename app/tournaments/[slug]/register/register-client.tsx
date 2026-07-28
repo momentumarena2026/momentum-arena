@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Trash2, Upload, Ticket, PartyPopper, QrCode, CreditCard, Coins } from "lucide-react";
+import { Loader2, Upload, Ticket, PartyPopper, QrCode, CreditCard, Coins, Users } from "lucide-react";
 import { onlinePayable } from "@/lib/tournament-config";
 import { validateCoupon } from "@/actions/coupon-validation";
 
@@ -37,7 +37,7 @@ type Props = {
     feeMode: "FULL" | "ADVANCE" | "FREE";
     advancePct: number;
     allowCoupons: boolean;
-    membersPerTeamMin: number;
+    allowRewardPoints: boolean;
     membersPerTeamMax: number;
     confirmedCount: number;
     totalTeams: number;
@@ -51,9 +51,6 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
   const [color, setColor] = useState(COLORS[4]);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [members, setMembers] = useState<string[]>(
-    Array.from({ length: Math.max(t.membersPerTeamMin, 2) }, () => "")
-  );
   const [captainName, setCaptainName] = useState(prefill.captainName);
   const [captainPhone, setCaptainPhone] = useState(prefill.captainPhone);
   const [coupon, setCoupon] = useState("");
@@ -67,7 +64,6 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<null | { state: string }>(null);
 
-  const filledMembers = members.map((m) => m.trim()).filter(Boolean);
   const discount = couponApplied?.discount || 0;
   const netFeeAfterCoupon = Math.max(0, t.entryFee - discount);
   const pointsDiscount =
@@ -80,10 +76,11 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
   const dueAtVenue = netFee - payable;
   const isFull = t.confirmedCount >= t.totalTeams;
 
-  // Points preview follows the after-coupon amount.
+  // Points preview follows the after-coupon amount — only when the
+  // tournament actually allows reward-point redemption.
   useEffect(() => {
     let alive = true;
-    if (t.feeMode === "FREE" || netFeeAfterCoupon <= 0) {
+    if (!t.allowRewardPoints || t.feeMode === "FREE" || netFeeAfterCoupon <= 0) {
       setPointsPreview(null);
       return;
     }
@@ -96,7 +93,7 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
     return () => {
       alive = false;
     };
-  }, [netFeeAfterCoupon, t.feeMode]);
+  }, [netFeeAfterCoupon, t.feeMode, t.allowRewardPoints]);
 
   // DQR status poll while the QR is showing.
   useEffect(() => {
@@ -127,11 +124,9 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
   const canSubmit = useMemo(
     () =>
       teamName.trim().length >= 2 &&
-      filledMembers.length >= t.membersPerTeamMin &&
-      filledMembers.length <= t.membersPerTeamMax &&
       captainName.trim() &&
       captainPhone.replace(/\D/g, "").length >= 10,
-    [teamName, filledMembers.length, captainName, captainPhone, t.membersPerTeamMin, t.membersPerTeamMax]
+    [teamName, captainName, captainPhone]
   );
 
   const uploadLogo = async (file: File) => {
@@ -186,7 +181,8 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
           teamName,
           color,
           logoUrl,
-          members: filledMembers,
+          // Squad comes later — registration is captain-only.
+          members: [],
           captainName,
           captainPhone,
           couponCode: couponApplied?.code || null,
@@ -307,7 +303,7 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
         <p className="mt-2 text-zinc-400">
           {done.state === "WAITLISTED"
             ? "The tournament is full right now — we'll notify you the moment a spot opens up."
-            : `${teamName} is in. Watch for the pool reveal and your fixtures!`}
+            : `${teamName} is in. Add your squad from the tournament page — and watch for the pool reveal!`}
         </p>
         {dueAtVenue > 0 && done.state !== "WAITLISTED" && (
           <p className="mt-2 text-sm text-amber-400">
@@ -384,42 +380,13 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
           </div>
         </div>
 
-        {/* Squad */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium text-white">
-              Squad{" "}
-              <span className="text-sm font-normal text-zinc-500">
-                ({filledMembers.length}/{t.membersPerTeamMax} · min {t.membersPerTeamMin})
-              </span>
-            </h3>
-            {members.length < t.membersPerTeamMax && (
-              <button onClick={() => setMembers((m) => [...m, ""])} className="flex items-center gap-1 text-xs text-emerald-400 hover:underline">
-                <Plus className="h-3 w-3" /> Add player
-              </button>
-            )}
-          </div>
-          <p className="text-xs text-zinc-500">Player 1 is the captain.</p>
-          <div className="space-y-2">
-            {members.map((m, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="flex w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-xs text-zinc-500">
-                  {i + 1}
-                </span>
-                <input
-                  className={inputCls}
-                  placeholder={i === 0 ? "Captain's playing name" : `Player ${i + 1}`}
-                  value={m}
-                  onChange={(e) => setMembers((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))}
-                />
-                {members.length > 1 && (
-                  <button onClick={() => setMembers((arr) => arr.filter((_, j) => j !== i))} className="shrink-0 rounded-lg border border-zinc-700 p-2 text-zinc-500 hover:bg-zinc-800">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+        {/* Squad comes later — registration is captain-only. */}
+        <div className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+          <Users className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
+          <p className="text-sm text-zinc-400">
+            No squad needed right now — register with just your name and add up to{" "}
+            {t.membersPerTeamMax} players later from the tournament page.
+          </p>
         </div>
 
         {/* Captain contact */}

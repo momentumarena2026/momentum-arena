@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
@@ -14,7 +14,7 @@ import { useNavigation, useRoute, type RouteProp } from "@react-navigation/nativ
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import RazorpayCheckout from "react-native-razorpay";
 import { ActivityIndicator } from "react-native";
-import { Plus, Trash2, PartyPopper } from "lucide-react-native";
+import { Users, PartyPopper } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { colors, radius } from "../../theme";
@@ -60,7 +60,6 @@ export function TournamentRegisterScreen() {
 
   const [teamName, setTeamName] = useState("");
   const [color, setColor] = useState(COLORS[4]);
-  const [members, setMembers] = useState<string[]>(["", ""]);
   const [captainName, setCaptainName] = useState(user?.name || "");
   const [captainPhone, setCaptainPhone] = useState(user?.phone || "");
   const [coupon, setCoupon] = useState("");
@@ -123,12 +122,10 @@ export function TournamentRegisterScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dqr?.transactionId]);
 
-  const filled = useMemo(() => members.map((m) => m.trim()).filter(Boolean), [members]);
   const pointsToRedeem = usePoints && pointsPreview ? pointsPreview.maxPoints : 0;
   const canSubmit =
     !!t &&
     teamName.trim().length >= 2 &&
-    filled.length > 0 &&
     captainName.trim().length > 0 &&
     captainPhone.replace(/\D/g, "").length >= 10;
 
@@ -153,7 +150,8 @@ export function TournamentRegisterScreen() {
         tournamentId: t.id,
         teamName,
         color,
-        members: filled,
+        // Squad comes later — registration is captain-only.
+        members: [],
         captainName,
         captainPhone,
         couponCode: coupon.trim() || null,
@@ -259,7 +257,7 @@ export function TournamentRegisterScreen() {
           <Text style={styles.doneBody}>
             {done.state === "WAITLISTED"
               ? "The tournament is full right now — we'll notify you when a spot opens."
-              : `${teamName} is in. Watch for the pool reveal and your fixtures!`}
+              : `${teamName} is in. Add your squad from the tournament screen — and watch for the pool reveal!`}
           </Text>
           {done.dueAtVenue > 0 && done.state !== "WAITLISTED" && (
             <Text style={styles.dueNote}>
@@ -301,32 +299,13 @@ export function TournamentRegisterScreen() {
             </View>
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.label}>Squad ({filled.length} players) — Player 1 is captain</Text>
-              <Pressable onPress={() => setMembers((m) => [...m, ""])}>
-                <Plus size={18} color={colors.emerald400} />
-              </Pressable>
-            </View>
-            {members.map((m, i) => (
-              <View key={i} style={styles.memberRow}>
-                <View style={styles.memberIdx}>
-                  <Text style={{ color: colors.zinc500, fontSize: 12 }}>{i + 1}</Text>
-                </View>
-                <TextInput
-                  style={[styles.input, { flex: 1 }]}
-                  placeholder={i === 0 ? "Captain's playing name" : `Player ${i + 1}`}
-                  placeholderTextColor={colors.zinc600}
-                  value={m}
-                  onChangeText={(v) => setMembers((arr) => arr.map((x, j) => (j === i ? v : x)))}
-                />
-                {members.length > 1 && (
-                  <Pressable onPress={() => setMembers((arr) => arr.filter((_, j) => j !== i))} hitSlop={8}>
-                    <Trash2 size={17} color={colors.zinc600} />
-                  </Pressable>
-                )}
-              </View>
-            ))}
+          {/* Squad comes later — registration is captain-only. */}
+          <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
+            <Users size={20} color={colors.emerald400} />
+            <Text style={{ color: colors.zinc400, fontSize: 13, flex: 1, lineHeight: 18 }}>
+              No squad needed right now — register with just your name and add your players later
+              from the tournament screen.
+            </Text>
           </View>
 
           <View style={styles.card}>
@@ -437,16 +416,6 @@ const styles = StyleSheet.create({
   swatches: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   swatch: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: "transparent" },
   swatchActive: { borderColor: colors.foreground },
-  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  memberRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
-  memberIdx: {
-    width: 28,
-    height: 38,
-    borderRadius: radius.md,
-    backgroundColor: colors.zinc900,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   pointsRow: {
     flexDirection: "row",
     alignItems: "center",

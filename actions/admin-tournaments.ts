@@ -10,6 +10,7 @@ import {
   scorerCodeGen,
   structureWarnings,
 } from "@/lib/tournament-config";
+import { reconcileTeamSquad } from "@/lib/tournaments";
 
 async function gate() {
   return requireAdmin("MANAGE_TOURNAMENTS");
@@ -361,7 +362,9 @@ const adminRegisterSchema = z.object({
   teamName: z.string().trim().min(2).max(60),
   captainName: z.string().trim().min(1).max(120),
   captainPhone: z.string().trim().min(6).max(20),
-  members: z.array(z.string().trim().min(1).max(60)).min(1).max(50),
+  /** Optional — an empty squad registers the captain solo; players can
+   *  be added later from the roster editor. */
+  members: z.array(z.string().trim().min(1).max(60)).max(50).default([]),
   /** ₹ collected at the venue right now (0 allowed — collect later). */
   collectedAmount: z.number().int().min(0).max(10_00_000),
   method: z.enum(["CASH", "STATIC_QR", "FREE"]),
@@ -403,6 +406,7 @@ export async function adminRegisterTeam(
 
   const fee = t.feeMode === "FREE" || d.method === "FREE" ? 0 : t.entryFee;
   const paid = Math.min(d.collectedAmount, fee);
+  const squad = d.members.length > 0 ? d.members : [d.captainName];
   const team = await db.tournamentTeam.create({
     data: {
       tournamentId: t.id,
@@ -414,7 +418,7 @@ export async function adminRegisterTeam(
       dueAmount: Math.max(0, fee - paid),
       paymentMethod: d.method,
       members: {
-        create: d.members.map((name, i) => ({ name, order: i, isCaptain: i === 0 })),
+        create: squad.map((name, i) => ({ name, order: i, isCaptain: i === 0 })),
       },
     },
     select: { id: true },
@@ -423,7 +427,9 @@ export async function adminRegisterTeam(
   return { success: true, teamId: team.id };
 }
 
-/** Admin-side edit of a team's identity/roster (moderation). */
+/** Admin-side edit of a team's identity/roster (moderation). Roster edits
+ *  go through reconcileTeamSquad so members with recorded stats keep their
+ *  rows (and their stats) instead of being wiped and recreated. */
 export async function adminEditTeam(
   teamId: string,
   input: { name?: string; color?: string | null; logoUrl?: string | null; members?: string[] }
@@ -431,7 +437,7 @@ export async function adminEditTeam(
   await gate();
   const team = await db.tournamentTeam.findUnique({
     where: { id: teamId },
-    select: { tournamentId: true },
+    select: { tournamentId: true, tournament: { select: { membersPerTeamMax: true } } },
   });
   if (!team) return { success: false, error: "Team not found" };
 
@@ -444,16 +450,13 @@ export async function adminEditTeam(
   if (input.color !== undefined) data.color = input.color;
   if (input.logoUrl !== undefined) data.logoUrl = input.logoUrl;
 
-  await db.$transaction(async (tx) => {
-    await tx.tournamentTeam.update({ where: { id: teamId }, data });
-    if (input.members) {
-      const names = input.members.map((m) => m.trim()).filter(Boolean).slice(0, 50);
-      await tx.tournamentTeamMember.deleteMany({ where: { teamId } });
-      await tx.tournamentTeamMember.createMany({
-        data: names.map((name, i) => ({ teamId, name: name.slice(0, 60), order: i, isCaptain: i === 0 })),
-      });
-    }
-  });
+  if (Object.keys(data).length > 0) {
+    await db.tournamentTeam.update({ where: { id: teamId }, data });
+  }
+  if (input.members) {
+    const res = await reconcileTeamSquad(teamId, input.members, team.tournament.membersPerTeamMax);
+    if (!res.ok) return { success: false, error: res.error };
+  }
   revalidatePath(`/admin/tournaments/${team.tournamentId}`);
   return { success: true };
 }

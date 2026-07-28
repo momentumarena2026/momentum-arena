@@ -22,9 +22,10 @@ export async function POST(request: NextRequest) {
     captainPhone,
     captainEmail,
     couponCode,
+    pointsToRedeem,
     platform,
   } = body || {};
-  if (!tournamentId || !teamName || !Array.isArray(members)) {
+  if (!tournamentId || !teamName) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
   const result = await registerTournamentTeam({
@@ -33,11 +34,13 @@ export async function POST(request: NextRequest) {
     teamName: String(teamName),
     color: color ? String(color) : null,
     logoUrl: logoUrl ? String(logoUrl) : null,
-    members: members.map((m: unknown) => String(m)),
+    // Optional — an empty/absent squad registers the captain solo.
+    members: Array.isArray(members) ? members.map((m: unknown) => String(m)) : [],
     captainName: String(captainName || ""),
     captainPhone: String(captainPhone || ""),
     captainEmail: captainEmail ? String(captainEmail) : null,
     couponCode: couponCode ? String(couponCode) : null,
+    pointsToRedeem: Number(pointsToRedeem) || null,
     platform: platform === "android" || platform === "ios" ? platform : "web",
   });
   if (!result.ok) {

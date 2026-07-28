@@ -193,18 +193,18 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
 
   const teamName = input.teamName.trim().slice(0, 60);
   if (teamName.length < 2) return { ok: false, error: "Enter a team name" };
+  // Squad is OPTIONAL at registration — the captain registers (and pays)
+  // solo; players can be added later by the captain or an admin.
   const members = input.members.map((m) => m.trim()).filter(Boolean);
-  if (members.length < t.membersPerTeamMin || members.length > t.membersPerTeamMax) {
-    return {
-      ok: false,
-      error: `Squad must have ${t.membersPerTeamMin}–${t.membersPerTeamMax} players`,
-    };
+  if (members.length > t.membersPerTeamMax) {
+    return { ok: false, error: `Squad can have at most ${t.membersPerTeamMax} players` };
   }
   const captainName = input.captainName.trim();
   const captainPhone = input.captainPhone.replace(/[^\d+]/g, "");
   if (!captainName || captainPhone.replace(/\D/g, "").length < 10) {
     return { ok: false, error: "Captain name and a valid phone are required" };
   }
+  const squad = members.length > 0 ? members : [captainName];
 
   // One live team per user per tournament.
   const existing = await db.tournamentTeam.findFirst({
@@ -278,7 +278,7 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       dueAmount: state === "CONFIRMED" ? dueAtVenue : 0,
       paymentMethod: state === "CONFIRMED" && netFee === 0 ? "FREE" : null,
       members: {
-        create: members.map((name, i) => ({
+        create: squad.map((name, i) => ({
           name: name.slice(0, 60),
           order: i,
           isCaptain: i === 0,
@@ -484,4 +484,150 @@ export async function confirmDqrTournament(
     return { mismatch: true };
   }
   return { teamId: team.id };
+}
+
+// ── Squad management (post-registration) ────────────────────────────
+// Registration only needs the captain; the squad is built afterwards —
+// by the captain (web page / app "Your Team" card) or by an admin.
+
+/** The signed-in user's live team in a tournament, with its squad.
+ *  Powers the web Your-Team card and /api/tournaments/my-team (app). */
+export async function getMyTournamentTeam(tournamentId: string, userId: string) {
+  const team = await db.tournamentTeam.findFirst({
+    where: {
+      tournamentId,
+      captainUserId: userId,
+      status: { in: ["CONFIRMED", "PENDING_PAYMENT", "WAITLISTED"] },
+    },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      color: true,
+      logoUrl: true,
+      dueAmount: true,
+      tournament: { select: { status: true, membersPerTeamMax: true } },
+      members: {
+        orderBy: [{ isCaptain: "desc" }, { order: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          isCaptain: true,
+          _count: { select: { playerStats: true, matchEvents: true, potmMatches: true } },
+        },
+      },
+    },
+  });
+  if (!team) return null;
+  return {
+    id: team.id,
+    name: team.name,
+    status: team.status,
+    color: team.color,
+    logoUrl: team.logoUrl,
+    dueAmount: team.dueAmount,
+    maxMembers: team.tournament.membersPerTeamMax,
+    canEditSquad: !["COMPLETED", "CANCELLED"].includes(team.tournament.status),
+    members: team.members.map((m) => ({
+      id: m.id,
+      name: m.name,
+      isCaptain: m.isCaptain,
+      // Locked = has recorded stats/events — renaming is fine, removal isn't.
+      locked: m._count.playerStats + m._count.matchEvents + m._count.potmMatches > 0,
+    })),
+  };
+}
+
+/** Replace a team's squad with `names`, PRESERVING members whose names are
+ *  kept (case-insensitive) so their recorded stats/events survive. Members
+ *  with recorded stats can't be dropped. Shared by the captain editor
+ *  (web + app) and both admin roster editors. */
+export async function reconcileTeamSquad(
+  teamId: string,
+  namesInput: string[],
+  maxMembers: number
+): Promise<{ ok: boolean; error?: string }> {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const raw of namesInput) {
+    const name = String(raw).trim().slice(0, 60);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  if (names.length === 0) return { ok: false, error: "Squad needs at least one player" };
+  if (names.length > maxMembers) {
+    return { ok: false, error: `Squad can have at most ${maxMembers} players` };
+  }
+
+  const existing = await db.tournamentTeamMember.findMany({
+    where: { teamId },
+    select: {
+      id: true,
+      name: true,
+      isCaptain: true,
+      _count: { select: { playerStats: true, matchEvents: true, potmMatches: true } },
+    },
+  });
+  const byKey = new Map(existing.map((m) => [m.name.toLowerCase(), m]));
+  const keepKeys = new Set(names.map((n) => n.toLowerCase()));
+
+  const removed = existing.filter((m) => !keepKeys.has(m.name.toLowerCase()));
+  const blocked = removed.find(
+    (m) => m._count.playerStats + m._count.matchEvents + m._count.potmMatches > 0
+  );
+  if (blocked) {
+    return { ok: false, error: `"${blocked.name}" has recorded stats and can't be removed` };
+  }
+
+  await db.$transaction(async (tx) => {
+    if (removed.length > 0) {
+      await tx.tournamentTeamMember.deleteMany({
+        where: { id: { in: removed.map((m) => m.id) } },
+      });
+    }
+    // The captain badge stays with whoever holds it; if they were dropped
+    // (stat-free) it falls to player 1.
+    const captainStays = existing.some((m) => m.isCaptain && keepKeys.has(m.name.toLowerCase()));
+    for (let i = 0; i < names.length; i++) {
+      const match = byKey.get(names[i].toLowerCase());
+      if (match) {
+        await tx.tournamentTeamMember.update({
+          where: { id: match.id },
+          data: { name: names[i], order: i, isCaptain: captainStays ? match.isCaptain : i === 0 },
+        });
+      } else {
+        await tx.tournamentTeamMember.create({
+          data: { teamId, name: names[i], order: i, isCaptain: captainStays ? false : i === 0 },
+        });
+      }
+    }
+  });
+  return { ok: true };
+}
+
+/** Captain-side squad update (unified web + app route). */
+export async function updateMyTeamSquad(
+  teamId: string,
+  userId: string,
+  names: string[]
+): Promise<{ ok: boolean; error?: string }> {
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: teamId },
+    select: {
+      captainUserId: true,
+      status: true,
+      tournament: { select: { status: true, membersPerTeamMax: true } },
+    },
+  });
+  if (!team || team.captainUserId !== userId) return { ok: false, error: "Team not found" };
+  if (!["CONFIRMED", "PENDING_PAYMENT", "WAITLISTED"].includes(team.status)) {
+    return { ok: false, error: "This team is no longer active" };
+  }
+  if (["COMPLETED", "CANCELLED"].includes(team.tournament.status)) {
+    return { ok: false, error: "The tournament has ended — the squad is locked" };
+  }
+  return reconcileTeamSquad(teamId, names, team.tournament.membersPerTeamMax);
 }

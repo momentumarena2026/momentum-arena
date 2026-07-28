@@ -65,6 +65,7 @@ export const PERMISSION_LABELS: Record<AdminPermission, string> = {
   MANAGE_TRUSTED_DEVICES: "Manage Trusted Devices (5-tap admin entry)",
   MANAGE_PROMO_BANNERS: "Manage Promotion Banners (web & app)",
   MANAGE_PASSES: "Manage Monthly Passes",
+  MANAGE_TOURNAMENTS: "Manage Tournaments",
 };
 
 /**

@@ -20,6 +20,7 @@ import {
   setTeamStatus,
   recordTeamPayment,
   adminRegisterTeam,
+  adminEditTeam,
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
 import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
@@ -135,6 +136,10 @@ export function TournamentManage({
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
   const [collectAmt, setCollectAmt] = useState("");
+  // Per-team squad editor — squads are optional at registration, so
+  // admins can build/fix any roster here at any time.
+  const [squadFor, setSquadFor] = useState<string | null>(null);
+  const [squadText, setSquadText] = useState("");
   const [showVenueForm, setShowVenueForm] = useState(false);
   const [venueForm, setVenueForm] = useState({
     teamName: "",
@@ -162,6 +167,23 @@ export function TournamentManage({
       else {
         setShowVenueForm(false);
         setVenueForm({ teamName: "", captainName: "", captainPhone: "", members: "", collectedAmount: "", method: "CASH" });
+        router.refresh();
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doSaveSquad = async (teamId: string) => {
+    setBusy(`squad-${teamId}`);
+    setError(null);
+    try {
+      const res = await adminEditTeam(teamId, {
+        members: squadText.split(",").map((x) => x.trim()).filter(Boolean),
+      });
+      if (!res.success) setError(res.error || "Failed");
+      else {
+        setSquadFor(null);
         router.refresh();
       }
     } finally {
@@ -366,7 +388,7 @@ export function TournamentManage({
                 <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Team name *" value={venueForm.teamName} onChange={(e) => setVenueForm((f) => ({ ...f, teamName: e.target.value }))} />
                 <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Captain name *" value={venueForm.captainName} onChange={(e) => setVenueForm((f) => ({ ...f, captainName: e.target.value }))} />
                 <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Captain phone *" inputMode="tel" value={venueForm.captainPhone} onChange={(e) => setVenueForm((f) => ({ ...f, captainPhone: e.target.value }))} />
-                <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Players (comma-separated) *" value={venueForm.members} onChange={(e) => setVenueForm((f) => ({ ...f, members: e.target.value }))} />
+                <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Players (comma-separated, optional)" value={venueForm.members} onChange={(e) => setVenueForm((f) => ({ ...f, members: e.target.value }))} />
                 <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder={`Collected now (fee ₹${t.entryFee})`} inputMode="numeric" value={venueForm.collectedAmount} onChange={(e) => setVenueForm((f) => ({ ...f, collectedAmount: e.target.value }))} />
                 <select className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" value={venueForm.method} onChange={(e) => setVenueForm((f) => ({ ...f, method: e.target.value as "CASH" | "STATIC_QR" | "FREE" }))}>
                   <option value="CASH">Cash</option>
@@ -376,10 +398,11 @@ export function TournamentManage({
               </div>
               <p className="text-xs text-zinc-500">
                 Team is confirmed immediately; any unpaid remainder stays as &quot;Due&quot; for the Collect button.
+                Squad is optional — leave players blank and add them later from the roster editor.
               </p>
               <button
                 onClick={doVenueRegister}
-                disabled={busy === "venue" || !venueForm.teamName.trim() || !venueForm.captainName.trim() || !venueForm.members.trim()}
+                disabled={busy === "venue" || !venueForm.teamName.trim() || !venueForm.captainName.trim()}
                 className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 px-4 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-40"
               >
                 {busy === "venue" && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -456,16 +479,47 @@ export function TournamentManage({
                   </button>
                 </div>
               )}
-              {team.members.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5 border-t border-zinc-800 pt-3">
-                  {team.members.map((m) => (
-                    <span key={m.id} className="rounded-full bg-zinc-800 px-2.5 py-1 text-xs text-zinc-300">
-                      {m.name}
-                      {m.isCaptain && <span className="ml-1 text-emerald-400">©</span>}
-                    </span>
-                  ))}
-                </div>
-              )}
+              <div className="mt-3 border-t border-zinc-800 pt-3">
+                {squadFor === team.id ? (
+                  <div className="space-y-2">
+                    <input
+                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
+                      placeholder="Players (comma-separated)"
+                      value={squadText}
+                      onChange={(e) => setSquadText(e.target.value)}
+                    />
+                    <p className="text-xs text-zinc-500">
+                      Keep a player&apos;s name to preserve their recorded stats; players with stats can&apos;t be removed.
+                    </p>
+                    <div className="flex gap-2">
+                      <button onClick={() => doSaveSquad(team.id)} disabled={busy === `squad-${team.id}`} className="rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-600/10 disabled:opacity-50">
+                        {busy === `squad-${team.id}` ? "Saving…" : "Save squad"}
+                      </button>
+                      <button onClick={() => setSquadFor(null)} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {team.members.map((m) => (
+                      <span key={m.id} className="rounded-full bg-zinc-800 px-2.5 py-1 text-xs text-zinc-300">
+                        {m.name}
+                        {m.isCaptain && <span className="ml-1 text-emerald-400">©</span>}
+                      </span>
+                    ))}
+                    <button
+                      onClick={() => {
+                        setSquadFor(team.id);
+                        setSquadText(team.members.map((m) => m.name).join(", "));
+                      }}
+                      className="rounded-full border border-zinc-700 px-2.5 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+                    >
+                      ✎ Edit squad
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -5,6 +5,7 @@ import {
   setTeamStatus,
   recordTeamPayment,
   adminRegisterTeam,
+  adminEditTeam,
 } from "@/actions/admin-tournaments";
 import {
   autoAssignPools,
@@ -19,6 +20,7 @@ import { enterMatchResult } from "@/actions/admin-tournament-scores";
  *   teamStatus {teamId, status}
  *   collect {teamId, amount}
  *   venueRegister {tournamentId, teamName, captainName, captainPhone, members[], collectedAmount, method}
+ *   editSquad {teamId, members[]} — stat-safe roster reconcile
  *   dealPools {tournamentId}
  *   generateFixtures {tournamentId}
  *   enterResult {matchId, result}
@@ -36,6 +38,10 @@ export async function POST(request: NextRequest) {
   else if (op === "teamStatus") result = await setTeamStatus(body.teamId, body.status);
   else if (op === "collect") result = await recordTeamPayment(body.teamId, Number(body.amount), body.method || "CASH");
   else if (op === "venueRegister") result = await adminRegisterTeam(body);
+  else if (op === "editSquad")
+    result = await adminEditTeam(String(body.teamId || ""), {
+      members: Array.isArray(body.members) ? body.members.map((m: unknown) => String(m)) : [],
+    });
   else if (op === "dealPools") result = await autoAssignPools(body.tournamentId);
   else if (op === "generateFixtures") result = await generateFixtures(body.tournamentId);
   else if (op === "enterResult") result = await enterMatchResult(body.matchId, body.result);

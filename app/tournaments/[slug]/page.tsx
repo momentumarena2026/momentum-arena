@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight } from "lucide-react";
-import { getPublicTournamentBySlug } from "@/lib/tournaments";
+import { getMyTournamentTeam, getPublicTournamentBySlug } from "@/lib/tournaments";
 import { onlinePayable, parsePrizes, STATUS_LABELS } from "@/lib/tournament-config";
 import { auth } from "@/lib/auth";
+import { SquadManager } from "./squad-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,8 @@ export default async function TournamentPublicPage({
     ? t.teams.find((x) => x.captainUserId === session.user!.id)
     : null;
   const canRegister = t.status === "REG_OPEN" && !myTeam;
+  // Squad is built AFTER registration — captains manage it right here.
+  const mySquad = myTeam && session?.user?.id ? await getMyTournamentTeam(t.id, session.user.id) : null;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -106,6 +109,16 @@ export default async function TournamentPublicPage({
         </div>
       </div>
 
+      {/* Captain's squad manager (post-registration, optional) */}
+      {mySquad && (
+        <SquadManager
+          teamId={mySquad.id}
+          members={mySquad.members}
+          maxMembers={mySquad.maxMembers}
+          canEdit={mySquad.canEditSquad}
+        />
+      )}
+
       {/* Tournament Center quick links */}
       {["REG_CLOSED", "POOLS_REVEALED", "LIVE", "COMPLETED", "REG_OPEN"].includes(t.status) && (
         <div className="mt-4 flex flex-wrap gap-2">
@@ -173,7 +186,7 @@ export default async function TournamentPublicPage({
             )}
           </p>
           <p className="mt-3 text-sm text-zinc-400">
-            Squad size: {t.membersPerTeamMin}–{t.membersPerTeamMax} players.
+            Squad size: up to {t.membersPerTeamMax} players — add yours any time after registering.
           </p>
           {t.format !== "LEAGUE" && t.thirdPlaceMatch && (
             <p className="mt-1 text-sm text-zinc-500">Includes a 3rd-place match.</p>

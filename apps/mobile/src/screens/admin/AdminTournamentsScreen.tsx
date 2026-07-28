@@ -58,6 +58,10 @@ export function AdminTournamentsScreen() {
   const [scores, setScores] = useState({ home: "", away: "" });
   const [venueOpen, setVenueOpen] = useState(false);
   const [venue, setVenue] = useState({ teamName: "", captainName: "", captainPhone: "", members: "", collectedAmount: "", method: "CASH" });
+  // Per-team squad editor — squads are optional at registration, so
+  // admins can build/fix any roster from here.
+  const [squadFor, setSquadFor] = useState<string | null>(null);
+  const [squadText, setSquadText] = useState("");
 
   const { data: list, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["admin-tournaments"],
@@ -179,7 +183,7 @@ export function AdminTournamentsScreen() {
               <TextInput style={input as never} placeholder="Team name" placeholderTextColor={colors.zinc600} value={venue.teamName} onChangeText={(v) => setVenue((f) => ({ ...f, teamName: v }))} />
               <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Captain name" placeholderTextColor={colors.zinc600} value={venue.captainName} onChangeText={(v) => setVenue((f) => ({ ...f, captainName: v }))} />
               <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Captain phone" keyboardType="phone-pad" placeholderTextColor={colors.zinc600} value={venue.captainPhone} onChangeText={(v) => setVenue((f) => ({ ...f, captainPhone: v }))} />
-              <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Players (comma-separated)" placeholderTextColor={colors.zinc600} value={venue.members} onChangeText={(v) => setVenue((f) => ({ ...f, members: v }))} />
+              <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Players (comma-separated, optional)" placeholderTextColor={colors.zinc600} value={venue.members} onChangeText={(v) => setVenue((f) => ({ ...f, members: v }))} />
               <TextInput style={[input as never, { marginTop: 8 }]} placeholder={`Collected now (fee ₹${t.entryFee})`} keyboardType="numeric" placeholderTextColor={colors.zinc600} value={venue.collectedAmount} onChangeText={(v) => setVenue((f) => ({ ...f, collectedAmount: v }))} />
               <View style={[styles.rowWrap, { marginTop: 8 }]}>
                 {(["CASH", "STATIC_QR", "FREE"] as const).map((m) => (
@@ -226,7 +230,58 @@ export function AdminTournamentsScreen() {
                 {team.captainName} · {team.captainPhone} · Paid ₹{team.paidAmount}
                 {team.dueAmount > 0 ? ` · Due ₹${team.dueAmount}` : ""}
               </Text>
+              {squadFor === team.id ? (
+                <View style={{ marginTop: 8, gap: 8 }}>
+                  <TextInput
+                    style={input as never}
+                    placeholder="Players (comma-separated)"
+                    placeholderTextColor={colors.zinc600}
+                    value={squadText}
+                    onChangeText={setSquadText}
+                    multiline
+                  />
+                  <Text style={{ color: colors.zinc600, fontSize: 11 }}>
+                    Keep a player&apos;s name to preserve their stats; players with stats can&apos;t be removed.
+                  </Text>
+                  <View style={styles.rowWrap}>
+                    <Pressable
+                      disabled={busy}
+                      onPress={() =>
+                        act({
+                          op: "editSquad",
+                          teamId: team.id,
+                          members: squadText.split(",").map((x) => x.trim()).filter(Boolean),
+                        }).then(() => setSquadFor(null))
+                      }
+                      style={styles.chipBtn}
+                    >
+                      <Text style={{ color: colors.emerald400, fontSize: 12 }}>Save squad</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setSquadFor(null)} style={styles.chipBtn}>
+                      <Text style={{ color: colors.zinc400, fontSize: 12 }}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Text style={{ color: colors.zinc400, fontSize: 12, marginTop: 4 }} numberOfLines={2}>
+                  Squad: {team.members.length > 0 ? team.members.map((m) => m.name).join(", ") : "—"}
+                </Text>
+              )}
               <View style={[styles.rowWrap, { marginTop: 8 }]}>
+                {squadFor !== team.id && (
+                  <Pressable
+                    disabled={busy}
+                    onPress={() => {
+                      setSquadFor(team.id);
+                      setSquadText(team.members.map((m) => m.name).join(", "));
+                    }}
+                    style={styles.chipBtn}
+                  >
+                    <Text style={{ color: "#a78bfa", fontSize: 12 }}>
+                      {team.members.length <= 1 ? "+ Squad" : "✎ Squad"}
+                    </Text>
+                  </Pressable>
+                )}
                 {team.status !== "CONFIRMED" && (
                   <Pressable disabled={busy} onPress={() => act({ op: "teamStatus", teamId: team.id, status: "CONFIRMED" })} style={styles.chipBtn}>
                     <Text style={{ color: colors.emerald400, fontSize: 12 }}>Confirm</Text>

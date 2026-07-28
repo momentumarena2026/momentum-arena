@@ -41,7 +41,7 @@ export default async function TournamentRegisterPage({
         feeMode: t.feeMode,
         advancePct: t.advancePct,
         allowCoupons: t.allowCoupons,
-        membersPerTeamMin: t.membersPerTeamMin,
+        allowRewardPoints: t.allowRewardPoints,
         membersPerTeamMax: t.membersPerTeamMax,
         confirmedCount: t.teams.filter((x) => x.status === "CONFIRMED").length,
         totalTeams: t.totalTeams,

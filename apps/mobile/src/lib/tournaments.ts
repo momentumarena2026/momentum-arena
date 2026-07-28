@@ -138,6 +138,38 @@ export async function registerTeam(payload: RegisterPayload): Promise<RegisterRe
   });
 }
 
+// ── My team + squad (post-registration) ─────────────────────────────
+export type MySquadMember = { id: string; name: string; isCaptain: boolean; locked: boolean };
+export type MyTeam = {
+  id: string;
+  name: string;
+  status: string;
+  color: string | null;
+  logoUrl: string | null;
+  dueAmount: number;
+  maxMembers: number;
+  canEditSquad: boolean;
+  members: MySquadMember[];
+};
+
+/** The signed-in captain's team in a tournament (null when not registered
+ *  or signed out). Bearer-authed — same unified route the web uses. */
+export async function getMyTeam(slug: string): Promise<MyTeam | null> {
+  const res = await api.get<{ team: MyTeam | null }>(
+    `/api/tournaments/my-team?slug=${encodeURIComponent(slug)}`
+  );
+  return res.team;
+}
+
+/** Replace the squad with the full desired player list (server reconciles
+ *  stat-safely — players with recorded stats can't be dropped). */
+export async function updateSquad(
+  teamId: string,
+  members: string[]
+): Promise<{ success?: boolean; error?: string }> {
+  return api.post("/api/tournaments/squad", { teamId, members });
+}
+
 export async function verifyEntryPayment(args: {
   razorpayOrderId: string;
   razorpayPaymentId: string;
