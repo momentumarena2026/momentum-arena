@@ -234,6 +234,24 @@ export type InningsCard = {
 export type CommentaryBall = {
   seq: number; over: string; text: string; runs: number; wicket: boolean; boundary: 0 | 4 | 6;
 };
+/** "Who's out there right now", names already resolved. Null unless LIVE. */
+export type LiveNow = {
+  sport: string;
+  cricket?: {
+    battingTeamName: string | null;
+    striker: { name: string; runs: number; balls: number } | null;
+    nonStriker: { name: string; runs: number; balls: number } | null;
+    bowler: { name: string; overs: string; runs: number; wickets: number } | null;
+    thisOver: string[];
+    partnership: { runs: number; balls: number };
+  };
+  football?: {
+    lastGoal: { teamName: string | null; scorer: string | null; assist: string | null } | null;
+    scorers: { teamName: string | null; name: string | null }[];
+  };
+  pickleball?: { servingTeamName: string | null; gameNumber: number };
+};
+
 export type MatchCentre = {
   match: {
     id: string; status: string; stage: string; roundLabel: string | null;
@@ -246,6 +264,7 @@ export type MatchCentre = {
     clockSeconds: number | null; clockRunning: boolean;
   };
   tournament: { slug: string; name: string; sport: string };
+  liveNow: LiveNow | null;
   innings: InningsCard[];
   commentary: CommentaryBall[];
   statTable: { teamId: string; teamName: string; rows: { name: string; values: Record<string, number> }[] }[];

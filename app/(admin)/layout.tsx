@@ -21,13 +21,15 @@ const allNavItems = [
   { href: "/admin/equipment", label: "Equipment", group: "Courts & Pricing", permission: "MANAGE_SPORTS" },
   { href: "/admin/pricing", label: "Pricing", group: "Courts & Pricing", permission: "MANAGE_PRICING" },
   { href: "/admin/slots", label: "Slot Blocks", group: "Courts & Pricing", permission: "MANAGE_SLOTS" },
+  // Grouped with Courts & Pricing (not Promotions) to match the app's
+  // admin nav — a tournament is an on-court operation, not a marketing one.
+  { href: "/admin/tournaments", label: "Tournaments", group: "Courts & Pricing", permission: "MANAGE_TOURNAMENTS" },
   { href: "/admin/cafe-menu", label: "Menu", group: "Cafe", permission: "MANAGE_CAFE_MENU" },
   { href: "/admin/cafe-orders", label: "Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/cafe-live", label: "Live Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/products", label: "Products", group: "Shop", permission: "MANAGE_SHOP_CATALOG" },
   { href: "/admin/product-orders", label: "Orders", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
   { href: "/admin/pos", label: "Walk-in Sale", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
-  { href: "/admin/tournaments", label: "Tournaments", group: "Promotions", permission: "MANAGE_TOURNAMENTS" },
   { href: "/admin/coupons", label: "Coupons", group: "Promotions", permission: "MANAGE_COUPONS" },
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/passes", label: "Passes", group: "Promotions", permission: "MANAGE_PASSES" },

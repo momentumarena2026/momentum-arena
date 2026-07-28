@@ -142,6 +142,113 @@ export function MatchCentreClient({ initial }: { initial: MatchCentre }) {
         </div>
       </div>
 
+      {/* ── Live now: who's actually out there ── */}
+      {isLive && data.liveNow && (
+        <div className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.04] p-4">
+          {data.liveNow.cricket && (
+            <>
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <span className="font-semibold uppercase tracking-wide text-emerald-400">
+                  At the crease
+                </span>
+                {data.liveNow.cricket.battingTeamName && (
+                  <span className="text-zinc-500">{data.liveNow.cricket.battingTeamName} batting</span>
+                )}
+              </div>
+              <div className="space-y-1.5 text-sm">
+                {[
+                  { p: data.liveNow.cricket.striker, onStrike: true },
+                  { p: data.liveNow.cricket.nonStriker, onStrike: false },
+                ].map((row, i) =>
+                  row.p ? (
+                    <div key={i} className="flex items-baseline justify-between">
+                      <span className={row.onStrike ? "font-semibold text-white" : "text-zinc-300"}>
+                        {row.p.name}
+                        {row.onStrike && <span className="ml-1 text-emerald-400">*</span>}
+                      </span>
+                      <span className="font-mono text-zinc-400">
+                        {row.p.runs}
+                        <span className="text-zinc-600"> ({row.p.balls})</span>
+                      </span>
+                    </div>
+                  ) : null
+                )}
+                {data.liveNow.cricket.bowler && (
+                  <div className="flex items-baseline justify-between border-t border-emerald-500/15 pt-1.5">
+                    <span className="text-zinc-300">{data.liveNow.cricket.bowler.name}</span>
+                    <span className="font-mono text-zinc-400">
+                      {data.liveNow.cricket.bowler.overs}–{data.liveNow.cricket.bowler.runs}–
+                      {data.liveNow.cricket.bowler.wickets}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {data.liveNow.cricket.thisOver.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-zinc-500">This over</span>
+                  {data.liveNow.cricket.thisOver.map((b, i) => (
+                    <span
+                      key={i}
+                      className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
+                        b === "W"
+                          ? "bg-red-500/20 text-red-300"
+                          : b === "4" || b === "6"
+                            ? "bg-emerald-500/20 text-emerald-300"
+                            : "bg-zinc-800 text-zinc-300"
+                      }`}
+                    >
+                      {b}
+                    </span>
+                  ))}
+                  {data.liveNow.cricket.partnership.balls > 0 && (
+                    <span className="ml-auto text-[11px] text-zinc-500">
+                      P&apos;ship {data.liveNow.cricket.partnership.runs} (
+                      {data.liveNow.cricket.partnership.balls})
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {data.liveNow.football && (
+            <>
+              <span className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
+                Scorers
+              </span>
+              {data.liveNow.football.scorers.length === 0 ? (
+                <p className="mt-1.5 text-sm text-zinc-500">No goals yet.</p>
+              ) : (
+                <ul className="mt-1.5 space-y-1 text-sm">
+                  {data.liveNow.football.scorers.map((s, i) => (
+                    <li key={i} className="flex justify-between">
+                      <span className="text-zinc-200">⚽ {s.name || "Unrecorded"}</span>
+                      <span className="text-zinc-500">{s.teamName}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          {data.liveNow.pickleball && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
+                Game {data.liveNow.pickleball.gameNumber}
+              </span>
+              {data.liveNow.pickleball.servingTeamName && (
+                <span className="text-zinc-300">
+                  🏓 Serving:{" "}
+                  <span className="font-semibold text-white">
+                    {data.liveNow.pickleball.servingTeamName}
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Tabs ── */}
       <div className="mt-4 flex gap-1 border-b border-zinc-800">
         {TABS.map((x) => (

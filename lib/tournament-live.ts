@@ -40,31 +40,180 @@ type EventRow = {
 };
 
 // ── Folds ───────────────────────────────────────────────────────────
+/** Who is actually out there right now. Derived in the fold (not held in
+ *  the scorer's local state) so the crease survives a reload, and so the
+ *  audience screens can show the same thing the scorer sees. */
+export type CreaseBatter = { id: string; runs: number; balls: number };
+export type CreaseBowler = { id: string; balls: number; runs: number; wickets: number };
+export type CricketCurrent = {
+  strikerId: string | null;
+  nonStrikerId: string | null;
+  bowlerId: string | null;
+  batters: CreaseBatter[]; // the (up to two) not-out batters at the crease
+  bowler: CreaseBowler | null;
+  /** Balls bowled in the over in progress, newest last: "1" "4" "W" "wd". */
+  thisOver: string[];
+  /** Legal balls completed in the over in progress (0–5). */
+  ballsThisOver: number;
+  partnership: { runs: number; balls: number };
+  /** True right after a wicket — the console must pick the new batter. */
+  needsBatter: boolean;
+  /** True when an over just completed — the console must pick a bowler. */
+  needsBowler: boolean;
+};
+
 export type CricketState = {
   sport: "CRICKET";
   inning: number; // 1-based; 0 = not started
   battingTeamId: string | null;
   innings: { teamId: string; runs: number; wickets: number; balls: number }[];
   target: number | null;
+  current: CricketCurrent;
 };
 
+const emptyCurrent = (): CricketCurrent => ({
+  strikerId: null,
+  nonStrikerId: null,
+  bowlerId: null,
+  batters: [],
+  bowler: null,
+  thisOver: [],
+  ballsThisOver: 0,
+  partnership: { runs: 0, balls: 0 },
+  needsBatter: false,
+  needsBowler: false,
+});
+
+/** Short label for one delivery, as it reads on a scoreboard over-strip. */
+function ballLabel(d: { runs: number; extra?: string | null; wicket?: boolean }): string {
+  if (d.wicket) return "W";
+  if (d.extra === "wd") return d.runs > 1 ? `${d.runs - 1}wd` : "wd";
+  if (d.extra === "nb") return d.runs > 1 ? `${d.runs - 1}nb` : "nb";
+  if (d.extra === "b") return `${d.runs}b`;
+  if (d.extra === "lb") return `${d.runs}lb`;
+  return String(d.runs);
+}
+
 export function foldCricket(events: EventRow[]): CricketState {
-  const st: CricketState = { sport: "CRICKET", inning: 0, battingTeamId: null, innings: [], target: null };
+  const st: CricketState = {
+    sport: "CRICKET",
+    inning: 0,
+    battingTeamId: null,
+    innings: [],
+    target: null,
+    current: emptyCurrent(),
+  };
+  // Per-innings running figures for the players currently involved.
+  let batFigures = new Map<string, { runs: number; balls: number; out: boolean }>();
+  let bowlFigures = new Map<string, { balls: number; runs: number; wickets: number }>();
+
   for (const e of events) {
     if (e.kind === "INNINGS_START" && e.teamId) {
       st.inning += 1;
       st.battingTeamId = e.teamId;
       st.innings.push({ teamId: e.teamId, runs: 0, wickets: 0, balls: 0 });
       if (st.inning === 2 && st.innings[0]) st.target = st.innings[0].runs + 1;
+      // New innings — everyone leaves the field.
+      st.current = emptyCurrent();
+      batFigures = new Map();
+      bowlFigures = new Map();
     } else if (e.kind === "BALL" && st.innings.length > 0) {
       const inn = st.innings[st.innings.length - 1];
-      const d = (e.data || {}) as { runs?: number; extra?: string | null; wicket?: boolean };
-      inn.runs += Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(d.runs) || 0));
-      if (d.wicket) inn.wickets = Math.min(MAX_WICKETS_PER_INNINGS, inn.wickets + 1);
-      const extra = d.extra || null;
-      if (extra !== "wd" && extra !== "nb") inn.balls += 1; // wides/no-balls re-bowled
+      const raw = (e.data || {}) as {
+        runs?: number;
+        extra?: string | null;
+        wicket?: boolean;
+        batterId?: string;
+        bowlerId?: string;
+      };
+      const runs = Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(raw.runs) || 0));
+      const extra = raw.extra || null;
+      const wicket = !!raw.wicket;
+      const legal = extra !== "wd" && extra !== "nb"; // wides/no-balls are re-bowled
+      const batterId = raw.batterId || e.memberId || null;
+      const bowlerId = raw.bowlerId || null;
+
+      inn.runs += runs;
+      if (wicket) inn.wickets = Math.min(MAX_WICKETS_PER_INNINGS, inn.wickets + 1);
+      if (legal) inn.balls += 1;
+
+      const cur = st.current;
+      // ── Who's on strike. The scorer sends the batter with each ball, so
+      // the striker is simply whoever just faced; the previous striker
+      // becomes the non-striker when they change.
+      if (batterId) {
+        if (cur.strikerId && cur.strikerId !== batterId) {
+          cur.nonStrikerId = cur.strikerId;
+        }
+        cur.strikerId = batterId;
+        const f = batFigures.get(batterId) || { runs: 0, balls: 0, out: false };
+        if (extra !== "wd") f.balls += 1; // a wide isn't a ball faced
+        if (!extra) f.runs += runs;
+        if (wicket) f.out = true;
+        batFigures.set(batterId, f);
+      }
+      if (bowlerId) {
+        cur.bowlerId = bowlerId;
+        const f = bowlFigures.get(bowlerId) || { balls: 0, runs: 0, wickets: 0 };
+        if (legal) f.balls += 1;
+        f.runs += runs;
+        if (wicket) f.wickets += 1;
+        bowlFigures.set(bowlerId, f);
+      }
+
+      // ── Over strip + partnership.
+      cur.thisOver.push(ballLabel({ runs, extra, wicket }));
+      if (legal) cur.ballsThisOver += 1;
+      cur.partnership.runs += runs;
+      if (legal) cur.partnership.balls += 1;
+
+      if (wicket) {
+        // The dismissed batter walks off; a new one is needed.
+        if (cur.strikerId) {
+          const f = batFigures.get(cur.strikerId);
+          if (f) f.out = true;
+        }
+        cur.strikerId = null;
+        cur.partnership = { runs: 0, balls: 0 };
+        cur.needsBatter = true;
+      } else {
+        cur.needsBatter = false;
+      }
+
+      if (cur.ballsThisOver >= 6) {
+        // Over complete: strike rotates, and a different bowler must come on.
+        // Only swap when there IS someone at the other end — otherwise the
+        // rotation would move the striker into an empty slot and the same
+        // player would end up listed at both ends.
+        if (cur.nonStrikerId) {
+          const s = cur.strikerId;
+          cur.strikerId = cur.nonStrikerId;
+          cur.nonStrikerId = s;
+        }
+        cur.thisOver = [];
+        cur.ballsThisOver = 0;
+        cur.bowlerId = null;
+        cur.needsBowler = true;
+      } else {
+        cur.needsBowler = false;
+      }
+
+      // One player can never occupy both ends.
+      if (cur.nonStrikerId && cur.nonStrikerId === cur.strikerId) cur.nonStrikerId = null;
     }
   }
+
+  // Publish the crease figures for whoever is still out there.
+  const cur = st.current;
+  cur.batters = [cur.strikerId, cur.nonStrikerId]
+    .filter((id): id is string => !!id)
+    .map((id) => {
+      const f = batFigures.get(id) || { runs: 0, balls: 0, out: false };
+      return { id, runs: f.runs, balls: f.balls };
+    });
+  cur.bowler = cur.bowlerId
+    ? { id: cur.bowlerId, ...(bowlFigures.get(cur.bowlerId) || { balls: 0, runs: 0, wickets: 0 }) }
+    : null;
   return st;
 }
 
@@ -72,13 +221,39 @@ export type FootballState = {
   sport: "FOOTBALL";
   goals: Record<string, number>; // teamId -> goals
   running: boolean;
+  /** Who's just been involved — the football answer to "who's on strike". */
+  current: {
+    lastGoal: { teamId: string; memberId: string | null; assistId: string | null } | null;
+    /** Scorers so far, newest first, for the on-screen scorer strip. */
+    scorers: { teamId: string; memberId: string | null }[];
+    cards: { teamId: string; memberId: string | null; card: string }[];
+  };
 };
 
 export function foldFootball(events: EventRow[]): FootballState {
-  const st: FootballState = { sport: "FOOTBALL", goals: {}, running: false };
+  const st: FootballState = {
+    sport: "FOOTBALL",
+    goals: {},
+    running: false,
+    current: { lastGoal: null, scorers: [], cards: [] },
+  };
   for (const e of events) {
     if (e.kind === "GOAL" && e.teamId) {
       st.goals[e.teamId] = (st.goals[e.teamId] || 0) + 1;
+      const d = (e.data || {}) as { assistId?: string };
+      st.current.lastGoal = {
+        teamId: e.teamId,
+        memberId: e.memberId || null,
+        assistId: d.assistId || null,
+      };
+      st.current.scorers.unshift({ teamId: e.teamId, memberId: e.memberId || null });
+    } else if (e.kind === "CARD" && e.teamId) {
+      const d = (e.data || {}) as { card?: string };
+      st.current.cards.unshift({
+        teamId: e.teamId,
+        memberId: e.memberId || null,
+        card: d.card === "red" ? "red" : "yellow",
+      });
     } else if (e.kind === "CLOCK_START") st.running = true;
     else if (e.kind === "CLOCK_STOP") st.running = false;
   }
@@ -90,6 +265,10 @@ export type PickleballState = {
   games: { home: number; away: number }[]; // finished games (home/away = team order)
   current: { home: number; away: number };
   gamesWon: { home: number; away: number };
+  /** Who serves next — pickleball's "who's on strike". The side that won
+   *  the last rally serves; at the start of a game nobody has served yet. */
+  servingTeamId: string | null;
+  gameNumber: number;
 };
 
 export function foldPickleball(
@@ -101,16 +280,21 @@ export function foldPickleball(
     games: [],
     current: { home: 0, away: 0 },
     gamesWon: { home: 0, away: 0 },
+    servingTeamId: null,
+    gameNumber: 1,
   };
   for (const e of events) {
     if (e.kind === "POINT" && e.teamId) {
       if (e.teamId === homeTeamId) st.current.home += 1;
       else st.current.away += 1;
+      st.servingTeamId = e.teamId;
     } else if (e.kind === "GAME_END") {
       st.games.push({ ...st.current });
       if (st.current.home > st.current.away) st.gamesWon.home += 1;
       else if (st.current.away > st.current.home) st.gamesWon.away += 1;
       st.current = { home: 0, away: 0 };
+      st.servingTeamId = null;
+      st.gameNumber += 1;
     }
   }
   return st;

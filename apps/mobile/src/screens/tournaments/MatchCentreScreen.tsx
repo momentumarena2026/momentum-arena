@@ -186,6 +186,107 @@ export function MatchCentreScreen() {
           )}
         </View>
 
+        {/* Live now — who's actually out there */}
+        {isLive && data.liveNow && (
+          <View style={styles.liveNowCard}>
+            {data.liveNow.cricket && (
+              <>
+                <View style={styles.headerTop}>
+                  <Text style={styles.liveNowLabel}>AT THE CREASE</Text>
+                  {!!data.liveNow.cricket.battingTeamName && (
+                    <Text style={styles.crumb} numberOfLines={1}>
+                      {data.liveNow.cricket.battingTeamName} batting
+                    </Text>
+                  )}
+                </View>
+                {[
+                  { p: data.liveNow.cricket.striker, onStrike: true },
+                  { p: data.liveNow.cricket.nonStriker, onStrike: false },
+                ].map((row, i) =>
+                  row.p ? (
+                    <View key={i} style={styles.creaseRow}>
+                      <Text
+                        style={[styles.creaseName, row.onStrike && styles.creaseStrike]}
+                        numberOfLines={1}
+                      >
+                        {row.p.name}
+                        {row.onStrike ? " *" : ""}
+                      </Text>
+                      <Text style={styles.creaseFigs}>
+                        {row.p.runs}
+                        <Text style={{ color: colors.zinc600 }}> ({row.p.balls})</Text>
+                      </Text>
+                    </View>
+                  ) : null
+                )}
+                {data.liveNow.cricket.bowler && (
+                  <View style={[styles.creaseRow, styles.creaseBowlerRow]}>
+                    <Text style={styles.creaseName} numberOfLines={1}>
+                      {data.liveNow.cricket.bowler.name}
+                    </Text>
+                    <Text style={styles.creaseFigs}>
+                      {data.liveNow.cricket.bowler.overs}–{data.liveNow.cricket.bowler.runs}–
+                      {data.liveNow.cricket.bowler.wickets}
+                    </Text>
+                  </View>
+                )}
+                {data.liveNow.cricket.thisOver.length > 0 && (
+                  <View style={styles.overStrip}>
+                    <Text style={styles.overLabel}>This over</Text>
+                    {data.liveNow.cricket.thisOver.map((b, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.overBall,
+                          b === "W" && styles.overBallWicket,
+                          (b === "4" || b === "6") && styles.overBallBoundary,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.overBallText,
+                            b === "W" && { color: "#f87171" },
+                            (b === "4" || b === "6") && { color: colors.emerald400 },
+                          ]}
+                        >
+                          {b}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+
+            {data.liveNow.football && (
+              <>
+                <Text style={styles.liveNowLabel}>SCORERS</Text>
+                {data.liveNow.football.scorers.length === 0 ? (
+                  <Text style={styles.empty}>No goals yet.</Text>
+                ) : (
+                  data.liveNow.football.scorers.map((s, i) => (
+                    <View key={i} style={styles.creaseRow}>
+                      <Text style={styles.creaseName}>⚽ {s.name || "Unrecorded"}</Text>
+                      <Text style={styles.crumb}>{s.teamName}</Text>
+                    </View>
+                  ))
+                )}
+              </>
+            )}
+
+            {data.liveNow.pickleball && (
+              <View style={styles.headerTop}>
+                <Text style={styles.liveNowLabel}>GAME {data.liveNow.pickleball.gameNumber}</Text>
+                {!!data.liveNow.pickleball.servingTeamName && (
+                  <Text style={styles.creaseStrike}>
+                    🏓 Serving: {data.liveNow.pickleball.servingTeamName}
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Tabs */}
         <View style={styles.tabs}>
           {TABS.map((x) => (
@@ -325,4 +426,37 @@ const styles = StyleSheet.create({
   commBoundary: { color: colors.emerald400, fontWeight: "700" },
   infoRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   infoText: { color: colors.zinc300, fontSize: 13 },
+  liveNowCard: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+    padding: 12,
+    gap: 4,
+  },
+  liveNowLabel: { color: colors.emerald400, fontSize: 11, fontWeight: "800", letterSpacing: 0.6 },
+  creaseRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 },
+  creaseName: { color: colors.zinc300, fontSize: 14, flex: 1 },
+  creaseStrike: { color: colors.foreground, fontWeight: "700" },
+  creaseFigs: { color: colors.zinc400, fontSize: 14, fontVariant: ["tabular-nums"] },
+  creaseBowlerRow: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(16,185,129,0.18)",
+    paddingTop: 6,
+    marginTop: 2,
+  },
+  overStrip: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 5, marginTop: 8 },
+  overLabel: { color: colors.zinc500, fontSize: 11, marginRight: 2 },
+  overBall: {
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 5,
+    borderRadius: 12,
+    backgroundColor: colors.zinc800,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  overBallWicket: { backgroundColor: "rgba(248,113,113,0.2)" },
+  overBallBoundary: { backgroundColor: "rgba(16,185,129,0.22)" },
+  overBallText: { color: colors.zinc300, fontSize: 11, fontWeight: "800" },
 });

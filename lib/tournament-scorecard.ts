@@ -62,6 +62,26 @@ export type CommentaryBall = {
   createdAt: string;
 };
 
+/** "Who's out there right now" — names resolved, ready to render. Present
+ *  only while a match is LIVE; every surface (web, app, TV) shows the same
+ *  thing the scorer is looking at. */
+export type LiveNow = {
+  sport: string;
+  cricket?: {
+    battingTeamName: string | null;
+    striker: { name: string; runs: number; balls: number } | null;
+    nonStriker: { name: string; runs: number; balls: number } | null;
+    bowler: { name: string; overs: string; runs: number; wickets: number } | null;
+    thisOver: string[];
+    partnership: { runs: number; balls: number };
+  };
+  football?: {
+    lastGoal: { teamName: string | null; scorer: string | null; assist: string | null } | null;
+    scorers: { teamName: string | null; name: string | null }[];
+  };
+  pickleball?: { servingTeamName: string | null; gameNumber: number };
+};
+
 export type MatchCentre = {
   match: {
     id: string;
@@ -85,6 +105,8 @@ export type MatchCentre = {
     clockRunning: boolean;
   };
   tournament: { slug: string; name: string; sport: string };
+  /** Null unless the match is in progress. */
+  liveNow: LiveNow | null;
   innings: InningsCard[];
   commentary: CommentaryBall[];
   /** Fallback per-player stat table for non-cricket sports and for
@@ -97,6 +119,90 @@ type TeamBrief = { id: string; name: string; color: string | null; logoUrl: stri
 
 const oversOf = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
 const rate = (runs: number, balls: number) => (balls > 0 ? Number(((runs / balls) * 6).toFixed(2)) : 0);
+
+/** Resolve the fold's current-players block into display-ready names. */
+function buildLiveNow(args: {
+  sport: string;
+  liveState: unknown;
+  nameOf: Map<string, string>;
+  teamName: (id: string | null) => string | null;
+}): LiveNow | null {
+  const { sport, liveState, nameOf, teamName } = args;
+  const st = liveState as Record<string, unknown> | null;
+  if (!st) return null;
+
+  if (sport === "CRICKET") {
+    const cur = st.current as
+      | {
+          strikerId: string | null;
+          nonStrikerId: string | null;
+          batters: { id: string; runs: number; balls: number }[];
+          bowler: { id: string; balls: number; runs: number; wickets: number } | null;
+          thisOver: string[];
+          partnership: { runs: number; balls: number };
+        }
+      | undefined;
+    if (!cur) return null;
+    const batter = (id: string | null) => {
+      if (!id) return null;
+      const f = cur.batters.find((b) => b.id === id);
+      return { name: nameOf.get(id) || "Unknown", runs: f?.runs ?? 0, balls: f?.balls ?? 0 };
+    };
+    return {
+      sport,
+      cricket: {
+        battingTeamName: teamName((st.battingTeamId as string) || null),
+        striker: batter(cur.strikerId),
+        nonStriker: batter(cur.nonStrikerId),
+        bowler: cur.bowler
+          ? {
+              name: nameOf.get(cur.bowler.id) || "Unknown",
+              overs: oversOf(cur.bowler.balls),
+              runs: cur.bowler.runs,
+              wickets: cur.bowler.wickets,
+            }
+          : null,
+        thisOver: cur.thisOver || [],
+        partnership: cur.partnership || { runs: 0, balls: 0 },
+      },
+    };
+  }
+
+  if (sport === "FOOTBALL") {
+    const cur = st.current as
+      | {
+          lastGoal: { teamId: string; memberId: string | null; assistId: string | null } | null;
+          scorers: { teamId: string; memberId: string | null }[];
+        }
+      | undefined;
+    if (!cur) return null;
+    return {
+      sport,
+      football: {
+        lastGoal: cur.lastGoal
+          ? {
+              teamName: teamName(cur.lastGoal.teamId),
+              scorer: cur.lastGoal.memberId ? nameOf.get(cur.lastGoal.memberId) || null : null,
+              assist: cur.lastGoal.assistId ? nameOf.get(cur.lastGoal.assistId) || null : null,
+            }
+          : null,
+        scorers: (cur.scorers || []).slice(0, 8).map((s) => ({
+          teamName: teamName(s.teamId),
+          name: s.memberId ? nameOf.get(s.memberId) || null : null,
+        })),
+      },
+    };
+  }
+
+  const serving = (st.servingTeamId as string) || null;
+  return {
+    sport,
+    pickleball: {
+      servingTeamName: teamName(serving),
+      gameNumber: Number(st.gameNumber) || 1,
+    },
+  };
+}
 
 /** "Chasing 142 · need 23 off 18" / "Won by 5 wickets" etc. */
 function resultText(args: {
@@ -415,6 +521,15 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
       name: match.tournament.name,
       sport: match.tournament.sport,
     },
+    liveNow:
+      match.status === "LIVE"
+        ? buildLiveNow({
+            sport: match.tournament.sport,
+            liveState: match.liveState,
+            nameOf,
+            teamName: (id) => teamOf(id)?.name || null,
+          })
+        : null,
     innings,
     commentary: commentary.slice(-120).reverse(), // newest first, bounded
     statTable,

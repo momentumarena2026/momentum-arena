@@ -3,7 +3,6 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   NavigationContainer,
   DarkTheme,
-  useNavigationContainerRef,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../providers/AuthProvider";
@@ -29,6 +28,7 @@ import { ChatScreen } from "../screens/chat/ChatScreen";
 import { ScorerEntryScreen } from "../screens/tournaments/ScorerEntryScreen";
 import { ScorerConsoleScreen } from "../screens/tournaments/ScorerConsoleScreen";
 import type { RootStackParamList } from "./types";
+import { navigationRef } from "./navigationRef";
 import { stackHeaderOptions } from "./headerOptions";
 
 const navTheme = {
@@ -48,7 +48,10 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
   const { state } = useAuth();
-  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+  // navigationRef is module-level (see ./navigationRef) rather than from
+  // useNavigationContainerRef, so screens nested deep inside another
+  // navigator can reach root routes explicitly instead of relying on the
+  // navigate action bubbling up — which fails as a dead tap when it doesn't.
 
   const [banner, setBanner] = useState<(ForegroundPush & { id: number }) | null>(
     null,
