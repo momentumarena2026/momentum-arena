@@ -1,22 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { footballClockSeconds } from "@/lib/tournament-live";
+import { areTournamentsEnabled } from "@/lib/tournaments";
+import { resolveRequestPlatform } from "@/lib/server-log";
 
 export const dynamic = "force-dynamic";
 
 /** Public live-match state, polled by audience screens (web + app).
  *
  *  PLATFORM GATE: the tournament's liveScreenPlatform decides who may see
- *  live data. `?platform=web|app` declares the caller; APP_ONLY + web →
- *  a gated response that carries only the store links (the admin's
- *  drive-app-downloads lever). The check is server-side — the gated
- *  response contains no live data at all. */
+ *  live data. APP_ONLY + web → a gated response carrying only the store
+ *  links (the admin's drive-app-downloads lever). The caller's platform is
+ *  derived from its bearer token, NOT from a query parameter — a client
+ *  cannot promote itself to "app" just by asking. */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ matchId: string }> }
 ) {
   const { matchId } = await params;
-  const platform = request.nextUrl.searchParams.get("platform") === "app" ? "app" : "web";
+  if (!(await areTournamentsEnabled())) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const platform = resolveRequestPlatform(request) === "web" ? "web" : "app";
 
   const match = await db.tournamentMatch.findUnique({
     where: { id: matchId },
@@ -44,6 +49,7 @@ export async function GET(
           slug: true,
           name: true,
           sport: true,
+          status: true,
           liveScoringEnabled: true,
           liveScreenPlatform: true,
         },
@@ -51,6 +57,11 @@ export async function GET(
     },
   });
   if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
+  // An unpublished or cancelled tournament is not public anywhere else;
+  // knowing a matchId must not be a way around that.
+  if (["DRAFT", "CANCELLED"].includes(match.tournament.status)) {
+    return NextResponse.json({ error: "Match not found" }, { status: 404 });
+  }
 
   const gate = match.tournament.liveScreenPlatform;
   const gated =

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
-import { updateMyTeamSquad } from "@/lib/tournaments";
+import { areTournamentsEnabled, updateMyTeamSquad } from "@/lib/tournaments";
 
 /** Captain updates their team's squad any time after registration.
  *  Unified auth: web cookie or mobile bearer — the app reuses this route.
@@ -10,6 +10,9 @@ export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
   if (!userId) {
     return NextResponse.json({ error: "Sign in to manage your squad" }, { status: 401 });
+  }
+  if (!(await areTournamentsEnabled())) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const body = await request.json().catch(() => ({}));
   const { teamId, members } = body || {};

@@ -6,6 +6,7 @@ import {
   startLiveMatch,
   endLiveMatch,
 } from "@/lib/tournament-live";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,20 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
+  // A real scorer taps a few times a minute; anything near this ceiling is
+  // code guessing, so it is throttled per IP before the code is even read.
+  const gate = await checkRateLimit({
+    identifier: clientIp(request),
+    action: "tournament_scorer",
+    limit: 240,
+    windowSeconds: 300,
+  });
+  if (!gate.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts — try again shortly" },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfter) } }
+    );
+  }
   const t = await db.tournament.findUnique({
     where: { scorerCode: code.toUpperCase() },
     select: { id: true, liveScoringEnabled: true },

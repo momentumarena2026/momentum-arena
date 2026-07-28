@@ -22,6 +22,15 @@ export type LiveEventInput = {
   data?: Record<string, unknown> | null;
 };
 
+// Sanity ceilings for scorer input. A single delivery can't produce more
+// than a handful of runs, and an innings can't lose more than 10 wickets —
+// without these, one fat-fingered (or forged) value dominates every
+// score-difference tiebreaker in the tournament.
+const MAX_RUNS_PER_BALL = 12; // 6 off the bat + generous extras
+const MAX_WICKETS_PER_INNINGS = 10;
+/** Fields inside event.data that name a player and must be on this match. */
+const MEMBER_REF_KEYS = ["batterId", "bowlerId", "assistId", "fielderId"] as const;
+
 type EventRow = {
   seq: number;
   kind: string;
@@ -50,8 +59,8 @@ export function foldCricket(events: EventRow[]): CricketState {
     } else if (e.kind === "BALL" && st.innings.length > 0) {
       const inn = st.innings[st.innings.length - 1];
       const d = (e.data || {}) as { runs?: number; extra?: string | null; wicket?: boolean };
-      inn.runs += Math.max(0, Number(d.runs) || 0);
-      if (d.wicket) inn.wickets += 1;
+      inn.runs += Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(d.runs) || 0));
+      if (d.wicket) inn.wickets = Math.min(MAX_WICKETS_PER_INNINGS, inn.wickets + 1);
       const extra = d.extra || null;
       if (extra !== "wd" && extra !== "nb") inn.balls += 1; // wides/no-balls re-bowled
     }
@@ -122,7 +131,11 @@ function deriveStats(
   for (const e of events) {
     const d = (e.data || {}) as Record<string, unknown>;
     if (sport === "CRICKET" && e.kind === "BALL") {
-      bump(d.batterId as string, "runs", Math.max(0, Number(d.runs) || 0));
+      bump(
+        d.batterId as string,
+        "runs",
+        Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(d.runs) || 0))
+      );
       if (d.wicket) bump(d.bowlerId as string, "wickets", 1);
     } else if (sport === "FOOTBALL" && e.kind === "GOAL") {
       bump(e.memberId, "goals", 1);
@@ -199,8 +212,12 @@ async function refoldMatch(matchId: string): Promise<void> {
       where: { id: matchId },
       data: { liveState: liveState as never, homeScore, awayScore },
     });
-    await tx.tournamentPlayerStat.deleteMany({ where: { matchId } });
+    // Only take over the stat rows when the event log actually carries
+    // player attribution. A match scored without tagging players derives
+    // nothing, and blowing the rows away would destroy stats the admin
+    // entered by hand on the Scores tab.
     if (stats.length) {
+      await tx.tournamentPlayerStat.deleteMany({ where: { matchId } });
       await tx.tournamentPlayerStat.createMany({
         data: stats.map((s) => ({ ...s, tournamentId: match.tournamentId, matchId })),
       });
@@ -214,6 +231,43 @@ const ALLOWED_KINDS: Record<string, string[]> = {
   FOOTBALL: ["CLOCK_START", "CLOCK_STOP", "GOAL", "CARD"],
   PICKLEBALL: ["POINT", "GAME_END"],
 };
+
+const CRICKET_EXTRAS = new Set(["wd", "nb", "b", "lb"]);
+const CARD_KINDS = new Set(["yellow", "red"]);
+
+/** Rebuild event.data from known keys only, bounded and type-checked. The
+ *  raw client blob is never persisted: it is public (the live feed returns
+ *  it to every viewer) and unbounded blobs are a response-amplification
+ *  lever as well as a scoring-integrity hole. */
+function sanitiseEventData(
+  sport: string,
+  kind: string,
+  raw: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  const str = (v: unknown) => (typeof v === "string" && v.length <= 64 ? v : undefined);
+
+  if (sport === "CRICKET" && kind === "BALL") {
+    out.runs = Math.min(MAX_RUNS_PER_BALL, Math.max(0, Math.floor(Number(raw.runs) || 0)));
+    if (raw.wicket) out.wicket = true;
+    const extra = str(raw.extra);
+    if (extra && CRICKET_EXTRAS.has(extra)) out.extra = extra;
+    const wicketKind = str(raw.wicketKind);
+    if (wicketKind) out.wicketKind = wicketKind.slice(0, 24);
+    for (const key of MEMBER_REF_KEYS) {
+      const ref = str(raw[key]);
+      if (ref) out[key] = ref;
+    }
+  } else if (sport === "FOOTBALL" && kind === "GOAL") {
+    const assist = str(raw.assistId);
+    if (assist) out.assistId = assist;
+    if (raw.ownGoal) out.ownGoal = true;
+  } else if (sport === "FOOTBALL" && kind === "CARD") {
+    const card = str(raw.card);
+    out.card = card && CARD_KINDS.has(card) ? card : "yellow";
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 export async function applyLiveEvent(
   matchId: string,
@@ -230,6 +284,8 @@ export async function applyLiveEvent(
       clockStartedAt: true,
       clockElapsedSec: true,
       tournament: { select: { sport: true, liveScoringEnabled: true } },
+      homeTeam: { select: { members: { select: { id: true } } } },
+      awayTeam: { select: { members: { select: { id: true } } } },
     },
   });
   if (!match) return { ok: false, error: "Match not found" };
@@ -240,6 +296,26 @@ export async function applyLiveEvent(
   if (input.teamId && ![match.homeTeamId, match.awayTeamId].includes(input.teamId)) {
     return { ok: false, error: "Team is not in this match" };
   }
+
+  // Every player reference must be on one of these two rosters — otherwise
+  // a scorer can name anyone in the database (including another
+  // tournament's player) in this match's public timeline.
+  const rosterIds = new Set<string>([
+    ...(match.homeTeam?.members || []).map((m) => m.id),
+    ...(match.awayTeam?.members || []).map((m) => m.id),
+  ]);
+  if (input.memberId && !rosterIds.has(input.memberId)) {
+    return { ok: false, error: "Player is not in this match" };
+  }
+  const rawData = (input.data || {}) as Record<string, unknown>;
+  for (const key of MEMBER_REF_KEYS) {
+    const ref = rawData[key];
+    if (ref && (typeof ref !== "string" || !rosterIds.has(ref))) {
+      return { ok: false, error: "Player is not in this match" };
+    }
+  }
+  // Persist a whitelisted, bounded copy of the payload — never the raw blob.
+  const data = sanitiseEventData(match.tournament.sport, input.kind, rawData);
 
   // Append with the next seq (retry once on the unique-collision race).
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -255,7 +331,7 @@ export async function applyLiveEvent(
           kind: input.kind,
           teamId: input.teamId || null,
           memberId: input.memberId || null,
-          data: (input.data as never) ?? undefined,
+          data: (data as never) ?? undefined,
           createdBy: actor,
         },
       });
@@ -281,6 +357,19 @@ export async function applyLiveEvent(
 }
 
 export async function undoLastEvent(matchId: string): Promise<{ ok: boolean; error?: string }> {
+  // Undo is a LIVE-only correction. Without this guard the scorer code
+  // doubles as a permanent rewrite key: an undo on a finished match
+  // silently changes its score while status/winner stay frozen, and the
+  // refold wipes any player stats the admin entered by hand. Reopening a
+  // completed match is an admin action (reopenMatch), not a scorer one.
+  const match = await db.tournamentMatch.findUnique({
+    where: { id: matchId },
+    select: { status: true },
+  });
+  if (!match) return { ok: false, error: "Match not found" };
+  if (match.status !== "LIVE") {
+    return { ok: false, error: "Match is not live — reopen it from the admin console to edit" };
+  }
   const last = await db.tournamentMatchEvent.findFirst({
     where: { matchId },
     orderBy: { seq: "desc" },

@@ -319,12 +319,63 @@ export function TournamentDetailScreen() {
         ))}
       </Animated.View>
     );
-    return m.status === "LIVE" && liveOk ? (
-      <Pressable key={m.id} onPress={() => navigation.navigate("TournamentLive", { matchId: m.id, slug })}>
+    // Any decided match opens its match centre (scorecard + commentary).
+    return m.homeTeamId && m.awayTeamId ? (
+      <Pressable key={m.id} onPress={() => navigation.navigate("TournamentMatch", { matchId: m.id, slug })}>
         {inner}
       </Pressable>
     ) : (
       <View key={m.id}>{inner}</View>
+    );
+  };
+
+  /** Pinned live card — the first thing a follower should see. */
+  const liveCard = (m: MatchLite) => {
+    const home = m.homeTeamId ? teams.get(m.homeTeamId) : null;
+    const away = m.awayTeamId ? teams.get(m.awayTeamId) : null;
+    const st = (m.liveState || null) as
+      | { sport?: string; innings?: { teamId: string; runs: number; wickets: number; balls: number }[]; target?: number | null }
+      | null;
+    const line = (teamId: string | null, fallback: number | null) => {
+      const inn = st?.sport === "CRICKET" && teamId ? st.innings?.find((x) => x.teamId === teamId) : null;
+      return inn ? `${inn.runs}/${inn.wickets}` : String(fallback ?? 0);
+    };
+    const ov = (teamId: string | null) => {
+      const inn = st?.sport === "CRICKET" && teamId ? st.innings?.find((x) => x.teamId === teamId) : null;
+      return inn ? ` (${Math.floor(inn.balls / 6)}.${inn.balls % 6})` : "";
+    };
+    return (
+      <Pressable
+        key={m.id}
+        onPress={() => navigation.navigate("TournamentMatch", { matchId: m.id, slug })}
+        style={styles.liveCard}
+      >
+        <View style={styles.rowBetween}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Radio size={12} color="#f87171" />
+            <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "800" }}>LIVE NOW</Text>
+          </View>
+          <Text style={{ color: colors.zinc500, fontSize: 11 }}>{m.roundLabel}</Text>
+        </View>
+        {[
+          { t: home, id: m.homeTeamId, s: m.homeScore, note: m.homeScoreNote },
+          { t: away, id: m.awayTeamId, s: m.awayScore, note: m.awayScoreNote },
+        ].map((side, i) => (
+          <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+            <Badge team={side.t} size={26} />
+            <Text style={{ color: colors.foreground, fontSize: 14, flex: 1 }} numberOfLines={1}>
+              {side.t?.name || "TBD"}
+            </Text>
+            <Text style={{ color: colors.emerald400, fontSize: 18, fontWeight: "800" }}>
+              {side.note || line(side.id, side.s)}
+              <Text style={{ color: colors.zinc500, fontSize: 11, fontWeight: "400" }}>{ov(side.id)}</Text>
+            </Text>
+          </View>
+        ))}
+        <Text style={styles.liveCta}>
+          {st?.target ? `Target ${st.target} · ` : ""}Tap for the live scorecard →
+        </Text>
+      </Pressable>
     );
   };
 
@@ -367,21 +418,18 @@ export function TournamentDetailScreen() {
         {/* Captain's squad manager (post-registration, optional) */}
         <MySquadCard slug={slug} />
 
-        {/* LIVE strip */}
-        {liveOk &&
-          liveMatches.map((m) => (
-            <Pressable
-              key={m.id}
-              onPress={() => navigation.navigate("TournamentLive", { matchId: m.id, slug })}
-              style={styles.liveStrip}
-            >
-              <Radio size={14} color="#f87171" />
-              <Text style={styles.liveStripText}>
-                {name(m.homeTeamId)} {m.homeScore ?? 0}–{m.awayScore ?? 0} {name(m.awayTeamId)}
-              </Text>
-              <Text style={{ color: "#f87171", fontSize: 12 }}>Watch →</Text>
-            </Pressable>
-          ))}
+        {/* LIVE card(s), pinned above the tabs */}
+        {liveMatches.map((m) => liveCard(m))}
+        {liveOk && liveMatches.length > 0 && (
+          <Pressable
+            onPress={() => navigation.navigate("TournamentLive", { matchId: liveMatches[0]!.id, slug })}
+            style={{ alignSelf: "center" }}
+          >
+            <Text style={{ color: "#f87171", fontSize: 12, textDecorationLine: "underline" }}>
+              Open the big-screen view →
+            </Text>
+          </Pressable>
+        )}
 
         {/* Tabs */}
         <View style={styles.tabs}>
@@ -592,6 +640,22 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   liveStripText: { color: "#fca5a5", fontSize: 14, fontWeight: "600", flex: 1 },
+  liveCard: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.45)",
+    backgroundColor: "rgba(248,113,113,0.06)",
+    padding: 14,
+  },
+  liveCta: {
+    color: colors.zinc400,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(248,113,113,0.2)",
+  },
   tabs: { flexDirection: "row", gap: 4, flexWrap: "wrap" },
   tab: {
     paddingHorizontal: 14,

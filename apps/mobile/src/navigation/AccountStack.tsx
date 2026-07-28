@@ -19,6 +19,7 @@ import { TournamentsListScreen } from "../screens/tournaments/TournamentsListScr
 import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailScreen";
 import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
 import { TournamentLiveScreen } from "../screens/tournaments/TournamentLiveScreen";
+import { MatchCentreScreen } from "../screens/tournaments/MatchCentreScreen";
 import type { AccountStackParamList } from "./types";
 import { stackHeaderOptions } from "./headerOptions";
 
@@ -142,6 +143,11 @@ export function AccountStack() {
         name="TournamentLive"
         component={TournamentLiveScreen}
         options={{ title: "Live match" }}
+      />
+      <Stack.Screen
+        name="TournamentMatch"
+        component={MatchCentreScreen}
+        options={{ title: "Match centre" }}
       />
     </Stack.Navigator>
   );

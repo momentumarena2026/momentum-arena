@@ -145,7 +145,14 @@ export async function previewRedemption(args: {
     where: {
       userId: args.userId,
       type: {
-        in: ["REDEEMED_BOOKING", "REDEEMED_CAFE", "EXPIRED", "REVOKED", "ADJUSTMENT_DEBIT"],
+        in: [
+          "REDEEMED_BOOKING",
+          "REDEEMED_CAFE",
+          "REDEEMED_TOURNAMENT",
+          "EXPIRED",
+          "REVOKED",
+          "ADJUSTMENT_DEBIT",
+        ],
       },
     },
     _sum: { points: true },

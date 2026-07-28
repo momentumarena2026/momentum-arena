@@ -10,6 +10,7 @@ export type AccountStackParamList = {
   TournamentDetail: { slug: string };
   TournamentRegister: { slug: string };
   TournamentLive: { matchId: string; slug: string };
+  TournamentMatch: { matchId: string; slug: string };
   EditName: undefined;
   // Customer pass wallet — Active/Inactive tabs with balance rings.
   MyPasses: undefined;

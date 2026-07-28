@@ -131,6 +131,47 @@ export async function getPublicTournamentBySlug(slug: string) {
   return t;
 }
 
+// ── Abandoned-checkout sweep ────────────────────────────────────────
+/** How long a PENDING_PAYMENT team keeps its slot before it's released. */
+const PENDING_PAYMENT_TTL_MINUTES = 30;
+
+/** Release registrations whose payment was never completed.
+ *
+ *  A PENDING_PAYMENT team consumes two scarce things: the captain's
+ *  one-live-team-per-tournament slot and a capacity slot. Without a sweep,
+ *  a customer who simply dismissed the payment sheet is locked out of the
+ *  tournament forever and the venue's last spot is held by nobody — so this
+ *  runs lazily (no cron) on registration and on public reads.
+ *
+ *  Any reward points redeemed at registration are returned; the refund is
+ *  idempotent per team, and a team whose payment lands later is protected
+ *  by confirmTournamentEntry's status guard. */
+export async function sweepStalePendingTeams(tournamentId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - PENDING_PAYMENT_TTL_MINUTES * 60 * 1000);
+  const stale = await db.tournamentTeam.findMany({
+    where: { tournamentId, status: "PENDING_PAYMENT", createdAt: { lt: cutoff } },
+    select: { id: true, pointsUsed: true, captainUserId: true },
+  });
+  if (stale.length === 0) return;
+
+  for (const team of stale) {
+    // Guarded so a payment confirming right now always wins the race.
+    const released = await db.tournamentTeam.updateMany({
+      where: { id: team.id, status: "PENDING_PAYMENT" },
+      data: { status: "WITHDRAWN", pointsUsed: 0 },
+    });
+    if (released.count === 0) continue;
+    if (team.pointsUsed > 0 && team.captainUserId) {
+      await refundRedemption({
+        userId: team.captainUserId,
+        points: team.pointsUsed,
+        tournamentTeamId: team.id,
+        reason: "tournament registration abandoned",
+      }).catch(() => {});
+    }
+  }
+}
+
 // ── Registration ────────────────────────────────────────────────────
 export type RegisterInput = {
   tournamentId: string;
@@ -205,6 +246,10 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
     return { ok: false, error: "Captain name and a valid phone are required" };
   }
   const squad = members.length > 0 ? members : [captainName];
+
+  // Release any abandoned checkouts first — they hold both the captain's
+  // one-team-per-tournament slot and a capacity slot.
+  await sweepStalePendingTeams(t.id);
 
   // One live team per user per tournament.
   const existing = await db.tournamentTeam.findFirst({
@@ -286,6 +331,22 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       },
     },
   });
+
+  // Capacity is checked before the insert, so N simultaneous registrations
+  // can all pass that check and oversubscribe the tournament. Re-count after
+  // the write and stand down if this row is the one that broke the cap —
+  // an optimistic guard, which suits a race this rare.
+  if (!isFull) {
+    const nowTaken = await db.tournamentTeam.count({
+      where: { tournamentId: t.id, status: { in: ["CONFIRMED", "PENDING_PAYMENT"] } },
+    });
+    if (nowTaken > t.totalTeams) {
+      await db.tournamentTeam.delete({ where: { id: team.id } }).catch(() => {});
+      return t.waitlistEnabled
+        ? { ok: false, error: "The last spot just went — please try again to join the waitlist" }
+        : { ok: false, error: "The tournament is full" };
+    }
+  }
 
   // Reward-points redemption — AFTER the team row exists (the ledger row is
   // keyed to the team for idempotency + refund). The guarded debit inside
@@ -386,13 +447,47 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
   }
 }
 
+/** Claim one use of a coupon, enforcing both caps atomically.
+ *
+ *  validateCoupon at registration only *reads* the counters, so without a
+ *  guarded claim here the same code can be spent repeatedly — concurrently
+ *  for the global cap, or across tournaments for the per-user cap. The
+ *  guarded updateMany (same shape as the booking path) makes the increment
+ *  and the limit test a single atomic step, and it also serialises the
+ *  per-user count onto the coupon row.
+ *
+ *  A refused claim must NOT fail an already-captured payment: the entry is
+ *  confirmed either way and the discount stands; we simply don't record a
+ *  use beyond the cap. */
 async function recordCouponUse(code: string, userId: string, discountAmount: number) {
-  const coupon = await db.coupon.findFirst({ where: { code }, select: { id: true } });
+  const coupon = await db.coupon.findFirst({
+    where: { code },
+    select: { id: true, maxUses: true, maxUsesPerUser: true },
+  });
   if (!coupon) return;
-  await db.$transaction([
-    db.couponUsage.create({ data: { couponId: coupon.id, userId, discountAmount } }),
-    db.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } }),
-  ]).catch(() => {}); // usage bookkeeping must never fail a paid registration
+  try {
+    await db.$transaction(async (tx) => {
+      const claimed = await tx.coupon.updateMany({
+        where: {
+          id: coupon.id,
+          ...(coupon.maxUses !== null ? { usedCount: { lt: coupon.maxUses } } : {}),
+        },
+        data: { usedCount: { increment: 1 } },
+      });
+      if (claimed.count === 0) throw new Error("COUPON_LIMIT_EXCEEDED");
+
+      const priorUserUsage = await tx.couponUsage.count({
+        where: { couponId: coupon.id, userId },
+      });
+      if (coupon.maxUsesPerUser !== null && priorUserUsage >= coupon.maxUsesPerUser) {
+        throw new Error("COUPON_LIMIT_EXCEEDED");
+      }
+      await tx.couponUsage.create({ data: { couponId: coupon.id, userId, discountAmount } });
+    });
+  } catch {
+    // Over cap or transient failure — never fail a paid registration on
+    // bookkeeping.
+  }
 }
 
 // ── Payment confirmation (verify route + webhook both land here) ────
@@ -419,6 +514,12 @@ export async function confirmTournamentEntry(args: {
   });
   if (!team) return { ok: false, error: "Team not found" };
   if (team.status === "CONFIRMED") return { ok: true, already: true }; // idempotent
+  // A team the admin already rejected/withdrew must not be resurrected by a
+  // late webhook — its points were refunded, so confirming it now would
+  // hand back both the points and the discount they bought.
+  if (!["PENDING_PAYMENT", "WAITLISTED"].includes(team.status)) {
+    return { ok: false, error: `Team is ${team.status.toLowerCase()} — payment can't be applied` };
+  }
 
   const netFee = Math.max(0, team.tournament.entryFee - team.discount);
   const expected = onlinePayable(netFee, team.tournament.feeMode, team.tournament.advancePct);
@@ -426,8 +527,10 @@ export async function confirmTournamentEntry(args: {
     return { ok: false, error: `Amount mismatch: paid ₹${args.paidRupees}, expected ₹${expected}` };
   }
 
-  await db.tournamentTeam.update({
-    where: { id: team.id },
+  // Guarded write: exactly one of a racing verify-call and webhook wins, so
+  // the coupon-use and points-earn side effects below run once.
+  const claimed = await db.tournamentTeam.updateMany({
+    where: { id: team.id, status: { in: ["PENDING_PAYMENT", "WAITLISTED"] } },
     data: {
       status: "CONFIRMED",
       paidAmount: expected,
@@ -436,6 +539,7 @@ export async function confirmTournamentEntry(args: {
       paymentRef: args.razorpayPaymentId,
     },
   });
+  if (claimed.count === 0) return { ok: true, already: true }; // the other path won
   if (team.couponCode && team.captainUserId) {
     await recordCouponUse(team.couponCode, team.captainUserId, team.discount);
   }
@@ -461,7 +565,22 @@ export async function confirmDqrTournament(
     where: { paymentRef: transactionId },
     select: { id: true, status: true, captainUserId: true },
   });
-  if (!team) return {};
+  if (!team) {
+    // A DQRT_ transaction with no team behind it means its paymentRef was
+    // superseded (or the team was deleted) — the money is real and would
+    // otherwise vanish silently, so file it for admin recovery. The team id
+    // is recoverable from the txn itself: DQRT_<last12 of teamId>_<ms>.
+    const { recordOrphanPayment } = await import("@/lib/payment-orphan");
+    recordOrphanPayment({
+      gateway: "PHONEPE_DQR",
+      reason: "tournament-team-not-found",
+      userId: "unknown",
+      amountRupees: Math.round((amountPaise ?? 0) / 100),
+      phonePeMerchantTxnId: transactionId,
+      path: "/api/phonepe/dqr/tournament",
+    });
+    return { mismatch: true };
+  }
   if (team.status === "CONFIRMED") return { teamId: team.id }; // idempotent
 
   const paidRupees = Math.round((amountPaise ?? 0) / 100);

@@ -48,6 +48,8 @@ export async function GET(
           isDraw: true,
           winnerTeamId: true,
           scheduledAt: true,
+          // Feeds the pinned live card's "30/1 (2.0 ov)" line.
+          liveState: true,
           courtConfig: { select: { label: true } },
           playerOfMatch: { select: { name: true } },
         },
@@ -186,7 +188,11 @@ export async function GET(
       poolId: poolsRevealed ? x.poolId : null,
     })),
     standings,
-    matches: t.matches,
+    // Before the reveal, the fixtures ARE the draw: grouping matches by
+    // poolId (and reading "Pool A · Match 1" off the label) reconstructs
+    // exactly what the ceremony is meant to unveil. Pool-stage fixtures
+    // stay hidden until the flip; knockout fixtures are unaffected.
+    matches: poolsRevealed ? t.matches : t.matches.filter((m) => m.stage !== "POOL"),
     leaderboards,
   });
 }

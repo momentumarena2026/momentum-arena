@@ -41,6 +41,8 @@ export type MatchLite = {
   winnerTeamId: string | null;
   isDraw: boolean;
   scheduledAt: string | null;
+  /** Sport-specific fold — powers the "30/1 (2.0)" line on the live card. */
+  liveState: unknown;
   courtConfig: { label: string } | null;
   playerOfMatch: { name: string } | null;
 };
@@ -210,7 +212,49 @@ export type LivePayload = {
 };
 
 export async function getLiveMatch(matchId: string): Promise<LivePayload> {
-  return api.get<LivePayload>(`/api/tournaments/live/${matchId}?platform=app`, { auth: false });
+  // The APP_ONLY gate is decided from the request's bearer token, so this
+  // call must be authenticated to be recognised as the app.
+  return api.get<LivePayload>(`/api/tournaments/live/${matchId}`);
+}
+
+// ── ESPN-style match centre ─────────────────────────────────────────
+export type BattingRow = {
+  memberId: string; name: string; runs: number; balls: number;
+  fours: number; sixes: number; strikeRate: number; out: boolean; dismissal: string | null;
+};
+export type BowlingRow = {
+  memberId: string; name: string; overs: string; runs: number; wickets: number; economy: number;
+};
+export type InningsCard = {
+  teamId: string; teamName: string; teamColor: string | null;
+  runs: number; wickets: number; overs: string; runRate: number; extras: number;
+  batting: BattingRow[]; bowling: BowlingRow[];
+  fallOfWickets: { wicket: number; runs: number; over: string; batter: string | null }[];
+};
+export type CommentaryBall = {
+  seq: number; over: string; text: string; runs: number; wicket: boolean; boundary: 0 | 4 | 6;
+};
+export type MatchCentre = {
+  match: {
+    id: string; status: string; stage: string; roundLabel: string | null;
+    scheduledAt: string | null; venue: string | null; sport: string;
+    homeTeam: TeamLite | null; awayTeam: TeamLite | null;
+    homeScore: number | null; awayScore: number | null;
+    homeScoreNote: string | null; awayScoreNote: string | null;
+    isDraw: boolean; winnerTeamId: string | null;
+    playerOfMatch: string | null; resultText: string;
+    clockSeconds: number | null; clockRunning: boolean;
+  };
+  tournament: { slug: string; name: string; sport: string };
+  innings: InningsCard[];
+  commentary: CommentaryBall[];
+  statTable: { teamId: string; teamName: string; rows: { name: string; values: Record<string, number> }[] }[];
+  statFields: { key: string; label: string }[];
+};
+
+/** Full scorecard + commentary for one match (public). */
+export async function getMatchCentre(matchId: string): Promise<MatchCentre> {
+  return api.get<MatchCentre>(`/api/tournaments/match/${matchId}`, { auth: false });
 }
 
 export async function fetchRewardsPreview(amount: number): Promise<{ maxPoints: number; maxPaise: number }> {

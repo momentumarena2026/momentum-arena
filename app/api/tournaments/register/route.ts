@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { registerTournamentTeam } from "@/lib/tournaments";
+import { resolveRequestPlatform } from "@/lib/server-log";
+import { isTrustedAssetUrl } from "@/lib/blob";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 
 /** Register a team (captain pays). Unified auth: web cookie or mobile
@@ -23,10 +25,14 @@ export async function POST(request: NextRequest) {
     captainEmail,
     couponCode,
     pointsToRedeem,
-    platform,
   } = body || {};
   if (!tournamentId || !teamName) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  }
+  // The logo must come from our own upload endpoint — the stored URL is
+  // rendered on public tournament pages and in the admin console.
+  if (logoUrl && !isTrustedAssetUrl(String(logoUrl))) {
+    return NextResponse.json({ error: "Upload the team logo instead of linking one" }, { status: 400 });
   }
   const result = await registerTournamentTeam({
     tournamentId,
@@ -41,7 +47,10 @@ export async function POST(request: NextRequest) {
     captainEmail: captainEmail ? String(captainEmail) : null,
     couponCode: couponCode ? String(couponCode) : null,
     pointsToRedeem: Number(pointsToRedeem) || null,
-    platform: platform === "android" || platform === "ios" ? platform : "web",
+    // Derived from the request's own auth, not the body — coupons can be
+    // restricted to the apps, and a body field would let a web caller
+    // simply declare itself an app to claim app-only offers.
+    platform: resolveRequestPlatform(request),
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });

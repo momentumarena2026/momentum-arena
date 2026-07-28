@@ -7,7 +7,13 @@ import { confirmTournamentEntry } from "@/lib/tournaments";
 /** Client-side confirmation after the Razorpay modal succeeds. The
  *  payment.captured webhook is the backstop — both paths are idempotent
  *  (confirmTournamentEntry no-ops on an already-CONFIRMED team). WHAT was
- *  bought comes from the ORDER's notes, never the client body. */
+ *  bought comes from the ORDER's notes, never the client body.
+ *
+ *  Deliberately NOT gated on the tournaments master switch: this route
+ *  applies money that has already been captured. If an admin switches the
+ *  module off mid-payment, refusing here would strand a real charge. New
+ *  payments are stopped at their entry points (register / dqr-initiate)
+ *  instead, which is where the switch belongs. */
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
   if (!userId) {

@@ -20,6 +20,14 @@ function isProduction() {
   return window.location.hostname === PRODUCTION_HOST;
 }
 
+/** Some paths carry a secret in the URL itself — /score/<scorerCode> is a
+ *  bearer credential. Reporting those verbatim would ship the secret to
+ *  Google (and into anyone's Analytics access), so they are reduced to a
+ *  pattern before being sent. */
+function redactPath(path: string): string {
+  return path.replace(/^\/score\/[^/]+/, "/score/[code]");
+}
+
 function GoogleAnalyticsTracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -28,9 +36,10 @@ function GoogleAnalyticsTracker() {
     if (!isProduction()) return;
     if (!pathname || !window.gtag) return;
 
+    const safePath = redactPath(pathname);
     const url = searchParams.toString()
-      ? `${pathname}?${searchParams.toString()}`
-      : pathname;
+      ? `${safePath}?${searchParams.toString()}`
+      : safePath;
 
     window.gtag("config", GA_MEASUREMENT_ID, {
       page_path: url,

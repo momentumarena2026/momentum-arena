@@ -21,6 +21,7 @@ import {
   recordTeamPayment,
   adminRegisterTeam,
   adminEditTeam,
+  rotateScorerCode,
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
 import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
@@ -174,6 +175,19 @@ export function TournamentManage({
     }
   };
 
+  const doRotateCode = async () => {
+    if (!confirm("Issue a new scorer code? Anyone still using the old code loses access immediately.")) return;
+    setBusy("rotate");
+    setError(null);
+    try {
+      const res = await rotateScorerCode(t.id);
+      if (!res.success) setError(res.error || "Failed");
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const doSaveSquad = async (teamId: string) => {
     setBusy(`squad-${teamId}`);
     setError(null);
@@ -291,6 +305,14 @@ export function TournamentManage({
             <span className="flex items-center gap-1 rounded-full border border-red-500/40 px-2.5 py-1 text-xs text-red-400">
               <Radio className="h-3 w-3" /> Live scoring · {t.liveScreenPlatform.replace("_", " ")}
               {t.scorerCode && <span className="ml-1 font-mono text-zinc-400">code {t.scorerCode}</span>}
+              <button
+                onClick={doRotateCode}
+                disabled={busy === "rotate"}
+                title="Issue a new scorer code — anyone still holding the old one loses access"
+                className="ml-1 rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {busy === "rotate" ? "Rotating…" : "Rotate"}
+              </button>
             </span>
           )}
         </div>

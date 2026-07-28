@@ -295,21 +295,48 @@ export async function setTeamStatus(
     where: { id: teamId },
     select: {
       tournamentId: true,
+      status: true,
       pointsUsed: true,
+      paidAmount: true,
+      discount: true,
       captainUserId: true,
-      tournament: { select: { totalTeams: true } },
+      tournament: {
+        select: { totalTeams: true, entryFee: true, feeMode: true, advancePct: true },
+      },
     },
   });
   if (!team) return { success: false, error: "Team not found" };
-  if (status === "CONFIRMED") {
+
+  // Money follows the status. A WAITLISTED / PENDING_PAYMENT team is stored
+  // owing nothing (it was never going to be charged), so promoting it to
+  // CONFIRMED without recomputing what's due leaves an unpaid team that the
+  // Collect button can't even be offered for — the entry fee is simply lost.
+  const patch: Record<string, unknown> = { status };
+  if (status === "CONFIRMED" && team.status !== "CONFIRMED") {
     const confirmed = await db.tournamentTeam.count({
       where: { tournamentId: team.tournamentId, status: "CONFIRMED" },
     });
     if (confirmed >= team.tournament.totalTeams) {
       return { success: false, error: "Tournament is already full" };
     }
+    const netFee = Math.max(0, team.tournament.entryFee - team.discount);
+    patch.dueAmount = Math.max(0, netFee - team.paidAmount);
   }
-  await db.tournamentTeam.update({ where: { id: teamId }, data: { status } });
+  // Kicking a team out returns its points (below). Strip the points leg
+  // from `discount` at the same time, otherwise re-confirming the team
+  // later would hand back the refunded points AND the discount they bought.
+  if (status === "REJECTED" || status === "WITHDRAWN") {
+    if (team.pointsUsed > 0) {
+      const redemption = await db.rewardTransaction.findFirst({
+        where: { type: "REDEEMED_TOURNAMENT", tournamentTeamId: teamId },
+        select: { pointsValuePaise: true },
+      });
+      const pointsRupees = Math.round(Math.abs(redemption?.pointsValuePaise || 0) / 100);
+      patch.discount = Math.max(0, team.discount - pointsRupees);
+    }
+    patch.pointsUsed = 0;
+  }
+  await db.tournamentTeam.update({ where: { id: teamId }, data: patch });
   // Kicking a team out returns any reward points its captain redeemed at
   // registration (idempotent — one refund per team).
   if ((status === "REJECTED" || status === "WITHDRAWN") && team.pointsUsed > 0 && team.captainUserId) {
@@ -459,4 +486,24 @@ export async function adminEditTeam(
   }
   revalidatePath(`/admin/tournaments/${team.tournamentId}`);
   return { success: true };
+}
+
+/** Rotate the scorer code — the ONLY way to revoke a shared/leaked code.
+ *  Anyone still holding the old one loses access immediately. */
+export async function rotateScorerCode(
+  tournamentId: string
+): Promise<{ success: boolean; error?: string; code?: string }> {
+  await gate();
+  const t = await db.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { id: true, liveScoringEnabled: true },
+  });
+  if (!t) return { success: false, error: "Tournament not found" };
+  if (!t.liveScoringEnabled) {
+    return { success: false, error: "Live scoring is off for this tournament" };
+  }
+  const code = scorerCodeGen();
+  await db.tournament.update({ where: { id: tournamentId }, data: { scorerCode: code } });
+  revalidatePath(`/admin/tournaments/${tournamentId}`);
+  return { success: true, code };
 }

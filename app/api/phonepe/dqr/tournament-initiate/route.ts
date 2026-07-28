@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { isDqrConfigured, qrInit, intentInit } from "@/lib/phonepe-dqr";
+import { settlePriorTournamentDqrTxn } from "@/lib/dqr-inflight";
+import { areTournamentsEnabled } from "@/lib/tournaments";
 import { onlinePayable } from "@/lib/tournament-config";
 
 const DQR_TTL_MINUTES = 15;
@@ -18,7 +20,7 @@ export async function POST(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Sign in first" }, { status: 401 });
   }
-  if (!isDqrConfigured()) {
+  if (!isDqrConfigured() || !(await areTournamentsEnabled())) {
     return NextResponse.json(
       { error: "UPI QR payments are not available right now" },
       { status: 503 }
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
       status: true,
       captainUserId: true,
       discount: true,
+      paymentRef: true,
       tournament: {
         select: { name: true, entryFee: true, feeMode: true, advancePct: true },
       },
@@ -44,6 +47,20 @@ export async function POST(request: NextRequest) {
   }
   if (team.status !== "PENDING_PAYMENT") {
     return NextResponse.json({ error: "This registration isn't awaiting payment" }, { status: 400 });
+  }
+
+  // paymentRef is the ONLY pointer from a PhonePe txn back to this team.
+  // Settle whatever is already attached before overwriting it — otherwise a
+  // late-settling earlier payment becomes unrecoverable (no team, no orphan).
+  const priorTxn = team.paymentRef?.startsWith("DQRT_") ? team.paymentRef : null;
+  if (priorTxn) {
+    const settled = await settlePriorTournamentDqrTxn({
+      transactionId: priorTxn,
+      teamId: team.id,
+      userId,
+      request,
+    });
+    if (settled) return settled;
   }
 
   // Server-side amount — never from the client.

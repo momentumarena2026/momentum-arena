@@ -129,9 +129,15 @@ export function tournamentIsPools(t: Pick<Tournament, "format">): boolean {
 }
 
 export function scorerCodeGen(): string {
-  // 8-char uppercase code, unambiguous alphabet.
+  // 10-char uppercase code from an unambiguous alphabet (~49 bits).
+  // This code IS the scorer's credential, so it comes from the CSPRNG —
+  // Math.random() is a predictable PRNG and never acceptable for a secret.
+  // Web Crypto (global in Node 18+ and the browser) keeps this file free of
+  // server-only imports, as the header note requires.
   const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(10);
+  globalThis.crypto.getRandomValues(bytes);
   let out = "";
-  for (let i = 0; i < 8; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  for (let i = 0; i < 10; i++) out += alphabet[bytes[i]! % alphabet.length];
   return out;
 }

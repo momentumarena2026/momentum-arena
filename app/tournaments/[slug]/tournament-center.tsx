@@ -20,6 +20,7 @@ type MatchLite = {
   homeScore: number | null; awayScore: number | null;
   homeScoreNote: string | null; awayScoreNote: string | null;
   isDraw: boolean; winnerTeamId: string | null; scheduledAt: string | null;
+  liveState: unknown;
   courtConfig: { label: string } | null; playerOfMatch: { name: string } | null;
 };
 type Payload = {
@@ -230,12 +231,88 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
         )}
       </div>
     );
-    return m.status === "LIVE" && showLiveLinks ? (
-      <Link key={m.id} href={`/tournaments/${slug}/live/${m.id}`} className="block transition hover:scale-[1.01]">
+    // Every decided match opens its own match centre (scorecard +
+    // commentary + info) — the ESPN model, where the card is the doorway.
+    return m.homeTeamId && m.awayTeamId ? (
+      <Link key={m.id} href={`/tournaments/${slug}/match/${m.id}`} className="block transition hover:scale-[1.01]">
         {inner}
       </Link>
     ) : (
       <div key={m.id}>{inner}</div>
+    );
+  };
+
+  /** The pinned live card — what a follower wants before anything else. */
+  const liveHero = (m: MatchLite) => {
+    const homeT = m.homeTeamId ? teams.get(m.homeTeamId) : null;
+    const awayT = m.awayTeamId ? teams.get(m.awayTeamId) : null;
+    // Cricket reads as "30/1 (2.0)", not a bare number.
+    const cricket = (m.liveState || null) as
+      | { sport?: string; innings?: { teamId: string; runs: number; wickets: number; balls: number }[]; target?: number | null }
+      | null;
+    const lineFor = (teamId: string | null, fallback: number | null) => {
+      const inn = cricket?.sport === "CRICKET" && teamId
+        ? cricket.innings?.find((x) => x.teamId === teamId)
+        : null;
+      if (inn) return `${inn.runs}/${inn.wickets}`;
+      return String(fallback ?? 0);
+    };
+    const oversFor = (teamId: string | null) => {
+      const inn = cricket?.sport === "CRICKET" && teamId
+        ? cricket.innings?.find((x) => x.teamId === teamId)
+        : null;
+      return inn ? `${Math.floor(inn.balls / 6)}.${inn.balls % 6} ov` : null;
+    };
+    return (
+      <Link
+        key={m.id}
+        href={`/tournaments/${slug}/match/${m.id}`}
+        className="block overflow-hidden rounded-2xl border border-red-500/40 bg-gradient-to-br from-red-950/40 via-zinc-900 to-zinc-950 transition hover:border-red-500/60"
+      >
+        <div className="flex items-center justify-between border-b border-red-500/20 px-4 py-2 text-[11px]">
+          <span className="flex items-center gap-1.5 font-semibold text-red-400">
+            <Radio className="h-3 w-3 animate-pulse" /> LIVE NOW
+          </span>
+          <span className="text-zinc-400">{m.roundLabel}</span>
+        </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-4">
+          <div className="flex items-center gap-2.5">
+            <TeamBadge team={homeT} size={34} />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-white">{homeT?.name || "TBD"}</div>
+              <div className="text-2xl font-bold text-emerald-400">
+                {m.homeScoreNote || lineFor(m.homeTeamId, m.homeScore)}
+                {oversFor(m.homeTeamId) && (
+                  <span className="ml-1.5 text-xs font-normal text-zinc-500">
+                    ({oversFor(m.homeTeamId)})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <span className="text-xs text-zinc-600">vs</span>
+          <div className="flex items-center justify-end gap-2.5 text-right">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-white">{awayT?.name || "TBD"}</div>
+              <div className="text-2xl font-bold text-emerald-400">
+                {m.awayScoreNote || lineFor(m.awayTeamId, m.awayScore)}
+                {oversFor(m.awayTeamId) && (
+                  <span className="ml-1.5 text-xs font-normal text-zinc-500">
+                    ({oversFor(m.awayTeamId)})
+                  </span>
+                )}
+              </div>
+            </div>
+            <TeamBadge team={awayT} size={34} />
+          </div>
+        </div>
+        <div className="border-t border-red-500/20 px-4 py-2 text-center text-xs text-zinc-400">
+          {cricket?.target ? (
+            <span className="text-amber-400">Target {cricket.target} · </span>
+          ) : null}
+          Tap for the live scorecard &amp; ball-by-ball →
+        </div>
+      </Link>
     );
   };
 
@@ -246,22 +323,20 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
         <Link href={`/tournaments/${slug}`} className="hover:text-zinc-300">← {t.name}</Link>
       </div>
 
-      {/* LIVE strip */}
-      {liveMatches.length > 0 && showLiveLinks && (
-        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="mb-4 space-y-2">
-          {liveMatches.map((m) => (
-            <Link
-              key={m.id}
-              href={`/tournaments/${slug}/live/${m.id}`}
-              className="flex items-center justify-between rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm hover:bg-red-500/15"
-            >
-              <span className="flex items-center gap-2 text-red-300">
-                <Radio className="h-4 w-4 animate-pulse" />
-                {name(m.homeTeamId)} {m.homeScore ?? 0}–{m.awayScore ?? 0} {name(m.awayTeamId)}
-              </span>
-              <span className="text-xs text-red-400">Watch live →</span>
-            </Link>
-          ))}
+      {/* LIVE card(s), pinned above everything */}
+      {liveMatches.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="mb-5 space-y-3">
+          {liveMatches.map((m) => liveHero(m))}
+          {showLiveLinks && (
+            <div className="flex justify-center">
+              <Link
+                href={`/tournaments/${slug}/live/${liveMatches[0]!.id}`}
+                className="text-xs text-red-400 underline-offset-2 hover:underline"
+              >
+                Open the big-screen view →
+              </Link>
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -474,22 +549,40 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
       {tab === "matches" && (
         <div className="space-y-5">
           {(() => {
-            const byDay = new Map<string, MatchLite[]>();
-            for (const m of data.matches) {
-              const key = m.scheduledAt
-                ? new Date(m.scheduledAt).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" })
-                : "To be scheduled";
-              byDay.set(key, [...(byDay.get(key) || []), m]);
-            }
-            if (byDay.size === 0) {
+            if (data.matches.length === 0) {
               return <p className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 text-center text-sm text-zinc-500">Fixtures coming soon.</p>;
             }
-            return [...byDay.entries()].map(([day, ms]) => (
-              <div key={day}>
-                <h3 className="mb-2 text-sm font-semibold text-zinc-300">{day}</h3>
-                <div className="grid gap-2 sm:grid-cols-2">{ms.map((m) => matchCard(m))}</div>
-              </div>
-            ));
+            // ESPN's ordering: what's on now, then what's next, then results.
+            // Within upcoming/results, group by match day.
+            const live = data.matches.filter((m) => m.status === "LIVE");
+            const done = data.matches.filter((m) => ["COMPLETED", "WALKOVER"].includes(m.status));
+            const upcoming = data.matches.filter(
+              (m) => !live.includes(m) && !done.includes(m)
+            );
+            const byDay = (ms: MatchLite[]) => {
+              const map = new Map<string, MatchLite[]>();
+              for (const m of ms) {
+                const key = m.scheduledAt
+                  ? new Date(m.scheduledAt).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" })
+                  : "Date to be confirmed";
+                map.set(key, [...(map.get(key) || []), m]);
+              }
+              return [...map.entries()];
+            };
+            const section = (title: string, ms: MatchLite[], accent?: string) =>
+              ms.length === 0 ? null : (
+                <div key={title}>
+                  <h3 className={`mb-2 text-sm font-semibold ${accent || "text-zinc-300"}`}>{title}</h3>
+                  <div className="grid gap-2 sm:grid-cols-2">{ms.map((m) => matchCard(m))}</div>
+                </div>
+              );
+            return (
+              <>
+                {section("● Live now", live, "text-red-400")}
+                {byDay(upcoming).map(([day, ms]) => section(day, ms))}
+                {section("Results", done, "text-zinc-400")}
+              </>
+            );
           })()}
         </div>
       )}
