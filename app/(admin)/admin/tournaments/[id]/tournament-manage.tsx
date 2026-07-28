@@ -304,7 +304,19 @@ export function TournamentManage({
           {t.liveScoringEnabled && (
             <span className="flex items-center gap-1 rounded-full border border-red-500/40 px-2.5 py-1 text-xs text-red-400">
               <Radio className="h-3 w-3" /> Live scoring · {t.liveScreenPlatform.replace("_", " ")}
-              {t.scorerCode && <span className="ml-1 font-mono text-zinc-400">code {t.scorerCode}</span>}
+              {/* A link, not just text — rotating the code changes it, and a
+                  bookmarked old URL is the fastest way to see "invalid code". */}
+              {t.scorerCode && (
+                <a
+                  href={`/score/${t.scorerCode}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-1 font-mono text-zinc-300 underline decoration-dotted underline-offset-2 hover:text-white"
+                  title="Open the scorer console with the current code"
+                >
+                  {t.scorerCode} ↗
+                </a>
+              )}
               <button
                 onClick={doRotateCode}
                 disabled={busy === "rotate"}

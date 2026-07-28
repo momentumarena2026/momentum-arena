@@ -13,13 +13,29 @@ import type { RootStackParamList } from "./types";
  */
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
+/**
+ * Navigate to a root-stack screen from anywhere.
+ *
+ * Returns false when it couldn't (container not mounted, or the navigate
+ * threw) so the caller can say something instead of leaving the user
+ * staring at a button that appears to do nothing — the exact failure mode
+ * this helper exists to eliminate.
+ */
 export function navigateRoot<Name extends keyof RootStackParamList>(
-  ...args: undefined extends RootStackParamList[Name]
-    ? [screen: Name] | [screen: Name, params: RootStackParamList[Name]]
-    : [screen: Name, params: RootStackParamList[Name]]
-): void {
-  if (!navigationRef.isReady()) return;
-  // @ts-expect-error — the tuple spread is correct at every call site but
-  // the generic doesn't narrow through the variadic signature.
-  navigationRef.navigate(...args);
+  screen: Name,
+  params?: RootStackParamList[Name]
+): boolean {
+  if (!navigationRef.isReady()) {
+    console.warn("[nav] navigateRoot before the container was ready:", screen);
+    return false;
+  }
+  try {
+    // @ts-expect-error — params is correctly typed per screen at the call
+    // sites; the generic doesn't narrow through the optional parameter.
+    navigationRef.navigate(screen, params);
+    return true;
+  } catch (err) {
+    console.warn("[nav] navigateRoot failed:", screen, err);
+    return false;
+  }
 }

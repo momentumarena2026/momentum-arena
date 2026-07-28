@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { checkRateLimit, recordRateLimitHit, clientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,18 +15,11 @@ export async function GET(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const gate = await checkRateLimit({
-    identifier: clientIp(_req),
-    action: "tournament_scorer",
-    limit: 60,
-    windowSeconds: 300,
-  });
-  if (!gate.allowed) {
-    return NextResponse.json(
-      { error: "Too many attempts — try again shortly" },
-      { status: 429, headers: { "Retry-After": String(gate.retryAfter) } }
-    );
-  }
+  // Throttling happens AFTER the lookup and only on a miss. Two reasons:
+  // the console polls with a valid code every few seconds (counting those
+  // would lock the scorer out of their own match), and a venue shares one
+  // NAT'd IP — so one person fat-fingering a code must never bar the real
+  // scorer. A guesser still gets cut off; a correct code always works.
   const t = await db.tournament.findUnique({
     where: { scorerCode: code.toUpperCase() },
     select: {
@@ -64,6 +57,21 @@ export async function GET(
     },
   });
   if (!t || !t.liveScoringEnabled) {
+    const ip = clientIp(_req);
+    const gate = await checkRateLimit({
+      identifier: ip,
+      action: "tournament_scorer_fail",
+      limit: 20,
+      windowSeconds: 300,
+      peek: true,
+    });
+    await recordRateLimitHit({ identifier: ip, action: "tournament_scorer_fail", windowSeconds: 300 });
+    if (!gate.allowed) {
+      return NextResponse.json(
+        { error: "Too many invalid codes — try again shortly" },
+        { status: 429, headers: { "Retry-After": String(gate.retryAfter) } }
+      );
+    }
     return NextResponse.json({ error: "Invalid scorer code" }, { status: 404 });
   }
   return NextResponse.json({

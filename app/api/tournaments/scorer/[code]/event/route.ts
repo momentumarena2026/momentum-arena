@@ -6,7 +6,7 @@ import {
   startLiveMatch,
   endLiveMatch,
 } from "@/lib/tournament-live";
-import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { checkRateLimit, recordRateLimitHit, clientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -17,25 +17,29 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  // A real scorer taps a few times a minute; anything near this ceiling is
-  // code guessing, so it is throttled per IP before the code is even read.
-  const gate = await checkRateLimit({
-    identifier: clientIp(request),
-    action: "tournament_scorer",
-    limit: 240,
-    windowSeconds: 300,
-  });
-  if (!gate.allowed) {
-    return NextResponse.json(
-      { error: "Too many attempts — try again shortly" },
-      { status: 429, headers: { "Retry-After": String(gate.retryAfter) } }
-    );
-  }
+  // Throttle only on a miss, after the lookup — a correct code must always
+  // work (the scorer taps through an over on the venue's shared IP), while
+  // a guesser is cut off. Shares the failure counter with the GET route.
   const t = await db.tournament.findUnique({
     where: { scorerCode: code.toUpperCase() },
     select: { id: true, liveScoringEnabled: true },
   });
   if (!t || !t.liveScoringEnabled) {
+    const ip = clientIp(request);
+    const gate = await checkRateLimit({
+      identifier: ip,
+      action: "tournament_scorer_fail",
+      limit: 20,
+      windowSeconds: 300,
+      peek: true,
+    });
+    await recordRateLimitHit({ identifier: ip, action: "tournament_scorer_fail", windowSeconds: 300 });
+    if (!gate.allowed) {
+      return NextResponse.json(
+        { error: "Too many invalid codes — try again shortly" },
+        { status: 429, headers: { "Retry-After": String(gate.retryAfter) } }
+      );
+    }
     return NextResponse.json({ error: "Invalid scorer code" }, { status: 404 });
   }
 

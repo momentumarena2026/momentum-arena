@@ -146,7 +146,16 @@ export function AdminTournamentsScreen() {
               {/* One tap into the native pad — no retyping a URL on a
                   field phone, and no admin login needed to score. */}
               <Pressable
-                onPress={() => navigateRoot("ScorerConsole", { code: t.scorerCode! })}
+                onPress={() => {
+                  const ok = navigateRoot("ScorerConsole", { code: t.scorerCode! });
+                  // Never fail silently — a dead button is the worst outcome.
+                  if (!ok) {
+                    Alert.alert(
+                      "Couldn't open the scorer",
+                      `Open this on the scoring device instead:\n\n/score/${t.scorerCode}`
+                    );
+                  }
+                }}
                 style={[styles.chipBtn, { borderColor: "rgba(248,113,113,0.4)" }]}
               >
                 <Text style={{ color: "#f87171", fontSize: 12 }}>Open scorer</Text>

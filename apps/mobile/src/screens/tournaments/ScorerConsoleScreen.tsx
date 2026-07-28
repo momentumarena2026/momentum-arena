@@ -125,9 +125,14 @@ export function ScorerConsoleScreen() {
     try {
       setBoot(await fetchScorerBoot(code));
       setInvalid(false);
+      setError(null);
     } catch (e) {
-      // Only a genuinely bad code kills the screen; a blip keeps the pad up.
-      if (e instanceof Error && /404|invalid/i.test(e.message) && !boot) setInvalid(true);
+      // Only a genuinely bad code (404) kills the screen. A throttle or a
+      // network blip must never masquerade as "invalid code", and must
+      // never tear down a console mid-match.
+      const status = (e as { status?: number })?.status;
+      if (status === 404 && !boot) setInvalid(true);
+      else if (status === 429) setError("Too many attempts — wait a minute and pull to retry.");
     }
   }, [code, boot]);
 

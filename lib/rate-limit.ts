@@ -15,8 +15,12 @@ export async function checkRateLimit(args: {
   action: string;
   limit: number;
   windowSeconds: number;
+  /** Read the counter without spending one. Pair with recordRateLimitHit()
+   *  on the failure path when only failures should count toward the cap
+   *  (credential guessing) and legitimate traffic must stay unthrottled. */
+  peek?: boolean;
 }): Promise<{ allowed: boolean; retryAfter: number }> {
-  const { identifier, action, limit, windowSeconds } = args;
+  const { identifier, action, limit, windowSeconds, peek } = args;
   const now = new Date();
   const key = { identifier_action: { identifier: identifier.slice(0, 190), action } };
 
@@ -26,11 +30,13 @@ export async function checkRateLimit(args: {
       !record || record.windowStart.getTime() + windowSeconds * 1000 <= now.getTime();
 
     if (windowExpired) {
-      await db.rateLimit.upsert({
-        where: key,
-        create: { identifier: identifier.slice(0, 190), action, count: 1, windowStart: now },
-        update: { count: 1, windowStart: now },
-      });
+      if (!peek) {
+        await db.rateLimit.upsert({
+          where: key,
+          create: { identifier: identifier.slice(0, 190), action, count: 1, windowStart: now },
+          update: { count: 1, windowStart: now },
+        });
+      }
       return { allowed: true, retryAfter: 0 };
     }
 
@@ -42,11 +48,34 @@ export async function checkRateLimit(args: {
       return { allowed: false, retryAfter };
     }
 
-    await db.rateLimit.update({ where: key, data: { count: { increment: 1 } } });
+    if (!peek) await db.rateLimit.update({ where: key, data: { count: { increment: 1 } } });
     return { allowed: true, retryAfter: 0 };
   } catch {
     // Never let the limiter itself take an endpoint down.
     return { allowed: true, retryAfter: 0 };
+  }
+}
+
+/** Spend one unit of a peeked budget — call on the failure path only. */
+export async function recordRateLimitHit(args: {
+  identifier: string;
+  action: string;
+  windowSeconds: number;
+}): Promise<void> {
+  const { identifier, action, windowSeconds } = args;
+  const now = new Date();
+  const key = { identifier_action: { identifier: identifier.slice(0, 190), action } };
+  try {
+    const record = await db.rateLimit.findUnique({ where: key });
+    const expired =
+      !record || record.windowStart.getTime() + windowSeconds * 1000 <= now.getTime();
+    await db.rateLimit.upsert({
+      where: key,
+      create: { identifier: identifier.slice(0, 190), action, count: 1, windowStart: now },
+      update: expired ? { count: 1, windowStart: now } : { count: { increment: 1 } },
+    });
+  } catch {
+    /* never let bookkeeping break a response */
   }
 }
 

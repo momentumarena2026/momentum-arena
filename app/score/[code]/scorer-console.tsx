@@ -89,7 +89,10 @@ export function ScorerConsole({ code }: { code: string }) {
     try {
       const res = await fetch(`/api/tournaments/scorer/${code}`, { cache: "no-store" });
       if (!res.ok) {
-        setNotFound(true);
+        // 404 = wrong/rotated code. Anything else (429, a blip) must not
+        // masquerade as an invalid code, and must not kill a live console.
+        if (res.status === 404) setNotFound(true);
+        else if (res.status === 429) setError("Too many attempts — wait a minute and reload.");
         return;
       }
       setBoot(await res.json());
