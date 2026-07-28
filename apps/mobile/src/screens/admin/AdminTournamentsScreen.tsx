@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ChevronLeft, Radio, Trophy } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -19,6 +21,7 @@ import {
   type AdminMatchRow,
   type AdminTournamentDetail,
 } from "../../lib/admin-tournaments";
+import type { RootStackParamList } from "../../navigation/types";
 
 // Lifecycle transitions mirrored from lib/tournament-config STATUS_FLOW.
 const FLOW: Record<string, string[]> = {
@@ -52,6 +55,10 @@ const input: object = {
 
 export function AdminTournamentsScreen() {
   const queryClient = useQueryClient();
+  // The scorer screens live on the ROOT stack (they're auth-free).
+  // navigate() bubbles up through parent navigators until it finds the
+  // route, so no manual getParent() walk is needed from inside the shell.
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [scoreFor, setScoreFor] = useState<string | null>(null);
@@ -138,9 +145,19 @@ export function AdminTournamentsScreen() {
             {t.sport} · {t.status} · {t.teams.filter((x) => x.status === "CONFIRMED").length}/{t.totalTeams} teams
           </Text>
           {t.liveScoringEnabled && t.scorerCode && (
-            <Text style={{ color: "#f87171", fontSize: 12 }}>
-              Scorer code: <Text style={{ fontWeight: "700" }}>{t.scorerCode}</Text> (open /score/{t.scorerCode} on the field phone)
-            </Text>
+            <View style={[styles.rowWrap, { marginTop: 4, alignItems: "center" }]}>
+              <Text style={{ color: "#f87171", fontSize: 12 }}>
+                Scorer code: <Text style={{ fontWeight: "700" }}>{t.scorerCode}</Text>
+              </Text>
+              {/* One tap into the native pad — no retyping a URL on a
+                  field phone, and no admin login needed to score. */}
+              <Pressable
+                onPress={() => rootNavigation.navigate("ScorerConsole", { code: t.scorerCode! })}
+                style={[styles.chipBtn, { borderColor: "rgba(248,113,113,0.4)" }]}
+              >
+                <Text style={{ color: "#f87171", fontSize: 12 }}>Open scorer</Text>
+              </Pressable>
+            </View>
           )}
 
           {/* Lifecycle */}

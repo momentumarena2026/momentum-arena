@@ -26,6 +26,8 @@ import { OtpScreen } from "../screens/auth/OtpScreen";
 import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
 import { AdminNavigator } from "./AdminNavigator";
 import { ChatScreen } from "../screens/chat/ChatScreen";
+import { ScorerEntryScreen } from "../screens/tournaments/ScorerEntryScreen";
+import { ScorerConsoleScreen } from "../screens/tournaments/ScorerConsoleScreen";
 import type { RootStackParamList } from "./types";
 import { stackHeaderOptions } from "./headerOptions";
 
@@ -304,6 +306,30 @@ export function RootNavigator() {
             headerShadowVisible: false,
           }}
         />
+        {/* On-field scoring. Root-level and auth-free by design: the
+            scorer code is the credential, so a volunteer needs no
+            account — same rule as the web /score/[code] console. */}
+        <Stack.Group
+          screenOptions={{
+            presentation: "card",
+            animation: "slide_from_right",
+            headerStyle: { backgroundColor: colors.background },
+            headerTitleStyle: { color: colors.foreground },
+            headerTintColor: colors.primary,
+            headerShadowVisible: false,
+          }}
+        >
+          <Stack.Screen
+            name="ScorerEntry"
+            component={ScorerEntryScreen}
+            options={{ title: "Score a match" }}
+          />
+          <Stack.Screen
+            name="ScorerConsole"
+            component={ScorerConsoleScreen}
+            options={{ title: "Scoring" }}
+          />
+        </Stack.Group>
       </Stack.Navigator>
     </NavigationContainer>
     {/* Top progress bar — overlay sibling of the navigator so it

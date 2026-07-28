@@ -146,6 +146,11 @@ export type RootStackParamList = {
   // it can still be opened from the Account screen tile without
   // taking up a bottom-nav slot.
   Chat: undefined;
+  // On-field scoring. These sit on the ROOT stack, not under Account or
+  // AdminShell, because the scorer code is the credential — a volunteer
+  // scores without an account of any kind.
+  ScorerEntry: undefined;
+  ScorerConsole: { code: string };
 };
 
 /** Admin nav stacks live inside AdminShell — reachable only from the

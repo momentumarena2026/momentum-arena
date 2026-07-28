@@ -257,6 +257,57 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre> {
   return api.get<MatchCentre>(`/api/tournaments/match/${matchId}`, { auth: false });
 }
 
+// ── Scorer console ──────────────────────────────────────────────────
+// The per-tournament scorer code IS the credential — deliberately NOT
+// bearer-authed, so an on-field volunteer can score without an admin
+// account (or any account at all).
+
+export type ScorerMember = { id: string; name: string };
+export type ScorerTeam = { id: string; name: string; color: string | null; members: ScorerMember[] };
+export type ScorerMatch = {
+  id: string;
+  status: string;
+  stage: string;
+  roundLabel: string | null;
+  scheduledAt: string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  homeTeam: ScorerTeam;
+  awayTeam: ScorerTeam;
+  liveState: unknown;
+  clockStartedAt: string | null;
+  clockElapsedSec: number;
+};
+export type ScorerBoot = {
+  tournament: { id: string; name: string; sport: string; status: string };
+  matches: ScorerMatch[];
+};
+
+export type ScorerAction =
+  | { action: "start"; matchId: string }
+  | { action: "undo"; matchId: string }
+  | { action: "end"; matchId: string; winnerTeamId?: string | null }
+  | {
+      action: "event";
+      matchId: string;
+      event: { kind: string; teamId?: string; memberId?: string; data?: Record<string, unknown> };
+    };
+
+/** Boot the console: the tournament behind a code + its scoreable matches.
+ *  Throws ApiError 404 on a bad code, 429 when rate-limited. */
+export async function fetchScorerBoot(code: string): Promise<ScorerBoot> {
+  return api.get<ScorerBoot>(`/api/tournaments/scorer/${encodeURIComponent(code)}`, { auth: false });
+}
+
+export async function sendScorerAction(
+  code: string,
+  payload: ScorerAction
+): Promise<{ success?: boolean; error?: string; needsWinner?: boolean }> {
+  return api.post(`/api/tournaments/scorer/${encodeURIComponent(code)}/event`, payload, {
+    auth: false,
+  });
+}
+
 export async function fetchRewardsPreview(amount: number): Promise<{ maxPoints: number; maxPaise: number }> {
   return api.get(`/api/tournaments/rewards-preview?amount=${amount}`);
 }
