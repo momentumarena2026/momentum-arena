@@ -44,6 +44,7 @@ type CricketCurrent = {
   needsBowler: boolean;
   dismissed: string[];
   spells: { id: string; balls: number }[];
+  lastOverBowlerId: string | null;
 };
 type CricketState = {
   inning: number;
@@ -170,12 +171,27 @@ export function ScorerConsole({ code }: { code: string }) {
   const nameOfPlayer = (id: string | null) => allPlayers.find((p) => p.id === id)?.name || null;
   const creaseFigs = (id: string | null) => liveCur?.batters.find((b) => b.id === id) || null;
 
+  // What the next delivery is still missing. needsBatter/needsBowler only
+  // fire AFTER a wicket or a completed over — at the start of an innings
+  // both ends are simply empty, which is how runs used to get logged with
+  // nobody on strike and nobody bowling. This covers every case.
+  const inningsUnderway =
+    ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
+  const missing: "striker" | "bowler" | null =
+    boot?.tournament.sport === "CRICKET" && inningsUnderway
+      ? !strikerId
+        ? "striker"
+        : !bowlerId
+          ? "bowler"
+          : null
+      : null;
+
   // Ask for what's needed the moment it's needed, rather than making the
-  // scorer hunt for it after every wicket / over.
+  // scorer hunt for it. Keyed on `missing`, so closing the sheet doesn't
+  // immediately reopen it — the pad stays disabled with a hint instead.
   useEffect(() => {
-    if (needsBatter) setPicker("striker");
-    else if (needsBowler) setPicker("bowler");
-  }, [needsBatter, needsBowler]);
+    if (missing) setPicker(missing);
+  }, [missing]);
 
   /** A cricket delivery, attributed to the striker + bowler. Strike
    *  rotation and the over/wicket bookkeeping happen in the fold, so the
@@ -455,37 +471,47 @@ export function ScorerConsole({ code }: { code: string }) {
                   </div>
                 ) : (
                   <>
+                    {missing && (
+                      <button
+                        onClick={() => setPicker(missing)}
+                        className="w-full rounded-xl border border-amber-500/40 bg-amber-600/10 px-4 py-3 text-sm text-amber-300"
+                      >
+                        {missing === "striker"
+                          ? "Pick the batter on strike to start scoring"
+                          : "Pick the bowler to start scoring"}
+                      </button>
+                    )}
                     <div className="grid grid-cols-4 gap-2">
                       {[0, 1, 2, 3, 4, 6].map((r) => (
                         <button
                           key={r}
                           onClick={() => ball({ runs: r })}
-                          disabled={busy}
-                          className={`${bigBtn} h-16 ${r === 4 || r === 6 ? "border-emerald-500/40 bg-emerald-600/15 text-emerald-300" : "border-zinc-700 bg-zinc-900 text-white"}`}
+                          disabled={busy || !!missing}
+                          className={`${bigBtn} h-16 ${r === 4 || r === 6 ? "border-emerald-500/40 bg-emerald-600/15 text-emerald-300" : "border-zinc-700 bg-zinc-900 text-white"} disabled:opacity-40`}
                         >
                           {r}
                         </button>
                       ))}
                       <button
                         onClick={() => ball({ runs: 0, wicket: true })}
-                        disabled={busy}
-                        className={`${bigBtn} h-16 border-red-500/40 bg-red-600/15 text-red-300`}
+                        disabled={busy || !!missing}
+                        className={`${bigBtn} h-16 border-red-500/40 bg-red-600/15 text-red-300 disabled:opacity-40`}
                       >
                         W
                       </button>
                       <button
                         onClick={() => ball({ runs: 1, extra: "wd" })}
-                        disabled={busy}
-                        className={`${bigBtn} h-16 border-amber-500/40 bg-amber-600/15 text-sm text-amber-300`}
+                        disabled={busy || !!missing}
+                        className={`${bigBtn} h-16 border-amber-500/40 bg-amber-600/15 text-sm text-amber-300 disabled:opacity-40`}
                       >
                         Wd
                       </button>
                     </div>
                     <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => ball({ runs: 1, extra: "nb" })} disabled={busy} className={`${bigBtn} h-12 border-amber-500/40 bg-amber-600/10 text-sm text-amber-300`}>
+                      <button onClick={() => ball({ runs: 1, extra: "nb" })} disabled={busy || !!missing} className={`${bigBtn} h-12 border-amber-500/40 bg-amber-600/10 text-sm text-amber-300 disabled:opacity-40`}>
                         No Ball +1
                       </button>
-                      <button onClick={() => ball({ runs: 1, extra: "b" })} disabled={busy} className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300`}>
+                      <button onClick={() => ball({ runs: 1, extra: "b" })} disabled={busy || !!missing} className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300 disabled:opacity-40`}>
                         Bye +1
                       </button>
                       {cs && cs.inning === 1 && (
@@ -715,16 +741,22 @@ export function ScorerConsole({ code }: { code: string }) {
                     </p>
                   );
                 }
-                // A dismissed batter can't come back in, and a bowler who
-                // has bowled the tournament's quota can't bowl again.
+                // Mirror of the server's rules (lib/tournament-live
+                // validateLiveEvent) so the scorer sees them before tapping:
+                // a dismissed batter can't come back in, and a bowler can
+                // neither exceed the quota nor bowl two overs in a row.
                 const maxOvers = boot.tournament.maxOversPerBowler || 0;
+                const startingOver = (liveCur?.thisOver.length ?? 0) === 0;
                 const blockedFor = (id: string): string | null => {
                   if (picker === "striker" || picker === "nonStriker") {
                     return liveCur?.dismissed.includes(id) ? "out" : null;
                   }
-                  if (picker === "bowler" && maxOvers > 0) {
-                    const balls = liveCur?.spells.find((sp) => sp.id === id)?.balls ?? 0;
-                    if (balls >= maxOvers * 6) return `${maxOvers} ov bowled`;
+                  if (picker === "bowler") {
+                    if (startingOver && liveCur?.lastOverBowlerId === id) return "bowled last over";
+                    if (maxOvers > 0) {
+                      const balls = liveCur?.spells.find((sp) => sp.id === id)?.balls ?? 0;
+                      if (balls >= maxOvers * 6) return `${maxOvers} ov bowled`;
+                    }
                   }
                   return null;
                 };

@@ -50,6 +50,7 @@ type CricketCurrent = {
   needsBowler: boolean;
   dismissed: string[];
   spells: { id: string; balls: number }[];
+  lastOverBowlerId: string | null;
 };
 type CricketState = {
   inning: number;
@@ -212,12 +213,29 @@ export function ScorerConsoleScreen() {
   const needsBatter = !!liveCur?.needsBatter && !pickStriker;
   const needsBowler = !!liveCur?.needsBowler && !pickBowler;
 
+  // What the next delivery is still missing. needsBatter/needsBowler only
+  // fire AFTER a wicket or a completed over — at the start of an innings
+  // both ends are simply empty, which is how runs used to get logged with
+  // nobody on strike and nobody bowling.
+  const cricketStarted = ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
+  const missing: "striker" | "bowler" | null =
+    boot?.tournament.sport === "CRICKET" && cricketStarted
+      ? !strikerId
+        ? "striker"
+        : !bowlerId
+          ? "bowler"
+          : null
+      : null;
+
   // The pad asks for what it needs, the moment it needs it — no hunting
-  // through a wall of chips after every wicket.
+  // through a wall of chips after every wicket. Keyed on `missing`, so
+  // closing the sheet doesn't immediately reopen it; the pad stays
+  // disabled behind a hint instead.
+  const padLocked = busy || !!missing;
+
   useEffect(() => {
-    if (needsBatter) setPicker("striker");
-    else if (needsBowler) setPicker("bowler");
-  }, [needsBatter, needsBowler]);
+    if (missing) setPicker(missing);
+  }, [missing]);
 
   const send = async (payload: Record<string, unknown>) => {
     if (!matchId || busy) return;
@@ -525,23 +543,35 @@ export function ScorerConsoleScreen() {
                 </View>
               ) : (
                 <>
+                  {/* A delivery needs someone on strike and someone
+                      bowling — the server rejects it otherwise, so say so
+                      here rather than letting the tap fail. */}
+                  {!!missing && (
+                    <Pressable onPress={() => setPicker(missing)} style={s.needBanner}>
+                      <Text style={s.needBannerText}>
+                        {missing === "striker"
+                          ? "Pick the batter on strike to start scoring"
+                          : "Pick the bowler to start scoring"}
+                      </Text>
+                    </Pressable>
+                  )}
                   {/* Run pad — the 95% action, right under the thumb */}
                   <View style={s.padRow}>
-                    <PadKey glyph="0" caption="DOT" busy={busy} onPress={() => ball({ runs: 0 })} />
-                    <PadKey glyph="1" caption="RUN" busy={busy} onPress={() => ball({ runs: 1 })} />
-                    <PadKey glyph="2" caption="RUNS" busy={busy} onPress={() => ball({ runs: 2 })} />
-                    <PadKey glyph="3" caption="RUNS" busy={busy} onPress={() => ball({ runs: 3 })} />
+                    <PadKey glyph="0" caption="DOT" busy={padLocked} onPress={() => ball({ runs: 0 })} />
+                    <PadKey glyph="1" caption="RUN" busy={padLocked} onPress={() => ball({ runs: 1 })} />
+                    <PadKey glyph="2" caption="RUNS" busy={padLocked} onPress={() => ball({ runs: 2 })} />
+                    <PadKey glyph="3" caption="RUNS" busy={padLocked} onPress={() => ball({ runs: 3 })} />
                   </View>
                   <View style={s.padRow}>
-                    <PadKey glyph="4" caption="FOUR" tone="boundary" busy={busy} onPress={() => ball({ runs: 4 })} />
-                    <PadKey glyph="6" caption="SIX" tone="boundary" busy={busy} onPress={() => ball({ runs: 6 })} />
-                    <PadKey glyph="W" caption="OUT" tone="wicket" busy={busy} onPress={() => ball({ runs: 0, wicket: true })} />
-                    <PadKey glyph="Wd" caption="WIDE" tone="extra" busy={busy} onPress={() => ball({ runs: 1, extra: "wd" })} />
+                    <PadKey glyph="4" caption="FOUR" tone="boundary" busy={padLocked} onPress={() => ball({ runs: 4 })} />
+                    <PadKey glyph="6" caption="SIX" tone="boundary" busy={padLocked} onPress={() => ball({ runs: 6 })} />
+                    <PadKey glyph="W" caption="OUT" tone="wicket" busy={padLocked} onPress={() => ball({ runs: 0, wicket: true })} />
+                    <PadKey glyph="Wd" caption="WIDE" tone="extra" busy={padLocked} onPress={() => ball({ runs: 1, extra: "wd" })} />
                   </View>
 
                   <View style={s.padRow}>
-                    <PadKey glyph="Nb" caption="NO BALL" tone="extra" busy={busy} onPress={() => ball({ runs: 1, extra: "nb" })} />
-                    <PadKey glyph="B" caption="BYE" busy={busy} onPress={() => ball({ runs: 1, extra: "b" })} />
+                    <PadKey glyph="Nb" caption="NO BALL" tone="extra" busy={padLocked} onPress={() => ball({ runs: 1, extra: "nb" })} />
+                    <PadKey glyph="B" caption="BYE" busy={padLocked} onPress={() => ball({ runs: 1, extra: "b" })} />
                     {cs.inning === 1 ? (
                       <PadKey
                         glyph="⤁"
@@ -692,16 +722,23 @@ export function ScorerConsoleScreen() {
             <ScrollView style={{ maxHeight: 380 }}>
               {(pickerTeam ? pickerTeam.members : allPlayers).map((p) => {
                 const on = p.id === pickerValue;
-                // A dismissed batter can't come back in, and a bowler who
-                // has bowled the tournament's quota can't bowl again.
+                // Mirror of the server's rules (validateLiveEvent) so the
+                // scorer sees them before tapping: a dismissed batter can't
+                // come back in, and a bowler can neither exceed the quota
+                // nor bowl two overs in a row.
                 const spellBalls = liveCur?.spells.find((sp) => sp.id === p.id)?.balls ?? 0;
+                const startingOver = (liveCur?.thisOver.length ?? 0) === 0;
                 const blocked =
                   picker === "striker" || picker === "nonStriker"
                     ? liveCur?.dismissed.includes(p.id)
                       ? "out"
                       : null
-                    : picker === "bowler" && maxOvers > 0 && spellBalls >= maxOvers * 6
-                      ? `${maxOvers} ov bowled`
+                    : picker === "bowler"
+                      ? startingOver && liveCur?.lastOverBowlerId === p.id
+                        ? "bowled last over"
+                        : maxOvers > 0 && spellBalls >= maxOvers * 6
+                          ? `${maxOvers} ov bowled`
+                          : null
                       : null;
                 return (
                   <Pressable
@@ -835,6 +872,15 @@ const s = StyleSheet.create({
   row: { flexDirection: "row", gap: 10 },
   // Fixed-height keys in explicit rows — NOT width% + aspectRatio, so the
   // key's box is a number we chose rather than one the layout derives.
+  needBanner: {
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.45)",
+    backgroundColor: "rgba(251,191,36,0.10)",
+    borderRadius: radius.xl,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  needBannerText: { color: "#fbbf24", fontSize: 13, fontWeight: "600", textAlign: "center" },
   padRow: { flexDirection: "row", gap: 10 },
   padSpacer: { flex: 1 },
   key: {

@@ -64,6 +64,8 @@ export type CricketCurrent = {
   dismissed: string[];
   /** Balls bowled by each bowler this innings, for the over quota. */
   spells: { id: string; balls: number }[];
+  /** Who bowled the over that just finished — they can't bowl the next one. */
+  lastOverBowlerId: string | null;
 };
 
 export type CricketState = {
@@ -88,6 +90,7 @@ const emptyCurrent = (): CricketCurrent => ({
   needsBowler: false,
   dismissed: [],
   spells: [],
+  lastOverBowlerId: null,
 });
 
 /** Short label for one delivery, as it reads on a scoreboard over-strip. */
@@ -200,6 +203,7 @@ export function foldCricket(events: EventRow[]): CricketState {
         }
         cur.thisOver = [];
         cur.ballsThisOver = 0;
+        cur.lastOverBowlerId = cur.bowlerId;
         cur.bowlerId = null;
         cur.needsBowler = true;
       } else {
@@ -464,6 +468,144 @@ function sanitiseEventData(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** What the guards need to know about the match, beyond the event log. */
+export type LiveGuardContext = {
+  sport: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  /** memberId -> teamId for both rosters. */
+  memberTeam: Map<string, string>;
+  /** Cricket over quota per bowler; 0 = no limit. */
+  maxOversPerBowler: number;
+};
+
+/**
+ * State-dependent rules — the ones that need to know what has already
+ * happened, not just whether a field is well-formed.
+ *
+ * This lives on the SERVER because the scorer code is the whole
+ * credential: anyone holding it can POST straight at the endpoint, so a
+ * disabled button in the console is a courtesy, not a control. Every rule
+ * here is re-checked against a fresh fold of the log on each event.
+ *
+ * Returns a scorer-facing message, or null when the event is legal.
+ */
+export function validateLiveEvent(
+  ctx: LiveGuardContext,
+  events: EventRow[],
+  input: LiveEventInput
+): string | null {
+  const teamOf = (id: string | null | undefined) => (id ? ctx.memberTeam.get(id) : undefined);
+  const other = (teamId: string) => (teamId === ctx.homeTeamId ? ctx.awayTeamId : ctx.homeTeamId);
+  const d = (input.data || {}) as Record<string, unknown>;
+
+  if (ctx.sport === "CRICKET") {
+    const st = foldCricket(events);
+    if (input.kind === "INNINGS_START") {
+      if (!input.teamId) return "Pick which team is batting";
+      if (st.inning >= 2) return "Both innings have already been played";
+      if (st.innings.some((i) => i.teamId === input.teamId)) return "That team has already batted";
+      return null;
+    }
+    if (input.kind === "BALL") {
+      if (st.inning === 0 || !st.battingTeamId) return "Start an innings before scoring a ball";
+      const cur = st.current;
+      const inn = st.innings[st.innings.length - 1];
+      const batterId = (typeof d.batterId === "string" ? d.batterId : null) || input.memberId || null;
+      const bowlerId = typeof d.bowlerId === "string" ? d.bowlerId : null;
+
+      // The two that started this whole thread: a delivery with nobody on
+      // strike and nobody bowling is not a delivery, it's a typo.
+      if (!batterId) return "Pick the batter on strike first";
+      if (!bowlerId) return "Pick the bowler first";
+
+      const bowlingTeamId = other(st.battingTeamId);
+      if (teamOf(batterId) !== st.battingTeamId) return "That batter isn't in the batting side";
+      if (teamOf(bowlerId) !== bowlingTeamId) return "That bowler isn't in the fielding side";
+      if (cur.dismissed.includes(batterId)) return "That batter is already out";
+      if (inn && inn.wickets >= MAX_WICKETS_PER_INNINGS) return "All out — end the innings";
+
+      // Quota and the consecutive-overs law both bite only when the bowler
+      // is STARTING an over; mid-over they're already committed.
+      const startingOver = cur.thisOver.length === 0;
+      if (startingOver && cur.lastOverBowlerId && bowlerId === cur.lastOverBowlerId) {
+        return "A bowler can't bowl two overs in a row";
+      }
+      if (ctx.maxOversPerBowler > 0) {
+        const balls = cur.spells.find((s) => s.id === bowlerId)?.balls ?? 0;
+        if (balls >= ctx.maxOversPerBowler * 6) {
+          return `That bowler has already bowled their ${ctx.maxOversPerBowler} overs`;
+        }
+      }
+      return null;
+    }
+    return null;
+  }
+
+  if (ctx.sport === "FOOTBALL") {
+    const st = foldFootball(events);
+    if (input.kind === "GOAL") {
+      if (!input.teamId) return "Pick which team scored";
+      const ownGoal = d.ownGoal === true;
+      const assistId = typeof d.assistId === "string" ? d.assistId : null;
+      if (input.memberId) {
+        // An own goal is credited to the conceding side's player, so the
+        // scorer legitimately belongs to the OTHER team.
+        const expected = ownGoal ? other(input.teamId) : input.teamId;
+        if (teamOf(input.memberId) !== expected) {
+          return ownGoal
+            ? "An own goal must name a player from the other side"
+            : "That scorer isn't in the team that scored";
+        }
+      }
+      if (assistId) {
+        if (ownGoal) return "An own goal can't have an assist";
+        if (assistId === input.memberId) return "The assist can't be the scorer";
+        if (teamOf(assistId) !== input.teamId) return "That assist isn't in the team that scored";
+      }
+      return null;
+    }
+    if (input.kind === "CARD") {
+      if (!input.teamId) return "Pick which team the card is for";
+      if (!input.memberId) return "Pick the player being carded";
+      if (teamOf(input.memberId) !== input.teamId) return "That player isn't in that team";
+      const theirs = st.current.cards.filter((c) => c.memberId === input.memberId);
+      if (theirs.some((c) => c.card === "red")) return "That player has already been sent off";
+      if (d.card !== "red" && theirs.filter((c) => c.card === "yellow").length >= 2) {
+        return "That player already has two yellows";
+      }
+      return null;
+    }
+    if (input.kind === "CLOCK_START" && st.running) return "The clock is already running";
+    if (input.kind === "CLOCK_STOP" && !st.running) return "The clock isn't running";
+    return null;
+  }
+
+  if (ctx.sport === "PICKLEBALL") {
+    const st = foldPickleball(events, ctx.homeTeamId);
+    if (input.kind === "POINT") {
+      if (!input.teamId) return "Pick which side won the rally";
+      if (input.memberId && teamOf(input.memberId) !== input.teamId) {
+        return "That player isn't in that side";
+      }
+      return null;
+    }
+    if (input.kind === "GAME_END") {
+      // Deliberately NOT checking "11, win by 2" — the target score isn't
+      // configurable per tournament and venues play to 15 and 21 too. What
+      // IS universal: a game with no points hasn't started, and a level
+      // game has no winner to award.
+      const { home, away } = st.current;
+      if (home + away === 0) return "No points scored in this game yet";
+      if (home === away) return "The game is level — it can't end in a tie";
+      return null;
+    }
+    return null;
+  }
+
+  return null;
+}
+
 export async function applyLiveEvent(
   matchId: string,
   input: LiveEventInput,
@@ -478,7 +620,9 @@ export async function applyLiveEvent(
       awayTeamId: true,
       clockStartedAt: true,
       clockElapsedSec: true,
-      tournament: { select: { sport: true, liveScoringEnabled: true } },
+      tournament: {
+        select: { sport: true, liveScoringEnabled: true, maxOversPerBowler: true },
+      },
       homeTeam: { select: { members: { select: { id: true } } } },
       awayTeam: { select: { members: { select: { id: true } } } },
     },
@@ -509,6 +653,31 @@ export async function applyLiveEvent(
       return { ok: false, error: "Player is not in this match" };
     }
   }
+  // Now the rules that depend on what has already happened. Re-folded from
+  // the log on every event, so this holds no matter who is POSTing.
+  if (match.homeTeamId && match.awayTeamId) {
+    const memberTeam = new Map<string, string>();
+    for (const m of match.homeTeam?.members || []) memberTeam.set(m.id, match.homeTeamId);
+    for (const m of match.awayTeam?.members || []) memberTeam.set(m.id, match.awayTeamId);
+    const prior = await db.tournamentMatchEvent.findMany({
+      where: { matchId },
+      orderBy: { seq: "asc" },
+      select: { seq: true, kind: true, teamId: true, memberId: true, data: true },
+    });
+    const problem = validateLiveEvent(
+      {
+        sport: match.tournament.sport,
+        homeTeamId: match.homeTeamId,
+        awayTeamId: match.awayTeamId,
+        memberTeam,
+        maxOversPerBowler: match.tournament.maxOversPerBowler ?? 0,
+      },
+      prior,
+      input
+    );
+    if (problem) return { ok: false, error: problem };
+  }
+
   // Persist a whitelisted, bounded copy of the payload — never the raw blob.
   const data = sanitiseEventData(match.tournament.sport, input.kind, rawData);
 
