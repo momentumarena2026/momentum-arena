@@ -476,7 +476,7 @@ export function ScorerConsoleScreen() {
                       <Text style={[s.padText, { color: "#f87171" }]}>W</Text>
                     </Pressable>
                     <Pressable onPress={() => ball({ runs: 1, extra: "wd" })} disabled={busy} style={[s.padKey, s.padKeyExtra]}>
-                      <Text style={[s.padText, { color: "#fbbf24", fontSize: 20 }]}>Wd</Text>
+                      <Text style={[s.padText, s.padTextSm, { color: "#fbbf24" }]}>Wd</Text>
                     </Pressable>
                   </View>
 
@@ -757,7 +757,15 @@ const s = StyleSheet.create({
   },
   overBallW: { backgroundColor: "rgba(248,113,113,0.22)" },
   overBallB: { backgroundColor: "rgba(16,185,129,0.22)" },
-  overBallText: { color: colors.zinc300, fontSize: 11, lineHeight: 15, fontWeight: "800" },
+  // Centred in a 24px circle — same recipe as padText.
+  overBallText: {
+    color: colors.zinc300,
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: "800",
+    textAlign: "center",
+    includeFontPadding: false,
+  },
   swap: { color: colors.zinc400, fontSize: 12 },
 
   error: { color: "#f87171", fontSize: 13, textAlign: "center", paddingHorizontal: 16, paddingTop: 8 },
@@ -779,8 +787,10 @@ const s = StyleSheet.create({
   padKeyBoundary: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
   padKeyWicket: { borderColor: "rgba(248,113,113,0.45)", backgroundColor: "rgba(248,113,113,0.12)" },
   padKeyExtra: { borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(251,191,36,0.10)" },
-  // textAlign + includeFontPadding:false keeps the glyph optically centred
-  // in the key — Android otherwise adds asymmetric font padding.
+  // Same tight-line-box recipe as ui/Button: lineHeight ~1.2x the font and
+  // no Android font padding, so flexbox centring is also optical centring.
+  // Anything that overrides fontSize here must override lineHeight too —
+  // see padTextSm.
   padText: {
     color: colors.foreground,
     fontSize: 26,
@@ -789,6 +799,8 @@ const s = StyleSheet.create({
     textAlign: "center",
     includeFontPadding: false,
   },
+  /** "Wd" is set 20pt; without this it kept padText's 30 (1.5x) and rode low. */
+  padTextSm: { fontSize: 20, lineHeight: 24 },
   blockedTag: {
     color: colors.zinc400,
     fontSize: 11,
