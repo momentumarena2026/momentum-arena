@@ -94,6 +94,71 @@ function OverBall({ label }: { label: string }) {
   );
 }
 
+type PadTone = "boundary" | "wicket" | "extra" | "info";
+
+const PAD_TINT: Record<PadTone, string> = {
+  boundary: colors.emerald400,
+  wicket: "#f87171",
+  extra: "#fbbf24",
+  info: "#7dd3fc",
+};
+
+/**
+ * One key on the run pad.
+ *
+ * Three earlier attempts tried to centre the glyph by tuning `lineHeight`
+ * against the font's metrics, and each one drifted on a real Android
+ * handset. So this deliberately leaves nothing to measure:
+ *   - the key is a FIXED height, not an aspectRatio, so its box is known;
+ *   - the glyph sits in a Text whose `height` equals its own `lineHeight`,
+ *     i.e. exactly one line box, positioned by `textAlignVertical`;
+ *   - `allowFontScaling={false}` keeps the device's text-size setting from
+ *     inflating the font past that box (a scaled font inside an unscaled
+ *     lineHeight is what pins a glyph to the floor of its key);
+ *   - the caption underneath gives the key a second line, so the content
+ *     reads as a balanced block rather than one glyph hunting for centre.
+ * Every key shares one glyph box, so the captions line up across a row
+ * even where the glyph is set smaller (Wd / Nb).
+ */
+function PadKey({
+  glyph,
+  caption,
+  tone,
+  busy,
+  onPress,
+}: {
+  glyph: string;
+  caption: string;
+  tone?: PadTone;
+  busy: boolean;
+  onPress: () => void;
+}) {
+  const tint = tone ? PAD_TINT[tone] : colors.foreground;
+  const small = glyph.length > 1;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      style={({ pressed }) => [
+        s.key,
+        tone === "boundary" && s.keyBoundary,
+        tone === "wicket" && s.keyWicket,
+        tone === "extra" && s.keyExtra,
+        tone === "info" && s.keyInfo,
+        pressed && s.keyPressed,
+        busy && s.keyBusy,
+      ]}
+    >
+      <Text allowFontScaling={false} style={[s.keyGlyph, small && s.keyGlyphSm, { color: tint }]}>
+        {glyph}
+      </Text>
+      <Text allowFontScaling={false} style={[s.keyCaption, tone ? { color: tint } : null]}>
+        {caption}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function ScorerConsoleScreen() {
   const navigation = useNavigation<Nav>();
   const { code } = useRoute<Rt>().params;
@@ -461,45 +526,39 @@ export function ScorerConsoleScreen() {
               ) : (
                 <>
                   {/* Run pad — the 95% action, right under the thumb */}
-                  <View style={s.pad}>
-                    {[0, 1, 2, 3, 4, 6].map((r) => (
-                      <Pressable
-                        key={r}
-                        onPress={() => ball({ runs: r })}
-                        disabled={busy}
-                        style={[s.padKey, (r === 4 || r === 6) && s.padKeyBoundary]}
-                      >
-                        <Text style={[s.padText, (r === 4 || r === 6) && { color: colors.emerald400 }]}>{r}</Text>
-                      </Pressable>
-                    ))}
-                    <Pressable onPress={() => ball({ runs: 0, wicket: true })} disabled={busy} style={[s.padKey, s.padKeyWicket]}>
-                      <Text style={[s.padText, { color: "#f87171" }]}>W</Text>
-                    </Pressable>
-                    <Pressable onPress={() => ball({ runs: 1, extra: "wd" })} disabled={busy} style={[s.padKey, s.padKeyExtra]}>
-                      <Text style={[s.padText, s.padTextSm, { color: "#fbbf24" }]}>Wd</Text>
-                    </Pressable>
+                  <View style={s.padRow}>
+                    <PadKey glyph="0" caption="DOT" busy={busy} onPress={() => ball({ runs: 0 })} />
+                    <PadKey glyph="1" caption="RUN" busy={busy} onPress={() => ball({ runs: 1 })} />
+                    <PadKey glyph="2" caption="RUNS" busy={busy} onPress={() => ball({ runs: 2 })} />
+                    <PadKey glyph="3" caption="RUNS" busy={busy} onPress={() => ball({ runs: 3 })} />
+                  </View>
+                  <View style={s.padRow}>
+                    <PadKey glyph="4" caption="FOUR" tone="boundary" busy={busy} onPress={() => ball({ runs: 4 })} />
+                    <PadKey glyph="6" caption="SIX" tone="boundary" busy={busy} onPress={() => ball({ runs: 6 })} />
+                    <PadKey glyph="W" caption="OUT" tone="wicket" busy={busy} onPress={() => ball({ runs: 0, wicket: true })} />
+                    <PadKey glyph="Wd" caption="WIDE" tone="extra" busy={busy} onPress={() => ball({ runs: 1, extra: "wd" })} />
                   </View>
 
-                  <View style={s.row}>
-                    <Pressable onPress={() => ball({ runs: 1, extra: "nb" })} disabled={busy} style={[s.chipBtn, { flex: 1 }]}>
-                      <Text style={[s.chipText, { color: "#fbbf24" }]}>No ball</Text>
-                    </Pressable>
-                    <Pressable onPress={() => ball({ runs: 1, extra: "b" })} disabled={busy} style={[s.chipBtn, { flex: 1 }]}>
-                      <Text style={s.chipText}>Bye</Text>
-                    </Pressable>
-                    {cs.inning === 1 && (
-                      <Pressable
+                  <View style={s.padRow}>
+                    <PadKey glyph="Nb" caption="NO BALL" tone="extra" busy={busy} onPress={() => ball({ runs: 1, extra: "nb" })} />
+                    <PadKey glyph="B" caption="BYE" busy={busy} onPress={() => ball({ runs: 1, extra: "b" })} />
+                    {cs.inning === 1 ? (
+                      <PadKey
+                        glyph="⤁"
+                        caption="END INNS"
+                        tone="info"
+                        busy={busy}
                         onPress={() => {
                           const other = cs.battingTeamId === match.homeTeam.id ? match.awayTeam.id : match.homeTeam.id;
                           resetPlayers();
                           ev("INNINGS_START", { teamId: other });
                         }}
-                        disabled={busy}
-                        style={[s.chipBtn, { flex: 1.3 }]}
-                      >
-                        <Text style={[s.chipText, { color: "#7dd3fc" }]}>End innings</Text>
-                      </Pressable>
+                      />
+                    ) : (
+                      // Keep the row four keys wide so the grid never reflows.
+                      <View style={s.padSpacer} />
                     )}
+                    <View style={s.padSpacer} />
                   </View>
                 </>
               )}
@@ -774,37 +833,55 @@ const s = StyleSheet.create({
   // Controls
   controls: { padding: 14, gap: 10, paddingBottom: 28 },
   row: { flexDirection: "row", gap: 10 },
-  pad: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  padKey: {
-    width: "22.4%",
-    aspectRatio: 1.05,
+  // Fixed-height keys in explicit rows — NOT width% + aspectRatio, so the
+  // key's box is a number we chose rather than one the layout derives.
+  padRow: { flexDirection: "row", gap: 10 },
+  padSpacer: { flex: 1 },
+  key: {
+    flex: 1,
+    height: 78,
     alignItems: "center",
     justifyContent: "center",
+    gap: 3,
     borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     backgroundColor: colors.cardElevated,
   },
-  padKeyBoundary: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
-  padKeyWicket: { borderColor: "rgba(248,113,113,0.45)", backgroundColor: "rgba(248,113,113,0.12)" },
-  padKeyExtra: { borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(251,191,36,0.10)" },
-  // Same tight-line-box recipe as ui/Button, but never below 1.2x the font.
-  // Roboto's natural line box is ~1.17x; ask for less and Android clamps the
-  // DESCENT to make it fit, which eats the space under the glyph and pins it
-  // to the bottom of the key. 26/30 (1.15x) did exactly that while the 20/24
-  // "Wd" beside it centred fine. Above the threshold the extra leading splits
-  // evenly, so erring high is safe. Anything overriding fontSize must
-  // override lineHeight too — see padTextSm.
-  padText: {
-    color: colors.foreground,
-    fontSize: 26,
-    lineHeight: 32,
+  keyBoundary: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
+  keyWicket: { borderColor: "rgba(248,113,113,0.45)", backgroundColor: "rgba(248,113,113,0.12)" },
+  keyExtra: { borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(251,191,36,0.10)" },
+  keyInfo: { borderColor: "rgba(125,211,252,0.45)", backgroundColor: "rgba(125,211,252,0.10)" },
+  keyPressed: { opacity: 0.6 },
+  keyBusy: { opacity: 0.45 },
+  // height === lineHeight, so this Text is exactly one line box and
+  // textAlignVertical decides where the glyph sits inside it. Nothing here
+  // depends on the font's own ascent/descent, which is what the three
+  // previous lineHeight-tuning attempts kept getting wrong on Android.
+  keyGlyph: {
+    height: 34,
+    lineHeight: 34,
+    fontSize: 25,
     fontWeight: "800",
     textAlign: "center",
+    textAlignVertical: "center",
     includeFontPadding: false,
   },
-  /** "Wd" is set 20pt; without this it kept padText's lineHeight and rode low. */
-  padTextSm: { fontSize: 20, lineHeight: 24 },
+  /** Two-character glyphs (Wd/Nb) shrink the font but KEEP the 34px box, so
+   *  every caption in a row still sits on the same line. */
+  keyGlyphSm: { fontSize: 19 },
+  keyCaption: {
+    height: 13,
+    lineHeight: 13,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    color: colors.zinc500,
+    textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
+    opacity: 0.85,
+  },
   blockedTag: {
     color: colors.zinc400,
     fontSize: 11,
