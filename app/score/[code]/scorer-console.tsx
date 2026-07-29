@@ -84,6 +84,10 @@ export function ScorerConsole({ code }: { code: string }) {
   const [pickStriker, setPickStriker] = useState<string>("");
   const [pickNonStriker, setPickNonStriker] = useState<string>("");
   const [pickBowler, setPickBowler] = useState<string>("");
+  // Player selection is occasional (new batter on a wicket, new bowler each
+  // over) — it belongs in a sheet that opens on demand, not in a permanent
+  // wall of chips that pushes the run pad off the screen.
+  const [picker, setPicker] = useState<"striker" | "nonStriker" | "bowler" | "goal" | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -153,6 +157,16 @@ export function ScorerConsole({ code }: { code: string }) {
   const bowlerId = liveCur?.bowlerId || pickBowler;
   const needsBatter = !!liveCur?.needsBatter && !pickStriker;
   const needsBowler = !!liveCur?.needsBowler && !pickBowler;
+  const allPlayers = match ? [...match.homeTeam.members, ...match.awayTeam.members] : [];
+  const nameOfPlayer = (id: string | null) => allPlayers.find((p) => p.id === id)?.name || null;
+  const creaseFigs = (id: string | null) => liveCur?.batters.find((b) => b.id === id) || null;
+
+  // Ask for what's needed the moment it's needed, rather than making the
+  // scorer hunt for it after every wicket / over.
+  useEffect(() => {
+    if (needsBatter) setPicker("striker");
+    else if (needsBowler) setPicker("bowler");
+  }, [needsBatter, needsBowler]);
 
   /** A cricket delivery, attributed to the striker + bowler. Strike
    *  rotation and the over/wicket bookkeeping happen in the fold, so the
@@ -258,76 +272,143 @@ export function ScorerConsole({ code }: { code: string }) {
   const cs = (match.liveState || null) as CricketState | null;
   const ps = (match.liveState || null) as PickleState | null;
 
-  return (
-    <div className="min-h-screen bg-zinc-950 p-4 pb-24">
-      <div className="mx-auto max-w-md">
-        {/* Header */}
-        <div className="mb-3 flex items-center justify-between">
-          <button onClick={() => setMatchId(null)} className="flex items-center gap-1 text-sm text-zinc-400">
-            <ChevronLeft className="h-4 w-4" /> Matches
-          </button>
-          {match.status === "LIVE" && (
-            <span className="flex items-center gap-1 text-xs font-semibold text-red-400">
-              <Radio className="h-3 w-3 animate-pulse" /> LIVE
-            </span>
-          )}
-        </div>
+  const battingTeam = cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+  const currentInn = cs?.innings?.[cs.innings.length - 1];
 
-        {/* Scoreboard */}
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 text-center">
-          <div className="text-xs text-zinc-500">{match.roundLabel}</div>
-          <div className="mt-2 grid grid-cols-3 items-center">
-            <div>
-              <div className="mx-auto mb-1 h-3 w-3 rounded-full" style={{ backgroundColor: match.homeTeam.color || "#52525b" }} />
-              <div className="text-sm font-medium text-white">{match.homeTeam.name}</div>
-              <div className="text-3xl font-bold text-emerald-400">{match.homeScore ?? 0}</div>
-            </div>
-            <div className="text-zinc-600">
-              {sport === "FOOTBALL" ? (
-                <div className={`text-lg font-mono ${match.clockStartedAt ? "text-emerald-400" : "text-zinc-500"}`}>
-                  {clockDisplay(match)}
-                </div>
-              ) : (
-                "vs"
-              )}
-            </div>
-            <div>
-              <div className="mx-auto mb-1 h-3 w-3 rounded-full" style={{ backgroundColor: match.awayTeam.color || "#52525b" }} />
-              <div className="text-sm font-medium text-white">{match.awayTeam.name}</div>
-              <div className="text-3xl font-bold text-emerald-400">{match.awayScore ?? 0}</div>
-            </div>
+  return (
+    <div className="min-h-screen bg-zinc-950 pb-24">
+      <div className="mx-auto max-w-md">
+        {/* ══ PINNED SCOREBOARD — stays put while the controls scroll ══ */}
+        <div className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-center justify-between">
+            <button onClick={() => setMatchId(null)} className="flex items-center gap-1 text-sm text-zinc-400">
+              <ChevronLeft className="h-4 w-4" /> Matches
+            </button>
+            <span className="truncate text-xs text-zinc-500">{match.roundLabel}</span>
+            {match.status === "LIVE" && (
+              <span className="flex items-center gap-1 text-xs font-semibold text-red-400">
+                <Radio className="h-3 w-3 animate-pulse" /> LIVE
+              </span>
+            )}
           </div>
-          {/* Sport sub-state */}
-          {sport === "CRICKET" && cs && cs.inning > 0 && (
-            <div className="mt-2 text-sm text-zinc-400">
-              {cs.innings.map((inn, i) => {
-                const team = inn.teamId === match.homeTeam.id ? match.homeTeam : match.awayTeam;
-                return (
-                  <span key={i} className={i === cs.innings.length - 1 ? "text-white" : ""}>
-                    {i > 0 && " · "}
-                    {team.name}: {inn.runs}/{inn.wickets} ({overs(inn.balls)})
+
+          {sport === "CRICKET" ? (
+            <div className="mt-2 flex items-baseline justify-between gap-3">
+              <span className="truncate text-[15px] font-semibold text-zinc-300">{battingTeam.name}</span>
+              <span className="whitespace-nowrap text-3xl font-extrabold leading-none text-emerald-400">
+                {currentInn ? `${currentInn.runs}/${currentInn.wickets}` : "0/0"}
+                <span className="ml-1.5 text-sm font-medium text-zinc-500">
+                  ({currentInn ? overs(currentInn.balls) : "0.0"})
+                </span>
+              </span>
+            </div>
+          ) : (
+            <div className="mt-2 grid grid-cols-3 items-center">
+              <div>
+                <div className="truncate text-xs text-zinc-400">{match.homeTeam.name}</div>
+                <div className="text-3xl font-extrabold leading-none text-emerald-400">{match.homeScore ?? 0}</div>
+              </div>
+              <div className="text-center text-zinc-600">
+                {sport === "FOOTBALL" ? (
+                  <span className={`font-mono text-lg ${match.clockStartedAt ? "text-emerald-400" : "text-zinc-500"}`}>
+                    {clockDisplay(match)}
                   </span>
-                );
-              })}
-              {cs.target != null && <span className="ml-1 text-amber-400">Target {cs.target}</span>}
+                ) : (
+                  "vs"
+                )}
+              </div>
+              <div className="text-right">
+                <div className="truncate text-xs text-zinc-400">{match.awayTeam.name}</div>
+                <div className="text-3xl font-extrabold leading-none text-emerald-400">{match.awayScore ?? 0}</div>
+              </div>
+            </div>
+          )}
+
+          {sport === "CRICKET" && cs?.target != null && (
+            <div className="mt-1 text-xs text-amber-400">
+              Target {cs.target} · need {Math.max(0, cs.target - (currentInn?.runs ?? 0))} more
             </div>
           )}
           {sport === "PICKLEBALL" && ps && (
-            <div className="mt-2 text-sm text-zinc-400">
-              Game {ps.gameNumber ?? 1} · Games {ps.gamesWon.home}–{ps.gamesWon.away} · Current{" "}
-              <span className="text-white">
-                {ps.current.home}–{ps.current.away}
-              </span>
+            <div className="mt-1 text-xs text-zinc-400">
+              Game {ps.gameNumber ?? 1} · {ps.current.home}–{ps.current.away}
               {ps.servingTeamId && (
-                <span className="ml-1 text-emerald-400">
-                  · Serving:{" "}
-                  {ps.servingTeamId === match.homeTeam.id ? match.homeTeam.name : match.awayTeam.name}
+                <span className="text-emerald-400">
+                  {" "}· serving {ps.servingTeamId === match.homeTeam.id ? match.homeTeam.name : match.awayTeam.name}
                 </span>
               )}
             </div>
           )}
+
+          {/* Crease — click a name to change who's out there */}
+          {sport === "CRICKET" && cs && cs.inning > 0 && (
+            <div className="mt-2 space-y-0.5 border-t border-zinc-800 pt-2 text-sm">
+              {[
+                { id: strikerId, kind: "striker" as const, onStrike: true },
+                { id: nonStrikerId, kind: "nonStriker" as const, onStrike: false },
+              ].map((row) => (
+                <button
+                  key={row.kind}
+                  onClick={() => setPicker(row.kind)}
+                  className="flex w-full items-baseline justify-between gap-3 rounded px-1 py-0.5 text-left hover:bg-zinc-900"
+                >
+                  <span className={`truncate ${row.onStrike ? "font-semibold text-white" : "text-zinc-300"}`}>
+                    {row.id ? nameOfPlayer(row.id) : row.onStrike ? "Pick striker" : "Pick non-striker"}
+                    {row.id && row.onStrike && <span className="ml-1 text-emerald-400">*</span>}
+                  </span>
+                  <span className="whitespace-nowrap font-mono text-xs text-zinc-400">
+                    {row.id ? `${creaseFigs(row.id)?.runs ?? 0} (${creaseFigs(row.id)?.balls ?? 0})` : "—"}
+                  </span>
+                </button>
+              ))}
+              <button
+                onClick={() => setPicker("bowler")}
+                className="flex w-full items-baseline justify-between gap-3 rounded border-t border-zinc-800 px-1 pt-1.5 text-left hover:bg-zinc-900"
+              >
+                <span className="truncate text-zinc-300">
+                  {bowlerId ? nameOfPlayer(bowlerId) : "Pick bowler"}
+                </span>
+                <span className="whitespace-nowrap font-mono text-xs text-zinc-400">
+                  {liveCur?.bowler
+                    ? `${overs(liveCur.bowler.balls)}–${liveCur.bowler.runs}–${liveCur.bowler.wickets}`
+                    : "—"}
+                </span>
+              </button>
+
+              <div className="flex items-center justify-between gap-2 pt-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(liveCur?.thisOver.length ?? 0) === 0 ? (
+                    <span className="text-[11px] text-zinc-600">New over</span>
+                  ) : (
+                    liveCur!.thisOver.map((b, i) => (
+                      <span
+                        key={i}
+                        className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
+                          b === "W"
+                            ? "bg-red-500/20 text-red-300"
+                            : b === "4" || b === "6"
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : "bg-zinc-800 text-zinc-300"
+                        }`}
+                      >
+                        {b}
+                      </span>
+                    ))
+                  )}
+                </div>
+                <button
+                  onClick={swapStrike}
+                  disabled={!nonStrikerId}
+                  className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+                >
+                  ⇄ Swap
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
+        <div className="p-4">
         {error && <p className="mt-3 text-center text-sm text-red-400">{error}</p>}
 
         {/* Controls */}
@@ -365,163 +446,6 @@ export function ScorerConsole({ code }: { code: string }) {
                   </div>
                 ) : (
                   <>
-                    {/* ── At the crease ──
-                        Who's batting, who's on strike, who's bowling and
-                        how the over is going. Driven by the server's fold,
-                        so it's the same picture the audience sees. */}
-                    {(() => {
-                      const batting =
-                        cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
-                      const bowling =
-                        batting.id === match.homeTeam.id ? match.awayTeam : match.homeTeam;
-                      const nameOf = (id: string | null) =>
-                        [...batting.members, ...bowling.members].find((m) => m.id === id)?.name || null;
-                      const figs = (id: string | null) =>
-                        liveCur?.batters.find((b) => b.id === id) || null;
-                      const chip = (active: boolean, on: boolean) =>
-                        `rounded-full border px-3 py-1.5 text-xs transition ${
-                          on
-                            ? "border-emerald-500/50 bg-emerald-600/15 text-emerald-300"
-                            : active
-                              ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
-                              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                        }`;
-                      return (
-                        <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
-                          {/* Live crease read-out */}
-                          <div className="space-y-1.5">
-                            {[
-                              { id: strikerId, onStrike: true },
-                              { id: nonStrikerId, onStrike: false },
-                            ].map((row, i) =>
-                              row.id ? (
-                                <div key={i} className="flex items-baseline justify-between text-sm">
-                                  <span className={row.onStrike ? "font-semibold text-white" : "text-zinc-300"}>
-                                    {nameOf(row.id)}
-                                    {row.onStrike && <span className="ml-1 text-emerald-400">*</span>}
-                                  </span>
-                                  <span className="font-mono text-zinc-400">
-                                    {figs(row.id)?.runs ?? 0}
-                                    <span className="text-zinc-600"> ({figs(row.id)?.balls ?? 0})</span>
-                                  </span>
-                                </div>
-                              ) : null
-                            )}
-                            {liveCur?.bowler && (
-                              <div className="flex items-baseline justify-between border-t border-zinc-800 pt-1.5 text-sm">
-                                <span className="text-zinc-300">{nameOf(liveCur.bowler.id)}</span>
-                                <span className="font-mono text-zinc-400">
-                                  {overs(liveCur.bowler.balls)}–{liveCur.bowler.runs}–{liveCur.bowler.wickets}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* This over */}
-                          {(liveCur?.thisOver.length ?? 0) > 0 && (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-zinc-500">This over</span>
-                              {liveCur!.thisOver.map((b, i) => (
-                                <span
-                                  key={i}
-                                  className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
-                                    b === "W"
-                                      ? "bg-red-500/20 text-red-300"
-                                      : b === "4" || b === "6"
-                                        ? "bg-emerald-500/20 text-emerald-300"
-                                        : "bg-zinc-800 text-zinc-300"
-                                  }`}
-                                >
-                                  {b}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Prompts + pickers */}
-                          {needsBatter && (
-                            <p className="text-[11px] font-medium text-amber-400">
-                              Wicket! Pick the new batter.
-                            </p>
-                          )}
-                          {needsBowler && (
-                            <p className="text-[11px] font-medium text-amber-400">
-                              Over complete — pick the next bowler.
-                            </p>
-                          )}
-                          {!strikerId && !needsBatter && (
-                            <p className="text-[11px] text-amber-400/80">
-                              Pick a striker to build the batting card — scoring works either way.
-                            </p>
-                          )}
-
-                          <div>
-                            <p className="mb-1 text-[11px] text-zinc-500">
-                              Striker {needsBatter && <span className="text-amber-400">· needed</span>}
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {batting.members.map((m) => (
-                                <button
-                                  key={m.id}
-                                  onClick={() => setPickStriker(m.id === strikerId ? "" : m.id)}
-                                  className={chip(needsBatter, m.id === strikerId)}
-                                >
-                                  {m.name}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div>
-                            <p className="mb-1 text-[11px] text-zinc-500">Non-striker</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {batting.members.map((m) => (
-                                <button
-                                  key={m.id}
-                                  onClick={() => setPickNonStriker(m.id === nonStrikerId ? "" : m.id)}
-                                  className={chip(false, m.id === nonStrikerId)}
-                                >
-                                  {m.name}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div>
-                            <p className="mb-1 text-[11px] text-zinc-500">
-                              Bowler · {bowling.name}{" "}
-                              {needsBowler && <span className="text-amber-400">· needed</span>}
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {bowling.members.map((m) => (
-                                <button
-                                  key={m.id}
-                                  onClick={() => setPickBowler(m.id === bowlerId ? "" : m.id)}
-                                  className={chip(needsBowler, m.id === bowlerId)}
-                                >
-                                  {m.name}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <button
-                              onClick={swapStrike}
-                              disabled={!nonStrikerId}
-                              className="rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-                            >
-                              ⇄ Swap strike
-                            </button>
-                            {liveCur && (liveCur.partnership.balls > 0) && (
-                              <span className="text-[11px] text-zinc-500">
-                                P&apos;ship {liveCur.partnership.runs} ({liveCur.partnership.balls})
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
                     <div className="grid grid-cols-4 gap-2">
                       {[0, 1, 2, 3, 4, 6].map((r) => (
                         <button
@@ -722,7 +646,89 @@ export function ScorerConsole({ code }: { code: string }) {
             </button>
           </div>
         )}
+        </div>
       </div>
+
+      {/* ══ Player sheet — opens itself when a batter/bowler is needed ══ */}
+      {picker && (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center bg-black/60"
+          onClick={() => setPicker(null)}
+        >
+          <div
+            className="max-h-[75vh] w-full max-w-md overflow-hidden rounded-t-3xl border-t border-zinc-800 bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+              <h3 className="font-semibold text-white">
+                {picker === "striker"
+                  ? needsBatter
+                    ? "Wicket — who's in?"
+                    : "Striker"
+                  : picker === "nonStriker"
+                    ? "Non-striker"
+                    : picker === "bowler"
+                      ? needsBowler
+                        ? "Over complete — next bowler"
+                        : "Bowler"
+                      : "Goal scorer"}
+              </h3>
+              <button onClick={() => setPicker(null)} className="text-zinc-400 hover:text-white">
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {(() => {
+                const batting =
+                  cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+                const bowling = batting.id === match.homeTeam.id ? match.awayTeam : match.homeTeam;
+                const list =
+                  picker === "bowler" ? bowling.members : picker === "goal" ? allPlayers : batting.members;
+                const selected =
+                  picker === "striker"
+                    ? strikerId
+                    : picker === "nonStriker"
+                      ? nonStrikerId
+                      : picker === "bowler"
+                        ? bowlerId
+                        : pickStriker;
+                const apply = (id: string) => {
+                  if (picker === "striker") setPickStriker(id);
+                  else if (picker === "nonStriker") setPickNonStriker(id);
+                  else if (picker === "bowler") setPickBowler(id);
+                  else setPickStriker(id);
+                  setPicker(null);
+                };
+                if (list.length === 0) {
+                  return (
+                    <p className="p-5 text-sm text-zinc-500">
+                      No players in this squad yet — add them from the admin console.
+                    </p>
+                  );
+                }
+                return list.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => apply(m.id)}
+                    className={`flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left ${
+                      m.id === selected ? "bg-emerald-500/10" : "hover:bg-zinc-800/60"
+                    }`}
+                  >
+                    <span className={m.id === selected ? "font-semibold text-emerald-400" : "text-zinc-200"}>
+                      {m.name}
+                    </span>
+                    {creaseFigs(m.id) && (
+                      <span className="font-mono text-xs text-zinc-400">
+                        {creaseFigs(m.id)!.runs} ({creaseFigs(m.id)!.balls})
+                      </span>
+                    )}
+                  </button>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

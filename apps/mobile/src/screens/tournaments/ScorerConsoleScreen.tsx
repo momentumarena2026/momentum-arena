@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { ChevronLeft, Play, Radio, Square, Undo2 } from "lucide-react-native";
+import { ChevronLeft, Play, Radio, Square, Undo2, X } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { colors, radius } from "../../theme";
@@ -17,6 +25,14 @@ import type { RootStackParamList } from "../../navigation/types";
 
 // Native twin of the web scorer console (app/score/[code]). Same routes,
 // same rules — the code in the route params is the credential.
+//
+// Layout follows what the job actually is: between deliveries the scorer
+// looks at the score and taps a run. So the scoreboard is PINNED (never
+// scrolls away) and the run pad sits directly under the thumb. Choosing
+// players is occasional — a new batter on a wicket, a new bowler each
+// over — so the pickers live in a sheet that opens itself exactly when
+// the server says one is needed, instead of twelve chips permanently
+// pushing the pad off-screen.
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Rt = RouteProp<RootStackParamList, "ScorerConsole">;
@@ -52,6 +68,8 @@ type FootballLive = {
   };
 };
 
+type PickerKind = "striker" | "nonStriker" | "bowler" | "goal";
+
 const overs = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
 
 function clockDisplay(m: ScorerMatch): string {
@@ -61,44 +79,15 @@ function clockDisplay(m: ScorerMatch): string {
   return `${Math.floor(base / 60)}:${String(base % 60).padStart(2, "0")}`;
 }
 
-/** Compact player picker — a row of chips beats a native picker when the
- *  scorer is tapping between deliveries with one hand. */
-function PlayerChips({
-  label,
-  team,
-  value,
-  onChange,
-  emptyHint,
-}: {
-  label: string;
-  team: ScorerTeam;
-  value: string;
-  onChange: (id: string) => void;
-  emptyHint?: string;
-}) {
+/** One delivery in the over strip. */
+function OverBall({ label }: { label: string }) {
+  const wicket = label === "W";
+  const boundary = label === "4" || label === "6";
   return (
-    <View style={{ marginTop: 10 }}>
-      <Text style={styles.pickerLabel}>{label}</Text>
-      {team.members.length === 0 ? (
-        <Text style={styles.hint}>{emptyHint || "No players in this squad yet."}</Text>
-      ) : (
-        <View style={styles.chipWrap}>
-          {team.members.map((p) => {
-            const on = p.id === value;
-            return (
-              <Pressable
-                key={p.id}
-                onPress={() => onChange(on ? "" : p.id)}
-                style={[styles.playerChip, on && styles.playerChipOn]}
-              >
-                <Text style={[styles.playerChipText, on && { color: colors.emerald400, fontWeight: "700" }]}>
-                  {p.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
+    <View style={[s.overBall, wicket && s.overBallW, boundary && s.overBallB]}>
+      <Text style={[s.overBallText, wicket && { color: "#fca5a5" }, boundary && { color: colors.emerald400 }]}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -113,6 +102,7 @@ export function ScorerConsoleScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [, setTick] = useState(0); // re-render for the football clock
+  const [picker, setPicker] = useState<PickerKind | null>(null);
 
   // Who's out there is owned by the SERVER (folded from the event log), so
   // it survives a reload and two scorers see the same thing. These locals
@@ -132,7 +122,7 @@ export function ScorerConsoleScreen() {
       // never tear down a console mid-match.
       const status = (e as { status?: number })?.status;
       if (status === 404 && !boot) setInvalid(true);
-      else if (status === 429) setError("Too many attempts — wait a minute and pull to retry.");
+      else if (status === 429) setError("Too many attempts — wait a minute and retry.");
     }
   }, [code, boot]);
 
@@ -148,16 +138,61 @@ export function ScorerConsoleScreen() {
 
   const match = useMemo(() => boot?.matches.find((m) => m.id === matchId) || null, [boot, matchId]);
 
-  // ── The crease, server-first ──
-  // The fold already knows who faced the last ball, who's at the other end,
-  // who's bowling, and whether a wicket/over just ended. Local picks only
-  // fill a gap the server has left open.
   const liveCur = (match?.liveState as CricketState | null)?.current;
   const strikerId = liveCur?.strikerId || pickStriker;
   const nonStrikerId = liveCur?.nonStrikerId || pickNonStriker;
   const bowlerId = liveCur?.bowlerId || pickBowler;
   const needsBatter = !!liveCur?.needsBatter && !pickStriker;
   const needsBowler = !!liveCur?.needsBowler && !pickBowler;
+
+  // The pad asks for what it needs, the moment it needs it — no hunting
+  // through a wall of chips after every wicket.
+  useEffect(() => {
+    if (needsBatter) setPicker("striker");
+    else if (needsBowler) setPicker("bowler");
+  }, [needsBatter, needsBowler]);
+
+  const send = async (payload: Record<string, unknown>) => {
+    if (!matchId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await sendScorerAction(code, { matchId, ...payload } as never);
+      if (res?.error) {
+        if (res.needsWinner) askWinner();
+        else setError(res.error);
+        return;
+      }
+      await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed";
+      if (/tied|winner/i.test(msg)) askWinner();
+      else setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const askWinner = () => {
+    if (!match) return;
+    Alert.alert("Scores level", "Who takes it?", [
+      { text: match.homeTeam.name, onPress: () => void end(match.homeTeam.id) },
+      { text: match.awayTeam.name, onPress: () => void end(match.awayTeam.id) },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const end = async (winnerTeamId?: string) =>
+    send({ action: "end", ...(winnerTeamId ? { winnerTeamId } : {}) });
+
+  const ev = (kind: string, extra: Record<string, unknown> = {}) =>
+    send({ action: "event", event: { kind, ...extra } });
+
+  const resetPlayers = () => {
+    setPickStriker("");
+    setPickNonStriker("");
+    setPickBowler("");
+  };
 
   const swapStrike = () => {
     setPickStriker(nonStrikerId);
@@ -190,57 +225,15 @@ export function ScorerConsoleScreen() {
     }
   };
 
-  const send = async (payload: Record<string, unknown>, opts?: { silent?: boolean }) => {
-    if (!matchId || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await sendScorerAction(code, { matchId, ...payload } as never);
-      if (res?.error) {
-        if (res.needsWinner) askWinner();
-        else setError(res.error);
-        return;
-      }
-      await refresh();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed";
-      if (/tied|winner/i.test(msg)) askWinner();
-      else if (!opts?.silent) setError(msg);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const askWinner = () => {
-    if (!match) return;
-    Alert.alert("Scores level", "Who takes it?", [
-      { text: match.homeTeam.name, onPress: () => void end(match.homeTeam.id) },
-      { text: match.awayTeam.name, onPress: () => void end(match.awayTeam.id) },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
-
-  const end = async (winnerTeamId?: string) =>
-    send({ action: "end", ...(winnerTeamId ? { winnerTeamId } : {}) });
-
-  const ev = (kind: string, extra: Record<string, unknown> = {}) =>
-    send({ action: "event", event: { kind, ...extra } });
-
-  const resetPlayers = () => {
-    setPickStriker("");
-    setPickNonStriker("");
-    setPickBowler("");
-  };
-
-  // ── States ──
+  // ── Non-match states ──
   if (invalid) {
     return (
       <Screen>
-        <View style={styles.centre}>
-          <Text style={styles.bigMsg}>Invalid scorer code</Text>
-          <Text style={styles.sub}>Check the code with the tournament admin.</Text>
-          <Pressable onPress={() => navigation.goBack()} style={styles.primaryBtn}>
-            <Text style={styles.primaryText}>Back</Text>
+        <View style={s.centre}>
+          <Text style={s.bigMsg}>Invalid scorer code</Text>
+          <Text style={s.dim}>Check the code with the tournament admin.</Text>
+          <Pressable onPress={() => navigation.goBack()} style={[s.wideBtn, s.greenBtn, { paddingHorizontal: 28 }]}>
+            <Text style={s.greenText}>Back</Text>
           </Pressable>
         </View>
       </Screen>
@@ -249,7 +242,7 @@ export function ScorerConsoleScreen() {
   if (!boot) {
     return (
       <Screen>
-        <View style={styles.centre}>
+        <View style={s.centre}>
           <ActivityIndicator size="large" color={colors.emerald400} />
         </View>
       </Screen>
@@ -260,10 +253,10 @@ export function ScorerConsoleScreen() {
   if (!match) {
     return (
       <Screen>
-        <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.kicker}>SCORER CONSOLE</Text>
-          <Text style={styles.h1}>{boot.tournament.name}</Text>
-          <Text style={styles.sub}>Pick a match to score.</Text>
+        <ScrollView contentContainerStyle={s.pickerList}>
+          <Text style={s.kicker}>SCORER CONSOLE</Text>
+          <Text style={s.h1}>{boot.tournament.name}</Text>
+          <Text style={s.dim}>Pick a match to score.</Text>
           {boot.matches.map((m) => (
             <Pressable
               key={m.id}
@@ -271,32 +264,25 @@ export function ScorerConsoleScreen() {
                 resetPlayers();
                 setMatchId(m.id);
               }}
-              style={styles.matchCard}
+              style={s.matchCard}
             >
-              <View style={styles.rowBetween}>
-                <Text style={styles.matchLabel}>{m.roundLabel}</Text>
+              <View style={s.rowBetween}>
+                <Text style={s.matchLabel}>{m.roundLabel}</Text>
                 {m.status === "LIVE" && (
-                  <View style={styles.liveRow}>
+                  <View style={s.liveRow}>
                     <Radio size={11} color="#f87171" />
-                    <Text style={styles.liveText}>LIVE</Text>
+                    <Text style={s.liveText}>LIVE</Text>
                   </View>
                 )}
               </View>
-              <Text style={styles.matchTeams}>
+              <Text style={s.matchTeams}>
                 {m.homeTeam.name} <Text style={{ color: colors.zinc600 }}>vs</Text> {m.awayTeam.name}
               </Text>
-              {m.scheduledAt && (
-                <Text style={styles.matchWhen}>
-                  {new Date(m.scheduledAt).toLocaleString("en-IN", {
-                    weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata",
-                  })}
-                </Text>
-              )}
             </Pressable>
           ))}
           {boot.matches.length === 0 && (
-            <View style={styles.matchCard}>
-              <Text style={styles.sub}>No scoreable matches right now.</Text>
+            <View style={s.matchCard}>
+              <Text style={s.dim}>No scoreable matches right now.</Text>
             </View>
           )}
         </ScrollView>
@@ -304,369 +290,297 @@ export function ScorerConsoleScreen() {
     );
   }
 
-  // ── Scoring pad ──
   const sport = boot.tournament.sport;
   const cs = (match.liveState || null) as CricketState | null;
   const ps = (match.liveState || null) as PickleState | null;
-  const batting =
-    cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+  const batting = cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
   const bowling = batting.id === match.homeTeam.id ? match.awayTeam : match.homeTeam;
+  const inn = cs?.innings?.[cs.innings.length - 1];
+  const allPlayers = [...match.homeTeam.members, ...match.awayTeam.members];
+  const nameOf = (id: string | null) => allPlayers.find((p) => p.id === id)?.name || null;
+  const figs = (id: string | null) => liveCur?.batters.find((b) => b.id === id) || null;
+
+  const pickerTeam: ScorerTeam | null =
+    picker === "bowler" ? bowling : picker === "goal" ? null : picker ? batting : null;
+  const pickerValue =
+    picker === "striker" ? strikerId : picker === "nonStriker" ? nonStrikerId : picker === "bowler" ? bowlerId : pickStriker;
+  const applyPick = (id: string) => {
+    if (picker === "striker") setPickStriker(id);
+    else if (picker === "nonStriker") setPickNonStriker(id);
+    else if (picker === "bowler") setPickBowler(id);
+    else if (picker === "goal") setPickStriker(id);
+    setPicker(null);
+  };
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.rowBetween}>
-          <Pressable onPress={() => setMatchId(null)} style={styles.backRow}>
-            <ChevronLeft size={18} color={colors.zinc400} />
-            <Text style={{ color: colors.zinc400, fontSize: 14 }}>Matches</Text>
-          </Pressable>
-          {match.status === "LIVE" && (
-            <View style={styles.liveRow}>
-              <Radio size={12} color="#f87171" />
-              <Text style={styles.liveText}>LIVE</Text>
+      <View style={s.root}>
+        {/* ══ PINNED SCOREBOARD — never scrolls away ══ */}
+        <View style={s.board}>
+          <View style={s.boardTop}>
+            <Pressable onPress={() => setMatchId(null)} hitSlop={8} style={s.backRow}>
+              <ChevronLeft size={16} color={colors.zinc400} />
+              <Text style={s.backText}>Matches</Text>
+            </Pressable>
+            <Text style={s.matchLabel} numberOfLines={1}>
+              {match.roundLabel}
+            </Text>
+            {match.status === "LIVE" && (
+              <View style={s.liveRow}>
+                <Radio size={11} color="#f87171" />
+                <Text style={s.liveText}>LIVE</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Score line */}
+          {sport === "CRICKET" ? (
+            <View style={s.scoreLine}>
+              <Text style={s.battingTeam} numberOfLines={1}>
+                {batting.name}
+              </Text>
+              <Text style={s.scoreBig}>
+                {inn ? `${inn.runs}/${inn.wickets}` : "0/0"}
+                <Text style={s.scoreOvers}> ({inn ? overs(inn.balls) : "0.0"})</Text>
+              </Text>
+            </View>
+          ) : (
+            <View style={s.scoreLineTwo}>
+              {[match.homeTeam, match.awayTeam].map((team, i) => (
+                <View key={team.id} style={{ flex: 1, alignItems: i === 0 ? "flex-start" : "flex-end" }}>
+                  <Text style={s.teamSmall} numberOfLines={1}>
+                    {team.name}
+                  </Text>
+                  <Text style={s.scoreBig}>{(i === 0 ? match.homeScore : match.awayScore) ?? 0}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {sport === "CRICKET" && cs?.target != null && (
+            <Text style={s.target}>
+              Target {cs.target} · need {Math.max(0, cs.target - (inn?.runs ?? 0))} more
+            </Text>
+          )}
+          {sport === "FOOTBALL" && (
+            <Text style={[s.target, match.clockStartedAt ? { color: colors.emerald400 } : null]}>
+              {clockDisplay(match)}
+            </Text>
+          )}
+          {sport === "PICKLEBALL" && ps && (
+            <Text style={s.target}>
+              Game {ps.gameNumber ?? 1} · {ps.current.home}–{ps.current.away}
+              {ps.servingTeamId
+                ? ` · serving ${ps.servingTeamId === match.homeTeam.id ? match.homeTeam.name : match.awayTeam.name}`
+                : ""}
+            </Text>
+          )}
+
+          {/* Crease — tap a name to change who's there */}
+          {sport === "CRICKET" && cs && cs.inning > 0 && (
+            <View style={s.crease}>
+              {[
+                { id: strikerId, kind: "striker" as PickerKind, onStrike: true },
+                { id: nonStrikerId, kind: "nonStriker" as PickerKind, onStrike: false },
+              ].map((row) => (
+                <Pressable key={row.kind} onPress={() => setPicker(row.kind)} style={s.creaseRow}>
+                  <Text
+                    style={[s.creaseName, row.onStrike && s.creaseOnStrike]}
+                    numberOfLines={1}
+                  >
+                    {row.id ? nameOf(row.id) : row.onStrike ? "Tap to pick striker" : "Tap to pick non-striker"}
+                    {row.id && row.onStrike ? " *" : ""}
+                  </Text>
+                  <Text style={s.creaseFigs}>
+                    {row.id ? `${figs(row.id)?.runs ?? 0} (${figs(row.id)?.balls ?? 0})` : "—"}
+                  </Text>
+                </Pressable>
+              ))}
+              <Pressable onPress={() => setPicker("bowler")} style={[s.creaseRow, s.creaseBowler]}>
+                <Text style={s.creaseName} numberOfLines={1}>
+                  {bowlerId ? nameOf(bowlerId) : "Tap to pick bowler"}
+                </Text>
+                <Text style={s.creaseFigs}>
+                  {liveCur?.bowler
+                    ? `${overs(liveCur.bowler.balls)}–${liveCur.bowler.runs}–${liveCur.bowler.wickets}`
+                    : "—"}
+                </Text>
+              </Pressable>
+
+              <View style={s.overRow}>
+                <View style={s.overStrip}>
+                  {(liveCur?.thisOver.length ?? 0) === 0 ? (
+                    <Text style={s.overEmpty}>New over</Text>
+                  ) : (
+                    liveCur!.thisOver.map((b, i) => <OverBall key={i} label={b} />)
+                  )}
+                </View>
+                <Pressable onPress={swapStrike} disabled={!nonStrikerId} hitSlop={6}>
+                  <Text style={[s.swap, !nonStrikerId && { opacity: 0.35 }]}>⇄ Swap</Text>
+                </Pressable>
+              </View>
             </View>
           )}
         </View>
 
-        {/* Scoreboard */}
-        <View style={styles.board}>
-          <Text style={styles.matchLabel}>{match.roundLabel}</Text>
-          <View style={styles.boardRow}>
-            {[match.homeTeam, match.awayTeam].map((team, i) => (
-              <View key={team.id} style={{ flex: 1, alignItems: "center" }}>
-                <View style={[styles.dot, { backgroundColor: team.color || colors.zinc700 }]} />
-                <Text style={styles.boardTeam} numberOfLines={1}>{team.name}</Text>
-                <Text style={styles.boardScore}>
-                  {(i === 0 ? match.homeScore : match.awayScore) ?? 0}
-                </Text>
-              </View>
-            ))}
-          </View>
-          {sport === "FOOTBALL" && (
-            <Text style={[styles.clock, match.clockStartedAt && { color: colors.emerald400 }]}>
-              {clockDisplay(match)}
-            </Text>
+        {!!error && <Text style={s.error}>{error}</Text>}
+
+        {/* ══ CONTROLS — scroll only if the phone is short ══ */}
+        <ScrollView
+          contentContainerStyle={s.controls}
+          showsVerticalScrollIndicator={false}
+        >
+          {match.status === "SCHEDULED" && (
+            <Pressable onPress={() => send({ action: "start" })} disabled={busy} style={[s.wideBtn, s.greenBtn]}>
+              <Play size={18} color={colors.emerald400} />
+              <Text style={s.greenText}>Start Match</Text>
+            </Pressable>
           )}
-          {sport === "CRICKET" && cs && cs.inning > 0 && (
-            <Text style={styles.boardSub}>
-              {cs.innings.map((inn, i) => {
-                const t = inn.teamId === match.homeTeam.id ? match.homeTeam : match.awayTeam;
-                return `${i > 0 ? " · " : ""}${t.name}: ${inn.runs}/${inn.wickets} (${overs(inn.balls)})`;
-              })}
-              {cs.target != null ? `  Target ${cs.target}` : ""}
-            </Text>
-          )}
-          {sport === "PICKLEBALL" && ps && (
+
+          {match.status === "LIVE" && sport === "CRICKET" && (
             <>
-              <Text style={styles.boardSub}>
-                Game {ps.gameNumber ?? 1} · Games {ps.gamesWon.home}–{ps.gamesWon.away} · Current{" "}
-                {ps.current.home}–{ps.current.away}
-              </Text>
-              {ps.servingTeamId && (
-                <Text style={[styles.boardSub, { color: colors.emerald400, marginTop: 2 }]}>
-                  🏓 Serving:{" "}
-                  {ps.servingTeamId === match.homeTeam.id ? match.homeTeam.name : match.awayTeam.name}
-                </Text>
+              {(!cs || cs.inning === 0) ? (
+                <View style={s.row}>
+                  {[match.homeTeam, match.awayTeam].map((team) => (
+                    <Pressable
+                      key={team.id}
+                      onPress={() => {
+                        resetPlayers();
+                        ev("INNINGS_START", { teamId: team.id });
+                      }}
+                      disabled={busy}
+                      style={[s.wideBtn, s.blueBtn, { flex: 1 }]}
+                    >
+                      <Text style={s.blueText}>{team.name} bat first</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <>
+                  {/* Run pad — the 95% action, right under the thumb */}
+                  <View style={s.pad}>
+                    {[0, 1, 2, 3, 4, 6].map((r) => (
+                      <Pressable
+                        key={r}
+                        onPress={() => ball({ runs: r })}
+                        disabled={busy}
+                        style={[s.padKey, (r === 4 || r === 6) && s.padKeyBoundary]}
+                      >
+                        <Text style={[s.padText, (r === 4 || r === 6) && { color: colors.emerald400 }]}>{r}</Text>
+                      </Pressable>
+                    ))}
+                    <Pressable onPress={() => ball({ runs: 0, wicket: true })} disabled={busy} style={[s.padKey, s.padKeyWicket]}>
+                      <Text style={[s.padText, { color: "#f87171" }]}>W</Text>
+                    </Pressable>
+                    <Pressable onPress={() => ball({ runs: 1, extra: "wd" })} disabled={busy} style={[s.padKey, s.padKeyExtra]}>
+                      <Text style={[s.padText, { color: "#fbbf24", fontSize: 20 }]}>Wd</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={s.row}>
+                    <Pressable onPress={() => ball({ runs: 1, extra: "nb" })} disabled={busy} style={[s.chipBtn, { flex: 1 }]}>
+                      <Text style={[s.chipText, { color: "#fbbf24" }]}>No ball</Text>
+                    </Pressable>
+                    <Pressable onPress={() => ball({ runs: 1, extra: "b" })} disabled={busy} style={[s.chipBtn, { flex: 1 }]}>
+                      <Text style={s.chipText}>Bye</Text>
+                    </Pressable>
+                    {cs.inning === 1 && (
+                      <Pressable
+                        onPress={() => {
+                          const other = cs.battingTeamId === match.homeTeam.id ? match.awayTeam.id : match.homeTeam.id;
+                          resetPlayers();
+                          ev("INNINGS_START", { teamId: other });
+                        }}
+                        disabled={busy}
+                        style={[s.chipBtn, { flex: 1.3 }]}
+                      >
+                        <Text style={[s.chipText, { color: "#7dd3fc" }]}>End innings</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </>
               )}
             </>
           )}
-        </View>
 
-        {error && <Text style={styles.error}>{error}</Text>}
+          {match.status === "LIVE" && sport === "FOOTBALL" && (
+            <>
+              <Pressable
+                onPress={() => ev(match.clockStartedAt ? "CLOCK_STOP" : "CLOCK_START")}
+                disabled={busy}
+                style={[s.wideBtn, match.clockStartedAt ? s.amberBtn : s.greenBtn]}
+              >
+                {match.clockStartedAt ? <Square size={16} color="#fbbf24" /> : <Play size={16} color={colors.emerald400} />}
+                <Text style={match.clockStartedAt ? s.amberText : s.greenText}>
+                  {match.clockStartedAt ? "Stop clock" : "Start clock"}
+                </Text>
+              </Pressable>
 
-        {match.status === "SCHEDULED" && (
-          <Pressable onPress={() => send({ action: "start" })} disabled={busy} style={[styles.bigBtn, styles.startBtn]}>
-            <Play size={18} color={colors.emerald400} />
-            <Text style={styles.startText}>Start Match</Text>
-          </Pressable>
-        )}
+              <Pressable onPress={() => setPicker("goal")} style={s.scorerRow}>
+                <Text style={s.scorerLabel}>Goal scorer</Text>
+                <Text style={s.scorerValue}>{nameOf(pickStriker) || "Tap to choose (optional)"}</Text>
+              </Pressable>
 
-        {match.status === "LIVE" && (
-          <>
-            {/* ── CRICKET ── */}
-            {sport === "CRICKET" && (
-              <>
-                {!cs || cs.inning === 0 ? (
-                  <View style={styles.grid2}>
-                    {[match.homeTeam, match.awayTeam].map((team) => (
-                      <Pressable
-                        key={team.id}
-                        onPress={() => {
-                          resetPlayers();
-                          ev("INNINGS_START", { teamId: team.id });
-                        }}
-                        disabled={busy}
-                        style={[styles.bigBtn, styles.blueBtn, { flex: 1 }]}
-                      >
-                        <Text style={styles.blueText}>{team.name} bat first</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : (
-                  <>
-                    <View style={styles.pickerCard}>
-                      {/* ── At the crease ── who's in, who's on strike,
-                          who's bowling, and how the over is going. */}
-                      {(() => {
-                        const all = [...batting.members, ...bowling.members];
-                        const nameOf = (id: string | null) =>
-                          all.find((p) => p.id === id)?.name || null;
-                        const figs = (id: string | null) =>
-                          liveCur?.batters.find((b) => b.id === id) || null;
-                        const rows = [
-                          { id: strikerId, onStrike: true },
-                          { id: nonStrikerId, onStrike: false },
-                        ].filter((r) => r.id);
-                        if (rows.length === 0 && !liveCur?.bowler) return null;
-                        return (
-                          <View style={styles.creaseBox}>
-                            {rows.map((r, i) => (
-                              <View key={i} style={styles.creaseRow}>
-                                <Text
-                                  style={[styles.creaseName, r.onStrike && styles.creaseStrike]}
-                                  numberOfLines={1}
-                                >
-                                  {nameOf(r.id)}
-                                  {r.onStrike ? " *" : ""}
-                                </Text>
-                                <Text style={styles.creaseFigs}>
-                                  {figs(r.id)?.runs ?? 0}
-                                  <Text style={{ color: colors.zinc600 }}> ({figs(r.id)?.balls ?? 0})</Text>
-                                </Text>
-                              </View>
-                            ))}
-                            {liveCur?.bowler && (
-                              <View style={[styles.creaseRow, styles.creaseBowlerRow]}>
-                                <Text style={styles.creaseName} numberOfLines={1}>
-                                  {nameOf(liveCur.bowler.id)}
-                                </Text>
-                                <Text style={styles.creaseFigs}>
-                                  {overs(liveCur.bowler.balls)}–{liveCur.bowler.runs}–{liveCur.bowler.wickets}
-                                </Text>
-                              </View>
-                            )}
-                            {(liveCur?.thisOver.length ?? 0) > 0 && (
-                              <View style={styles.overStrip}>
-                                <Text style={styles.overLabel}>This over</Text>
-                                {liveCur!.thisOver.map((b, i) => (
-                                  <View
-                                    key={i}
-                                    style={[
-                                      styles.overBall,
-                                      b === "W" && styles.overBallWicket,
-                                      (b === "4" || b === "6") && styles.overBallBoundary,
-                                    ]}
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.overBallText,
-                                        b === "W" && { color: "#f87171" },
-                                        (b === "4" || b === "6") && { color: colors.emerald400 },
-                                      ]}
-                                    >
-                                      {b}
-                                    </Text>
-                                  </View>
-                                ))}
-                              </View>
-                            )}
-                          </View>
-                        );
-                      })()}
-
-                      {needsBatter && (
-                        <Text style={styles.promptAmber}>Wicket! Pick the new batter.</Text>
-                      )}
-                      {needsBowler && (
-                        <Text style={styles.promptAmber}>Over complete — pick the next bowler.</Text>
-                      )}
-
-                      <PlayerChips
-                        label={needsBatter ? "Striker · needed" : "Striker"}
-                        team={batting}
-                        value={strikerId}
-                        onChange={setPickStriker}
-                      />
-                      <PlayerChips
-                        label="Non-striker"
-                        team={batting}
-                        value={nonStrikerId}
-                        onChange={setPickNonStriker}
-                      />
-                      <PlayerChips
-                        label={`Bowler · ${bowling.name}${needsBowler ? " · needed" : ""}`}
-                        team={bowling}
-                        value={bowlerId}
-                        onChange={setPickBowler}
-                      />
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
-                        <Pressable
-                          onPress={swapStrike}
-                          disabled={!nonStrikerId}
-                          style={[styles.smallBtn, !nonStrikerId && { opacity: 0.4 }]}
-                        >
-                          <Text style={styles.smallBtnText}>⇄ Swap strike</Text>
-                        </Pressable>
-                        {liveCur && liveCur.partnership.balls > 0 && (
-                          <Text style={styles.hint}>
-                            P&apos;ship {liveCur.partnership.runs} ({liveCur.partnership.balls})
-                          </Text>
-                        )}
-                        {!strikerId && !needsBatter && (
-                          <Text style={styles.hintAmber}>Pick a striker to build the batting card.</Text>
-                        )}
-                      </View>
-                    </View>
-
-                    <View style={styles.padWrap}>
-                      {[0, 1, 2, 3, 4, 6].map((r) => (
-                        <Pressable
-                          key={r}
-                          onPress={() => ball({ runs: r })}
-                          disabled={busy}
-                          style={[styles.padBtn, (r === 4 || r === 6) && styles.padBtnBoundary]}
-                        >
-                          <Text style={[styles.padText, (r === 4 || r === 6) && { color: colors.emerald400 }]}>{r}</Text>
-                        </Pressable>
-                      ))}
-                      <Pressable onPress={() => ball({ runs: 0, wicket: true })} disabled={busy} style={[styles.padBtn, styles.padBtnWicket]}>
-                        <Text style={[styles.padText, { color: "#f87171" }]}>W</Text>
-                      </Pressable>
-                      <Pressable onPress={() => ball({ runs: 1, extra: "wd" })} disabled={busy} style={[styles.padBtn, styles.padBtnExtra]}>
-                        <Text style={[styles.padText, { color: "#fbbf24", fontSize: 18 }]}>Wd</Text>
-                      </Pressable>
-                    </View>
-
-                    <View style={styles.grid3}>
-                      <Pressable onPress={() => ball({ runs: 1, extra: "nb" })} disabled={busy} style={[styles.smallBtn, { flex: 1 }]}>
-                        <Text style={[styles.smallBtnText, { color: "#fbbf24" }]}>No Ball +1</Text>
-                      </Pressable>
-                      <Pressable onPress={() => ball({ runs: 1, extra: "b" })} disabled={busy} style={[styles.smallBtn, { flex: 1 }]}>
-                        <Text style={styles.smallBtnText}>Bye +1</Text>
-                      </Pressable>
-                      {cs.inning === 1 && (
-                        <Pressable
-                          onPress={() => {
-                            const other = cs.battingTeamId === match.homeTeam.id ? match.awayTeam.id : match.homeTeam.id;
-                            resetPlayers(); // sides swap
-                            ev("INNINGS_START", { teamId: other });
-                          }}
-                          disabled={busy}
-                          style={[styles.smallBtn, { flex: 1, borderColor: colors.emerald500_30 }]}
-                        >
-                          <Text style={[styles.smallBtnText, { color: "#7dd3fc" }]}>End Innings</Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  </>
-                )}
-              </>
-            )}
-
-            {/* ── FOOTBALL ── */}
-            {sport === "FOOTBALL" && (
-              <>
-                <Pressable
-                  onPress={() => ev(match.clockStartedAt ? "CLOCK_STOP" : "CLOCK_START")}
-                  disabled={busy}
-                  style={[styles.bigBtn, match.clockStartedAt ? styles.amberBtn : styles.startBtn]}
-                >
-                  {match.clockStartedAt ? <Square size={16} color="#fbbf24" /> : <Play size={16} color={colors.emerald400} />}
-                  <Text style={match.clockStartedAt ? styles.amberText : styles.startText}>
-                    {match.clockStartedAt ? "Stop Clock" : "Start Clock"}
+              <View style={s.row}>
+                {[match.homeTeam, match.awayTeam].map((team) => (
+                  <Pressable
+                    key={team.id}
+                    onPress={async () => {
+                      const scorer = team.members.some((p) => p.id === pickStriker) ? pickStriker : "";
+                      await send({
+                        action: "event",
+                        event: { kind: "GOAL", teamId: team.id, ...(scorer ? { memberId: scorer } : {}) },
+                      });
+                      setPickStriker("");
+                    }}
+                    disabled={busy}
+                    style={[s.goalBtn, { flex: 1 }]}
+                  >
+                    <Text style={{ fontSize: 26 }}>⚽</Text>
+                    <Text style={s.goalText} numberOfLines={1}>{team.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {(() => {
+                const lg = (match.liveState as FootballLive | null)?.current?.lastGoal;
+                if (!lg) return null;
+                const t = lg.teamId === match.homeTeam.id ? match.homeTeam : match.awayTeam;
+                return (
+                  <Text style={s.lastGoal}>
+                    Last goal · {t.name}
+                    {lg.memberId ? ` — ${nameOf(lg.memberId)}` : ""}
                   </Text>
-                </Pressable>
+                );
+              })()}
+            </>
+          )}
 
-                {/* Who's just scored — football's "who's on strike". */}
-                {(() => {
-                  const lg = (match.liveState as FootballLive | null)?.current?.lastGoal;
-                  if (!lg) return null;
-                  const team = lg.teamId === match.homeTeam.id ? match.homeTeam : match.awayTeam;
-                  const who = [...match.homeTeam.members, ...match.awayTeam.members].find(
-                    (p) => p.id === lg.memberId
-                  );
-                  return (
-                    <View style={styles.lastGoalCard}>
-                      <Text style={{ color: colors.zinc500, fontSize: 12 }}>
-                        Last goal ·{" "}
-                        <Text style={{ color: colors.emerald400 }}>{team.name}</Text>
-                        {who ? <Text style={{ color: colors.zinc300 }}> — {who.name}</Text> : null}
-                      </Text>
-                    </View>
-                  );
-                })()}
-                <View style={styles.pickerCard}>
-                  <Text style={styles.pickerLabel}>Goal scorer (optional)</Text>
-                  <View style={styles.chipWrap}>
-                    {[match.homeTeam, match.awayTeam].flatMap((t) =>
-                      t.members.map((p) => {
-                        const on = p.id === pickStriker;
-                        return (
-                          <Pressable
-                            key={p.id}
-                            onPress={() => setPickStriker(on ? "" : p.id)}
-                            style={[styles.playerChip, on && styles.playerChipOn]}
-                          >
-                            <Text style={[styles.playerChipText, on && { color: colors.emerald400, fontWeight: "700" }]}>
-                              {p.name}
-                            </Text>
-                          </Pressable>
-                        );
-                      })
-                    )}
-                  </View>
-                </View>
+          {match.status === "LIVE" && sport === "PICKLEBALL" && (
+            <>
+              <View style={s.row}>
+                {[match.homeTeam, match.awayTeam].map((team) => (
+                  <Pressable
+                    key={team.id}
+                    onPress={() => ev("POINT", { teamId: team.id })}
+                    disabled={busy}
+                    style={[s.goalBtn, { flex: 1 }]}
+                  >
+                    <Text style={s.plusOne}>+1</Text>
+                    <Text style={s.goalText} numberOfLines={1}>{team.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable onPress={() => ev("GAME_END")} disabled={busy} style={[s.chipBtn, { alignSelf: "stretch" }]}>
+                <Text style={[s.chipText, { color: "#7dd3fc" }]}>End game</Text>
+              </Pressable>
+            </>
+          )}
 
-                <View style={styles.grid2}>
-                  {[match.homeTeam, match.awayTeam].map((team) => (
-                    <Pressable
-                      key={team.id}
-                      onPress={async () => {
-                        const scorer = team.members.some((p) => p.id === pickStriker) ? pickStriker : "";
-                        await send({
-                          action: "event",
-                          event: { kind: "GOAL", teamId: team.id, ...(scorer ? { memberId: scorer } : {}) },
-                        });
-                        setPickStriker("");
-                      }}
-                      disabled={busy}
-                      style={[styles.bigBtn, styles.startBtn, { flex: 1, flexDirection: "column", gap: 2 }]}
-                    >
-                      <Text style={{ fontSize: 22 }}>⚽</Text>
-                      <Text style={[styles.startText, { fontSize: 12 }]}>{team.name}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {/* ── PICKLEBALL ── */}
-            {sport === "PICKLEBALL" && (
-              <>
-                <View style={styles.grid2}>
-                  {[match.homeTeam, match.awayTeam].map((team) => (
-                    <Pressable
-                      key={team.id}
-                      onPress={() => ev("POINT", { teamId: team.id })}
-                      disabled={busy}
-                      style={[styles.bigBtn, styles.startBtn, { flex: 1, flexDirection: "column", gap: 2 }]}
-                    >
-                      <Text style={{ fontSize: 22, color: colors.emerald400, fontWeight: "800" }}>+1</Text>
-                      <Text style={[styles.startText, { fontSize: 12 }]}>{team.name}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <Pressable onPress={() => ev("GAME_END")} disabled={busy} style={[styles.smallBtn, { alignSelf: "stretch" }]}>
-                  <Text style={[styles.smallBtnText, { color: "#7dd3fc" }]}>End Game</Text>
-                </Pressable>
-              </>
-            )}
-
-            {/* Undo + end */}
-            <View style={[styles.grid2, styles.footer]}>
-              <Pressable onPress={() => send({ action: "undo" })} disabled={busy} style={[styles.smallBtn, { flex: 1, paddingVertical: 14 }]}>
+          {match.status === "LIVE" && (
+            <View style={[s.row, s.footer]}>
+              <Pressable onPress={() => send({ action: "undo" })} disabled={busy} style={[s.chipBtn, { flex: 1 }]}>
                 <Undo2 size={15} color={colors.zinc300} />
-                <Text style={styles.smallBtnText}>Undo</Text>
+                <Text style={s.chipText}>Undo</Text>
               </Pressable>
               <Pressable
                 onPress={() =>
@@ -676,35 +590,83 @@ export function ScorerConsoleScreen() {
                   ])
                 }
                 disabled={busy}
-                style={[styles.smallBtn, styles.endBtn, { flex: 1, paddingVertical: 14 }]}
+                style={[s.chipBtn, s.endBtn, { flex: 1 }]}
               >
-                <Text style={[styles.smallBtnText, { color: "#f87171" }]}>End Match</Text>
+                <Text style={[s.chipText, { color: "#f87171" }]}>End match</Text>
               </Pressable>
             </View>
-          </>
-        )}
+          )}
+        </ScrollView>
 
         {busy && (
-          <View style={{ alignItems: "center", paddingVertical: 6 }}>
+          <View style={s.busyBar}>
             <ActivityIndicator size="small" color={colors.emerald400} />
           </View>
         )}
-      </ScrollView>
+      </View>
+
+      {/* ══ Player sheet — opens itself when a batter/bowler is needed ══ */}
+      <Modal visible={!!picker} transparent animationType="slide" onRequestClose={() => setPicker(null)}>
+        <Pressable style={s.sheetBackdrop} onPress={() => setPicker(null)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>
+                {picker === "striker"
+                  ? needsBatter
+                    ? "Wicket — who's in?"
+                    : "Striker"
+                  : picker === "nonStriker"
+                    ? "Non-striker"
+                    : picker === "bowler"
+                      ? needsBowler
+                        ? "Over complete — next bowler"
+                        : "Bowler"
+                      : "Goal scorer"}
+              </Text>
+              <Pressable onPress={() => setPicker(null)} hitSlop={10}>
+                <X size={20} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            <ScrollView style={{ maxHeight: 380 }}>
+              {(pickerTeam ? pickerTeam.members : allPlayers).map((p) => {
+                const on = p.id === pickerValue;
+                return (
+                  <Pressable key={p.id} onPress={() => applyPick(p.id)} style={[s.sheetRow, on && s.sheetRowOn]}>
+                    <Text style={[s.sheetName, on && { color: colors.emerald400, fontWeight: "700" }]}>
+                      {p.name}
+                    </Text>
+                    {figs(p.id) && (
+                      <Text style={s.creaseFigs}>
+                        {figs(p.id)!.runs} ({figs(p.id)!.balls})
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+              {(pickerTeam ? pickerTeam.members : allPlayers).length === 0 && (
+                <Text style={[s.dim, { padding: 16 }]}>
+                  No players in this squad yet — add them from the admin console.
+                </Text>
+              )}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 48 },
+const s = StyleSheet.create({
+  root: { flex: 1 },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 },
   bigMsg: { color: colors.foreground, fontSize: 18, fontWeight: "700" },
+  dim: { color: colors.zinc500, fontSize: 13 },
   kicker: { color: colors.emerald500, fontSize: 11, letterSpacing: 1, fontWeight: "700" },
   h1: { color: colors.foreground, fontSize: 20, fontWeight: "800" },
-  sub: { color: colors.zinc500, fontSize: 13, textAlign: "center" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  backRow: { flexDirection: "row", alignItems: "center", gap: 2 },
-  liveRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  liveText: { color: "#f87171", fontSize: 11, fontWeight: "800" },
+
+  // Match picker
+  pickerList: { padding: 16, gap: 10 },
   matchCard: {
     borderRadius: radius.xl,
     borderWidth: 1,
@@ -712,81 +674,47 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     padding: 14,
   },
-  matchLabel: { color: colors.zinc500, fontSize: 11 },
+  matchLabel: { color: colors.zinc500, fontSize: 12, flex: 1, textAlign: "center" },
   matchTeams: { color: colors.foreground, fontSize: 15, fontWeight: "600", marginTop: 3 },
-  matchWhen: { color: colors.zinc600, fontSize: 11, marginTop: 2 },
+
+  // Pinned scoreboard
   board: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
     backgroundColor: colors.card,
-    padding: 14,
-    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
-  boardRow: { flexDirection: "row", alignItems: "center", marginTop: 8, alignSelf: "stretch" },
-  dot: { width: 10, height: 10, borderRadius: 5, marginBottom: 5 },
-  boardTeam: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
-  boardScore: { color: colors.emerald400, fontSize: 30, fontWeight: "800" },
-  boardSub: { color: colors.zinc400, fontSize: 12, marginTop: 8, textAlign: "center" },
-  clock: { color: colors.zinc500, fontSize: 18, marginTop: 6, fontVariant: ["tabular-nums"] },
-  error: { color: "#f87171", fontSize: 13, textAlign: "center" },
-  bigBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    paddingVertical: 18,
-  },
-  startBtn: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
-  startText: { color: colors.emerald400, fontSize: 15, fontWeight: "700" },
-  amberBtn: { borderColor: "rgba(251,191,36,0.4)", backgroundColor: "rgba(251,191,36,0.12)" },
-  amberText: { color: "#fbbf24", fontSize: 15, fontWeight: "700" },
-  blueBtn: { borderColor: "rgba(125,211,252,0.4)", backgroundColor: "rgba(125,211,252,0.10)" },
-  blueText: { color: "#7dd3fc", fontSize: 13, fontWeight: "700", textAlign: "center" },
-  grid2: { flexDirection: "row", gap: 10 },
-  grid3: { flexDirection: "row", gap: 8 },
-  pickerCard: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 12,
-  },
-  pickerLabel: { color: colors.zinc500, fontSize: 11, marginBottom: 6 },
-  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  playerChip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.zinc900,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  playerChipOn: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
-  playerChipText: { color: colors.zinc300, fontSize: 13 },
-  hint: { color: colors.zinc600, fontSize: 12 },
-  hintAmber: { color: "rgba(251,191,36,0.85)", fontSize: 11, flex: 1 },
-  promptAmber: { color: "#fbbf24", fontSize: 12, fontWeight: "700", marginTop: 10 },
-  creaseBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.zinc900,
-    padding: 10,
-    gap: 4,
-  },
-  creaseRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 },
-  creaseName: { color: colors.zinc300, fontSize: 14, flex: 1 },
-  creaseStrike: { color: colors.foreground, fontWeight: "700" },
-  creaseFigs: { color: colors.zinc400, fontSize: 14, fontVariant: ["tabular-nums"] },
-  creaseBowlerRow: {
+  boardTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  backRow: { flexDirection: "row", alignItems: "center", gap: 1 },
+  backText: { color: colors.zinc400, fontSize: 13 },
+  liveRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+  liveText: { color: "#f87171", fontSize: 11, fontWeight: "800" },
+  scoreLine: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginTop: 6 },
+  scoreLineTwo: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
+  battingTeam: { color: colors.zinc300, fontSize: 15, fontWeight: "600", flexShrink: 1 },
+  teamSmall: { color: colors.zinc400, fontSize: 12 },
+  // lineHeight matters: without it RN clips tall digits at these sizes.
+  scoreBig: { color: colors.emerald400, fontSize: 30, lineHeight: 38, fontWeight: "800" },
+  scoreOvers: { color: colors.zinc500, fontSize: 14, lineHeight: 20, fontWeight: "500" },
+  target: { color: "#fbbf24", fontSize: 12, marginTop: 2 },
+
+  crease: {
+    marginTop: 8,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingTop: 6,
-    marginTop: 2,
+    gap: 2,
   },
-  overStrip: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 5, marginTop: 6 },
-  overLabel: { color: colors.zinc600, fontSize: 11, marginRight: 2 },
+  creaseRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingVertical: 3 },
+  creaseName: { color: colors.zinc300, fontSize: 14, flex: 1 },
+  creaseOnStrike: { color: colors.foreground, fontWeight: "700" },
+  creaseFigs: { color: colors.zinc400, fontSize: 13, fontVariant: ["tabular-nums"] },
+  creaseBowler: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 3, paddingTop: 6 },
+  overRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6, gap: 8 },
+  overStrip: { flexDirection: "row", alignItems: "center", gap: 4, flex: 1, flexWrap: "wrap" },
+  overEmpty: { color: colors.zinc600, fontSize: 11 },
   overBall: {
     minWidth: 24,
     height: 24,
@@ -796,32 +724,49 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  overBallWicket: { backgroundColor: "rgba(248,113,113,0.2)" },
-  overBallBoundary: { backgroundColor: colors.emerald500_10 },
-  overBallText: { color: colors.zinc300, fontSize: 11, fontWeight: "800" },
-  lastGoalCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.emerald500_30,
-    backgroundColor: colors.emerald500_10,
-    padding: 10,
-  },
-  padWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  padBtn: {
-    width: "23%",
-    aspectRatio: 1.25,
+  overBallW: { backgroundColor: "rgba(248,113,113,0.22)" },
+  overBallB: { backgroundColor: "rgba(16,185,129,0.22)" },
+  overBallText: { color: colors.zinc300, fontSize: 11, lineHeight: 15, fontWeight: "800" },
+  swap: { color: colors.zinc400, fontSize: 12 },
+
+  error: { color: "#f87171", fontSize: 13, textAlign: "center", paddingHorizontal: 16, paddingTop: 8 },
+
+  // Controls
+  controls: { padding: 14, gap: 10, paddingBottom: 28 },
+  row: { flexDirection: "row", gap: 10 },
+  pad: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  padKey: {
+    width: "22.4%",
+    aspectRatio: 1.05,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.borderStrong,
-    backgroundColor: colors.card,
+    backgroundColor: colors.cardElevated,
   },
-  padBtnBoundary: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
-  padBtnWicket: { borderColor: "rgba(248,113,113,0.4)", backgroundColor: "rgba(248,113,113,0.12)" },
-  padBtnExtra: { borderColor: "rgba(251,191,36,0.4)", backgroundColor: "rgba(251,191,36,0.10)" },
-  padText: { color: colors.foreground, fontSize: 24, fontWeight: "800" },
-  smallBtn: {
+  padKeyBoundary: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
+  padKeyWicket: { borderColor: "rgba(248,113,113,0.45)", backgroundColor: "rgba(248,113,113,0.12)" },
+  padKeyExtra: { borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(251,191,36,0.10)" },
+  padText: { color: colors.foreground, fontSize: 26, lineHeight: 32, fontWeight: "800" },
+
+  wideBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    paddingVertical: 16,
+  },
+  greenBtn: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
+  greenText: { color: colors.emerald400, fontSize: 15, fontWeight: "700" },
+  amberBtn: { borderColor: "rgba(251,191,36,0.4)", backgroundColor: "rgba(251,191,36,0.12)" },
+  amberText: { color: "#fbbf24", fontSize: 15, fontWeight: "700" },
+  blueBtn: { borderColor: "rgba(125,211,252,0.4)", backgroundColor: "rgba(125,211,252,0.10)" },
+  blueText: { color: "#7dd3fc", fontSize: 13, fontWeight: "700", textAlign: "center" },
+
+  chipBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -830,18 +775,66 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-  },
-  smallBtnText: { color: colors.zinc300, fontSize: 13, fontWeight: "600" },
-  endBtn: { borderColor: "rgba(248,113,113,0.4)" },
-  footer: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 14, marginTop: 4 },
-  primaryBtn: {
-    backgroundColor: colors.emerald500,
-    borderRadius: radius.lg,
     paddingVertical: 13,
-    paddingHorizontal: 24,
-    marginTop: 8,
+    paddingHorizontal: 10,
   },
-  primaryText: { color: "#ffffff", fontWeight: "700", fontSize: 15 },
+  chipText: { color: colors.zinc300, fontSize: 13, fontWeight: "600" },
+  endBtn: { borderColor: "rgba(248,113,113,0.4)" },
+  footer: { marginTop: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
+
+  goalBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+    paddingVertical: 18,
+  },
+  goalText: { color: colors.emerald400, fontSize: 13, fontWeight: "700" },
+  plusOne: { color: colors.emerald400, fontSize: 26, lineHeight: 32, fontWeight: "800" },
+  scorerRow: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    padding: 12,
+  },
+  scorerLabel: { color: colors.zinc500, fontSize: 11 },
+  scorerValue: { color: colors.foreground, fontSize: 14, marginTop: 2 },
+  lastGoal: { color: colors.zinc500, fontSize: 12, textAlign: "center" },
+
+  busyBar: { position: "absolute", top: 0, left: 0, right: 0, alignItems: "center", paddingTop: 4 },
+
+  // Player sheet
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  sheet: {
+    backgroundColor: colors.cardElevated,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingBottom: 28,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+  },
+  sheetHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  sheetTitle: { color: colors.foreground, fontSize: 16, fontWeight: "700" },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 15,
+    paddingHorizontal: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(38,38,38,0.6)",
+  },
+  sheetRowOn: { backgroundColor: colors.emerald500_10 },
+  sheetName: { color: colors.zinc300, fontSize: 15 },
 });
