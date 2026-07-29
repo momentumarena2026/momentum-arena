@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { computeStandings } from "@/lib/tournament-points";
+import { computeStandings, type StandingRow } from "@/lib/tournament-points";
 
 // Bracket progression: after any result lands, resolve every knockout slot
 // that has become decidable. Idempotent — safe to run repeatedly:
@@ -37,11 +37,16 @@ export async function applyProgression(tournamentId: string): Promise<void> {
 
   // Pool standings (only for fully-completed pools).
   const poolRank = new Map<string, string[]>(); // pool NAME -> ordered teamIds
+  const poolRows = new Map<string, StandingRow[]>(); // pool NAME -> ordered rows
+  let allPoolsDone = t.pools.length > 0;
   for (const pool of t.pools) {
     const poolMatches = t.matches.filter((m) => m.poolId === pool.id && m.stage === "POOL");
     if (poolMatches.length === 0) continue;
     const done = poolMatches.every((m) => m.status === "COMPLETED" || m.status === "WALKOVER");
-    if (!done) continue;
+    if (!done) {
+      allPoolsDone = false;
+      continue;
+    }
     const completed = poolMatches
       .filter((m) => m.homeTeamId && m.awayTeamId && m.homeScore != null && m.awayScore != null)
       .map((m) => ({
@@ -64,7 +69,36 @@ export async function applyProgression(tournamentId: string): Promise<void> {
       new Map(t.teams.map((x) => [x.id, x.name]))
     );
     poolRank.set(pool.name, standings.map((s) => s.teamId));
+    poolRows.set(pool.name, standings);
   }
+  if (poolRank.size !== t.pools.length) allPoolsDone = false;
+
+  // Cross-pool seeding (bracketSeeding = OVERALL_RANK). Every qualifier is
+  // ranked against every other on their pool record, so the strongest team
+  // in the tournament takes seed 1 — and with it any first-round bye —
+  // instead of that falling to whoever happened to win Pool A. Only
+  // decidable once EVERY pool is finished, since a later result can
+  // reorder the seeds.
+  const teamName = new Map(t.teams.map((x) => [x.id, x.name]));
+  let overallSeeds: string[] = [];
+  if (allPoolsDone && t.advancePerPool > 0) {
+    const qualifiers: StandingRow[] = [];
+    for (const rows of poolRows.values()) qualifiers.push(...rows.slice(0, t.advancePerPool));
+    qualifiers.sort(
+      (a, b) =>
+        b.points - a.points ||
+        b.scoreDiff - a.scoreDiff ||
+        b.scoreFor - a.scoreFor ||
+        (teamName.get(a.teamId) || "").localeCompare(teamName.get(b.teamId) || "")
+    );
+    overallSeeds = qualifiers.map((q) => q.teamId);
+  }
+
+  const resolveSeedLabel = (label: string | null): string | null => {
+    const m = label?.match(/^Seed #(\d+)$/);
+    if (!m) return null;
+    return overallSeeds[parseInt(m[1], 10) - 1] ?? null;
+  };
 
   const resolvePoolLabel = (label: string | null): string | null => {
     if (!label) return null;
@@ -105,14 +139,16 @@ export async function applyProgression(tournamentId: string): Promise<void> {
         const viaMatch = match.homeSourceLabel?.startsWith("Loser")
           ? decidedLoser(match.homeSourceMatchId)
           : decidedWinner(match.homeSourceMatchId);
-        const resolved = viaMatch ?? resolvePoolLabel(match.homeSourceLabel);
+        const resolved =
+          viaMatch ?? resolvePoolLabel(match.homeSourceLabel) ?? resolveSeedLabel(match.homeSourceLabel);
         if (resolved) data.homeTeamId = resolved;
       }
       if (!match.awayTeamId) {
         const viaMatch = match.awaySourceLabel?.startsWith("Loser")
           ? decidedLoser(match.awaySourceMatchId)
           : decidedWinner(match.awaySourceMatchId);
-        const resolved = viaMatch ?? resolvePoolLabel(match.awaySourceLabel);
+        const resolved =
+          viaMatch ?? resolvePoolLabel(match.awaySourceLabel) ?? resolveSeedLabel(match.awaySourceLabel);
         if (resolved) data.awayTeamId = resolved;
       }
 

@@ -305,6 +305,8 @@ export type ScorerBoot = {
     status: string;
     /** Overs one bowler may bowl in a match; 0 = no limit. */
     maxOversPerBowler?: number;
+    /** Overs per side; 0 = unlimited. */
+    oversPerInnings?: number;
   };
   matches: ScorerMatch[];
 };

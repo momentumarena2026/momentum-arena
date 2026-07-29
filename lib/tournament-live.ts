@@ -477,6 +477,8 @@ export type LiveGuardContext = {
   memberTeam: Map<string, string>;
   /** Cricket over quota per bowler; 0 = no limit. */
   maxOversPerBowler: number;
+  /** Cricket overs per side; 0 = unlimited. */
+  oversPerInnings: number;
 };
 
 /**
@@ -524,6 +526,10 @@ export function validateLiveEvent(
       if (teamOf(bowlerId) !== bowlingTeamId) return "That bowler isn't in the fielding side";
       if (cur.dismissed.includes(batterId)) return "That batter is already out";
       if (inn && inn.wickets >= MAX_WICKETS_PER_INNINGS) return "All out — end the innings";
+      // The innings is only as long as the tournament says it is.
+      if (ctx.oversPerInnings > 0 && inn && inn.balls >= ctx.oversPerInnings * 6) {
+        return `Innings complete — ${ctx.oversPerInnings} overs bowled. End the innings.`;
+      }
 
       // Quota and the consecutive-overs law both bite only when the bowler
       // is STARTING an over; mid-over they're already committed.
@@ -621,7 +627,12 @@ export async function applyLiveEvent(
       clockStartedAt: true,
       clockElapsedSec: true,
       tournament: {
-        select: { sport: true, liveScoringEnabled: true, maxOversPerBowler: true },
+        select: {
+          sport: true,
+          liveScoringEnabled: true,
+          maxOversPerBowler: true,
+          oversPerInnings: true,
+        },
       },
       homeTeam: { select: { members: { select: { id: true } } } },
       awayTeam: { select: { members: { select: { id: true } } } },
@@ -671,6 +682,7 @@ export async function applyLiveEvent(
         awayTeamId: match.awayTeamId,
         memberTeam,
         maxOversPerBowler: match.tournament.maxOversPerBowler ?? 0,
+        oversPerInnings: match.tournament.oversPerInnings ?? 0,
       },
       prior,
       input

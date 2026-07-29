@@ -50,6 +50,8 @@ export function defaultWizardState(): TournamentWizardInput {
     membersPerTeamMin: 1,
     membersPerTeamMax: 11,
     maxOversPerBowler: 0,
+    oversPerInnings: 0,
+    bracketSeeding: "POOL_ORDER",
     entryFee: 2000,
     feeMode: "FULL",
     advancePct: 50,
@@ -282,6 +284,40 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
               />
               <p className="mt-1 text-[11px] text-zinc-500">
                 The scorer can&apos;t pick a bowler who has bowled this many overs.
+              </p>
+            </div>
+          )}
+          {form.sport === "CRICKET" && (
+            <div>
+              <label className={labelCls}>Overs / Innings</label>
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                placeholder="0 = unlimited"
+                value={form.oversPerInnings || ""}
+                onChange={(e) => set("oversPerInnings", num(e.target.value))}
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Overs per side. The innings closes on the last legal ball.
+              </p>
+            </div>
+          )}
+          {form.format === "POOLS_KNOCKOUT" && (
+            <div>
+              <label className={labelCls}>Bracket Seeding</label>
+              <select
+                className={inputCls}
+                value={form.bracketSeeding}
+                onChange={(e) =>
+                  set("bracketSeeding", e.target.value as TournamentWizardInput["bracketSeeding"])
+                }
+              >
+                <option value="POOL_ORDER">By pool (A1, B1, C1…)</option>
+                <option value="OVERALL_RANK">By overall record (best qualifier seeds 1st)</option>
+              </select>
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Use overall record when the bracket is uneven — the best qualifier earns
+                the top seed, and with it any first-round bye.
               </p>
             </div>
           )}

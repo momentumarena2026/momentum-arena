@@ -27,6 +27,8 @@ type Boot = {
     status: string;
     /** Overs one bowler may bowl in a match; 0 = no limit. */
     maxOversPerBowler?: number;
+    /** Overs per side; 0 = unlimited. */
+    oversPerInnings?: number;
   };
   matches: Match[];
 };
@@ -177,8 +179,13 @@ export function ScorerConsole({ code }: { code: string }) {
   // nobody on strike and nobody bowling. This covers every case.
   const inningsUnderway =
     ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
+  // Innings closed by the overs limit — the server refuses further balls,
+  // so the pad shows that rather than letting the tap fail.
+  const oversCap = boot?.tournament.oversPerInnings || 0;
+  const liveInn = (match?.liveState as CricketState | null)?.innings?.slice(-1)[0];
+  const inningsDone = oversCap > 0 && !!liveInn && liveInn.balls >= oversCap * 6;
   const missing: "striker" | "bowler" | null =
-    boot?.tournament.sport === "CRICKET" && inningsUnderway
+    boot?.tournament.sport === "CRICKET" && inningsUnderway && !inningsDone
       ? !strikerId
         ? "striker"
         : !bowlerId
@@ -471,6 +478,11 @@ export function ScorerConsole({ code }: { code: string }) {
                   </div>
                 ) : (
                   <>
+                    {inningsDone && (
+                      <div className="w-full rounded-xl border border-sky-500/40 bg-sky-600/10 px-4 py-3 text-center text-sm text-sky-300">
+                        Innings complete — {oversCap} overs bowled. End the innings.
+                      </div>
+                    )}
                     {missing && (
                       <button
                         onClick={() => setPicker(missing)}
@@ -486,7 +498,7 @@ export function ScorerConsole({ code }: { code: string }) {
                         <button
                           key={r}
                           onClick={() => ball({ runs: r })}
-                          disabled={busy || !!missing}
+                          disabled={busy || !!missing || inningsDone}
                           className={`${bigBtn} h-16 ${r === 4 || r === 6 ? "border-emerald-500/40 bg-emerald-600/15 text-emerald-300" : "border-zinc-700 bg-zinc-900 text-white"} disabled:opacity-40`}
                         >
                           {r}
@@ -494,24 +506,24 @@ export function ScorerConsole({ code }: { code: string }) {
                       ))}
                       <button
                         onClick={() => ball({ runs: 0, wicket: true })}
-                        disabled={busy || !!missing}
+                        disabled={busy || !!missing || inningsDone}
                         className={`${bigBtn} h-16 border-red-500/40 bg-red-600/15 text-red-300 disabled:opacity-40`}
                       >
                         W
                       </button>
                       <button
                         onClick={() => ball({ runs: 1, extra: "wd" })}
-                        disabled={busy || !!missing}
+                        disabled={busy || !!missing || inningsDone}
                         className={`${bigBtn} h-16 border-amber-500/40 bg-amber-600/15 text-sm text-amber-300 disabled:opacity-40`}
                       >
                         Wd
                       </button>
                     </div>
                     <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => ball({ runs: 1, extra: "nb" })} disabled={busy || !!missing} className={`${bigBtn} h-12 border-amber-500/40 bg-amber-600/10 text-sm text-amber-300 disabled:opacity-40`}>
+                      <button onClick={() => ball({ runs: 1, extra: "nb" })} disabled={busy || !!missing || inningsDone} className={`${bigBtn} h-12 border-amber-500/40 bg-amber-600/10 text-sm text-amber-300 disabled:opacity-40`}>
                         No Ball +1
                       </button>
-                      <button onClick={() => ball({ runs: 1, extra: "b" })} disabled={busy || !!missing} className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300 disabled:opacity-40`}>
+                      <button onClick={() => ball({ runs: 1, extra: "b" })} disabled={busy || !!missing || inningsDone} className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300 disabled:opacity-40`}>
                         Bye +1
                       </button>
                       {cs && cs.inning === 1 && (

@@ -218,8 +218,12 @@ export function ScorerConsoleScreen() {
   // both ends are simply empty, which is how runs used to get logged with
   // nobody on strike and nobody bowling.
   const cricketStarted = ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
+  // Innings closed by the overs limit — the server refuses further balls.
+  const oversCap = boot?.tournament.oversPerInnings || 0;
+  const liveInn = (match?.liveState as CricketState | null)?.innings?.slice(-1)[0];
+  const inningsDone = oversCap > 0 && !!liveInn && liveInn.balls >= oversCap * 6;
   const missing: "striker" | "bowler" | null =
-    boot?.tournament.sport === "CRICKET" && cricketStarted
+    boot?.tournament.sport === "CRICKET" && cricketStarted && !inningsDone
       ? !strikerId
         ? "striker"
         : !bowlerId
@@ -231,7 +235,7 @@ export function ScorerConsoleScreen() {
   // through a wall of chips after every wicket. Keyed on `missing`, so
   // closing the sheet doesn't immediately reopen it; the pad stays
   // disabled behind a hint instead.
-  const padLocked = busy || !!missing;
+  const padLocked = busy || !!missing || inningsDone;
 
   useEffect(() => {
     if (missing) setPicker(missing);
@@ -546,6 +550,13 @@ export function ScorerConsoleScreen() {
                   {/* A delivery needs someone on strike and someone
                       bowling — the server rejects it otherwise, so say so
                       here rather than letting the tap fail. */}
+                  {inningsDone && (
+                    <View style={s.doneBanner}>
+                      <Text style={s.doneBannerText}>
+                        Innings complete — {oversCap} overs bowled. End the innings.
+                      </Text>
+                    </View>
+                  )}
                   {!!missing && (
                     <Pressable onPress={() => setPicker(missing)} style={s.needBanner}>
                       <Text style={s.needBannerText}>
@@ -872,6 +883,15 @@ const s = StyleSheet.create({
   row: { flexDirection: "row", gap: 10 },
   // Fixed-height keys in explicit rows — NOT width% + aspectRatio, so the
   // key's box is a number we chose rather than one the layout derives.
+  doneBanner: {
+    borderWidth: 1,
+    borderColor: "rgba(125,211,252,0.45)",
+    backgroundColor: "rgba(125,211,252,0.10)",
+    borderRadius: radius.xl,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  doneBannerText: { color: "#7dd3fc", fontSize: 13, fontWeight: "600", textAlign: "center" },
   needBanner: {
     borderWidth: 1,
     borderColor: "rgba(251,191,36,0.45)",

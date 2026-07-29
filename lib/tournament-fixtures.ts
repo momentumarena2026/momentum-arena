@@ -160,13 +160,31 @@ export function buildKnockoutSkeleton(
   return matches;
 }
 
-/** Entrant slots for a pools→knockout bracket: A1, B1, …, A2, B2, … so the
- *  standard seeding keeps same-pool teams apart until late rounds. */
+/**
+ * Entrant slots for a pools→knockout bracket, in seed order.
+ *
+ * POOL_ORDER   A1, B1, …, A2, B2, … — the pool's letter fixes the seed, so
+ *              same-pool teams stay apart. Simple, but Pool A's winner
+ *              always takes seed 1 and with it any first-round bye.
+ * OVERALL_RANK "Seed #1…#n" — placeholders resolved once every pool is
+ *              done, by ranking the qualifiers against each other on their
+ *              pool record. Use this when the bracket is uneven (e.g. 3
+ *              qualifiers, where seed 1 goes straight to the final) and the
+ *              bye has to be earned rather than handed to a pool letter.
+ */
 export function poolQualifierSlots(
   poolNames: string[],
-  advancePerPool: number
+  advancePerPool: number,
+  seeding: "POOL_ORDER" | "OVERALL_RANK" = "POOL_ORDER"
 ): BracketSlot[] {
   const out: BracketSlot[] = [];
+  if (seeding === "OVERALL_RANK") {
+    const total = poolNames.length * advancePerPool;
+    for (let n = 1; n <= total; n++) {
+      out.push({ kind: "pool", poolName: "", rank: n, label: `Seed #${n}` });
+    }
+    return out;
+  }
   for (let rank = 1; rank <= advancePerPool; rank++) {
     for (const pool of poolNames) {
       out.push({

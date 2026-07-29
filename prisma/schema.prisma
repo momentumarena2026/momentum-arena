@@ -3009,6 +3009,17 @@ enum TournamentFormat {
   POOLS_KNOCKOUT // round-robin pools feeding a knockout bracket
 }
 
+/// How pool qualifiers are seeded into the knockout bracket.
+enum BracketSeeding {
+  /// A1, B1, C1… — the pool's letter decides the seed. Keeps same-pool
+  /// teams apart, but Pool A's winner always takes seed 1.
+  POOL_ORDER
+  /// Qualifiers ranked against each other on their pool record (points,
+  /// then the tournament's tiebreaker chain), so the strongest team
+  /// overall takes seed 1 — and with it any first-round bye.
+  OVERALL_RANK
+}
+
 enum TournamentStatus {
   DRAFT
   PUBLISHED // visible, registrations not yet open
@@ -3077,11 +3088,16 @@ model Tournament {
   teamsPerPool     Int     @default(0)
   advancePerPool   Int     @default(0) // how many qualify from each pool
   thirdPlaceMatch  Boolean @default(false)
+  /// POOLS_KNOCKOUT: how the qualifiers are seeded into the bracket.
+  bracketSeeding   BracketSeeding @default(POOL_ORDER)
   membersPerTeamMin Int    @default(1)
   membersPerTeamMax Int
   /// Cricket: overs one bowler may bowl in a match. 0 = no limit. The
   /// scorer console greys out a bowler once they've bowled their quota.
   maxOversPerBowler Int    @default(0)
+  /// Cricket: overs per side. 0 = unlimited. The innings closes on the
+  /// last legal ball, and the scorer can't bowl past it.
+  oversPerInnings   Int    @default(0)
 
   // Fees
   entryFee          Int               @default(0) // rupees

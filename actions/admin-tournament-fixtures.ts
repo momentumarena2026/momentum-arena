@@ -175,7 +175,8 @@ export async function generateFixtures(
           }))
         : poolQualifierSlots(
             t.pools.map((p) => p.name),
-            t.advancePerPool
+            t.advancePerPool,
+            t.bracketSeeding
           );
     const skeleton = buildKnockoutSkeleton(entrants, t.thirdPlaceMatch);
     const baseIndex = rows.length;
