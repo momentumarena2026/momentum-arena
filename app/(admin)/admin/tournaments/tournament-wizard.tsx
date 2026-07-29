@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, Trash2, Trophy, AlertTriangle, Upload } from "lucide-react";
 import {
@@ -8,6 +8,7 @@ import {
   updateTournament,
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
+import { listCourtsForSport } from "@/actions/admin-tournament-fixtures";
 import {
   DEFAULT_STAT_FIELDS,
   structureWarnings,
@@ -24,6 +25,14 @@ const SPORTS = [
   { value: "FOOTBALL", label: "Football" },
   { value: "PICKLEBALL", label: "Pickleball" },
 ] as const;
+
+/** The four pricing bands a pass can be restricted to. */
+const PASS_BANDS = [
+  { key: "wd-op", dayType: "WEEKDAY" as const, timeType: "OFF_PEAK" as const, label: "Weekday · Off-peak" },
+  { key: "wd-pk", dayType: "WEEKDAY" as const, timeType: "PEAK" as const, label: "Weekday · Peak" },
+  { key: "we-op", dayType: "WEEKEND" as const, timeType: "OFF_PEAK" as const, label: "Weekend · Off-peak" },
+  { key: "we-pk", dayType: "WEEKEND" as const, timeType: "PEAK" as const, label: "Weekend · Peak" },
+];
 
 const TIEBREAKER_LABELS: Record<string, string> = {
   H2H: "Head-to-head",
@@ -86,6 +95,17 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
   const [saving, setSaving] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Courts for the prize-pass picker — reloaded when the sport changes.
+  const [courts, setCourts] = useState<{ id: string; label: string }[]>([]);
+  useEffect(() => {
+    let live = true;
+    listCourtsForSport(form.sport)
+      .then((c) => live && setCourts(c))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [form.sport]);
 
   const set = <K extends keyof TournamentWizardInput>(k: K, v: TournamentWizardInput[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -469,24 +489,118 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
               <Plus className="h-3 w-3" /> Add prize
             </button>
           </div>
-          <div className="space-y-2">
-            {form.prizes.map((p, i) => (
-              <div key={i} className="flex gap-2">
-                <input className={`${inputCls} sm:max-w-[180px]`} placeholder="Place (Winner…)" value={p.place} onChange={(e) => {
-                  const arr = [...form.prizes];
-                  arr[i] = { ...arr[i], place: e.target.value };
-                  set("prizes", arr);
-                }} />
-                <input className={inputCls} placeholder="₹20,000 + Trophy" value={p.label} onChange={(e) => {
-                  const arr = [...form.prizes];
-                  arr[i] = { ...arr[i], label: e.target.value };
-                  set("prizes", arr);
-                }} />
-                <button onClick={() => set("prizes", form.prizes.filter((_, j) => j !== i))} className="shrink-0 rounded-lg border border-zinc-700 p-2 text-zinc-400 hover:bg-zinc-800">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
+          <div className="space-y-3">
+            {form.prizes.map((p, i) => {
+              const patch = (v: Partial<(typeof form.prizes)[number]>) => {
+                const arr = [...form.prizes];
+                arr[i] = { ...arr[i], ...v };
+                set("prizes", arr);
+              };
+              const pass = p.pass ?? null;
+              const patchPass = (v: Partial<NonNullable<typeof pass>>) =>
+                pass && patch({ pass: { ...pass, ...v } });
+              return (
+                <div key={i} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 space-y-2">
+                  <div className="flex gap-2">
+                    <input className={`${inputCls} sm:max-w-[180px]`} placeholder="Place (Winner…)" value={p.place} onChange={(e) => patch({ place: e.target.value })} />
+                    <input className={inputCls} placeholder="₹20,000 + Trophy" value={p.label} onChange={(e) => patch({ label: e.target.value })} />
+                    <button onClick={() => set("prizes", form.prizes.filter((_, j) => j !== i))} className="shrink-0 rounded-lg border border-zinc-700 p-2 text-zinc-400 hover:bg-zinc-800">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Optional pass, minted to the winning captain on completion. */}
+                  {!pass ? (
+                    <button
+                      onClick={() =>
+                        patch({
+                          pass: {
+                            awardTo: i + 1,
+                            courtConfigId: courts[0]?.id || "",
+                            totalHours: 1,
+                            validityDays: 7,
+                            bands: [],
+                            name: "",
+                          },
+                        })
+                      }
+                      className="flex items-center gap-1 text-xs text-emerald-400 hover:underline"
+                      disabled={courts.length === 0}
+                    >
+                      <Plus className="h-3 w-3" />
+                      {courts.length === 0 ? "No active courts for this sport" : "Attach a free pass"}
+                    </button>
+                  ) : (
+                    <div className="space-y-2 rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-emerald-300">
+                          Free pass — issued automatically to this team&apos;s captain
+                        </span>
+                        <button onClick={() => patch({ pass: null })} className="text-xs text-zinc-500 hover:text-red-400">
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-4">
+                        <div>
+                          <label className={labelCls}>Award to</label>
+                          <select className={inputCls} value={pass.awardTo} onChange={(e) => patchPass({ awardTo: parseInt(e.target.value, 10) })}>
+                            {[1, 2, 3, 4].map((n) => (
+                              <option key={n} value={n}>{n === 1 ? "1st place" : n === 2 ? "2nd place" : n === 3 ? "3rd place" : `${n}th place`}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelCls}>Court</label>
+                          <select className={inputCls} value={pass.courtConfigId} onChange={(e) => patchPass({ courtConfigId: e.target.value })}>
+                            {courts.map((c) => (
+                              <option key={c.id} value={c.id}>{c.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelCls}>Hours</label>
+                          <input className={inputCls} inputMode="decimal" value={pass.totalHours} onChange={(e) => patchPass({ totalHours: parseFloat(e.target.value) || 0 })} />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Valid for (days)</label>
+                          <input className={inputCls} inputMode="numeric" value={pass.validityDays} onChange={(e) => patchPass({ validityDays: num(e.target.value) })} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Redeemable on</label>
+                        <div className="flex flex-wrap gap-2">
+                          {PASS_BANDS.map((b) => {
+                            const on = (pass.bands ?? []).some((x) => x.dayType === b.dayType && x.timeType === b.timeType);
+                            return (
+                              <button
+                                key={b.key}
+                                onClick={() =>
+                                  patchPass({
+                                    bands: on
+                                      ? (pass.bands ?? []).filter((x) => !(x.dayType === b.dayType && x.timeType === b.timeType))
+                                      : [...(pass.bands ?? []), { dayType: b.dayType, timeType: b.timeType }],
+                                  })
+                                }
+                                className={`rounded-full border px-3 py-1 text-xs ${on ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300" : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"}`}
+                              >
+                                {b.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-1 text-[11px] text-zinc-500">
+                          Leave all off for any slot. Pick only the weekday bands for a weekday-only pass.
+                        </p>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Pass name (optional)</label>
+                        <input className={inputCls} placeholder="Runner-up Pass" value={pass.name || ""} onChange={(e) => patchPass({ name: e.target.value })} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

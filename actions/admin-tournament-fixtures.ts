@@ -380,6 +380,17 @@ export async function unscheduleMatch(
   return { success: true };
 }
 
+/** Active courts for a sport — the wizard's prize-pass picker, which runs
+ *  before a tournament exists and so can't key off its id. */
+export async function listCourtsForSport(sport: string) {
+  await gate();
+  return db.courtConfig.findMany({
+    where: { sport: sport as never, isActive: true },
+    orderBy: { label: "asc" },
+    select: { id: true, label: true },
+  });
+}
+
 /** Courts for the tournament's sport (schedule form options). */
 export async function listCourtsForTournament(tournamentId: string) {
   await gate();

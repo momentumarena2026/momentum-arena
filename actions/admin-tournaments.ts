@@ -27,9 +27,28 @@ const statFieldSchema = z.object({
   label: z.string().trim().min(1).max(40),
 });
 
+/** Optional pass awarded with a prize, minted to the captain on completion. */
+const prizePassSchema = z.object({
+  awardTo: z.number().int().min(1).max(16),
+  courtConfigId: z.string().min(1),
+  totalHours: z.number().min(0.5).max(200),
+  validityDays: z.number().int().min(1).max(365),
+  bands: z
+    .array(
+      z.object({
+        dayType: z.enum(["WEEKDAY", "WEEKEND"]),
+        timeType: z.enum(["PEAK", "OFF_PEAK"]),
+      })
+    )
+    .max(4)
+    .optional(),
+  name: z.string().trim().max(80).optional(),
+});
+
 const prizeSchema = z.object({
   place: z.string().trim().min(1).max(40),
   label: z.string().trim().min(1).max(160),
+  pass: prizePassSchema.nullable().optional(),
 });
 
 const wizardSchema = z.object({
@@ -213,7 +232,7 @@ export async function transitionTournament(
   id: string,
   toStatus: string
 ): Promise<{ success: boolean; error?: string }> {
-  await gate();
+  const admin = await gate();
   const t = await db.tournament.findUnique({ where: { id }, select: { status: true, format: true } });
   if (!t) return { success: false, error: "Tournament not found" };
   const allowed = STATUS_FLOW[t.status] || [];
@@ -224,6 +243,15 @@ export async function transitionTournament(
     return { success: false, error: "Only pools tournaments can reveal pools" };
   }
   await db.tournament.update({ where: { id }, data: { status: toStatus as never } });
+  // Prize passes are minted on completion, to the captain of whichever team
+  // finished in the configured position. Idempotent, and deliberately
+  // non-fatal: a pass that can't be issued (captain never linked an
+  // account, court retired) must not block the tournament from closing —
+  // the admin sees the reason on the manage page.
+  if (toStatus === "COMPLETED") {
+    const { issuePrizePasses } = await import("@/lib/tournament-prizes");
+    await issuePrizePasses(id, admin.id).catch(() => {});
+  }
   // Fire the milestone mapped to this transition (enabled items only).
   const { TRANSITION_MILESTONE, fireMilestone } = await import("@/lib/tournament-campaign");
   const milestone = TRANSITION_MILESTONE[toStatus];
