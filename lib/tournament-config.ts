@@ -99,8 +99,34 @@ export function structureWarnings(t: {
   poolCount: number;
   teamsPerPool: number;
   advancePerPool: number;
+  sport?: string;
+  oversPerInnings?: number;
+  maxOversPerBowler?: number;
+  membersPerTeamMax?: number;
 }): string[] {
   const w: string[] = [];
+  // Cricket: can the fielding side actually bowl the innings out?
+  // Capacity is squad × quota, but nobody may bowl two overs in a row, so
+  // when capacity EQUALS the innings there is no slack at all — every
+  // bowler must bowl their full quota in a perfect rotation. One player
+  // short, or one over out of order, and the last over has nobody legal
+  // left to bowl it. (Seen for real: 5 bowlers × 2 stranded a 10-over
+  // innings at 9.0.)
+  const overs = t.oversPerInnings ?? 0;
+  const quota = t.maxOversPerBowler ?? 0;
+  const squad = t.membersPerTeamMax ?? 0;
+  if (t.sport === "CRICKET" && overs > 0 && quota > 0 && squad > 0) {
+    const capacity = quota * squad;
+    if (capacity < overs) {
+      w.push(
+        `A full squad can only bowl ${capacity} overs (${squad} × ${quota}) — short of the ${overs}-over innings.`
+      );
+    } else if (capacity === overs) {
+      w.push(
+        `${squad} bowlers × ${quota} overs is exactly ${overs} — no slack. Every bowler must bowl their full quota, and since none may bowl two overs in a row, one absentee or a mis-ordered rotation strands the last over.`
+      );
+    }
+  }
   if (t.format === "POOLS_KNOCKOUT") {
     if (t.poolCount < 2) w.push("Pools format needs at least 2 pools.");
     if (t.poolCount * t.teamsPerPool !== t.totalTeams)
