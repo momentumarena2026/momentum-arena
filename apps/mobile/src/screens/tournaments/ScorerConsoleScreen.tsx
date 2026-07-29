@@ -757,11 +757,12 @@ const s = StyleSheet.create({
   },
   overBallW: { backgroundColor: "rgba(248,113,113,0.22)" },
   overBallB: { backgroundColor: "rgba(16,185,129,0.22)" },
-  // Centred in a 24px circle — same recipe as padText.
+  // Centred in a 24px circle — same recipe as padText. 13 would be 1.18x,
+  // right on the clamp threshold, so give it real headroom.
   overBallText: {
     color: colors.zinc300,
     fontSize: 11,
-    lineHeight: 13,
+    lineHeight: 14,
     fontWeight: "800",
     textAlign: "center",
     includeFontPadding: false,
@@ -787,19 +788,22 @@ const s = StyleSheet.create({
   padKeyBoundary: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
   padKeyWicket: { borderColor: "rgba(248,113,113,0.45)", backgroundColor: "rgba(248,113,113,0.12)" },
   padKeyExtra: { borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(251,191,36,0.10)" },
-  // Same tight-line-box recipe as ui/Button: lineHeight ~1.2x the font and
-  // no Android font padding, so flexbox centring is also optical centring.
-  // Anything that overrides fontSize here must override lineHeight too —
-  // see padTextSm.
+  // Same tight-line-box recipe as ui/Button, but never below 1.2x the font.
+  // Roboto's natural line box is ~1.17x; ask for less and Android clamps the
+  // DESCENT to make it fit, which eats the space under the glyph and pins it
+  // to the bottom of the key. 26/30 (1.15x) did exactly that while the 20/24
+  // "Wd" beside it centred fine. Above the threshold the extra leading splits
+  // evenly, so erring high is safe. Anything overriding fontSize must
+  // override lineHeight too — see padTextSm.
   padText: {
     color: colors.foreground,
     fontSize: 26,
-    lineHeight: 30,
+    lineHeight: 32,
     fontWeight: "800",
     textAlign: "center",
     includeFontPadding: false,
   },
-  /** "Wd" is set 20pt; without this it kept padText's 30 (1.5x) and rode low. */
+  /** "Wd" is set 20pt; without this it kept padText's lineHeight and rode low. */
   padTextSm: { fontSize: 20, lineHeight: 24 },
   blockedTag: {
     color: colors.zinc400,
