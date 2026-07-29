@@ -48,6 +48,8 @@ type CricketCurrent = {
   partnership: { runs: number; balls: number };
   needsBatter: boolean;
   needsBowler: boolean;
+  dismissed: string[];
+  spells: { id: string; balls: number }[];
 };
 type CricketState = {
   inning: number;
@@ -300,6 +302,7 @@ export function ScorerConsoleScreen() {
   const nameOf = (id: string | null) => allPlayers.find((p) => p.id === id)?.name || null;
   const figs = (id: string | null) => liveCur?.batters.find((b) => b.id === id) || null;
 
+  const maxOvers = boot.tournament.maxOversPerBowler || 0;
   const pickerTeam: ScorerTeam | null =
     picker === "bowler" ? bowling : picker === "goal" ? null : picker ? batting : null;
   const pickerValue =
@@ -630,15 +633,40 @@ export function ScorerConsoleScreen() {
             <ScrollView style={{ maxHeight: 380 }}>
               {(pickerTeam ? pickerTeam.members : allPlayers).map((p) => {
                 const on = p.id === pickerValue;
+                // A dismissed batter can't come back in, and a bowler who
+                // has bowled the tournament's quota can't bowl again.
+                const spellBalls = liveCur?.spells.find((sp) => sp.id === p.id)?.balls ?? 0;
+                const blocked =
+                  picker === "striker" || picker === "nonStriker"
+                    ? liveCur?.dismissed.includes(p.id)
+                      ? "out"
+                      : null
+                    : picker === "bowler" && maxOvers > 0 && spellBalls >= maxOvers * 6
+                      ? `${maxOvers} ov bowled`
+                      : null;
                 return (
-                  <Pressable key={p.id} onPress={() => applyPick(p.id)} style={[s.sheetRow, on && s.sheetRowOn]}>
-                    <Text style={[s.sheetName, on && { color: colors.emerald400, fontWeight: "700" }]}>
+                  <Pressable
+                    key={p.id}
+                    onPress={() => !blocked && applyPick(p.id)}
+                    disabled={!!blocked}
+                    style={[s.sheetRow, on && !blocked && s.sheetRowOn, !!blocked && { opacity: 0.4 }]}
+                  >
+                    <Text style={[s.sheetName, on && !blocked && { color: colors.emerald400, fontWeight: "700" }]}>
                       {p.name}
                     </Text>
-                    {figs(p.id) && (
+                    {blocked ? (
+                      <Text style={s.blockedTag}>{blocked}</Text>
+                    ) : picker === "bowler" ? (
                       <Text style={s.creaseFigs}>
-                        {figs(p.id)!.runs} ({figs(p.id)!.balls})
+                        {Math.floor(spellBalls / 6)}.{spellBalls % 6} ov
+                        {maxOvers > 0 ? ` / ${maxOvers}` : ""}
                       </Text>
+                    ) : (
+                      figs(p.id) && (
+                        <Text style={s.creaseFigs}>
+                          {figs(p.id)!.runs} ({figs(p.id)!.balls})
+                        </Text>
+                      )
                     )}
                   </Pressable>
                 );
@@ -677,11 +705,14 @@ const s = StyleSheet.create({
   matchLabel: { color: colors.zinc500, fontSize: 12, flex: 1, textAlign: "center" },
   matchTeams: { color: colors.foreground, fontSize: 15, fontWeight: "600", marginTop: 3 },
 
-  // Pinned scoreboard
+  // Pinned scoreboard — a card, not a full-bleed bar.
   board: {
     backgroundColor: colors.card,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    marginHorizontal: 12,
+    marginTop: 10,
     paddingHorizontal: 14,
     paddingTop: 8,
     paddingBottom: 10,
@@ -748,7 +779,25 @@ const s = StyleSheet.create({
   padKeyBoundary: { borderColor: colors.emerald500_30, backgroundColor: colors.emerald500_10 },
   padKeyWicket: { borderColor: "rgba(248,113,113,0.45)", backgroundColor: "rgba(248,113,113,0.12)" },
   padKeyExtra: { borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(251,191,36,0.10)" },
-  padText: { color: colors.foreground, fontSize: 26, lineHeight: 32, fontWeight: "800" },
+  // textAlign + includeFontPadding:false keeps the glyph optically centred
+  // in the key — Android otherwise adds asymmetric font padding.
+  padText: {
+    color: colors.foreground,
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: "800",
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  blockedTag: {
+    color: colors.zinc400,
+    fontSize: 11,
+    backgroundColor: colors.zinc800,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: "hidden",
+  },
 
   wideBtn: {
     flexDirection: "row",

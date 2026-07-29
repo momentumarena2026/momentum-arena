@@ -298,7 +298,14 @@ export type ScorerMatch = {
   clockElapsedSec: number;
 };
 export type ScorerBoot = {
-  tournament: { id: string; name: string; sport: string; status: string };
+  tournament: {
+    id: string;
+    name: string;
+    sport: string;
+    status: string;
+    /** Overs one bowler may bowl in a match; 0 = no limit. */
+    maxOversPerBowler?: number;
+  };
   matches: ScorerMatch[];
 };
 

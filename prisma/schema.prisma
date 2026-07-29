@@ -3079,6 +3079,9 @@ model Tournament {
   thirdPlaceMatch  Boolean @default(false)
   membersPerTeamMin Int    @default(1)
   membersPerTeamMax Int
+  /// Cricket: overs one bowler may bowl in a match. 0 = no limit. The
+  /// scorer console greys out a bowler once they've bowled their quota.
+  maxOversPerBowler Int    @default(0)
 
   // Fees
   entryFee          Int               @default(0) // rupees

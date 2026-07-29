@@ -20,7 +20,14 @@ type Match = {
   clockElapsedSec: number;
 };
 type Boot = {
-  tournament: { id: string; name: string; sport: string; status: string };
+  tournament: {
+    id: string;
+    name: string;
+    sport: string;
+    status: string;
+    /** Overs one bowler may bowl in a match; 0 = no limit. */
+    maxOversPerBowler?: number;
+  };
   matches: Match[];
 };
 
@@ -35,6 +42,8 @@ type CricketCurrent = {
   partnership: { runs: number; balls: number };
   needsBatter: boolean;
   needsBowler: boolean;
+  dismissed: string[];
+  spells: { id: string; balls: number }[];
 };
 type CricketState = {
   inning: number;
@@ -57,7 +66,7 @@ type FootballLive = {
 };
 
 const bigBtn =
-  "flex items-center justify-center rounded-2xl border text-lg font-bold transition active:scale-95 disabled:opacity-40";
+  "flex items-center justify-center text-center leading-none rounded-2xl border text-lg font-bold transition active:scale-95 disabled:opacity-40";
 
 function overs(balls: number): string {
   return `${Math.floor(balls / 6)}.${balls % 6}`;
@@ -279,7 +288,7 @@ export function ScorerConsole({ code }: { code: string }) {
     <div className="min-h-screen bg-zinc-950 pb-24">
       <div className="mx-auto max-w-md">
         {/* ══ PINNED SCOREBOARD — stays put while the controls scroll ══ */}
-        <div className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur">
+        <div className="sticky top-0 z-20 mx-3 mt-3 rounded-2xl border border-zinc-800 bg-zinc-900/95 px-4 py-3 shadow-lg shadow-black/40 backdrop-blur">
           <div className="flex items-center justify-between">
             <button onClick={() => setMatchId(null)} className="flex items-center gap-1 text-sm text-zinc-400">
               <ChevronLeft className="h-4 w-4" /> Matches
@@ -706,24 +715,57 @@ export function ScorerConsole({ code }: { code: string }) {
                     </p>
                   );
                 }
-                return list.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => apply(m.id)}
-                    className={`flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left ${
-                      m.id === selected ? "bg-emerald-500/10" : "hover:bg-zinc-800/60"
-                    }`}
-                  >
-                    <span className={m.id === selected ? "font-semibold text-emerald-400" : "text-zinc-200"}>
-                      {m.name}
-                    </span>
-                    {creaseFigs(m.id) && (
-                      <span className="font-mono text-xs text-zinc-400">
-                        {creaseFigs(m.id)!.runs} ({creaseFigs(m.id)!.balls})
+                // A dismissed batter can't come back in, and a bowler who
+                // has bowled the tournament's quota can't bowl again.
+                const maxOvers = boot.tournament.maxOversPerBowler || 0;
+                const blockedFor = (id: string): string | null => {
+                  if (picker === "striker" || picker === "nonStriker") {
+                    return liveCur?.dismissed.includes(id) ? "out" : null;
+                  }
+                  if (picker === "bowler" && maxOvers > 0) {
+                    const balls = liveCur?.spells.find((sp) => sp.id === id)?.balls ?? 0;
+                    if (balls >= maxOvers * 6) return `${maxOvers} ov bowled`;
+                  }
+                  return null;
+                };
+                return list.map((m) => {
+                  const blocked = blockedFor(m.id);
+                  const spellBalls = liveCur?.spells.find((sp) => sp.id === m.id)?.balls ?? 0;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => !blocked && apply(m.id)}
+                      disabled={!!blocked}
+                      className={`flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left ${
+                        blocked
+                          ? "cursor-not-allowed opacity-40"
+                          : m.id === selected
+                            ? "bg-emerald-500/10"
+                            : "hover:bg-zinc-800/60"
+                      }`}
+                    >
+                      <span className={m.id === selected && !blocked ? "font-semibold text-emerald-400" : "text-zinc-200"}>
+                        {m.name}
                       </span>
-                    )}
-                  </button>
-                ));
+                      {blocked ? (
+                        <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400">
+                          {blocked}
+                        </span>
+                      ) : picker === "bowler" ? (
+                        <span className="font-mono text-xs text-zinc-400">
+                          {Math.floor(spellBalls / 6)}.{spellBalls % 6} ov
+                          {maxOvers > 0 && <span className="text-zinc-600"> / {maxOvers}</span>}
+                        </span>
+                      ) : (
+                        creaseFigs(m.id) && (
+                          <span className="font-mono text-xs text-zinc-400">
+                            {creaseFigs(m.id)!.runs} ({creaseFigs(m.id)!.balls})
+                          </span>
+                        )
+                      )}
+                    </button>
+                  );
+                });
               })()}
             </div>
           </div>

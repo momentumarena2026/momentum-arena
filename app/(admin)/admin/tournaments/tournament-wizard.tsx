@@ -49,6 +49,7 @@ export function defaultWizardState(): TournamentWizardInput {
     thirdPlaceMatch: false,
     membersPerTeamMin: 1,
     membersPerTeamMax: 11,
+    maxOversPerBowler: 0,
     entryFee: 2000,
     feeMode: "FULL",
     advancePct: 50,
@@ -269,6 +270,21 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
             <label className={labelCls}>Max Members / Team *</label>
             <input className={inputCls} inputMode="numeric" value={form.membersPerTeamMax || ""} onChange={(e) => set("membersPerTeamMax", num(e.target.value))} />
           </div>
+          {form.sport === "CRICKET" && (
+            <div>
+              <label className={labelCls}>Max Overs / Bowler</label>
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                placeholder="0 = no limit"
+                value={form.maxOversPerBowler || ""}
+                onChange={(e) => set("maxOversPerBowler", num(e.target.value))}
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                The scorer can&apos;t pick a bowler who has bowled this many overs.
+              </p>
+            </div>
+          )}
           <div>
             <label className={labelCls}>Entry Fee (₹ / team)</label>
             <input className={inputCls} inputMode="numeric" disabled={form.feeMode === "FREE"} value={form.feeMode === "FREE" ? 0 : form.entryFee || ""} onChange={(e) => set("entryFee", num(e.target.value))} />

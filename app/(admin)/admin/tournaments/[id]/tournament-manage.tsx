@@ -67,6 +67,7 @@ export type AdminTournament = {
   thirdPlaceMatch: boolean;
   membersPerTeamMin: number;
   membersPerTeamMax: number;
+  maxOversPerBowler: number;
   entryFee: number;
   feeMode: "FULL" | "ADVANCE" | "FREE";
   advancePct: number;
@@ -265,6 +266,7 @@ export function TournamentManage({
     thirdPlaceMatch: t.thirdPlaceMatch,
     membersPerTeamMin: t.membersPerTeamMin,
     membersPerTeamMax: t.membersPerTeamMax,
+    maxOversPerBowler: t.maxOversPerBowler,
     entryFee: t.entryFee,
     feeMode: t.feeMode,
     advancePct: t.advancePct,

@@ -28,6 +28,7 @@ export async function GET(
       sport: true,
       status: true,
       liveScoringEnabled: true,
+      maxOversPerBowler: true,
       matches: {
         where: {
           status: { in: ["LIVE", "SCHEDULED"] },
@@ -75,7 +76,13 @@ export async function GET(
     return NextResponse.json({ error: "Invalid scorer code" }, { status: 404 });
   }
   return NextResponse.json({
-    tournament: { id: t.id, name: t.name, sport: t.sport, status: t.status },
+    tournament: {
+      id: t.id,
+      name: t.name,
+      sport: t.sport,
+      status: t.status,
+      maxOversPerBowler: t.maxOversPerBowler,
+    },
     matches: t.matches,
   });
 }

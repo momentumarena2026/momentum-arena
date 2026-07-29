@@ -60,6 +60,10 @@ export type CricketCurrent = {
   needsBatter: boolean;
   /** True when an over just completed — the console must pick a bowler. */
   needsBowler: boolean;
+  /** Batters dismissed in this innings — they cannot come back in. */
+  dismissed: string[];
+  /** Balls bowled by each bowler this innings, for the over quota. */
+  spells: { id: string; balls: number }[];
 };
 
 export type CricketState = {
@@ -82,6 +86,8 @@ const emptyCurrent = (): CricketCurrent => ({
   partnership: { runs: 0, balls: 0 },
   needsBatter: false,
   needsBowler: false,
+  dismissed: [],
+  spells: [],
 });
 
 /** Short label for one delivery, as it reads on a scoreboard over-strip. */
@@ -168,10 +174,12 @@ export function foldCricket(events: EventRow[]): CricketState {
       if (legal) cur.partnership.balls += 1;
 
       if (wicket) {
-        // The dismissed batter walks off; a new one is needed.
+        // The dismissed batter walks off — and is out of this innings for
+        // good, so the console can stop offering them.
         if (cur.strikerId) {
           const f = batFigures.get(cur.strikerId);
           if (f) f.out = true;
+          if (!cur.dismissed.includes(cur.strikerId)) cur.dismissed.push(cur.strikerId);
         }
         cur.strikerId = null;
         cur.partnership = { runs: 0, balls: 0 };
@@ -214,6 +222,9 @@ export function foldCricket(events: EventRow[]): CricketState {
   cur.bowler = cur.bowlerId
     ? { id: cur.bowlerId, ...(bowlFigures.get(cur.bowlerId) || { balls: 0, runs: 0, wickets: 0 }) }
     : null;
+  // Every bowler's workload this innings — the console compares this
+  // against the tournament's max-overs-per-bowler rule.
+  cur.spells = [...bowlFigures.entries()].map(([id, f]) => ({ id, balls: f.balls }));
   return st;
 }
 
