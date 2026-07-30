@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Trophy } from "lucide-react";
+import { BookOpen, Plus, Trophy } from "lucide-react";
 import { listTournamentsAdmin, getTournamentsEnabled } from "@/actions/admin-tournaments";
 import { STATUS_LABELS } from "@/lib/tournament-config";
 import { ModuleToggle } from "./module-toggle";
@@ -34,6 +34,12 @@ export default async function AdminTournamentsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ModuleToggle initialEnabled={enabled} />
+          <Link
+            href="/admin/tournaments/docs"
+            className="flex shrink-0 items-center gap-2 rounded-xl border border-zinc-700 px-4 py-3 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+          >
+            <BookOpen className="h-4 w-4" /> How to use
+          </Link>
           <Link
             href="/admin/tournaments/new"
             className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 px-4 py-3 text-sm font-medium text-emerald-400 hover:bg-emerald-600/20"
