@@ -158,13 +158,33 @@ function PlanCard({
             <ShieldCheck size={13} color={colors.zinc400} />
             <Text style={styles.metaText}>Valid {plan.validityDays} days</Text>
           </View>
-          {restricted && (
+          {plan.timeChips.length > 0 ? (
+            plan.timeChips.map((c) => (
+              <View
+                key={c.label}
+                style={[
+                  styles.bandChip,
+                  c.tone === "day" ? styles.chipDay : styles.chipNight,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.bandChipText,
+                    { color: c.tone === "day" ? "#7dd3fc" : colors.zinc300 },
+                  ]}
+                >
+                  {c.tone === "day" ? "☀ " : "☾ "}
+                  {c.label}
+                </Text>
+              </View>
+            ))
+          ) : restricted ? (
             <View style={[styles.bandChip, { backgroundColor: `${accent}1f` }]}>
               <Text style={[styles.bandChipText, { color: accent }]}>
                 {plan.bandsSummary}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         <Pressable
@@ -189,6 +209,8 @@ export function PassesStoreScreen() {
   const { state } = useAuth();
   const signedInUser = state.status === "signedIn" ? state.user : null;
 
+  // Sport filter chips above the list; ALL shows everything.
+  const [sportFilter, setSportFilter] = useState<string>("ALL");
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["pass-plans"],
     queryFn: () => passesApi.plans(),
@@ -318,6 +340,9 @@ export function PassesStoreScreen() {
   }
 
   const plans = data?.plans ?? [];
+  const sports = Array.from(new Set(plans.map((p) => p.sport)));
+  const shownPlans =
+    sportFilter === "ALL" ? plans : plans.filter((p) => p.sport === sportFilter);
 
   return (
     <Screen padded={false}>
@@ -352,11 +377,40 @@ export function PassesStoreScreen() {
             </Text>
           </View>
         ) : (
-          <View style={styles.list}>
-            {plans.map((p) => (
-              <PlanCard key={p.id} plan={p} onBuy={() => openSheet(p)} />
-            ))}
-          </View>
+          <>
+            {sports.length > 1 && (
+              <View style={styles.filterRow}>
+                {["ALL", ...sports].map((sp) => {
+                  const on = sportFilter === sp;
+                  const chipAccent = sp === "ALL" ? colors.zinc400 : SPORT_ACCENT[sp] ?? "#34d399";
+                  return (
+                    <Pressable
+                      key={sp}
+                      onPress={() => setSportFilter(sp)}
+                      style={[
+                        styles.filterChip,
+                        on && { borderColor: chipAccent, backgroundColor: `${chipAccent}26` },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          on && { color: chipAccent },
+                        ]}
+                      >
+                        {sp === "ALL" ? "All sports" : sp.charAt(0) + sp.slice(1).toLowerCase()}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+            <View style={styles.list}>
+              {shownPlans.map((p) => (
+                <PlanCard key={p.id} plan={p} onBuy={() => openSheet(p)} />
+              ))}
+            </View>
+          </>
         )}
       </ScrollView>
 
@@ -658,6 +712,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
+  chipDay: { backgroundColor: "rgba(56,189,248,0.15)" },
+  chipNight: { backgroundColor: "rgba(63,63,70,0.65)" },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: spacing["3"],
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  filterChipText: { color: colors.zinc400, fontSize: 12, fontWeight: "600" },
   buyBtn: {
     marginTop: spacing["4"],
     borderRadius: 12,

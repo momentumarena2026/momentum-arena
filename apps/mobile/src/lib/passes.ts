@@ -74,6 +74,8 @@ export interface PassPlanCard {
   effectiveHourly: number;
   validityDays: number;
   bandsSummary: string;
+  /** "Weekdays 5am–5pm" chips resolved server-side; tone drives colour. */
+  timeChips: { label: string; tone: "day" | "night" }[];
 }
 
 export const passesApi = {
