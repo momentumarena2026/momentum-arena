@@ -74,6 +74,11 @@ export const {
         const valid = await verifyPassword(password, admin.passwordHash);
         if (!valid) return null;
 
+        // Deactivated accounts keep their row but cannot sign in.
+        // (adminLogin pre-checks this to show a specific message; this
+        // guard is the one that actually blocks the session.)
+        if (!admin.isActive) return null;
+
         // Update last login
         await db.adminUser.update({
           where: { id: admin.id },

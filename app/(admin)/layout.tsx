@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { db } from "@/lib/db";
 import { adminAuth } from "@/lib/admin-auth-session";
 import { SignOutButton } from "@/components/sign-out-button";
 import { hasPermission } from "@/lib/permissions";
@@ -77,6 +78,14 @@ export default async function AdminLayout({
 }) {
   const session = await adminAuth();
   if (!session?.user) redirect("/godmode");
+
+  // The session cookie lives 30 days; deactivation must not wait for it.
+  // (Server actions re-check via requireAdmin — this guards page views.)
+  const liveRow = await db.adminUser.findUnique({
+    where: { id: (session.user as { id: string }).id },
+    select: { isActive: true },
+  });
+  if (!liveRow?.isActive) redirect("/godmode");
 
   const user = session.user as unknown as {
     id: string;

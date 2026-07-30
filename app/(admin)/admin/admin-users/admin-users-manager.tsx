@@ -7,6 +7,7 @@ import {
   deleteAdminUser,
   updateAdminPermissions,
   resendAdminInvite,
+  setAdminUserActive,
 } from "@/actions/admin-auth";
 import {
   ALL_PERMISSIONS,
@@ -30,6 +31,7 @@ type AdminUser = {
   role: "SUPERADMIN" | "ADMIN" | "STAFF";
   permissions: string[];
   isDeletable: boolean;
+  isActive: boolean;
   lastLoginAt: Date | null;
   createdAt: Date;
   passwordSet: boolean;
@@ -63,6 +65,23 @@ export function AdminUsersManager() {
       return;
     startTransition(async () => {
       await deleteAdminUser(id);
+      loadAdmins();
+    });
+  };
+
+  const handleToggleActive = (admin: AdminUser) => {
+    const verb = admin.isActive ? "Deactivate" : "Reactivate";
+    if (
+      !confirm(
+        admin.isActive
+          ? `Deactivate "${admin.username}"? They will be signed out and unable to log in until reactivated.`
+          : `Reactivate "${admin.username}"? They will be able to log in again.`
+      )
+    )
+      return;
+    startTransition(async () => {
+      const result = await setAdminUserActive(admin.id, !admin.isActive);
+      if (!result.success) alert(result.error || `Could not ${verb.toLowerCase()}.`);
       loadAdmins();
     });
   };
@@ -124,7 +143,12 @@ export function AdminUsersManager() {
           // Superadmins never use the invite flow, so they're implicitly active.
           const isSuperadmin = admin.role === "SUPERADMIN";
           const isPendingInvite = !isSuperadmin && !admin.passwordSet;
-          const statusBadge = isPendingInvite
+          const statusBadge = !admin.isActive
+            ? {
+                label: "Inactive",
+                cls: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
+              }
+            : isPendingInvite
             ? admin.inviteExpired
               ? {
                   label: "Invite expired",
@@ -141,7 +165,10 @@ export function AdminUsersManager() {
           const msg = resendMessage?.id === admin.id ? resendMessage : null;
 
           return (
-            <Card key={admin.id} className="bg-zinc-950 border-zinc-800">
+            <Card
+              key={admin.id}
+              className={`bg-zinc-950 border-zinc-800 ${admin.isActive ? "" : "opacity-60"}`}
+            >
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -181,6 +208,19 @@ export function AdminUsersManager() {
                         className="text-xs text-zinc-400 hover:text-white transition-colors"
                       >
                         {editingId === admin.id ? "Close" : "Edit Permissions"}
+                      </button>
+                    )}
+                    {!isSuperadmin && (
+                      <button
+                        onClick={() => handleToggleActive(admin)}
+                        disabled={isPending}
+                        className={`text-xs transition-colors disabled:opacity-50 ${
+                          admin.isActive
+                            ? "text-amber-400 hover:text-amber-300"
+                            : "text-emerald-400 hover:text-emerald-300"
+                        }`}
+                      >
+                        {admin.isActive ? "Deactivate" : "Reactivate"}
                       </button>
                     )}
                     {admin.isDeletable && (

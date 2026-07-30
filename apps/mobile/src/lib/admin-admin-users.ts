@@ -16,6 +16,7 @@ export interface AdminAccount {
   role: AdminAccountRole;
   permissions: string[];
   isDeletable: boolean;
+  isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
   passwordSet: boolean;
@@ -35,6 +36,8 @@ export interface UpdateAdminAccountBody {
   permissions?: AdminPermission[];
   /** Optional new password (admin reset). Leave undefined to keep current. */
   password?: string;
+  /** false = blocked from logging in; live sessions die on their next request. */
+  isActive?: boolean;
 }
 
 export const adminAdminUsersApi = {

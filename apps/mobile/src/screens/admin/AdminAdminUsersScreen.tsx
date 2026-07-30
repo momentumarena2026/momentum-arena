@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Plus, ShieldCheck, Trash2, UserCog, X } from "lucide-react-native";
+import { Ban, Check, Plus, RotateCcw, ShieldCheck, Trash2, UserCog, X } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -118,6 +118,37 @@ export function AdminAdminUsersScreen() {
       ),
   });
 
+  const toggleActive = useMutation({
+    mutationFn: (a: AdminAccount) =>
+      adminAdminUsersApi.update(a.id, { isActive: !a.isActive }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ["admin", "admin-users"] }),
+    onError: (e) =>
+      Alert.alert(
+        "Couldn't update",
+        e instanceof AdminApiError || e instanceof Error
+          ? e.message
+          : "Please try again.",
+      ),
+  });
+
+  function confirmToggleActive(a: AdminAccount) {
+    Alert.alert(
+      a.isActive ? "Deactivate admin?" : "Reactivate admin?",
+      a.isActive
+        ? `${a.username} will be signed out and unable to log in until reactivated.`
+        : `${a.username} will be able to log in again.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: a.isActive ? "Deactivate" : "Reactivate",
+          style: a.isActive ? "destructive" : "default",
+          onPress: () => toggleActive.mutate(a),
+        },
+      ],
+    );
+  }
+
   const admins = list.data?.admins ?? [];
 
   function togglePerm(p: AdminPermission) {
@@ -201,6 +232,13 @@ export function AdminAdminUsersScreen() {
                           </Text>
                         </View>
                       ) : null}
+                      {!a.isActive ? (
+                        <View style={styles.inactivePill}>
+                          <Text variant="tiny" weight="700" color={colors.zinc400}>
+                            INACTIVE
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                     <Text variant="tiny" color={colors.zinc500} style={{ marginTop: 2 }}>
                       {a.email}
@@ -216,6 +254,15 @@ export function AdminAdminUsersScreen() {
                       </Text>
                     )}
                   </Pressable>
+                  {editable ? (
+                    <Pressable hitSlop={8} onPress={() => confirmToggleActive(a)}>
+                      {a.isActive ? (
+                        <Ban size={16} color={colors.yellow400} />
+                      ) : (
+                        <RotateCcw size={16} color={colors.emerald400} />
+                      )}
+                    </Pressable>
+                  ) : null}
                   {editable && a.isDeletable ? (
                     <Pressable
                       hitSlop={8}
@@ -414,6 +461,12 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 999,
     backgroundColor: colors.yellow500_10,
+  },
+  inactivePill: {
+    paddingHorizontal: spacing["2"],
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: colors.zinc800,
   },
   skeleton: {
     padding: spacing["4"],

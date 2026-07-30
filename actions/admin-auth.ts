@@ -54,6 +54,21 @@ export async function adminLogin(
       : { count: 1, windowStart: new Date() },
   });
 
+  // Deactivated account with the CORRECT password gets a specific message
+  // instead of "invalid credentials" — only after the password verifies,
+  // so probing usernames still learns nothing.
+  const account = await db.adminUser.findUnique({
+    where: { username },
+    select: { isActive: true, passwordHash: true },
+  });
+  if (
+    account &&
+    !account.isActive &&
+    (await verifyPassword(password, account.passwordHash))
+  ) {
+    return { error: "This account has been deactivated. Contact a superadmin." };
+  }
+
   try {
     // Only allow internal redirects (prevent open redirect)
     const safeRedirect = callbackUrl.startsWith("/") ? callbackUrl : "/admin";
@@ -194,6 +209,7 @@ export async function getAdminUsers() {
       role: true,
       permissions: true,
       isDeletable: true,
+      isActive: true,
       lastLoginAt: true,
       createdAt: true,
       // inviteToken is the source of truth for "has the user set a password yet?".
@@ -216,6 +232,35 @@ export async function getAdminUsers() {
         inviteTokenExpiry.getTime() < now,
     })
   );
+}
+
+// --- Activate / Deactivate Admin ---
+
+export async function setAdminUserActive(
+  adminUserId: string,
+  active: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  const caller = await requireSuperadmin();
+
+  const target = await db.adminUser.findUnique({
+    where: { id: adminUserId },
+    select: { id: true, role: true },
+  });
+  if (!target) return { success: false, error: "Admin user not found" };
+  // Superadmins can't be deactivated (that includes yourself) — there
+  // must always be a working account that can flip others back on.
+  if (target.role === "SUPERADMIN") {
+    return { success: false, error: "Superadmin accounts cannot be deactivated" };
+  }
+  if (target.id === caller.id) {
+    return { success: false, error: "You cannot deactivate your own account" };
+  }
+
+  await db.adminUser.update({
+    where: { id: adminUserId },
+    data: { isActive: active },
+  });
+  return { success: true };
 }
 
 // --- Resend Admin Invite ---

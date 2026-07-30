@@ -86,7 +86,16 @@ export async function requireSuperadmin(): Promise<AdminIdentity> {
 async function resolveAdmin(): Promise<AdminIdentity | null> {
   const session = await adminAuth().catch(() => null);
   if (session?.user) {
-    return session.user as unknown as AdminIdentity;
+    // The web session is a 30-day JWT, so deactivation must be checked
+    // against the row on every call — otherwise "inactive" only takes
+    // effect when the cookie expires. Mobile already pays this query.
+    const user = session.user as unknown as AdminIdentity;
+    const row = await db.adminUser.findUnique({
+      where: { id: user.id },
+      select: { isActive: true },
+    });
+    if (!row?.isActive) return null;
+    return user;
   }
   return readMobileAdmin();
 }
@@ -116,9 +125,10 @@ async function readMobileAdmin(): Promise<AdminIdentity | null> {
       email: true,
       role: true,
       permissions: true,
+      isActive: true,
     },
   });
-  if (!admin) return null;
+  if (!admin?.isActive) return null;
 
   return {
     id: admin.id,

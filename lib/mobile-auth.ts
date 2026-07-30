@@ -140,9 +140,12 @@ export async function getMobileAdmin(request: NextRequest) {
       email: true,
       role: true,
       permissions: true,
+      isActive: true,
     },
   });
-  if (!admin) return null;
+  // Deactivated admins are treated as unauthenticated — the app's 401
+  // handler signs them out on the next request.
+  if (!admin?.isActive) return null;
 
   return admin;
 }
