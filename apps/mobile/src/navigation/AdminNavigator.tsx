@@ -50,6 +50,7 @@ import { AdminPricingScreen } from "../screens/admin/AdminPricingScreen";
 import { AdminCouponsScreen } from "../screens/admin/AdminCouponsScreen";
 import { AdminPassesScreen } from "../screens/admin/AdminPassesScreen";
 import { AdminRainBannerScreen } from "../screens/admin/AdminRainBannerScreen";
+import { AdminInfoBarScreen } from "../screens/admin/AdminInfoBarScreen";
 import { AdminPromoBannersScreen } from "../screens/admin/AdminPromoBannersScreen";
 import { AdminProductsScreen } from "../screens/admin/AdminProductsScreen";
 import { AdminProductOrdersScreen } from "../screens/admin/AdminProductOrdersScreen";
@@ -165,6 +166,11 @@ function AdminMoreStackNav() {
         name="AdminRainBanner"
         component={AdminRainBannerScreen}
         options={{ title: "Rain banner" }}
+      />
+      <MoreStack.Screen
+        name="AdminInfoBar"
+        component={AdminInfoBarScreen}
+        options={{ title: "Information Bar" }}
       />
       <MoreStack.Screen
         name="AdminPromoBanners"

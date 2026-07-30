@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { SPORT_INFO, customerFacingCourtLabel, formatHoursAsRanges } from "@/lib/court-config";
 import { formatBookingDate, formatPrice } from "@/lib/pricing";
 import { getActiveSportPromo } from "@/actions/sport-promo";
-import { getRainBanner } from "@/actions/admin-arena-settings";
+import { getRainBanner, getInfoBar } from "@/actions/admin-arena-settings";
 import { arePassesEnabled } from "@/lib/passes";
 import { areTournamentsEnabled } from "@/lib/tournaments";
 import { RainBanner } from "@/components/rain-banner";
@@ -198,6 +198,9 @@ export default async function Home() {
     title: "",
     body: "",
   }));
+  // Admin-configurable announcement strip; falls back to the new-user
+  // offer copy, and disappears entirely when switched off.
+  const infoBar = await getInfoBar().catch(() => ({ show: false, text: "" }));
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -371,12 +374,11 @@ export default async function Home() {
             container so they never overlap. */}
         <div className="fixed top-20 left-0 right-0 z-40">
           {/* Promotional Banner — welcome offer for first-time bookers */}
-          <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
-            <p className="text-xs sm:text-sm font-semibold">
-              New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.
-              <span className="ml-1 opacity-80">No coupon needed.</span>
-            </p>
-          </div>
+          {infoBar.show && (
+            <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-center py-2 px-4">
+              <p className="text-xs sm:text-sm font-semibold">{infoBar.text}</p>
+            </div>
+          )}
           {/* Weather-aware "rain doesn't slow us down" banner (auto/on/off) */}
           {rainBanner.show ? (
             <RainBanner title={rainBanner.title} body={rainBanner.body} href="/book" />

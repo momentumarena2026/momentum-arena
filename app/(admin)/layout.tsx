@@ -34,6 +34,7 @@ const allNavItems = [
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/passes", label: "Passes", group: "Promotions", permission: "MANAGE_PASSES" },
   { href: "/admin/config/rain-banner", label: "Rain Banner", group: "Web & App Config", permission: "MANAGE_PRICING" },
+  { href: "/admin/config/info-bar", label: "Information Bar", group: "Web & App Config", permission: "MANAGE_PRICING" },
   { href: "/admin/config/promo-banners", label: "Promotion Banners", group: "Web & App Config", permission: "MANAGE_PROMO_BANNERS" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },

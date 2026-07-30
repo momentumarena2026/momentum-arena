@@ -1758,6 +1758,11 @@ model ArenaSettings {
   // rainBannerText optionally overrides the default banner copy.
   rainBannerMode String  @default("AUTO")
   rainBannerText String?
+  // "Information Bar" — the strip at the very top of the home page
+  // (web + app). Text is admin-editable; null falls back to the built-in
+  // new-user offer copy so existing behaviour survives the migration.
+  infoBarEnabled Boolean @default(true)
+  infoBarText    String?
   // Master switch for the Monthly Passes storefront. OFF hides the
   // customer /passes buying page + plan listing and blocks the
   // purchase API. Already-sold passes keep redeeming at checkout

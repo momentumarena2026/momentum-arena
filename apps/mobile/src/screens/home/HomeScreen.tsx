@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
+import { infoBarApi, type InfoBarState } from "../../lib/info-bar";
 import {
   Animated,
   Easing,
@@ -97,6 +98,25 @@ const FACILITIES = [
 ];
 
 export function HomeScreen() {
+  // Admin-configurable top strip; static default until the fetch lands
+  // so cold starts still show the offer instantly.
+  const [infoBar, setInfoBar] = useState<InfoBarState>({
+    show: true,
+    text:
+      "New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.",
+  });
+  useEffect(() => {
+    let live = true;
+    infoBarApi
+      .get()
+      .then((b) => {
+        if (live) setInfoBar(b);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const navigation = useNavigation<Nav>();
   const rootNav = navigation.getParent<RootNav>();
   const { state } = useAuth();
@@ -188,13 +208,16 @@ export function HomeScreen() {
           )}
         </View>
 
-        {/* Promo banner */}
-        <View style={styles.promo}>
-          <Text variant="small" weight="600" style={styles.promoText}>
-            New users: Flat ₹100 OFF on your first booking — applied
-            automatically at checkout.
-          </Text>
-        </View>
+        {/* Information Bar — admin-configurable announcement strip
+            (Web & App Config → Information Bar). Defaults to the
+            new-user offer until the fetch lands; hides when disabled. */}
+        {infoBar.show && (
+          <View style={styles.promo}>
+            <Text variant="small" weight="600" style={styles.promoText}>
+              {infoBar.text}
+            </Text>
+          </View>
+        )}
 
         {/* Rain "all-weather" banner — stacks under the promo, mirroring
             web. Tapping deep-links into the booking flow. Renders only
