@@ -228,3 +228,73 @@ export async function setRainBanner(data: {
   }
   return { ok: true };
 }
+
+// ── Information Bar ─────────────────────────────────────────────────
+// The strip at the very top of the home page (web + app). Same shape as
+// the rain banner: an admin mode + optional custom copy, read publicly.
+
+const DEFAULT_INFO_BAR_TEXT =
+  "New users: Flat ₹100 OFF on your first booking — applied automatically at checkout. No coupon needed.";
+
+/** Raw admin config for the Information Bar editor. */
+export async function getInfoBarConfig(): Promise<{
+  enabled: boolean;
+  text: string | null;
+  defaultText: string;
+}> {
+  try {
+    const row = await db.arenaSettings.findFirst({
+      select: { infoBarEnabled: true, infoBarText: true },
+    });
+    return {
+      enabled: row?.infoBarEnabled ?? true,
+      text: row?.infoBarText ?? null,
+      defaultText: DEFAULT_INFO_BAR_TEXT,
+    };
+  } catch (err) {
+    console.error("[info-bar] config read failed", err);
+    return { enabled: true, text: null, defaultText: DEFAULT_INFO_BAR_TEXT };
+  }
+}
+
+/** Resolved bar for rendering — public by design (home page, app). */
+export async function getInfoBar(): Promise<{ show: boolean; text: string }> {
+  const { enabled, text } = await getInfoBarConfig();
+  return { show: enabled, text: text?.trim() || DEFAULT_INFO_BAR_TEXT };
+}
+
+/** Update the Information Bar. Admin-only. */
+export async function setInfoBar(data: {
+  enabled: boolean;
+  text?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requireAdmin("MANAGE_PRICING");
+  } catch {
+    return { ok: false, error: "You don't have permission to update this." };
+  }
+  const text = data.text?.trim() ? data.text.trim().slice(0, 200) : null;
+  try {
+    const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+    if (existing) {
+      await db.arenaSettings.update({
+        where: { id: existing.id },
+        data: { infoBarEnabled: !!data.enabled, infoBarText: text },
+      });
+    } else {
+      await db.arenaSettings.create({
+        data: { infoBarEnabled: !!data.enabled, infoBarText: text },
+      });
+    }
+  } catch (err) {
+    console.error("[info-bar] update failed", err);
+    return { ok: false, error: "Couldn't save. Please try again." };
+  }
+  try {
+    revalidatePath("/");
+    revalidatePath("/admin/config/info-bar");
+  } catch {
+    /* write already landed */
+  }
+  return { ok: true };
+}

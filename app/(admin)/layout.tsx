@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { db } from "@/lib/db";
 import { adminAuth } from "@/lib/admin-auth-session";
 import { SignOutButton } from "@/components/sign-out-button";
 import { hasPermission } from "@/lib/permissions";
@@ -34,6 +35,7 @@ const allNavItems = [
   { href: "/admin/rewards", label: "Rewards", group: "Promotions", permission: "MANAGE_REWARDS" },
   { href: "/admin/passes", label: "Passes", group: "Promotions", permission: "MANAGE_PASSES" },
   { href: "/admin/config/rain-banner", label: "Rain Banner", group: "Web & App Config", permission: "MANAGE_PRICING" },
+  { href: "/admin/config/info-bar", label: "Information Bar", group: "Web & App Config", permission: "MANAGE_PRICING" },
   { href: "/admin/config/promo-banners", label: "Promotion Banners", group: "Web & App Config", permission: "MANAGE_PROMO_BANNERS" },
   { href: "/admin/expenses", label: "Expenses", group: "Operations", permission: "MANAGE_EXPENSES" },
   { href: "/admin/expenses/analytics", label: "Expense Analytics", group: "Operations", permission: "MANAGE_EXPENSES" },
@@ -76,6 +78,14 @@ export default async function AdminLayout({
 }) {
   const session = await adminAuth();
   if (!session?.user) redirect("/godmode");
+
+  // The session cookie lives 30 days; deactivation must not wait for it.
+  // (Server actions re-check via requireAdmin — this guards page views.)
+  const liveRow = await db.adminUser.findUnique({
+    where: { id: (session.user as { id: string }).id },
+    select: { isActive: true },
+  });
+  if (!liveRow?.isActive) redirect("/godmode");
 
   const user = session.user as unknown as {
     id: string;

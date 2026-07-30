@@ -1066,6 +1066,10 @@ model AdminUser {
   role              AdminRole @default(ADMIN)
   permissions       String[]
   isDeletable       Boolean   @default(true)
+  // Soft login switch: an inactive admin keeps their row (history,
+  // created-by references) but cannot sign in on either surface, and
+  // existing web/mobile sessions are rejected on the next request.
+  isActive          Boolean   @default(true)
   inviteToken       String?   @unique
   inviteTokenExpiry DateTime?
   lastLoginAt       DateTime?
@@ -1758,6 +1762,11 @@ model ArenaSettings {
   // rainBannerText optionally overrides the default banner copy.
   rainBannerMode String  @default("AUTO")
   rainBannerText String?
+  // "Information Bar" — the strip at the very top of the home page
+  // (web + app). Text is admin-editable; null falls back to the built-in
+  // new-user offer copy so existing behaviour survives the migration.
+  infoBarEnabled Boolean @default(true)
+  infoBarText    String?
   // Master switch for the Monthly Passes storefront. OFF hides the
   // customer /passes buying page + plan listing and blocks the
   // purchase API. Already-sold passes keep redeeming at checkout

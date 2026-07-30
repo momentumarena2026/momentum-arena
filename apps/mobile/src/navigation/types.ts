@@ -255,6 +255,7 @@ export type AdminMoreStackParamList = {
   // Web & App Config — customer-facing display toggles (mirrors the
   // web sidebar group): rain banner + promotion banners.
   AdminRainBanner: undefined;
+  AdminInfoBar: undefined;
   AdminPromoBanners: undefined;
   // Settings (payments/profile)
   AdminPaymentSettings: undefined;

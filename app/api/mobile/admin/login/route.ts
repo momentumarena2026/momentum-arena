@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
       role: true,
       permissions: true,
       passwordHash: true,
+      isActive: true,
     },
   });
 
@@ -100,6 +101,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Invalid username or password" },
       { status: 401 },
+    );
+  }
+
+  // Correct password on a deactivated account — say so explicitly
+  // (only after the password verified, so usernames still can't be
+  // probed) and don't issue a token.
+  if (!admin.isActive) {
+    return NextResponse.json(
+      { error: "This account has been deactivated. Contact a superadmin." },
+      { status: 403 },
     );
   }
 

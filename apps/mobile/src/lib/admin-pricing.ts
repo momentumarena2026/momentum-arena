@@ -41,6 +41,7 @@ export interface PricingData {
   classifications: TimeBand[];
   arena: ArenaHours;
   rainBanner: RainBannerConfig;
+  infoBar: { enabled: boolean; text: string | null; defaultText: string };
 }
 
 export interface PriceUpdate {
@@ -87,5 +88,10 @@ export const adminPricingApi = {
     request<{ ok: true }>("/api/mobile/admin/pricing", {
       method: "POST",
       body: { action: "rain-banner", mode, text },
+    }),
+  saveInfoBar: (enabled: boolean, text: string | null) =>
+    request<{ ok: true }>("/api/mobile/admin/pricing", {
+      method: "POST",
+      body: { action: "info-bar", enabled, text },
     }),
 };

@@ -5,6 +5,7 @@ import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import {
   getArenaSettings,
   getRainBannerConfig,
+  getInfoBarConfig,
 } from "@/actions/admin-arena-settings";
 import type { DayType, TimeType } from "@prisma/client";
 
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_PRICING");
   if ("error" in gate) return gate.error;
 
-  const [configs, rules, classifications, arena, rainBanner] =
+  const [configs, rules, classifications, arena, rainBanner, infoBar] =
     await Promise.all([
       db.courtConfig.findMany({
         where: { isActive: true },
@@ -41,9 +42,10 @@ export async function GET(request: NextRequest) {
       db.timeClassification.findMany({ orderBy: { startHour: "asc" } }),
       getArenaSettings(),
       getRainBannerConfig(),
+      getInfoBarConfig(),
     ]);
 
-  return NextResponse.json({ configs, rules, classifications, arena, rainBanner });
+  return NextResponse.json({ configs, rules, classifications, arena, rainBanner, infoBar });
 }
 
 export async function POST(request: NextRequest) {
@@ -191,6 +193,31 @@ export async function POST(request: NextRequest) {
   // --- "Rain doesn't slow us down" banner (ArenaSettings) ---
   // Mirrors the web setRainBanner action: mode falls back to AUTO on any
   // unexpected value, custom copy trims + caps at 200 chars (null = default).
+  if (body.action === "info-bar") {
+    const enabled = !!body.enabled;
+    const text =
+      typeof body.text === "string" && body.text.trim()
+        ? body.text.trim().slice(0, 200)
+        : null;
+    const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+    if (existing) {
+      await db.arenaSettings.update({
+        where: { id: existing.id },
+        data: { infoBarEnabled: enabled, infoBarText: text },
+      });
+    } else {
+      await db.arenaSettings.create({
+        data: { infoBarEnabled: enabled, infoBarText: text },
+      });
+    }
+    try {
+      revalidatePath("/");
+    } catch {
+      /* write landed */
+    }
+    return NextResponse.json({ ok: true });
+  }
+
   if (body.action === "rain-banner") {
     const mode =
       body.mode === "ON" || body.mode === "OFF" ? body.mode : "AUTO";

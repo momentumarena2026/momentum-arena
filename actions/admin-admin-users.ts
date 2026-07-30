@@ -31,6 +31,7 @@ export interface AdminAccountRow {
   role: AdminRole;
   permissions: string[];
   isDeletable: boolean;
+  isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
   passwordSet: boolean;
@@ -55,6 +56,7 @@ export async function listAdminAccounts(): Promise<AdminAccountRow[]> {
       role: true,
       permissions: true,
       isDeletable: true,
+      isActive: true,
       lastLoginAt: true,
       createdAt: true,
       // inviteToken === null means the user has set a real password.
@@ -131,6 +133,7 @@ export async function createAdminAccount(
       role: true,
       permissions: true,
       isDeletable: true,
+      isActive: true,
       lastLoginAt: true,
       createdAt: true,
     },
@@ -156,6 +159,9 @@ const UpdateSchema = z.object({
     .regex(/[0-9]/, "Password must contain a number")
     .regex(/[^a-zA-Z0-9]/, "Password must contain a special character")
     .optional(),
+  // Soft login switch — false blocks sign-in and kills live sessions on
+  // their next request (both surfaces re-read the row per call).
+  isActive: z.boolean().optional(),
 });
 
 export type UpdateAdminAccountInput = z.input<typeof UpdateSchema>;
@@ -164,7 +170,7 @@ export async function updateAdminAccount(
   id: string,
   input: UpdateAdminAccountInput,
 ): Promise<AdminAccountRow> {
-  await requireSuperadmin();
+  const caller = await requireSuperadmin();
 
   const parsed = UpdateSchema.safeParse(input);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
@@ -180,7 +186,17 @@ export async function updateAdminAccount(
     role?: AdminRole;
     permissions?: string[];
     passwordHash?: string;
+    isActive?: boolean;
   } = {};
+
+  if (parsed.data.isActive !== undefined) {
+    // The target is never a SUPERADMIN (guarded above); also refuse
+    // self-deactivation so a caller can't lock themselves out mid-session.
+    if (parsed.data.isActive === false && admin.id === caller.id) {
+      throw new Error("You cannot deactivate your own account");
+    }
+    data.isActive = parsed.data.isActive;
+  }
 
   if (parsed.data.email && parsed.data.email !== admin.email) {
     const clash = await db.adminUser.findFirst({
@@ -215,6 +231,7 @@ export async function updateAdminAccount(
       role: true,
       permissions: true,
       isDeletable: true,
+      isActive: true,
       lastLoginAt: true,
       createdAt: true,
       inviteToken: true,

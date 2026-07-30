@@ -11,6 +11,7 @@ import {
   removePassMemberForOwner,
 } from "@/lib/passes";
 import { parseBands, bandKey, bandsSummary } from "@/lib/pass-bands";
+import { passTimeChips } from "@/lib/pass-time-chips";
 import { courtGroupLabel } from "@/lib/court-config";
 
 /**
@@ -23,6 +24,11 @@ export async function getActivePassPlans() {
   // Storefront switch — OFF hides every plan from customers while
   // sold passes keep redeeming at checkout.
   if (!(await arePassesEnabled())) return [];
+  // Peak/off-peak hour windows — resolved onto each plan's bands so the
+  // cards can say "Weekdays 5am–5pm" instead of just "Off-peak".
+  const classifications = await db.timeClassification.findMany({
+    select: { startHour: true, endHour: true, dayType: true, timeType: true },
+  });
   const plans = await db.passPlan.findMany({
     where: { isActive: true },
     include: {
@@ -78,6 +84,7 @@ export async function getActivePassPlans() {
       effectiveHourly: Math.round(p.price / (p.totalMinutes / 60)),
       validityDays: p.validityDays,
       bandsSummary: bandsSummary(bands),
+      timeChips: passTimeChips(bands, classifications),
     }));
 }
 

@@ -58,6 +58,7 @@ interface Plan {
   effectiveHourly: number;
   validityDays: number;
   bandsSummary: string;
+  timeChips: { label: string; tone: "day" | "night" }[];
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -227,6 +228,11 @@ export function PassesClient({
 }) {
   const router = useRouter();
   const [buying, setBuying] = useState<string | null>(null);
+  // Sport filter — chips above the grid; "ALL" shows everything.
+  const [sportFilter, setSportFilter] = useState<string>("ALL");
+  const sports = Array.from(new Set(plans.map((p) => p.sport)));
+  const shownPlans =
+    sportFilter === "ALL" ? plans : plans.filter((p) => p.sport === sportFilter);
   const [error, setError] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
   // The plan whose method chooser is open, the selected method, and —
@@ -366,8 +372,31 @@ export function PassesClient({
               No passes on sale right now — check back soon.
             </p>
           ) : (
+            <>
+            {sports.length > 1 && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {["ALL", ...sports].map((sp) => {
+                  const on = sportFilter === sp;
+                  const chipAccent = sp === "ALL" ? "#a1a1aa" : SPORT_ACCENT[sp] ?? "#34d399";
+                  return (
+                    <button
+                      key={sp}
+                      onClick={() => setSportFilter(sp)}
+                      className="rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors"
+                      style={
+                        on
+                          ? { borderColor: chipAccent, backgroundColor: `${chipAccent}26`, color: chipAccent }
+                          : { borderColor: "#3f3f46", color: "#a1a1aa" }
+                      }
+                    >
+                      {sp === "ALL" ? "All sports" : sp.charAt(0) + sp.slice(1).toLowerCase()}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {plans.map((plan) => {
+              {shownPlans.map((plan) => {
                 const accent =
                   SPORT_ACCENT[plan.sport] ?? "#34d399";
                 const SportIcon = plan.isBowling
@@ -453,14 +482,27 @@ export function PassesClient({
                         <ShieldCheck className="h-3.5 w-3.5" /> Valid{" "}
                         {plan.validityDays} days
                       </span>
-                      {isRestricted(plan.bandsSummary) && (
-                        <span
-                          className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                          style={{ backgroundColor: `${accent}1f`, color: accent }}
-                        >
-                          {plan.bandsSummary}
-                        </span>
-                      )}
+                      {plan.timeChips.length > 0
+                        ? plan.timeChips.map((c) => (
+                            <span
+                              key={c.label}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                c.tone === "day"
+                                  ? "bg-sky-500/15 text-sky-300"
+                                  : "bg-zinc-700/60 text-zinc-300"
+                              }`}
+                            >
+                              {c.tone === "day" ? "☀" : "☾"} {c.label}
+                            </span>
+                          ))
+                        : isRestricted(plan.bandsSummary) && (
+                            <span
+                              className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                              style={{ backgroundColor: `${accent}1f`, color: accent }}
+                            >
+                              {plan.bandsSummary}
+                            </span>
+                          )}
                     </div>
 
                     {/* mt-auto pins the button to the card bottom so the
@@ -481,6 +523,7 @@ export function PassesClient({
                 );
               })}
             </div>
+            </>
           )}
           {error && <p className="mt-3 text-sm text-amber-300">{error}</p>}
         </section>

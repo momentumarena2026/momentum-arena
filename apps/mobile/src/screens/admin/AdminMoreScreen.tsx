@@ -249,6 +249,13 @@ const GROUPS: Group[] = [
         onPress: (nav) => nav.navigate("AdminRainBanner"),
       },
       {
+        label: "Information Bar",
+        sub: "Announcement strip on the home page",
+        icon: ic(Megaphone, "#34d399"),
+        perm: "MANAGE_PRICING",
+        onPress: (nav) => nav.navigate("AdminInfoBar"),
+      },
+      {
         label: "Promotion banners",
         sub: "Scheduled image banners on web + app",
         icon: ic(Megaphone, colors.emerald400),

@@ -76,7 +76,18 @@ platform :ios do
   lane :beta do
     configure_ota("development")
     build_ios
-    upload_to_testflight(api_key: asc_key, skip_waiting_for_build_processing: true)
+    # Wait for processing and hand the build to the tester groups in the same
+    # run. With skip_waiting the IPA landed as "Ready to Submit" and nobody was
+    # ever assigned — testers stayed on the old build while post_release had
+    # already bumped the version gate, so the app showed an "Update available"
+    # prompt pointing at a build TestFlight didn't serve (build 29757021,
+    # 2026-07-31). Distribution must complete BEFORE post_release runs.
+    upload_to_testflight(
+      api_key: asc_key,
+      distribute_external: true,
+      groups: ["Internal Testers", "External Testers"],
+      changelog: "Development build #{BUILD_NUMBER} (#{MARKETING_VERSION})",
+    )
   end
 
   desc "Production build → App Store"
