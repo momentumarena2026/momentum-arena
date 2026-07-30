@@ -95,10 +95,11 @@ function PlanCard({
   const restricted = !!plan.bandsSummary && plan.bandsSummary !== "All hours";
   return (
     <View style={[styles.planCard, { borderColor: `${accent}33` }]}>
-      {/* Ticket stub — accent gradient texture (same 135° fade as the web
-          card) and the same proportions: sport tile top-left, compact hours
-          dial top-right with the save badge tucked under it, then the sport
-          label + plan name left-aligned underneath. No centred dead band. */}
+      {/* Ticket stub — one dense row, no dead band: sport tile, then the
+          label + plan name filling the middle, compact hours dial on the
+          right with the save badge under it. A phone card is much wider
+          than the web card, so web's two-tier stub reads as empty here —
+          the text has to occupy the space between icon and dial. */}
       <View style={styles.stub}>
         <LinearGradient
           colors={[`${accent}26`, "rgba(0,0,0,0)"]}
@@ -107,12 +108,18 @@ function PlanCard({
           end={{ x: 1, y: 1 }}
           style={styles.stubGradient}
         />
-        <View style={styles.stubTop}>
+        <View style={styles.stubRow}>
           <View style={[styles.sportTile, { backgroundColor: `${accent}1f` }]}>
-            <SportIcon sport={plan.sport} size={28} color={accent} />
+            <SportIcon sport={plan.sport} size={26} color={accent} />
+          </View>
+          <View style={styles.identText}>
+            <Text style={styles.sportLabel}>{sportTitle}</Text>
+            <Text style={styles.planName} numberOfLines={2}>
+              {plan.name}
+            </Text>
           </View>
           <View style={styles.dialSide}>
-            <PassClock totalHours={plan.hours} accent={accent} size={88} stroke={8} />
+            <PassClock totalHours={plan.hours} accent={accent} size={74} stroke={7} />
             {plan.discountPercent > 0 && (
               <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
                 <Text style={[styles.saveText, { color: accent }]}>
@@ -121,12 +128,6 @@ function PlanCard({
               </View>
             )}
           </View>
-        </View>
-        <View style={styles.identBlock}>
-          <Text style={styles.sportLabel}>{sportTitle}</Text>
-          <Text style={styles.planName} numberOfLines={2}>
-            {plan.name}
-          </Text>
         </View>
       </View>
 
@@ -597,24 +598,24 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  stubTop: {
+  stubRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing["3"],
   },
   sportTile: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
+  identText: {
+    flex: 1,
+  },
   dialSide: {
     alignItems: "center",
-    gap: spacing["2"],
-  },
-  identBlock: {
-    marginTop: spacing["3"],
+    gap: spacing["1"],
   },
   saveBadge: {
     borderRadius: 999,
