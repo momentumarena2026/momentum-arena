@@ -95,8 +95,10 @@ function PlanCard({
   const restricted = !!plan.bandsSummary && plan.bandsSummary !== "All hours";
   return (
     <View style={[styles.planCard, { borderColor: `${accent}33` }]}>
-      {/* Ticket stub — accent gradient texture (same 135° fade as the
-          web card), sport identity beside the icon, hours dial centred. */}
+      {/* Ticket stub — accent gradient texture (same 135° fade as the web
+          card) and the same proportions: sport tile top-left, compact hours
+          dial top-right with the save badge tucked under it, then the sport
+          label + plan name left-aligned underneath. No centred dead band. */}
       <View style={styles.stub}>
         <LinearGradient
           colors={[`${accent}26`, "rgba(0,0,0,0)"]}
@@ -105,26 +107,26 @@ function PlanCard({
           end={{ x: 1, y: 1 }}
           style={styles.stubGradient}
         />
-        <View style={styles.identRow}>
+        <View style={styles.stubTop}>
           <View style={[styles.sportTile, { backgroundColor: `${accent}1f` }]}>
             <SportIcon sport={plan.sport} size={28} color={accent} />
           </View>
-          <View style={styles.identText}>
-            <Text style={styles.sportLabel}>{sportTitle}</Text>
-            <Text style={styles.planName} numberOfLines={2}>
-              {plan.name}
-            </Text>
+          <View style={styles.dialSide}>
+            <PassClock totalHours={plan.hours} accent={accent} size={88} stroke={8} />
+            {plan.discountPercent > 0 && (
+              <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
+                <Text style={[styles.saveText, { color: accent }]}>
+                  Save {plan.discountPercent}%
+                </Text>
+              </View>
+            )}
           </View>
         </View>
-        <View style={styles.dialCenter}>
-          <PassClock totalHours={plan.hours} accent={accent} size={116} stroke={10} />
-          {plan.discountPercent > 0 && (
-            <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
-              <Text style={[styles.saveText, { color: accent }]}>
-                Save {plan.discountPercent}%
-              </Text>
-            </View>
-          )}
+        <View style={styles.identBlock}>
+          <Text style={styles.sportLabel}>{sportTitle}</Text>
+          <Text style={styles.planName} numberOfLines={2}>
+            {plan.name}
+          </Text>
         </View>
       </View>
 
@@ -595,13 +597,10 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  identRow: {
+  stubTop: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: spacing["3"],
-  },
-  identText: {
-    flex: 1,
+    alignItems: "flex-start",
+    justifyContent: "space-between",
   },
   sportTile: {
     width: 48,
@@ -610,10 +609,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dialCenter: {
-    marginTop: spacing["4"],
+  dialSide: {
     alignItems: "center",
     gap: spacing["2"],
+  },
+  identBlock: {
+    marginTop: spacing["3"],
   },
   saveBadge: {
     borderRadius: 999,
