@@ -134,15 +134,23 @@ export default async function AdminBookingsPage({
     return filterUrl({ [key]: next.length > 0 ? next.join(",") : "ALL" });
   }
 
+  // Business aggregates are superadmin-only — getAdminStats nulls them for
+  // staff admins (server-side), so the tiles simply don't exist for them.
+  // Today's Bookings and Cash Due at Venue stay: they're the front desk's
+  // working numbers, not business totals.
   const statCards = [
-    {
-      label: "Total Bookings",
-      value: stats.totalBookings.toLocaleString(),
-      icon: TrendingUp,
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
-    },
+    ...(stats.totalBookings !== null
+      ? [
+          {
+            label: "Total Bookings",
+            value: stats.totalBookings.toLocaleString(),
+            icon: TrendingUp,
+            color: "text-emerald-400",
+            bg: "bg-emerald-500/10",
+            border: "border-emerald-500/20",
+          },
+        ]
+      : []),
     {
       label: "Today's Bookings",
       value: stats.todayBookings.toString(),
@@ -151,29 +159,37 @@ export default async function AdminBookingsPage({
       bg: "bg-blue-500/10",
       border: "border-blue-500/20",
     },
-    {
-      // "Today's Earning" = actual cash flow today (advances + full
-      // payments confirmed today, plus remainders collected today on
-      // earlier-confirmed bookings). Replaces the older "Today's
-      // Revenue" tile that summed Booking.totalAmount on confirmedAt
-      // today — that under-counted PARTIAL bookings whose remainder
-      // arrived later, and ignored late-arriving venue cash on older
-      // partials entirely.
-      label: "Today's Earning",
-      value: formatPrice(stats.todayEarning),
-      icon: IndianRupee,
-      color: "text-yellow-400",
-      bg: "bg-yellow-500/10",
-      border: "border-yellow-500/20",
-    },
-    {
-      label: "Total Sports Earnings",
-      value: formatPrice(stats.totalRevenue),
-      icon: IndianRupee,
-      color: "text-emerald-300",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
-    },
+    ...(stats.todayEarning !== null
+      ? [
+          {
+            // "Today's Earning" = actual cash flow today (advances + full
+            // payments confirmed today, plus remainders collected today on
+            // earlier-confirmed bookings). Replaces the older "Today's
+            // Revenue" tile that summed Booking.totalAmount on confirmedAt
+            // today — that under-counted PARTIAL bookings whose remainder
+            // arrived later, and ignored late-arriving venue cash on older
+            // partials entirely.
+            label: "Today's Earning",
+            value: formatPrice(stats.todayEarning),
+            icon: IndianRupee,
+            color: "text-yellow-400",
+            bg: "bg-yellow-500/10",
+            border: "border-yellow-500/20",
+          },
+        ]
+      : []),
+    ...(stats.totalRevenue !== null
+      ? [
+          {
+            label: "Total Sports Earnings",
+            value: formatPrice(stats.totalRevenue),
+            icon: IndianRupee,
+            color: "text-emerald-300",
+            bg: "bg-emerald-500/10",
+            border: "border-emerald-500/20",
+          },
+        ]
+      : []),
     {
       label: "Cash Due at Venue",
       value: formatPrice(stats.venueDueTotal),

@@ -56,19 +56,27 @@ export function AdminDashboardScreen() {
             icon={<CalendarCheck size={18} color={colors.yellow400} />}
             loading={isLoading}
           />
-          <Kpi
-            label="Today's earning"
-            value={s ? formatRupees(s.todayEarning) : undefined}
-            icon={<IndianRupee size={18} color={colors.emerald400} />}
-            loading={isLoading}
-            accent={colors.emerald400}
-          />
-          <Kpi
-            label="Total bookings"
-            value={s ? String(s.totalBookings) : undefined}
-            icon={<CalendarCheck size={18} color={colors.zinc300} />}
-            loading={isLoading}
-          />
+          {/* Business aggregates — the server nulls these for staff
+              admins, so the tiles only exist for superadmins. While
+              loading (s undefined) they render as placeholders and
+              disappear if the response says null. */}
+          {(!s || s.todayEarning !== null) && (
+            <Kpi
+              label="Today's earning"
+              value={s?.todayEarning != null ? formatRupees(s.todayEarning) : undefined}
+              icon={<IndianRupee size={18} color={colors.emerald400} />}
+              loading={isLoading}
+              accent={colors.emerald400}
+            />
+          )}
+          {(!s || s.totalBookings !== null) && (
+            <Kpi
+              label="Total bookings"
+              value={s?.totalBookings != null ? String(s.totalBookings) : undefined}
+              icon={<CalendarCheck size={18} color={colors.zinc300} />}
+              loading={isLoading}
+            />
+          )}
           <Kpi
             label="Active users"
             value={s ? String(s.totalUsers) : undefined}
