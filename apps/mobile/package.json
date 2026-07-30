@@ -33,7 +33,7 @@
     "react-hook-form": "^7.53.2",
     "react-native": "0.85.2",
     "react-native-gesture-handler": "^2.21.2",
-    "react-native-keychain": "^9.2.2",
+    "react-native-keychain": "^10.0.0",
     "react-native-linear-gradient": "^2.8.3",
     "react-native-mmkv": "^3.1.0",
     "react-native-qrcode-svg": "^6.3.21",
