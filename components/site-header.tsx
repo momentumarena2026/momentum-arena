@@ -4,8 +4,9 @@ import { auth } from "@/lib/auth";
 import { LoginButton } from "@/components/login-modal";
 import { RewardsChip } from "@/components/rewards/rewards-chip";
 import { arePassesEnabled } from "@/lib/passes";
+import { areTournamentsEnabled } from "@/lib/tournaments";
 
-type Section = "sports" | "cafe" | "shop" | "passes";
+type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments";
 
 /**
  * Shared customer-funnel top nav (logo + section links + rewards chip +
@@ -18,9 +19,10 @@ type Section = "sports" | "cafe" | "shop" | "passes";
  * for Cafe) instead of the hover-only zinc used for the rest.
  */
 export async function SiteHeader({ active }: { active?: Section }) {
-  const [session, passesEnabled] = await Promise.all([
+  const [session, passesEnabled, tournamentsEnabled] = await Promise.all([
     auth(),
     arePassesEnabled().catch(() => false),
+    areTournamentsEnabled().catch(() => false),
   ]);
 
   const base = "hidden md:flex text-sm font-medium transition";
@@ -61,6 +63,14 @@ export async function SiteHeader({ active }: { active?: Section }) {
                 className={linkClass("passes", "hover:text-emerald-400")}
               >
                 🎟️ Passes
+              </Link>
+            )}
+            {tournamentsEnabled && (
+              <Link
+                href="/tournaments"
+                className={linkClass("tournaments", "hover:text-emerald-400")}
+              >
+                🏆 Tournaments
               </Link>
             )}
           </div>

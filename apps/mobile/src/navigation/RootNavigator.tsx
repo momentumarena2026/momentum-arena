@@ -3,7 +3,6 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   NavigationContainer,
   DarkTheme,
-  useNavigationContainerRef,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../providers/AuthProvider";
@@ -26,7 +25,10 @@ import { OtpScreen } from "../screens/auth/OtpScreen";
 import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
 import { AdminNavigator } from "./AdminNavigator";
 import { ChatScreen } from "../screens/chat/ChatScreen";
+import { ScorerEntryScreen } from "../screens/tournaments/ScorerEntryScreen";
+import { ScorerConsoleScreen } from "../screens/tournaments/ScorerConsoleScreen";
 import type { RootStackParamList } from "./types";
+import { navigationRef } from "./navigationRef";
 import { stackHeaderOptions } from "./headerOptions";
 
 const navTheme = {
@@ -46,7 +48,10 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
   const { state } = useAuth();
-  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+  // navigationRef is module-level (see ./navigationRef) rather than from
+  // useNavigationContainerRef, so screens nested deep inside another
+  // navigator can reach root routes explicitly instead of relying on the
+  // navigate action bubbling up — which fails as a dead tap when it doesn't.
 
   const [banner, setBanner] = useState<(ForegroundPush & { id: number }) | null>(
     null,
@@ -304,6 +309,30 @@ export function RootNavigator() {
             headerShadowVisible: false,
           }}
         />
+        {/* On-field scoring. Root-level and auth-free by design: the
+            scorer code is the credential, so a volunteer needs no
+            account — same rule as the web /score/[code] console. */}
+        <Stack.Group
+          screenOptions={{
+            presentation: "card",
+            animation: "slide_from_right",
+            headerStyle: { backgroundColor: colors.background },
+            headerTitleStyle: { color: colors.foreground },
+            headerTintColor: colors.primary,
+            headerShadowVisible: false,
+          }}
+        >
+          <Stack.Screen
+            name="ScorerEntry"
+            component={ScorerEntryScreen}
+            options={{ title: "Score a match" }}
+          />
+          <Stack.Screen
+            name="ScorerConsole"
+            component={ScorerConsoleScreen}
+            options={{ title: "Scoring" }}
+          />
+        </Stack.Group>
       </Stack.Navigator>
     </NavigationContainer>
     {/* Top progress bar — overlay sibling of the navigator so it

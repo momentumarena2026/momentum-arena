@@ -103,6 +103,32 @@ export async function deleteImage(urlOrPathname: string): Promise<void> {
   }
 }
 
+/**
+ * Is this URL one we host?
+ *
+ * Image URLs that arrive in a request body (team logos, for instance)
+ * are rendered on first-party public pages and inside the admin console.
+ * Accepting an arbitrary origin turns those pages into a beacon for
+ * whoever supplied it — every visitor's IP and User-Agent, plus an
+ * unmoderated image channel on arena-branded surfaces. Only URLs served
+ * by our own blob store (or same-origin relative paths) are trusted.
+ */
+export function isTrustedAssetUrl(url: string | null | undefined): boolean {
+  if (!url) return true; // absent is fine — the caller stores null
+  if (url.startsWith("/")) return true; // same-origin relative path
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== "https:") return false;
+    return (
+      hostname.endsWith(".blob.vercel-storage.com") ||
+      hostname === "momentumarena.com" ||
+      hostname.endsWith(".momentumarena.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
 // Legacy aliases — the shop module called these `uploadProductImage`
 // and `deleteProductImage` before the helper was generalised for the
 // cafe module. Keep them so other modules don't have to change in

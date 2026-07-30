@@ -14,6 +14,7 @@ import {
   LogIn,
   LogOut,
   MessageCircle,
+  Radio,
   Phone,
   Plus,
   Shield,
@@ -264,6 +265,15 @@ export function AccountScreen() {
           title="Arena Assistant"
           subtitle="Ask about courts, hours, or your bookings"
           onPress={() => rootNavigation?.navigate("Chat")}
+        />
+        {/* On-field scoring — open to anyone holding a scorer code, so
+            a volunteer doesn't need an admin account. */}
+        <ActionTile
+          icon={<Radio size={20} color="#f87171" />}
+          iconBg="rgba(248, 113, 113, 0.12)"
+          title="Score a match"
+          subtitle="Enter a tournament scorer code"
+          onPress={() => rootNavigation?.navigate("ScorerEntry")}
         />
       </View>
 

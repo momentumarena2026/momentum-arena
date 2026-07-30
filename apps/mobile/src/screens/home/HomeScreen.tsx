@@ -248,6 +248,17 @@ export function HomeScreen() {
             >
               <Text variant="bodyStrong" color="#fff">☕  Order Food</Text>
             </Pressable>
+            <Pressable
+              onPress={() =>
+                navigation.navigate("Account", { screen: "TournamentsList" })
+              }
+              // Golden — matches the trophy/prize identity; darker than the
+              // cafe amber so the two CTAs read as distinct. Dark text keeps
+              // the 🏆 glyph and label visible on the golden fill.
+              style={({ pressed }) => [styles.heroBtnAmber, { backgroundColor: "#ca8a04" }, pressed && styles.pressed]}
+            >
+              <Text variant="bodyStrong" color="#fff">🏆  Tournaments</Text>
+            </Pressable>
           </View>
         </View>
 

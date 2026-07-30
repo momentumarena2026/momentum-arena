@@ -3,6 +3,14 @@ import type { Sport } from "../lib/types";
 
 export type AccountStackParamList = {
   AccountHome: undefined;
+  // Tournaments — hub, public detail (pools/table/bracket/live), captain
+  // registration and the live match screen. Registered in AccountStack so
+  // Home tiles + promo-banner deep links can reach them without a new tab.
+  TournamentsList: undefined;
+  TournamentDetail: { slug: string };
+  TournamentRegister: { slug: string };
+  TournamentLive: { matchId: string; slug: string };
+  TournamentMatch: { matchId: string; slug: string };
   EditName: undefined;
   // Customer pass wallet — Active/Inactive tabs with balance rings.
   MyPasses: undefined;
@@ -138,6 +146,11 @@ export type RootStackParamList = {
   // it can still be opened from the Account screen tile without
   // taking up a bottom-nav slot.
   Chat: undefined;
+  // On-field scoring. These sit on the ROOT stack, not under Account or
+  // AdminShell, because the scorer code is the credential — a volunteer
+  // scores without an account of any kind.
+  ScorerEntry: undefined;
+  ScorerConsole: { code: string };
 };
 
 /** Admin nav stacks live inside AdminShell — reachable only from the
@@ -203,6 +216,13 @@ export type AdminExpensesStackParamList = {
 // registered here so the hub can push to them.
 export type AdminMoreStackParamList = {
   AdminMoreHome: undefined;
+  AdminTournaments: undefined;
+  // The scorer console, registered HERE as well as on the root stack.
+  // AdminTournaments sits three navigators deep (More stack → tabs →
+  // AdminShell modal); pushing onto its own stack always works, whereas
+  // reaching a root route from this depth is the fragile path that made
+  // "Open scorer" a dead tap. Same component, no duplicated logic.
+  AdminScorerConsole: { code: string };
   AdminSports: undefined;
   AdminEquipment: undefined;
   AdminBowling: undefined;

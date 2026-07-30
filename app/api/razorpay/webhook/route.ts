@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { materializeUserPass } from "@/lib/passes";
+import { confirmTournamentEntry } from "@/lib/tournaments";
 import { completePassTopup } from "@/lib/pass-topup";
 import { verifyRazorpayWebhookSignature } from "@/lib/razorpay";
 import { createBookingFromHold } from "@/actions/booking";
@@ -107,6 +108,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { ok: true, reason: "missing-payment-fields" },
     );
+  }
+
+  // Tournament entry fees route on order NOTES stamped in
+  // lib/tournaments.registerTournamentTeam — no SlotHold. Confirm the team
+  // idempotently (the client verify may have already won); a mismatch files
+  // an orphan so captured money always surfaces on the admin worklist.
+  if (payment.notes?.type === "TOURNAMENT_ENTRY" && payment.notes.teamId) {
+    const result = await confirmTournamentEntry({
+      teamId: payment.notes.teamId,
+      razorpayPaymentId: payment.id,
+      paidRupees: Math.round(payment.amount / 100),
+    });
+    if (!result.ok) {
+      console.error(
+        "[razorpay-webhook] tournament confirm failed",
+        payment.order_id,
+        result.error,
+      );
+      recordOrphanPayment({
+        gateway: "RAZORPAY",
+        reason: `tournament-${result.error || "confirm-failed"}`,
+        userId: payment.notes.userId || "unknown",
+        amountRupees: Math.round(payment.amount / 100),
+        razorpayOrderId: payment.order_id,
+        razorpayPaymentId: payment.id,
+        path: request.nextUrl.pathname,
+      });
+      return NextResponse.json({ ok: true, reason: "tournament-confirm-failed" });
+    }
+    return NextResponse.json({ ok: true, tournamentTeam: payment.notes.teamId });
   }
 
   // Pass purchases route on the order NOTES we stamp in

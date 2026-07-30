@@ -10,6 +10,7 @@ const EARN_TYPES: RewardTxnType[] = [
   // initial booking earn.
   "EARNED_BOOKING_REMAINDER",
   "EARNED_CAFE",
+  "EARNED_TOURNAMENT",
   "EARNED_SIGNUP",
   "EARNED_REFERRAL",
   "EARNED_BIRTHDAY",
@@ -21,6 +22,7 @@ const EARN_TYPES: RewardTxnType[] = [
 const DEBIT_TYPES: RewardTxnType[] = [
   "REDEEMED_BOOKING",
   "REDEEMED_CAFE",
+  "REDEEMED_TOURNAMENT",
   "EXPIRED",
   "REVOKED",
   "ADJUSTMENT_DEBIT",

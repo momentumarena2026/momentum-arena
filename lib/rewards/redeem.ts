@@ -8,6 +8,7 @@ const EARN_TYPES_FIFO: RewardTxnType[] = [
   "EARNED_BOOKING",
   "EARNED_BOOKING_REMAINDER",
   "EARNED_CAFE",
+  "EARNED_TOURNAMENT",
   "EARNED_SIGNUP",
   "EARNED_REFERRAL",
   "EARNED_BIRTHDAY",
@@ -119,6 +120,7 @@ export async function previewRedemption(args: {
       type: {
         in: [
           "EARNED_BOOKING",
+          "EARNED_TOURNAMENT",
           // Partial-pay remainder top-up — same eligibility window
           // as the initial booking earn.
           "EARNED_BOOKING_REMAINDER",
@@ -143,7 +145,14 @@ export async function previewRedemption(args: {
     where: {
       userId: args.userId,
       type: {
-        in: ["REDEEMED_BOOKING", "REDEEMED_CAFE", "EXPIRED", "REVOKED", "ADJUSTMENT_DEBIT"],
+        in: [
+          "REDEEMED_BOOKING",
+          "REDEEMED_CAFE",
+          "REDEEMED_TOURNAMENT",
+          "EXPIRED",
+          "REVOKED",
+          "ADJUSTMENT_DEBIT",
+        ],
       },
     },
     _sum: { points: true },
@@ -206,6 +215,26 @@ export async function redeemForBooking(args: {
   });
 }
 
+/** Redeem points against a tournament entry fee. Same guarded-debit
+ *  invariants as bookings; idempotent per team via
+ *  @@unique([REDEEMED_TOURNAMENT, tournamentTeamId]). */
+export async function redeemForTournament(args: {
+  userId: string;
+  tournamentTeamId: string;
+  points: number;
+  billPaise: number;
+}): Promise<RedeemResult> {
+  return commitRedeem({
+    userId: args.userId,
+    type: "REDEEMED_TOURNAMENT",
+    points: args.points,
+    billPaise: args.billPaise,
+    bookingId: null,
+    cafeOrderId: null,
+    tournamentTeamId: args.tournamentTeamId,
+  });
+}
+
 export async function redeemForCafeOrder(args: {
   userId: string;
   cafeOrderId: string;
@@ -243,10 +272,11 @@ export async function commitRedeemInTx(
   tx: Prisma.TransactionClient,
   args: {
     userId: string;
-    type: "REDEEMED_BOOKING" | "REDEEMED_CAFE";
+    type: "REDEEMED_BOOKING" | "REDEEMED_CAFE" | "REDEEMED_TOURNAMENT";
     points: number;
     bookingId: string | null;
     cafeOrderId: string | null;
+    tournamentTeamId?: string | null;
     /** Cached config — caller looked it up to compute pointsRedeemPaiseSaved
      *  on the hold; re-pass it here so we don't double-fetch inside the txn. */
     cfg: { pointValuePaise: number; bulkRedemptionPaiseThreshold: number };
@@ -308,6 +338,7 @@ async function commitRedeem(args: {
   billPaise: number;
   bookingId: string | null;
   cafeOrderId: string | null;
+  tournamentTeamId?: string | null;
 }): Promise<RedeemResult> {
   if (args.points <= 0) return { redeemed: false, error: "no points" };
 
@@ -347,6 +378,7 @@ async function commitRedeem(args: {
           userId: args.userId,
           bookingId: args.bookingId,
           cafeOrderId: args.cafeOrderId,
+          tournamentTeamId: args.tournamentTeamId ?? null,
           sourceTxnId,
         },
       });
@@ -418,6 +450,7 @@ export async function refundRedemption(args: {
   points: number;
   bookingId?: string;
   cafeOrderId?: string;
+  tournamentTeamId?: string;
   reason: string;
 }): Promise<{ refunded: boolean; txnId?: string }> {
   if (args.points <= 0) return { refunded: false };
@@ -427,12 +460,13 @@ export async function refundRedemption(args: {
   // points. @@unique([ADJUSTMENT_REFUND, bookingId]) would also collide and
   // THROW on the second write, so guard first and return cleanly. (When
   // neither id is set the row is unattributed and this guard is skipped.)
-  if (args.bookingId || args.cafeOrderId) {
+  if (args.bookingId || args.cafeOrderId || args.tournamentTeamId) {
     const existing = await db.rewardTransaction.findFirst({
       where: {
         type: "ADJUSTMENT_REFUND",
         bookingId: args.bookingId ?? undefined,
         cafeOrderId: args.cafeOrderId ?? undefined,
+        tournamentTeamId: args.tournamentTeamId ?? undefined,
       },
     });
     if (existing) return { refunded: false, txnId: existing.id };
@@ -448,6 +482,7 @@ export async function refundRedemption(args: {
         userId: args.userId,
         bookingId: args.bookingId ?? null,
         cafeOrderId: args.cafeOrderId ?? null,
+        tournamentTeamId: args.tournamentTeamId ?? null,
         reason: args.reason,
         // Honor the "no expiry" sentinel (pointExpiryMonths=0) by
         // leaving expiresAt null. Earn paths use the

@@ -148,3 +148,85 @@ export async function settlePriorDqrTxn(args: {
 
   return null; // FAILED / EXPIRED — safe to mint a fresh transaction.
 }
+
+/**
+ * Tournament-entry twin of settlePriorDqrTxn.
+ *
+ * `TournamentTeam.paymentRef` is the ONLY pointer from a PhonePe
+ * transaction back to the team — confirmDqrTournament resolves by it.
+ * Overwriting it on a re-initiate makes an earlier payment unrecoverable
+ * for exactly the reasons documented above for bookings, so the same
+ * rules apply before minting a second QR for one team:
+ *
+ *  - COMPLETED → confirm THAT entry and hand it back (never a second QR).
+ *  - PENDING   → refuse to mint; keep the pointer and let the client
+ *                resume polling the existing transaction.
+ *  - FAILED / EXPIRED / unreachable → caller may mint a fresh one.
+ */
+export async function settlePriorTournamentDqrTxn(args: {
+  transactionId: string;
+  teamId: string;
+  userId: string;
+  request: NextRequest;
+}): Promise<NextResponse | null> {
+  const { transactionId, teamId, userId, request } = args;
+  let state: string;
+  let providerReferenceId: string | undefined;
+  let amount: number | undefined;
+  try {
+    const prior = await qrStatus(transactionId);
+    state = prior.state;
+    providerReferenceId = prior.providerReferenceId;
+    amount = prior.amount;
+  } catch {
+    return null; // gateway unreachable — minting again is the lesser risk
+  }
+
+  if (state === "COMPLETED") {
+    const { confirmDqrTournament } = await import("@/lib/tournaments");
+    const confirmed = await confirmDqrTournament(transactionId, providerReferenceId, amount);
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.dqr.already-paid",
+      outcome: "success",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { teamId, transactionId, confirmedTeamId: confirmed.teamId },
+    });
+    if (confirmed.teamId) {
+      return NextResponse.json({ alreadyPaid: true, teamId: confirmed.teamId });
+    }
+    // Paid but unconfirmable — confirmDqrTournament has filed the orphan.
+    return NextResponse.json(
+      {
+        error:
+          "We received your payment but couldn't confirm this entry. Please do NOT pay again — our team will confirm or refund you shortly.",
+        paymentReceived: true,
+      },
+      { status: 409 }
+    );
+  }
+
+  if (state === "PENDING") {
+    logServerAction({
+      userId,
+      category: AnalyticsCategory.PAYMENT,
+      action: "payment.dqr.in-flight",
+      outcome: "success",
+      path: request.nextUrl.pathname,
+      method: "POST",
+      platform: resolveRequestPlatform(request),
+      metadata: { teamId, transactionId },
+    });
+    return NextResponse.json({
+      pendingTxn: true,
+      transactionId,
+      error:
+        "A payment on this registration is still being confirmed. If you've already paid, please do NOT pay again — we're checking with your bank.",
+    });
+  }
+
+  return null; // FAILED / EXPIRED — safe to mint a fresh transaction.
+}

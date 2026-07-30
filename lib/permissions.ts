@@ -39,6 +39,9 @@ export const ALL_PERMISSIONS = [
   "MANAGE_PASSES",
   // HR / Legal: employee NDA generator (/admin/nda) + its audit log.
   "MANAGE_HR",
+  // Tournament engine: create/configure tournaments, teams, pools, fixtures,
+  // scoring (incl. live scoring) and the tournament marketing campaign.
+  "MANAGE_TOURNAMENTS",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -73,6 +76,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_PROMO_BANNERS: "Manage Promotion Banners (web & app)",
   MANAGE_PASSES: "Manage Monthly Passes",
   MANAGE_HR: "Manage HR / Legal (Employee NDA Generator)",
+  MANAGE_TOURNAMENTS: "Manage Tournaments",
 };
 
 export function hasPermission(

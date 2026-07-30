@@ -1,0 +1,59 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUserId } from "@/lib/auth-unified";
+import { registerTournamentTeam } from "@/lib/tournaments";
+import { resolveRequestPlatform } from "@/lib/server-log";
+import { isTrustedAssetUrl } from "@/lib/blob";
+import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
+
+/** Register a team (captain pays). Unified auth: web cookie or mobile
+ *  bearer — the mobile app reuses this exact route. Returns either a
+ *  confirmed/waitlisted state or a Razorpay order to pay. */
+export async function POST(request: NextRequest) {
+  const userId = await getAuthUserId(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Sign in to register a team" }, { status: 401 });
+  }
+  const body = await request.json().catch(() => ({}));
+  const {
+    tournamentId,
+    teamName,
+    color,
+    logoUrl,
+    members,
+    captainName,
+    captainPhone,
+    captainEmail,
+    couponCode,
+    pointsToRedeem,
+  } = body || {};
+  if (!tournamentId || !teamName) {
+    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  }
+  // The logo must come from our own upload endpoint — the stored URL is
+  // rendered on public tournament pages and in the admin console.
+  if (logoUrl && !isTrustedAssetUrl(String(logoUrl))) {
+    return NextResponse.json({ error: "Upload the team logo instead of linking one" }, { status: 400 });
+  }
+  const result = await registerTournamentTeam({
+    tournamentId,
+    userId,
+    teamName: String(teamName),
+    color: color ? String(color) : null,
+    logoUrl: logoUrl ? String(logoUrl) : null,
+    // Optional — an empty/absent squad registers the captain solo.
+    members: Array.isArray(members) ? members.map((m: unknown) => String(m)) : [],
+    captainName: String(captainName || ""),
+    captainPhone: String(captainPhone || ""),
+    captainEmail: captainEmail ? String(captainEmail) : null,
+    couponCode: couponCode ? String(couponCode) : null,
+    pointsToRedeem: Number(pointsToRedeem) || null,
+    // Derived from the request's own auth, not the body — coupons can be
+    // restricted to the apps, and a body field would let a web caller
+    // simply declare itself an app to claim app-only offers.
+    platform: resolveRequestPlatform(request),
+  });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
+  }
+  return NextResponse.json({ ...result, keyId: RAZORPAY_KEY_ID });
+}

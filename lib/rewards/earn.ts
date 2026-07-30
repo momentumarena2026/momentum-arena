@@ -247,6 +247,45 @@ export async function awardCafePoints(
   });
 }
 
+/**
+ * Award points for a CONFIRMED tournament-team registration, on the
+ * amount the captain ACTUALLY PAID ONLINE (net of coupon + redeemed
+ * points — same product rule as bookings: no earning on the redeemed
+ * leg). Uses the booking earn rate; idempotent per team via
+ * @@unique([EARNED_TOURNAMENT, tournamentTeamId]).
+ */
+export async function awardTournamentPoints(
+  tournamentTeamId: string,
+): Promise<EarnResult> {
+  const cfg = await getRewardConfig();
+  if (!cfg.enabled || cfg.earnRateBookingBps <= 0) {
+    return { awarded: false, reason: "disabled or zero rate" };
+  }
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: tournamentTeamId },
+    select: { status: true, captainUserId: true, paidAmount: true },
+  });
+  if (!team) return { awarded: false, reason: "no team" };
+  if (!team.captainUserId) return { awarded: false, reason: "no user" };
+  if (team.status !== "CONFIRMED") return { awarded: false, reason: "not confirmed" };
+  if (team.paidAmount <= 0) return { awarded: false, reason: "nothing paid" };
+
+  const billPaise = team.paidAmount * 100;
+  const points = computeEarnPoints(billPaise, cfg.earnRateBookingBps);
+  if (points <= 0) return { awarded: false, reason: "zero points" };
+
+  return insertEarn({
+    userId: team.captainUserId,
+    type: "EARNED_TOURNAMENT",
+    points,
+    pointsValuePaise: pointsToPaise(points, cfg),
+    bookingId: null,
+    cafeOrderId: null,
+    tournamentTeamId,
+    expiresAt: expiresAtForMonths(cfg.pointExpiryMonths),
+  });
+}
+
 // ---------- Signup / Birthday / Referral bonuses ----------
 
 export async function awardSignupBonus(userId: string): Promise<EarnResult> {
@@ -463,6 +502,7 @@ async function insertEarn(args: {
   pointsValuePaise: number;
   bookingId: string | null;
   cafeOrderId: string | null;
+  tournamentTeamId?: string | null;
   // Nullable so pointExpiryMonths=0 can express "no expiry".
   // expiresAtForMonths(0) returns null. RewardTransaction.expiresAt
   // is `DateTime?` in the schema.
@@ -480,6 +520,7 @@ async function insertEarn(args: {
           userId: args.userId,
           bookingId: args.bookingId,
           cafeOrderId: args.cafeOrderId,
+          tournamentTeamId: args.tournamentTeamId ?? null,
           expiresAt: args.expiresAt,
         },
       });
