@@ -13,14 +13,21 @@ import {
 export default async function AdminDashboardPage() {
   const stats = await getAdminStats();
 
+  // Business aggregates (lifetime bookings, earnings) are superadmin-only —
+  // getAdminStats returns them as null for staff admins, so they never
+  // reach the page payload, let alone the screen.
   const statCards = [
-    {
-      label: "Total Bookings",
-      value: stats.totalBookings.toString(),
-      icon: CalendarCheck,
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-    },
+    ...(stats.totalBookings !== null
+      ? [
+          {
+            label: "Total Bookings",
+            value: stats.totalBookings.toString(),
+            icon: CalendarCheck,
+            color: "text-emerald-400",
+            bg: "bg-emerald-500/10",
+          },
+        ]
+      : []),
     {
       label: "Today's Bookings",
       value: stats.todayBookings.toString(),
@@ -28,16 +35,20 @@ export default async function AdminDashboardPage() {
       color: "text-blue-400",
       bg: "bg-blue-500/10",
     },
-    {
-      // Cash flow today — advances and full payments confirmed today
-      // plus remainders collected today on earlier-confirmed bookings.
-      // See getAdminStats for the derivation.
-      label: "Today's Earning",
-      value: formatPrice(stats.todayEarning),
-      icon: IndianRupee,
-      color: "text-yellow-400",
-      bg: "bg-yellow-500/10",
-    },
+    ...(stats.todayEarning !== null
+      ? [
+          {
+            // Cash flow today — advances and full payments confirmed today
+            // plus remainders collected today on earlier-confirmed bookings.
+            // See getAdminStats for the derivation.
+            label: "Today's Earning",
+            value: formatPrice(stats.todayEarning),
+            icon: IndianRupee,
+            color: "text-yellow-400",
+            bg: "bg-yellow-500/10",
+          },
+        ]
+      : []),
     {
       label: "Active Users",
       value: stats.totalUsers.toString(),
@@ -45,17 +56,21 @@ export default async function AdminDashboardPage() {
       color: "text-purple-400",
       bg: "bg-purple-500/10",
     },
-    {
-      // Gross (pre-discount) lifetime earnings / days since first booking.
-      // See getAdminStats for the derivation; tile replaces "Pending
-      // Payments" because pending-queue action lives on /admin/bookings
-      // and this number is what owners actually watch day to day.
-      label: "Avg Earning / Day",
-      value: formatPrice(stats.averageDailyEarning),
-      icon: TrendingUp,
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-    },
+    ...(stats.averageDailyEarning !== null
+      ? [
+          {
+            // Gross (pre-discount) lifetime earnings / days since first booking.
+            // See getAdminStats for the derivation; tile replaces "Pending
+            // Payments" because pending-queue action lives on /admin/bookings
+            // and this number is what owners actually watch day to day.
+            label: "Avg Earning / Day",
+            value: formatPrice(stats.averageDailyEarning),
+            icon: TrendingUp,
+            color: "text-emerald-400",
+            bg: "bg-emerald-500/10",
+          },
+        ]
+      : []),
   ];
 
   const quickLinks = [

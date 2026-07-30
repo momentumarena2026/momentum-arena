@@ -1443,9 +1443,13 @@ export async function getAdminBookings(filters?: {
 }
 
 export async function getAdminStats() {
-  // Stats viewable by any admin (no specific permission required)
+  // Stats viewable by any admin (no specific permission required) — but the
+  // aggregate business numbers (lifetime bookings, today's earning, total
+  // revenue) are owner-only. Gated HERE, not in the page: a hidden tile
+  // whose value still rides the payload isn't hidden at all.
   const { requireAdmin: requireAdminNoPermission } = await import("@/lib/admin-auth");
-  await requireAdminNoPermission();
+  const adminIdentity = await requireAdminNoPermission();
+  const isSuperadmin = adminIdentity.adminRole === "SUPERADMIN";
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -1609,15 +1613,16 @@ export async function getAdminStats() {
   const todayEarning = todayEarningAgg._sum.totalAmount ?? 0;
 
   return {
-    totalBookings,
+    isSuperadmin,
+    totalBookings: isSuperadmin ? totalBookings : null,
     todayBookings,
     totalUsers,
-    todayRevenue: todayRevenue._sum.totalAmount ?? 0,
-    todayEarning,
-    totalRevenue: totalRevenue._sum.totalAmount ?? 0,
+    todayRevenue: isSuperadmin ? (todayRevenue._sum.totalAmount ?? 0) : null,
+    todayEarning: isSuperadmin ? todayEarning : null,
+    totalRevenue: isSuperadmin ? (totalRevenue._sum.totalAmount ?? 0) : null,
     pendingPayments,
     venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,
-    averageDailyEarning,
+    averageDailyEarning: isSuperadmin ? averageDailyEarning : null,
   };
 }
 

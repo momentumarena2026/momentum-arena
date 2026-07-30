@@ -79,13 +79,16 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
+  // Business aggregates are superadmin-only — nulled here so a staff
+  // admin's app never receives them (mirrors getAdminStats on web).
+  const isSuperadmin = admin.role === "SUPERADMIN";
   return NextResponse.json({
     stats: {
-      totalBookings,
+      totalBookings: isSuperadmin ? totalBookings : null,
       todayBookings,
       totalUsers,
-      todayEarning: todayEarningAgg._sum.totalAmount ?? 0,
-      totalEarning: totalEarningAgg._sum.totalAmount ?? 0,
+      todayEarning: isSuperadmin ? (todayEarningAgg._sum.totalAmount ?? 0) : null,
+      totalEarning: isSuperadmin ? (totalEarningAgg._sum.totalAmount ?? 0) : null,
       pendingPayments,
       venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,
     },
