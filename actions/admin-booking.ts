@@ -1576,6 +1576,37 @@ export async function getAdminStats() {
     }),
   ]);
 
+  // Pass-settled rupees inside each tile's scope (cash basis: that
+  // money was recognised at pass PURCHASE and is reported as a pass
+  // sale on the purchase day — a pass-paid booking still counts as a
+  // booking, but contributes ₹0 to these money tiles). One query,
+  // three conditional sums; Booking↔Payment is 1:1 so no fan-out.
+  const coveredRows = await db.$queryRaw<
+    {
+      today_revenue_covered: bigint | null;
+      total_revenue_covered: bigint | null;
+      today_earning_covered: bigint | null;
+    }[]
+  >(Prisma.sql`
+    SELECT
+      SUM(CASE WHEN p.status = 'COMPLETED' AND p."confirmedAt" >= ${today} AND p."confirmedAt" < ${tomorrow}
+               THEN pr."coveredAmount" ELSE 0 END)::bigint AS today_revenue_covered,
+      SUM(CASE WHEN p.status = 'COMPLETED' AND p."confirmedAt" IS NOT NULL
+               THEN pr."coveredAmount" ELSE 0 END)::bigint AS total_revenue_covered,
+      SUM(CASE WHEN b.date = ${today}
+               THEN pr."coveredAmount" ELSE 0 END)::bigint AS today_earning_covered
+    FROM "PassRedemption" pr
+    INNER JOIN "Booking" b ON b.id = pr."bookingId"
+    LEFT JOIN "Payment" p ON p."bookingId" = b.id
+    WHERE pr."restoredAt" IS NULL
+      AND b.status IN (${Prisma.join([...EARNING_BOOKING_STATUSES])})
+  `);
+  const covered = coveredRows[0] ?? {
+    today_revenue_covered: null,
+    total_revenue_covered: null,
+    today_earning_covered: null,
+  };
+
   // Gross (pre-discount) earnings = sum(totalAmount) + sum(discountAmount).
   // Booking.originalAmount is only populated when a discount was applied,
   // so we can't just sum it; reconstructing from totalAmount + discount
@@ -1612,16 +1643,26 @@ export async function getAdminStats() {
   // whose slot date is today — i.e. the booked revenue for today's
   // sessions, independent of when the customer's payment was
   // confirmed. See the aggregate query above for the rationale.
-  const todayEarning = todayEarningAgg._sum.totalAmount ?? 0;
+  // Pass-covered slots contribute ₹0 here — the day still shows the
+  // booking in its count, but the money was recognised at pass purchase.
+  const todayEarning =
+    (todayEarningAgg._sum.totalAmount ?? 0) -
+    Number(covered.today_earning_covered ?? 0);
 
   return {
     isSuperadmin,
     totalBookings: isSuperadmin ? totalBookings : null,
     todayBookings,
     totalUsers,
-    todayRevenue: isSuperadmin ? (todayRevenue._sum.totalAmount ?? 0) : null,
+    todayRevenue: isSuperadmin
+      ? (todayRevenue._sum.totalAmount ?? 0) -
+        Number(covered.today_revenue_covered ?? 0)
+      : null,
     todayEarning: isSuperadmin ? todayEarning : null,
-    totalRevenue: isSuperadmin ? (totalRevenue._sum.totalAmount ?? 0) : null,
+    totalRevenue: isSuperadmin
+      ? (totalRevenue._sum.totalAmount ?? 0) -
+        Number(covered.total_revenue_covered ?? 0)
+      : null,
     pendingPayments,
     venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,
     averageDailyEarning: isSuperadmin ? averageDailyEarning : null,
@@ -1635,7 +1676,7 @@ export async function getAdminStats() {
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { zonesOverlap } from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 async function requireAdminWithDetails() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");

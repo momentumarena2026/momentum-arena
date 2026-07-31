@@ -98,11 +98,15 @@ export async function getRevenueOverTime(
             { period: Date; revenue: bigint }[]
           >(Prisma.sql`
             SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, p."confirmedAt") AS period,
-                   SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS revenue
+                   SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS revenue
             FROM "Payment" p
             INNER JOIN "Booking" b ON b.id = p."bookingId"
-            LEFT JOIN "PassRedemption" pr
-              ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+            LEFT JOIN (
+              SELECT "bookingId", SUM("coveredAmount") AS covered
+              FROM "PassRedemption"
+              WHERE "restoredAt" IS NULL
+              GROUP BY "bookingId"
+            ) pr ON pr."bookingId" = b.id
             WHERE p.status = 'COMPLETED'
               AND b.status IN (${EARNING_BOOKING_STATUSES_SQL})
               AND p."confirmedAt" >= ${from}
@@ -825,12 +829,16 @@ export async function getKPIStats(
       // Filter: non-cancelled bookings whose payment lands COMPLETED
       // inside the selected window.
       db.$queryRaw<{ revenue: bigint | null; cnt: bigint }[]>(Prisma.sql`
-        SELECT SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS revenue,
+        SELECT SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS revenue,
                COUNT(*)::bigint AS cnt
         FROM "Booking" b
         INNER JOIN "Payment" p ON p."bookingId" = b.id
-        LEFT JOIN "PassRedemption" pr
-          ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+        LEFT JOIN (
+          SELECT "bookingId", SUM("coveredAmount") AS covered
+          FROM "PassRedemption"
+          WHERE "restoredAt" IS NULL
+          GROUP BY "bookingId"
+        ) pr ON pr."bookingId" = b.id
         WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
           AND p.status = 'COMPLETED'
           AND p."confirmedAt" >= ${from}
@@ -1003,11 +1011,15 @@ export async function getDailyEarningsForMonth(
     >(Prisma.sql`
       SELECT
         EXTRACT(DAY FROM b.date)::int AS day,
-        SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS earnings,
+        SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
-      LEFT JOIN "PassRedemption" pr
-        ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+      LEFT JOIN (
+        SELECT "bookingId", SUM("coveredAmount") AS covered
+        FROM "PassRedemption"
+        WHERE "restoredAt" IS NULL
+        GROUP BY "bookingId"
+      ) pr ON pr."bookingId" = b.id
       WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
         AND b.date >= ${start}
         AND b.date < ${nextStart}
@@ -1098,11 +1110,15 @@ export async function getMonthlyEarningsForYear(
     >(Prisma.sql`
       SELECT
         EXTRACT(MONTH FROM b.date)::int AS month,
-        SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS earnings,
+        SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
-      LEFT JOIN "PassRedemption" pr
-        ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+      LEFT JOIN (
+        SELECT "bookingId", SUM("coveredAmount") AS covered
+        FROM "PassRedemption"
+        WHERE "restoredAt" IS NULL
+        GROUP BY "bookingId"
+      ) pr ON pr."bookingId" = b.id
       WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
         AND b.date >= ${start}
         AND b.date < ${nextStart}
