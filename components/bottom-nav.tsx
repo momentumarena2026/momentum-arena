@@ -56,15 +56,17 @@ type ArcItem = {
 
 const ARC_ITEMS_BASE: ArcItem[] = [
   { key: "Cafe", label: "Cafe", angle: 145, Icon: Coffee },
-  { key: "Location", label: "Reach us", angle: 90, Icon: MapPin },
-  { key: "Shop", label: "Shop", angle: 35, Icon: ShoppingBag },
+  { key: "Shop", label: "Shop", angle: 90, Icon: ShoppingBag },
+  { key: "Location", label: "Reach us", angle: 35, Icon: MapPin },
 ];
 
+// Edges hold the venue-wide destinations (Tournaments left, Reach us
+// right); Cafe and Shop sit in the middle two slots.
 const ARC_ITEMS_WITH_TOURNAMENTS: ArcItem[] = [
-  { key: "Cafe", label: "Cafe", angle: 150, Icon: Coffee },
-  { key: "Location", label: "Reach us", angle: 108, Icon: MapPin },
-  { key: "Tournaments", label: "Tourneys", angle: 72, Icon: Medal },
-  { key: "Shop", label: "Shop", angle: 30, Icon: ShoppingBag },
+  { key: "Tournaments", label: "Tournaments", angle: 150, Icon: Medal },
+  { key: "Cafe", label: "Cafe", angle: 108, Icon: Coffee },
+  { key: "Shop", label: "Shop", angle: 72, Icon: ShoppingBag },
+  { key: "Location", label: "Reach us", angle: 30, Icon: MapPin },
 ];
 
 const TABS = [
