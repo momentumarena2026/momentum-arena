@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
-import { getPassOfferForHold, parsePassModeCoverage } from "@/lib/passes";
+import { getPassOfferForHold, parsePassModeCoverage, ensureDefaultBookVia } from "@/lib/passes";
 import { holdCourtBase } from "@/lib/booking-amounts";
 import { BookViaTabs } from "./book-via-tabs";
 import { PassCheckoutOption } from "@/components/payment/pass-checkout-option";
@@ -46,7 +46,7 @@ export default async function CheckoutPage({
   const { holdId } = params;
   if (!holdId) redirect("/book");
 
-  const hold = await db.slotHold.findUnique({
+  let hold = await db.slotHold.findUnique({
     where: { id: holdId },
     include: { courtConfig: true },
   });
@@ -55,6 +55,24 @@ export default async function CheckoutPage({
 
   if (hold.expiresAt < new Date()) {
     redirect("/book?error=lock_expired");
+  }
+
+  // First load of a fresh hold: pre-select the Pass tab when an
+  // eligible pass exists (sticky — an explicit "Online Payment" click
+  // writes an opt-out marker ensureDefaultBookVia respects).
+  const seededCoverage = await ensureDefaultBookVia(hold).catch(() => null);
+  if (seededCoverage) {
+    hold = {
+      ...hold,
+      passModeId: seededCoverage.passId,
+      passModeCoverage:
+        seededCoverage as unknown as typeof hold.passModeCoverage,
+      couponId: null,
+      couponCode: null,
+      discountAmount: null,
+      pointsToRedeem: null,
+      pointsRedeemPaiseSaved: null,
+    };
   }
 
   // ── "Book via" state ────────────────────────────────────────────────

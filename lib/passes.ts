@@ -1601,7 +1601,11 @@ export async function setHoldPassMode(
       where: { id: hold.id },
       data: {
         passModeId: null,
-        passModeCoverage: Prisma.DbNull,
+        // Sticky "customer explicitly chose Online" marker — stops
+        // ensureDefaultBookVia from re-entering pass mode on the next
+        // load. parsePassModeCoverage/holdCourtBase both read it as
+        // "no coverage" (missing fields / passModeId null).
+        passModeCoverage: { optOut: true } as unknown as Prisma.InputJsonValue,
         ...dropDiscounts,
       },
     });
@@ -1646,6 +1650,27 @@ export async function setHoldPassMode(
  * logged loudly for admin follow-up; the booking itself stands because
  * the customer's remainder payment is already captured.
  */
+/**
+ * Default a fresh hold onto the Pass tab. Runs on first checkout load
+ * (web page render + mobile hold GET): when the customer has an
+ * eligible pass, the hold has never been in pass mode, the customer
+ * hasn't explicitly switched to Online (the opt-out sentinel written by
+ * setHoldPassMode(off)), and no coupon/points landed yet, enter pass
+ * mode so "Book via Pass" is the pre-selected tab.
+ */
+export async function ensureDefaultBookVia(
+  hold: Parameters<typeof setHoldPassMode>[0] & {
+    passModeId: string | null;
+    passModeCoverage: unknown;
+  },
+): Promise<PassModeCoverage | null> {
+  if (hold.passModeId) return null; // already on the Pass tab
+  if (hold.passModeCoverage != null) return null; // touched before (opt-out)
+  if (hold.couponId || hold.pointsToRedeem) return null; // checkout mid-flight
+  const res = await setHoldPassMode(hold, true).catch(() => null);
+  return res && res.ok ? res.coverage : null;
+}
+
 export async function settleHoldPassMode(
   hold: {
     id: string;

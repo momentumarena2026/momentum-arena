@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -138,7 +139,24 @@ export function CheckoutScreen() {
   });
   const config: PaymentConfig = configData ?? DEFAULT_PAYMENT_CONFIG;
 
-  const baseAmount = hold?.totalAmount ?? 0;
+  // "Book via" tab switch — the server re-prices the hold (entering or
+  // leaving pass mode clears coupon/points either way), then the
+  // refetched hold drives everything below through the new courtBase.
+  // Auto-apply re-arms so the coupon lands on the new base too.
+  const bookViaMutation = useMutation({
+    mutationFn: (via: "pass" | "online") =>
+      bookingApi.bookVia(params.holdId, via),
+    onSuccess: () => {
+      autoApplyRanRef.current = false;
+      void qc.invalidateQueries({ queryKey: ["hold", params.holdId] });
+    },
+  });
+
+  // "Book via" state — while the Pass tab is active the whole checkout
+  // prices against the remainder (courtBase = totalAmount − coverage).
+  const passMode = hold?.passMode ?? null;
+  const passTabAvailable = !!hold?.passAvailable || !!passMode;
+  const baseAmount = hold?.courtBase ?? hold?.totalAmount ?? 0;
   const sport = hold?.courtConfig.sport;
   const bookingCategory = hold?.courtConfig.category ?? null;
 
@@ -237,10 +255,9 @@ export function CheckoutScreen() {
   useEffect(() => {
     if (autoApplyRanRef.current) return;
     if (!hold || baseAmount <= 0) return;
-    // A pass offer is the better deal and can't combine with coupons —
-    // auto-applying one would null the offer server-side and sabotage the
-    // default "Book with my pass" selection. Manual entry stays available.
-    if (hold.passOffer) {
+    // Full-coverage Pass tab has nothing to pay — no coupons. On the
+    // Pass + Pay tab coupons apply to the remainder like any other flow.
+    if (hold.passMode?.fullCoverage) {
       autoApplyRanRef.current = true;
       return;
     }
@@ -420,22 +437,7 @@ export function CheckoutScreen() {
     config.upiQrEnabled ? "upi" : "gateway",
   );
 
-  // Default to "Book with my pass" the moment the hold reveals an
-  // eligible pass (server-computed; nulls out when a coupon/points land,
-  // in which case fall back off the pass tile).
   const passOffer = hold?.passOffer ?? null;
-  useEffect(() => {
-    if (passOffer) setAmountMode("pass");
-    else
-      setAmountMode((m) =>
-        m === "pass"
-          ? config.onlineEnabled || config.upiQrEnabled
-            ? "full"
-            : "advance"
-          : m,
-      );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!passOffer]);
 
   // The seeds above run once, and on a cold start they run against
   // DEFAULT_PAYMENT_CONFIG (the ['payment-config'] query isn't persisted, so
@@ -802,6 +804,135 @@ export function CheckoutScreen() {
   // say it plainly instead of rendering a Pay button that cannot work.
   const noPaymentRail = !onlineEnabled && !upiQrEnabled;
 
+  // ── "Book via" tabs ────────────────────────────────────────────────────────
+  // Only pass-holders see these. Active tab = whether the hold is in
+  // pass mode right now (server state, not local state).
+  const passTabLabel =
+    (passMode?.fullCoverage ?? hold.passTabFullCoverage) ? "Pass" : "Pass + Pay";
+  const bookViaTabs = passTabAvailable ? (
+    <View style={styles.bookVia}>
+      <Text variant="small" weight="600" color={colors.zinc400}>
+        Book via
+      </Text>
+      <View style={styles.bookViaTabs}>
+        {(
+          [
+            { key: "pass", label: passTabLabel, active: !!passMode },
+            { key: "online", label: "Online Payment", active: !passMode },
+          ] as const
+        ).map((t) => (
+          <Pressable
+            key={t.key}
+            disabled={bookViaMutation.isPending || t.active}
+            onPress={() => bookViaMutation.mutate(t.key)}
+            style={[
+              styles.bookViaTab,
+              t.active && styles.bookViaTabActive,
+              bookViaMutation.isPending && !t.active && { opacity: 0.6 },
+            ]}
+          >
+            <Text
+              variant="small"
+              weight="600"
+              align="center"
+              color={t.active ? colors.emerald400 : colors.zinc400}
+            >
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {bookViaMutation.isError ? (
+        <Text variant="tiny" color={colors.destructive}>
+          {bookViaMutation.error instanceof Error
+            ? bookViaMutation.error.message
+            : "Couldn't switch — try again"}
+        </Text>
+      ) : null}
+    </View>
+  ) : null;
+
+  const timerJsx = (
+    <View style={[styles.timer, msLeft < 60 * 1000 && styles.timerUrgent]}>
+      <AlarmClock
+        size={16}
+        color={msLeft < 60 * 1000 ? colors.destructive : colors.primary}
+      />
+      <Text
+        variant="small"
+        color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
+      >
+        Slot held for{" "}
+        <Text
+          variant="small"
+          weight="700"
+          color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
+        >
+          {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
+        </Text>
+      </Text>
+    </View>
+  );
+
+  // Full coverage on the Pass tab: no Booking Summary, no payment rails —
+  // just a recap and the pass's own Book-now confirm (the redeem route
+  // creates the booking with zero payment).
+  if (passMode?.fullCoverage && hold.passOffer) {
+    return (
+      <Screen padded={false} edges={[]}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <Text variant="title">Complete Booking</Text>
+          {timerJsx}
+          {bookViaTabs}
+
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHead}>
+              <Text variant="bodyStrong">Booking Summary</Text>
+              <View style={styles.reservedPill}>
+                <Text variant="tiny" weight="600" color={colors.yellow400}>
+                  Reserved
+                </Text>
+              </View>
+            </View>
+            <View style={styles.kvList}>
+              <KVRow label="Sport" value={sportLabel(sportKey)} />
+              <KVRow
+                label="Type"
+                value={customerFacingCourtLabel(
+                  hold.courtConfig.label,
+                  hold.wasBookedAsHalfCourt
+                )}
+              />
+              <KVRow label="Date" value={formatDateLong(hold.date)} />
+              <KVRow
+                label="Slots"
+                value={formatSlotsAsRanges(sortedSlots, slotDurationMinutes)}
+              />
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.breakdownRow}>
+              <Text variant="bodyStrong">To pay</Text>
+              <Text variant="bodyStrong" color={colors.emerald400}>
+                ₹0 — covered by your pass
+              </Text>
+            </View>
+          </View>
+
+          <PassCheckoutOption
+            holdId={hold.id}
+            offer={hold.passOffer}
+            prefill={{
+              name: signedInUser?.name,
+              email: signedInUser?.email,
+              phone: signedInUser?.phone,
+            }}
+            onBooked={goToBookingDetail}
+          />
+        </ScrollView>
+      </Screen>
+    );
+  }
+
   // CTA label matches web's two-level wording.
   const ctaLabel =
     method === "gateway"
@@ -819,30 +950,9 @@ export function CheckoutScreen() {
         <Text variant="title">Complete Payment</Text>
 
         {/* Countdown */}
-        <View
-          style={[
-            styles.timer,
-            msLeft < 60 * 1000 && styles.timerUrgent,
-          ]}
-        >
-          <AlarmClock
-            size={16}
-            color={msLeft < 60 * 1000 ? colors.destructive : colors.primary}
-          />
-          <Text
-            variant="small"
-            color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
-          >
-            Slot held for{" "}
-            <Text
-              variant="small"
-              weight="700"
-              color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
-            >
-              {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
-            </Text>
-          </Text>
-        </View>
+        {timerJsx}
+
+        {bookViaTabs}
 
         {/* Booking Summary — exact mirror of web's booking-summary card.
             Reserved yellow pill in the header; KV rows for Sport / Type /
@@ -892,6 +1002,23 @@ export function CheckoutScreen() {
                   </Text>
                 </View>
               ))}
+            </View>
+          ) : null}
+
+          {/* Pass + Pay: the pass takes its covered slots off the top —
+              every number below prices the remainder. */}
+          {passMode ? (
+            <View style={styles.breakdownRow}>
+              <Text variant="small" color={colors.emerald400}>
+                Covered by {passMode.passName} (
+                {`${(passMode.coveredMinutes / 60)
+                  .toFixed(1)
+                  .replace(/\.0$/, "")}h`}
+                )
+              </Text>
+              <Text variant="small" color={colors.emerald400}>
+                -{formatRupees(passMode.coveredAmount)}
+              </Text>
             </View>
           ) : null}
 
@@ -1076,30 +1203,7 @@ export function CheckoutScreen() {
               onlineEnabled={onlineEnabled}
               upiQrEnabled={upiQrEnabled}
               advanceEnabled={advanceEnabled}
-              passAvailable={!!passOffer && !!signedInUser}
-              passDesc={
-                passOffer
-                  ? passOffer.fullCoverage
-                    ? "Pay ₹0 — fully covered by your pass"
-                    : `Pass + pay ${formatRupees(passOffer.remainderAmount)}`
-                  : undefined
-              }
             />
-
-            {/* Pass confirm — replaces the footer pay button while
-                "Book with my pass" is selected. */}
-            {amountMode === "pass" && passOffer && signedInUser ? (
-              <PassCheckoutOption
-                holdId={hold.id}
-                offer={passOffer}
-                prefill={{
-                  name: signedInUser.name,
-                  email: signedInUser.email,
-                  phone: signedInUser.phone,
-                }}
-                onBooked={goToBookingDetail}
-              />
-            ) : null}
           </View>
         )}
 
@@ -1113,12 +1217,7 @@ export function CheckoutScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        {amountMode === "pass" && passOffer ? (
-          <Text variant="tiny" align="center" color={colors.zinc500}>
-            Booking with your pass — confirm above. Passes can't be combined
-            with coupons or points.
-          </Text>
-        ) : noPaymentRail ? (
+        {noPaymentRail ? (
           <Text variant="small" align="center" color={colors.mutedForeground}>
             Online payments are temporarily unavailable. Your slot is still
             held — please contact the venue to complete this booking.
@@ -1288,6 +1387,25 @@ const styles = StyleSheet.create({
     paddingTop: spacing["3"],
     paddingBottom: spacing["6"],
     gap: spacing["5"],
+  },
+  bookVia: {
+    gap: spacing["2"],
+  },
+  bookViaTabs: {
+    flexDirection: "row",
+    gap: spacing["2"],
+  },
+  bookViaTab: {
+    flex: 1,
+    paddingVertical: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+  },
+  bookViaTabActive: {
+    borderColor: "rgba(16,185,129,0.45)",
+    backgroundColor: "rgba(16,185,129,0.08)",
   },
   timer: {
     flexDirection: "row",

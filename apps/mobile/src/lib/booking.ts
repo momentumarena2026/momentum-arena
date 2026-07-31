@@ -211,6 +211,19 @@ export interface Hold {
   // no matching pass, or a coupon/points are applied). Drives the
   // "Use my pass" banner on the checkout screen.
   passOffer?: PassOffer | null;
+  /** "Book via" tab visibility — a pass could cover (some of) this hold. */
+  passAvailable?: boolean;
+  passTabFullCoverage?: boolean;
+  /** Snapshotted coverage while the Pass tab is active; null otherwise. */
+  passMode?: {
+    passId: string;
+    passName: string;
+    coveredMinutes: number;
+    coveredAmount: number;
+    fullCoverage: boolean;
+  } | null;
+  /** What checkout math prices against: totalAmount − pass coverage. */
+  courtBase?: number;
 }
 
 /** Server-computed pass coverage — mirrors lib/passes.getPassOfferForHold. */
@@ -361,6 +374,13 @@ export const bookingApi = {
    * screen — the sport's admin-designated cheapest-hour anchor plans
    * (morning = off-peak, night = peak). Null pitch → show no banner.
    */
+  /** "Book via" tab switch — enter/exit pass mode on the hold. */
+  bookVia: (holdId: string, via: "pass" | "online") =>
+    api.post<{ ok: boolean; error?: string }>("/api/mobile/booking/book-via", {
+      holdId,
+      via,
+    }),
+
   passPitch: (configId: string) =>
     api.get<{
       pitch: {
