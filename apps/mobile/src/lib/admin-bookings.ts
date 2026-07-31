@@ -385,9 +385,36 @@ export const adminBookingsApi = {
     advanceAmount?: number;
     customTotalAmount?: number;
     equipment?: Array<{ equipmentId: string; quantity: number }>;
+    payWithPass?: boolean;
     note?: string;
   }): Promise<{ ok: true; bookingId: string }> {
     return request("/api/mobile/admin/bookings/create", {
+      method: "POST",
+      body,
+    });
+  },
+
+  // Would this customer's passes cover these slots? Drives the
+  // "Book with customer's pass" checkbox on the create screen.
+  passPreview(body: {
+    userId: string;
+    courtConfigId: string;
+    date: string;
+    hours: number[];
+    bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
+  }): Promise<{
+    preview:
+      | { eligible: false }
+      | {
+          eligible: true;
+          fullCoverage: boolean;
+          coveredMinutes: number;
+          coveredAmount: number;
+          remainderAmount: number;
+          passes: { passName: string; coveredMinutes: number }[];
+        };
+  }> {
+    return request("/api/mobile/admin/bookings/pass-preview", {
       method: "POST",
       body,
     });

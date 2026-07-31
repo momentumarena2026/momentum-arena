@@ -12,6 +12,8 @@ import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import {
   restorePassForBooking,
   passMinutesValue,
+  getPassOfferForHold,
+  debitPass,
   syncPassAfterAdminEdit,
   passCoversCourtGroup,
   passBandsCoverHours,
@@ -2027,6 +2029,12 @@ export async function adminCreateBooking(data: {
   // is exposed today (anchored to PICKLEBALL via sport-promo helper);
   // future codes will plug in by way of the same lookup.
   applyCouponCode?: string;
+  // Book on the customer's pass(es): coverage is computed exactly like
+  // customer checkout (multi-pass, band + court-group + validity rules).
+  // Full coverage → Payment method PASS / ₹0; partial → the remainder is
+  // collected via `paymentMethod`. Incompatible with FREE, custom
+  // amounts, coupons and advance splits.
+  payWithPass?: boolean;
   // Optional equipment rentals attached at create time. Each entry
   // is {equipmentId, quantity}; the action looks up the live
   // Equipment.pricePerHour (per-slot price; the column name is
@@ -2351,6 +2359,61 @@ export async function adminCreateBooking(data: {
     );
     const equipmentTotalRupees = Math.round(equipmentTotalPaise / 100);
 
+    // ── Pass payment (booking on the customer's pass balance) ────────
+    let passOffer: Awaited<ReturnType<typeof getPassOfferForHold>> = null;
+    if (data.payWithPass) {
+      if (data.paymentMethod === "FREE") {
+        return { success: false as const, error: "FREE bookings can't also use a pass" };
+      }
+      if (data.customTotalAmount !== undefined) {
+        return {
+          success: false as const,
+          error: "Pass bookings use slot pricing — clear the custom amount",
+        };
+      }
+      if (data.applyCouponCode) {
+        return { success: false as const, error: "Passes can't be combined with coupons" };
+      }
+      if (data.advanceAmount !== undefined) {
+        return {
+          success: false as const,
+          error:
+            "Pass bookings can't take an advance split — the pass covers its share and the remainder is collected in full",
+        };
+      }
+      passOffer = await getPassOfferForHold({
+        userId: data.userId,
+        courtConfigId: data.courtConfigId,
+        date: dateOnly,
+        hours: usingBowling
+          ? data.bowlingSlots!.map((sl) => sl.hour)
+          : data.hours,
+        startMinutes: usingBowling
+          ? data.bowlingSlots!.map((sl) => sl.minute)
+          : undefined,
+        totalAmount: computedTotal,
+        slotPrices: usingBowling
+          ? data.bowlingSlots!.map((sl) => ({
+              hour: sl.hour,
+              minute: sl.minute,
+              price: bowlingPriceMap.get(`${sl.hour}:${sl.minute}`) ?? 0,
+            }))
+          : data.hours.map((h) => ({
+              hour: h,
+              price: priceMap.get(h) ?? peakPrice,
+            })),
+        equipmentTotalAmount: equipmentTotalRupees,
+        courtConfig: { slotDurationMinutes: usingBowling ? 30 : 60 },
+      });
+      if (!passOffer) {
+        return {
+          success: false as const,
+          error:
+            "None of this customer's passes cover these slots (court, date or price band mismatch, or no balance)",
+        };
+      }
+    }
+
     // totalAmount = slot subtotal − coupon + equipment, unless
     // customTotalAmount overrides it (admin's negotiated number is
     // treated as the final figure the customer pays, INCLUSIVE of
@@ -2463,7 +2526,39 @@ export async function adminCreateBooking(data: {
       }
 
       // Create payment based on method / partial flag
-      if (data.paymentMethod === "FREE") {
+      if (passOffer && passOffer.fullCoverage) {
+        // Fully pass-settled: ₹0 money, same shape the customer
+        // redeem route writes. Booking.totalAmount keeps the full slot
+        // value; owed-at-venue = total − 0 − coveredAmount = 0.
+        await tx.payment.create({
+          data: {
+            bookingId: booking.id,
+            method: "PASS",
+            status: "COMPLETED",
+            amount: 0,
+            confirmedBy: admin.id,
+            confirmedAt: now,
+          },
+        });
+      } else if (passOffer) {
+        // Pass covers its share; the remainder rides the chosen method
+        // (RAZORPAY = already collected, CASH/UPI_QR = due at counter).
+        await tx.payment.create({
+          data: {
+            bookingId: booking.id,
+            method: data.paymentMethod,
+            status: data.paymentMethod === "RAZORPAY" ? "COMPLETED" : "PENDING",
+            amount: passOffer.remainderAmount,
+            razorpayPaymentId:
+              data.paymentMethod === "RAZORPAY"
+                ? (data.razorpayPaymentId ?? null)
+                : null,
+            ...(data.paymentMethod === "RAZORPAY"
+              ? { confirmedBy: admin.id, confirmedAt: now }
+              : {}),
+          },
+        });
+      } else if (data.paymentMethod === "FREE") {
         await tx.payment.create({
           data: {
             bookingId: booking.id,
@@ -2539,6 +2634,22 @@ export async function adminCreateBooking(data: {
           } (₹${equipmentTotalRupees})`,
         );
       }
+      if (passOffer) {
+        creationNotes.push(
+          `Paid with pass — ${passOffer.passes
+            .map(
+              (sh) =>
+                `${sh.passName} (${(sh.coveredMinutes / 60)
+                  .toFixed(1)
+                  .replace(/\.0$/, "")}h)`,
+            )
+            .join(" + ")}${
+            passOffer.fullCoverage
+              ? ""
+              : ` · remainder ₹${passOffer.remainderAmount} via ${data.paymentMethod}`
+          }`,
+        );
+      }
 
       // `newSlots` on BookingEditHistory is an Int[] of start-hours
       // by legacy convention. For bowling we surface the hour list as
@@ -2575,13 +2686,48 @@ export async function adminCreateBooking(data: {
       return booking.id;
     });
 
+    // Settle the pass side — one debit + redemption row per
+    // contributing pass, exactly like customer checkout. A failed debit
+    // (balance raced away) rolls the whole thing back so the admin can
+    // retry with live numbers.
+    if (passOffer) {
+      let debitFailed = false;
+      for (const share of passOffer.passes) {
+        const ok = await debitPass(
+          share.passId,
+          share.coveredMinutes,
+          bookingId,
+          share.coveredAmount,
+          share.coveredSlots,
+        );
+        if (!ok) {
+          debitFailed = true;
+          break;
+        }
+      }
+      if (debitFailed) {
+        await restorePassForBooking(bookingId).catch(() => {});
+        await db.booking.update({
+          where: { id: bookingId },
+          data: { status: "CANCELLED" },
+        });
+        return {
+          success: false as const,
+          error:
+            "Pass balance changed while booking — nothing was charged; try again",
+        };
+      }
+    }
+
     // Send confirmation SMS for bookings whose Payment row landed in a
-    // terminal COMPLETED state — FREE, RAZORPAY (full), and any partial
-    // payment (where admin confirmed receipt of the advance).
+    // terminal COMPLETED state — FREE, RAZORPAY (full), any partial
+    // payment (where admin confirmed receipt of the advance), and
+    // fully pass-settled bookings.
     const paymentIsCompleted =
       data.paymentMethod === "FREE" ||
       data.paymentMethod === "RAZORPAY" ||
-      isPartial;
+      isPartial ||
+      (!!passOffer && passOffer.fullCoverage);
     if (paymentIsCompleted) {
       after(async () => {
         await Promise.allSettled([
@@ -4086,6 +4232,62 @@ export async function suggestExtendPrice(
   // price. Hourly slots represent 60 min; suggest half.
   if (adjacent.durationMinutes === 30) return adjacent.price;
   return Math.round(adjacent.price / 2);
+}
+
+/**
+ * Coverage preview for the admin create-booking form: would this
+ * customer's passes cover these slots? Mirrors adminCreateBooking's
+ * offer computation (prices resolved from the day's classified rates).
+ */
+export async function previewAdminPassCoverage(args: {
+  userId: string;
+  courtConfigId: string;
+  date: string;
+  hours: number[];
+  bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
+}): Promise<
+  | { eligible: false }
+  | {
+      eligible: true;
+      fullCoverage: boolean;
+      coveredMinutes: number;
+      coveredAmount: number;
+      remainderAmount: number;
+      passes: { passName: string; coveredMinutes: number }[];
+    }
+> {
+  await requireAdmin();
+  const usingBowling = !!args.bowlingSlots?.length;
+  if (!args.userId || (!usingBowling && args.hours.length === 0)) {
+    return { eligible: false };
+  }
+  const offer = await getPassOfferForHold({
+    userId: args.userId,
+    courtConfigId: args.courtConfigId,
+    date: new Date(args.date + "T00:00:00Z"),
+    hours: usingBowling
+      ? args.bowlingSlots!.map((sl) => sl.hour)
+      : args.hours,
+    startMinutes: usingBowling
+      ? args.bowlingSlots!.map((sl) => sl.minute)
+      : undefined,
+    // Prices resolve from the day's classified rates inside the offer
+    // computation; totalAmount is unused for coverage math.
+    totalAmount: 0,
+    courtConfig: { slotDurationMinutes: usingBowling ? 30 : 60 },
+  }).catch(() => null);
+  if (!offer) return { eligible: false };
+  return {
+    eligible: true,
+    fullCoverage: offer.fullCoverage,
+    coveredMinutes: offer.coveredMinutes,
+    coveredAmount: offer.coveredAmount,
+    remainderAmount: offer.remainderAmount,
+    passes: offer.passes.map((sh) => ({
+      passName: sh.passName,
+      coveredMinutes: sh.coveredMinutes,
+    })),
+  };
 }
 
 export async function extendBookingByThirtyMin(

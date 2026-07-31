@@ -152,6 +152,7 @@ export function AdminCreateBookingScreen() {
 
   // ---- Payment state ----
   const [method, setMethod] = useState<Method>("CASH");
+  const [payWithPass, setPayWithPass] = useState(false);
   const [customAmountStr, setCustomAmountStr] = useState("");
   const [isPartial, setIsPartial] = useState(false);
   const [advanceStr, setAdvanceStr] = useState("");
@@ -328,6 +329,39 @@ export function AdminCreateBookingScreen() {
       ),
   });
 
+  // Pass-coverage preview — recomputed whenever customer/court/date/
+  // slots change; the checkbox renders only when a pass covers
+  // something (mirror of the web create form).
+  const passPreviewQ = useQuery({
+    queryKey: [
+      "admin-pass-preview",
+      customer?.id,
+      courtConfigId,
+      date,
+      hours.join(","),
+      bowlingSlots.map((sl) => `${sl.hour}:${sl.minute}`).join(","),
+    ],
+    queryFn: () =>
+      adminBookingsApi.passPreview({
+        userId: customer!.id,
+        courtConfigId: courtConfigId!,
+        date,
+        hours: isBowlingConfig ? [] : [...hours].sort((a, b) => a - b),
+        bowlingSlots: isBowlingConfig ? bowlingSlots : undefined,
+      }),
+    enabled:
+      !!customer &&
+      !!courtConfigId &&
+      !!date &&
+      (isBowlingConfig ? bowlingSlots.length > 0 : hours.length > 0),
+    staleTime: 15_000,
+  });
+  const passPreview = passPreviewQ.data?.preview;
+  useEffect(() => {
+    if (!passPreview?.eligible) setPayWithPass(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passPreview?.eligible]);
+
   const createBooking = useMutation({
     mutationFn: () => {
       if (!customer || !courtConfigId) {
@@ -361,6 +395,7 @@ export function AdminCreateBookingScreen() {
         advanceAmount: isPartial ? parsedAdvance : undefined,
         equipment:
           equipmentPayload.length > 0 ? equipmentPayload : undefined,
+        payWithPass: payWithPass || undefined,
         note: note.trim() || undefined,
       });
     },
@@ -928,6 +963,55 @@ export function AdminCreateBookingScreen() {
                   );
                 })}
               </View>
+
+              {/* Book with the customer's pass — renders only when an
+                  eligible pass covers something. Full coverage books at
+                  ₹0 (method PASS); partial keeps the chosen method for
+                  the remainder. */}
+              {passPreview?.eligible && method !== "FREE" ? (
+                <Pressable
+                  onPress={() => setPayWithPass((v) => !v)}
+                  style={[
+                    styles.passOptRow,
+                    payWithPass && styles.passOptRowActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.passOptBox,
+                      payWithPass && styles.passOptBoxActive,
+                    ]}
+                  >
+                    {payWithPass ? (
+                      <Text style={styles.passOptTick}>✓</Text>
+                    ) : null}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="small" weight="600" color={colors.foreground}>
+                      Book with customer&apos;s pass
+                    </Text>
+                    <Text variant="tiny" color={colors.emerald400}>
+                      {passPreview.passes
+                        .map(
+                          (sh) =>
+                            `${sh.passName} (${(sh.coveredMinutes / 60)
+                              .toFixed(1)
+                              .replace(/\.0$/, "")}h)`,
+                        )
+                        .join(" + ")}
+                      {passPreview.fullCoverage
+                        ? " — fully covered, ₹0 to collect"
+                        : ` — remainder ₹${passPreview.remainderAmount} via ${METHOD_LABEL[method]}`}
+                    </Text>
+                    {payWithPass ? (
+                      <Text variant="tiny" color={colors.zinc500}>
+                        Custom amounts and advance splits don&apos;t combine
+                        with a pass.
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              ) : null}
             </Section>
 
             {/* Razorpay payment ID — needed when method=RAZORPAY OR
@@ -1302,6 +1386,41 @@ function prettyDate(dateStr: string): string {
 // Styles
 
 const styles = StyleSheet.create({
+  passOptRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing["3"],
+    marginTop: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    backgroundColor: colors.zinc900,
+    padding: spacing["3"],
+  },
+  passOptRowActive: {
+    borderColor: "rgba(16,185,129,0.5)",
+    backgroundColor: "rgba(16,185,129,0.08)",
+  },
+  passOptBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: colors.zinc600,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  passOptBoxActive: {
+    borderColor: colors.emerald500,
+    backgroundColor: colors.emerald500,
+  },
+  passOptTick: {
+    color: "#000",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 14,
+  },
   scroll: {
     paddingHorizontal: spacing["5"],
     paddingTop: spacing["3"],
