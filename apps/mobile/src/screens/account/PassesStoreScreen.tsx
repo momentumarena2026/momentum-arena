@@ -18,7 +18,7 @@ import type {
   PaymentErrorData,
   PaymentSuccessData,
 } from "react-native-razorpay/src/types";
-import { CreditCard, ShieldCheck, Smartphone, Ticket, X } from "lucide-react-native";
+import { CreditCard, Moon, ShieldCheck, Smartphone, Sun, Ticket, X } from "lucide-react-native";
 import LinearGradient from "react-native-linear-gradient";
 import { Screen } from "../../components/ui/Screen";
 import { PassClock } from "../../components/passes/PassClock";
@@ -120,13 +120,6 @@ function PlanCard({
           </View>
           <View style={styles.dialSide}>
             <PassClock totalHours={plan.hours} accent={accent} size={74} stroke={7} />
-            {plan.discountPercent > 0 && (
-              <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
-                <Text style={[styles.saveText, { color: accent }]}>
-                  Save {plan.discountPercent}%
-                </Text>
-              </View>
-            )}
           </View>
         </View>
       </View>
@@ -170,13 +163,17 @@ function PlanCard({
                   c.tone === "day" ? styles.chipDay : styles.chipNight,
                 ]}
               >
+                {c.tone === "day" ? (
+                  <Sun size={18} color="#7dd3fc" />
+                ) : (
+                  <Moon size={18} color={colors.zinc300} />
+                )}
                 <Text
                   style={[
                     styles.bandChipText,
                     { color: c.tone === "day" ? "#7dd3fc" : colors.zinc300 },
                   ]}
                 >
-                  {c.tone === "day" ? "☀ " : "☾ "}
                   {c.label}
                 </Text>
               </View>
@@ -617,15 +614,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["1"],
   },
-  saveBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  saveText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
   sportLabel: {
     fontSize: 11,
     fontWeight: "600",
@@ -706,6 +694,9 @@ const styles = StyleSheet.create({
     color: colors.zinc400,
   },
   bandChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,

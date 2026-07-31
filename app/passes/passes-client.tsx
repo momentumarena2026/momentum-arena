@@ -15,6 +15,8 @@ import {
   Wallet,
   ScrollText,
   Users,
+  Sun,
+  Moon,
 } from "lucide-react";
 import {
   MdSportsCricket,
@@ -424,24 +426,15 @@ export function PassesClient({
                       >
                         <SportIcon size={28} color={accent} />
                       </div>
-                      {/* Hours dial on top, discount badge beneath it —
-                          the ring sweeps to the pass's full hours when
-                          the card scrolls into view. */}
-                      <div className="flex flex-col items-center gap-2">
-                        <PassClock
-                          totalHours={plan.hours}
-                          accent={accent}
-                          size={80}
-                          stroke={8}
-                          trigger="inview"
-                        />
-                        <span
-                          className="rounded-full px-2.5 py-1 text-xs font-bold"
-                          style={{ backgroundColor: `${accent}22`, color: accent }}
-                        >
-                          Save {plan.discountPercent}%
-                        </span>
-                      </div>
+                      {/* Hours dial — the ring sweeps to the pass's
+                          full hours when the card scrolls into view. */}
+                      <PassClock
+                        totalHours={plan.hours}
+                        accent={accent}
+                        size={80}
+                        stroke={8}
+                        trigger="inview"
+                      />
                     </div>
                     <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                       {plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}
@@ -486,13 +479,18 @@ export function PassesClient({
                         ? plan.timeChips.map((c) => (
                             <span
                               key={c.label}
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
                                 c.tone === "day"
                                   ? "bg-sky-500/15 text-sky-300"
                                   : "bg-zinc-700/60 text-zinc-300"
                               }`}
                             >
-                              {c.tone === "day" ? "☀" : "☾"} {c.label}
+                              {c.tone === "day" ? (
+                                <Sun className="h-4.5 w-4.5 text-sky-300" />
+                              ) : (
+                                <Moon className="h-4.5 w-4.5 text-zinc-300" />
+                              )}{" "}
+                              {c.label}
                             </span>
                           ))
                         : isRestricted(plan.bandsSummary) && (
