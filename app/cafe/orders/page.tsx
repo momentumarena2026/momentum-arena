@@ -93,25 +93,22 @@ export default async function CafeOrdersPage() {
 
   return (
     <div className="min-h-screen bg-black">
-      {/* Header — narrow, sits above the list. Back link returns to
-          the menu so the customer never gets stranded in the
-          orders view. */}
-      <div className="border-b border-amber-800/20 bg-gradient-to-br from-amber-900/40 via-black to-black">
-        <div className="max-w-3xl mx-auto px-4 py-6 sm:py-8">
-          <Link
-            href="/cafe"
-            className="inline-flex items-center gap-1 text-xs text-amber-200/70 hover:text-amber-200 transition-colors mb-3"
-          >
-            <ArrowLeft className="h-3 w-3" />
-            Back to menu
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white">
-            My Cafe Orders
-          </h1>
-          <p className="text-amber-200/60 text-sm mt-1">
-            Everything you've ordered from the cafe.
-          </p>
-        </div>
+      {/* Plain page heading — the shared SiteHeader is the only header
+          chrome; the amber cafe-branded bar is gone. */}
+      <div className="max-w-3xl mx-auto px-4 pt-6 sm:pt-8">
+        <Link
+          href="/cafe"
+          className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-white transition-colors mb-3"
+        >
+          <ArrowLeft className="h-3 w-3" />
+          Back to menu
+        </Link>
+        <h1 className="text-2xl sm:text-3xl font-bold text-white">
+          My Cafe Orders
+        </h1>
+        <p className="text-zinc-400 text-sm mt-1">
+          Everything you&apos;ve ordered from the cafe.
+        </p>
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 sm:py-8">

@@ -80,7 +80,7 @@ export function CafeMenuScreen() {
 
 function CafeClosedView() {
   return (
-    <Screen edges={["top", "bottom"]}>
+    <Screen edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.closedScroll}>
         <View style={styles.heroCard}>
           <View style={styles.heroIcon}>
@@ -147,17 +147,8 @@ function CafeOpenView({ items }: { items: CafeItem[] }) {
   const categories = CATEGORY_ORDER.filter((c) => grouped[c]?.length > 0);
 
   return (
-    <Screen padded={false} edges={["top", "bottom"]}>
+    <Screen padded={false} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.menuScroll}>
-        <View style={styles.menuHeader}>
-          <Text variant="heading" weight="700" color={colors.foreground}>
-            Momentum Cafe ☕
-          </Text>
-          <Text variant="small" color={colors.zinc400}>
-            Order now, pick up at the counter.
-          </Text>
-        </View>
-
         {/* Admin-managed promotion banners — below the title/subtitle. */}
         <PromoBannerSlot
           screen="CAFE"
@@ -434,7 +425,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing["10"],
     gap: spacing["4"],
   },
-  menuHeader: { gap: spacing["1"], paddingBottom: spacing["2"] },
   section: { gap: spacing["2"] },
   sectionHeading: {
     paddingTop: spacing["2"],

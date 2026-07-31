@@ -21,7 +21,7 @@ export function CafeStack() {
       <Stack.Screen
         name="CafeMenu"
         component={CafeMenuScreen}
-        options={{ headerShown: false }}
+        options={{ title: "Cafe" }}
       />
       <Stack.Screen
         name="CafeCart"

@@ -168,46 +168,20 @@ export function CafeMenuPage({
     // BottomNav now ships its own document-flow spacer, so we drop the
     // padding here to avoid double-stacking.
     <div className="min-h-screen bg-black">
-      {/* Hero header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-amber-900/40 via-black to-black border-b border-amber-800/20">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-4 left-10 text-6xl">☕</div>
-          <div className="absolute top-8 right-20 text-5xl">🍛</div>
-          <div className="absolute bottom-4 left-1/3 text-4xl">🍿</div>
-          <div className="absolute bottom-2 right-10 text-5xl">🍰</div>
-        </div>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-8 relative z-10">
-          <div className="flex items-start gap-3">
-            {/* Logo now lives in the shared SiteHeader above — the hero
-                keeps just the cafe identity. */}
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl sm:text-3xl md:text-4xl font-bold text-white truncate">Momentum Cafe ☕</h1>
-              <p className="text-amber-200/60 text-xs sm:text-sm max-w-lg truncate">
-                Snacks, beverages & meals — served fresh at the arena.
-              </p>
-            </div>
-            {/* Quick link to past orders. Compact, slightly muted so
-                it doesn't compete with the menu — but always there
-                so signed-in customers can pull up their history
-                without digging through the bottom-nav profile. */}
-            <a
-              href="/cafe/orders"
-              className="hidden sm:inline-flex items-center gap-1.5 self-center rounded-full border border-amber-700/40 bg-amber-900/20 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-900/40 transition-colors"
-            >
-              My Orders
-            </a>
-          </div>
-          {/* Mobile placement — full-width pill under the title so
-              it stays tappable without crowding the header row. */}
+      <h1 className="sr-only">Momentum Cafe</h1>
+      {/* Slim utility row — orders link + admin promo banners. The
+          cafe-branded hero is gone: the shared SiteHeader is the only
+          header on cafe pages now. */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-4 pb-1">
+        <div className="flex justify-end">
           <a
             href="/cafe/orders"
-            className="sm:hidden mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-700/40 bg-amber-900/20 px-3 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-900/40 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-700/40 bg-amber-900/20 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-900/40 transition-colors"
           >
             My Orders →
           </a>
-          {/* Admin-managed promotion banners — below the title/subtitle. */}
-          <PromoBannerStrip banners={promoBanners} className="mt-4" />
         </div>
+        <PromoBannerStrip banners={promoBanners} className="mt-3" />
       </div>
 
       {/* Sticky search + category tabs */}
