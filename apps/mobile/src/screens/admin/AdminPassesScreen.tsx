@@ -35,7 +35,6 @@ import {
   type Band,
   type PassConfigOption,
   type SoldPass,
-  anchorBuckets,
 } from "../../lib/admin-passes";
 import { adminBookingsApi } from "../../lib/admin-bookings";
 import { AdminApiError } from "../../lib/admin-api";
@@ -465,44 +464,37 @@ export function AdminPassesScreen() {
                     ⚠︎ Price drifted off the anchor — unsellable until edited.
                   </Text>
                 )}
-                {/* Cheapest-hour showcase — a single tick; WHICH bucket it
-                    anchors (peak / off-peak / both) derives from the plan's
-                    own bands. Drives the slot-selection "Play more, pay
-                    less" banner; ticking un-ticks overlapping plans. */}
+                {/* Cheapest pass — exactly one per court group; its
+                    effective hourly rate becomes the slot page's
+                    "Book from just ₹X/hour" price. Ticking replaces the
+                    group's current holder. */}
                 <View style={styles.anchorRow}>
-                  {(() => {
-                    const buckets = anchorBuckets(p.bands);
-                    const bucketLabel =
-                      buckets.length === 2
-                        ? "Peak + Off-peak"
-                        : buckets[0] === "PEAK"
-                          ? "☀ Peak"
-                          : "☾ Off-peak";
-                    const on = p.isCheapestHourAnchor;
-                    return (
-                      <Pressable
-                        disabled={!p.isActive && !on}
-                        onPress={() =>
-                          void run(() =>
-                            adminPassesApi.setCheapestHour(p.id, !on),
-                          )
-                        }
-                        style={[
-                          styles.anchorChip,
-                          on && styles.anchorChipOn,
-                          !p.isActive && !on && { opacity: 0.35 },
-                        ]}
-                      >
-                        <Text
-                          variant="tiny"
-                          weight="700"
-                          color={on ? colors.emerald400 : colors.zinc500}
-                        >
-                          {on ? "✓ " : ""}Cheapest hour · {bucketLabel}
-                        </Text>
-                      </Pressable>
-                    );
-                  })()}
+                  <Pressable
+                    disabled={!p.isActive && !p.isCheapestHourAnchor}
+                    onPress={() =>
+                      void run(() =>
+                        adminPassesApi.setCheapestHour(
+                          p.id,
+                          !p.isCheapestHourAnchor,
+                        ),
+                      )
+                    }
+                    style={[
+                      styles.anchorChip,
+                      p.isCheapestHourAnchor && styles.anchorChipOn,
+                      !p.isActive && !p.isCheapestHourAnchor && { opacity: 0.35 },
+                    ]}
+                  >
+                    <Text
+                      variant="tiny"
+                      weight="700"
+                      color={
+                        p.isCheapestHourAnchor ? colors.emerald400 : colors.zinc500
+                      }
+                    >
+                      {p.isCheapestHourAnchor ? "✓ " : ""}Cheapest pass
+                    </Text>
+                  </Pressable>
                 </View>
                 <View style={styles.cardActions}>
                   <Button

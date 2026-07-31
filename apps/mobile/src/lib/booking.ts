@@ -364,10 +364,9 @@ export const bookingApi = {
   passPitch: (configId: string) =>
     api.get<{
       pitch: {
-        planName: string | null;
+        planName: string;
         sport: string;
-        morning: { withPass: number; regular: number; save: number } | null;
-        night: { withPass: number; regular: number; save: number } | null;
+        fromPerHour: number;
       } | null;
     }>(`/api/mobile/pass-pitch?configId=${encodeURIComponent(configId)}`, {
       auth: false,

@@ -4,19 +4,13 @@ import type { PassPitch } from "@/lib/passes";
 import { formatPrice } from "@/lib/pricing";
 
 /**
- * "Play more, pay less" — the cheapest-hour pass pitch, shown on the
- * slot-selection page BEFORE the customer commits to the regular rate
- * (deliberately not at checkout, where a detour risks dropping the
- * payment). Data comes from the sport's admin-designated anchor plans
- * (PassPlan.upsellTimeType): morning = OFF_PEAK, night = PEAK.
+ * "Save More with Arena Passes" — shown on the slot-selection page
+ * BEFORE the customer commits to the regular rate (deliberately not at
+ * checkout, where a detour risks dropping the payment). The from-price
+ * comes from the court group's single admin-designated cheapest pass
+ * (PassPlan.isCheapestHourAnchor).
  */
 export function PassPitchBanner({ pitch }: { pitch: PassPitch }) {
-  const sportTitle =
-    pitch.sport.charAt(0) + pitch.sport.slice(1).toLowerCase();
-  const name = pitch.planName ?? `${sportTitle} passes`;
-  const m = pitch.morning;
-  const n = pitch.night;
-
   return (
     <Link
       href="/passes"
@@ -28,46 +22,18 @@ export function PassPitchBanner({ pitch }: { pitch: PassPitch }) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-base font-bold leading-snug text-white sm:text-lg">
-            Play more, pay less with our {name}!
+            Save More with Arena Passes
           </p>
-          <p className="mt-1.5 text-sm leading-relaxed text-zinc-300">
-            {m && n ? (
-              <>
-                Enjoy morning court hours at just{" "}
-                <span className="font-bold text-emerald-400">
-                  {formatPrice(m.withPass)}
-                </span>{" "}
-                and night sessions at{" "}
-                <span className="font-bold text-emerald-400">
-                  {formatPrice(n.withPass)}
-                </span>
-                . Save <span className="font-semibold text-white">{formatPrice(m.save)}</span>{" "}
-                on morning bookings and{" "}
-                <span className="font-semibold text-white">{formatPrice(n.save)}</span> on
-                night bookings compared with regular rates.
-              </>
-            ) : m ? (
-              <>
-                Enjoy morning court hours at just{" "}
-                <span className="font-bold text-emerald-400">
-                  {formatPrice(m.withPass)}
-                </span>{" "}
-                — save <span className="font-semibold text-white">{formatPrice(m.save)}</span>{" "}
-                per booking compared with regular rates.
-              </>
-            ) : n ? (
-              <>
-                Enjoy night sessions at just{" "}
-                <span className="font-bold text-emerald-400">
-                  {formatPrice(n.withPass)}
-                </span>{" "}
-                — save <span className="font-semibold text-white">{formatPrice(n.save)}</span>{" "}
-                per booking compared with regular rates.
-              </>
-            ) : null}
+          <p className="mt-1 text-xl font-extrabold text-emerald-400 sm:text-2xl">
+            Book from just {formatPrice(pitch.fromPerHour)}/hour
+            <span className="align-super text-sm font-semibold">*</span>
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-zinc-300">
+            Get guaranteed savings on every game. Choose the pass that fits
+            your schedule.
           </p>
           <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-emerald-950 transition-colors group-hover:bg-emerald-400">
-            See passes and start playing for less
+            View Passes
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </span>
         </div>
