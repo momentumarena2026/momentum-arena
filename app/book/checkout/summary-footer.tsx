@@ -80,6 +80,15 @@ export function SummaryFooter({
       window.removeEventListener("checkout:discount-changed", onDiscountChanged);
   }, []);
 
+  // A "Book via" tab switch re-prices the hold server-side (the base
+  // flips between full total and pass remainder; coupon/points are
+  // cleared there) and router.refresh() keeps this island mounted — so
+  // when a different preDiscountTotal arrives, the captured base is
+  // stale. Re-seed or the old base leaks into the Total.
+  useEffect(() => {
+    setEffectiveBase(preDiscountTotal);
+  }, [preDiscountTotal]);
+
   const rupeesSaved = Math.floor(redemption.paiseSaved / 100);
   const total = effectiveBase - rupeesSaved + equipmentTotalRupees;
 
