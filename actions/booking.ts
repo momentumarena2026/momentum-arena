@@ -23,7 +23,8 @@ import { AnalyticsCategory, logWebServerAction } from "@/lib/server-log";
 import { previewRedemption, commitRedeemInTx } from "@/lib/rewards/redeem";
 import { getRewardConfig, pointsToPaise } from "@/lib/rewards/config";
 import { verifyBowlingHoldStillBookable } from "@/lib/bowling-availability";
-import { deriveHoldCharge, splitAdvancePayment } from "@/lib/booking-amounts";
+import { deriveHoldCharge, holdCourtBase, splitAdvancePayment } from "@/lib/booking-amounts";
+import { setHoldPassMode, settleHoldPassMode } from "@/lib/passes";
 import { snapshotEquipmentForHold } from "@/lib/equipment";
 import { recordOrphanPayment, type OrphanGateway } from "@/lib/payment-orphan";
 import { Prisma, BookingCategory, CourtZone } from "@prisma/client";
@@ -267,7 +268,9 @@ export async function applyCouponToHold(
 
   const result = await validateCoupon(code, {
     scope: "SPORTS",
-    amount: hold.totalAmount,
+    // Pass-mode holds price coupons against the remainder the customer
+    // actually pays (holdCourtBase = totalAmount − pass coverage).
+    amount: holdCourtBase(hold),
     userId: session.user.id,
     sport: hold.courtConfig.sport,
     // Bowling-machine bookings get rejected here when the coupon
@@ -327,6 +330,30 @@ export async function applyCouponToHold(
   });
 
   return { success: true, discountAmount: result.discountAmount };
+}
+
+/**
+ * "Book via" tab switch — enter/exit pass mode on a hold. Entering
+ * snapshots the pass coverage so the rest of checkout prices against
+ * the remainder; both directions clear any applied coupon/points (their
+ * discounts were computed on the other base). Returns the coverage so
+ * the client can render the recalculated summary immediately.
+ */
+export async function setHoldBookVia(
+  holdId: string,
+  via: "pass" | "online",
+): Promise<
+  | { success: true; coverage: import("@/lib/passes").PassModeCoverage | null }
+  | { success: false; error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Not authenticated" };
+  const hold = await getValidHold(holdId, session.user.id);
+  if (!hold) return { success: false, error: "Hold not found or expired" };
+
+  const result = await setHoldPassMode(hold, via === "pass");
+  if (!result.ok) return { success: false, error: result.error };
+  return { success: true, coverage: result.coverage };
 }
 
 // Clear any coupon previously applied to this hold — used when the user
@@ -543,7 +570,7 @@ export async function applyPointsRedemptionToHold(
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
       : 0;
-  const postCouponRupees = Math.max(0, hold.totalAmount - couponDiscount);
+  const postCouponRupees = Math.max(0, holdCourtBase(hold) - couponDiscount);
   const billPaise = postCouponRupees * 100;
 
   const preview = await previewRedemption({
@@ -1498,6 +1525,16 @@ export async function createBookingFromHold(
   }
 
   if (!result) return null;
+
+  // "Book via Pass / Pass + Pay": debit the pass for its covered slots
+  // now that the booking exists. Runs for every payment rail because
+  // they all funnel through here; debitPass is idempotent per booking,
+  // so the legacy redeem/top-up paths that also settle can't double-debit.
+  if (hold.passModeId) {
+    await settleHoldPassMode(hold, result.id).catch((err) =>
+      console.error("[booking] pass-mode settle failed:", err),
+    );
+  }
 
   // Raise the BULK_REDEMPTION alert out-of-band (fire-and-forget). Kept
   // outside the transaction so a slow alert insert doesn't extend the

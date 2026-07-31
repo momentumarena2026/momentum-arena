@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import { infoBarApi, type InfoBarState } from "../../lib/info-bar";
+import { notificationsApi } from "../../lib/user-notifications";
 import {
   Animated,
   Easing,
@@ -24,6 +25,7 @@ import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Bell,
   Camera,
   Clock,
   Mail,
@@ -129,6 +131,16 @@ export function HomeScreen() {
     enabled: signedIn,
   });
 
+  // Bell badge — unread in-app notifications. Refetches on focus so the
+  // badge clears after visiting the Notifications screen.
+  const { data: notifData } = useQuery({
+    queryKey: ["notifications", "unread"],
+    queryFn: () => notificationsApi.list(),
+    enabled: signedIn,
+    staleTime: 60_000,
+  });
+  const unreadCount = notifData?.unread ?? 0;
+
   // Live PICKLEBALL25 promo — drives the 25% OFF pill on the
   // pickleball sport tile AND the launch-offer banner above the
   // sports list. Stale-while-revalidate 5 min: coupons don't change
@@ -201,6 +213,25 @@ export function HomeScreen() {
           />
           {signedIn ? (
             <View style={styles.topNavRight}>
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("Account", {
+                    screen: "Notifications",
+                    initial: false,
+                  })
+                }
+                hitSlop={8}
+                style={styles.bellBtn}
+              >
+                <Bell size={20} color={colors.zinc300} />
+                {unreadCount > 0 ? (
+                  <View style={styles.bellBadge}>
+                    <Text variant="tiny" weight="700" color="#022c22">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </Text>
+                  </View>
+                ) : null}
+              </Pressable>
               <RewardsChip enabled={signedIn} />
             </View>
           ) : (
@@ -1034,6 +1065,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["2"],
     paddingRight: spacing["2"],
+  },
+  bellBtn: {
+    padding: 6,
+  },
+  bellBadge: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: colors.emerald400,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
   },
   promo: {
     paddingHorizontal: spacing["4"],

@@ -98,6 +98,10 @@ export type PushKind =
   // home|book|cafe|shop|rewards); the mobile tap handler routes to
   // that tab. Set by the broadcast form's "On tap, open" picker.
   | "open_screen"
+  // In-app notification mirror (lib/user-notifications.ts) — the row is
+  // the source of truth; this push just surfaces it. The mobile tap
+  // handler routes to the Notifications screen.
+  | "in_app"
   // Admin-bound kinds — sent to AdminPushDevice rows. The mobile
   // admin shell routes taps to the booking detail or unconfirmed
   // queue accordingly.

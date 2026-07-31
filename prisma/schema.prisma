@@ -295,6 +295,7 @@ model User {
   // client reposts on rotation, and dead tokens are pruned when FCM
   // returns `messaging/registration-token-not-registered`.
   pushDevices PushDevice[]
+  notifications UserNotification[]
 
   // First-party analytics — every event the user fires (web + mobile)
   // and every session they've been part of. Anonymous events have
@@ -467,6 +468,16 @@ model SlotHold {
   // payloads valid while letting bowling-machine slot prices be
   // disambiguated for the :30 slot inside the same hour.
   slotPrices    Json
+  // ── "Book via Pass / Pass + Pay" checkout mode ─────────────────────
+  // Set when the customer picks the Pass tab at checkout. Every money
+  // endpoint then prices against (totalAmount − coverage.coveredAmount)
+  // and createBookingFromHold debits the pass on confirm. The coverage
+  // snapshot is taken at mode entry so the base can't drift mid-payment;
+  // debitPass re-checks the live balance at booking time.
+  // { passId, passName, coveredMinutes, coveredAmount, fullCoverage,
+  //   coveredSlots: [{h,m,min}] }
+  passModeId       String?
+  passModeCoverage Json?
   totalAmount   Int
   expiresAt     DateTime
 
@@ -996,9 +1007,10 @@ model PassRedemption {
   id         String   @id @default(cuid())
   userPassId String
   userPass   UserPass @relation(fields: [userPassId], references: [id])
-  // One redemption per booking; top-up bookings still debit through a
-  // single row (minutes = the covered portion).
-  bookingId  String   @unique
+  // One redemption per (booking, pass). A booking may draw on several
+  // passes at once (peak + off-peak stacking, balance spread across an
+  // old and a new pass) — each contributing pass gets its own row.
+  bookingId  String
   minutes    Int
   // Value attribution (rupees): what the redeemed minutes actually cost
   // the customer at the pass's effective rate (pass.price × minutes /
@@ -1028,6 +1040,9 @@ model PassRedemption {
   createdAt  DateTime @default(now())
   // Set when an eligible cancellation restored these minutes.
   restoredAt DateTime?
+
+  @@unique([bookingId, userPassId])
+  @@index([bookingId])
 }
 
 // Money-first holder for a pass bought via PhonePe Dynamic QR. Unlike
@@ -2226,6 +2241,26 @@ model PushTemplate {
 // install. When a user signs out, the row is deleted. When FCM
 // returns `messaging/registration-token-not-registered` on send, the
 // dead row is also deleted (background cleanup; see lib/push.ts).
+
+// ── In-app notifications ────────────────────────────────────────────
+// One row per user-facing event (added to a pass, pass-paid booking,
+// booking confirmed, …). The bell icon + notification screens read
+// these; a matching FCM push goes out best-effort at creation time.
+model UserNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  // Optional in-app destination ("/account/passes/<id>", "/bookings/<id>").
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
 
 model PushDevice {
   id         String   @id @default(cuid())

@@ -4,12 +4,18 @@ import { PassesManager } from "./passes-manager";
 import { IssuePass } from "./issue-pass";
 import { GiftPass } from "./gift-pass";
 import { SharingLimits } from "./sharing-limits";
+import { PassAdminTabs } from "./pass-admin-tabs";
 
-export default async function AdminPassesPage() {
-  const [{ configs, plans }, sold, salesEnabled] = await Promise.all([
+export default async function AdminPassesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const [{ configs, plans }, sold, salesEnabled, { tab }] = await Promise.all([
     getPassAdminData(),
     getSoldPasses(),
     getPassesEnabled(),
+    searchParams,
   ]);
 
   return (
@@ -23,15 +29,44 @@ export default async function AdminPassesPage() {
         </p>
       </div>
 
-      <PassesManager configs={configs} plans={plans} salesEnabled={salesEnabled} />
-
-      <IssuePass plans={plans} />
-
-      <GiftPass configs={configs} />
-
-      <SharingLimits configs={configs} />
-
-      <SoldPasses passes={sold} />
+      <PassAdminTabs
+        initial={tab}
+        tabs={[
+          {
+            id: "plans",
+            label: "Plans",
+            badge: plans.length,
+            content: (
+              <PassesManager
+                configs={configs}
+                plans={plans}
+                salesEnabled={salesEnabled}
+              />
+            ),
+          },
+          {
+            id: "sold",
+            label: "Sold Passes",
+            badge: sold.length,
+            content: <SoldPasses passes={sold} />,
+          },
+          {
+            id: "issue",
+            label: "Issue & Gift",
+            content: (
+              <div className="space-y-6">
+                <IssuePass plans={plans} />
+                <GiftPass configs={configs} />
+              </div>
+            ),
+          },
+          {
+            id: "settings",
+            label: "Sharing",
+            content: <SharingLimits configs={configs} />,
+          },
+        ]}
+      />
     </div>
   );
 }

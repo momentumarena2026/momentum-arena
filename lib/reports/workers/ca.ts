@@ -100,9 +100,15 @@ export async function generateCaMonthlyReport(input: {
     },
     select: { bookingId: true, value: true },
   });
-  const passValueByBooking = new Map(
-    redemptions.map((r) => [r.bookingId, r.value]),
-  );
+  // One redemption row per contributing pass — SUM per booking (a
+  // plain Map would keep only the last pass's value).
+  const passValueByBooking = new Map<string, number>();
+  for (const r of redemptions) {
+    passValueByBooking.set(
+      r.bookingId,
+      (passValueByBooking.get(r.bookingId) ?? 0) + r.value,
+    );
+  }
 
   const cafeOrders = await db.cafeOrder.findMany({
     where: {

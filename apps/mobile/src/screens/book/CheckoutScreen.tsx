@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -138,7 +139,28 @@ export function CheckoutScreen() {
   });
   const config: PaymentConfig = configData ?? DEFAULT_PAYMENT_CONFIG;
 
-  const baseAmount = hold?.totalAmount ?? 0;
+  // "Book via" tab switch — the server re-prices the hold (entering or
+  // leaving pass mode clears coupon/points either way), then the
+  // refetched hold drives everything below through the new courtBase.
+  // Auto-apply re-arms so the coupon lands on the new base too.
+  const bookViaMutation = useMutation({
+    mutationFn: (via: "pass" | "online") =>
+      bookingApi.bookVia(params.holdId, via),
+    onSuccess: () => {
+      autoApplyRanRef.current = false;
+      void qc.invalidateQueries({ queryKey: ["hold", params.holdId] });
+    },
+  });
+
+  // "Book via" state — while the Pass tab is active the whole checkout
+  // prices against the remainder (courtBase = totalAmount − coverage).
+  const passMode = hold?.passMode ?? null;
+  // Slots the pass mode settles — their breakdown rows price at ₹0.
+  const passCoveredKeys = new Set(
+    (passMode?.coveredSlots ?? []).map((c) => `${c.h}:${c.m ?? 0}`),
+  );
+  const passTabAvailable = !!hold?.passAvailable || !!passMode;
+  const baseAmount = hold?.courtBase ?? hold?.totalAmount ?? 0;
   const sport = hold?.courtConfig.sport;
   const bookingCategory = hold?.courtConfig.category ?? null;
 
@@ -237,6 +259,12 @@ export function CheckoutScreen() {
   useEffect(() => {
     if (autoApplyRanRef.current) return;
     if (!hold || baseAmount <= 0) return;
+    // Full-coverage Pass tab has nothing to pay — no coupons. On the
+    // Pass + Pay tab coupons apply to the remainder like any other flow.
+    if (hold.passMode?.fullCoverage) {
+      autoApplyRanRef.current = true;
+      return;
+    }
     if (serverCouponCode) {
       autoApplyRanRef.current = true;
       // Hold already carries a coupon — surface a label so the DiscountInput
@@ -412,6 +440,8 @@ export function CheckoutScreen() {
   const [method, setMethod] = useState<PayMethod>(() =>
     config.upiQrEnabled ? "upi" : "gateway",
   );
+
+  const passOffer = hold?.passOffer ?? null;
 
   // The seeds above run once, and on a cold start they run against
   // DEFAULT_PAYMENT_CONFIG (the ['payment-config'] query isn't persisted, so
@@ -778,6 +808,147 @@ export function CheckoutScreen() {
   // say it plainly instead of rendering a Pay button that cannot work.
   const noPaymentRail = !onlineEnabled && !upiQrEnabled;
 
+  // ── "Book via" tabs ────────────────────────────────────────────────────────
+  // Only pass-holders see these. Active tab = whether the hold is in
+  // pass mode right now (server state, not local state).
+  const passTabLabel =
+    (passMode?.fullCoverage ?? hold.passTabFullCoverage) ? "Pass" : "Pass + Pay";
+  const bookViaTabs = passTabAvailable ? (
+    <View style={styles.bookVia}>
+      <View style={styles.bookViaTabs}>
+        {(
+          [
+            { key: "pass", label: passTabLabel, active: !!passMode },
+            { key: "online", label: "Online Payment", active: !passMode },
+          ] as const
+        ).map((t) => (
+          <Pressable
+            key={t.key}
+            disabled={bookViaMutation.isPending || t.active}
+            onPress={() => bookViaMutation.mutate(t.key)}
+            style={[
+              styles.bookViaTab,
+              t.active && styles.bookViaTabActive,
+              bookViaMutation.isPending && !t.active && { opacity: 0.6 },
+            ]}
+          >
+            <Text
+              variant="small"
+              weight="600"
+              align="center"
+              color={t.active ? colors.emerald400 : colors.zinc400}
+            >
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {bookViaMutation.isError ? (
+        <Text variant="tiny" color={colors.destructive}>
+          {bookViaMutation.error instanceof Error
+            ? bookViaMutation.error.message
+            : "Couldn't switch — try again"}
+        </Text>
+      ) : null}
+    </View>
+  ) : null;
+
+  const timerJsx = (
+    <View style={[styles.timer, msLeft < 60 * 1000 && styles.timerUrgent]}>
+      <AlarmClock
+        size={16}
+        color={msLeft < 60 * 1000 ? colors.destructive : colors.primary}
+      />
+      <Text
+        variant="small"
+        color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
+      >
+        Slot held for{" "}
+        <Text
+          variant="small"
+          weight="700"
+          color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
+        >
+          {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
+        </Text>
+      </Text>
+    </View>
+  );
+
+  // Full coverage on the Pass tab: no Booking Summary, no payment rails —
+  // just a recap and the pass's own Book-now confirm (the redeem route
+  // creates the booking with zero payment).
+  if (passMode?.fullCoverage && hold.passOffer) {
+    return (
+      <Screen padded={false} edges={[]}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <Text variant="title">Complete Booking</Text>
+          {timerJsx}
+          {bookViaTabs}
+
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHead}>
+              <Text variant="bodyStrong">Booking Summary</Text>
+              <View style={styles.reservedPill}>
+                <Text variant="tiny" weight="600" color={colors.yellow400}>
+                  Reserved
+                </Text>
+              </View>
+            </View>
+            <View style={styles.kvList}>
+              <KVRow label="Sport" value={sportLabel(sportKey)} />
+              <KVRow
+                label="Type"
+                value={customerFacingCourtLabel(
+                  hold.courtConfig.label,
+                  hold.wasBookedAsHalfCourt
+                )}
+              />
+              <KVRow label="Date" value={formatDateLong(hold.date)} />
+              <KVRow
+                label="Slots"
+                value={formatSlotsAsRanges(sortedSlots, slotDurationMinutes)}
+              />
+            </View>
+            <View style={styles.summaryDivider} />
+            {(passMode.passes ?? [passMode]).map((share) => (
+              <View key={share.passId} style={styles.breakdownRow}>
+                <Text variant="small" color={colors.emerald400}>
+                  {share.passName} (
+                  {`${(share.coveredMinutes / 60)
+                    .toFixed(1)
+                    .replace(/\.0$/, "")}h`}
+                  )
+                </Text>
+                <Text variant="small" color={colors.emerald400}>
+                  Included
+                </Text>
+              </View>
+            ))}
+            <View style={styles.breakdownRow}>
+              <Text variant="bodyStrong">To pay</Text>
+              <Text variant="bodyStrong" color={colors.emerald400}>
+                ₹0 — covered by your{" "}
+                {(passMode.passes?.length ?? 1) > 1 ? "passes" : "pass"}
+              </Text>
+            </View>
+          </View>
+
+          <PassCheckoutOption
+            holdId={hold.id}
+            offer={hold.passOffer}
+            prefill={{
+              name: signedInUser?.name,
+              email: signedInUser?.email,
+              phone: signedInUser?.phone,
+            }}
+            onBooked={goToBookingDetail}
+          />
+        </ScrollView>
+      </Screen>
+    );
+  }
+
   // CTA label matches web's two-level wording.
   const ctaLabel =
     method === "gateway"
@@ -795,30 +966,9 @@ export function CheckoutScreen() {
         <Text variant="title">Complete Payment</Text>
 
         {/* Countdown */}
-        <View
-          style={[
-            styles.timer,
-            msLeft < 60 * 1000 && styles.timerUrgent,
-          ]}
-        >
-          <AlarmClock
-            size={16}
-            color={msLeft < 60 * 1000 ? colors.destructive : colors.primary}
-          />
-          <Text
-            variant="small"
-            color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
-          >
-            Slot held for{" "}
-            <Text
-              variant="small"
-              weight="700"
-              color={msLeft < 60 * 1000 ? colors.destructive : colors.foreground}
-            >
-              {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
-            </Text>
-          </Text>
-        </View>
+        {timerJsx}
+
+        {bookViaTabs}
 
         {/* Booking Summary — exact mirror of web's booking-summary card.
             Reserved yellow pill in the header; KV rows for Sport / Type /
@@ -853,23 +1003,66 @@ export function CheckoutScreen() {
 
           <View style={styles.summaryDivider} />
 
-          {sortedSlots.length > 1 ? (
+          {sortedSlots.length > 1 || passMode ? (
             <View style={styles.breakdown}>
-              {sortedSlots.map((slot) => (
-                <View
-                  key={`${slot.hour}:${slot.minute}`}
-                  style={styles.breakdownRow}
-                >
-                  <Text variant="small" color={colors.subtleForeground}>
-                    {formatSlotsAsRanges([slot], slotDurationMinutes)}
-                  </Text>
-                  <Text variant="small" color={colors.zinc300}>
-                    {formatRupees(slot.price)}
-                  </Text>
-                </View>
-              ))}
+              {sortedSlots.map((slot) => {
+                const coveredByPass = passCoveredKeys.has(
+                  `${slot.hour}:${slot.minute}`,
+                );
+                return (
+                  <View
+                    key={`${slot.hour}:${slot.minute}`}
+                    style={styles.breakdownRow}
+                  >
+                    <Text variant="small" color={colors.subtleForeground}>
+                      {formatSlotsAsRanges([slot], slotDurationMinutes)}
+                      {coveredByPass ? (
+                        <Text variant="tiny" color={colors.emerald400}>
+                          {"  · pass"}
+                        </Text>
+                      ) : null}
+                    </Text>
+                    {coveredByPass ? (
+                      <Text variant="small" color={colors.emerald400}>
+                        <Text
+                          variant="small"
+                          color={colors.zinc600}
+                          style={{ textDecorationLine: "line-through" }}
+                        >
+                          {formatRupees(slot.price)}
+                        </Text>
+                        {"  ₹0"}
+                      </Text>
+                    ) : (
+                      <Text variant="small" color={colors.zinc300}>
+                        {formatRupees(slot.price)}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           ) : null}
+
+          {/* Pass + Pay: covered slots already price at ₹0 above, so
+              these are attribution lines only — one per contributing
+              pass, no second subtraction. */}
+          {passMode
+            ? (passMode.passes ?? [passMode]).map((share) => (
+                <View key={share.passId} style={styles.breakdownRow}>
+                  <Text variant="small" color={colors.emerald400}>
+                    Covered by {share.passName} (
+                    {`${(share.coveredMinutes / 60)
+                      .toFixed(1)
+                      .replace(/\.0$/, "")}h`}
+                    )
+                  </Text>
+                  <Text variant="small" color={colors.emerald400}>
+                    Included
+                  </Text>
+                </View>
+              ))
+            : null}
 
           {pointsRedeemRupees > 0 ? (
             <View style={styles.breakdownRow}>
@@ -1014,24 +1207,6 @@ export function CheckoutScreen() {
             slot-selection screen. The Booking Summary breakdown above
             shows the locked picks read-only; if the customer wants to
             change rentals they tap Back to the slot picker. */}
-
-        {/* "Use my pass" — server-computed offer (owner or shared member,
-            matching court group + bands + play-date validity). Hidden the
-            moment a coupon / points land on the hold (offer nulls out on
-            the next hold refetch); the redeem route also drops both
-            server-side, so the two never combine. */}
-        {hold.passOffer && signedInUser ? (
-          <PassCheckoutOption
-            holdId={hold.id}
-            offer={hold.passOffer}
-            prefill={{
-              name: signedInUser.name,
-              email: signedInUser.email,
-              phone: signedInUser.phone,
-            }}
-            onBooked={goToBookingDetail}
-          />
-        ) : null}
 
         {/* Payment method — hidden under noPaymentRail. The tiles gate the
             advance card on advanceEnabled alone, so it would still render a
@@ -1254,6 +1429,25 @@ const styles = StyleSheet.create({
     paddingTop: spacing["3"],
     paddingBottom: spacing["6"],
     gap: spacing["5"],
+  },
+  bookVia: {
+    gap: spacing["2"],
+  },
+  bookViaTabs: {
+    flexDirection: "row",
+    gap: spacing["2"],
+  },
+  bookViaTab: {
+    flex: 1,
+    paddingVertical: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+  },
+  bookViaTabActive: {
+    borderColor: "rgba(16,185,129,0.45)",
+    backgroundColor: "rgba(16,185,129,0.08)",
   },
   timer: {
     flexDirection: "row",

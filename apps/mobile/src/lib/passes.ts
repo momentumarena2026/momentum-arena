@@ -9,6 +9,7 @@ export interface MyPassSummary {
   totalMinutes: number;
   remainingMinutes: number;
   bandsSummary: string;
+  timeChips?: { label: string; tone: "day" | "night" }[];
   purchasedAt: string;
   startsAt: string;
   expiresAt: string;

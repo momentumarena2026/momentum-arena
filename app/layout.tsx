@@ -11,6 +11,7 @@ const michroma = Michroma({
 import { auth } from "@/lib/auth";
 import { ChatWidgetWrapper } from "@/components/chatbot/chat-widget-wrapper";
 import { BottomNav } from "@/components/bottom-nav";
+import { areTournamentsEnabled } from "@/lib/tournaments";
 import { GoogleAnalytics } from "@/components/google-analytics";
 import { NavLoader } from "@/components/nav-loader";
 import { PageViewTracker } from "@/components/page-view-tracker";
@@ -107,6 +108,10 @@ export default async function RootLayout({
     // Auth failure should not crash the entire app
   }
 
+  // Arc quick-actions gain the Tourneys item while the module master
+  // switch is ON — same rule the app's tab bar applies.
+  const tournamentsEnabled = await areTournamentsEnabled().catch(() => false);
+
   return (
     <html lang="en" suppressHydrationWarning className={michroma.variable}>
       <head>
@@ -120,7 +125,7 @@ export default async function RootLayout({
           <NavLoader />
           <PageViewTracker />
           {children}
-          <BottomNav />
+          <BottomNav tournamentsEnabled={tournamentsEnabled} />
           <ChatWidgetWrapper />
         </SessionProvider>
       </body>

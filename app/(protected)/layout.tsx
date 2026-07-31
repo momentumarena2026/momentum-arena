@@ -1,9 +1,13 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import Image from "next/image";
 import { auth } from "@/lib/auth";
-import { RewardsChip } from "@/components/rewards/rewards-chip";
+import { SiteHeader } from "@/components/site-header";
 
+/**
+ * Account-area layout (dashboard, bookings, rewards, notifications,
+ * profile…). Used to render a slim logo+avatar bar with none of the
+ * section links — now it carries the same SiteHeader as the rest of
+ * the site so navigation reads identically everywhere.
+ */
 export default async function ProtectedLayout({
   children,
 }: {
@@ -12,48 +16,9 @@ export default async function ProtectedLayout({
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const displayName = session.user.name || session.user.email || session.user.phone;
-  const displayInitial = (session.user.name?.charAt(0) || session.user.email?.charAt(0) || session.user.phone?.charAt(0) || "?").toUpperCase();
-
   return (
     <div className="min-h-screen bg-black">
-      <nav className="border-b border-zinc-800 bg-zinc-950">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
-            <Link href="/">
-              {/* h-14 on phones: at h-24 the 3:1 logo is ~288px wide and,
-                  with the name link, overflows the viewport — the page
-                  gains a horizontal scroll and every centred container
-                  drifts. Same fix the cafe header uses. */}
-              <Image
-                src="/blackLogo.png"
-                alt="Momentum Arena"
-                width={240}
-                height={80}
-                className="h-14 w-auto sm:h-24"
-              />
-            </Link>
-
-            <div className="flex items-center gap-3">
-              {session.user.id && <RewardsChip userId={session.user.id} />}
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
-              >
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
-                  {displayInitial}
-                </div>
-                {/* Avatar-only on phones (the dashboard hero shows the
-                    full name); text returns from sm: up, truncated so a
-                    long name can never widen the bar. */}
-                <span className="hidden max-w-[180px] truncate sm:inline">
-                  {displayName}
-                </span>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <SiteHeader />
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>

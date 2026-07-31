@@ -2,7 +2,9 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
-import { getPassOfferForHold } from "@/lib/passes";
+import { getPassOfferForHold, parsePassModeCoverage, ensureDefaultBookVia } from "@/lib/passes";
+import { holdCourtBase } from "@/lib/booking-amounts";
+import { BookViaTabs } from "./book-via-tabs";
 import { PassCheckoutOption } from "@/components/payment/pass-checkout-option";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -44,7 +46,7 @@ export default async function CheckoutPage({
   const { holdId } = params;
   if (!holdId) redirect("/book");
 
-  const hold = await db.slotHold.findUnique({
+  let hold = await db.slotHold.findUnique({
     where: { id: holdId },
     include: { courtConfig: true },
   });
@@ -55,8 +57,44 @@ export default async function CheckoutPage({
     redirect("/book?error=lock_expired");
   }
 
-  // Eligible pass for this hold (null when none, or coupon/points applied).
-  const passOffer = await getPassOfferForHold(hold);
+  // First load of a fresh hold: pre-select the Pass tab when an
+  // eligible pass exists (sticky — an explicit "Online Payment" click
+  // writes an opt-out marker ensureDefaultBookVia respects).
+  const seededCoverage = await ensureDefaultBookVia(hold).catch(() => null);
+  if (seededCoverage) {
+    hold = {
+      ...hold,
+      passModeId: seededCoverage.passId,
+      passModeCoverage:
+        seededCoverage as unknown as typeof hold.passModeCoverage,
+      couponId: null,
+      couponCode: null,
+      discountAmount: null,
+      pointsToRedeem: null,
+      pointsRedeemPaiseSaved: null,
+    };
+  }
+
+  // ── "Book via" state ────────────────────────────────────────────────
+  // passMode = the snapshotted coverage while the Pass tab is active;
+  // courtBase = what the rest of checkout prices against (totalAmount
+  // minus coverage; equals totalAmount on the Online tab).
+  const passMode = hold.passModeId
+    ? parsePassModeCoverage(hold.passModeCoverage)
+    : null;
+  const courtBase = holdCourtBase(hold);
+  // Tab availability ignores any applied coupon/points — entering the
+  // Pass tab clears them server-side anyway.
+  const passOffer = await getPassOfferForHold({
+    ...hold,
+    couponId: null,
+    pointsToRedeem: null,
+  }).catch(() => null);
+  const passAvailable = !!passMode || !!passOffer;
+  const passFullCoverage = passMode
+    ? passMode.fullCoverage
+    : (passOffer?.fullCoverage ?? false);
+  const passTabLabel = passFullCoverage ? "Pass" : "Pass + Pay";
 
   const sportInfo = SPORT_INFO[hold.courtConfig.sport];
   const sizeInfo = SIZE_INFO[hold.courtConfig.size];
@@ -155,12 +193,80 @@ export default async function CheckoutPage({
   const showSportPromo =
     !recurringEnabled && !newUserDiscount && sportPromo?.percentOff != null;
   const sportPromoDiscount = showSportPromo && sportPromo
-    ? computeAutoApplyDiscount(hold.totalAmount, sportPromo)
+    ? computeAutoApplyDiscount(courtBase, sportPromo)
     : 0;
+
+  // Which slots the pass mode settles — their rows price at ₹0 in the
+  // breakdown below (the numbers the customer sums must equal what they
+  // actually pay).
+  const coveredSlotKeys = new Set(
+    (passMode?.coveredSlots ?? []).map((c) => `${c.h}:${c.m ?? 0}`),
+  );
+
+  // Full-coverage Pass tab: no summary, no discounts, no payment rails —
+  // just the recap + one Book now tap (the redeem endpoint books it and
+  // debits the pass; confirmation messages ride the same path as ever).
+  if (passMode && passMode.fullCoverage && passOffer) {
+    return (
+      <div className="mx-auto max-w-lg space-y-6">
+        <h1 className="text-2xl font-bold text-white">Complete Payment</h1>
+        <BookViaTabs holdId={hold.id} active="pass" passLabel={passTabLabel} />
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Sport</span>
+              <span className="text-white">{sportInfo.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Date</span>
+              <span className="text-white">
+                {formatBookingDate(hold.date, {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Slots</span>
+              <span className="text-white">
+                {formatHoursAsRanges(sortedSlots.map((sl) => sl.hour))}
+              </span>
+            </div>
+            {passMode.passes.map((share) => (
+              <div key={share.passId} className="flex justify-between">
+                <span className="text-emerald-400">
+                  {share.passName} (
+                  {`${(share.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h`})
+                </span>
+                <span className="text-emerald-400">Included</span>
+              </div>
+            ))}
+            <div className="flex justify-between border-t border-zinc-800 pt-2">
+              <span className="text-zinc-400">To pay</span>
+              <span className="font-bold text-emerald-400">
+                ₹0 — covered by your {passMode.passes.length > 1 ? "passes" : "pass"}
+              </span>
+            </div>
+          </div>
+        </div>
+        <PassCheckoutOption holdId={hold.id} offer={passOffer} />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-2xl font-bold text-white">Complete Payment</h1>
+
+      {passAvailable && (
+        <BookViaTabs
+          holdId={hold.id}
+          active={passMode ? "pass" : "online"}
+          passLabel={passTabLabel}
+        />
+      )}
 
       {/* Booking Summary */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
@@ -208,12 +314,45 @@ export default async function CheckoutPage({
         </div>
 
         <div className="border-t border-zinc-800 pt-3">
-          {sortedSlots.length > 1 && sortedSlots.map((slot) => (
-            <div key={slot.hour} className="flex justify-between text-sm">
-              <span className="text-zinc-500">{formatHourRangeCompact(slot.hour)}</span>
-              <span className="text-zinc-300">{formatPrice(slot.price)}</span>
-            </div>
-          ))}
+          {(sortedSlots.length > 1 || passMode) &&
+            sortedSlots.map((slot) => {
+              const coveredByPass = coveredSlotKeys.has(`${slot.hour}:0`);
+              return (
+                <div key={slot.hour} className="flex justify-between text-sm">
+                  <span className="text-zinc-500">
+                    {formatHourRangeCompact(slot.hour)}
+                    {coveredByPass && (
+                      <span className="ml-1.5 text-xs text-emerald-400">
+                        · pass
+                      </span>
+                    )}
+                  </span>
+                  {coveredByPass ? (
+                    <span className="text-emerald-400">
+                      <span className="mr-1.5 text-zinc-600 line-through">
+                        {formatPrice(slot.price)}
+                      </span>
+                      ₹0
+                    </span>
+                  ) : (
+                    <span className="text-zinc-300">{formatPrice(slot.price)}</span>
+                  )}
+                </div>
+              );
+            })}
+          {/* Pass + Pay: covered slots are already shown at ₹0 above, so
+              these lines are attribution only — one per contributing
+              pass, no second subtraction. */}
+          {passMode &&
+            passMode.passes.map((share) => (
+              <div key={share.passId} className="flex justify-between text-sm">
+                <span className="text-emerald-400">
+                  Covered by {share.passName} (
+                  {`${(share.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h`})
+                </span>
+                <span className="text-emerald-400">Included</span>
+              </div>
+            ))}
           {recurringEnabled && recurringCount && recurringCount > 1 && (
             <>
               <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2 text-sm">
@@ -279,7 +418,7 @@ export default async function CheckoutPage({
             preDiscountTotal={
               (recurringEnabled && recurringCount
                 ? recurringNetTotal
-                : hold.totalAmount) - sportPromoDiscount
+                : courtBase) - sportPromoDiscount
             }
             equipmentTotalRupees={equipmentTotalRupees}
             earnRateBookingBps={earnRateBookingBps}
@@ -287,16 +426,11 @@ export default async function CheckoutPage({
         </div>
       </div>
 
-      {/* Pass redemption — shown above the regular payment methods
-          whenever the signed-in user holds an eligible pass. */}
-      {passOffer && (
-        <PassCheckoutOption holdId={hold.id} offer={passOffer} />
-      )}
-
-      {/* Payment */}
+      {/* Payment — on the Pass + Pay tab every amount below is already
+          the remainder (courtBase); the rails price identically server-side. */}
       <CheckoutClient
         holdId={hold.id}
-        amount={recurringEnabled && recurringCount ? recurringNetTotal : hold.totalAmount}
+        amount={recurringEnabled && recurringCount ? recurringNetTotal : courtBase}
         perSessionAmount={recurringEnabled && recurringCount ? hold.totalAmount : undefined}
         recurringDiscountPercent={recurringDiscountPercent || undefined}
         sport={hold.courtConfig.sport}

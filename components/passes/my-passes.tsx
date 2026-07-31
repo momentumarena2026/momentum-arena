@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Sparkles, Archive } from "lucide-react";
+import { ArrowRight, Sparkles, Archive, Sun, Moon } from "lucide-react";
 import {
   MdSportsCricket,
   MdSportsSoccer,
@@ -19,6 +19,7 @@ export interface MyPass {
   totalMinutes: number;
   remainingMinutes: number;
   bandsSummary: string;
+  timeChips?: { label: string; tone: "day" | "night" }[];
   startsAt: string;
   expiresAt: string;
   status: string;
@@ -248,9 +249,28 @@ export function MyPasses({
                 ) : (
                   <>Expires {fmtDate(p.expiresAt)}</>
                 )}
-                {p.bandsSummary && p.bandsSummary !== "All hours" && (
-                  <span> · {p.bandsSummary}</span>
-                )}
+                {(p.timeChips?.length ?? 0) > 0
+                  ? p.timeChips!.map((c) => (
+                      <span
+                        key={c.label}
+                        className={`ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          c.tone === "day"
+                            ? "bg-sky-500/15 text-sky-300"
+                            : "bg-zinc-700/60 text-zinc-300"
+                        }`}
+                      >
+                        {c.tone === "day" ? (
+                          <Sun className="h-3 w-3" />
+                        ) : (
+                          <Moon className="h-3 w-3" />
+                        )}
+                        {c.label}
+                      </span>
+                    ))
+                  : p.bandsSummary &&
+                    p.bandsSummary !== "All hours" && (
+                      <span> · {p.bandsSummary}</span>
+                    )}
                 {p.role === "member" && (
                   <span className="text-sky-300">
                     {" "}

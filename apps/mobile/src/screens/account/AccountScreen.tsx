@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
 import {
+  BellRing,
   ArrowRight,
   Bell,
   Calendar,
@@ -256,6 +257,13 @@ export function AccountScreen() {
           title="Coupons & Offers"
           subtitle="Browse available discount codes"
           onPress={() => navigation.navigate("Coupons")}
+        />
+        <ActionTile
+          icon={<BellRing size={20} color="#fb7185" />}
+          iconBg="rgba(244, 63, 94, 0.14)"
+          title="My Notifications"
+          subtitle="Pass activity, bookings & updates for you"
+          onPress={() => navigation.navigate("Notifications")}
         />
         {/* Arena Assistant — Chat lives here rather than in the
             bottom-nav tab row. */}

@@ -6,18 +6,17 @@ import { colors, radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 
 export interface PassPitchData {
-  planName: string | null;
+  planName: string;
   sport: string;
-  morning: { withPass: number; regular: number; save: number } | null;
-  night: { withPass: number; regular: number; save: number } | null;
+  fromPerHour: number;
 }
 
 /**
- * "Play more, pay less" — cheapest-hour pass pitch on the slot-selection
- * screens (deliberately NOT at checkout, where a detour risks dropping
- * the payment). Mirrors the web PassPitchBanner: morning = the sport's
- * OFF_PEAK anchor plan, night = the PEAK anchor. Tapping goes to the
- * Passes storefront.
+ * "Save More with Arena Passes" — shown on the slot-selection screens
+ * (deliberately NOT at checkout, where a detour risks dropping the
+ * payment). Mirrors the web PassPitchBanner: the from-price is the
+ * court group's single admin-designated cheapest pass. Tapping goes to
+ * the Passes storefront.
  */
 export function PassPitchBanner({
   pitch,
@@ -26,12 +25,6 @@ export function PassPitchBanner({
   pitch: PassPitchData;
   onPress: () => void;
 }) {
-  const sportTitle =
-    pitch.sport.charAt(0) + pitch.sport.slice(1).toLowerCase();
-  const name = pitch.planName ?? `${sportTitle} passes`;
-  const m = pitch.morning;
-  const n = pitch.night;
-
   return (
     <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.9 }}>
       <LinearGradient
@@ -42,56 +35,27 @@ export function PassPitchBanner({
         style={styles.card}
       >
         <View style={styles.topRow}>
-          <LinearGradient
-            colors={["#10b981", "#059669"]}
-            style={styles.iconTile}
-          >
+          <LinearGradient colors={["#10b981", "#059669"]} style={styles.iconTile}>
             <Ticket size={20} color="#fff" />
           </LinearGradient>
-          <Text variant="bodyStrong" color={colors.foreground} style={styles.headline}>
-            Play more, pay less with our {name}!
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text variant="bodyStrong" color={colors.foreground} style={styles.headline}>
+              Save More with Arena Passes
+            </Text>
+            <Text weight="800" color={colors.emerald400} style={styles.price}>
+              Book from just {formatRupees(pitch.fromPerHour)}/hour*
+            </Text>
+          </View>
         </View>
 
         <Text variant="small" color={colors.zinc300} style={styles.body}>
-          {m && n ? (
-            <>
-              Enjoy morning court hours at just{" "}
-              <Text variant="small" weight="700" color={colors.emerald400}>
-                {formatRupees(m.withPass)}
-              </Text>{" "}
-              and night sessions at{" "}
-              <Text variant="small" weight="700" color={colors.emerald400}>
-                {formatRupees(n.withPass)}
-              </Text>
-              . Save{" "}
-              <Text variant="small" weight="700" color={colors.foreground}>
-                {formatRupees(m.save)}
-              </Text>{" "}
-              on morning bookings and{" "}
-              <Text variant="small" weight="700" color={colors.foreground}>
-                {formatRupees(n.save)}
-              </Text>{" "}
-              on night bookings compared with regular rates.
-            </>
-          ) : (
-            <>
-              Enjoy {m ? "morning court hours" : "night sessions"} at just{" "}
-              <Text variant="small" weight="700" color={colors.emerald400}>
-                {formatRupees((m ?? n)!.withPass)}
-              </Text>{" "}
-              — save{" "}
-              <Text variant="small" weight="700" color={colors.foreground}>
-                {formatRupees((m ?? n)!.save)}
-              </Text>{" "}
-              per booking compared with regular rates.
-            </>
-          )}
+          Get guaranteed savings on every game. Choose the pass that fits
+          your schedule.
         </Text>
 
         <View style={styles.cta}>
           <Text variant="small" weight="700" color="#022c22">
-            See passes and start playing for less
+            View Passes
           </Text>
           <ArrowRight size={15} color="#022c22" />
         </View>
@@ -121,9 +85,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headline: {
-    flex: 1,
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  price: {
+    fontSize: 19,
+    lineHeight: 25,
+    marginTop: 1,
   },
   body: {
     lineHeight: 19,

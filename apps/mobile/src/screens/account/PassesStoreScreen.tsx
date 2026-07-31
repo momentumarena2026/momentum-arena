@@ -18,7 +18,21 @@ import type {
   PaymentErrorData,
   PaymentSuccessData,
 } from "react-native-razorpay/src/types";
-import { CreditCard, ShieldCheck, Smartphone, Ticket, X } from "lucide-react-native";
+import {
+  CalendarDays,
+  ChevronDown,
+  Clock,
+  CreditCard,
+  Moon,
+  ScrollText,
+  ShieldCheck,
+  Smartphone,
+  Sun,
+  Ticket,
+  Users,
+  Wallet,
+  X,
+} from "lucide-react-native";
 import LinearGradient from "react-native-linear-gradient";
 import { Screen } from "../../components/ui/Screen";
 import { PassClock } from "../../components/passes/PassClock";
@@ -28,7 +42,7 @@ import {
   DqrCheckout,
   type DqrEndpoints,
 } from "../../components/payment/DqrCheckout";
-import { colors, spacing } from "../../theme";
+import { colors, radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 import { ApiError } from "../../lib/api";
 import { bookingApi } from "../../lib/booking";
@@ -120,13 +134,6 @@ function PlanCard({
           </View>
           <View style={styles.dialSide}>
             <PassClock totalHours={plan.hours} accent={accent} size={74} stroke={7} />
-            {plan.discountPercent > 0 && (
-              <View style={[styles.saveBadge, { backgroundColor: `${accent}22` }]}>
-                <Text style={[styles.saveText, { color: accent }]}>
-                  Save {plan.discountPercent}%
-                </Text>
-              </View>
-            )}
           </View>
         </View>
       </View>
@@ -146,7 +153,11 @@ function PlanCard({
             <Text style={styles.basePrice}>{formatRupees(plan.baseAmount)}</Text>
           )}
         </View>
-        <Text style={[styles.hourlyRow, { color: accent }]}>
+        <Text
+          style={[styles.hourlyRow, { color: accent }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
           {formatRupees(plan.effectiveHourly)}/hr
           {plan.anchorPricePerHour != null ? (
             <Text style={styles.hourlyMuted}>
@@ -170,13 +181,17 @@ function PlanCard({
                   c.tone === "day" ? styles.chipDay : styles.chipNight,
                 ]}
               >
+                {c.tone === "day" ? (
+                  <Sun size={18} color="#7dd3fc" />
+                ) : (
+                  <Moon size={18} color={colors.zinc300} />
+                )}
                 <Text
                   style={[
                     styles.bandChipText,
                     { color: c.tone === "day" ? "#7dd3fc" : colors.zinc300 },
                   ]}
                 >
-                  {c.tone === "day" ? "☀ " : "☾ "}
                   {c.label}
                 </Text>
               </View>
@@ -201,6 +216,129 @@ function PlanCard({
           <Text style={styles.buyBtnText}>Buy pass</Text>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+// "How it works" + T&C — same copy as the web /passes page (kept in
+// sync MANUALLY; promote to a shared package if it ever grows).
+const HOW_IT_WORKS = [
+  {
+    Icon: Ticket,
+    title: "Buy a pass",
+    desc: "Pick your sport and a bundle of hours, pay once — UPI or card. The hours land on your account instantly, at a cheaper rate than booking slot by slot.",
+  },
+  {
+    Icon: Users,
+    title: "Share with your squad",
+    desc: "These are team sports — so share the pass. Add friends by phone number and everyone on it can book with the same hours. You stay in charge of who's in.",
+  },
+  {
+    Icon: CalendarDays,
+    title: "Book as usual",
+    desc: "Nothing new to learn — pick a date and slots like any booking. When the slot matches your pass (right court, right hours), the pass offers itself at checkout.",
+  },
+  {
+    Icon: Wallet,
+    title: "Hours pay, not money",
+    desc: "Tap \u201cBook with my pass\u201d and hours are deducted instead of rupees. Booking longer than your balance? The pass covers its share — you pay only the difference.",
+  },
+];
+
+const TERM_GROUPS = [
+  {
+    Icon: Users,
+    heading: "Owning & sharing your pass",
+    items: [
+      "The pass belongs to the account that buys it — it can't be transferred or resold.",
+      "The owner can share the pass with members (up to the limit set for that sport) by their registered phone number, and can add or remove them anytime. Members can book with the pass but can't edit the member list.",
+      "Everyone books from the same shared balance — hours used by any member come off the same pass.",
+    ],
+  },
+  {
+    Icon: Clock,
+    heading: "Where the hours work",
+    items: [
+      "Hours are valid only for the court / sub-sport on the pass, and only on its pricing band (e.g. \u201cOff-peak · all week\u201d). Slots outside the band are charged normally.",
+      "The pass covers bookings played between its start date and expiry — you can book ahead for any date inside that window.",
+      "If a booking is longer than your remaining balance, the pass covers what it can and the difference is payable online.",
+      "Passes can't be combined with coupons or Momentum Points.",
+      "Slots remain subject to availability — a pass doesn't reserve any specific slot in advance.",
+    ],
+  },
+  {
+    Icon: ShieldCheck,
+    heading: "Expiry, cancellations & refunds",
+    items: [
+      "The pass expires at the end of its validity window — unused hours lapse and aren't refunded.",
+      "Cancel a pass-paid booking within the allowed cancellation window and the hours return to your pass (validity unchanged). Late cancellations forfeit the hours.",
+      "Passes are non-refundable once purchased. For exceptional cases contact the venue.",
+    ],
+  },
+];
+
+function HowItWorksSection() {
+  return (
+    <View style={styles.infoSection}>
+      <Text style={styles.infoHeading}>How it works</Text>
+      <Text style={styles.infoSub}>
+        Buy hours once, share them with your squad, and let the pass pay at
+        checkout.
+      </Text>
+      {HOW_IT_WORKS.map(({ Icon, title, desc }, i) => (
+        <View key={title} style={styles.stepCard}>
+          <View style={styles.stepIconWrap}>
+            <Icon size={18} color={colors.emerald400} />
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepBadgeText}>{i + 1}</Text>
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stepTitle}>{title}</Text>
+            <Text style={styles.stepDesc}>{desc}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function TermsSection() {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.infoSection}>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        style={[styles.termsHead, open && styles.termsHeadOpen]}
+      >
+        <View style={styles.stepIconWrap}>
+          <ScrollText size={16} color={colors.emerald400} />
+        </View>
+        <Text style={styles.termsHeadText}>Terms, conditions & policies</Text>
+        <ChevronDown
+          size={16}
+          color={colors.zinc400}
+          style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }}
+        />
+      </Pressable>
+      {open ? (
+        <View style={styles.termsBody}>
+          {TERM_GROUPS.map(({ Icon, heading, items }) => (
+            <View key={heading} style={styles.termGroup}>
+              <View style={styles.termGroupHead}>
+                <Icon size={14} color={colors.emerald400} />
+                <Text style={styles.termGroupHeading}>{heading}</Text>
+              </View>
+              {items.map((t) => (
+                <View key={t} style={styles.termRow}>
+                  <View style={styles.termDot} />
+                  <Text style={styles.termText}>{t}</Text>
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -415,6 +553,9 @@ export function PassesStoreScreen() {
             </View>
           </>
         )}
+
+        <HowItWorksSection />
+        <TermsSection />
       </ScrollView>
 
       {/* ── Purchase sheet ── */}
@@ -568,6 +709,131 @@ export function PassesStoreScreen() {
 }
 
 const styles = StyleSheet.create({
+  infoSection: {
+    marginTop: spacing["6"],
+  },
+  infoHeading: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: colors.foreground,
+  },
+  infoSub: {
+    fontSize: 13,
+    color: colors.zinc500,
+    marginTop: 4,
+    marginBottom: spacing["3"],
+    lineHeight: 19,
+  },
+  stepCard: {
+    flexDirection: "row",
+    gap: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["4"],
+    marginBottom: spacing["2"],
+  },
+  stepIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(16,185,129,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.emerald500,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#000",
+  },
+  stepTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.foreground,
+  },
+  stepDesc: {
+    fontSize: 13,
+    color: colors.zinc400,
+    lineHeight: 19,
+    marginTop: 3,
+  },
+  termsHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["3"],
+  },
+  termsHeadOpen: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderBottomWidth: 0,
+  },
+  termsHeadText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.foreground,
+  },
+  termsBody: {
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: colors.zinc800,
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    backgroundColor: "rgba(24,24,27,0.5)",
+    paddingHorizontal: spacing["4"],
+    paddingBottom: spacing["2"],
+  },
+  termGroup: {
+    paddingVertical: spacing["3"],
+  },
+  termGroupHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    marginBottom: spacing["2"],
+  },
+  termGroupHeading: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.zinc300,
+  },
+  termRow: {
+    flexDirection: "row",
+    gap: spacing["3"],
+    marginBottom: spacing["2"],
+  },
+  termDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(16,185,129,0.7)",
+    marginTop: 7,
+  },
+  termText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.zinc400,
+    lineHeight: 19,
+  },
   scroll: {
     padding: spacing["4"],
     paddingBottom: spacing["8"],
@@ -617,15 +883,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing["1"],
   },
-  saveBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  saveText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
   sportLabel: {
     fontSize: 11,
     fontWeight: "600",
@@ -638,6 +895,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     lineHeight: 22,
+    // Two lines reserved even for short names — keeps every card's
+    // header (and the perforation below it) the same height.
+    minHeight: 44,
     color: colors.foreground,
   },
   perforation: {
@@ -706,6 +966,9 @@ const styles = StyleSheet.create({
     color: colors.zinc400,
   },
   bandChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,

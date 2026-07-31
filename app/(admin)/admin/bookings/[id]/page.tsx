@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { passBandsCoverHours } from "@/lib/passes";
+import { passBandsCoverHours, getPassOfferForHold } from "@/lib/passes";
 import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatSlotsAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -104,23 +104,74 @@ export default async function AdminBookingDetailPage({
     // Pass redemption backing this booking (if any) — carries the value
     // attribution (worth at the pass's effective rate) and the list-price
     // amount the pass settled (drives owed-at-venue math).
-    db.passRedemption.findUnique({
-      where: { bookingId: booking.id },
+    db.passRedemption.findMany({
+      where: { bookingId: booking.id, restoredAt: null },
+      orderBy: { createdAt: "asc" },
       select: {
         minutes: true,
         value: true,
         coveredAmount: true,
-        restoredAt: true,
         userPassId: true,
         userPass: { select: { name: true } },
       },
     }),
   ]);
-  // A restored redemption (cancelled booking, hours returned) no longer
-  // settles or values anything.
-  const passRedemption =
-    passRedemptionRow && !passRedemptionRow.restoredAt
-      ? passRedemptionRow
+  // Live redemptions only (restored rows settle nothing). A booking may
+  // draw on several passes — one row each; the FIRST keeps the legacy
+  // single-pass call sites working (extend pinning etc.).
+  const passRedemptions = passRedemptionRow;
+  const passRedemption = passRedemptions[0] ?? null;
+  const passCoveredTotal = passRedemptions.reduce(
+    (sum, r) => sum + r.coveredAmount,
+    0,
+  );
+  const passValueTotal = passRedemptions.reduce((sum, r) => sum + r.value, 0);
+  void passValueTotal;
+
+  // "Move to pass payment" option for the Edit Payment modal: offered
+  // when the booking is money-paid (no live redemption, not PASS) but
+  // the customer's passes could cover its slots. Same multi-pass
+  // engine as checkout, computed on the booking's own slot rows.
+  const passConvertOption =
+    passRedemptions.length === 0 &&
+    booking.userId &&
+    booking.payment &&
+    booking.payment.method !== "PASS" &&
+    booking.status !== "CANCELLED"
+      ? await getPassOfferForHold({
+          userId: booking.userId,
+          courtConfigId: booking.courtConfigId,
+          date: booking.date,
+          hours: booking.slots.map((sl) => sl.startHour),
+          startMinutes: booking.slots.map((sl) => sl.startMinute),
+          totalAmount: booking.slots.reduce((sum, sl) => sum + sl.price, 0),
+          slotPrices: booking.slots.map((sl) => ({
+            hour: sl.startHour,
+            minute: sl.startMinute,
+            price: sl.price,
+          })),
+          equipmentTotalAmount: booking.equipmentTotalAmount ?? 0,
+          courtConfig: {
+            slotDurationMinutes: booking.slots.some(
+              (sl) => sl.durationMinutes === 30,
+            )
+              ? 30
+              : 60,
+          },
+        })
+          .then((offer) =>
+            offer
+              ? {
+                  fullCoverage: offer.fullCoverage,
+                  remainderAmount: offer.remainderAmount,
+                  passes: offer.passes.map((sh) => ({
+                    passName: sh.passName,
+                    coveredMinutes: sh.coveredMinutes,
+                  })),
+                }
+              : null,
+          )
+          .catch(() => null)
       : null;
 
   // Eligible pass for a pass-paid extension — same rules as customer
@@ -447,18 +498,21 @@ export default async function AdminBookingDetailPage({
                     {formatPrice(booking.payment.amount)}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-emerald-400">
-                    Paid with pass — {passRedemption.userPass.name} (
-                    {(passRedemption.minutes / 60)
-                      .toFixed(1)
-                      .replace(/\.0$/, "")}
-                    h)
-                  </span>
-                  <span className="font-semibold text-emerald-400">
-                    worth {formatPrice(passRedemption.value)}
-                  </span>
-                </div>
+                {passRedemptions.map((red) => (
+                  <div
+                    key={red.userPassId}
+                    className="flex justify-between text-xs"
+                  >
+                    <span className="text-emerald-400">
+                      Paid with pass — {red.userPass.name} (
+                      {(red.minutes / 60).toFixed(1).replace(/\.0$/, "")}
+                      h)
+                    </span>
+                    <span className="font-semibold text-emerald-400">
+                      worth {formatPrice(red.value)}
+                    </span>
+                  </div>
+                ))}
                 <div className="flex justify-between text-xs">
                   <span className="text-zinc-500">Slot list price</span>
                   <span className="text-zinc-500 line-through">
@@ -715,7 +769,7 @@ export default async function AdminBookingDetailPage({
         // (money = ₹0) showed its whole slot total as "Collect at venue".
         paymentAmountRupees={
           booking.payment
-            ? booking.payment.amount + (passRedemption?.coveredAmount ?? 0)
+            ? booking.payment.amount + passCoveredTotal
             : null
         }
       />
@@ -773,6 +827,8 @@ export default async function AdminBookingDetailPage({
           currentAdvanceAmount={booking.payment?.advanceAmount ?? null}
           razorpayPaymentId={booking.payment?.razorpayPaymentId ?? null}
           utrNumber={booking.payment?.utrNumber ?? null}
+          passConvertOption={passConvertOption}
+          isPassPaid={passRedemptions.length > 0 || booking.payment?.method === "PASS"}
           isAdminCreated={!!booking.createdByAdminId}
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}

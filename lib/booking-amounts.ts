@@ -45,6 +45,22 @@ export interface HoldAmountFields {
   discountAmount?: number | null;
   pointsToRedeem?: number | null;
   pointsRedeemPaiseSaved?: number | null;
+  // "Book via Pass + Pay" mode — the snapshotted coverage comes off the
+  // court-time base before anything else is derived (see lib/passes.ts
+  // setHoldPassMode). Parsed inline here to keep this module cycle-free.
+  passModeId?: string | null;
+  passModeCoverage?: unknown;
+}
+
+/** Court-time base for a hold: totalAmount minus any pass-mode coverage. */
+export function holdCourtBase(hold: HoldAmountFields): number {
+  if (!hold.passModeId) return hold.totalAmount;
+  const cov = hold.passModeCoverage as { coveredAmount?: unknown } | null;
+  const covered =
+    cov && typeof cov === "object" && typeof cov.coveredAmount === "number"
+      ? cov.coveredAmount
+      : 0;
+  return Math.max(0, hold.totalAmount - covered);
 }
 
 export interface HoldCharge {
@@ -159,8 +175,9 @@ export async function deriveHoldCharge(
   // Applied to the whole checkout exactly once, however many sessions it covers.
   const oneOff = equipmentTotalRupees - appliedDiscount - pointsRedeemRupees;
 
+  const courtBase = holdCourtBase(hold);
   const totalFor = (count: number, pct: number) => {
-    const gross = hold.totalAmount * count;
+    const gross = courtBase * count;
     const tierDiscount = pct > 0 ? Math.round((gross * pct) / 100) : 0;
     return Math.max(0, gross - tierDiscount + oneOff);
   };
@@ -173,6 +190,8 @@ export async function deriveHoldCharge(
     recurringDiscountPercent: 0,
     clientAmountUnexplained: false,
   };
+
+  if (hold.passModeId) return single;
 
   const explicitCount =
     typeof opts.recurring?.count === "number" && opts.recurring.count > 1

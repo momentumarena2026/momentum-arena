@@ -55,6 +55,16 @@ const DEMAND_BOOKING_STATUSES = ["CONFIRMED", "COMPLETED", "ABSENT"] as const;
 // 1. Revenue Over Time
 // ===========================
 
+// A booking may hold several pass redemptions (one per contributing
+// pass) — always SUM per booking, a plain Map keeps only the last row.
+function sumByBooking(
+  rows: { bookingId: string; amount: number }[],
+): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) m.set(r.bookingId, (m.get(r.bookingId) ?? 0) + r.amount);
+  return m;
+}
+
 export async function getRevenueOverTime(
   filters: {
     dateFrom: string;
@@ -88,11 +98,15 @@ export async function getRevenueOverTime(
             { period: Date; revenue: bigint }[]
           >(Prisma.sql`
             SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, p."confirmedAt") AS period,
-                   SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS revenue
+                   SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS revenue
             FROM "Payment" p
             INNER JOIN "Booking" b ON b.id = p."bookingId"
-            LEFT JOIN "PassRedemption" pr
-              ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+            LEFT JOIN (
+              SELECT "bookingId", SUM("coveredAmount") AS covered
+              FROM "PassRedemption"
+              WHERE "restoredAt" IS NULL
+              GROUP BY "bookingId"
+            ) pr ON pr."bookingId" = b.id
             WHERE p.status = 'COMPLETED'
               AND b.status IN (${EARNING_BOOKING_STATUSES_SQL})
               AND p."confirmedAt" >= ${from}
@@ -244,8 +258,8 @@ export async function getSportRevenueBreakdown(
         select: { sport: true, price: true },
       }),
     ]);
-    const coveredByBooking = new Map(
-      redemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    const coveredByBooking = sumByBooking(
+      redemptions.map((r) => ({ bookingId: r.bookingId, amount: r.coveredAmount })),
     );
 
     const sportMap = new Map<
@@ -351,8 +365,8 @@ export async function getSportRevenueByMonth(
         select: { sport: true, price: true, purchasedAt: true },
       }),
     ]);
-    const coveredByBooking = new Map(
-      redemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    const coveredByBooking = sumByBooking(
+      redemptions.map((r) => ({ bookingId: r.bookingId, amount: r.coveredAmount })),
     );
 
     // Discover every sport present in the window — we'll initialise
@@ -610,8 +624,8 @@ export async function getTopCustomers(
         select: { userId: true, price: true },
       }),
     ]);
-    const coveredByBooking = new Map(
-      bookingRedemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    const coveredByBooking = sumByBooking(
+      bookingRedemptions.map((r) => ({ bookingId: r.bookingId, amount: r.coveredAmount })),
     );
 
     // Get cafe spending per user (limit to 5000 records)
@@ -815,12 +829,16 @@ export async function getKPIStats(
       // Filter: non-cancelled bookings whose payment lands COMPLETED
       // inside the selected window.
       db.$queryRaw<{ revenue: bigint | null; cnt: bigint }[]>(Prisma.sql`
-        SELECT SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS revenue,
+        SELECT SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS revenue,
                COUNT(*)::bigint AS cnt
         FROM "Booking" b
         INNER JOIN "Payment" p ON p."bookingId" = b.id
-        LEFT JOIN "PassRedemption" pr
-          ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+        LEFT JOIN (
+          SELECT "bookingId", SUM("coveredAmount") AS covered
+          FROM "PassRedemption"
+          WHERE "restoredAt" IS NULL
+          GROUP BY "bookingId"
+        ) pr ON pr."bookingId" = b.id
         WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
           AND p.status = 'COMPLETED'
           AND p."confirmedAt" >= ${from}
@@ -993,11 +1011,15 @@ export async function getDailyEarningsForMonth(
     >(Prisma.sql`
       SELECT
         EXTRACT(DAY FROM b.date)::int AS day,
-        SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS earnings,
+        SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
-      LEFT JOIN "PassRedemption" pr
-        ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+      LEFT JOIN (
+        SELECT "bookingId", SUM("coveredAmount") AS covered
+        FROM "PassRedemption"
+        WHERE "restoredAt" IS NULL
+        GROUP BY "bookingId"
+      ) pr ON pr."bookingId" = b.id
       WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
         AND b.date >= ${start}
         AND b.date < ${nextStart}
@@ -1088,11 +1110,15 @@ export async function getMonthlyEarningsForYear(
     >(Prisma.sql`
       SELECT
         EXTRACT(MONTH FROM b.date)::int AS month,
-        SUM(b."totalAmount" - COALESCE(pr."coveredAmount", 0))::bigint AS earnings,
+        SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS earnings,
         COUNT(*)::bigint AS booking_count
       FROM "Booking" b
-      LEFT JOIN "PassRedemption" pr
-        ON pr."bookingId" = b.id AND pr."restoredAt" IS NULL
+      LEFT JOIN (
+        SELECT "bookingId", SUM("coveredAmount") AS covered
+        FROM "PassRedemption"
+        WHERE "restoredAt" IS NULL
+        GROUP BY "bookingId"
+      ) pr ON pr."bookingId" = b.id
       WHERE b.status IN (${EARNING_BOOKING_STATUSES_SQL})
         AND b.date >= ${start}
         AND b.date < ${nextStart}

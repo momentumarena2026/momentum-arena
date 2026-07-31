@@ -92,23 +92,44 @@ export function PassCheckoutOption({
     }
   }
 
+  const shares = offer.passes ?? [];
+  const multi = shares.length > 1;
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <Ticket size={16} color={colors.emerald400} />
         <Text style={styles.passName} numberOfLines={1}>
-          {offer.passName}
+          {multi ? `${shares.length} passes` : offer.passName}
         </Text>
-        <Text style={styles.remaining}>{hrs(offer.remainingMinutes)} left</Text>
+        {!multi ? (
+          <Text style={styles.remaining}>
+            {hrs(offer.remainingMinutes)} left
+          </Text>
+        ) : null}
       </View>
+      {multi
+        ? shares.map((share) => (
+            <View key={share.passId} style={styles.shareRow}>
+              <Text variant="small" color={colors.zinc300} style={{ flex: 1 }}>
+                {share.passName}
+              </Text>
+              <Text variant="small" color={colors.emerald400}>
+                {hrs(share.coveredMinutes)}
+                {typeof share.remainingMinutes === "number"
+                  ? ` · ${hrs(share.remainingMinutes)} left`
+                  : ""}
+              </Text>
+            </View>
+          ))
+        : null}
       <Text style={styles.coverage}>
         {offer.fullCoverage
-          ? `This booking (${hrs(offer.neededMinutes)}) is fully covered by your pass — nothing to pay.`
+          ? `This booking (${hrs(offer.neededMinutes)}) is fully covered by your ${multi ? "passes" : "pass"} — nothing to pay.`
           : offer.coveredMinutes >= offer.neededMinutes
             ? // All the court time is covered; the remainder is equipment,
               // which a pass never pays for.
-              `Your pass covers the full ${hrs(offer.neededMinutes)} of court time; pay ${formatRupees(offer.remainderAmount)} for the equipment.`
-            : `Your pass covers ${hrs(offer.coveredMinutes)} of ${hrs(offer.neededMinutes)}; pay ${formatRupees(offer.remainderAmount)} for the rest.`}
+              `Your ${multi ? "passes cover" : "pass covers"} the full ${hrs(offer.neededMinutes)} of court time; pay ${formatRupees(offer.remainderAmount)} for the equipment.`
+            : `Your ${multi ? "passes cover" : "pass covers"} ${hrs(offer.coveredMinutes)} of ${hrs(offer.neededMinutes)}; pay ${formatRupees(offer.remainderAmount)} for the rest.`}
       </Text>
       <Pressable
         onPress={() => void redeem()}
@@ -123,7 +144,9 @@ export function PassCheckoutOption({
         ) : (
           <Text style={styles.btnText}>
             {offer.fullCoverage
-              ? "Book with my pass"
+              ? multi
+                ? "Book with my passes"
+                : "Book with my pass"
               : `Use pass + pay ${formatRupees(offer.remainderAmount)}`}
           </Text>
         )}
@@ -149,6 +172,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  shareRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    marginTop: 4,
   },
   passName: {
     flex: 1,

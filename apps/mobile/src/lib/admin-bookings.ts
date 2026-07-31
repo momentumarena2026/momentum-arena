@@ -122,6 +122,12 @@ export interface AdminBookingDetail extends Omit<AdminBookingListItem, "courtCon
    *  one when a redemption is live (the server rejects any other), else
    *  the customer's soonest-expiring eligible pass. */
   extendPass: { id: string; name: string; remainingMinutes: number } | null;
+  /** "Move to pass payment" preview — null when no pass could cover. */
+  passConvert?: {
+    fullCoverage: boolean;
+    remainderAmount: number;
+    passes: { passName: string; coveredMinutes: number }[];
+  } | null;
   /** totalAmount − payment.amount − coveredAmount: what staff still
    *  collect at the venue (equipment, uncovered added time). */
   owedAtVenue: number;
@@ -385,9 +391,36 @@ export const adminBookingsApi = {
     advanceAmount?: number;
     customTotalAmount?: number;
     equipment?: Array<{ equipmentId: string; quantity: number }>;
+    payWithPass?: boolean;
     note?: string;
   }): Promise<{ ok: true; bookingId: string }> {
     return request("/api/mobile/admin/bookings/create", {
+      method: "POST",
+      body,
+    });
+  },
+
+  // Would this customer's passes cover these slots? Drives the
+  // "Book with customer's pass" checkbox on the create screen.
+  passPreview(body: {
+    userId: string;
+    courtConfigId: string;
+    date: string;
+    hours: number[];
+    bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
+  }): Promise<{
+    preview:
+      | { eligible: false }
+      | {
+          eligible: true;
+          fullCoverage: boolean;
+          coveredMinutes: number;
+          coveredAmount: number;
+          remainderAmount: number;
+          passes: { passName: string; coveredMinutes: number }[];
+        };
+  }> {
+    return request("/api/mobile/admin/bookings/pass-preview", {
       method: "POST",
       body,
     });
@@ -441,6 +474,23 @@ export const adminBookingsApi = {
     return request(`/api/mobile/admin/bookings/${id}/edit-payment`, {
       method: "POST",
       body,
+    });
+  },
+
+  // Move a money-paid booking onto the customer's pass(es) — multi-pass
+  // debit server-side; full coverage rewrites the payment to PASS/₹0.
+  convertToPass(
+    id: string,
+    note?: string,
+  ): Promise<{
+    ok: true;
+    fullCoverage: boolean;
+    remainderAmount: number;
+    collectedBefore: number;
+  }> {
+    return request(`/api/mobile/admin/bookings/${id}/convert-to-pass`, {
+      method: "POST",
+      body: { note },
     });
   },
 

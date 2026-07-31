@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { CountdownTimer } from "@/components/booking/countdown-timer";
 import { PaymentSelector, type AmountMode, type PayMethod } from "@/components/payment/payment-selector";
+import { PassCheckoutOption, type PassCheckoutOffer } from "@/components/payment/pass-checkout-option";
 import { DiscountInput } from "@/components/booking/discount-input";
 import { UpiQrCheckout } from "@/components/payment/upi-qr-checkout";
 import { DqrCheckout } from "@/components/payment/dqr-checkout";
@@ -35,6 +36,9 @@ import {
 interface CheckoutClientProps {
   holdId: string;
   amount: number;
+  /** Eligible pass for this hold — renders "Book with my pass" as the
+   *  first (and default-selected) payment option. */
+  passOffer?: PassCheckoutOffer | null;
   perSessionAmount?: number;
   recurringDiscountPercent?: number;
   sport?: string;
@@ -86,6 +90,7 @@ interface CheckoutClientProps {
 export function CheckoutClient({
   holdId,
   amount,
+  passOffer = null,
   perSessionAmount,
   recurringDiscountPercent,
   sport,
@@ -121,7 +126,7 @@ export function CheckoutClient({
   // the fee-bearing gateway. Fall back sensibly when a method/mode is
   // disabled by admin.
   const [amountMode, setAmountMode] = useState<AmountMode>(
-    onlineEnabled || upiQrEnabled ? "full" : "advance",
+    passOffer ? "pass" : onlineEnabled || upiQrEnabled ? "full" : "advance",
   );
   const [method, setMethod] = useState<PayMethod>(
     upiQrEnabled ? "upi" : "gateway",
@@ -199,6 +204,39 @@ export function CheckoutClient({
   // already null out the redemption columns server-side; bumping the
   // nonce keeps the UI in lockstep.
   const [billNonce, setBillNonce] = useState(0);
+  // Bumped by the reseed effect below to re-run the admin auto-apply
+  // chain against a new base (Book-via tab switches).
+  const [autoRetryNonce, setAutoRetryNonce] = useState(0);
+
+  // A "Book via" tab switch flips `amount` between the full total and
+  // the pass remainder, and the server clears coupon/points in the same
+  // stroke. router.refresh() keeps this island mounted, so everything
+  // derived from the old amount is stale when the new prop lands —
+  // re-seed it all and let the auto-apply pass re-run on the new base.
+  const amountSeedRef = useRef(amount);
+  useEffect(() => {
+    if (amountSeedRef.current === amount) return;
+    amountSeedRef.current = amount;
+    // Skip the dispatch this reseed provokes: the SSR preDiscountTotal
+    // SummaryFooter just re-seeded from already predicts the promo, and
+    // broadcasting the raw base would clobber it until auto-apply lands.
+    setEffectiveAmount((prev) => {
+      if (prev !== amount) discountSyncMounted.current = false;
+      return amount;
+    });
+    setDiscountApplied(false);
+    setDiscountLabel(null);
+    setNewUserApplied(false);
+    setAutoCouponTried(false);
+    setPointsRedeemed(0);
+    setPointsRedeemPaiseSaved(0);
+    setBillNonce((n) => n + 1);
+    // Retrigger the admin auto-apply pass on the NEXT render, after the
+    // resets above have landed — keying that effect on `amount` directly
+    // would run it in THIS commit where its discountApplied guard still
+    // sees the pre-switch value.
+    setAutoRetryNonce((n) => n + 1);
+  }, [amount]);
 
   const pointsRedeemRupees = Math.floor(pointsRedeemPaiseSaved / 100);
 
@@ -260,6 +298,14 @@ export function CheckoutClient({
   // (platform, sport, BOOKING_DATE, caps) server-side, so a candidate
   // that doesn't fit this hold silently falls through to the next.
   useEffect(() => {
+    // A pass offer is the better deal and can't combine with coupons —
+    // auto-applying one would null the offer server-side and sabotage
+    // the default "Book with my pass" selection. Manual coupon entry
+    // stays available for customers who prefer it.
+    if (passOffer) {
+      setAutoCouponTried(true);
+      return;
+    }
     if (discountApplied) {
       setAutoCouponTried(true);
       return;
@@ -292,8 +338,11 @@ export function CheckoutClient({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per hold
-  }, [holdId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per
+    // hold + per Book-via base change (autoRetryNonce bumps a render
+    // AFTER the reseed cleared the discount state, so the guards above
+    // read fresh values and the whole priority chain re-runs).
+  }, [holdId, autoRetryNonce]);
 
   // Auto-apply new user discount on mount via unified coupon system.
   // Persists the couponId on the SlotHold so that createBookingFromHold can
@@ -327,6 +376,7 @@ export function CheckoutClient({
   // same code we apply here — keeps display + apply in sync if we ever
   // add another sport-specific launch promo.
   useEffect(() => {
+    if (passOffer) return; // see the auto-apply gate above
     if (!autoCouponTried || discountApplied || newUserApplied) return;
     const fallbackCode = getAutoApplyCodeForSport(sport);
     const fallbackLabel =
@@ -709,7 +759,24 @@ export function CheckoutClient({
           onlineEnabled={onlineEnabled}
           upiQrEnabled={upiQrEnabled}
           advanceEnabled={advanceEnabled}
+          passAvailable={!!passOffer}
+          passName={passOffer?.passName}
+          passDesc={
+            passOffer
+              ? passOffer.fullCoverage
+                ? "Pay ₹0 — fully covered by your pass"
+                : `Pass + pay ${formatPrice(passOffer.remainderAmount)}`
+              : undefined
+          }
         />
+
+        {/* Pass confirm — replaces the pay button while "Book with my
+            pass" is the selected option. */}
+        {amountMode === "pass" && passOffer && (
+          <div className="mt-3">
+            <PassCheckoutOption holdId={holdId} offer={passOffer} />
+          </div>
+        )}
       </div>
 
       {error && (
@@ -718,10 +785,12 @@ export function CheckoutClient({
         </div>
       )}
 
-      {/* Pay Button */}
+      {/* Pay Button — hidden while the pass option is selected (the
+          pass card above carries its own confirm button). */}
       <button
         onClick={handlePayment}
-        disabled={processing}
+        disabled={processing || amountMode === "pass"}
+        hidden={amountMode === "pass"}
         className="w-full rounded-xl bg-emerald-600 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
       >
         {processing ? (

@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { adminEditPayment } from "@/actions/admin-booking";
-import { Loader2, X } from "lucide-react";
+import {
+  adminEditPayment,
+  convertBookingToPass,
+} from "@/actions/admin-booking";
+import { Loader2, Ticket, X } from "lucide-react";
 
 /**
  * Edit Payment modal — exposes every payment-row field the admin
@@ -42,6 +45,15 @@ const STATUS_LABEL: Record<Status, string> = {
 
 interface EditPaymentModalProps {
   bookingId: string;
+  /** Coverage the customer's passes could give this booking — enables
+   *  the "Pass" method (move the booking to pass payment). */
+  passConvertOption?: {
+    fullCoverage: boolean;
+    remainderAmount: number;
+    passes: { passName: string; coveredMinutes: number }[];
+  } | null;
+  /** Booking already redeems a pass — its figures are pass-managed. */
+  isPassPaid?: boolean;
   current: {
     method: Method;
     status: Status;
@@ -59,6 +71,8 @@ interface EditPaymentModalProps {
 
 export function EditPaymentModal({
   bookingId,
+  passConvertOption,
+  isPassPaid,
   current,
   totalAmount,
   isOpen,
@@ -77,6 +91,9 @@ export function EditPaymentModal({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // "Pass" pseudo-method — saving converts the booking to pass payment
+  // instead of patching the row.
+  const [usePass, setUsePass] = useState(false);
 
   // Re-seed every time the modal is reopened so a closed-and-reopened
   // edit doesn't carry stale typed values from the previous session.
@@ -93,6 +110,7 @@ export function EditPaymentModal({
     setUtr(current.utrNumber ?? "");
     setNote("");
     setError(null);
+    setUsePass(false);
   }, [isOpen, current, totalAmount]);
 
   if (!isOpen) return null;
@@ -106,9 +124,21 @@ export function EditPaymentModal({
       parsedAdvance >= 0 &&
       parsedAdvance < parsedTotal);
 
-  const canSave = totalValid && advanceValid && !saving;
+  const canSave = usePass ? !saving : totalValid && advanceValid && !saving;
 
   const handleSave = async () => {
+    if (usePass) {
+      setSaving(true);
+      setError(null);
+      const res = await convertBookingToPass(bookingId, note.trim() || undefined);
+      setSaving(false);
+      if (res.success) {
+        onSuccess();
+      } else {
+        setError(res.error || "Failed to move to pass");
+      }
+      return;
+    }
     if (!canSave) return;
     setSaving(true);
     setError(null);
@@ -183,6 +213,17 @@ export function EditPaymentModal({
         </div>
 
         <div className="space-y-4 px-5 py-4 max-h-[70vh] overflow-y-auto">
+          {isPassPaid && (
+            <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs text-emerald-300">
+              <Ticket className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                This booking is paid with a pass — its money figures are
+                managed by the pass ledger. Edit slots (with the pass
+                option), cancel, or refund instead.
+              </span>
+            </div>
+          )}
+
           {/* Method */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium uppercase tracking-wider text-zinc-400">
@@ -194,9 +235,12 @@ export function EditPaymentModal({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setMethod(m)}
+                    onClick={() => {
+                      setUsePass(false);
+                      setMethod(m);
+                    }}
                     className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
-                      method === m
+                      method === m && !usePass
                         ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
                         : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:bg-zinc-800"
                     }`}
@@ -205,10 +249,60 @@ export function EditPaymentModal({
                   </button>
                 ),
               )}
+              {passConvertOption && !isPassPaid && (
+                <button
+                  type="button"
+                  onClick={() => setUsePass(true)}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                    usePass
+                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                      : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:bg-zinc-800"
+                  }`}
+                >
+                  <Ticket className="h-3.5 w-3.5" />
+                  Pass
+                </button>
+              )}
             </div>
           </div>
 
+          {/* Move-to-pass panel — replaces the money fields while the
+              Pass method is selected. */}
+          {usePass && passConvertOption && (
+            <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-3 text-xs">
+              <p className="font-medium text-white">
+                Move this booking to pass payment
+              </p>
+              {passConvertOption.passes.map((sh) => (
+                <div
+                  key={sh.passName}
+                  className="flex justify-between text-emerald-300"
+                >
+                  <span>{sh.passName}</span>
+                  <span>
+                    {(sh.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h
+                  </span>
+                </div>
+              ))}
+              <p className="text-zinc-400">
+                {passConvertOption.fullCoverage
+                  ? "Fully covered — the payment becomes Pass / ₹0."
+                  : `Remainder ₹${passConvertOption.remainderAmount} stays on ${METHOD_LABEL[current.method]} to collect.`}
+              </p>
+              {current.amount > 0 &&
+                (current.status === "COMPLETED" ||
+                  current.status === "PARTIAL") && (
+                  <p className="text-amber-300">
+                    ₹{current.amount} was already collected via{" "}
+                    {METHOD_LABEL[current.method]} — settle the refund with the
+                    customer separately (it is noted in the edit history).
+                  </p>
+                )}
+            </div>
+          )}
+
           {/* Status */}
+          {!usePass && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium uppercase tracking-wider text-zinc-400">
               Status
@@ -232,8 +326,12 @@ export function EditPaymentModal({
               )}
             </div>
           </div>
+          )}
 
-          {/* Total */}
+          {/* Total + money fields — hidden while the Pass method is
+              selected (conversion replaces them wholesale). */}
+          {!usePass && (
+          <>
           <div className="space-y-1.5">
             <label className="text-xs font-medium uppercase tracking-wider text-zinc-400">
               Total amount (₹)
@@ -325,6 +423,8 @@ export function EditPaymentModal({
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-white focus:border-emerald-400 focus:outline-none"
               />
             </div>
+          )}
+          </>
           )}
 
           {/* Audit note */}

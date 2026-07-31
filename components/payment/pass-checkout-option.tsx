@@ -6,13 +6,20 @@ import { Ticket } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 import { trackPassRedeemed } from "@/lib/analytics";
 
-interface Offer {
+export interface PassCheckoutOffer {
   passName: string;
   remainingMinutes: number;
   neededMinutes: number;
   coveredMinutes: number;
   fullCoverage: boolean;
   remainderAmount: number;
+  /** Per-pass breakdown when the booking draws on several passes. */
+  passes?: {
+    passId: string;
+    passName: string;
+    coveredMinutes: number;
+    remainingMinutes?: number;
+  }[];
 }
 
 function loadRzp(): Promise<boolean> {
@@ -37,7 +44,7 @@ export function PassCheckoutOption({
   offer,
 }: {
   holdId: string;
-  offer: Offer;
+  offer: PassCheckoutOffer;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -102,23 +109,47 @@ export function PassCheckoutOption({
     }
   }
 
+  const shares = offer.passes ?? [];
+  const multi = shares.length > 1;
   return (
-    <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
       <div className="flex items-center gap-2">
         <Ticket className="h-4 w-4 text-emerald-400" />
-        <p className="text-sm font-semibold text-white">{offer.passName}</p>
-        <span className="ml-auto text-xs text-zinc-400">
-          {hrs(offer.remainingMinutes)} left
-        </span>
+        <p className="text-sm font-semibold text-white">
+          {multi ? `${shares.length} passes` : offer.passName}
+        </p>
+        {!multi && (
+          <span className="ml-auto text-xs text-zinc-400">
+            {hrs(offer.remainingMinutes)} left
+          </span>
+        )}
       </div>
+      {multi && (
+        <div className="mt-2 space-y-1">
+          {shares.map((share) => (
+            <div
+              key={share.passId}
+              className="flex justify-between text-xs text-zinc-300"
+            >
+              <span>{share.passName}</span>
+              <span className="text-emerald-400">
+                {hrs(share.coveredMinutes)}
+                {typeof share.remainingMinutes === "number"
+                  ? ` · ${hrs(share.remainingMinutes)} left`
+                  : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <p className="mt-1 text-xs text-zinc-400">
         {offer.fullCoverage
-          ? `This booking (${hrs(offer.neededMinutes)}) is fully covered by your pass — nothing to pay.`
+          ? `This booking (${hrs(offer.neededMinutes)}) is fully covered by your ${multi ? "passes" : "pass"} — nothing to pay.`
           : offer.coveredMinutes >= offer.neededMinutes
           ? // All the court time is covered; the remainder is equipment,
             // which a pass never pays for.
-            `Your pass covers the full ${hrs(offer.neededMinutes)} of court time; pay ${formatPrice(offer.remainderAmount)} for the equipment.`
-          : `Your pass covers ${hrs(offer.coveredMinutes)} of ${hrs(offer.neededMinutes)}; pay ${formatPrice(offer.remainderAmount)} for the rest.`}
+            `Your ${multi ? "passes cover" : "pass covers"} the full ${hrs(offer.neededMinutes)} of court time; pay ${formatPrice(offer.remainderAmount)} for the equipment.`
+          : `Your ${multi ? "passes cover" : "pass covers"} ${hrs(offer.coveredMinutes)} of ${hrs(offer.neededMinutes)}; pay ${formatPrice(offer.remainderAmount)} for the rest.`}
       </p>
       <button
         onClick={redeem}
@@ -128,7 +159,9 @@ export function PassCheckoutOption({
         {busy
           ? "Processing…"
           : offer.fullCoverage
-          ? "Book with my pass"
+          ? multi
+            ? "Book with my passes"
+            : "Book with my pass"
           : `Use pass + pay ${formatPrice(offer.remainderAmount)}`}
       </button>
       {error && <p className="mt-2 text-xs text-amber-300">{error}</p>}

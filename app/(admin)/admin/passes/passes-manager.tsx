@@ -12,7 +12,7 @@ import {
   type PassConfigOption,
 } from "@/actions/admin-passes";
 import { Plus, Ticket, Trash2, Pencil, X, Loader2, AlertTriangle } from "lucide-react";
-import { anchorBuckets, bandsSummary, type Band } from "@/lib/pass-bands";
+import { bandsSummary, type Band } from "@/lib/pass-bands";
 import { BandPicker, anchorPerHour } from "./band-picker";
 
 interface Plan {
@@ -307,8 +307,8 @@ export function PassesManager({
                 <th className="px-4 py-3">Validity</th>
                 <th className="px-4 py-3">Sold</th>
                 <th className="px-4 py-3">Active</th>
-                <th className="px-4 py-3" title="Marks this plan as the sport's 'cheapest hour' pass. The booking checkout uses it to show 'this same hour is ₹X cheaper with a pass' for peak / off-peak slots.">
-                  Cheapest hour
+                <th className="px-4 py-3" title="Marks this plan as the cheapest pass for its court type — exactly one per court group. Its effective hourly rate becomes the 'Book from just ₹X/hour' price on that court's slot-selection banner.">
+                  Cheapest pass
                 </th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -363,42 +363,31 @@ export function PassesManager({
                       </button>
                     </td>
                     <td className="px-4 py-3">
-                      {(() => {
-                        const buckets = anchorBuckets(p.bands);
-                        const bucketLabel =
-                          buckets.length === 2
-                            ? "Peak + Off-peak"
-                            : buckets[0] === "PEAK"
-                              ? "☀ Peak"
-                              : "☾ Off-peak";
-                        return (
-                          <label
-                            className={`flex w-fit cursor-pointer items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                              p.isCheapestHourAnchor
-                                ? "bg-emerald-500/15 text-emerald-400"
-                                : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300"
-                            } ${pending || (!p.isActive && !p.isCheapestHourAnchor) ? "pointer-events-none opacity-40" : ""}`}
-                            title={`Marks this plan as the ${p.sport.toLowerCase()} cheapest-hour pass. It anchors ${bucketLabel.replace("☀ ", "").replace("☾ ", "").toLowerCase()} slots (derived from its bands) in the "Play more, pay less" banner; ticking it un-ticks any overlapping plan.`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={p.isCheapestHourAnchor}
-                              onChange={() =>
-                                startTransition(async () => {
-                                  const res = await setPassCheapestHour(
-                                    p.id,
-                                    !p.isCheapestHourAnchor,
-                                  );
-                                  if (!res.ok) setError(res.error);
-                                  router.refresh();
-                                })
-                              }
-                              className="h-3.5 w-3.5 accent-emerald-500"
-                            />
-                            {bucketLabel}
-                          </label>
-                        );
-                      })()}
+                      <label
+                        className={`flex w-fit cursor-pointer items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          p.isCheapestHourAnchor
+                            ? "bg-emerald-500/15 text-emerald-400"
+                            : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300"
+                        } ${pending || (!p.isActive && !p.isCheapestHourAnchor) ? "pointer-events-none opacity-40" : ""}`}
+                        title="Make this the cheapest pass for its court type (exactly one per court group — ticking replaces the current holder). Its effective hourly rate becomes the slot page's 'Book from just ₹X/hour' price."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={p.isCheapestHourAnchor}
+                          onChange={() =>
+                            startTransition(async () => {
+                              const res = await setPassCheapestHour(
+                                p.id,
+                                !p.isCheapestHourAnchor,
+                              );
+                              if (!res.ok) setError(res.error);
+                              router.refresh();
+                            })
+                          }
+                          className="h-3.5 w-3.5 accent-emerald-500"
+                        />
+                        Cheapest pass
+                      </label>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">

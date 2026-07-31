@@ -5,6 +5,7 @@ import {
   sendTemplatedToAdmins,
   sendTemplatedToUser,
 } from "./push-templates";
+import { notifyUser } from "./user-notifications";
 
 // Parse + normalize + de-duplicate the admin phone list from env. Without
 // this, "+919876543210" and "919876543210" in the same env string both
@@ -73,8 +74,40 @@ export async function sendBookingConfirmation(
   }
   promises.push(logInAppNotification(bookingId));
   promises.push(sendPushConfirmation(bookingId));
+  promises.push(writeBellNotification(bookingId));
 
   await Promise.allSettled(promises);
+}
+
+// Bell-icon row for the booker ("My Notifications" screens). Silent —
+// sendPushConfirmation above already delivers the FCM push, this only
+// records the in-app entry.
+async function writeBellNotification(bookingId: string): Promise<void> {
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      slots: { orderBy: { startHour: "asc" } },
+      courtConfig: { select: { sport: true } },
+    },
+  });
+  if (!booking) return;
+  const dateLabel = booking.date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kolkata",
+  });
+  const timeLabel =
+    booking.slots.length > 0 ? formatSlotsAsRanges(booking.slots) : "";
+  const sportTitle =
+    String(booking.courtConfig.sport).charAt(0) +
+    String(booking.courtConfig.sport).slice(1).toLowerCase();
+  await notifyUser(booking.userId, {
+    type: "BOOKING_CONFIRMED",
+    title: "Booking confirmed ✅",
+    body: `Your ${sportTitle} booking for ${[dateLabel, timeLabel].filter(Boolean).join(" · ")} is confirmed. See you on court!`,
+    link: "/account?tab=bookings",
+    silent: true,
+  });
 }
 
 // FCM push for the booker. Best-effort — sendToUser silently no-ops

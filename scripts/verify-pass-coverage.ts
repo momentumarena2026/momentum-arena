@@ -69,7 +69,7 @@ async function run(
         ...args,
         coverDeltaWithPass: shouldCoverDelta(args.coverDeltaWithPass, args.newSlots),
       });
-      const red = await tx.passRedemption.findUnique({ where: { bookingId: b.id } });
+      const red = await tx.passRedemption.findFirst({ where: { bookingId: b.id }, orderBy: { createdAt: "asc" } });
       const up = await tx.userPass.findUnique({ where: { id: p.id } });
       const covered = out.ok ? out.coveredAmount : -1;
       const owed = newTotal - payAmt - (red?.restoredAt ? 0 : red?.coveredAmount ?? 0);
@@ -119,7 +119,7 @@ async function bowling() {
       const out = await syncPassAfterAdminEdit(tx, {
         bookingId: b.id, bookingUserId: u.id, bookingDate: date, courtConfigId: BOWL,
         newTotalAmount: 300, paymentAmount: 0, equipmentAmount: 0, newSlots: [rows[0]] });
-      const red = await tx.passRedemption.findUnique({ where: { bookingId: b.id } });
+      const red = await tx.passRedemption.findFirst({ where: { bookingId: b.id }, orderBy: { createdAt: "asc" } });
       const up = await tx.userPass.findUnique({ where: { id: p.id } });
       const ok = out.ok && red?.coveredAmount === 300 && red?.minutes === 30 && up?.remainingMinutes === 30;
       console.log(`${ok ? "PASS" : "FAIL"}  bowling: drop 10:30 keeps 10:00 [covered 300, 30min back]`);
@@ -168,7 +168,7 @@ async function legacyAdoption() {
         bookingId: b.id, bookingUserId: u.id, bookingDate: date, courtConfigId: COURT,
         newTotalAmount: 2200, paymentAmount: 600, equipmentAmount: 0,
         newSlots: rows });
-      const red = await tx.passRedemption.findUnique({ where: { bookingId: b.id } });
+      const red = await tx.passRedemption.findFirst({ where: { bookingId: b.id }, orderBy: { createdAt: "asc" } });
       // Priciest-first adoption = 19 + 20 = 1600. Owed = 2200-600-1600 = 0.
       const ok = out.ok && red?.coveredAmount === 1600 && red?.minutes === 120;
       console.log(`${ok ? "PASS" : "FAIL"}  legacy row adopts priciest 2 of 3 [covered 1600, owed 0]`);

@@ -1,11 +1,12 @@
 import { StyleSheet, View, Pressable } from "react-native";
-import { CreditCard, QrCode, Wallet, Check } from "lucide-react-native";
+import { CreditCard, QrCode, Ticket, Wallet, Check } from "lucide-react-native";
 import { Text } from "../ui/Text";
 import { colors, radius, spacing } from "../../theme";
 import { formatRupees } from "../../lib/format";
 
-/** Top-level choice: pay the full amount now, or a 50% advance. */
-export type AmountMode = "full" | "advance";
+/** Top-level choice: book with a pass (when the customer holds an
+ *  eligible one), pay the full amount now, or a 50% advance. */
+export type AmountMode = "pass" | "full" | "advance";
 /** Method under each amount mode. `upi` = direct UPI (no fee). */
 export type PayMethod = "upi" | "gateway";
 
@@ -21,6 +22,10 @@ interface Props {
   onlineEnabled: boolean;
   upiQrEnabled: boolean;
   advanceEnabled: boolean;
+  /** Customer holds an eligible pass — show "Book with my pass" first. */
+  passAvailable?: boolean;
+  /** "Pay ₹0" (full coverage) or "Pass + pay ₹X" (remainder). */
+  passDesc?: string;
 }
 
 /**
@@ -40,10 +45,18 @@ export function PaymentMethodTiles({
   onlineEnabled,
   upiQrEnabled,
   advanceEnabled,
+  passAvailable = false,
+  passDesc,
 }: Props) {
   const showMethodToggle = upiQrEnabled && onlineEnabled;
 
   const cards: { id: AmountMode; enabled: boolean; title: string; desc: string }[] = [
+    {
+      id: "pass",
+      enabled: passAvailable,
+      title: "Book with my pass",
+      desc: passDesc ?? "Pay ₹0",
+    },
     {
       id: "full",
       enabled: onlineEnabled || upiQrEnabled,
@@ -79,7 +92,11 @@ export function PaymentMethodTiles({
                     { backgroundColor: isSelected ? colors.emerald500_10 : colors.zinc800 },
                   ]}
                 >
-                  <Wallet size={20} color={isSelected ? colors.emerald400 : colors.zinc400} />
+                  {card.id === "pass" ? (
+                    <Ticket size={20} color={isSelected ? colors.emerald400 : colors.zinc400} />
+                  ) : (
+                    <Wallet size={20} color={isSelected ? colors.emerald400 : colors.zinc400} />
+                  )}
                 </View>
                 <View style={styles.body}>
                   <Text variant="body" weight="500" color={colors.foreground}>
@@ -100,7 +117,7 @@ export function PaymentMethodTiles({
                 </View>
               </Pressable>
 
-              {isSelected && showMethodToggle ? (
+              {isSelected && card.id !== "pass" && showMethodToggle ? (
                 <View style={styles.toggleWrap}>
                   <MethodToggle method={method} onMethodChange={onMethodChange} gateway={gateway} />
                 </View>

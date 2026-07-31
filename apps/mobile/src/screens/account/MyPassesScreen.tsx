@@ -7,7 +7,7 @@ import {
   View,
 } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { Archive, Sparkles, Ticket } from "lucide-react-native";
+import { Archive, Moon, Sparkles, Sun, Ticket } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Screen } from "../../components/ui/Screen";
@@ -128,10 +128,37 @@ function PassTicket({
           {pass.status === "UPCOMING"
             ? `Starts ${fmtDate(pass.startsAt)}`
             : `Expires ${fmtDate(pass.expiresAt)}`}
-          {pass.bandsSummary && pass.bandsSummary !== "All hours"
+          {(pass.timeChips?.length ?? 0) === 0 &&
+          pass.bandsSummary &&
+          pass.bandsSummary !== "All hours"
             ? ` · ${pass.bandsSummary}`
             : ""}
         </Text>
+        {(pass.timeChips?.length ?? 0) > 0
+          ? pass.timeChips!.map((c) => (
+              <View
+                key={c.label}
+                style={[
+                  styles.timeChip,
+                  c.tone === "day" ? styles.timeChipDay : styles.timeChipNight,
+                ]}
+              >
+                {c.tone === "day" ? (
+                  <Sun size={11} color="#7dd3fc" />
+                ) : (
+                  <Moon size={11} color={colors.zinc300} />
+                )}
+                <Text
+                  style={[
+                    styles.timeChipText,
+                    { color: c.tone === "day" ? "#7dd3fc" : colors.zinc300 },
+                  ]}
+                >
+                  {c.label}
+                </Text>
+              </View>
+            ))
+          : null}
         <Text style={styles.footerLink}>Details ›</Text>
       </View>
     </Pressable>
@@ -426,6 +453,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  timeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 6,
+  },
+  timeChipDay: {
+    backgroundColor: "rgba(14,165,233,0.15)",
+  },
+  timeChipNight: {
+    backgroundColor: "rgba(63,63,70,0.6)",
+  },
+  timeChipText: {
+    fontSize: 10,
+    fontWeight: "700",
   },
   footerText: {
     flex: 1,

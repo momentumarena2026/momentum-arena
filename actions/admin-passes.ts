@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { Prisma, type Sport } from "@prisma/client";
 import { requireAdmin } from "@/lib/admin-auth";
 import { revalidatePath } from "next/cache";
-import { parseBands, bandKey, anchorBuckets, type Band } from "@/lib/pass-bands";
+import { parseBands, bandKey, type Band } from "@/lib/pass-bands";
 import { courtGroupKey, courtGroupLabel } from "@/lib/court-config";
 import { parseStartDate, passLiveStatus } from "@/lib/passes";
 import { normalizeIndianPhone } from "@/lib/phone";
@@ -382,13 +382,12 @@ export async function togglePassPlan(
 }
 
 /**
- * Tick/untick a plan as its sport's "cheapest hour" showcase. WHICH
- * bucket it anchors (peak / off-peak / both) is derived from the plan's
- * own bands — an off-peak pass can only anchor off-peak hours, so the
- * admin never picks a bucket. Setting a plan clears any other plan of
- * the same sport whose derived buckets overlap, keeping at most one
- * anchor per (sport, bucket). Drives the slot-selection
- * "Play more, pay less" banner.
+ * Tick/untick a plan as the cheapest pass for its court type. Exactly
+ * ONE anchor per interchangeable court group (cricket full field,
+ * cricket half court, bowling machine, football, pickleball, …):
+ * ticking a plan un-ticks the group's previous holder. Drives the
+ * slot-selection "Save More with Arena Passes" banner and its
+ * "from ₹X/hour" price.
  */
 export async function setPassCheapestHour(
   id: string,
@@ -397,35 +396,37 @@ export async function setPassCheapestHour(
   await gate();
   const plan = await db.passPlan.findUnique({
     where: { id },
-    select: { id: true, sport: true, isActive: true, bands: true },
+    select: {
+      id: true,
+      isActive: true,
+      courtConfig: { select: { sport: true, size: true, category: true } },
+    },
   });
   if (!plan) return { ok: false, error: "Plan not found" };
   if (on && !plan.isActive) {
     return { ok: false, error: "Activate the plan before making it an anchor" };
   }
 
+  const groupConfigs = await db.courtConfig.findMany({
+    where: {
+      sport: plan.courtConfig.sport,
+      size: plan.courtConfig.size,
+      category: plan.courtConfig.category,
+    },
+    select: { id: true },
+  });
+  const groupIds = groupConfigs.map((c) => c.id);
+
   await db.$transaction(async (tx) => {
     if (on) {
-      const myBuckets = new Set(anchorBuckets(parseBands(plan.bands)));
-      const siblings = await tx.passPlan.findMany({
+      await tx.passPlan.updateMany({
         where: {
-          sport: plan.sport,
+          courtConfigId: { in: groupIds },
           isCheapestHourAnchor: true,
           id: { not: id },
         },
-        select: { id: true, bands: true },
+        data: { isCheapestHourAnchor: false },
       });
-      const overlapping = siblings
-        .filter((s) =>
-          anchorBuckets(parseBands(s.bands)).some((b) => myBuckets.has(b)),
-        )
-        .map((s) => s.id);
-      if (overlapping.length > 0) {
-        await tx.passPlan.updateMany({
-          where: { id: { in: overlapping } },
-          data: { isCheapestHourAnchor: false },
-        });
-      }
     }
     await tx.passPlan.update({
       where: { id },

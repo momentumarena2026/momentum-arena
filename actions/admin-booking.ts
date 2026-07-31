@@ -12,6 +12,8 @@ import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import {
   restorePassForBooking,
   passMinutesValue,
+  getPassOfferForHold,
+  debitPass,
   syncPassAfterAdminEdit,
   passCoversCourtGroup,
   passBandsCoverHours,
@@ -335,11 +337,11 @@ export async function markRemainderCollected(
   // Defense in depth: a pass-covered booking must never take remainder
   // money on top of coveredAmount (double-charging the covered hours).
   {
-    const red = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const red = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
-    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+    if (red || booking.payment.method === "PASS") {
       return {
         success: false,
         error:
@@ -492,11 +494,11 @@ export async function updateRemainderSplit(
     return { success: false, error: "Booking is not a partial payment" };
   }
   {
-    const red = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const red = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
-    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+    if (red || booking.payment.method === "PASS") {
       return {
         success: false,
         error:
@@ -1076,11 +1078,11 @@ export async function adminEditPayment(
   // the covered hours — route admins to edit-slots (with the pass
   // option), cancel, or refund instead.
   {
-    const red = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const red = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
-    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+    if (red || booking.payment.method === "PASS") {
       return {
         success: false as const,
         error:
@@ -1574,6 +1576,37 @@ export async function getAdminStats() {
     }),
   ]);
 
+  // Pass-settled rupees inside each tile's scope (cash basis: that
+  // money was recognised at pass PURCHASE and is reported as a pass
+  // sale on the purchase day — a pass-paid booking still counts as a
+  // booking, but contributes ₹0 to these money tiles). One query,
+  // three conditional sums; Booking↔Payment is 1:1 so no fan-out.
+  const coveredRows = await db.$queryRaw<
+    {
+      today_revenue_covered: bigint | null;
+      total_revenue_covered: bigint | null;
+      today_earning_covered: bigint | null;
+    }[]
+  >(Prisma.sql`
+    SELECT
+      SUM(CASE WHEN p.status = 'COMPLETED' AND p."confirmedAt" >= ${today} AND p."confirmedAt" < ${tomorrow}
+               THEN pr."coveredAmount" ELSE 0 END)::bigint AS today_revenue_covered,
+      SUM(CASE WHEN p.status = 'COMPLETED' AND p."confirmedAt" IS NOT NULL
+               THEN pr."coveredAmount" ELSE 0 END)::bigint AS total_revenue_covered,
+      SUM(CASE WHEN b.date = ${today}
+               THEN pr."coveredAmount" ELSE 0 END)::bigint AS today_earning_covered
+    FROM "PassRedemption" pr
+    INNER JOIN "Booking" b ON b.id = pr."bookingId"
+    LEFT JOIN "Payment" p ON p."bookingId" = b.id
+    WHERE pr."restoredAt" IS NULL
+      AND b.status IN (${Prisma.join([...EARNING_BOOKING_STATUSES])})
+  `);
+  const covered = coveredRows[0] ?? {
+    today_revenue_covered: null,
+    total_revenue_covered: null,
+    today_earning_covered: null,
+  };
+
   // Gross (pre-discount) earnings = sum(totalAmount) + sum(discountAmount).
   // Booking.originalAmount is only populated when a discount was applied,
   // so we can't just sum it; reconstructing from totalAmount + discount
@@ -1610,16 +1643,26 @@ export async function getAdminStats() {
   // whose slot date is today — i.e. the booked revenue for today's
   // sessions, independent of when the customer's payment was
   // confirmed. See the aggregate query above for the rationale.
-  const todayEarning = todayEarningAgg._sum.totalAmount ?? 0;
+  // Pass-covered slots contribute ₹0 here — the day still shows the
+  // booking in its count, but the money was recognised at pass purchase.
+  const todayEarning =
+    (todayEarningAgg._sum.totalAmount ?? 0) -
+    Number(covered.today_earning_covered ?? 0);
 
   return {
     isSuperadmin,
     totalBookings: isSuperadmin ? totalBookings : null,
     todayBookings,
     totalUsers,
-    todayRevenue: isSuperadmin ? (todayRevenue._sum.totalAmount ?? 0) : null,
+    todayRevenue: isSuperadmin
+      ? (todayRevenue._sum.totalAmount ?? 0) -
+        Number(covered.today_revenue_covered ?? 0)
+      : null,
     todayEarning: isSuperadmin ? todayEarning : null,
-    totalRevenue: isSuperadmin ? (totalRevenue._sum.totalAmount ?? 0) : null,
+    totalRevenue: isSuperadmin
+      ? (totalRevenue._sum.totalAmount ?? 0) -
+        Number(covered.total_revenue_covered ?? 0)
+      : null,
     pendingPayments,
     venueDueTotal: venueDueAgg._sum.remainingAmount ?? 0,
     averageDailyEarning: isSuperadmin ? averageDailyEarning : null,
@@ -1633,7 +1676,7 @@ export async function getAdminStats() {
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { zonesOverlap } from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 async function requireAdminWithDetails() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -2027,6 +2070,12 @@ export async function adminCreateBooking(data: {
   // is exposed today (anchored to PICKLEBALL via sport-promo helper);
   // future codes will plug in by way of the same lookup.
   applyCouponCode?: string;
+  // Book on the customer's pass(es): coverage is computed exactly like
+  // customer checkout (multi-pass, band + court-group + validity rules).
+  // Full coverage → Payment method PASS / ₹0; partial → the remainder is
+  // collected via `paymentMethod`. Incompatible with FREE, custom
+  // amounts, coupons and advance splits.
+  payWithPass?: boolean;
   // Optional equipment rentals attached at create time. Each entry
   // is {equipmentId, quantity}; the action looks up the live
   // Equipment.pricePerHour (per-slot price; the column name is
@@ -2351,6 +2400,61 @@ export async function adminCreateBooking(data: {
     );
     const equipmentTotalRupees = Math.round(equipmentTotalPaise / 100);
 
+    // ── Pass payment (booking on the customer's pass balance) ────────
+    let passOffer: Awaited<ReturnType<typeof getPassOfferForHold>> = null;
+    if (data.payWithPass) {
+      if (data.paymentMethod === "FREE") {
+        return { success: false as const, error: "FREE bookings can't also use a pass" };
+      }
+      if (data.customTotalAmount !== undefined) {
+        return {
+          success: false as const,
+          error: "Pass bookings use slot pricing — clear the custom amount",
+        };
+      }
+      if (data.applyCouponCode) {
+        return { success: false as const, error: "Passes can't be combined with coupons" };
+      }
+      if (data.advanceAmount !== undefined) {
+        return {
+          success: false as const,
+          error:
+            "Pass bookings can't take an advance split — the pass covers its share and the remainder is collected in full",
+        };
+      }
+      passOffer = await getPassOfferForHold({
+        userId: data.userId,
+        courtConfigId: data.courtConfigId,
+        date: dateOnly,
+        hours: usingBowling
+          ? data.bowlingSlots!.map((sl) => sl.hour)
+          : data.hours,
+        startMinutes: usingBowling
+          ? data.bowlingSlots!.map((sl) => sl.minute)
+          : undefined,
+        totalAmount: computedTotal,
+        slotPrices: usingBowling
+          ? data.bowlingSlots!.map((sl) => ({
+              hour: sl.hour,
+              minute: sl.minute,
+              price: bowlingPriceMap.get(`${sl.hour}:${sl.minute}`) ?? 0,
+            }))
+          : data.hours.map((h) => ({
+              hour: h,
+              price: priceMap.get(h) ?? peakPrice,
+            })),
+        equipmentTotalAmount: equipmentTotalRupees,
+        courtConfig: { slotDurationMinutes: usingBowling ? 30 : 60 },
+      });
+      if (!passOffer) {
+        return {
+          success: false as const,
+          error:
+            "None of this customer's passes cover these slots (court, date or price band mismatch, or no balance)",
+        };
+      }
+    }
+
     // totalAmount = slot subtotal − coupon + equipment, unless
     // customTotalAmount overrides it (admin's negotiated number is
     // treated as the final figure the customer pays, INCLUSIVE of
@@ -2463,7 +2567,39 @@ export async function adminCreateBooking(data: {
       }
 
       // Create payment based on method / partial flag
-      if (data.paymentMethod === "FREE") {
+      if (passOffer && passOffer.fullCoverage) {
+        // Fully pass-settled: ₹0 money, same shape the customer
+        // redeem route writes. Booking.totalAmount keeps the full slot
+        // value; owed-at-venue = total − 0 − coveredAmount = 0.
+        await tx.payment.create({
+          data: {
+            bookingId: booking.id,
+            method: "PASS",
+            status: "COMPLETED",
+            amount: 0,
+            confirmedBy: admin.id,
+            confirmedAt: now,
+          },
+        });
+      } else if (passOffer) {
+        // Pass covers its share; the remainder rides the chosen method
+        // (RAZORPAY = already collected, CASH/UPI_QR = due at counter).
+        await tx.payment.create({
+          data: {
+            bookingId: booking.id,
+            method: data.paymentMethod,
+            status: data.paymentMethod === "RAZORPAY" ? "COMPLETED" : "PENDING",
+            amount: passOffer.remainderAmount,
+            razorpayPaymentId:
+              data.paymentMethod === "RAZORPAY"
+                ? (data.razorpayPaymentId ?? null)
+                : null,
+            ...(data.paymentMethod === "RAZORPAY"
+              ? { confirmedBy: admin.id, confirmedAt: now }
+              : {}),
+          },
+        });
+      } else if (data.paymentMethod === "FREE") {
         await tx.payment.create({
           data: {
             bookingId: booking.id,
@@ -2539,6 +2675,22 @@ export async function adminCreateBooking(data: {
           } (₹${equipmentTotalRupees})`,
         );
       }
+      if (passOffer) {
+        creationNotes.push(
+          `Paid with pass — ${passOffer.passes
+            .map(
+              (sh) =>
+                `${sh.passName} (${(sh.coveredMinutes / 60)
+                  .toFixed(1)
+                  .replace(/\.0$/, "")}h)`,
+            )
+            .join(" + ")}${
+            passOffer.fullCoverage
+              ? ""
+              : ` · remainder ₹${passOffer.remainderAmount} via ${data.paymentMethod}`
+          }`,
+        );
+      }
 
       // `newSlots` on BookingEditHistory is an Int[] of start-hours
       // by legacy convention. For bowling we surface the hour list as
@@ -2575,13 +2727,48 @@ export async function adminCreateBooking(data: {
       return booking.id;
     });
 
+    // Settle the pass side — one debit + redemption row per
+    // contributing pass, exactly like customer checkout. A failed debit
+    // (balance raced away) rolls the whole thing back so the admin can
+    // retry with live numbers.
+    if (passOffer) {
+      let debitFailed = false;
+      for (const share of passOffer.passes) {
+        const ok = await debitPass(
+          share.passId,
+          share.coveredMinutes,
+          bookingId,
+          share.coveredAmount,
+          share.coveredSlots,
+        );
+        if (!ok) {
+          debitFailed = true;
+          break;
+        }
+      }
+      if (debitFailed) {
+        await restorePassForBooking(bookingId).catch(() => {});
+        await db.booking.update({
+          where: { id: bookingId },
+          data: { status: "CANCELLED" },
+        });
+        return {
+          success: false as const,
+          error:
+            "Pass balance changed while booking — nothing was charged; try again",
+        };
+      }
+    }
+
     // Send confirmation SMS for bookings whose Payment row landed in a
-    // terminal COMPLETED state — FREE, RAZORPAY (full), and any partial
-    // payment (where admin confirmed receipt of the advance).
+    // terminal COMPLETED state — FREE, RAZORPAY (full), any partial
+    // payment (where admin confirmed receipt of the advance), and
+    // fully pass-settled bookings.
     const paymentIsCompleted =
       data.paymentMethod === "FREE" ||
       data.paymentMethod === "RAZORPAY" ||
-      isPartial;
+      isPartial ||
+      (!!passOffer && passOffer.fullCoverage);
     if (paymentIsCompleted) {
       after(async () => {
         await Promise.allSettled([
@@ -2950,12 +3137,12 @@ export async function adminEditBookingSlots(
     // coverage, the top-up remainder otherwise) — money truth lives in
     // Payment.amount + PassRedemption.coveredAmount, which the sync
     // below realigns to the new total.
-    const liveRedemption = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const liveRedemption = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
     const isPassCovered =
-      (!!liveRedemption && !liveRedemption.restoredAt) ||
+      !!liveRedemption ||
       booking.payment?.method === "PASS" ||
       // Top-up bookings stay pass-covered even after their redemption is
       // restored — Payment.amount is the captured remainder, never the
@@ -3521,12 +3708,12 @@ export async function adminEditBookingFull(
       // overwriting amount would double-charge the covered hours — the
       // pass sync below realigns coveredAmount instead, so
       // owed-at-venue = total − payment − covered stays exact.
-      const liveRedemptionFull = await tx.passRedemption.findUnique({
-        where: { bookingId },
-        select: { restoredAt: true },
+      const liveRedemptionFull = await tx.passRedemption.findFirst({
+        where: { bookingId, restoredAt: null },
+        select: { id: true },
       });
       const isPassCoveredFull =
-        (!!liveRedemptionFull && !liveRedemptionFull.restoredAt) ||
+        !!liveRedemptionFull ||
         booking.payment?.method === "PASS" ||
         // Top-up bookings stay pass-covered even once the redemption is
         // restored — Payment.amount is the captured remainder, never the
@@ -4088,6 +4275,249 @@ export async function suggestExtendPrice(
   return Math.round(adjacent.price / 2);
 }
 
+/**
+ * Convert an existing money-paid booking to pass payment — the front
+ * desk's "actually, use my pass" flow. Coverage is computed on the
+ * booking's own slots with the same multi-pass engine as checkout;
+ * every contributing pass is debited (one redemption row each). Full
+ * coverage rewrites the payment to PASS/₹0; partial coverage keeps the
+ * money method for the uncovered remainder. Money already collected is
+ * NOT auto-refunded — the history note spells out what to settle.
+ */
+export async function convertBookingToPass(
+  bookingId: string,
+  note?: string,
+): Promise<
+  | {
+      success: true;
+      fullCoverage: boolean;
+      remainderAmount: number;
+      passes: { passName: string; coveredMinutes: number }[];
+      collectedBefore: number;
+    }
+  | { success: false; error: string }
+> {
+  const admin = await requireAdminWithDetails();
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true, slots: true, courtConfig: true },
+  });
+  if (!booking) return { success: false, error: "Booking not found" };
+  if (!booking.userId) {
+    return { success: false, error: "Guest bookings can't use a pass" };
+  }
+  if (!booking.payment) {
+    return { success: false, error: "No payment row on this booking" };
+  }
+  if (booking.status === "CANCELLED") {
+    return { success: false, error: "Booking is cancelled" };
+  }
+  if (booking.payment.method === "PASS") {
+    return { success: false, error: "This booking is already pass-paid" };
+  }
+  const existingLive = await db.passRedemption.findFirst({
+    where: { bookingId, restoredAt: null },
+    select: { id: true },
+  });
+  if (existingLive) {
+    return { success: false, error: "This booking already redeems a pass" };
+  }
+
+  // Coverage on the booking's own slots — same engine as checkout.
+  const slotDurationMinutes = booking.slots.some(
+    (sl) => sl.durationMinutes === 30,
+  )
+    ? 30
+    : 60;
+  const offer = await getPassOfferForHold({
+    userId: booking.userId,
+    courtConfigId: booking.courtConfigId,
+    date: booking.date,
+    hours: booking.slots.map((sl) => sl.startHour),
+    startMinutes: booking.slots.map((sl) => sl.startMinute),
+    totalAmount: booking.slots.reduce((sum, sl) => sum + sl.price, 0),
+    slotPrices: booking.slots.map((sl) => ({
+      hour: sl.startHour,
+      minute: sl.startMinute,
+      price: sl.price,
+    })),
+    equipmentTotalAmount: booking.equipmentTotalAmount ?? 0,
+    courtConfig: { slotDurationMinutes },
+  }).catch(() => null);
+  if (!offer) {
+    return {
+      success: false,
+      error:
+        "None of this customer's passes cover these slots (court, date or price band mismatch, or no balance)",
+    };
+  }
+
+  // Debit every contributing pass; put everything back on any failure.
+  let debitFailed = false;
+  for (const share of offer.passes) {
+    const ok = await debitPass(
+      share.passId,
+      share.coveredMinutes,
+      bookingId,
+      share.coveredAmount,
+      share.coveredSlots,
+    );
+    if (!ok) {
+      debitFailed = true;
+      break;
+    }
+  }
+  if (debitFailed) {
+    await restorePassForBooking(bookingId).catch(() => {});
+    return {
+      success: false,
+      error: "Pass balance changed while converting — nothing was moved; try again",
+    };
+  }
+
+  const prior = booking.payment;
+  const collectedBefore =
+    prior.status === "COMPLETED" || prior.status === "PARTIAL"
+      ? prior.amount
+      : 0;
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    if (offer.fullCoverage) {
+      await tx.payment.update({
+        where: { id: prior.id },
+        data: {
+          method: "PASS",
+          status: "COMPLETED",
+          amount: 0,
+          isPartialPayment: false,
+          advanceAmount: null,
+          remainingAmount: null,
+          confirmedBy: admin.id,
+          confirmedAt: now,
+        },
+      });
+    } else {
+      // Remainder stays on the existing money method. If the customer
+      // already paid at least the remainder, the row stays settled;
+      // otherwise it goes back to PENDING for the counter.
+      await tx.payment.update({
+        where: { id: prior.id },
+        data: {
+          amount: offer.remainderAmount,
+          status:
+            collectedBefore >= offer.remainderAmount &&
+            prior.status === "COMPLETED"
+              ? "COMPLETED"
+              : "PENDING",
+          isPartialPayment: false,
+          advanceAmount: null,
+          remainingAmount: null,
+        },
+      });
+    }
+    const shareText = offer.passes
+      .map(
+        (sh) =>
+          `${sh.passName} (${(sh.coveredMinutes / 60)
+            .toFixed(1)
+            .replace(/\.0$/, "")}h)`,
+      )
+      .join(" + ");
+    const settleText =
+      collectedBefore > 0
+        ? offer.fullCoverage
+          ? ` · ₹${collectedBefore} was already collected (${prior.method}) — settle the refund separately`
+          : collectedBefore > offer.remainderAmount
+            ? ` · ₹${collectedBefore} was already collected (${prior.method}) — ₹${collectedBefore - offer.remainderAmount} over the remainder, settle separately`
+            : ""
+        : "";
+    await tx.bookingEditHistory.create({
+      data: {
+        bookingId,
+        adminId: admin.id,
+        adminUsername: admin.username,
+        editType: "PAYMENT_EDITED",
+        newAmount: offer.fullCoverage ? 0 : offer.remainderAmount,
+        note:
+          `Moved to pass payment — ${shareText}` +
+          `; was ${prior.method}/${prior.status} ₹${prior.amount}` +
+          settleText +
+          (note?.trim() ? ` · ${note.trim()}` : ""),
+      },
+    });
+  });
+
+  const { revalidatePath } = await import("next/cache");
+  revalidatePath(`/admin/bookings/${bookingId}`);
+  return {
+    success: true,
+    fullCoverage: offer.fullCoverage,
+    remainderAmount: offer.remainderAmount,
+    passes: offer.passes.map((sh) => ({
+      passName: sh.passName,
+      coveredMinutes: sh.coveredMinutes,
+    })),
+    collectedBefore,
+  };
+}
+
+/**
+ * Coverage preview for the admin create-booking form: would this
+ * customer's passes cover these slots? Mirrors adminCreateBooking's
+ * offer computation (prices resolved from the day's classified rates).
+ */
+export async function previewAdminPassCoverage(args: {
+  userId: string;
+  courtConfigId: string;
+  date: string;
+  hours: number[];
+  bowlingSlots?: Array<{ hour: number; minute: 0 | 30 }>;
+}): Promise<
+  | { eligible: false }
+  | {
+      eligible: true;
+      fullCoverage: boolean;
+      coveredMinutes: number;
+      coveredAmount: number;
+      remainderAmount: number;
+      passes: { passName: string; coveredMinutes: number }[];
+    }
+> {
+  await requireAdmin();
+  const usingBowling = !!args.bowlingSlots?.length;
+  if (!args.userId || (!usingBowling && args.hours.length === 0)) {
+    return { eligible: false };
+  }
+  const offer = await getPassOfferForHold({
+    userId: args.userId,
+    courtConfigId: args.courtConfigId,
+    date: new Date(args.date + "T00:00:00Z"),
+    hours: usingBowling
+      ? args.bowlingSlots!.map((sl) => sl.hour)
+      : args.hours,
+    startMinutes: usingBowling
+      ? args.bowlingSlots!.map((sl) => sl.minute)
+      : undefined,
+    // Prices resolve from the day's classified rates inside the offer
+    // computation; totalAmount is unused for coverage math.
+    totalAmount: 0,
+    courtConfig: { slotDurationMinutes: usingBowling ? 30 : 60 },
+  }).catch(() => null);
+  if (!offer) return { eligible: false };
+  return {
+    eligible: true,
+    fullCoverage: offer.fullCoverage,
+    coveredMinutes: offer.coveredMinutes,
+    coveredAmount: offer.coveredAmount,
+    remainderAmount: offer.remainderAmount,
+    passes: offer.passes.map((sh) => ({
+      passName: sh.passName,
+      coveredMinutes: sh.coveredMinutes,
+    })),
+  };
+}
+
 export async function extendBookingByThirtyMin(
   bookingId: string,
   direction: ExtendDirection,
@@ -4140,15 +4570,12 @@ export async function extendBookingByThirtyMin(
       };
     }
 
-    // The redemption already attached to this booking (live or restored)
-    // steers which pass may extend it and whether the Payment row may
-    // flip PARTIAL below.
-    const redemptionRow = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true, userPassId: true },
+    // Live redemptions on this booking (one row per contributing pass)
+    // decide whether the Payment row may flip PARTIAL below.
+    const liveRedemptions = await db.passRedemption.findMany({
+      where: { bookingId, restoredAt: null },
+      select: { userPassId: true },
     });
-    const liveRedemption =
-      redemptionRow && !redemptionRow.restoredAt ? redemptionRow : null;
 
     // Compute the new 30-min window in "minutes-since-midnight" terms.
     let newStartMin: number;
@@ -4191,15 +4618,9 @@ export async function extendBookingByThirtyMin(
       if (!booking.userId) {
         return { success: false, error: "Guest bookings can't use a pass" };
       }
-      // The redemption row is unique per booking — never grow it with
-      // minutes debited from a DIFFERENT pass than the one it points at.
-      if (liveRedemption && payWithPassId !== liveRedemption.userPassId) {
-        return {
-          success: false,
-          error:
-            "This booking already redeems a different pass — extend with that pass, or charge the extension instead.",
-        };
-      }
+      // Multi-pass bookings hold one redemption row per pass — an
+      // extension may debit any eligible pass; a pass not yet on the
+      // booking simply gets its own row below.
       const pass = await db.userPass.findUnique({
         where: { id: payWithPassId },
         include: {
@@ -4324,10 +4745,13 @@ export async function extendBookingByThirtyMin(
         if (debited.count === 0) {
           throw new Error("Pass balance changed — please retry");
         }
-        // One redemption row per booking. An extension after an initial
-        // pass redemption grows that row's minutes; otherwise create it.
+        // One redemption row per (booking, pass). An extension debited
+        // from a pass already on the booking grows that pass's row;
+        // otherwise it gets its own.
         const existingRed = await tx.passRedemption.findUnique({
-          where: { bookingId },
+          where: {
+            bookingId_userPassId: { bookingId, userPassId: payWithPassId },
+          },
         });
         // The extension's own half-hour joins the covered set, so a
         // later edit that removes it returns exactly these 30 minutes.
@@ -4354,7 +4778,7 @@ export async function extendBookingByThirtyMin(
               existingRed.minutes,
             );
           await tx.passRedemption.update({
-            where: { bookingId },
+            where: { id: existingRed.id },
             data: {
               minutes: { increment: 30 },
               value: { increment: passExtendValue },
@@ -4365,12 +4789,12 @@ export async function extendBookingByThirtyMin(
             },
           });
         } else if (existingRed) {
-          // Restored row still occupies the unique bookingId — its old
-          // minutes already went back to the pass, so reactivate it with
-          // JUST this extension's figures (incrementing would resurrect
-          // and lose the restored minutes).
+          // Restored row still occupies the (booking, pass) slot — its
+          // old minutes already went back to the pass, so reactivate it
+          // with JUST this extension's figures (incrementing would
+          // resurrect and lose the restored minutes).
           await tx.passRedemption.update({
-            where: { bookingId },
+            where: { id: existingRed.id },
             data: {
               userPassId: payWithPassId,
               minutes: 30,
@@ -4410,7 +4834,7 @@ export async function extendBookingByThirtyMin(
       // owed-at-venue invariant (total − payment − covered) already
       // surfaces the extension's charge, same as equipment owed.
       const isPassCoveredBooking =
-        !!liveRedemption ||
+        liveRedemptions.length > 0 ||
         booking.payment?.method === "PASS" ||
         booking.payment?.confirmedBy === "PASS_TOPUP";
       if (booking.payment && effectivePrice > 0 && !isPassCoveredBooking) {
@@ -4551,12 +4975,11 @@ async function closeOutBooking(
     //      confirmCashPayment first, so writing that off would erase real
     //      takings. Pass-settled rupees are real money (recognised at
     //      pass purchase) and stay on the total.
-    const redemption = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { coveredAmount: true, restoredAt: true },
+    const redemptions = await db.passRedemption.findMany({
+      where: { bookingId, restoredAt: null },
+      select: { coveredAmount: true },
     });
-    const passCovered =
-      redemption && !redemption.restoredAt ? redemption.coveredAmount : 0;
+    const passCovered = redemptions.reduce((s, r) => s + r.coveredAmount, 0);
     let forfeitedRemainder = 0;
     if (
       booking.payment?.isPartialPayment &&

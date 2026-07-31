@@ -39,6 +39,14 @@ interface AdminBookingActionsProps {
   currentAdvanceAmount: number | null;
   razorpayPaymentId: string | null;
   utrNumber: string | null;
+  /** Eligible pass coverage for "move this booking to pass payment". */
+  passConvertOption?: {
+    fullCoverage: boolean;
+    remainderAmount: number;
+    passes: { passName: string; coveredMinutes: number }[];
+  } | null;
+  /** Live redemption or PASS method — payment figures are pass-managed. */
+  isPassPaid?: boolean;
   isAdminCreated: boolean;
   courtConfigId: string;
   date: string;
@@ -73,6 +81,8 @@ export function AdminBookingActions({
   bookingStatus,
   totalAmount,
   paymentMethod,
+  passConvertOption,
+  isPassPaid,
   paymentStatus,
   paymentAmount,
   isPartialPayment,
@@ -639,6 +649,8 @@ export function AdminBookingActions({
         <EditPaymentModal
           bookingId={bookingId}
           totalAmount={totalAmount}
+          passConvertOption={passConvertOption ?? null}
+          isPassPaid={!!isPassPaid}
           current={{
             method: paymentMethod as
               | "CASH"

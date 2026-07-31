@@ -44,6 +44,9 @@ const Body = z
     // re-fetches the live coupon row server-side so the client can't
     // smuggle in a non-existent code.
     applyCouponCode: z.string().max(30).optional(),
+    // Book on the customer's pass balance — coverage computed
+    // server-side exactly like customer checkout (multi-pass).
+    payWithPass: z.boolean().optional(),
     // Optional equipment rentals to attach at create time. Each
     // entry is {equipmentId, quantity}; the server re-fetches the
     // live Equipment row + prices the rental against the current

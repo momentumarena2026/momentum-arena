@@ -8,6 +8,7 @@ import {
   getAvailableBowlingSlots,
   createCustomerForBooking,
   adminCreateBooking,
+  previewAdminPassCoverage,
 } from "@/actions/admin-booking";
 import { listEquipmentForBookingCreate } from "@/actions/admin-equipment-rental";
 import {
@@ -159,8 +160,56 @@ export function CreateBookingForm({
 
   // Step 4 state
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  // "Book with customer's pass" — preview computed whenever the
+  // customer/court/date/slots change; the checkbox only renders when a
+  // pass actually covers something.
+  const [payWithPass, setPayWithPass] = useState(false);
+  const [passPreview, setPassPreview] = useState<Awaited<
+    ReturnType<typeof previewAdminPassCoverage>
+  > | null>(null);
   const [razorpayPaymentId, setRazorpayPaymentId] = useState("");
   const [note, setNote] = useState("");
+
+  // Recompute the pass-coverage preview when the pieces are in place.
+  useEffect(() => {
+    const usingBowlingSel = selectedBowlingSlots.length > 0;
+    if (
+      !selectedCustomer ||
+      !selectedConfigId ||
+      !date ||
+      (selectedHours.length === 0 && !usingBowlingSel)
+    ) {
+      setPassPreview(null);
+      setPayWithPass(false);
+      return;
+    }
+    let cancelled = false;
+    void previewAdminPassCoverage({
+      userId: selectedCustomer.id,
+      courtConfigId: selectedConfigId,
+      date,
+      hours: usingBowlingSel ? [] : selectedHours.slice().sort((a, b) => a - b),
+      bowlingSlots: usingBowlingSel ? selectedBowlingSlots : undefined,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setPassPreview(res);
+        if (!res.eligible) setPayWithPass(false);
+      })
+      .catch(() => {
+        if (!cancelled) setPassPreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectedCustomer?.id,
+    selectedConfigId,
+    date,
+    selectedHours.join(","),
+    selectedBowlingSlots.map((sl) => `${sl.hour}:${sl.minute}`).join(","),
+  ]);
   // Partial-payment flow: admin records how much the customer has paid
   // against the slot price (via static QR, cash in hand, or Razorpay).
   // Remainder is collected at the venue. isPartial=false means the full
@@ -556,6 +605,7 @@ export function CreateBookingForm({
         customTotalAmount,
         applyCouponCode,
         equipment: equipmentPayload.length > 0 ? equipmentPayload : undefined,
+        payWithPass: payWithPass || undefined,
         note: note.trim() || undefined,
       });
       if (result.success) {
@@ -1034,6 +1084,47 @@ export function CreateBookingForm({
               </label>
             ))}
           </div>
+
+          {passPreview?.eligible && paymentMethod !== "FREE" && (
+            <label
+              className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-all ${
+                payWithPass
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : "border-zinc-700 bg-zinc-800/50 hover:border-zinc-600"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={payWithPass}
+                onChange={(e) => setPayWithPass(e.target.checked)}
+                className="mt-0.5 accent-emerald-500"
+              />
+              <span className="text-sm">
+                <span className="font-medium text-white">
+                  Book with customer&apos;s pass
+                </span>
+                <span className="mt-0.5 block text-xs text-emerald-400">
+                  {passPreview.passes
+                    .map(
+                      (sh) =>
+                        `${sh.passName} (${(sh.coveredMinutes / 60)
+                          .toFixed(1)
+                          .replace(/\.0$/, "")}h)`,
+                    )
+                    .join(" + ")}
+                  {passPreview.fullCoverage
+                    ? " — fully covered, ₹0 to collect"
+                    : ` — remainder ₹${passPreview.remainderAmount} via ${paymentMethod}`}
+                </span>
+                {payWithPass && (
+                  <span className="mt-1 block text-[11px] text-zinc-500">
+                    Coupons, custom amounts and advance splits don&apos;t
+                    combine with a pass.
+                  </span>
+                )}
+              </span>
+            </label>
+          )}
 
           {paymentMethod === "RAZORPAY" && (
             <input

@@ -5,6 +5,7 @@ import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
 import {
   Bell,
+  BellRing,
   Calendar,
   Clock,
   ArrowRight,
@@ -293,6 +294,13 @@ export default async function DashboardPage() {
               }
             />
           )}
+          <HubTile
+            href="/notifications"
+            icon={<BellRing className="h-5 w-5 text-rose-400" />}
+            iconClass="bg-rose-500/15"
+            title="My Notifications"
+            subtitle="Pass activity, bookings & updates for you"
+          />
           <HubTile
             href="/waitlist"
             icon={<Bell className="h-5 w-5 text-amber-400" />}

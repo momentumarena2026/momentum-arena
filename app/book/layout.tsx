@@ -1,4 +1,6 @@
 import { SiteHeader } from "@/components/site-header";
+import { MinimalHeader } from "@/components/minimal-header";
+import { PathSwitch } from "@/components/nav/path-switch";
 
 export default function BookLayout({
   children,
@@ -7,7 +9,12 @@ export default function BookLayout({
 }) {
   return (
     <div className="min-h-screen bg-black">
-      <SiteHeader active="sports" />
+      {/* Payment screen stays distraction-free: logo only, no nav. */}
+      <PathSwitch
+        prefix="/book/checkout"
+        match={<MinimalHeader />}
+        otherwise={<SiteHeader active="sports" />}
+      />
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>

@@ -211,6 +211,33 @@ export interface Hold {
   // no matching pass, or a coupon/points are applied). Drives the
   // "Use my pass" banner on the checkout screen.
   passOffer?: PassOffer | null;
+  /** "Book via" tab visibility — a pass could cover (some of) this hold. */
+  passAvailable?: boolean;
+  passTabFullCoverage?: boolean;
+  /** Snapshotted coverage while the Pass tab is active; null otherwise. */
+  passMode?: {
+    passId: string;
+    passName: string;
+    coveredMinutes: number;
+    coveredAmount: number;
+    fullCoverage: boolean;
+    /** Which slots the passes settle (h/m/min) — their summary rows
+     *  render at ₹0. */
+    coveredSlots?: { h: number; m: number; min: number }[];
+    /** Per-pass breakdown when several passes fund one booking. */
+    passes?: PassShare[];
+  } | null;
+  /** What checkout math prices against: totalAmount − pass coverage. */
+  courtBase?: number;
+}
+
+/** One pass's contribution when a booking draws on several passes. */
+export interface PassShare {
+  passId: string;
+  passName: string;
+  coveredMinutes: number;
+  coveredAmount: number;
+  remainingMinutes?: number;
 }
 
 /** Server-computed pass coverage — mirrors lib/passes.getPassOfferForHold. */
@@ -222,6 +249,8 @@ export interface PassOffer {
   coveredMinutes: number;
   fullCoverage: boolean;
   remainderAmount: number;
+  /** Per-pass breakdown in debit order. */
+  passes?: PassShare[];
 }
 
 export interface ApplyPointsResult {
@@ -361,13 +390,19 @@ export const bookingApi = {
    * screen — the sport's admin-designated cheapest-hour anchor plans
    * (morning = off-peak, night = peak). Null pitch → show no banner.
    */
+  /** "Book via" tab switch — enter/exit pass mode on the hold. */
+  bookVia: (holdId: string, via: "pass" | "online") =>
+    api.post<{ ok: boolean; error?: string }>("/api/mobile/booking/book-via", {
+      holdId,
+      via,
+    }),
+
   passPitch: (configId: string) =>
     api.get<{
       pitch: {
-        planName: string | null;
+        planName: string;
         sport: string;
-        morning: { withPass: number; regular: number; save: number } | null;
-        night: { withPass: number; regular: number; save: number } | null;
+        fromPerHour: number;
       } | null;
     }>(`/api/mobile/pass-pitch?configId=${encodeURIComponent(configId)}`, {
       auth: false,
