@@ -55,6 +55,16 @@ const DEMAND_BOOKING_STATUSES = ["CONFIRMED", "COMPLETED", "ABSENT"] as const;
 // 1. Revenue Over Time
 // ===========================
 
+// A booking may hold several pass redemptions (one per contributing
+// pass) — always SUM per booking, a plain Map keeps only the last row.
+function sumByBooking(
+  rows: { bookingId: string; amount: number }[],
+): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) m.set(r.bookingId, (m.get(r.bookingId) ?? 0) + r.amount);
+  return m;
+}
+
 export async function getRevenueOverTime(
   filters: {
     dateFrom: string;
@@ -244,8 +254,8 @@ export async function getSportRevenueBreakdown(
         select: { sport: true, price: true },
       }),
     ]);
-    const coveredByBooking = new Map(
-      redemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    const coveredByBooking = sumByBooking(
+      redemptions.map((r) => ({ bookingId: r.bookingId, amount: r.coveredAmount })),
     );
 
     const sportMap = new Map<
@@ -351,8 +361,8 @@ export async function getSportRevenueByMonth(
         select: { sport: true, price: true, purchasedAt: true },
       }),
     ]);
-    const coveredByBooking = new Map(
-      redemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    const coveredByBooking = sumByBooking(
+      redemptions.map((r) => ({ bookingId: r.bookingId, amount: r.coveredAmount })),
     );
 
     // Discover every sport present in the window — we'll initialise
@@ -610,8 +620,8 @@ export async function getTopCustomers(
         select: { userId: true, price: true },
       }),
     ]);
-    const coveredByBooking = new Map(
-      bookingRedemptions.map((r) => [r.bookingId, r.coveredAmount]),
+    const coveredByBooking = sumByBooking(
+      bookingRedemptions.map((r) => ({ bookingId: r.bookingId, amount: r.coveredAmount })),
     );
 
     // Get cafe spending per user (limit to 5000 records)
