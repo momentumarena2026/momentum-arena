@@ -20,6 +20,15 @@ export const bandLabel = (b: Band) =>
     b.timeType === "PEAK" ? "Peak" : "Off-peak"
   }`;
 
+/** Which peak/off-peak buckets a plan can anchor as the sport's
+ *  "cheapest hour" pass — derived from its bands (empty = legacy
+ *  unrestricted = both). Mirror of lib/pass-bands.anchorBuckets. */
+export const anchorBuckets = (bands: Band[]): TimeType[] => {
+  if (bands.length === 0) return ["PEAK", "OFF_PEAK"];
+  const set = new Set(bands.map((b) => b.timeType));
+  return (["PEAK", "OFF_PEAK"] as TimeType[]).filter((t) => set.has(t));
+};
+
 /** Court group option (interchangeable positions collapsed) + rates. */
 export interface PassConfigOption {
   id: string;
@@ -47,9 +56,9 @@ export interface AdminPassPlan {
   price: number;
   validityDays: number;
   isActive: boolean;
-  /** "PEAK" | "OFF_PEAK" when this plan is the sport's cheapest-hour
-   *  showcase for that time type (drives the checkout upsell nudge). */
-  upsellTimeType: "PEAK" | "OFF_PEAK" | null;
+  /** True when this plan is the sport's cheapest-hour showcase — the
+   *  bucket (peak/off-peak/both) is derived from its bands. */
+  isCheapestHourAnchor: boolean;
   soldCount: number;
 }
 
@@ -125,9 +134,10 @@ export const adminPassesApi = {
   togglePlan: (id: string, isActive: boolean) =>
     action({ action: "toggle-plan", id, isActive }),
 
-  /** Mark/clear a plan as the sport's cheapest-hour anchor (null clears). */
-  setUpsellAnchor: (id: string, timeType: "PEAK" | "OFF_PEAK" | null) =>
-    action({ action: "set-upsell-anchor", id, timeType }),
+  /** Tick/untick a plan as the sport's cheapest-hour anchor (bucket
+   *  derives from its bands; overlapping plans get un-ticked). */
+  setCheapestHour: (id: string, on: boolean) =>
+    action({ action: "set-cheapest-hour", id, on }),
 
   deletePlan: (id: string) => action({ action: "delete-plan", id }),
 

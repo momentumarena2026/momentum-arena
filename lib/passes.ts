@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getSlotPricesForDate } from "@/lib/pricing";
-import { parseBands, slotInBands, bandsSummary } from "@/lib/pass-bands";
+import { parseBands, slotInBands, bandsSummary, anchorBuckets } from "@/lib/pass-bands";
 import { courtGroupLabel } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { recordOrphanPayment } from "@/lib/payment-orphan";
@@ -1444,7 +1444,7 @@ export async function getPassPitchForCourtConfig(
     where: {
       sport: cfg.sport,
       isActive: true,
-      upsellTimeType: { not: null },
+      isCheapestHourAnchor: true,
     },
     select: {
       id: true,
@@ -1454,7 +1454,7 @@ export async function getPassPitchForCourtConfig(
       courtConfigId: true,
       anchorPrice: true,
       anchorPricePerHour: true,
-      upsellTimeType: true,
+      bands: true,
     },
   });
 
@@ -1469,9 +1469,15 @@ export async function getPassPitchForCourtConfig(
     return save > 0 ? { withPass, regular, save } : null;
   };
 
-  const peakPlan = anchors.find((a) => a.upsellTimeType === "PEAK") ?? null;
+  // Which bucket(s) each anchor serves comes from its own bands — the
+  // admin only ticked "cheapest hour"; an all-hours plan serves both.
+  const peakPlan =
+    anchors.find((a) => anchorBuckets(parseBands(a.bands)).includes("PEAK")) ??
+    null;
   const offPeakPlan =
-    anchors.find((a) => a.upsellTimeType === "OFF_PEAK") ?? null;
+    anchors.find((a) =>
+      anchorBuckets(parseBands(a.bands)).includes("OFF_PEAK"),
+    ) ?? null;
   const night = peakPlan ? rateOf(peakPlan) : null;
   const morning = offPeakPlan ? rateOf(offPeakPlan) : null;
   if (!night && !morning) return null;

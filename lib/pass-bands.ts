@@ -76,3 +76,15 @@ export function bandsSummary(bands: Band[]): string {
   }
   return bands.map(bandLabel).join(", ");
 }
+
+/**
+ * Which peak/off-peak buckets a plan can anchor as the sport's
+ * "cheapest hour" pass — derived from its own bands, never asked of the
+ * admin (an off-peak pass can only ever anchor off-peak hours). Empty
+ * bands = legacy unrestricted = both buckets.
+ */
+export function anchorBuckets(bands: Band[]): ("PEAK" | "OFF_PEAK")[] {
+  if (bands.length === 0) return ["PEAK", "OFF_PEAK"];
+  const set = new Set(bands.map((b) => b.timeType));
+  return (["PEAK", "OFF_PEAK"] as const).filter((t) => set.has(t));
+}

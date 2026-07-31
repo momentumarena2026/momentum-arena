@@ -35,6 +35,7 @@ import {
   type Band,
   type PassConfigOption,
   type SoldPass,
+  anchorBuckets,
 } from "../../lib/admin-passes";
 import { adminBookingsApi } from "../../lib/admin-bookings";
 import { AdminApiError } from "../../lib/admin-api";
@@ -464,46 +465,44 @@ export function AdminPassesScreen() {
                     ⚠︎ Price drifted off the anchor — unsellable until edited.
                   </Text>
                 )}
-                {/* Cheapest-hour showcase — one plan per sport for PEAK and
-                    one for OFF_PEAK. The booking checkout uses the flagged
-                    plan to pitch "this same hour is ₹X cheaper with a pass". */}
+                {/* Cheapest-hour showcase — a single tick; WHICH bucket it
+                    anchors (peak / off-peak / both) derives from the plan's
+                    own bands. Drives the slot-selection "Play more, pay
+                    less" banner; ticking un-ticks overlapping plans. */}
                 <View style={styles.anchorRow}>
-                  {(["PEAK", "OFF_PEAK"] as const).map((tt) => {
-                    const on = p.upsellTimeType === tt;
+                  {(() => {
+                    const buckets = anchorBuckets(p.bands);
+                    const bucketLabel =
+                      buckets.length === 2
+                        ? "Peak + Off-peak"
+                        : buckets[0] === "PEAK"
+                          ? "☀ Peak"
+                          : "☾ Off-peak";
+                    const on = p.isCheapestHourAnchor;
                     return (
                       <Pressable
-                        key={tt}
                         disabled={!p.isActive && !on}
                         onPress={() =>
                           void run(() =>
-                            adminPassesApi.setUpsellAnchor(p.id, on ? null : tt),
+                            adminPassesApi.setCheapestHour(p.id, !on),
                           )
                         }
                         style={[
                           styles.anchorChip,
-                          on &&
-                            (tt === "PEAK"
-                              ? styles.anchorChipPeak
-                              : styles.anchorChipOffPeak),
+                          on && styles.anchorChipOn,
                           !p.isActive && !on && { opacity: 0.35 },
                         ]}
                       >
                         <Text
                           variant="tiny"
                           weight="700"
-                          color={
-                            on
-                              ? tt === "PEAK"
-                                ? colors.yellow400
-                                : "#7dd3fc"
-                              : colors.zinc500
-                          }
+                          color={on ? colors.emerald400 : colors.zinc500}
                         >
-                          {tt === "PEAK" ? "☀ Peak cheapest" : "☾ Off-peak cheapest"}
+                          {on ? "✓ " : ""}Cheapest hour · {bucketLabel}
                         </Text>
                       </Pressable>
                     );
-                  })}
+                  })()}
                 </View>
                 <View style={styles.cardActions}>
                   <Button
@@ -1233,11 +1232,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     backgroundColor: colors.zinc800,
   },
-  anchorChipPeak: {
-    backgroundColor: "rgba(250,204,21,0.14)",
-  },
-  anchorChipOffPeak: {
-    backgroundColor: "rgba(56,189,248,0.14)",
+  anchorChipOn: {
+    backgroundColor: "rgba(16,185,129,0.14)",
   },
   cardActions: {
     marginTop: spacing["3"],

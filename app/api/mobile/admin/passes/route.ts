@@ -7,7 +7,7 @@ import {
   createPassPlan,
   updatePassPlan,
   togglePassPlan,
-  setPassUpsellAnchor,
+  setPassCheapestHour,
   deletePassPlan,
   issuePassToUser,
   giftCustomPass,
@@ -99,12 +99,8 @@ export async function POST(request: NextRequest) {
         const result = await togglePassPlan(str("id"), !!body.isActive);
         return NextResponse.json(result);
       }
-      case "set-upsell-anchor": {
-        const tt = body.timeType;
-        if (tt !== "PEAK" && tt !== "OFF_PEAK" && tt !== null) {
-          return NextResponse.json({ ok: false, error: "Invalid time type." });
-        }
-        const result = await setPassUpsellAnchor(str("id"), tt);
+      case "set-cheapest-hour": {
+        const result = await setPassCheapestHour(str("id"), !!body.on);
         return NextResponse.json(result);
       }
       case "delete-plan": {

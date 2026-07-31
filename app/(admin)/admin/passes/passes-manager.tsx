@@ -6,13 +6,13 @@ import {
   createPassPlan,
   updatePassPlan,
   deletePassPlan,
-  setPassUpsellAnchor,
+  setPassCheapestHour,
   setPassesEnabled,
   togglePassPlan,
   type PassConfigOption,
 } from "@/actions/admin-passes";
 import { Plus, Ticket, Trash2, Pencil, X, Loader2, AlertTriangle } from "lucide-react";
-import { bandsSummary, type Band } from "@/lib/pass-bands";
+import { anchorBuckets, bandsSummary, type Band } from "@/lib/pass-bands";
 import { BandPicker, anchorPerHour } from "./band-picker";
 
 interface Plan {
@@ -30,9 +30,9 @@ interface Plan {
   price: number;
   validityDays: number;
   isActive: boolean;
-  /** "PEAK" | "OFF_PEAK" when this plan is its sport's cheapest-hour
-   *  showcase for that time type (drives the checkout upsell nudge). */
-  upsellTimeType: string | null;
+  /** True when this plan is its sport's cheapest-hour showcase — the
+   *  bucket (peak/off-peak/both) is derived from its bands. */
+  isCheapestHourAnchor: boolean;
   soldCount: number;
 }
 
@@ -363,41 +363,42 @@ export function PassesManager({
                       </button>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-1">
-                        {(["PEAK", "OFF_PEAK"] as const).map((tt) => {
-                          const on = p.upsellTimeType === tt;
-                          return (
-                            <button
-                              key={tt}
-                              onClick={() =>
+                      {(() => {
+                        const buckets = anchorBuckets(p.bands);
+                        const bucketLabel =
+                          buckets.length === 2
+                            ? "Peak + Off-peak"
+                            : buckets[0] === "PEAK"
+                              ? "☀ Peak"
+                              : "☾ Off-peak";
+                        return (
+                          <label
+                            className={`flex w-fit cursor-pointer items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                              p.isCheapestHourAnchor
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300"
+                            } ${pending || (!p.isActive && !p.isCheapestHourAnchor) ? "pointer-events-none opacity-40" : ""}`}
+                            title={`Marks this plan as the ${p.sport.toLowerCase()} cheapest-hour pass. It anchors ${bucketLabel.replace("☀ ", "").replace("☾ ", "").toLowerCase()} slots (derived from its bands) in the "Play more, pay less" banner; ticking it un-ticks any overlapping plan.`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={p.isCheapestHourAnchor}
+                              onChange={() =>
                                 startTransition(async () => {
-                                  const res = await setPassUpsellAnchor(
+                                  const res = await setPassCheapestHour(
                                     p.id,
-                                    on ? null : tt,
+                                    !p.isCheapestHourAnchor,
                                   );
                                   if (!res.ok) setError(res.error);
                                   router.refresh();
                                 })
                               }
-                              disabled={pending || (!p.isActive && !on)}
-                              title={
-                                on
-                                  ? "Remove the cheapest-hour flag"
-                                  : `Make this the ${p.sport.toLowerCase()} cheapest-hour pass for ${tt === "PEAK" ? "peak" : "off-peak"} slots (takes it from the current holder)`
-                              }
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-30 ${
-                                on
-                                  ? tt === "PEAK"
-                                    ? "bg-amber-500/15 text-amber-400"
-                                    : "bg-sky-500/15 text-sky-300"
-                                  : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300"
-                              }`}
-                            >
-                              {tt === "PEAK" ? "☀ Peak" : "☾ Off-peak"}
-                            </button>
-                          );
-                        })}
-                      </div>
+                              className="h-3.5 w-3.5 accent-emerald-500"
+                            />
+                            {bucketLabel}
+                          </label>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
