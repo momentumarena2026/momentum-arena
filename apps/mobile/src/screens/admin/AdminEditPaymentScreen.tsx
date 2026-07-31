@@ -84,6 +84,8 @@ export function AdminEditPaymentScreen() {
   });
 
   const [method, setMethod] = useState<AdminPaymentMethod | null>(null);
+  // "Pass" pseudo-method — saving converts the booking to pass payment.
+  const [usePass, setUsePass] = useState(false);
   const [status, setStatus] = useState<AdminPaymentStatus | null>(null);
   const [totalStr, setTotalStr] = useState("");
   const [isPartial, setIsPartial] = useState(false);
@@ -109,6 +111,9 @@ export function AdminEditPaymentScreen() {
     setSeeded(true);
   }, [detail.data, seeded]);
 
+  const booking = detail.data?.booking ?? null;
+  const passConvert = booking?.passConvert ?? null;
+
   const parsedTotal = parseInt(totalStr, 10);
   const parsedAdvance =
     advanceStr.trim().length === 0 ? 0 : parseInt(advanceStr, 10);
@@ -121,6 +126,13 @@ export function AdminEditPaymentScreen() {
 
   const save = useMutation({
     mutationFn: () => {
+      // Pass pseudo-method: convert the booking instead of patching.
+      if (usePass) {
+        return adminBookingsApi.convertToPass(
+          params.bookingId,
+          note.trim() || undefined,
+        );
+      }
       const b = detail.data!.booking;
       const p = b.payment!;
 
@@ -217,20 +229,76 @@ export function AdminEditPaymentScreen() {
             {METHODS.map((m) => (
               <Pressable
                 key={m}
-                onPress={() => setMethod(m)}
-                style={[styles.chip, method === m && styles.chipActive]}
+                onPress={() => {
+                  setUsePass(false);
+                  setMethod(m);
+                }}
+                style={[
+                  styles.chip,
+                  method === m && !usePass && styles.chipActive,
+                ]}
               >
                 <Text
                   variant="tiny"
-                  color={method === m ? colors.emerald400 : colors.zinc300}
+                  color={
+                    method === m && !usePass ? colors.emerald400 : colors.zinc300
+                  }
                   weight="600"
                 >
                   {METHOD_LABEL[m]}
                 </Text>
               </Pressable>
             ))}
+            {passConvert ? (
+              <Pressable
+                onPress={() => setUsePass(true)}
+                style={[styles.chip, usePass && styles.chipActive]}
+              >
+                <Text
+                  variant="tiny"
+                  color={usePass ? colors.emerald400 : colors.zinc300}
+                  weight="600"
+                >
+                  Pass
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         </Field>
+
+        {/* Move-to-pass panel — replaces the money fields while the
+            Pass method is selected. */}
+        {usePass && passConvert ? (
+          <View style={styles.passPanel}>
+            <Text variant="small" weight="600" color={colors.foreground}>
+              Move this booking to pass payment
+            </Text>
+            {passConvert.passes.map((sh) => (
+              <View key={sh.passName} style={styles.passPanelRow}>
+                <Text variant="tiny" color={colors.emerald400}>
+                  {sh.passName}
+                </Text>
+                <Text variant="tiny" color={colors.emerald400}>
+                  {(sh.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h
+                </Text>
+              </View>
+            ))}
+            <Text variant="tiny" color={colors.zinc400}>
+              {passConvert.fullCoverage
+                ? "Fully covered — the payment becomes Pass / ₹0."
+                : `Remainder ₹${passConvert.remainderAmount} stays on the current method to collect.`}
+            </Text>
+            {(booking?.payment?.amount ?? 0) > 0 &&
+            (booking?.payment?.status === "COMPLETED" ||
+              booking?.payment?.status === "PARTIAL") ? (
+              <Text variant="tiny" color={colors.yellow400}>
+                ₹{booking?.payment?.amount} was already collected — settle the
+                refund with the customer separately (noted in the edit
+                history).
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* Status */}
         <Field label="Status">
@@ -419,6 +487,18 @@ function LoadingShell() {
 }
 
 const styles = StyleSheet.create({
+  passPanel: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.3)",
+    backgroundColor: "rgba(16,185,129,0.05)",
+    padding: spacing["3"],
+    gap: spacing["2"],
+  },
+  passPanelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
   scroll: {
     paddingHorizontal: spacing["5"],
     paddingTop: spacing["3"],

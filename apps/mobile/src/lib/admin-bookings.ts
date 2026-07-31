@@ -122,6 +122,12 @@ export interface AdminBookingDetail extends Omit<AdminBookingListItem, "courtCon
    *  one when a redemption is live (the server rejects any other), else
    *  the customer's soonest-expiring eligible pass. */
   extendPass: { id: string; name: string; remainingMinutes: number } | null;
+  /** "Move to pass payment" preview — null when no pass could cover. */
+  passConvert?: {
+    fullCoverage: boolean;
+    remainderAmount: number;
+    passes: { passName: string; coveredMinutes: number }[];
+  } | null;
   /** totalAmount − payment.amount − coveredAmount: what staff still
    *  collect at the venue (equipment, uncovered added time). */
   owedAtVenue: number;
@@ -468,6 +474,23 @@ export const adminBookingsApi = {
     return request(`/api/mobile/admin/bookings/${id}/edit-payment`, {
       method: "POST",
       body,
+    });
+  },
+
+  // Move a money-paid booking onto the customer's pass(es) — multi-pass
+  // debit server-side; full coverage rewrites the payment to PASS/₹0.
+  convertToPass(
+    id: string,
+    note?: string,
+  ): Promise<{
+    ok: true;
+    fullCoverage: boolean;
+    remainderAmount: number;
+    collectedBefore: number;
+  }> {
+    return request(`/api/mobile/admin/bookings/${id}/convert-to-pass`, {
+      method: "POST",
+      body: { note },
     });
   },
 

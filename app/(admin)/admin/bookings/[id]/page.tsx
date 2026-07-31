@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { passBandsCoverHours } from "@/lib/passes";
+import { passBandsCoverHours, getPassOfferForHold } from "@/lib/passes";
 import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatSlotsAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -127,6 +127,52 @@ export default async function AdminBookingDetailPage({
   );
   const passValueTotal = passRedemptions.reduce((sum, r) => sum + r.value, 0);
   void passValueTotal;
+
+  // "Move to pass payment" option for the Edit Payment modal: offered
+  // when the booking is money-paid (no live redemption, not PASS) but
+  // the customer's passes could cover its slots. Same multi-pass
+  // engine as checkout, computed on the booking's own slot rows.
+  const passConvertOption =
+    passRedemptions.length === 0 &&
+    booking.userId &&
+    booking.payment &&
+    booking.payment.method !== "PASS" &&
+    booking.status !== "CANCELLED"
+      ? await getPassOfferForHold({
+          userId: booking.userId,
+          courtConfigId: booking.courtConfigId,
+          date: booking.date,
+          hours: booking.slots.map((sl) => sl.startHour),
+          startMinutes: booking.slots.map((sl) => sl.startMinute),
+          totalAmount: booking.slots.reduce((sum, sl) => sum + sl.price, 0),
+          slotPrices: booking.slots.map((sl) => ({
+            hour: sl.startHour,
+            minute: sl.startMinute,
+            price: sl.price,
+          })),
+          equipmentTotalAmount: booking.equipmentTotalAmount ?? 0,
+          courtConfig: {
+            slotDurationMinutes: booking.slots.some(
+              (sl) => sl.durationMinutes === 30,
+            )
+              ? 30
+              : 60,
+          },
+        })
+          .then((offer) =>
+            offer
+              ? {
+                  fullCoverage: offer.fullCoverage,
+                  remainderAmount: offer.remainderAmount,
+                  passes: offer.passes.map((sh) => ({
+                    passName: sh.passName,
+                    coveredMinutes: sh.coveredMinutes,
+                  })),
+                }
+              : null,
+          )
+          .catch(() => null)
+      : null;
 
   // Eligible pass for a pass-paid extension — same rules as customer
   // redemption (this customer, this court, ACTIVE, ≥30 min), with
@@ -781,6 +827,8 @@ export default async function AdminBookingDetailPage({
           currentAdvanceAmount={booking.payment?.advanceAmount ?? null}
           razorpayPaymentId={booking.payment?.razorpayPaymentId ?? null}
           utrNumber={booking.payment?.utrNumber ?? null}
+          passConvertOption={passConvertOption}
+          isPassPaid={passRedemptions.length > 0 || booking.payment?.method === "PASS"}
           isAdminCreated={!!booking.createdByAdminId}
           courtConfigId={booking.courtConfigId}
           date={booking.date.toISOString().split("T")[0]}

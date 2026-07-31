@@ -4276,6 +4276,193 @@ export async function suggestExtendPrice(
 }
 
 /**
+ * Convert an existing money-paid booking to pass payment — the front
+ * desk's "actually, use my pass" flow. Coverage is computed on the
+ * booking's own slots with the same multi-pass engine as checkout;
+ * every contributing pass is debited (one redemption row each). Full
+ * coverage rewrites the payment to PASS/₹0; partial coverage keeps the
+ * money method for the uncovered remainder. Money already collected is
+ * NOT auto-refunded — the history note spells out what to settle.
+ */
+export async function convertBookingToPass(
+  bookingId: string,
+  note?: string,
+): Promise<
+  | {
+      success: true;
+      fullCoverage: boolean;
+      remainderAmount: number;
+      passes: { passName: string; coveredMinutes: number }[];
+      collectedBefore: number;
+    }
+  | { success: false; error: string }
+> {
+  const admin = await requireAdminWithDetails();
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true, slots: true, courtConfig: true },
+  });
+  if (!booking) return { success: false, error: "Booking not found" };
+  if (!booking.userId) {
+    return { success: false, error: "Guest bookings can't use a pass" };
+  }
+  if (!booking.payment) {
+    return { success: false, error: "No payment row on this booking" };
+  }
+  if (booking.status === "CANCELLED") {
+    return { success: false, error: "Booking is cancelled" };
+  }
+  if (booking.payment.method === "PASS") {
+    return { success: false, error: "This booking is already pass-paid" };
+  }
+  const existingLive = await db.passRedemption.findFirst({
+    where: { bookingId, restoredAt: null },
+    select: { id: true },
+  });
+  if (existingLive) {
+    return { success: false, error: "This booking already redeems a pass" };
+  }
+
+  // Coverage on the booking's own slots — same engine as checkout.
+  const slotDurationMinutes = booking.slots.some(
+    (sl) => sl.durationMinutes === 30,
+  )
+    ? 30
+    : 60;
+  const offer = await getPassOfferForHold({
+    userId: booking.userId,
+    courtConfigId: booking.courtConfigId,
+    date: booking.date,
+    hours: booking.slots.map((sl) => sl.startHour),
+    startMinutes: booking.slots.map((sl) => sl.startMinute),
+    totalAmount: booking.slots.reduce((sum, sl) => sum + sl.price, 0),
+    slotPrices: booking.slots.map((sl) => ({
+      hour: sl.startHour,
+      minute: sl.startMinute,
+      price: sl.price,
+    })),
+    equipmentTotalAmount: booking.equipmentTotalAmount ?? 0,
+    courtConfig: { slotDurationMinutes },
+  }).catch(() => null);
+  if (!offer) {
+    return {
+      success: false,
+      error:
+        "None of this customer's passes cover these slots (court, date or price band mismatch, or no balance)",
+    };
+  }
+
+  // Debit every contributing pass; put everything back on any failure.
+  let debitFailed = false;
+  for (const share of offer.passes) {
+    const ok = await debitPass(
+      share.passId,
+      share.coveredMinutes,
+      bookingId,
+      share.coveredAmount,
+      share.coveredSlots,
+    );
+    if (!ok) {
+      debitFailed = true;
+      break;
+    }
+  }
+  if (debitFailed) {
+    await restorePassForBooking(bookingId).catch(() => {});
+    return {
+      success: false,
+      error: "Pass balance changed while converting — nothing was moved; try again",
+    };
+  }
+
+  const prior = booking.payment;
+  const collectedBefore =
+    prior.status === "COMPLETED" || prior.status === "PARTIAL"
+      ? prior.amount
+      : 0;
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    if (offer.fullCoverage) {
+      await tx.payment.update({
+        where: { id: prior.id },
+        data: {
+          method: "PASS",
+          status: "COMPLETED",
+          amount: 0,
+          isPartialPayment: false,
+          advanceAmount: null,
+          remainingAmount: null,
+          confirmedBy: admin.id,
+          confirmedAt: now,
+        },
+      });
+    } else {
+      // Remainder stays on the existing money method. If the customer
+      // already paid at least the remainder, the row stays settled;
+      // otherwise it goes back to PENDING for the counter.
+      await tx.payment.update({
+        where: { id: prior.id },
+        data: {
+          amount: offer.remainderAmount,
+          status:
+            collectedBefore >= offer.remainderAmount &&
+            prior.status === "COMPLETED"
+              ? "COMPLETED"
+              : "PENDING",
+          isPartialPayment: false,
+          advanceAmount: null,
+          remainingAmount: null,
+        },
+      });
+    }
+    const shareText = offer.passes
+      .map(
+        (sh) =>
+          `${sh.passName} (${(sh.coveredMinutes / 60)
+            .toFixed(1)
+            .replace(/\.0$/, "")}h)`,
+      )
+      .join(" + ");
+    const settleText =
+      collectedBefore > 0
+        ? offer.fullCoverage
+          ? ` · ₹${collectedBefore} was already collected (${prior.method}) — settle the refund separately`
+          : collectedBefore > offer.remainderAmount
+            ? ` · ₹${collectedBefore} was already collected (${prior.method}) — ₹${collectedBefore - offer.remainderAmount} over the remainder, settle separately`
+            : ""
+        : "";
+    await tx.bookingEditHistory.create({
+      data: {
+        bookingId,
+        adminId: admin.id,
+        adminUsername: admin.username,
+        editType: "PAYMENT_EDITED",
+        newAmount: offer.fullCoverage ? 0 : offer.remainderAmount,
+        note:
+          `Moved to pass payment — ${shareText}` +
+          `; was ${prior.method}/${prior.status} ₹${prior.amount}` +
+          settleText +
+          (note?.trim() ? ` · ${note.trim()}` : ""),
+      },
+    });
+  });
+
+  const { revalidatePath } = await import("next/cache");
+  revalidatePath(`/admin/bookings/${bookingId}`);
+  return {
+    success: true,
+    fullCoverage: offer.fullCoverage,
+    remainderAmount: offer.remainderAmount,
+    passes: offer.passes.map((sh) => ({
+      passName: sh.passName,
+      coveredMinutes: sh.coveredMinutes,
+    })),
+    collectedBefore,
+  };
+}
+
+/**
  * Coverage preview for the admin create-booking form: would this
  * customer's passes cover these slots? Mirrors adminCreateBooking's
  * offer computation (prices resolved from the day's classified rates).

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
-import { passBandsCoverHours } from "@/lib/passes";
+import { passBandsCoverHours, getPassOfferForHold } from "@/lib/passes";
 
 /**
  * GET /api/mobile/admin/bookings/[id]
@@ -152,10 +152,56 @@ export async function GET(
     booking.totalAmount - (payment?.amount ?? 0) - (live?.coveredAmount ?? 0),
   );
 
+  // "Move to pass payment" preview for the Edit Payment screen —
+  // offered when the booking is money-paid but the customer's passes
+  // could cover its slots (mirror of the web detail page).
+  const passConvert =
+    redemptionRows.length === 0 &&
+    booking.userId &&
+    payment &&
+    payment.method !== "PASS" &&
+    booking.status !== "CANCELLED"
+      ? await getPassOfferForHold({
+          userId: booking.userId,
+          courtConfigId: booking.courtConfigId,
+          date: booking.date,
+          hours: booking.slots.map((sl) => sl.startHour),
+          startMinutes: booking.slots.map((sl) => sl.startMinute),
+          totalAmount: booking.slots.reduce((sum, sl) => sum + sl.price, 0),
+          slotPrices: booking.slots.map((sl) => ({
+            hour: sl.startHour,
+            minute: sl.startMinute,
+            price: sl.price,
+          })),
+          equipmentTotalAmount: booking.equipmentTotalAmount ?? 0,
+          courtConfig: {
+            slotDurationMinutes: booking.slots.some(
+              (sl) => sl.durationMinutes === 30,
+            )
+              ? 30
+              : 60,
+          },
+        })
+          .then((offer) =>
+            offer
+              ? {
+                  fullCoverage: offer.fullCoverage,
+                  remainderAmount: offer.remainderAmount,
+                  passes: offer.passes.map((sh) => ({
+                    passName: sh.passName,
+                    coveredMinutes: sh.coveredMinutes,
+                  })),
+                }
+              : null,
+          )
+          .catch(() => null)
+      : null;
+
   return NextResponse.json({
     booking: {
       ...booking,
       payment,
+      passConvert,
       _isRecurringChildPayment: isRecurringChildPayment,
       passRedemption: live
         ? {
