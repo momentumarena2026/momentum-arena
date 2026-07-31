@@ -397,19 +397,40 @@ export async function setPassCheapestHour(
   await gate();
   const plan = await db.passPlan.findUnique({
     where: { id },
-    select: { id: true, sport: true, isActive: true, bands: true },
+    select: {
+      id: true,
+      sport: true,
+      isActive: true,
+      bands: true,
+      courtConfig: { select: { sport: true, size: true, category: true } },
+    },
   });
   if (!plan) return { ok: false, error: "Plan not found" };
   if (on && !plan.isActive) {
     return { ok: false, error: "Activate the plan before making it an anchor" };
   }
 
+  // Exclusivity is per COURT GROUP, not per sport: cricket's half court
+  // and bowling machine are separate groups whose slot pages each show
+  // only their own group's anchors, so a bowling anchor and a half-court
+  // anchor must coexist. Only plans sold for the same interchangeable
+  // group compete for a bucket.
+  const groupConfigs = await db.courtConfig.findMany({
+    where: {
+      sport: plan.courtConfig.sport,
+      size: plan.courtConfig.size,
+      category: plan.courtConfig.category,
+    },
+    select: { id: true },
+  });
+  const groupIds = groupConfigs.map((c) => c.id);
+
   await db.$transaction(async (tx) => {
     if (on) {
       const myBuckets = new Set(anchorBuckets(parseBands(plan.bands)));
       const siblings = await tx.passPlan.findMany({
         where: {
-          sport: plan.sport,
+          courtConfigId: { in: groupIds },
           isCheapestHourAnchor: true,
           id: { not: id },
         },
