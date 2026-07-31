@@ -440,7 +440,7 @@ export function PassesClient({
                       {plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}
                       {plan.isBowling ? " · Bowling Machine" : ""}
                     </p>
-                    <p className="mt-0.5 text-lg font-bold leading-tight text-white">
+                    <p className="mt-0.5 min-h-[2.5rem] text-lg font-bold leading-tight text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
                       {plan.name}
                     </p>
                   </div>
@@ -462,7 +462,10 @@ export function PassesClient({
                         {inr(plan.baseAmount)}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm font-medium" style={{ color: accent }}>
+                    <p
+                      className="mt-1 min-h-[2.5rem] text-sm font-medium leading-5"
+                      style={{ color: accent }}
+                    >
                       {inr(plan.effectiveHourly)}/hr
                       <span className="text-zinc-500">
                         {" "}

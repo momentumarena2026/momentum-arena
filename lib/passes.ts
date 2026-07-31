@@ -3,6 +3,7 @@ import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { notifyUser } from "@/lib/user-notifications";
 import { parseBands, slotInBands, bandsSummary } from "@/lib/pass-bands";
+import { passTimeChips } from "@/lib/pass-time-chips";
 import { courtGroupLabel } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { recordOrphanPayment } from "@/lib/payment-orphan";
@@ -727,6 +728,12 @@ async function restoreOneRedemption(red: {
  * drift.
  */
 export async function listUserPasses(userId: string) {
+  // Peak/off-peak hour windows — resolved into per-pass time chips so
+  // owned-pass cards show the actual hours (5pm–1am) instead of the
+  // band label.
+  const classifications = await db.timeClassification.findMany({
+    select: { startHour: true, endHour: true, dayType: true, timeType: true },
+  });
   const passes = await db.userPass.findMany({
     where: {
       OR: [{ userId }, { members: { some: { userId } } }],
@@ -747,6 +754,7 @@ export async function listUserPasses(userId: string) {
     totalMinutes: p.totalMinutes,
     remainingMinutes: p.remainingMinutes,
     bandsSummary: bandsSummary(parseBands(p.bands)),
+    timeChips: passTimeChips(parseBands(p.bands), classifications),
     purchasedAt: p.purchasedAt.toISOString(),
     startsAt: p.startsAt.toISOString(),
     expiresAt: p.expiresAt.toISOString(),
