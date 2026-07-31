@@ -2,7 +2,10 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
-import { getPassOfferForHold } from "@/lib/passes";
+import { getPassOfferForHold, parsePassModeCoverage } from "@/lib/passes";
+import { holdCourtBase } from "@/lib/booking-amounts";
+import { BookViaTabs } from "./book-via-tabs";
+import { PassCheckoutOption } from "@/components/payment/pass-checkout-option";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
@@ -54,8 +57,26 @@ export default async function CheckoutPage({
     redirect("/book?error=lock_expired");
   }
 
-  // Eligible pass for this hold (null when none, or coupon/points applied).
-  const passOffer = await getPassOfferForHold(hold);
+  // ── "Book via" state ────────────────────────────────────────────────
+  // passMode = the snapshotted coverage while the Pass tab is active;
+  // courtBase = what the rest of checkout prices against (totalAmount
+  // minus coverage; equals totalAmount on the Online tab).
+  const passMode = hold.passModeId
+    ? parsePassModeCoverage(hold.passModeCoverage)
+    : null;
+  const courtBase = holdCourtBase(hold);
+  // Tab availability ignores any applied coupon/points — entering the
+  // Pass tab clears them server-side anyway.
+  const passOffer = await getPassOfferForHold({
+    ...hold,
+    couponId: null,
+    pointsToRedeem: null,
+  }).catch(() => null);
+  const passAvailable = !!passMode || !!passOffer;
+  const passFullCoverage = passMode
+    ? passMode.fullCoverage
+    : (passOffer?.fullCoverage ?? false);
+  const passTabLabel = passFullCoverage ? "Pass" : "Pass + Pay";
 
   const sportInfo = SPORT_INFO[hold.courtConfig.sport];
   const sizeInfo = SIZE_INFO[hold.courtConfig.size];
@@ -154,12 +175,62 @@ export default async function CheckoutPage({
   const showSportPromo =
     !recurringEnabled && !newUserDiscount && sportPromo?.percentOff != null;
   const sportPromoDiscount = showSportPromo && sportPromo
-    ? computeAutoApplyDiscount(hold.totalAmount, sportPromo)
+    ? computeAutoApplyDiscount(courtBase, sportPromo)
     : 0;
+
+  // Full-coverage Pass tab: no summary, no discounts, no payment rails —
+  // just the recap + one Book now tap (the redeem endpoint books it and
+  // debits the pass; confirmation messages ride the same path as ever).
+  if (passMode && passMode.fullCoverage && passOffer) {
+    return (
+      <div className="mx-auto max-w-lg space-y-6">
+        <h1 className="text-2xl font-bold text-white">Complete Payment</h1>
+        <BookViaTabs holdId={hold.id} active="pass" passLabel={passTabLabel} />
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Sport</span>
+              <span className="text-white">{sportInfo.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Date</span>
+              <span className="text-white">
+                {formatBookingDate(hold.date, {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Slots</span>
+              <span className="text-white">
+                {formatHoursAsRanges(sortedSlots.map((sl) => sl.hour))}
+              </span>
+            </div>
+            <div className="flex justify-between border-t border-zinc-800 pt-2">
+              <span className="text-zinc-400">To pay</span>
+              <span className="font-bold text-emerald-400">₹0 — covered by your pass</span>
+            </div>
+          </div>
+        </div>
+        <PassCheckoutOption holdId={hold.id} offer={passOffer} />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-2xl font-bold text-white">Complete Payment</h1>
+
+      {passAvailable && (
+        <BookViaTabs
+          holdId={hold.id}
+          active={passMode ? "pass" : "online"}
+          passLabel={passTabLabel}
+        />
+      )}
 
       {/* Booking Summary */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
@@ -213,6 +284,19 @@ export default async function CheckoutPage({
               <span className="text-zinc-300">{formatPrice(slot.price)}</span>
             </div>
           ))}
+          {/* Pass + Pay: the pass takes its covered slots off the top —
+              everything below (offers, points, total) prices the rest. */}
+          {passMode && (
+            <div className="flex justify-between text-sm">
+              <span className="text-emerald-400">
+                Covered by {passMode.passName} (
+                {`${(passMode.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h`})
+              </span>
+              <span className="text-emerald-400">
+                -{formatPrice(passMode.coveredAmount)}
+              </span>
+            </div>
+          )}
           {recurringEnabled && recurringCount && recurringCount > 1 && (
             <>
               <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2 text-sm">
@@ -278,7 +362,7 @@ export default async function CheckoutPage({
             preDiscountTotal={
               (recurringEnabled && recurringCount
                 ? recurringNetTotal
-                : hold.totalAmount) - sportPromoDiscount
+                : courtBase) - sportPromoDiscount
             }
             equipmentTotalRupees={equipmentTotalRupees}
             earnRateBookingBps={earnRateBookingBps}
@@ -286,12 +370,11 @@ export default async function CheckoutPage({
         </div>
       </div>
 
-      {/* Payment — the eligible pass (if any) rides in as the first
-          payment option ("Book with my pass", default-selected). */}
+      {/* Payment — on the Pass + Pay tab every amount below is already
+          the remainder (courtBase); the rails price identically server-side. */}
       <CheckoutClient
         holdId={hold.id}
-        passOffer={passOffer}
-        amount={recurringEnabled && recurringCount ? recurringNetTotal : hold.totalAmount}
+        amount={recurringEnabled && recurringCount ? recurringNetTotal : courtBase}
         perSessionAmount={recurringEnabled && recurringCount ? hold.totalAmount : undefined}
         recurringDiscountPercent={recurringDiscountPercent || undefined}
         sport={hold.courtConfig.sport}
