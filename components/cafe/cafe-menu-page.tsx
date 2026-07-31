@@ -178,7 +178,8 @@ export function CafeMenuPage({
         </div>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-8 relative z-10">
           <div className="flex items-start gap-3">
-            <a href="/" className="flex-shrink-0"><img src="/blackLogo.png" alt="Momentum Arena" className="h-14 sm:h-24 w-auto" /></a>
+            {/* Logo now lives in the shared SiteHeader above — the hero
+                keeps just the cafe identity. */}
             <div className="min-w-0 flex-1">
               <h1 className="text-xl sm:text-3xl md:text-4xl font-bold text-white truncate">Momentum Cafe ☕</h1>
               <p className="text-amber-200/60 text-xs sm:text-sm max-w-lg truncate">
