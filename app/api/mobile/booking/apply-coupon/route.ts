@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
+import { holdCourtBase } from "@/lib/booking-amounts";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { validateCoupon } from "@/actions/coupon-validation";
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
 
   const result = await validateCoupon(code, {
     scope: "SPORTS",
-    amount: hold.totalAmount,
+    amount: holdCourtBase(hold),
     userId: user.id,
     sport: hold.courtConfig.sport,
     // Lets the validator honour DiscountCode.categoryExclude — e.g. the
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
         holdId,
         code,
         sport: hold.courtConfig.sport,
-        amount: hold.totalAmount,
+        amount: holdCourtBase(hold),
       },
       error: result.error ?? "Invalid coupon",
     });
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
       code: code.toUpperCase().trim(),
       discountAmount: result.discountAmount,
       sport: hold.courtConfig.sport,
-      amount: hold.totalAmount,
+      amount: holdCourtBase(hold),
     },
   });
 

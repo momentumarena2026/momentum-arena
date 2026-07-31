@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
+import { holdCourtBase } from "@/lib/booking-amounts";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { previewRedemption } from "@/lib/rewards/redeem";
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     hold.couponId && hold.discountAmount && hold.discountAmount > 0
       ? hold.discountAmount
       : 0;
-  const postCouponRupees = Math.max(0, hold.totalAmount - couponDiscount);
+  const postCouponRupees = Math.max(0, holdCourtBase(hold) - couponDiscount);
   const billPaise = postCouponRupees * 100;
 
   const preview = await previewRedemption({ userId: user.id, billPaise });

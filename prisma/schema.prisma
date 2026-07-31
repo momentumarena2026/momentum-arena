@@ -468,6 +468,16 @@ model SlotHold {
   // payloads valid while letting bowling-machine slot prices be
   // disambiguated for the :30 slot inside the same hour.
   slotPrices    Json
+  // ── "Book via Pass / Pass + Pay" checkout mode ─────────────────────
+  // Set when the customer picks the Pass tab at checkout. Every money
+  // endpoint then prices against (totalAmount − coverage.coveredAmount)
+  // and createBookingFromHold debits the pass on confirm. The coverage
+  // snapshot is taken at mode entry so the base can't drift mid-payment;
+  // debitPass re-checks the live balance at booking time.
+  // { passId, passName, coveredMinutes, coveredAmount, fullCoverage,
+  //   coveredSlots: [{h,m,min}] }
+  passModeId       String?
+  passModeCoverage Json?
   totalAmount   Int
   expiresAt     DateTime
 

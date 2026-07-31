@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
-import { getPassOfferForHold } from "@/lib/passes";
+import { getPassOfferForHold, parsePassModeCoverage } from "@/lib/passes";
+import { holdCourtBase } from "@/lib/booking-amounts";
 import { logBookingRequest } from "@/lib/server-log";
 
 // GET /api/mobile/booking/hold/[holdId] — returns the SlotHold contents
@@ -70,5 +71,12 @@ export async function GET(
     equipmentTotalAmount: hold.equipmentTotalAmount ?? null,
     courtConfig: hold.courtConfig,
     passOffer,
+    // "Book via" state — non-null while the hold is in pass mode. The
+    // checkout prices everything against `courtBase` (totalAmount minus
+    // the snapshotted coverage; equals totalAmount outside pass mode).
+    passMode: hold.passModeId
+      ? parsePassModeCoverage(hold.passModeCoverage)
+      : null,
+    courtBase: holdCourtBase(hold),
   });
 }

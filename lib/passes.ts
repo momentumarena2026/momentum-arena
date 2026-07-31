@@ -995,7 +995,7 @@ export async function removePassMemberForOwner(
 // eligible pass (coverDeltaWithPass), removed time is credited back.
 
 import { courtGroupKey } from "@/lib/court-config";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 type Tx = Prisma.TransactionClient;
 
@@ -1508,4 +1508,165 @@ export async function getPassPitchForCourtConfig(
     }
   }
   return best;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ * "Book via Pass / Pass + Pay" checkout mode.
+ *
+ * When the customer picks the Pass tab, the hold enters pass mode:
+ * coverage is SNAPSHOTTED onto the hold (passModeId + passModeCoverage)
+ * so every money endpoint prices the rest of checkout — coupons,
+ * points, full/advance, UPI/gateway — against the remainder base
+ * (totalAmount − coveredAmount) without the base drifting mid-payment.
+ * createBookingFromHold debits the pass on confirm for EVERY rail
+ * (debitPass is idempotent per booking, so double-settling is safe).
+ * ──────────────────────────────────────────────────────────────────── */
+
+export interface PassModeCoverage {
+  passId: string;
+  passName: string;
+  coveredMinutes: number;
+  coveredAmount: number;
+  fullCoverage: boolean;
+  coveredSlots: CoveredSlot[];
+}
+
+export function parsePassModeCoverage(raw: unknown): PassModeCoverage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Partial<PassModeCoverage>;
+  if (
+    typeof c.passId !== "string" ||
+    typeof c.coveredMinutes !== "number" ||
+    typeof c.coveredAmount !== "number"
+  ) {
+    return null;
+  }
+  return {
+    passId: c.passId,
+    passName: typeof c.passName === "string" ? c.passName : "your pass",
+    coveredMinutes: c.coveredMinutes,
+    coveredAmount: c.coveredAmount,
+    fullCoverage: !!c.fullCoverage,
+    coveredSlots: Array.isArray(c.coveredSlots)
+      ? (c.coveredSlots as CoveredSlot[])
+      : [],
+  };
+}
+
+/**
+ * The court-time base the rest of checkout math must run on. Equals
+ * totalAmount unless the hold is in pass mode, in which case the
+ * snapshotted coverage comes off first. Every money endpoint (coupon
+ * validation, points cap, payment init) calls this instead of reading
+ * hold.totalAmount directly.
+ */
+export function holdCheckoutBase(hold: {
+  totalAmount: number;
+  passModeId?: string | null;
+  passModeCoverage?: unknown;
+}): number {
+  if (!hold.passModeId) return hold.totalAmount;
+  const cov = parsePassModeCoverage(hold.passModeCoverage);
+  if (!cov) return hold.totalAmount;
+  return Math.max(0, hold.totalAmount - cov.coveredAmount);
+}
+
+/**
+ * Enter/exit pass mode on a hold. Entering recomputes the offer fresh
+ * (ignoring any coupon/points already on the hold — they now apply to
+ * the remainder) and snapshots the coverage; anything that no longer
+ * validates clears the mode instead. Exiting simply clears the marker;
+ * coupons/points on the hold survive and reprice against the full base.
+ */
+export async function setHoldPassMode(
+  hold: Parameters<typeof getPassOfferForHold>[0] & { id: string },
+  on: boolean,
+): Promise<
+  | { ok: true; coverage: PassModeCoverage | null }
+  | { ok: false; error: string }
+> {
+  // Coupon/points discounts are priced against the checkout base, so a
+  // base flip in either direction invalidates them — clear and let the
+  // customer (or auto-apply) re-apply against the new base.
+  const dropDiscounts = {
+    couponId: null,
+    couponCode: null,
+    discountAmount: null,
+    pointsToRedeem: null,
+    pointsRedeemPaiseSaved: null,
+  };
+
+  if (!on) {
+    await db.slotHold.update({
+      where: { id: hold.id },
+      data: {
+        passModeId: null,
+        passModeCoverage: Prisma.DbNull,
+        ...dropDiscounts,
+      },
+    });
+    return { ok: true, coverage: null };
+  }
+
+  const offer = await getPassOfferForHold({
+    ...hold,
+    // Pass mode coexists with coupons/points in the new model — they
+    // apply to the remainder, so they must not block the offer.
+    couponId: null,
+    pointsToRedeem: null,
+  });
+  if (!offer) {
+    return { ok: false, error: "This pass can't cover the selected slots." };
+  }
+
+  const coverage: PassModeCoverage = {
+    passId: offer.passId,
+    passName: offer.passName,
+    coveredMinutes: offer.coveredMinutes,
+    coveredAmount: offer.coveredAmount,
+    fullCoverage: offer.fullCoverage,
+    coveredSlots: offer.coveredSlots,
+  };
+  await db.slotHold.update({
+    where: { id: hold.id },
+    data: {
+      passModeId: offer.passId,
+      passModeCoverage: coverage as unknown as Prisma.InputJsonValue,
+      ...dropDiscounts,
+    },
+  });
+  return { ok: true, coverage };
+}
+
+/**
+ * Settle the pass side of a pass-mode hold right after its booking is
+ * created — called from createBookingFromHold for every payment rail.
+ * Best-effort + idempotent (debitPass no-ops when the booking already
+ * carries a live redemption). A failed debit (balance raced away) is
+ * logged loudly for admin follow-up; the booking itself stands because
+ * the customer's remainder payment is already captured.
+ */
+export async function settleHoldPassMode(
+  hold: {
+    id: string;
+    passModeId?: string | null;
+    passModeCoverage?: unknown;
+  },
+  bookingId: string,
+): Promise<void> {
+  if (!hold.passModeId) return;
+  const cov = parsePassModeCoverage(hold.passModeCoverage);
+  if (!cov) return;
+  const ok = await debitPass(
+    cov.passId,
+    cov.coveredMinutes,
+    bookingId,
+    cov.coveredAmount,
+    cov.coveredSlots,
+  );
+  if (!ok) {
+    console.error(
+      `[passes] PASS-MODE DEBIT FAILED for booking ${bookingId} (pass ${cov.passId}, ${cov.coveredMinutes}min / ₹${cov.coveredAmount}) — balance changed between checkout and confirm. Needs admin reconciliation.`,
+    );
+  }
 }
