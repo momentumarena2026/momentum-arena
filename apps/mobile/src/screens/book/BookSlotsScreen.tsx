@@ -74,8 +74,10 @@ import {
 } from "../../lib/ist-date";
 import { useAuth } from "../../providers/AuthProvider";
 import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
+import { PassPitchBanner } from "../../components/booking/PassPitchBanner";
 import type {
   BookStackParamList,
+  MainTabsParamList,
   RootStackParamList,
 } from "../../navigation/types";
 
@@ -171,6 +173,17 @@ export function BookSlotsScreen() {
     staleTime: 5 * 60 * 1000,
   });
   const promo: ActiveSportPromo | null = promoData?.promo ?? null;
+
+  // "Play more, pay less" pass pitch — the sport's cheapest-hour anchor
+  // plans (admin-flagged). Court-specific, so only for direct configId
+  // flows; medium mode picks the court later.
+  const { data: pitchData } = useQuery({
+    queryKey: ["pass-pitch", params.courtConfigId],
+    queryFn: () => bookingApi.passPitch(params.courtConfigId!),
+    enabled: !!params.courtConfigId,
+    staleTime: 5 * 60_000,
+  });
+  const passPitch = pitchData?.pitch ?? null;
   // Per-slot decoration only when the promo is an uncapped PERCENTAGE
   // (`percentOff` non-null). FLAT promos like FLAT100 apply once to the
   // whole order and would show misleading numbers per slot.
@@ -451,6 +464,21 @@ export function BookSlotsScreen() {
           sportSlug={params.sport.toLowerCase()}
           style={styles.promoBanner}
         />
+
+        {/* Cheapest-hour pass pitch — shown while choosing, never at
+            checkout (a detour there risks dropping the payment). */}
+        {passPitch ? (
+          <View style={styles.passPitch}>
+            <PassPitchBanner
+              pitch={passPitch}
+              onPress={() =>
+                navigation
+                  .getParent<NativeStackNavigationProp<MainTabsParamList>>()
+                  ?.navigate("Passes", { screen: "PassesStore" })
+              }
+            />
+          </View>
+        ) : null}
 
         {/* Slots — 2-column grid with "5pm - 6pm"-style labels. */}
         <View style={styles.section}>
@@ -1185,6 +1213,10 @@ const styles = StyleSheet.create({
   },
   footerPriceStrike: {
     textDecorationLine: "line-through",
+  },
+  passPitch: {
+    marginHorizontal: spacing["5"],
+    marginBottom: spacing["2"],
   },
   promoBanner: {
     marginTop: spacing["4"],

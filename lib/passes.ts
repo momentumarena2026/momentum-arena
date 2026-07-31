@@ -1386,58 +1386,63 @@ export async function syncPassAfterAdminEdit(
 }
 
 /* ────────────────────────────────────────────────────────────────────
- * Cheapest-hour upsell — the "tiny thought" at checkout.
+ * Cheapest-hour pitch — shown on the slot-selection page, before the
+ * customer has committed to paying the regular rate.
  * ──────────────────────────────────────────────────────────────────── */
 
-export interface PassUpsell {
-  planId: string;
-  planName: string;
-  /** Pass size, for copy ("5-hour pass"). */
-  passHours: number;
-  passPrice: number;
-  /** What the customer is paying per slot right now (rupees, the
-   *  priciest matched slot — the number the nudge anchors against). */
-  slotPriceNow: number;
-  /** The same slot's cost when paid from the anchor pass. */
-  slotPriceWithPass: number;
-  /** slotPriceNow − slotPriceWithPass (per slot). */
-  savePerSlot: number;
-  /** Savings across every selected slot the pass would cover. */
-  saveTotal: number;
-  matchedSlots: number;
+export interface PassPitchRate {
+  /** What one slot costs when paid from the anchor pass (rupees). */
+  withPass: number;
+  /** The regular rate the pass's bands are anchored against. */
+  regular: number;
+  /** regular − withPass. */
+  save: number;
+}
+
+export interface PassPitch {
+  /** Anchor plan name for the headline; null when peak and off-peak are
+   *  different plans — the banner then says "<Sport> passes". */
+  planName: string | null;
+  sport: string;
+  /** OFF_PEAK anchor (morning/day hours). */
+  morning: PassPitchRate | null;
+  /** PEAK anchor (evening/night hours). */
+  night: PassPitchRate | null;
 }
 
 /**
- * "This same hour is ₹X cheaper with a pass."
+ * "Play more, pay less" banner data for a court's slot-selection page.
  *
- * Looks up the sport's admin-designated cheapest-hour anchor plans
- * (PassPlan.upsellTimeType — one for PEAK, one for OFF_PEAK), matches
- * them against the hold's actual slots (classification + band
- * membership, price from the hold's own slotPrices blob), and returns
- * the pitch for whichever anchor saves the most on THIS selection.
- * Null when nothing applies — never show a nudge that saves ₹0.
- *
- * Callers only render it when the customer has no usable pass
- * (getPassOfferForHold returned null) — a pass holder needs no pitch.
+ * Reads the sport's admin-designated cheapest-hour anchor plans
+ * (PassPlan.upsellTimeType: one PEAK, one OFF_PEAK), restricted to
+ * plans sold for the same interchangeable court group as the page being
+ * viewed (a bowling-machine pass must not be pitched on the half-court
+ * picker). Rates are per slot; only genuine savings are ever returned —
+ * null means "show no banner".
  */
-export async function getPassUpsellForHold(hold: {
-  courtConfigId: string | null;
-  date: Date;
-  hours: number[];
-  slotPrices?: unknown;
-  courtConfig?: { slotDurationMinutes: number } | null;
-}): Promise<PassUpsell | null> {
-  if (!hold.courtConfigId || hold.hours.length === 0) return null;
-
-  const holdCfg = await db.courtConfig.findUnique({
-    where: { id: hold.courtConfigId },
-    select: { sport: true, slotDurationMinutes: true },
+export async function getPassPitchForCourtConfig(
+  courtConfigId: string,
+): Promise<PassPitch | null> {
+  const cfg = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+    select: {
+      sport: true,
+      size: true,
+      category: true,
+      slotDurationMinutes: true,
+    },
   });
-  if (!holdCfg) return null;
+  if (!cfg) return null;
+
+  const groupConfigs = await db.courtConfig.findMany({
+    where: { sport: cfg.sport, size: cfg.size, category: cfg.category },
+    select: { id: true },
+  });
+  const groupIds = new Set(groupConfigs.map((c) => c.id));
 
   const anchors = await db.passPlan.findMany({
     where: {
-      sport: holdCfg.sport,
+      sport: cfg.sport,
       isActive: true,
       upsellTimeType: { not: null },
     },
@@ -1446,73 +1451,41 @@ export async function getPassUpsellForHold(hold: {
       name: true,
       price: true,
       totalMinutes: true,
-      bands: true,
+      courtConfigId: true,
+      anchorPrice: true,
+      anchorPricePerHour: true,
       upsellTimeType: true,
     },
   });
-  if (anchors.length === 0) return null;
 
-  // Same slot classification getPassOfferForHold uses: dayType/timeType
-  // per hour, price from the hold's own blob (fallback: today's rate).
-  const classified = await getSlotPricesForDate(
-    hold.courtConfigId,
-    hold.date,
-  ).catch(() => []);
-  if (classified.length === 0) return null;
-  const byHour = new Map(classified.map((s) => [s.hour, s]));
-  const stored = Array.isArray(hold.slotPrices)
-    ? (hold.slotPrices as { hour?: number; price?: number }[])
-    : [];
-  const slots = hold.hours
-    .map((h, i) => {
-      const cls = byHour.get(h);
-      if (!cls) return null;
-      const storedPrice = stored[i]?.price;
-      return {
-        dayType: cls.dayType,
-        timeType: cls.timeType,
-        price: typeof storedPrice === "number" ? storedPrice : cls.price,
-      };
-    })
-    .filter((s): s is NonNullable<typeof s> => !!s);
-  if (slots.length === 0) return null;
+  const slotMinutes = cfg.slotDurationMinutes ?? 60;
+  const rateOf = (plan: (typeof anchors)[number]): PassPitchRate | null => {
+    if (!groupIds.has(plan.courtConfigId) || plan.totalMinutes <= 0) return null;
+    const withPass = Math.round((plan.price / plan.totalMinutes) * slotMinutes);
+    const regular =
+      plan.anchorPrice ??
+      Math.round((plan.anchorPricePerHour * slotMinutes) / 60);
+    const save = regular - withPass;
+    return save > 0 ? { withPass, regular, save } : null;
+  };
 
-  const slotMinutes =
-    hold.courtConfig?.slotDurationMinutes ?? holdCfg.slotDurationMinutes ?? 60;
+  const peakPlan = anchors.find((a) => a.upsellTimeType === "PEAK") ?? null;
+  const offPeakPlan =
+    anchors.find((a) => a.upsellTimeType === "OFF_PEAK") ?? null;
+  const night = peakPlan ? rateOf(peakPlan) : null;
+  const morning = offPeakPlan ? rateOf(offPeakPlan) : null;
+  if (!night && !morning) return null;
 
-  let best: PassUpsell | null = null;
-  for (const plan of anchors) {
-    if (plan.totalMinutes <= 0) continue;
-    // What one slot costs when paid from this pass.
-    const perSlotWithPass = Math.round(
-      (plan.price / plan.totalMinutes) * slotMinutes,
-    );
-    const bands = parseBands(plan.bands);
-    const matched = slots.filter(
-      (s) =>
-        s.timeType === plan.upsellTimeType &&
-        slotInBands(bands, s) &&
-        s.price > perSlotWithPass,
-    );
-    if (matched.length === 0) continue;
+  const usable = [
+    ...(morning && offPeakPlan ? [offPeakPlan] : []),
+    ...(night && peakPlan ? [peakPlan] : []),
+  ];
+  const planName =
+    usable.length > 0 && usable.every((p) => p.id === usable[0].id)
+      ? usable[0].name
+      : usable.length === 1
+        ? usable[0].name
+        : null;
 
-    const saveTotal = matched.reduce(
-      (sum, s) => sum + (s.price - perSlotWithPass),
-      0,
-    );
-    const anchorSlot = matched.reduce((a, b) => (b.price > a.price ? b : a));
-    const candidate: PassUpsell = {
-      planId: plan.id,
-      planName: plan.name,
-      passHours: Math.round((plan.totalMinutes / 60) * 10) / 10,
-      passPrice: plan.price,
-      slotPriceNow: anchorSlot.price,
-      slotPriceWithPass: perSlotWithPass,
-      savePerSlot: anchorSlot.price - perSlotWithPass,
-      saveTotal,
-      matchedSlots: matched.length,
-    };
-    if (!best || candidate.saveTotal > best.saveTotal) best = candidate;
-  }
-  return best;
+  return { planName, sport: String(cfg.sport), morning, night };
 }

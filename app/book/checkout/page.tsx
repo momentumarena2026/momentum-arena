@@ -2,8 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
-import { getPassOfferForHold, getPassUpsellForHold } from "@/lib/passes";
-import { PassUpsellNudge } from "@/components/payment/pass-upsell-nudge";
+import { getPassOfferForHold } from "@/lib/passes";
 import { PassCheckoutOption } from "@/components/payment/pass-checkout-option";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
@@ -58,13 +57,6 @@ export default async function CheckoutPage({
 
   // Eligible pass for this hold (null when none, or coupon/points applied).
   const passOffer = await getPassOfferForHold(hold);
-
-  // No usable pass → the cheapest-hour nudge ("this same hour is ₹X
-  // cheaper with the <anchor pass>"). Pass owners get the redemption
-  // option instead, never the pitch.
-  const passUpsell = passOffer
-    ? null
-    : await getPassUpsellForHold(hold).catch(() => null);
 
   const sportInfo = SPORT_INFO[hold.courtConfig.sport];
   const sizeInfo = SIZE_INFO[hold.courtConfig.size];
@@ -299,14 +291,6 @@ export default async function CheckoutPage({
           whenever the signed-in user holds an eligible pass. */}
       {passOffer && (
         <PassCheckoutOption holdId={hold.id} offer={passOffer} />
-      )}
-
-      {/* Cheapest-hour pitch — the same slot at the pass rate. */}
-      {passUpsell && (
-        <PassUpsellNudge
-          upsell={passUpsell}
-          slotMinutes={hold.courtConfig.slotDurationMinutes ?? 60}
-        />
       )}
 
       {/* Payment */}

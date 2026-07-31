@@ -211,20 +211,6 @@ export interface Hold {
   // no matching pass, or a coupon/points are applied). Drives the
   // "Use my pass" banner on the checkout screen.
   passOffer?: PassOffer | null;
-  // Cheapest-hour pitch for non-pass-holders: the sport's admin-designated
-  // anchor plan says this same slot is cheaper from a pass. Null for pass
-  // owners or when no anchor covers the selection.
-  passUpsell?: {
-    planId: string;
-    planName: string;
-    passHours: number;
-    passPrice: number;
-    slotPriceNow: number;
-    slotPriceWithPass: number;
-    savePerSlot: number;
-    saveTotal: number;
-    matchedSlots: number;
-  } | null;
 }
 
 /** Server-computed pass coverage — mirrors lib/passes.getPassOfferForHold. */
@@ -369,6 +355,23 @@ export const bookingApi = {
       promo: import("./auto-apply-promo").ActiveSportPromo | null;
     }>(`/api/mobile/sport-promo?${q.toString()}`, { auth: false });
   },
+
+  /**
+   * "Play more, pay less" pass pitch for a court's slot-selection
+   * screen — the sport's admin-designated cheapest-hour anchor plans
+   * (morning = off-peak, night = peak). Null pitch → show no banner.
+   */
+  passPitch: (configId: string) =>
+    api.get<{
+      pitch: {
+        planName: string | null;
+        sport: string;
+        morning: { withPass: number; regular: number; save: number } | null;
+        night: { withPass: number; regular: number; save: number } | null;
+      } | null;
+    }>(`/api/mobile/pass-pitch?configId=${encodeURIComponent(configId)}`, {
+      auth: false,
+    }),
 
   /** Slot availability for a specific court config on a given date. */
   availability: (

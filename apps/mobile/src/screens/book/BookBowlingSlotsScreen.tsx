@@ -42,8 +42,10 @@ import {
   getUpcomingDatesIST,
 } from "../../lib/ist-date";
 import { useAuth } from "../../providers/AuthProvider";
+import { PassPitchBanner } from "../../components/booking/PassPitchBanner";
 import type {
   BookStackParamList,
+  MainTabsParamList,
   RootStackParamList,
 } from "../../navigation/types";
 
@@ -123,6 +125,15 @@ export function BookBowlingSlotsScreen() {
     setSelectedDate(dateStr);
     setSelectedKeys(new Set());
   }, []);
+
+  // "Play more, pay less" pass pitch — the sport's cheapest-hour anchor
+  // plans (admin-flagged), scoped to this court group (bowling passes).
+  const { data: pitchData } = useQuery({
+    queryKey: ["pass-pitch", params.courtConfigId],
+    queryFn: () => bookingApi.passPitch(params.courtConfigId),
+    staleTime: 5 * 60_000,
+  });
+  const passPitch = pitchData?.pitch ?? null;
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["bowling-availability", params.courtConfigId, selectedDate],
@@ -266,6 +277,21 @@ export function BookBowlingSlotsScreen() {
             Pick consecutive 30-minute slots.
           </Text>
         </View>
+
+        {/* Cheapest-hour pass pitch — shown while choosing, never at
+            checkout (a detour there risks dropping the payment). */}
+        {passPitch ? (
+          <View style={styles.passPitch}>
+            <PassPitchBanner
+              pitch={passPitch}
+              onPress={() =>
+                navigation
+                  .getParent<NativeStackNavigationProp<MainTabsParamList>>()
+                  ?.navigate("Passes", { screen: "PassesStore" })
+              }
+            />
+          </View>
+        ) : null}
 
         <View style={styles.stickyDateSection}>
           <View style={styles.dateHeader}>
@@ -541,6 +567,10 @@ const styles = StyleSheet.create({
   kicker: {
     letterSpacing: 1.5,
     fontWeight: "700",
+  },
+  passPitch: {
+    marginHorizontal: spacing["5"],
+    marginBottom: spacing["3"],
   },
   section: {
     marginTop: spacing["4"],
