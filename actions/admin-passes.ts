@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { Prisma, type Sport } from "@prisma/client";
 import { requireAdmin } from "@/lib/admin-auth";
 import { revalidatePath } from "next/cache";
-import { parseBands, bandKey, type Band } from "@/lib/pass-bands";
+import { parseBands, bandKey, anchorBuckets, type Band } from "@/lib/pass-bands";
 import { courtGroupKey, courtGroupLabel } from "@/lib/court-config";
 import { parseStartDate, passLiveStatus } from "@/lib/passes";
 import { normalizeIndianPhone } from "@/lib/phone";
@@ -241,6 +241,7 @@ export async function getPassAdminData() {
         price: p.price,
         validityDays: p.validityDays,
         isActive: p.isActive,
+        isCheapestHourAnchor: p.isCheapestHourAnchor,
         soldCount: p._count.userPasses,
       };
     }),
@@ -376,6 +377,61 @@ export async function togglePassPlan(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   await gate();
   await db.passPlan.update({ where: { id }, data: { isActive } });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
+/**
+ * Tick/untick a plan as its sport's "cheapest hour" showcase. WHICH
+ * bucket it anchors (peak / off-peak / both) is derived from the plan's
+ * own bands — an off-peak pass can only anchor off-peak hours, so the
+ * admin never picks a bucket. Setting a plan clears any other plan of
+ * the same sport whose derived buckets overlap, keeping at most one
+ * anchor per (sport, bucket). Drives the slot-selection
+ * "Play more, pay less" banner.
+ */
+export async function setPassCheapestHour(
+  id: string,
+  on: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await gate();
+  const plan = await db.passPlan.findUnique({
+    where: { id },
+    select: { id: true, sport: true, isActive: true, bands: true },
+  });
+  if (!plan) return { ok: false, error: "Plan not found" };
+  if (on && !plan.isActive) {
+    return { ok: false, error: "Activate the plan before making it an anchor" };
+  }
+
+  await db.$transaction(async (tx) => {
+    if (on) {
+      const myBuckets = new Set(anchorBuckets(parseBands(plan.bands)));
+      const siblings = await tx.passPlan.findMany({
+        where: {
+          sport: plan.sport,
+          isCheapestHourAnchor: true,
+          id: { not: id },
+        },
+        select: { id: true, bands: true },
+      });
+      const overlapping = siblings
+        .filter((s) =>
+          anchorBuckets(parseBands(s.bands)).some((b) => myBuckets.has(b)),
+        )
+        .map((s) => s.id);
+      if (overlapping.length > 0) {
+        await tx.passPlan.updateMany({
+          where: { id: { in: overlapping } },
+          data: { isCheapestHourAnchor: false },
+        });
+      }
+    }
+    await tx.passPlan.update({
+      where: { id },
+      data: { isCheapestHourAnchor: on },
+    });
+  });
   revalidatePath("/admin/passes");
   return { ok: true };
 }

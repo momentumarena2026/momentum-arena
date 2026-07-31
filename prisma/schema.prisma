@@ -895,6 +895,14 @@ model PassPlan {
   // (Empty/absent = legacy unrestricted.)
   bands         Json?
   anchorPrice   Int?
+  // Cheapest-hour showcase: the sport's designated "your hour is cheaper
+  // with a pass" plan. Which bucket it anchors (peak / off-peak / both)
+  // is DERIVED from the plan's own bands — an off-peak pass can only
+  // ever anchor off-peak hours, so the admin just ticks a checkbox. At
+  // most one anchor per (sport, derived bucket); the admin action clears
+  // overlapping holders. Drives the slot-selection "Play more, pay less"
+  // banner.
+  isCheapestHourAnchor Boolean @default(false)
   isActive      Boolean  @default(true)
   sortOrder     Int      @default(0)
   createdAt     DateTime @default(now())

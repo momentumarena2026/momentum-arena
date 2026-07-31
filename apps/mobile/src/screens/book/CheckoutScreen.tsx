@@ -1335,6 +1335,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
+
   // ── New-user discount pill (emerald) ────────────────────────────────────
   newUserPill: {
     flexDirection: "row",

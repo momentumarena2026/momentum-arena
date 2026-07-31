@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getSlotPricesForDate } from "@/lib/pricing";
-import { parseBands, slotInBands, bandsSummary } from "@/lib/pass-bands";
+import { parseBands, slotInBands, bandsSummary, anchorBuckets } from "@/lib/pass-bands";
 import { courtGroupLabel } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
 import { recordOrphanPayment } from "@/lib/payment-orphan";
@@ -1383,4 +1383,115 @@ export async function syncPassAfterAdminEdit(
     },
   });
   return { ok: true, passUsed: pass.id, coveredAmount };
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ * Cheapest-hour pitch — shown on the slot-selection page, before the
+ * customer has committed to paying the regular rate.
+ * ──────────────────────────────────────────────────────────────────── */
+
+export interface PassPitchRate {
+  /** What one slot costs when paid from the anchor pass (rupees). */
+  withPass: number;
+  /** The regular rate the pass's bands are anchored against. */
+  regular: number;
+  /** regular − withPass. */
+  save: number;
+}
+
+export interface PassPitch {
+  /** Anchor plan name for the headline; null when peak and off-peak are
+   *  different plans — the banner then says "<Sport> passes". */
+  planName: string | null;
+  sport: string;
+  /** OFF_PEAK anchor (morning/day hours). */
+  morning: PassPitchRate | null;
+  /** PEAK anchor (evening/night hours). */
+  night: PassPitchRate | null;
+}
+
+/**
+ * "Play more, pay less" banner data for a court's slot-selection page.
+ *
+ * Reads the sport's admin-designated cheapest-hour anchor plans
+ * (PassPlan.upsellTimeType: one PEAK, one OFF_PEAK), restricted to
+ * plans sold for the same interchangeable court group as the page being
+ * viewed (a bowling-machine pass must not be pitched on the half-court
+ * picker). Rates are per slot; only genuine savings are ever returned —
+ * null means "show no banner".
+ */
+export async function getPassPitchForCourtConfig(
+  courtConfigId: string,
+): Promise<PassPitch | null> {
+  const cfg = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+    select: {
+      sport: true,
+      size: true,
+      category: true,
+      slotDurationMinutes: true,
+    },
+  });
+  if (!cfg) return null;
+
+  const groupConfigs = await db.courtConfig.findMany({
+    where: { sport: cfg.sport, size: cfg.size, category: cfg.category },
+    select: { id: true },
+  });
+  const groupIds = new Set(groupConfigs.map((c) => c.id));
+
+  const anchors = await db.passPlan.findMany({
+    where: {
+      sport: cfg.sport,
+      isActive: true,
+      isCheapestHourAnchor: true,
+    },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      totalMinutes: true,
+      courtConfigId: true,
+      anchorPrice: true,
+      anchorPricePerHour: true,
+      bands: true,
+    },
+  });
+
+  const slotMinutes = cfg.slotDurationMinutes ?? 60;
+  const rateOf = (plan: (typeof anchors)[number]): PassPitchRate | null => {
+    if (!groupIds.has(plan.courtConfigId) || plan.totalMinutes <= 0) return null;
+    const withPass = Math.round((plan.price / plan.totalMinutes) * slotMinutes);
+    const regular =
+      plan.anchorPrice ??
+      Math.round((plan.anchorPricePerHour * slotMinutes) / 60);
+    const save = regular - withPass;
+    return save > 0 ? { withPass, regular, save } : null;
+  };
+
+  // Which bucket(s) each anchor serves comes from its own bands — the
+  // admin only ticked "cheapest hour"; an all-hours plan serves both.
+  const peakPlan =
+    anchors.find((a) => anchorBuckets(parseBands(a.bands)).includes("PEAK")) ??
+    null;
+  const offPeakPlan =
+    anchors.find((a) =>
+      anchorBuckets(parseBands(a.bands)).includes("OFF_PEAK"),
+    ) ?? null;
+  const night = peakPlan ? rateOf(peakPlan) : null;
+  const morning = offPeakPlan ? rateOf(offPeakPlan) : null;
+  if (!night && !morning) return null;
+
+  const usable = [
+    ...(morning && offPeakPlan ? [offPeakPlan] : []),
+    ...(night && peakPlan ? [peakPlan] : []),
+  ];
+  const planName =
+    usable.length > 0 && usable.every((p) => p.id === usable[0].id)
+      ? usable[0].name
+      : usable.length === 1
+        ? usable[0].name
+        : null;
+
+  return { planName, sport: String(cfg.sport), morning, night };
 }

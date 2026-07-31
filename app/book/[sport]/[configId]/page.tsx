@@ -12,6 +12,8 @@ import { BackButton } from "@/components/back-button";
 import { getActiveSportPromo } from "@/actions/sport-promo";
 import { listEquipmentForBooking } from "@/lib/equipment";
 import { PromoBannerSlot } from "@/components/promo-banner-slot";
+import { getPassPitchForCourtConfig } from "@/lib/passes";
+import { PassPitchBanner } from "@/components/booking/pass-pitch-banner";
 
 export default async function SlotSelectionPage({
   params,
@@ -48,6 +50,13 @@ export default async function SlotSelectionPage({
   const promo = isBowling
     ? null
     : await getActiveSportPromo(config.sport, config.category);
+
+  // "Play more, pay less" — the cheapest-hour pass pitch for this court
+  // group, shown while the customer is still choosing (never at
+  // checkout, where a detour risks losing the payment).
+  const passPitch = await getPassPitchForCourtConfig(configId).catch(
+    () => null,
+  );
 
   // Fetch the customer-selectable equipment for this sport/category
   // upfront — the rental picker has moved from the checkout page to
@@ -107,6 +116,8 @@ export default async function SlotSelectionPage({
           </div>
         </div>
       </div>
+
+      {passPitch && <PassPitchBanner pitch={passPitch} />}
 
       {/* Dispatch to the bowling picker (30-min) vs the regular
           slot-selection client (hour). Both shells share this page

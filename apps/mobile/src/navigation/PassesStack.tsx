@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet } from "react-native";
+import { Platform, Pressable, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ticket } from "lucide-react-native";
 import { MyPassesScreen } from "../screens/account/MyPassesScreen";
@@ -60,12 +60,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.35)",
-    backgroundColor: "rgba(16,185,129,0.10)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    // iOS 26 wraps custom header items in its own liquid-glass capsule,
+    // so drawing our own pill there reads as a button inside a button —
+    // let the system capsule be the only background. Android gets no
+    // capsule, so it keeps the emerald pill.
+    ...(Platform.OS === "ios"
+      ? { paddingHorizontal: 4, paddingVertical: 5 }
+      : {
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: "rgba(16,185,129,0.35)",
+          backgroundColor: "rgba(16,185,129,0.10)",
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+        }),
   },
   myPassesText: {
     fontSize: 12,

@@ -356,6 +356,23 @@ export const bookingApi = {
     }>(`/api/mobile/sport-promo?${q.toString()}`, { auth: false });
   },
 
+  /**
+   * "Play more, pay less" pass pitch for a court's slot-selection
+   * screen — the sport's admin-designated cheapest-hour anchor plans
+   * (morning = off-peak, night = peak). Null pitch → show no banner.
+   */
+  passPitch: (configId: string) =>
+    api.get<{
+      pitch: {
+        planName: string | null;
+        sport: string;
+        morning: { withPass: number; regular: number; save: number } | null;
+        night: { withPass: number; regular: number; save: number } | null;
+      } | null;
+    }>(`/api/mobile/pass-pitch?configId=${encodeURIComponent(configId)}`, {
+      auth: false,
+    }),
+
   /** Slot availability for a specific court config on a given date. */
   availability: (
     params:

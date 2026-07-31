@@ -7,6 +7,7 @@ import {
   createPassPlan,
   updatePassPlan,
   togglePassPlan,
+  setPassCheapestHour,
   deletePassPlan,
   issuePassToUser,
   giftCustomPass,
@@ -96,6 +97,10 @@ export async function POST(request: NextRequest) {
       }
       case "toggle-plan": {
         const result = await togglePassPlan(str("id"), !!body.isActive);
+        return NextResponse.json(result);
+      }
+      case "set-cheapest-hour": {
+        const result = await setPassCheapestHour(str("id"), !!body.on);
         return NextResponse.json(result);
       }
       case "delete-plan": {

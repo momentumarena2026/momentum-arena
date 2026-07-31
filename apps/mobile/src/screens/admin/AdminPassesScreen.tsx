@@ -35,6 +35,7 @@ import {
   type Band,
   type PassConfigOption,
   type SoldPass,
+  anchorBuckets,
 } from "../../lib/admin-passes";
 import { adminBookingsApi } from "../../lib/admin-bookings";
 import { AdminApiError } from "../../lib/admin-api";
@@ -464,6 +465,45 @@ export function AdminPassesScreen() {
                     ⚠︎ Price drifted off the anchor — unsellable until edited.
                   </Text>
                 )}
+                {/* Cheapest-hour showcase — a single tick; WHICH bucket it
+                    anchors (peak / off-peak / both) derives from the plan's
+                    own bands. Drives the slot-selection "Play more, pay
+                    less" banner; ticking un-ticks overlapping plans. */}
+                <View style={styles.anchorRow}>
+                  {(() => {
+                    const buckets = anchorBuckets(p.bands);
+                    const bucketLabel =
+                      buckets.length === 2
+                        ? "Peak + Off-peak"
+                        : buckets[0] === "PEAK"
+                          ? "☀ Peak"
+                          : "☾ Off-peak";
+                    const on = p.isCheapestHourAnchor;
+                    return (
+                      <Pressable
+                        disabled={!p.isActive && !on}
+                        onPress={() =>
+                          void run(() =>
+                            adminPassesApi.setCheapestHour(p.id, !on),
+                          )
+                        }
+                        style={[
+                          styles.anchorChip,
+                          on && styles.anchorChipOn,
+                          !p.isActive && !on && { opacity: 0.35 },
+                        ]}
+                      >
+                        <Text
+                          variant="tiny"
+                          weight="700"
+                          color={on ? colors.emerald400 : colors.zinc500}
+                        >
+                          {on ? "✓ " : ""}Cheapest hour · {bucketLabel}
+                        </Text>
+                      </Pressable>
+                    );
+                  })()}
+                </View>
                 <View style={styles.cardActions}>
                   <Button
                     label="Edit"
@@ -1180,6 +1220,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.5,
+  },
+  anchorRow: {
+    flexDirection: "row",
+    gap: spacing["2"],
+    marginTop: spacing["2"],
+  },
+  anchorChip: {
+    borderRadius: 999,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: 5,
+    backgroundColor: colors.zinc800,
+  },
+  anchorChipOn: {
+    backgroundColor: "rgba(16,185,129,0.14)",
   },
   cardActions: {
     marginTop: spacing["3"],
