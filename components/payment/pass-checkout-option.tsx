@@ -6,7 +6,7 @@ import { Ticket } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 import { trackPassRedeemed } from "@/lib/analytics";
 
-interface Offer {
+export interface PassCheckoutOffer {
   passName: string;
   remainingMinutes: number;
   neededMinutes: number;
@@ -37,7 +37,7 @@ export function PassCheckoutOption({
   offer,
 }: {
   holdId: string;
-  offer: Offer;
+  offer: PassCheckoutOffer;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -103,7 +103,7 @@ export function PassCheckoutOption({
   }
 
   return (
-    <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
       <div className="flex items-center gap-2">
         <Ticket className="h-4 w-4 text-emerald-400" />
         <p className="text-sm font-semibold text-white">{offer.passName}</p>

@@ -1,10 +1,11 @@
 "use client";
 
-import { CreditCard, QrCode, Wallet, Check } from "lucide-react";
+import { CreditCard, QrCode, Wallet, Check, Ticket } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 
-/** Top-level choice: pay the full amount now, or a 50% advance. */
-export type AmountMode = "full" | "advance";
+/** Top-level choice: book with a pass (when the customer holds an
+ *  eligible one), pay the full amount now, or a 50% advance. */
+export type AmountMode = "pass" | "full" | "advance";
 /** Method choice under each amount mode. `upi` = direct UPI (no fee). */
 export type PayMethod = "upi" | "gateway";
 
@@ -22,6 +23,11 @@ interface PaymentSelectorProps {
   onlineEnabled?: boolean;
   upiQrEnabled?: boolean;
   advanceEnabled?: boolean;
+  /** Customer holds an eligible pass — show "Book with my pass" first. */
+  passAvailable?: boolean;
+  passName?: string;
+  /** "Pay ₹0" (full coverage) or "Pay ₹X" (pass + remainder). */
+  passDesc?: string;
 }
 
 /**
@@ -46,6 +52,9 @@ export function PaymentSelector({
   onlineEnabled = true,
   upiQrEnabled = true,
   advanceEnabled = true,
+  passAvailable = false,
+  passName,
+  passDesc,
 }: PaymentSelectorProps) {
   const showMethodToggle = upiQrEnabled && onlineEnabled;
 
@@ -54,7 +63,15 @@ export function PaymentSelector({
     enabled: boolean;
     title: string;
     desc: string;
+    Icon?: typeof Wallet;
   }> = [
+    {
+      id: "pass",
+      enabled: passAvailable,
+      title: "Book with my pass",
+      desc: passDesc ?? (passName ? `Pay ₹0 — covered by ${passName}` : "Pay ₹0"),
+      Icon: Ticket,
+    },
     {
       id: "full",
       enabled: onlineEnabled || upiQrEnabled,
@@ -91,9 +108,14 @@ export function PaymentSelector({
                 <div
                   className={`rounded-lg p-2 ${isSelected ? "bg-emerald-500/10" : "bg-zinc-800"}`}
                 >
-                  <Wallet
-                    className={`h-5 w-5 ${isSelected ? "text-emerald-400" : "text-zinc-400"}`}
-                  />
+                  {(() => {
+                    const Icon = card.Icon ?? Wallet;
+                    return (
+                      <Icon
+                        className={`h-5 w-5 ${isSelected ? "text-emerald-400" : "text-zinc-400"}`}
+                      />
+                    );
+                  })()}
                 </div>
                 <div>
                   <p className="font-medium text-white">{card.title}</p>
@@ -111,7 +133,7 @@ export function PaymentSelector({
               </button>
 
               {/* Method sub-choice — only under the selected card. */}
-              {isSelected && showMethodToggle && (
+              {isSelected && card.id !== "pass" && showMethodToggle && (
                 <div className="border-t border-zinc-800 p-3">
                   <MethodToggle
                     method={method}

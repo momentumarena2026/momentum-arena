@@ -237,6 +237,13 @@ export function CheckoutScreen() {
   useEffect(() => {
     if (autoApplyRanRef.current) return;
     if (!hold || baseAmount <= 0) return;
+    // A pass offer is the better deal and can't combine with coupons —
+    // auto-applying one would null the offer server-side and sabotage the
+    // default "Book with my pass" selection. Manual entry stays available.
+    if (hold.passOffer) {
+      autoApplyRanRef.current = true;
+      return;
+    }
     if (serverCouponCode) {
       autoApplyRanRef.current = true;
       // Hold already carries a coupon — surface a label so the DiscountInput
@@ -412,6 +419,23 @@ export function CheckoutScreen() {
   const [method, setMethod] = useState<PayMethod>(() =>
     config.upiQrEnabled ? "upi" : "gateway",
   );
+
+  // Default to "Book with my pass" the moment the hold reveals an
+  // eligible pass (server-computed; nulls out when a coupon/points land,
+  // in which case fall back off the pass tile).
+  const passOffer = hold?.passOffer ?? null;
+  useEffect(() => {
+    if (passOffer) setAmountMode("pass");
+    else
+      setAmountMode((m) =>
+        m === "pass"
+          ? config.onlineEnabled || config.upiQrEnabled
+            ? "full"
+            : "advance"
+          : m,
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!passOffer]);
 
   // The seeds above run once, and on a cold start they run against
   // DEFAULT_PAYMENT_CONFIG (the ['payment-config'] query isn't persisted, so
@@ -1015,24 +1039,6 @@ export function CheckoutScreen() {
             shows the locked picks read-only; if the customer wants to
             change rentals they tap Back to the slot picker. */}
 
-        {/* "Use my pass" — server-computed offer (owner or shared member,
-            matching court group + bands + play-date validity). Hidden the
-            moment a coupon / points land on the hold (offer nulls out on
-            the next hold refetch); the redeem route also drops both
-            server-side, so the two never combine. */}
-        {hold.passOffer && signedInUser ? (
-          <PassCheckoutOption
-            holdId={hold.id}
-            offer={hold.passOffer}
-            prefill={{
-              name: signedInUser.name,
-              email: signedInUser.email,
-              phone: signedInUser.phone,
-            }}
-            onBooked={goToBookingDetail}
-          />
-        ) : null}
-
         {/* Payment method — hidden under noPaymentRail. The tiles gate the
             advance card on advanceEnabled alone, so it would still render a
             selectable "Pay 50% Now" radio for a split of two rails that are
@@ -1070,7 +1076,30 @@ export function CheckoutScreen() {
               onlineEnabled={onlineEnabled}
               upiQrEnabled={upiQrEnabled}
               advanceEnabled={advanceEnabled}
+              passAvailable={!!passOffer && !!signedInUser}
+              passDesc={
+                passOffer
+                  ? passOffer.fullCoverage
+                    ? "Pay ₹0 — fully covered by your pass"
+                    : `Pass + pay ${formatRupees(passOffer.remainderAmount)}`
+                  : undefined
+              }
             />
+
+            {/* Pass confirm — replaces the footer pay button while
+                "Book with my pass" is selected. */}
+            {amountMode === "pass" && passOffer && signedInUser ? (
+              <PassCheckoutOption
+                holdId={hold.id}
+                offer={passOffer}
+                prefill={{
+                  name: signedInUser.name,
+                  email: signedInUser.email,
+                  phone: signedInUser.phone,
+                }}
+                onBooked={goToBookingDetail}
+              />
+            ) : null}
           </View>
         )}
 
@@ -1084,7 +1113,12 @@ export function CheckoutScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        {noPaymentRail ? (
+        {amountMode === "pass" && passOffer ? (
+          <Text variant="tiny" align="center" color={colors.zinc500}>
+            Booking with your pass — confirm above. Passes can't be combined
+            with coupons or points.
+          </Text>
+        ) : noPaymentRail ? (
           <Text variant="small" align="center" color={colors.mutedForeground}>
             Online payments are temporarily unavailable. Your slot is still
             held — please contact the venue to complete this booking.

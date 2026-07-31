@@ -3,7 +3,6 @@ import { db } from "@/lib/db";
 import type { EquipmentSnapshotItem } from "@/lib/equipment";
 import { redirect, notFound } from "next/navigation";
 import { getPassOfferForHold } from "@/lib/passes";
-import { PassCheckoutOption } from "@/components/payment/pass-checkout-option";
 import { SPORT_INFO, SIZE_INFO, formatHourRangeCompact, formatHoursAsRanges, customerFacingCourtLabel } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import { getNewUserDiscount } from "@/lib/new-user-discount";
@@ -287,15 +286,11 @@ export default async function CheckoutPage({
         </div>
       </div>
 
-      {/* Pass redemption — shown above the regular payment methods
-          whenever the signed-in user holds an eligible pass. */}
-      {passOffer && (
-        <PassCheckoutOption holdId={hold.id} offer={passOffer} />
-      )}
-
-      {/* Payment */}
+      {/* Payment — the eligible pass (if any) rides in as the first
+          payment option ("Book with my pass", default-selected). */}
       <CheckoutClient
         holdId={hold.id}
+        passOffer={passOffer}
         amount={recurringEnabled && recurringCount ? recurringNetTotal : hold.totalAmount}
         perSessionAmount={recurringEnabled && recurringCount ? hold.totalAmount : undefined}
         recurringDiscountPercent={recurringDiscountPercent || undefined}
