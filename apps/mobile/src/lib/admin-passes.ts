@@ -47,6 +47,9 @@ export interface AdminPassPlan {
   price: number;
   validityDays: number;
   isActive: boolean;
+  /** "PEAK" | "OFF_PEAK" when this plan is the sport's cheapest-hour
+   *  showcase for that time type (drives the checkout upsell nudge). */
+  upsellTimeType: "PEAK" | "OFF_PEAK" | null;
   soldCount: number;
 }
 
@@ -121,6 +124,10 @@ export const adminPassesApi = {
 
   togglePlan: (id: string, isActive: boolean) =>
     action({ action: "toggle-plan", id, isActive }),
+
+  /** Mark/clear a plan as the sport's cheapest-hour anchor (null clears). */
+  setUpsellAnchor: (id: string, timeType: "PEAK" | "OFF_PEAK" | null) =>
+    action({ action: "set-upsell-anchor", id, timeType }),
 
   deletePlan: (id: string) => action({ action: "delete-plan", id }),
 

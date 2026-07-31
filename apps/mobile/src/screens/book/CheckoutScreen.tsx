@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -19,7 +20,7 @@ import type {
   PaymentSuccessData,
   RazorpayOptions,
 } from "react-native-razorpay/src/types";
-import { AlarmClock, Sparkles } from "lucide-react-native";
+import { AlarmClock, ArrowRight, Sparkles, Ticket } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
@@ -1033,6 +1034,51 @@ export function CheckoutScreen() {
           />
         ) : null}
 
+        {/* Cheapest-hour pitch — no usable pass, but the sport's
+            admin-designated anchor plan makes this same slot cheaper.
+            Server-computed (hold.passUpsell); tapping jumps to the
+            Passes storefront. */}
+        {!hold.passOffer && hold.passUpsell ? (
+          <Pressable
+            onPress={() =>
+              navigation
+                .getParent<NativeStackNavigationProp<MainTabsParamList>>()
+                ?.navigate("Passes", { screen: "PassesStore" })
+            }
+            style={({ pressed }) => [
+              styles.upsellCard,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <View style={styles.upsellIcon}>
+              <Ticket size={16} color={colors.emerald400} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text variant="bodyStrong" color={colors.foreground}>
+                Get this same{" "}
+                {hold.courtConfig.slotDurationMinutes === 30
+                  ? "slot"
+                  : "hour"}{" "}
+                {formatRupees(hold.passUpsell.savePerSlot)} cheaper
+              </Text>
+              <Text variant="tiny" color={colors.zinc400} style={{ marginTop: 2 }}>
+                With the {hold.passUpsell.planName} it costs{" "}
+                {formatRupees(hold.passUpsell.slotPriceWithPass)} instead of{" "}
+                {formatRupees(hold.passUpsell.slotPriceNow)}
+                {hold.passUpsell.matchedSlots > 1
+                  ? ` — ${formatRupees(hold.passUpsell.saveTotal)} off this booking`
+                  : ""}
+              </Text>
+            </View>
+            <View style={styles.upsellCta}>
+              <Text variant="tiny" weight="700" color={colors.emerald400}>
+                Passes
+              </Text>
+              <ArrowRight size={13} color={colors.emerald400} />
+            </View>
+          </Pressable>
+        ) : null}
+
         {/* Payment method — hidden under noPaymentRail. The tiles gate the
             advance card on advanceEnabled alone, so it would still render a
             selectable "Pay 50% Now" radio for a split of two rails that are
@@ -1333,6 +1379,32 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 6,
     marginTop: 4,
+  },
+
+  // ── Cheapest-hour pass pitch ────────────────────────────────────────────
+  upsellCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.25)",
+    backgroundColor: "rgba(16,185,129,0.08)",
+    paddingHorizontal: spacing["4"],
+    paddingVertical: spacing["3"],
+  },
+  upsellIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(16,185,129,0.14)",
+  },
+  upsellCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
   },
 
   // ── New-user discount pill (emerald) ────────────────────────────────────

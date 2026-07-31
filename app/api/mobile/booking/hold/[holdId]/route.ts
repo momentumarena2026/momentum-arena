@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { getValidHold } from "@/lib/slot-hold";
-import { getPassOfferForHold } from "@/lib/passes";
+import { getPassOfferForHold, getPassUpsellForHold } from "@/lib/passes";
 import { logBookingRequest } from "@/lib/server-log";
 
 // GET /api/mobile/booking/hold/[holdId] — returns the SlotHold contents
@@ -49,6 +49,13 @@ export async function GET(
   // pass, or when a coupon/points are already applied to the hold).
   const passOffer = await getPassOfferForHold(hold).catch(() => null);
 
+  // No usable pass → the cheapest-hour nudge (admin-designated anchor
+  // plan for this sport + slot's peak/off-peak class). Same rule as the
+  // web checkout: pass owners get the redemption banner, never the pitch.
+  const passUpsell = passOffer
+    ? null
+    : await getPassUpsellForHold(hold).catch(() => null);
+
   return NextResponse.json({
     id: hold.id,
     courtConfigId: hold.courtConfigId,
@@ -70,5 +77,6 @@ export async function GET(
     equipmentTotalAmount: hold.equipmentTotalAmount ?? null,
     courtConfig: hold.courtConfig,
     passOffer,
+    passUpsell,
   });
 }

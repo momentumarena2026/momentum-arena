@@ -6,6 +6,7 @@ import {
   createPassPlan,
   updatePassPlan,
   deletePassPlan,
+  setPassUpsellAnchor,
   setPassesEnabled,
   togglePassPlan,
   type PassConfigOption,
@@ -29,6 +30,9 @@ interface Plan {
   price: number;
   validityDays: number;
   isActive: boolean;
+  /** "PEAK" | "OFF_PEAK" when this plan is its sport's cheapest-hour
+   *  showcase for that time type (drives the checkout upsell nudge). */
+  upsellTimeType: string | null;
   soldCount: number;
 }
 
@@ -303,6 +307,9 @@ export function PassesManager({
                 <th className="px-4 py-3">Validity</th>
                 <th className="px-4 py-3">Sold</th>
                 <th className="px-4 py-3">Active</th>
+                <th className="px-4 py-3" title="Marks this plan as the sport's 'cheapest hour' pass. The booking checkout uses it to show 'this same hour is ₹X cheaper with a pass' for peak / off-peak slots.">
+                  Cheapest hour
+                </th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -354,6 +361,43 @@ export function PassesManager({
                       >
                         {p.isActive ? "Active" : "Inactive"}
                       </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1">
+                        {(["PEAK", "OFF_PEAK"] as const).map((tt) => {
+                          const on = p.upsellTimeType === tt;
+                          return (
+                            <button
+                              key={tt}
+                              onClick={() =>
+                                startTransition(async () => {
+                                  const res = await setPassUpsellAnchor(
+                                    p.id,
+                                    on ? null : tt,
+                                  );
+                                  if (!res.ok) setError(res.error);
+                                  router.refresh();
+                                })
+                              }
+                              disabled={pending || (!p.isActive && !on)}
+                              title={
+                                on
+                                  ? "Remove the cheapest-hour flag"
+                                  : `Make this the ${p.sport.toLowerCase()} cheapest-hour pass for ${tt === "PEAK" ? "peak" : "off-peak"} slots (takes it from the current holder)`
+                              }
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-30 ${
+                                on
+                                  ? tt === "PEAK"
+                                    ? "bg-amber-500/15 text-amber-400"
+                                    : "bg-sky-500/15 text-sky-300"
+                                  : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300"
+                              }`}
+                            >
+                              {tt === "PEAK" ? "☀ Peak" : "☾ Off-peak"}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">

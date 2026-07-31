@@ -1384,3 +1384,135 @@ export async function syncPassAfterAdminEdit(
   });
   return { ok: true, passUsed: pass.id, coveredAmount };
 }
+
+/* ────────────────────────────────────────────────────────────────────
+ * Cheapest-hour upsell — the "tiny thought" at checkout.
+ * ──────────────────────────────────────────────────────────────────── */
+
+export interface PassUpsell {
+  planId: string;
+  planName: string;
+  /** Pass size, for copy ("5-hour pass"). */
+  passHours: number;
+  passPrice: number;
+  /** What the customer is paying per slot right now (rupees, the
+   *  priciest matched slot — the number the nudge anchors against). */
+  slotPriceNow: number;
+  /** The same slot's cost when paid from the anchor pass. */
+  slotPriceWithPass: number;
+  /** slotPriceNow − slotPriceWithPass (per slot). */
+  savePerSlot: number;
+  /** Savings across every selected slot the pass would cover. */
+  saveTotal: number;
+  matchedSlots: number;
+}
+
+/**
+ * "This same hour is ₹X cheaper with a pass."
+ *
+ * Looks up the sport's admin-designated cheapest-hour anchor plans
+ * (PassPlan.upsellTimeType — one for PEAK, one for OFF_PEAK), matches
+ * them against the hold's actual slots (classification + band
+ * membership, price from the hold's own slotPrices blob), and returns
+ * the pitch for whichever anchor saves the most on THIS selection.
+ * Null when nothing applies — never show a nudge that saves ₹0.
+ *
+ * Callers only render it when the customer has no usable pass
+ * (getPassOfferForHold returned null) — a pass holder needs no pitch.
+ */
+export async function getPassUpsellForHold(hold: {
+  courtConfigId: string | null;
+  date: Date;
+  hours: number[];
+  slotPrices?: unknown;
+  courtConfig?: { slotDurationMinutes: number } | null;
+}): Promise<PassUpsell | null> {
+  if (!hold.courtConfigId || hold.hours.length === 0) return null;
+
+  const holdCfg = await db.courtConfig.findUnique({
+    where: { id: hold.courtConfigId },
+    select: { sport: true, slotDurationMinutes: true },
+  });
+  if (!holdCfg) return null;
+
+  const anchors = await db.passPlan.findMany({
+    where: {
+      sport: holdCfg.sport,
+      isActive: true,
+      upsellTimeType: { not: null },
+    },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      totalMinutes: true,
+      bands: true,
+      upsellTimeType: true,
+    },
+  });
+  if (anchors.length === 0) return null;
+
+  // Same slot classification getPassOfferForHold uses: dayType/timeType
+  // per hour, price from the hold's own blob (fallback: today's rate).
+  const classified = await getSlotPricesForDate(
+    hold.courtConfigId,
+    hold.date,
+  ).catch(() => []);
+  if (classified.length === 0) return null;
+  const byHour = new Map(classified.map((s) => [s.hour, s]));
+  const stored = Array.isArray(hold.slotPrices)
+    ? (hold.slotPrices as { hour?: number; price?: number }[])
+    : [];
+  const slots = hold.hours
+    .map((h, i) => {
+      const cls = byHour.get(h);
+      if (!cls) return null;
+      const storedPrice = stored[i]?.price;
+      return {
+        dayType: cls.dayType,
+        timeType: cls.timeType,
+        price: typeof storedPrice === "number" ? storedPrice : cls.price,
+      };
+    })
+    .filter((s): s is NonNullable<typeof s> => !!s);
+  if (slots.length === 0) return null;
+
+  const slotMinutes =
+    hold.courtConfig?.slotDurationMinutes ?? holdCfg.slotDurationMinutes ?? 60;
+
+  let best: PassUpsell | null = null;
+  for (const plan of anchors) {
+    if (plan.totalMinutes <= 0) continue;
+    // What one slot costs when paid from this pass.
+    const perSlotWithPass = Math.round(
+      (plan.price / plan.totalMinutes) * slotMinutes,
+    );
+    const bands = parseBands(plan.bands);
+    const matched = slots.filter(
+      (s) =>
+        s.timeType === plan.upsellTimeType &&
+        slotInBands(bands, s) &&
+        s.price > perSlotWithPass,
+    );
+    if (matched.length === 0) continue;
+
+    const saveTotal = matched.reduce(
+      (sum, s) => sum + (s.price - perSlotWithPass),
+      0,
+    );
+    const anchorSlot = matched.reduce((a, b) => (b.price > a.price ? b : a));
+    const candidate: PassUpsell = {
+      planId: plan.id,
+      planName: plan.name,
+      passHours: Math.round((plan.totalMinutes / 60) * 10) / 10,
+      passPrice: plan.price,
+      slotPriceNow: anchorSlot.price,
+      slotPriceWithPass: perSlotWithPass,
+      savePerSlot: anchorSlot.price - perSlotWithPass,
+      saveTotal,
+      matchedSlots: matched.length,
+    };
+    if (!best || candidate.saveTotal > best.saveTotal) best = candidate;
+  }
+  return best;
+}

@@ -895,6 +895,12 @@ model PassPlan {
   // (Empty/absent = legacy unrestricted.)
   bands         Json?
   anchorPrice   Int?
+  // Cheapest-hour showcase: when set, THIS plan is the sport's designated
+  // "your hour is cheaper with a pass" anchor for PEAK or OFF_PEAK slots.
+  // At most one plan per (sport, upsellTimeType) — the admin action clears
+  // the previous holder. The booking checkout uses it to whisper
+  // "this same hour costs ₹X less with the <plan>".
+  upsellTimeType TimeType?
   isActive      Boolean  @default(true)
   sortOrder     Int      @default(0)
   createdAt     DateTime @default(now())

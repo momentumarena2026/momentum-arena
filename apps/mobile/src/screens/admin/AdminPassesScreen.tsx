@@ -464,6 +464,47 @@ export function AdminPassesScreen() {
                     ⚠︎ Price drifted off the anchor — unsellable until edited.
                   </Text>
                 )}
+                {/* Cheapest-hour showcase — one plan per sport for PEAK and
+                    one for OFF_PEAK. The booking checkout uses the flagged
+                    plan to pitch "this same hour is ₹X cheaper with a pass". */}
+                <View style={styles.anchorRow}>
+                  {(["PEAK", "OFF_PEAK"] as const).map((tt) => {
+                    const on = p.upsellTimeType === tt;
+                    return (
+                      <Pressable
+                        key={tt}
+                        disabled={!p.isActive && !on}
+                        onPress={() =>
+                          void run(() =>
+                            adminPassesApi.setUpsellAnchor(p.id, on ? null : tt),
+                          )
+                        }
+                        style={[
+                          styles.anchorChip,
+                          on &&
+                            (tt === "PEAK"
+                              ? styles.anchorChipPeak
+                              : styles.anchorChipOffPeak),
+                          !p.isActive && !on && { opacity: 0.35 },
+                        ]}
+                      >
+                        <Text
+                          variant="tiny"
+                          weight="700"
+                          color={
+                            on
+                              ? tt === "PEAK"
+                                ? colors.yellow400
+                                : "#7dd3fc"
+                              : colors.zinc500
+                          }
+                        >
+                          {tt === "PEAK" ? "☀ Peak cheapest" : "☾ Off-peak cheapest"}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
                 <View style={styles.cardActions}>
                   <Button
                     label="Edit"
@@ -1180,6 +1221,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.5,
+  },
+  anchorRow: {
+    flexDirection: "row",
+    gap: spacing["2"],
+    marginTop: spacing["2"],
+  },
+  anchorChip: {
+    borderRadius: 999,
+    paddingHorizontal: spacing["3"],
+    paddingVertical: 5,
+    backgroundColor: colors.zinc800,
+  },
+  anchorChipPeak: {
+    backgroundColor: "rgba(250,204,21,0.14)",
+  },
+  anchorChipOffPeak: {
+    backgroundColor: "rgba(56,189,248,0.14)",
   },
   cardActions: {
     marginTop: spacing["3"],

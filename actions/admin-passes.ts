@@ -241,6 +241,7 @@ export async function getPassAdminData() {
         price: p.price,
         validityDays: p.validityDays,
         isActive: p.isActive,
+        upsellTimeType: p.upsellTimeType ? String(p.upsellTimeType) : null,
         soldCount: p._count.userPasses,
       };
     }),
@@ -376,6 +377,43 @@ export async function togglePassPlan(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   await gate();
   await db.passPlan.update({ where: { id }, data: { isActive } });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
+/**
+ * Mark a plan as its sport's "cheapest hour" showcase for PEAK or
+ * OFF_PEAK (or clear it with null). At most one plan per
+ * (sport, timeType): setting the flag steals it from the previous
+ * holder in the same transaction. The booking checkout uses these
+ * anchors to tell customers "this same hour is ₹X cheaper with a pass".
+ */
+export async function setPassUpsellAnchor(
+  id: string,
+  timeType: "PEAK" | "OFF_PEAK" | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await gate();
+  const plan = await db.passPlan.findUnique({
+    where: { id },
+    select: { id: true, sport: true, isActive: true },
+  });
+  if (!plan) return { ok: false, error: "Plan not found" };
+  if (timeType && !plan.isActive) {
+    return { ok: false, error: "Activate the plan before making it an anchor" };
+  }
+
+  await db.$transaction(async (tx) => {
+    if (timeType) {
+      await tx.passPlan.updateMany({
+        where: { sport: plan.sport, upsellTimeType: timeType, id: { not: id } },
+        data: { upsellTimeType: null },
+      });
+    }
+    await tx.passPlan.update({
+      where: { id },
+      data: { upsellTimeType: timeType },
+    });
+  });
   revalidatePath("/admin/passes");
   return { ok: true };
 }
