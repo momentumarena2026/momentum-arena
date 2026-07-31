@@ -155,6 +155,10 @@ export function CheckoutScreen() {
   // "Book via" state — while the Pass tab is active the whole checkout
   // prices against the remainder (courtBase = totalAmount − coverage).
   const passMode = hold?.passMode ?? null;
+  // Slots the pass mode settles — their breakdown rows price at ₹0.
+  const passCoveredKeys = new Set(
+    (passMode?.coveredSlots ?? []).map((c) => `${c.h}:${c.m ?? 0}`),
+  );
   const passTabAvailable = !!hold?.passAvailable || !!passMode;
   const baseAmount = hold?.courtBase ?? hold?.totalAmount ?? 0;
   const sport = hold?.courtConfig.sport;
@@ -811,9 +815,6 @@ export function CheckoutScreen() {
     (passMode?.fullCoverage ?? hold.passTabFullCoverage) ? "Pass" : "Pass + Pay";
   const bookViaTabs = passTabAvailable ? (
     <View style={styles.bookVia}>
-      <Text variant="small" weight="600" color={colors.zinc400}>
-        Book via
-      </Text>
       <View style={styles.bookViaTabs}>
         {(
           [
@@ -910,10 +911,25 @@ export function CheckoutScreen() {
               />
             </View>
             <View style={styles.summaryDivider} />
+            {(passMode.passes ?? [passMode]).map((share) => (
+              <View key={share.passId} style={styles.breakdownRow}>
+                <Text variant="small" color={colors.emerald400}>
+                  {share.passName} (
+                  {`${(share.coveredMinutes / 60)
+                    .toFixed(1)
+                    .replace(/\.0$/, "")}h`}
+                  )
+                </Text>
+                <Text variant="small" color={colors.emerald400}>
+                  Included
+                </Text>
+              </View>
+            ))}
             <View style={styles.breakdownRow}>
               <Text variant="bodyStrong">To pay</Text>
               <Text variant="bodyStrong" color={colors.emerald400}>
-                ₹0 — covered by your pass
+                ₹0 — covered by your{" "}
+                {(passMode.passes?.length ?? 1) > 1 ? "passes" : "pass"}
               </Text>
             </View>
           </View>
@@ -987,40 +1003,66 @@ export function CheckoutScreen() {
 
           <View style={styles.summaryDivider} />
 
-          {sortedSlots.length > 1 ? (
+          {sortedSlots.length > 1 || passMode ? (
             <View style={styles.breakdown}>
-              {sortedSlots.map((slot) => (
-                <View
-                  key={`${slot.hour}:${slot.minute}`}
-                  style={styles.breakdownRow}
-                >
-                  <Text variant="small" color={colors.subtleForeground}>
-                    {formatSlotsAsRanges([slot], slotDurationMinutes)}
-                  </Text>
-                  <Text variant="small" color={colors.zinc300}>
-                    {formatRupees(slot.price)}
-                  </Text>
-                </View>
-              ))}
+              {sortedSlots.map((slot) => {
+                const coveredByPass = passCoveredKeys.has(
+                  `${slot.hour}:${slot.minute}`,
+                );
+                return (
+                  <View
+                    key={`${slot.hour}:${slot.minute}`}
+                    style={styles.breakdownRow}
+                  >
+                    <Text variant="small" color={colors.subtleForeground}>
+                      {formatSlotsAsRanges([slot], slotDurationMinutes)}
+                      {coveredByPass ? (
+                        <Text variant="tiny" color={colors.emerald400}>
+                          {"  · pass"}
+                        </Text>
+                      ) : null}
+                    </Text>
+                    {coveredByPass ? (
+                      <Text variant="small" color={colors.emerald400}>
+                        <Text
+                          variant="small"
+                          color={colors.zinc600}
+                          style={{ textDecorationLine: "line-through" }}
+                        >
+                          {formatRupees(slot.price)}
+                        </Text>
+                        {"  ₹0"}
+                      </Text>
+                    ) : (
+                      <Text variant="small" color={colors.zinc300}>
+                        {formatRupees(slot.price)}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           ) : null}
 
-          {/* Pass + Pay: the pass takes its covered slots off the top —
-              every number below prices the remainder. */}
-          {passMode ? (
-            <View style={styles.breakdownRow}>
-              <Text variant="small" color={colors.emerald400}>
-                Covered by {passMode.passName} (
-                {`${(passMode.coveredMinutes / 60)
-                  .toFixed(1)
-                  .replace(/\.0$/, "")}h`}
-                )
-              </Text>
-              <Text variant="small" color={colors.emerald400}>
-                -{formatRupees(passMode.coveredAmount)}
-              </Text>
-            </View>
-          ) : null}
+          {/* Pass + Pay: covered slots already price at ₹0 above, so
+              these are attribution lines only — one per contributing
+              pass, no second subtraction. */}
+          {passMode
+            ? (passMode.passes ?? [passMode]).map((share) => (
+                <View key={share.passId} style={styles.breakdownRow}>
+                  <Text variant="small" color={colors.emerald400}>
+                    Covered by {share.passName} (
+                    {`${(share.coveredMinutes / 60)
+                      .toFixed(1)
+                      .replace(/\.0$/, "")}h`}
+                    )
+                  </Text>
+                  <Text variant="small" color={colors.emerald400}>
+                    Included
+                  </Text>
+                </View>
+              ))
+            : null}
 
           {pointsRedeemRupees > 0 ? (
             <View style={styles.breakdownRow}>

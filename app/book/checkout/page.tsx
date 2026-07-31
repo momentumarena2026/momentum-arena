@@ -196,6 +196,13 @@ export default async function CheckoutPage({
     ? computeAutoApplyDiscount(courtBase, sportPromo)
     : 0;
 
+  // Which slots the pass mode settles — their rows price at ₹0 in the
+  // breakdown below (the numbers the customer sums must equal what they
+  // actually pay).
+  const coveredSlotKeys = new Set(
+    (passMode?.coveredSlots ?? []).map((c) => `${c.h}:${c.m ?? 0}`),
+  );
+
   // Full-coverage Pass tab: no summary, no discounts, no payment rails —
   // just the recap + one Book now tap (the redeem endpoint books it and
   // debits the pass; confirmation messages ride the same path as ever).
@@ -227,9 +234,20 @@ export default async function CheckoutPage({
                 {formatHoursAsRanges(sortedSlots.map((sl) => sl.hour))}
               </span>
             </div>
+            {passMode.passes.map((share) => (
+              <div key={share.passId} className="flex justify-between">
+                <span className="text-emerald-400">
+                  {share.passName} (
+                  {`${(share.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h`})
+                </span>
+                <span className="text-emerald-400">Included</span>
+              </div>
+            ))}
             <div className="flex justify-between border-t border-zinc-800 pt-2">
               <span className="text-zinc-400">To pay</span>
-              <span className="font-bold text-emerald-400">₹0 — covered by your pass</span>
+              <span className="font-bold text-emerald-400">
+                ₹0 — covered by your {passMode.passes.length > 1 ? "passes" : "pass"}
+              </span>
             </div>
           </div>
         </div>
@@ -296,25 +314,45 @@ export default async function CheckoutPage({
         </div>
 
         <div className="border-t border-zinc-800 pt-3">
-          {sortedSlots.length > 1 && sortedSlots.map((slot) => (
-            <div key={slot.hour} className="flex justify-between text-sm">
-              <span className="text-zinc-500">{formatHourRangeCompact(slot.hour)}</span>
-              <span className="text-zinc-300">{formatPrice(slot.price)}</span>
-            </div>
-          ))}
-          {/* Pass + Pay: the pass takes its covered slots off the top —
-              everything below (offers, points, total) prices the rest. */}
-          {passMode && (
-            <div className="flex justify-between text-sm">
-              <span className="text-emerald-400">
-                Covered by {passMode.passName} (
-                {`${(passMode.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h`})
-              </span>
-              <span className="text-emerald-400">
-                -{formatPrice(passMode.coveredAmount)}
-              </span>
-            </div>
-          )}
+          {(sortedSlots.length > 1 || passMode) &&
+            sortedSlots.map((slot) => {
+              const coveredByPass = coveredSlotKeys.has(`${slot.hour}:0`);
+              return (
+                <div key={slot.hour} className="flex justify-between text-sm">
+                  <span className="text-zinc-500">
+                    {formatHourRangeCompact(slot.hour)}
+                    {coveredByPass && (
+                      <span className="ml-1.5 text-xs text-emerald-400">
+                        · pass
+                      </span>
+                    )}
+                  </span>
+                  {coveredByPass ? (
+                    <span className="text-emerald-400">
+                      <span className="mr-1.5 text-zinc-600 line-through">
+                        {formatPrice(slot.price)}
+                      </span>
+                      ₹0
+                    </span>
+                  ) : (
+                    <span className="text-zinc-300">{formatPrice(slot.price)}</span>
+                  )}
+                </div>
+              );
+            })}
+          {/* Pass + Pay: covered slots are already shown at ₹0 above, so
+              these lines are attribution only — one per contributing
+              pass, no second subtraction. */}
+          {passMode &&
+            passMode.passes.map((share) => (
+              <div key={share.passId} className="flex justify-between text-sm">
+                <span className="text-emerald-400">
+                  Covered by {share.passName} (
+                  {`${(share.coveredMinutes / 60).toFixed(1).replace(/\.0$/, "")}h`})
+                </span>
+                <span className="text-emerald-400">Included</span>
+              </div>
+            ))}
           {recurringEnabled && recurringCount && recurringCount > 1 && (
             <>
               <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2 text-sm">

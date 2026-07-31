@@ -221,9 +221,23 @@ export interface Hold {
     coveredMinutes: number;
     coveredAmount: number;
     fullCoverage: boolean;
+    /** Which slots the passes settle (h/m/min) — their summary rows
+     *  render at ₹0. */
+    coveredSlots?: { h: number; m: number; min: number }[];
+    /** Per-pass breakdown when several passes fund one booking. */
+    passes?: PassShare[];
   } | null;
   /** What checkout math prices against: totalAmount − pass coverage. */
   courtBase?: number;
+}
+
+/** One pass's contribution when a booking draws on several passes. */
+export interface PassShare {
+  passId: string;
+  passName: string;
+  coveredMinutes: number;
+  coveredAmount: number;
+  remainingMinutes?: number;
 }
 
 /** Server-computed pass coverage — mirrors lib/passes.getPassOfferForHold. */
@@ -235,6 +249,8 @@ export interface PassOffer {
   coveredMinutes: number;
   fullCoverage: boolean;
   remainderAmount: number;
+  /** Per-pass breakdown in debit order. */
+  passes?: PassShare[];
 }
 
 export interface ApplyPointsResult {

@@ -4,7 +4,11 @@ import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
-import { getPassOfferForHold, debitPass } from "@/lib/passes";
+import {
+  getPassOfferForHold,
+  debitPass,
+  restorePassForBooking,
+} from "@/lib/passes";
 import {
   sendBookingConfirmation,
   notifyAdminBookingConfirmed,
@@ -74,17 +78,28 @@ export async function POST(request: NextRequest) {
     if (!bookingId) {
       return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
     }
-    // Settle exactly the court time the pass covered — hold.totalAmount
+    // Settle exactly the court time each pass covered — hold.totalAmount
     // would also swallow any equipment (which a pass never pays for).
-    const ok = await debitPass(
-      offer.passId,
-      offer.coveredMinutes,
-      bookingId,
-      offer.coveredAmount,
-      offer.coveredSlots,
-    );
-    if (!ok) {
-      // Balance raced away between offer + debit — undo the booking.
+    // Full coverage may draw on several passes (peak + off-peak, or two
+    // same-band passes stacking); each gets its own debit + redemption.
+    let debitFailed = false;
+    for (const share of offer.passes) {
+      const ok = await debitPass(
+        share.passId,
+        share.coveredMinutes,
+        bookingId,
+        share.coveredAmount,
+        share.coveredSlots,
+      );
+      if (!ok) {
+        debitFailed = true;
+        break;
+      }
+    }
+    if (debitFailed) {
+      // A balance raced away between offer + debit — put back whatever
+      // DID debit and undo the booking.
+      await restorePassForBooking(bookingId).catch(() => {});
       await db.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } });
       return NextResponse.json({ error: "Pass balance changed — try again" }, { status: 409 });
     }

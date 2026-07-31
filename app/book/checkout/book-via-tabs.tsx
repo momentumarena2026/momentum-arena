@@ -47,9 +47,6 @@ export function BookViaTabs({
 
   return (
     <div>
-      <h2 className="mb-2 text-sm font-medium uppercase tracking-wider text-zinc-500">
-        Book via
-      </h2>
       <div className="grid grid-cols-2 gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-1.5">
         {tabs.map((t) => {
           const isActive = active === t.id;

@@ -335,11 +335,11 @@ export async function markRemainderCollected(
   // Defense in depth: a pass-covered booking must never take remainder
   // money on top of coveredAmount (double-charging the covered hours).
   {
-    const red = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const red = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
-    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+    if (red || booking.payment.method === "PASS") {
       return {
         success: false,
         error:
@@ -492,11 +492,11 @@ export async function updateRemainderSplit(
     return { success: false, error: "Booking is not a partial payment" };
   }
   {
-    const red = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const red = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
-    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+    if (red || booking.payment.method === "PASS") {
       return {
         success: false,
         error:
@@ -1076,11 +1076,11 @@ export async function adminEditPayment(
   // the covered hours — route admins to edit-slots (with the pass
   // option), cancel, or refund instead.
   {
-    const red = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const red = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
-    if ((red && !red.restoredAt) || booking.payment.method === "PASS") {
+    if (red || booking.payment.method === "PASS") {
       return {
         success: false as const,
         error:
@@ -2950,12 +2950,12 @@ export async function adminEditBookingSlots(
     // coverage, the top-up remainder otherwise) — money truth lives in
     // Payment.amount + PassRedemption.coveredAmount, which the sync
     // below realigns to the new total.
-    const liveRedemption = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true },
+    const liveRedemption = await db.passRedemption.findFirst({
+      where: { bookingId, restoredAt: null },
+      select: { id: true },
     });
     const isPassCovered =
-      (!!liveRedemption && !liveRedemption.restoredAt) ||
+      !!liveRedemption ||
       booking.payment?.method === "PASS" ||
       // Top-up bookings stay pass-covered even after their redemption is
       // restored — Payment.amount is the captured remainder, never the
@@ -3521,12 +3521,12 @@ export async function adminEditBookingFull(
       // overwriting amount would double-charge the covered hours — the
       // pass sync below realigns coveredAmount instead, so
       // owed-at-venue = total − payment − covered stays exact.
-      const liveRedemptionFull = await tx.passRedemption.findUnique({
-        where: { bookingId },
-        select: { restoredAt: true },
+      const liveRedemptionFull = await tx.passRedemption.findFirst({
+        where: { bookingId, restoredAt: null },
+        select: { id: true },
       });
       const isPassCoveredFull =
-        (!!liveRedemptionFull && !liveRedemptionFull.restoredAt) ||
+        !!liveRedemptionFull ||
         booking.payment?.method === "PASS" ||
         // Top-up bookings stay pass-covered even once the redemption is
         // restored — Payment.amount is the captured remainder, never the
@@ -4140,15 +4140,12 @@ export async function extendBookingByThirtyMin(
       };
     }
 
-    // The redemption already attached to this booking (live or restored)
-    // steers which pass may extend it and whether the Payment row may
-    // flip PARTIAL below.
-    const redemptionRow = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { restoredAt: true, userPassId: true },
+    // Live redemptions on this booking (one row per contributing pass)
+    // decide whether the Payment row may flip PARTIAL below.
+    const liveRedemptions = await db.passRedemption.findMany({
+      where: { bookingId, restoredAt: null },
+      select: { userPassId: true },
     });
-    const liveRedemption =
-      redemptionRow && !redemptionRow.restoredAt ? redemptionRow : null;
 
     // Compute the new 30-min window in "minutes-since-midnight" terms.
     let newStartMin: number;
@@ -4191,15 +4188,9 @@ export async function extendBookingByThirtyMin(
       if (!booking.userId) {
         return { success: false, error: "Guest bookings can't use a pass" };
       }
-      // The redemption row is unique per booking — never grow it with
-      // minutes debited from a DIFFERENT pass than the one it points at.
-      if (liveRedemption && payWithPassId !== liveRedemption.userPassId) {
-        return {
-          success: false,
-          error:
-            "This booking already redeems a different pass — extend with that pass, or charge the extension instead.",
-        };
-      }
+      // Multi-pass bookings hold one redemption row per pass — an
+      // extension may debit any eligible pass; a pass not yet on the
+      // booking simply gets its own row below.
       const pass = await db.userPass.findUnique({
         where: { id: payWithPassId },
         include: {
@@ -4324,10 +4315,13 @@ export async function extendBookingByThirtyMin(
         if (debited.count === 0) {
           throw new Error("Pass balance changed — please retry");
         }
-        // One redemption row per booking. An extension after an initial
-        // pass redemption grows that row's minutes; otherwise create it.
+        // One redemption row per (booking, pass). An extension debited
+        // from a pass already on the booking grows that pass's row;
+        // otherwise it gets its own.
         const existingRed = await tx.passRedemption.findUnique({
-          where: { bookingId },
+          where: {
+            bookingId_userPassId: { bookingId, userPassId: payWithPassId },
+          },
         });
         // The extension's own half-hour joins the covered set, so a
         // later edit that removes it returns exactly these 30 minutes.
@@ -4354,7 +4348,7 @@ export async function extendBookingByThirtyMin(
               existingRed.minutes,
             );
           await tx.passRedemption.update({
-            where: { bookingId },
+            where: { id: existingRed.id },
             data: {
               minutes: { increment: 30 },
               value: { increment: passExtendValue },
@@ -4365,12 +4359,12 @@ export async function extendBookingByThirtyMin(
             },
           });
         } else if (existingRed) {
-          // Restored row still occupies the unique bookingId — its old
-          // minutes already went back to the pass, so reactivate it with
-          // JUST this extension's figures (incrementing would resurrect
-          // and lose the restored minutes).
+          // Restored row still occupies the (booking, pass) slot — its
+          // old minutes already went back to the pass, so reactivate it
+          // with JUST this extension's figures (incrementing would
+          // resurrect and lose the restored minutes).
           await tx.passRedemption.update({
-            where: { bookingId },
+            where: { id: existingRed.id },
             data: {
               userPassId: payWithPassId,
               minutes: 30,
@@ -4410,7 +4404,7 @@ export async function extendBookingByThirtyMin(
       // owed-at-venue invariant (total − payment − covered) already
       // surfaces the extension's charge, same as equipment owed.
       const isPassCoveredBooking =
-        !!liveRedemption ||
+        liveRedemptions.length > 0 ||
         booking.payment?.method === "PASS" ||
         booking.payment?.confirmedBy === "PASS_TOPUP";
       if (booking.payment && effectivePrice > 0 && !isPassCoveredBooking) {
@@ -4551,12 +4545,11 @@ async function closeOutBooking(
     //      confirmCashPayment first, so writing that off would erase real
     //      takings. Pass-settled rupees are real money (recognised at
     //      pass purchase) and stay on the total.
-    const redemption = await db.passRedemption.findUnique({
-      where: { bookingId },
-      select: { coveredAmount: true, restoredAt: true },
+    const redemptions = await db.passRedemption.findMany({
+      where: { bookingId, restoredAt: null },
+      select: { coveredAmount: true },
     });
-    const passCovered =
-      redemption && !redemption.restoredAt ? redemption.coveredAmount : 0;
+    const passCovered = redemptions.reduce((s, r) => s + r.coveredAmount, 0);
     let forfeitedRemainder = 0;
     if (
       booking.payment?.isPartialPayment &&

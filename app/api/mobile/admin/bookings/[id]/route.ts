@@ -58,18 +58,18 @@ export async function GET(
   // ── Pass state (mirrors the web detail page) ──────────────────────
   // A redemption stamped restoredAt is undone — only a LIVE one settles
   // money or pins which pass may extend this booking.
-  const redemptionRow = await db.passRedemption.findUnique({
-    where: { bookingId: id },
+  const redemptionRows = await db.passRedemption.findMany({
+    where: { bookingId: id, restoredAt: null },
+    orderBy: { createdAt: "asc" },
     select: {
       minutes: true,
       value: true,
       coveredAmount: true,
-      restoredAt: true,
       userPassId: true,
       userPass: { select: { name: true } },
     },
   });
-  const live = redemptionRow && !redemptionRow.restoredAt ? redemptionRow : null;
+  const live = redemptionRows[0] ?? null;
 
   // Interchangeable courts: a pass bought for the LEFT half covers a
   // booking on the RIGHT half (same sport + size + category).
@@ -159,12 +159,25 @@ export async function GET(
       _isRecurringChildPayment: isRecurringChildPayment,
       passRedemption: live
         ? {
-            passName: live.userPass.name,
-            minutes: live.minutes,
-            value: live.value,
-            coveredAmount: live.coveredAmount,
+            // Aggregates across every contributing pass; names joined so
+            // the existing single-line UI reads correctly.
+            passName: redemptionRows
+              .map((r) => r.userPass.name)
+              .join(" + "),
+            minutes: redemptionRows.reduce((s, r) => s + r.minutes, 0),
+            value: redemptionRows.reduce((s, r) => s + r.value, 0),
+            coveredAmount: redemptionRows.reduce(
+              (s, r) => s + r.coveredAmount,
+              0,
+            ),
           }
         : null,
+      passRedemptions: redemptionRows.map((r) => ({
+        passName: r.userPass.name,
+        minutes: r.minutes,
+        value: r.value,
+        coveredAmount: r.coveredAmount,
+      })),
       extendPass,
       owedAtVenue,
     },

@@ -1007,9 +1007,10 @@ model PassRedemption {
   id         String   @id @default(cuid())
   userPassId String
   userPass   UserPass @relation(fields: [userPassId], references: [id])
-  // One redemption per booking; top-up bookings still debit through a
-  // single row (minutes = the covered portion).
-  bookingId  String   @unique
+  // One redemption per (booking, pass). A booking may draw on several
+  // passes at once (peak + off-peak stacking, balance spread across an
+  // old and a new pass) — each contributing pass gets its own row.
+  bookingId  String
   minutes    Int
   // Value attribution (rupees): what the redeemed minutes actually cost
   // the customer at the pass's effective rate (pass.price × minutes /
@@ -1039,6 +1040,9 @@ model PassRedemption {
   createdAt  DateTime @default(now())
   // Set when an eligible cancellation restored these minutes.
   restoredAt DateTime?
+
+  @@unique([bookingId, userPassId])
+  @@index([bookingId])
 }
 
 // Money-first holder for a pass bought via PhonePe Dynamic QR. Unlike
