@@ -1,6 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
+import { Bell } from "lucide-react";
 import { auth } from "@/lib/auth";
+import { unreadNotificationCount } from "@/lib/user-notifications";
 import { LoginButton } from "@/components/login-modal";
 import { RewardsChip } from "@/components/rewards/rewards-chip";
 import { arePassesEnabled } from "@/lib/passes";
@@ -24,6 +26,9 @@ export async function SiteHeader({ active }: { active?: Section }) {
     arePassesEnabled().catch(() => false),
     areTournamentsEnabled().catch(() => false),
   ]);
+  const unread = session?.user?.id
+    ? await unreadNotificationCount(session.user.id).catch(() => 0)
+    : 0;
 
   const base = "hidden md:flex text-sm font-medium transition";
   const linkClass = (section: Section, hover: string) =>
@@ -76,6 +81,20 @@ export async function SiteHeader({ active }: { active?: Section }) {
           </div>
 
           <div className="flex items-center gap-3">
+            {session?.user?.id && (
+              <Link
+                href="/notifications"
+                aria-label="My Notifications"
+                className="relative rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              >
+                <Bell className="h-5 w-5" />
+                {unread > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-emerald-950">
+                    {unread > 9 ? "9+" : unread}
+                  </span>
+                )}
+              </Link>
+            )}
             {session?.user?.id && <RewardsChip userId={session.user.id} />}
             {session?.user ? (
               <Link

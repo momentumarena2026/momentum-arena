@@ -20,6 +20,8 @@ export type AccountStackParamList = {
   PassesStore: undefined;
   BookingsList: undefined;
   RecurringBookings: undefined;
+  // In-app notifications — pass activity, booking updates, etc.
+  Notifications: undefined;
   BookingDetail: { bookingId: string };
   Waitlist: undefined;
   Coupons: undefined;

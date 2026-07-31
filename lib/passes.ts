@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { getSlotPricesForDate } from "@/lib/pricing";
+import { notifyUser } from "@/lib/user-notifications";
 import { parseBands, slotInBands, bandsSummary } from "@/lib/pass-bands";
 import { courtGroupLabel } from "@/lib/court-config";
 import { normalizeIndianPhone } from "@/lib/phone";
@@ -148,6 +149,13 @@ export async function materializeUserPass(args: {
         razorpayPaymentId: args.razorpayPaymentId ?? null,
         phonePeMerchantTxnId: args.phonePeMerchantTxnId ?? null,
       },
+    });
+    const hrs = Math.round((plan.totalMinutes / 60) * 10) / 10;
+    void notifyUser(args.userId, {
+      type: "PASS_PURCHASED",
+      title: "Your pass is active 🎟️",
+      body: `${plan.name} is ready — ${hrs} hours to play, valid ${plan.validityDays} days. Book a slot and pay with your pass.`,
+      link: "/account?tab=passes",
     });
     return { userPassId: created.id, alreadyDone: false };
   } catch (err) {
@@ -600,6 +608,43 @@ export async function debitPass(
         data: { status: "EXHAUSTED" },
       });
     });
+
+    // Tell everyone on the pass (owner + members) except whoever made
+    // the booking — best-effort, after the money has settled.
+    void (async () => {
+      const [pass, booking] = await Promise.all([
+        db.userPass.findUnique({
+          where: { id: passId },
+          select: {
+            name: true,
+            userId: true,
+            remainingMinutes: true,
+            members: { select: { userId: true } },
+          },
+        }),
+        db.booking.findUnique({
+          where: { id: bookingId },
+          select: { userId: true, user: { select: { name: true } } },
+        }),
+      ]);
+      if (!pass || !booking) return;
+      const hrs = Math.round((minutes / 60) * 10) / 10;
+      const leftHrs = Math.round((pass.remainingMinutes / 60) * 10) / 10;
+      const recipients = new Set<string>([
+        pass.userId,
+        ...pass.members.map((m) => m.userId),
+      ]);
+      recipients.delete(booking.userId);
+      for (const uid of recipients) {
+        void notifyUser(uid, {
+          type: "PASS_BOOKING",
+          title: "Pass hours used 🎟️",
+          body: `${booking.user?.name || "A member"} booked ${hrs}h with the ${pass.name} — ${leftHrs}h left on the pass.`,
+          link: "/account?tab=passes",
+        });
+      }
+    })().catch((err) => console.error("[passes] debit notify failed:", err));
+
     return true;
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -892,6 +937,19 @@ export async function addPassMemberForOwner(
   } catch {
     return { ok: false, error: "They're already a member of this pass." };
   }
+
+  // Tell the new member — row + push (best-effort, never blocks the add).
+  const owner = await db.user.findUnique({
+    where: { id: ownerUserId },
+    select: { name: true },
+  });
+  void notifyUser(user.id, {
+    type: "PASS_MEMBER_ADDED",
+    title: "You've been added to a pass 🎟️",
+    body: `${owner?.name || "A pass owner"} added you to the ${pass.name}. You can now book with its hours.`,
+    link: "/account?tab=passes",
+  });
+
   return {
     ok: true,
     member: { userId: user.id, name: user.name, phone: user.phone },

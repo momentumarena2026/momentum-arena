@@ -115,6 +115,16 @@ export function RootNavigator() {
             },
           });
           break;
+        case "in_app":
+          // In-app notification mirror — land on My Notifications.
+          navigationRef.navigate("Main", {
+            screen: "Account",
+            params: {
+              screen: "Notifications",
+              initial: false,
+            },
+          });
+          break;
         case "slot_available":
           // Drop the user into their waitlist screen so they see EVERY
           // entry that's been notified (a single freeing event can

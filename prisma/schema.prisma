@@ -295,6 +295,7 @@ model User {
   // client reposts on rotation, and dead tokens are pruned when FCM
   // returns `messaging/registration-token-not-registered`.
   pushDevices PushDevice[]
+  notifications UserNotification[]
 
   // First-party analytics — every event the user fires (web + mobile)
   // and every session they've been part of. Anonymous events have
@@ -2226,6 +2227,26 @@ model PushTemplate {
 // install. When a user signs out, the row is deleted. When FCM
 // returns `messaging/registration-token-not-registered` on send, the
 // dead row is also deleted (background cleanup; see lib/push.ts).
+
+// ── In-app notifications ────────────────────────────────────────────
+// One row per user-facing event (added to a pass, pass-paid booking,
+// booking confirmed, …). The bell icon + notification screens read
+// these; a matching FCM push goes out best-effort at creation time.
+model UserNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  // Optional in-app destination ("/account/passes/<id>", "/bookings/<id>").
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
 
 model PushDevice {
   id         String   @id @default(cuid())
