@@ -242,6 +242,10 @@ export function PassesClient({
   const [chooserPlan, setChooserPlan] = useState<Plan | null>(null);
   const [method, setMethod] = useState<"upi" | "gateway">("upi");
   const [dqrPlan, setDqrPlan] = useState<Plan | null>(null);
+  // Payment done, router.push to the pass detail in flight — keep a
+  // full-screen loader up so the storefront never flashes back in
+  // between. Cleared implicitly when the new route unmounts this page.
+  const [redirecting, setRedirecting] = useState(false);
   // Chosen activation date (YYYY-MM-DD, IST). Defaults to today; the pass
   // activates then and validity counts from it.
   const [startDate, setStartDate] = useState(istDateStr());
@@ -325,8 +329,10 @@ export function PassesClient({
             // member sharing — instead of back on the storefront.
             // Mirrors the app's post-purchase navigation.
             const data = await v.json().catch(() => ({}) as { userPassId?: string });
-            if (data.userPassId) router.push(`/passes/${data.userPassId}`);
-            else router.refresh();
+            if (data.userPassId) {
+              setRedirecting(true);
+              router.push(`/passes/${data.userPassId}`);
+            } else router.refresh();
           } else
             setError(
               "Payment received — your pass will appear shortly (auto-verifying).",
@@ -786,11 +792,25 @@ export function PassesClient({
             trackPassPurchaseCompleted(dqrPlan.id, dqrPlan.price, "upi");
             setDqrPlan(null);
             // Straight to the new pass's detail page (same as the app).
-            if (userPassId) router.push(`/passes/${userPassId}`);
-            else router.refresh();
+            if (userPassId) {
+              setRedirecting(true);
+              router.push(`/passes/${userPassId}`);
+            } else router.refresh();
           }}
           onCancel={() => setDqrPlan(null)}
         />
+      )}
+
+      {/* Post-payment handoff — z-[90] tops the purchase sheet (z-[80])
+          and the bottom nav; stays up until the pass detail route
+          replaces this page. */}
+      {redirecting && (
+        <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-3 bg-black/80 backdrop-blur-sm">
+          <div className="h-9 w-9 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          <p className="text-sm font-medium text-zinc-300">
+            Payment received — opening your pass…
+          </p>
+        </div>
       )}
     </div>
   );

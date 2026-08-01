@@ -370,6 +370,10 @@ export function PassesStoreScreen() {
   );
   const [processing, setProcessing] = useState(false);
   const [showDqr, setShowDqr] = useState(false);
+  // Payment done, replace() to PassDetail in flight — keep a loader
+  // over the storefront so it never flashes back during the stack
+  // transition. Never reset: the screen unmounts with the overlay up.
+  const [navigating, setNavigating] = useState(false);
 
   const startDays = useMemo(() => buildStartDays(31), []);
 
@@ -387,6 +391,10 @@ export function PassesStoreScreen() {
 
   function onPassReady(userPassId: string) {
     void queryClient.invalidateQueries({ queryKey: ["my-passes"] });
+    // The modals must close (they'd float above the incoming screen),
+    // but the inline overlay below covers the storefront until
+    // PassDetail takes over.
+    setNavigating(true);
     setShowDqr(false);
     setBuying(null);
     setProcessing(false);
@@ -704,11 +712,40 @@ export function PassesStoreScreen() {
           onCancel={() => setShowDqr(false)}
         />
       ) : null}
+
+      {/* Post-payment handoff — covers the storefront from the moment
+          the payment sheets close until PassDetail replaces this
+          screen. */}
+      {navigating ? (
+        <View style={styles.navOverlay}>
+          <ActivityIndicator size="large" color={colors.emerald400} />
+          <Text style={styles.navOverlayText}>
+            Payment received — opening your pass…
+          </Text>
+        </View>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  navOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    backgroundColor: "rgba(0,0,0,0.88)",
+  },
+  navOverlayText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.zinc300,
+  },
   infoSection: {
     marginTop: spacing["6"],
   },
