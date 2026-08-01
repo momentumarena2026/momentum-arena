@@ -81,6 +81,10 @@ const couponSchema = z.object({
   isSystemCode: z.boolean().default(false),
   // Checkout tries autoApply coupons FIRST (before new-user/fallback).
   autoApply: z.boolean().default(false),
+  // Advertise this coupon's effective price on the slot-selection page
+  // (struck-through slot prices + launch banner). Only honoured when
+  // autoApply is also on.
+  showStrikethrough: z.boolean().default(false),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
   conditions: z.array(conditionSchema).default([]),
@@ -215,6 +219,7 @@ export async function createCoupon(data: {
         isPublic: parsed.data.isPublic,
         isSystemCode: parsed.data.isSystemCode,
         autoApply: parsed.data.autoApply,
+        showStrikethrough: parsed.data.showStrikethrough && parsed.data.autoApply,
         validFrom: new Date(parsed.data.validFrom),
         validUntil: new Date(parsed.data.validUntil),
         createdBy: adminId,
@@ -275,6 +280,7 @@ export async function updateCoupon(
     isPublic?: boolean;
     isSystemCode?: boolean;
     autoApply?: boolean;
+    showStrikethrough?: boolean;
     validFrom?: string;
     validUntil?: string;
     isActive?: boolean;
@@ -306,6 +312,12 @@ export async function updateCoupon(
     if (data.isPublic !== undefined) updateData.isPublic = data.isPublic;
     if (data.isSystemCode !== undefined) updateData.isSystemCode = data.isSystemCode;
     if (data.autoApply !== undefined) updateData.autoApply = data.autoApply;
+    if (data.showStrikethrough !== undefined) {
+      updateData.showStrikethrough = data.showStrikethrough;
+    }
+    // Never leave strikethrough advertised on a coupon checkout won't
+    // auto-apply.
+    if (data.autoApply === false) updateData.showStrikethrough = false;
     if (data.validFrom !== undefined) updateData.validFrom = new Date(data.validFrom);
     if (data.validUntil !== undefined) updateData.validUntil = new Date(data.validUntil);
     if (data.isActive !== undefined) updateData.isActive = data.isActive;

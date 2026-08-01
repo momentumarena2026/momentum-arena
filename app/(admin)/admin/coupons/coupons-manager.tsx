@@ -88,6 +88,7 @@ export interface CouponRow {
   isPublic: boolean;
   isSystemCode: boolean;
   autoApply: boolean;
+  showStrikethrough: boolean;
   // Platform restriction. Empty = all platforms; values are a subset
   // of "web" | "android" | "ios". Mapped to/from a single-select
   // preset in the form (see PLATFORM_PRESETS / platformsToPreset).
@@ -217,6 +218,7 @@ function emptyForm() {
     isPublic: true,
     isSystemCode: false,
     autoApply: false,
+    showStrikethrough: false,
     platformPreset: "ALL" as PlatformPreset,
     validFrom: new Date().toISOString().split("T")[0],
     validUntil: new Date(Date.now() + 30 * 86400000)
@@ -291,6 +293,7 @@ export function CouponsManager({
       isPublic: coupon.isPublic,
       isSystemCode: coupon.isSystemCode,
       autoApply: coupon.autoApply,
+      showStrikethrough: coupon.showStrikethrough ?? false,
       platformPreset: platformsToPreset(coupon.validPlatforms),
       validFrom: coupon.validFrom,
       validUntil: coupon.validUntil,
@@ -335,6 +338,7 @@ export function CouponsManager({
       isPublic: form.isPublic,
       isSystemCode: form.isSystemCode,
       autoApply: form.autoApply,
+      showStrikethrough: form.showStrikethrough,
       validPlatforms: presetToPlatforms(form.platformPreset),
       validFrom: form.validFrom,
       validUntil: form.validUntil,
@@ -1448,6 +1452,10 @@ export function CouponsManager({
                       setForm((p) => ({
                         ...p,
                         autoApply: e.target.checked,
+                        // Strikethrough advertises the auto-applied
+                        // price — it can't outlive the auto-apply.
+                        showStrikethrough:
+                          e.target.checked && p.showStrikethrough,
                       }))
                     }
                     className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600 focus:ring-emerald-500"
@@ -1460,6 +1468,31 @@ export function CouponsManager({
                     </p>
                   </div>
                 </label>
+                {form.autoApply && (
+                  <label className="ml-6 flex items-center gap-3 rounded-lg border border-zinc-800 p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.showStrikethrough}
+                      onChange={(e) =>
+                        setForm((p) => ({
+                          ...p,
+                          showStrikethrough: e.target.checked,
+                        }))
+                      }
+                      className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <p className="text-sm text-white">
+                        Strikethrough pricing on slot page
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        Slot tiles show the original price struck through
+                        with this coupon&apos;s effective price + the
+                        launch-offer banner
+                      </p>
+                    </div>
+                  </label>
+                )}
               </div>
 
               {form.isStackable && (

@@ -80,6 +80,8 @@ const createSchema = z.object({
   isSystemCode: z.boolean().default(false),
   // Checkout tries autoApply coupons FIRST (before new-user/fallback).
   autoApply: z.boolean().default(false),
+  // Slot-page strikethrough pricing — honoured only with autoApply.
+  showStrikethrough: z.boolean().default(false),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
   conditions: z.array(conditionSchema).default([]),
@@ -120,6 +122,7 @@ export async function GET(request: NextRequest) {
       isPublic: true,
       isSystemCode: true,
       autoApply: true,
+      showStrikethrough: true,
       isActive: true,
       validFrom: true,
       validUntil: true,
@@ -210,6 +213,7 @@ export async function POST(request: NextRequest) {
       isPublic: d.isPublic,
       isSystemCode: d.isSystemCode,
       autoApply: d.autoApply,
+      showStrikethrough: d.showStrikethrough && d.autoApply,
       validFrom: new Date(d.validFrom),
       validUntil: new Date(d.validUntil),
       isActive: true,

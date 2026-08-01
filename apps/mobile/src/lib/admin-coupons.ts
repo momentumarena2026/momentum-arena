@@ -73,6 +73,7 @@ export interface AdminCoupon {
   isPublic: boolean;
   isSystemCode: boolean;
   autoApply: boolean;
+  showStrikethrough?: boolean;
   isActive: boolean;
   validFrom: string;
   validUntil: string;
@@ -103,6 +104,7 @@ export interface CreateCouponInput {
   isPublic?: boolean;
   isSystemCode?: boolean;
   autoApply?: boolean;
+  showStrikethrough?: boolean;
   validFrom: string;
   validUntil: string;
   conditions?: CouponCondition[];
