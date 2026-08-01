@@ -93,11 +93,18 @@ export function SlotGrid({
   const totalOriginal = slots
     .filter((s) => selectedHours.includes(s.hour))
     .reduce((sum, s) => sum + s.price, 0);
+  // PERCENTAGE promos slice per slot (sum of per-slot floors = the
+  // whole-order discount); FLAT promos apply ONCE to the selection
+  // total — per-tile decoration stays off for them, but the selection
+  // summary still strikes the total, which is exactly what checkout
+  // will charge.
   const totalDiscounted = showDiscount
     ? slots
         .filter((s) => selectedHours.includes(s.hour))
         .reduce((sum, s) => sum + discountedPrice(s.price), 0)
-    : totalOriginal;
+    : promo && totalOriginal > 0
+      ? Math.max(0, totalOriginal - computeAutoApplyDiscount(totalOriginal, promo))
+      : totalOriginal;
 
   return (
     <div className="space-y-4">
@@ -267,7 +274,7 @@ export function SlotGrid({
               </p>
             </div>
             <div className="text-right">
-              {showDiscount && totalDiscounted < totalOriginal ? (
+              {totalDiscounted < totalOriginal ? (
                 <p className="text-lg font-bold">
                   <span className="mr-2 text-sm text-zinc-500 line-through">
                     {formatPrice(totalOriginal)}
