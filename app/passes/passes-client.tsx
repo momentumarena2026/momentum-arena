@@ -684,14 +684,17 @@ export function PassesClient({
                     the value with UA margins, which reads as a squashed
                     / misaligned box. appearance-none + a fixed height +
                     the -webkit-date-and-time-value overrides pin the
-                    rendering to match every other field. */}
+                    rendering to match every other field. leading-[42px]
+                    (the h-11 box minus its 1px borders) vertically
+                    centres the value, which otherwise top-aligns once
+                    the UA margins are zeroed. */}
                 <input
                   type="date"
                   value={startDate}
                   min={minStart}
                   max={maxStart}
                   onChange={(e) => setStartDate(e.target.value || minStart)}
-                  className="block h-11 w-full appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-left text-sm text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark] [&::-webkit-date-and-time-value]:m-0 [&::-webkit-date-and-time-value]:text-left [&::-webkit-datetime-edit]:p-0 [&::-webkit-calendar-picker-indicator]:opacity-70"
+                  className="block h-11 w-full appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-left text-sm text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark] [&::-webkit-date-and-time-value]:m-0 [&::-webkit-date-and-time-value]:text-left [&::-webkit-date-and-time-value]:leading-[42px] [&::-webkit-datetime-edit]:p-0 [&::-webkit-calendar-picker-indicator]:opacity-70"
                 />
                 <span className="mt-1 block text-[11px] text-zinc-500">
                   Valid {chooserPlan.validityDays} days from this date · defaults
