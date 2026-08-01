@@ -184,10 +184,12 @@ export function BookSlotsScreen() {
     staleTime: 5 * 60_000,
   });
   const passPitch = pitchData?.pitch ?? null;
-  // Per-slot decoration only when the promo is an uncapped PERCENTAGE
-  // (`percentOff` non-null). FLAT promos like FLAT100 apply once to the
-  // whole order and would show misleading numbers per slot.
-  const showDiscount = promo?.percentOff != null;
+  // Per-slot decoration: uncapped PERCENTAGE slices exactly per slot;
+  // FLAT shows each tile at price − value (the price for booking that
+  // one slot). Capped percentage stays undecorated. The footer total
+  // always uses checkout's real math (flat applies once per booking).
+  const showDiscount =
+    promo != null && (promo.percentOff != null || promo.type === "FLAT");
 
   // The signed-in user's live waitlist entries, mapped onto THIS court +
   // date's display hours (slots carry their own lock coords, so the
@@ -273,7 +275,7 @@ export function BookSlotsScreen() {
     // discount); FLAT applies ONCE to the slot total — tiles stay
     // undecorated for it, but the footer strikes the total, which is
     // exactly what checkout will charge.
-    if (showDiscount) {
+    if (promo.percentOff != null) {
       return slots
         .filter((s) => selected.includes(s.hour))
         .reduce(
@@ -843,7 +845,8 @@ function SlotGrid({
   waitlistedHours?: Map<number, string>;
   onLeaveWaitlist?: (hour: number) => void;
 }) {
-  const showDiscount = promo?.percentOff != null;
+  const showDiscount =
+    promo != null && (promo.percentOff != null || promo.type === "FLAT");
   return (
     <View style={styles.slotsGrid}>
       {slots.map((slot) => {
