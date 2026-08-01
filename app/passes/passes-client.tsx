@@ -636,12 +636,19 @@ export function PassesClient({
           away. Mirrors the booking checkout's method nudge. */}
       {chooserPlan && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+          // z-[80] — must sit ABOVE the mobile bottom nav (z-50) and its
+          // raised FAB (z-[70]), which otherwise paint over the sheet's
+          // pay buttons. Safe-area padding keeps the last button clear
+          // of the home indicator; max-h + scroll saves small phones.
+          className="fixed inset-0 z-[80] flex items-end justify-center bg-black/60 sm:items-center"
           onClick={(e) => {
             if (e.target === e.currentTarget) setChooserPlan(null);
           }}
         >
-          <div className="w-full rounded-t-2xl border border-zinc-800 bg-zinc-900 text-zinc-100 sm:max-w-[400px] sm:rounded-2xl">
+          <div
+            className="max-h-[88vh] w-full overflow-y-auto rounded-t-2xl border border-zinc-800 bg-zinc-900 text-zinc-100 sm:max-h-none sm:max-w-[400px] sm:rounded-2xl"
+            style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+          >
             <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
               <div className="min-w-0">
                 <p className="text-[15px] font-semibold leading-tight text-white">
@@ -672,13 +679,19 @@ export function PassesClient({
                 <span className="mb-1 block text-xs font-medium text-zinc-400">
                   Pass start date
                 </span>
+                {/* iOS Safari gives date inputs its own inner layout —
+                    it ignores padding, collapses the height and centres
+                    the value with UA margins, which reads as a squashed
+                    / misaligned box. appearance-none + a fixed height +
+                    the -webkit-date-and-time-value overrides pin the
+                    rendering to match every other field. */}
                 <input
                   type="date"
                   value={startDate}
                   min={minStart}
                   max={maxStart}
                   onChange={(e) => setStartDate(e.target.value || minStart)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark]"
+                  className="block h-11 w-full appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-left text-sm text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark] [&::-webkit-date-and-time-value]:m-0 [&::-webkit-date-and-time-value]:text-left [&::-webkit-datetime-edit]:p-0 [&::-webkit-calendar-picker-indicator]:opacity-70"
                 />
                 <span className="mt-1 block text-[11px] text-zinc-500">
                   Valid {chooserPlan.validityDays} days from this date · defaults
