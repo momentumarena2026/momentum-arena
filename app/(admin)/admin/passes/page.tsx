@@ -21,7 +21,7 @@ export default async function AdminPassesPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Monthly Passes</h1>
+        <h1 className="text-2xl font-bold text-white">Passes</h1>
         <p className="mt-1 text-zinc-400">
           Sell bulk hours on a court at a discounted effective hourly rate.
           Customers buy a pass and redeem hours at checkout; the balance

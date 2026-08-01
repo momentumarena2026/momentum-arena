@@ -74,7 +74,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_PAYMENT_SETTINGS: "Manage Payment Settings",
   MANAGE_TRUSTED_DEVICES: "Manage Trusted Devices (5-tap admin entry)",
   MANAGE_PROMO_BANNERS: "Manage Promotion Banners (web & app)",
-  MANAGE_PASSES: "Manage Monthly Passes",
+  MANAGE_PASSES: "Manage Passes",
   MANAGE_HR: "Manage HR / Legal (Employee NDA Generator)",
   MANAGE_TOURNAMENTS: "Manage Tournaments",
 };
