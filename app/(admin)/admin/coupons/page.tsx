@@ -87,6 +87,7 @@ export default async function AdminCouponsPage() {
           isPublic: c.isPublic,
           isSystemCode: c.isSystemCode,
           autoApply: c.autoApply,
+          showStrikethrough: c.showStrikethrough,
           validPlatforms: c.validPlatforms as ("web" | "android" | "ios")[],
           validFrom: c.validFrom.toISOString().split("T")[0],
           validUntil: c.validUntil.toISOString().split("T")[0],

@@ -193,6 +193,7 @@ export function AdminCouponsScreen() {
   const [isPublic, setIsPublic] = useState(true);
   const [isSystemCode, setIsSystemCode] = useState(false);
   const [autoApply, setAutoApply] = useState(false);
+  const [showStrikethrough, setShowStrikethrough] = useState(false);
   // User-picker search
   const [userQuery, setUserQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -275,6 +276,7 @@ export function AdminCouponsScreen() {
     setIsPublic(c.isPublic);
     setIsSystemCode(c.isSystemCode);
     setAutoApply(c.autoApply);
+    setShowStrikethrough(c.showStrikethrough ?? false);
     setUserQuery("");
     setDebouncedQuery("");
     setErr(null);
@@ -313,6 +315,7 @@ export function AdminCouponsScreen() {
         isPublic,
         isSystemCode,
         autoApply,
+        showStrikethrough: showStrikethrough && autoApply,
         validFrom: from,
         validUntil: until,
       };
@@ -433,6 +436,7 @@ export function AdminCouponsScreen() {
               if (c.isSystemCode) tags.push("System");
               if (!c.isPublic) tags.push("Hidden");
               if (c.autoApply) tags.push("Auto-apply");
+              if (c.showStrikethrough) tags.push("Strikethrough");
               if (c.isStackable) tags.push("Stackable");
               if (c.eligibleUsers.length || c.eligibleGroups.length)
                 tags.push("Targeted");
@@ -1184,11 +1188,37 @@ export function AdminCouponsScreen() {
                 </View>
                 <Switch
                   value={autoApply}
-                  onValueChange={setAutoApply}
+                  onValueChange={(v) => {
+                    setAutoApply(v);
+                    // Strikethrough advertises the auto-applied price —
+                    // it can't outlive the auto-apply.
+                    if (!v) setShowStrikethrough(false);
+                  }}
                   trackColor={{ true: colors.emerald500_10, false: colors.zinc700 }}
                   thumbColor={autoApply ? colors.emerald400 : colors.zinc400}
                 />
               </View>
+
+              {autoApply ? (
+                <View style={styles.toggleRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="small" weight="500" color={colors.foreground}>
+                      Strikethrough pricing on slot page
+                    </Text>
+                    <Text variant="tiny" color={colors.zinc500}>
+                      Slot tiles show the original price struck through
+                      with this coupon's effective price + the launch
+                      banner
+                    </Text>
+                  </View>
+                  <Switch
+                    value={showStrikethrough}
+                    onValueChange={setShowStrikethrough}
+                    trackColor={{ true: colors.emerald500_10, false: colors.zinc700 }}
+                    thumbColor={showStrikethrough ? colors.emerald400 : colors.zinc400}
+                  />
+                </View>
+              ) : null}
 
               <View style={styles.toggleRow}>
                 <View style={{ flex: 1 }}>

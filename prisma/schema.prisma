@@ -1481,6 +1481,10 @@ model Coupon {
   // validateCoupon eligibility still applies, so an inapplicable
   // auto-apply coupon silently falls through to the next candidate.
   autoApply    Boolean @default(false)
+  // Show this coupon's effective (struck-through) pricing on the
+  // slot-selection page. Only honoured alongside autoApply — the slot
+  // tiles must never advertise a price checkout won't deliver.
+  showStrikethrough Boolean @default(false)
 
   validFrom  DateTime
   validUntil DateTime

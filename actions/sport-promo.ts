@@ -38,19 +38,33 @@ import { isPlatformAllowed, type CouponPlatform } from "@/lib/coupon-platform";
  * website automatically the moment a coupon is switched to App-only — with
  * no separate banner/slot toggle to maintain.
  */
-export async function getActiveSportPromo(
+type PromoCandidate = {
+  code: string;
+  isActive: boolean;
+  type: import("@prisma/client").DiscountType;
+  value: number;
+  maxDiscount: number | null;
+  validFrom: Date;
+  validUntil: Date;
+  maxUses: number | null;
+  usedCount: number;
+  sportFilter: Sport[];
+  categoryExclude: BookingCategory[];
+  userGroupFilter: string[];
+  validPlatforms: string[];
+  _count: { eligibleUsers: number; eligibleGroups: number };
+};
+
+/** The qualification gates a coupon must clear before we promise its
+ *  discount to an anonymous visitor on the slot tiles. Mirrors
+ *  validateCoupon's pre-flight checks (steps 4–8 there). */
+function qualifyPromo(
+  coupon: PromoCandidate,
   sport: Sport,
-  bookingCategory?: BookingCategory | null,
-  platform: CouponPlatform = "web",
-): Promise<ActiveSportPromo | null> {
-  const code = getAutoApplyCodeForSport(sport);
-  const coupon = await db.coupon.findUnique({
-    where: { code },
-    include: {
-      _count: { select: { eligibleUsers: true, eligibleGroups: true } },
-    },
-  });
-  if (!coupon || !coupon.isActive) return null;
+  bookingCategory: BookingCategory | null | undefined,
+  platform: CouponPlatform,
+): ActiveSportPromo | null {
+  if (!coupon.isActive) return null;
 
   // Platform restriction — hide the promo (and therefore the banner +
   // slot decoration) on platforms the coupon doesn't allow.
@@ -59,7 +73,6 @@ export async function getActiveSportPromo(
   const now = new Date();
   if (coupon.validFrom > now || coupon.validUntil < now) return null;
 
-  // Mirrors validateCoupon's pre-flight checks (steps 4–8 there).
   if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) return null;
   if (coupon.sportFilter.length > 0 && !coupon.sportFilter.includes(sport)) return null;
   if (
@@ -93,6 +106,62 @@ export async function getActiveSportPromo(
     value: coupon.value,
     percentOff,
   };
+}
+
+const PROMO_SELECT = {
+  code: true,
+  isActive: true,
+  type: true,
+  value: true,
+  maxDiscount: true,
+  validFrom: true,
+  validUntil: true,
+  maxUses: true,
+  usedCount: true,
+  sportFilter: true,
+  categoryExclude: true,
+  userGroupFilter: true,
+  validPlatforms: true,
+  _count: { select: { eligibleUsers: true, eligibleGroups: true } },
+} as const;
+
+export async function getActiveSportPromo(
+  sport: Sport,
+  bookingCategory?: BookingCategory | null,
+  platform: CouponPlatform = "web",
+): Promise<ActiveSportPromo | null> {
+  // Coupons the admin explicitly flagged for slot-page strikethrough
+  // pricing come FIRST, newest first. autoApply is required alongside —
+  // the tiles must never advertise a price checkout won't deliver.
+  // This is what lets an admin retire a launch promo (disable
+  // PICKLEBALL25, create PICKLEBALL12.5 with Auto-apply +
+  // Strikethrough ticked) without a code change: the display used to
+  // chase only the hardcoded legacy code and went blank the moment
+  // that code was disabled.
+  const flagged = await db.coupon.findMany({
+    where: {
+      showStrikethrough: true,
+      autoApply: true,
+      isActive: true,
+      scope: { in: ["SPORTS", "BOTH"] },
+    },
+    select: PROMO_SELECT,
+    orderBy: { createdAt: "desc" },
+  });
+  for (const candidate of flagged) {
+    const promo = qualifyPromo(candidate, sport, bookingCategory, platform);
+    if (promo) return promo;
+  }
+
+  // Legacy fallback — the per-sport hardcoded code (PICKLEBALL25 /
+  // FLAT100), kept so existing promos keep working unflagged.
+  const code = getAutoApplyCodeForSport(sport);
+  const coupon = await db.coupon.findUnique({
+    where: { code },
+    select: PROMO_SELECT,
+  });
+  if (!coupon) return null;
+  return qualifyPromo(coupon, sport, bookingCategory, platform);
 }
 
 /**
