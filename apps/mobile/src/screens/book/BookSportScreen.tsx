@@ -22,7 +22,6 @@ type Nav = NativeStackNavigationProp<BookStackParamList, "BookSport">;
  *   CRICKET    → from-emerald-500/20  to-emerald-600/5  border-emerald-500/30  text-emerald-400
  *   FOOTBALL   → from-blue-500/20     to-blue-600/5     border-blue-500/30     text-blue-400
  *   PICKLEBALL → from-yellow-500/20   to-yellow-600/5   border-yellow-500/30   text-yellow-400
- *                (live; carries a "25% OFF" launch-promo pill — see below)
  *
  * We recreate Tailwind's `bg-gradient-to-br` (top-left → bottom-right,
  * two-stop linear gradient) with an SVG <LinearGradient> in
@@ -61,11 +60,9 @@ const SPORT_THEME: Record<Sport, SportTheme> = {
 };
 
 // Sport → launch-promo pill in the top-right of the tile. Empty when
-// no promo is live. Today only pickleball carries one (matches the web
-// SportCard's `promoLabel` flag in components/booking/sport-card.tsx).
-const SPORT_PROMO_LABEL: Partial<Record<Sport, string>> = {
-  PICKLEBALL: "25% OFF",
-};
+// no promo is live (the pickleball 25% launch pill retired 2026-08 —
+// web's SportCard dropped its promoLabel overlay at the same time).
+const SPORT_PROMO_LABEL: Partial<Record<Sport, string>> = {};
 
 const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 const CARD_RADIUS = 16; // Tailwind rounded-2xl
