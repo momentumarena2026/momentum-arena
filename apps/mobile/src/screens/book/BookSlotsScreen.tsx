@@ -267,18 +267,24 @@ export function BookSlotsScreen() {
         .reduce((sum, s) => sum + s.price, 0),
     [slots, selected]
   );
-  const slotsDiscounted = useMemo(
-    () =>
-      showDiscount && promo
-        ? slots
-            .filter((s) => selected.includes(s.hour))
-            .reduce(
-              (sum, s) => sum + (s.price - computeAutoApplyDiscount(s.price, promo)),
-              0,
-            )
-        : slotsOriginal,
-    [showDiscount, promo, slots, selected, slotsOriginal]
-  );
+  const slotsDiscounted = useMemo(() => {
+    if (!promo) return slotsOriginal;
+    // PERCENTAGE slices per slot (sum of floors = whole-order
+    // discount); FLAT applies ONCE to the slot total — tiles stay
+    // undecorated for it, but the footer strikes the total, which is
+    // exactly what checkout will charge.
+    if (showDiscount) {
+      return slots
+        .filter((s) => selected.includes(s.hour))
+        .reduce(
+          (sum, s) => sum + (s.price - computeAutoApplyDiscount(s.price, promo)),
+          0,
+        );
+    }
+    return slotsOriginal > 0
+      ? Math.max(0, slotsOriginal - computeAutoApplyDiscount(slotsOriginal, promo))
+      : slotsOriginal;
+  }, [showDiscount, promo, slots, selected, slotsOriginal]);
 
   // Rental gear add-on — per-slot rate × slot count, in whole rupees.
   // Folded into both totalOriginal + totalDiscounted so the footer
@@ -559,7 +565,7 @@ export function BookSlotsScreen() {
               </Text>
             </View>
             <View style={styles.summaryTotal}>
-              {showDiscount && totalDiscounted < totalOriginal ? (
+              {totalDiscounted < totalOriginal ? (
                 <View style={styles.summaryPriceRow}>
                   <Text
                     variant="small"
@@ -618,7 +624,7 @@ export function BookSlotsScreen() {
               ? "Pick one or more slots"
               : `${selected.length} Slot${selected.length > 1 ? "s" : ""} ${formatHoursAsRanges(selected)}`}
           </Text>
-          {showDiscount && totalDiscounted < totalOriginal ? (
+          {totalDiscounted < totalOriginal ? (
             <View style={styles.footerPriceRow}>
               <Text
                 variant="small"
