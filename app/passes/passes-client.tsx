@@ -418,19 +418,20 @@ export function PassesClient({
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 transition-all hover:-translate-y-0.5 hover:shadow-xl"
                   style={{ boxShadow: `0 0 0 1px ${accent}12` }}
                 >
-                  {/* Ticket stub — single dense row (icon | label +
-                      name | hours dial), the same layout as the app's
-                      PlanCard so the two surfaces read identically and
-                      the header carries no dead space. Name keeps a
-                      2-line reservation so every card's perforation
-                      sits at the same height. */}
+                  {/* Ticket stub. Mobile (<sm): the app PlanCard's
+                      single dense row (icon | label + name | hours
+                      dial) — kills the dead middle on phone widths.
+                      sm+: the original stacked stub (icon/dial row,
+                      then label + name). Both keep a 2-line name
+                      reservation so every card's perforation sits at
+                      the same height. */}
                   <div
-                    className="relative px-4 py-4"
+                    className="relative px-4 py-4 sm:px-5 sm:py-5"
                     style={{
                       background: `linear-gradient(135deg, ${accent}22, transparent 70%)`,
                     }}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 sm:hidden">
                       <div
                         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
                         style={{ backgroundColor: `${accent}1f` }}
@@ -457,6 +458,30 @@ export function PassesClient({
                           trigger="inview"
                         />
                       </div>
+                    </div>
+                    <div className="hidden sm:block">
+                      <div className="flex items-start justify-between">
+                        <div
+                          className="flex h-12 w-12 items-center justify-center rounded-xl"
+                          style={{ backgroundColor: `${accent}1f` }}
+                        >
+                          <SportIcon size={28} color={accent} />
+                        </div>
+                        <PassClock
+                          totalHours={plan.hours}
+                          accent={accent}
+                          size={80}
+                          stroke={8}
+                          trigger="inview"
+                        />
+                      </div>
+                      <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                        {plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}
+                        {plan.isBowling ? " · Bowling Machine" : ""}
+                      </p>
+                      <p className="mt-0.5 min-h-[2.5rem] text-lg font-bold leading-tight text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+                        {plan.name}
+                      </p>
                     </div>
                   </div>
 
