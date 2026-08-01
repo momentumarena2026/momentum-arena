@@ -81,12 +81,13 @@ export function SlotGrid({
     [selectedHours, onSelectionChange]
   );
 
-  // Per-slot decoration only kicks in for an uncapped PERCENTAGE promo
-  // (promo.percentOff !== null). FLAT promos like FLAT100 apply once to
-  // the whole order so we don't try to slice them per slot — the tiles
-  // render at their list price and the FLAT100 fallback still fires at
-  // checkout via the existing useEffect there.
-  const showDiscount = promo?.percentOff != null;
+  // Per-slot decoration: uncapped PERCENTAGE promos slice exactly per
+  // slot; FLAT promos show each tile at price − value (the price you'd
+  // pay booking that one slot). Capped percentage stays undecorated —
+  // the cap makes any per-slot number wrong. The SELECTION TOTAL below
+  // always uses checkout's real math (flat applies once per booking).
+  const showDiscount =
+    promo != null && (promo.percentOff != null || promo.type === "FLAT");
   const discountedPrice = (rupees: number) =>
     promo ? rupees - computeAutoApplyDiscount(rupees, promo) : rupees;
 
@@ -98,13 +99,14 @@ export function SlotGrid({
   // total — per-tile decoration stays off for them, but the selection
   // summary still strikes the total, which is exactly what checkout
   // will charge.
-  const totalDiscounted = showDiscount
-    ? slots
-        .filter((s) => selectedHours.includes(s.hour))
-        .reduce((sum, s) => sum + discountedPrice(s.price), 0)
-    : promo && totalOriginal > 0
-      ? Math.max(0, totalOriginal - computeAutoApplyDiscount(totalOriginal, promo))
-      : totalOriginal;
+  const totalDiscounted =
+    promo?.percentOff != null
+      ? slots
+          .filter((s) => selectedHours.includes(s.hour))
+          .reduce((sum, s) => sum + discountedPrice(s.price), 0)
+      : promo && totalOriginal > 0
+        ? Math.max(0, totalOriginal - computeAutoApplyDiscount(totalOriginal, promo))
+        : totalOriginal;
 
   return (
     <div className="space-y-4">
