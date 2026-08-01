@@ -343,7 +343,7 @@ export function PassesClient({
       <div className="border-b border-emerald-800/20 bg-gradient-to-br from-emerald-900/30 via-black to-black">
         <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
           <h1 className="text-3xl font-bold text-white sm:text-4xl">
-            Monthly Passes 🎟️
+            Passes 🎟️
           </h1>
           <p className="mt-2 max-w-xl text-zinc-400">
             {enabled
@@ -360,15 +360,12 @@ export function PassesClient({
             own passes now live on the account dashboard. */}
         {!enabled && (
           <section className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-zinc-400">
-            Monthly passes aren&apos;t available at the moment — check back
-            soon, or follow us for announcements.
+            Passes aren&apos;t available at the moment — check back soon,
+            or follow us for announcements.
           </section>
         )}
         {enabled && (
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-white">
-            Available passes
-          </h2>
           {plans.length === 0 ? (
             <p className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-zinc-400">
               No passes on sale right now — check back soon.
