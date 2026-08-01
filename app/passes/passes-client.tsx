@@ -321,7 +321,12 @@ export function PassesClient({
           });
           if (v.ok) {
             trackPassPurchaseCompleted(plan.id, plan.price, "razorpay");
-            router.refresh();
+            // Land the buyer on their new pass — balances, validity,
+            // member sharing — instead of back on the storefront.
+            // Mirrors the app's post-purchase navigation.
+            const data = await v.json().catch(() => ({}) as { userPassId?: string });
+            if (data.userPassId) router.push(`/passes/${data.userPassId}`);
+            else router.refresh();
           } else
             setError(
               "Payment received — your pass will appear shortly (auto-verifying).",
@@ -777,10 +782,12 @@ export function PassesClient({
           holdId={dqrPlan.id}
           amount={dqrPlan.price}
           initiateExtra={dqrExtra}
-          onConfirmed={() => {
+          onConfirmed={(userPassId) => {
             trackPassPurchaseCompleted(dqrPlan.id, dqrPlan.price, "upi");
             setDqrPlan(null);
-            router.refresh();
+            // Straight to the new pass's detail page (same as the app).
+            if (userPassId) router.push(`/passes/${userPassId}`);
+            else router.refresh();
           }}
           onCancel={() => setDqrPlan(null)}
         />
