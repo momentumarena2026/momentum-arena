@@ -407,39 +407,46 @@ export function PassesClient({
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 transition-all hover:-translate-y-0.5 hover:shadow-xl"
                   style={{ boxShadow: `0 0 0 1px ${accent}12` }}
                 >
-                  {/* Ticket stub — coloured header band with the sport
-                      illustration + perforation line, so the card reads
-                      as an actual pass/ticket. */}
+                  {/* Ticket stub — single dense row (icon | label +
+                      name | hours dial), the same layout as the app's
+                      PlanCard so the two surfaces read identically and
+                      the header carries no dead space. Name keeps a
+                      2-line reservation so every card's perforation
+                      sits at the same height. */}
                   <div
-                    className="relative px-5 pb-5 pt-5"
+                    className="relative px-4 py-4"
                     style={{
                       background: `linear-gradient(135deg, ${accent}22, transparent 70%)`,
                     }}
                   >
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
                       <div
-                        className="flex h-12 w-12 items-center justify-center rounded-xl"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
                         style={{ backgroundColor: `${accent}1f` }}
                       >
-                        <SportIcon size={28} color={accent} />
+                        <SportIcon size={26} color={accent} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                          {plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}
+                          {plan.isBowling ? " · Bowling Machine" : ""}
+                        </p>
+                        <p className="mt-0.5 min-h-[2.75rem] text-base font-bold leading-snug text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+                          {plan.name}
+                        </p>
                       </div>
                       {/* Hours dial — the ring sweeps to the pass's
                           full hours when the card scrolls into view. */}
-                      <PassClock
-                        totalHours={plan.hours}
-                        accent={accent}
-                        size={80}
-                        stroke={8}
-                        trigger="inview"
-                      />
+                      <div className="shrink-0">
+                        <PassClock
+                          totalHours={plan.hours}
+                          accent={accent}
+                          size={74}
+                          stroke={7}
+                          trigger="inview"
+                        />
+                      </div>
                     </div>
-                    <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                      {plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase()}
-                      {plan.isBowling ? " · Bowling Machine" : ""}
-                    </p>
-                    <p className="mt-0.5 min-h-[2.5rem] text-lg font-bold leading-tight text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-                      {plan.name}
-                    </p>
                   </div>
 
                   {/* Perforation — notches + dashed divider */}
