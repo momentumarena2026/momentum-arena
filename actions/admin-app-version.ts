@@ -42,6 +42,10 @@ export interface AppVersionGateRow {
   channel: string;
   latestBuild: number;
   latestVersionName: string | null;
+  /** Store actually serves this build. False while it's in review / a Play
+   *  draft — the app suppresses the update prompt until it flips. */
+  latestIsLive: boolean;
+  liveConfirmedAt: Date | null;
   minSupportedBuild: number;
   storeUrl: string;
   message: string | null;
@@ -69,6 +73,8 @@ export async function listAppVersionGates(): Promise<AppVersionGateRow[]> {
     channel: g.channel,
     latestBuild: g.latestBuild,
     latestVersionName: g.latestVersionName,
+    latestIsLive: g.latestIsLive,
+    liveConfirmedAt: g.liveConfirmedAt,
     minSupportedBuild: g.minSupportedBuild,
     storeUrl: g.storeUrl,
     message: g.message,
@@ -119,6 +125,10 @@ export async function upsertAppVersionGate(
       latestVersionName,
       storeUrl,
       message,
+      // Typing a build in by hand asserts it IS on the store — that's the
+      // manual override for when the hourly checker can't confirm it.
+      latestIsLive: true,
+      liveConfirmedAt: new Date(),
       updatedBy: adminId,
     },
     create: {
@@ -128,6 +138,8 @@ export async function upsertAppVersionGate(
       latestVersionName,
       storeUrl,
       message,
+      latestIsLive: true,
+      liveConfirmedAt: new Date(),
       // A brand-new gate never forces by default — min stays at 0 until an
       // admin explicitly raises it once the build is live on the store.
       minSupportedBuild: 0,
@@ -171,6 +183,14 @@ export async function setMinSupportedBuild(
         "Minimum can't exceed the latest store build — bump latestBuild first",
     };
   }
+  // Forcing users onto a build that isn't downloadable yet strands every
+  // install behind a blocking screen with no way out.
+  if (min > 0 && !gate.latestIsLive) {
+    return {
+      error:
+        "That build isn't live on the store yet — forcing now would lock users out with nothing to download.",
+    };
+  }
 
   await db.appVersionGate.update({
     where: { id: gate.id },
@@ -205,10 +225,63 @@ export async function forceUpdateToLatest(
   if (!gate) {
     return { error: "No version gate for this platform/channel yet" };
   }
+  // Same rule as setMinSupportedBuild: never strand installs behind a blocking
+  // screen pointing at a build the store won't hand them.
+  if (!gate.latestIsLive) {
+    return {
+      error:
+        "That build isn't live on the store yet — forcing now would lock users out with nothing to download.",
+    };
+  }
 
   await db.appVersionGate.update({
     where: { id: gate.id },
     data: { minSupportedBuild: gate.latestBuild, updatedBy: adminId },
+  });
+
+  revalidatePath("/admin/ota");
+  return { success: true };
+}
+
+/**
+ * Manual override for the hourly store-availability checker
+ * (scripts/check-store-availability.ts): mark the recorded build as live on the
+ * store, or put it back to "awaiting" if it was flipped too early.
+ *
+ * Marking live is what starts the customer-facing "update available" prompt, so
+ * only do it once the store really serves the build. Marking NOT live also
+ * clears any forced-update floor — a floor pointing at an unavailable build is
+ * exactly the lockout the gate exists to prevent.
+ */
+export async function setLatestBuildLive(
+  platform: string,
+  channel: string,
+  isLive: boolean
+): Promise<{ success: true } | { error: string }> {
+  const adminId = await requireAdmin();
+
+  if (!isPlatform(platform)) {
+    return { error: "Invalid platform" };
+  }
+  if (!isChannel(channel)) {
+    return { error: "Invalid channel" };
+  }
+
+  const gate = await db.appVersionGate.findUnique({
+    where: { platform_channel: { platform, channel } },
+  });
+  if (!gate) {
+    return { error: "No version gate for this platform/channel yet" };
+  }
+
+  await db.appVersionGate.update({
+    where: { id: gate.id },
+    data: {
+      latestIsLive: isLive,
+      liveConfirmedAt: isLive ? new Date() : null,
+      ...(isLive ? {} : { minSupportedBuild: 0 }),
+      updatedBy: adminId,
+    },
   });
 
   revalidatePath("/admin/ota");

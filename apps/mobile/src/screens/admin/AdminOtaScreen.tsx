@@ -345,6 +345,9 @@ function GateCard({
   // caught up to the latest build (min >= latest), not merely when min > 0.
   const forcing =
     !!gate && gate.latestBuild > 0 && gate.minSupportedBuild >= gate.latestBuild;
+  // Uploaded to the store but not downloadable yet (review / Play draft), so
+  // the app deliberately shows no update prompt.
+  const awaitingStore = !!gate && gate.latestBuild > 0 && !gate.latestIsLive;
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["admin", "ota"] });
@@ -386,13 +389,24 @@ function GateCard({
     onSuccess: () => void invalidate(),
     onError: onMutationError("force update"),
   });
+  // Manual override for the hourly store-availability checker.
+  const storeLiveM = useMutation({
+    mutationFn: (isLive: boolean) =>
+      adminOtaApi.setStoreLive(platform, channel, isLive),
+    onSuccess: () => void invalidate(),
+    onError: onMutationError("update store availability"),
+  });
   const unforceM = useMutation({
     mutationFn: () => adminOtaApi.unforce(platform, channel),
     onSuccess: () => void invalidate(),
     onError: onMutationError("un-force"),
   });
 
-  const pending = saveM.isPending || forceM.isPending || unforceM.isPending;
+  const pending =
+    saveM.isPending ||
+    forceM.isPending ||
+    unforceM.isPending ||
+    storeLiveM.isPending;
 
   const submit = () => {
     const build = parseInt(latestBuild, 10);
@@ -533,6 +547,27 @@ function GateCard({
         </View>
       ) : (
         <View style={styles.actionRow}>
+          {awaitingStore ? (
+            <View style={styles.awaitingBox}>
+              <Text style={styles.awaitingTitle}>
+                Build {gate!.latestBuild}
+                {gate!.latestVersionName ? ` (${gate!.latestVersionName})` : ""}{" "}
+                is uploaded but not on the store yet
+              </Text>
+              <Text style={styles.awaitingBody}>
+                No update prompt is shown while it's in review — clears
+                automatically within the hour once the store publishes it.
+              </Text>
+              <Button
+                label="Mark live on store now"
+                size="sm"
+                variant="secondary"
+                loading={storeLiveM.isPending}
+                disabled={pending}
+                onPress={() => storeLiveM.mutate(true)}
+              />
+            </View>
+          ) : null}
           <Button
             label={gate ? "Edit" : "Create gate"}
             size="sm"
@@ -732,6 +767,25 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing["2"],
     marginTop: spacing["1"],
+  },
+  awaitingBox: {
+    width: "100%",
+    gap: spacing["2"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.30)",
+    backgroundColor: "rgba(245,158,11,0.10)",
+    padding: spacing["3"],
+  },
+  awaitingTitle: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#fcd34d",
+  },
+  awaitingBody: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: "rgba(253,230,138,0.75)",
   },
   pctEditor: {
     flexDirection: "row",

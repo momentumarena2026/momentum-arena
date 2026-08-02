@@ -38,6 +38,10 @@ export interface AppVersionGateRow {
   channel: string;
   latestBuild: number;
   latestVersionName: string | null;
+  /** Store actually serves this build. False while it's in App Store review or
+   *  sitting as a Play draft — the app shows no update prompt until it flips. */
+  latestIsLive: boolean;
+  liveConfirmedAt: string | null;
   minSupportedBuild: number;
   storeUrl: string;
   message: string | null;
@@ -98,6 +102,10 @@ export const adminOtaApi = {
   /** Force update: raise minSupportedBuild to the latest store build. */
   forceUpdate: (platform: OtaPlatform, channel: string) =>
     post({ action: "forceUpdate", platform, channel }),
+
+  /** Manual override for the hourly store-availability checker. */
+  setStoreLive: (platform: OtaPlatform, channel: string, isLive: boolean) =>
+    post({ action: "setStoreLive", platform, channel, isLive }),
   /** Un-force: lower the minimum supported build to 0 (nobody blocked). */
   unforce: (platform: OtaPlatform, channel: string) =>
     post({ action: "setMinBuild", platform, channel, build: 0 }),

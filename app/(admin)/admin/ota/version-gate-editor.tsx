@@ -6,6 +6,7 @@ import {
   upsertAppVersionGate,
   setMinSupportedBuild,
   forceUpdateToLatest,
+  setLatestBuildLive,
   type AppVersionGateRow,
 } from "@/actions/admin-app-version";
 import {
@@ -45,6 +46,8 @@ export function VersionGateEditor({
   const [message, setMessage] = useState(gate?.message ?? "");
 
   const forcing = !!gate && gate.minSupportedBuild >= gate.latestBuild && gate.latestBuild > 0;
+  // Uploaded but not yet downloadable — the app stays quiet until this clears.
+  const awaitingStore = !!gate && gate.latestBuild > 0 && !gate.latestIsLive;
 
   const run = (fn: () => Promise<{ success: true } | { error: string }>) => {
     setError(null);
@@ -182,6 +185,14 @@ export function VersionGateEditor({
             </dd>
           </div>
           <div>
+            <dt className="text-zinc-500">On store</dt>
+            <dd
+              className={`mt-0.5 font-medium ${awaitingStore ? "text-amber-400" : "text-emerald-400"}`}
+            >
+              {awaitingStore ? "In review" : "Live"}
+            </dd>
+          </div>
+          <div>
             <dt className="text-zinc-500">Min supported</dt>
             <dd
               className={`mt-0.5 font-medium ${forcing ? "text-red-400" : "text-zinc-200"}`}
@@ -202,6 +213,41 @@ export function VersionGateEditor({
             </div>
           ) : null}
         </dl>
+      )}
+
+      {/* Awaiting-store banner. CI records a build the moment it's uploaded,
+          but review (iOS) / a draft release (Play) can hold it back for days —
+          so no update prompt fires until the store really serves it. The
+          hourly checker flips this; the button is the manual override. */}
+      {gate && !editing && awaitingStore && (
+        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <p className="text-xs font-medium text-amber-300">
+            Build {gate.latestBuild}
+            {gate.latestVersionName ? ` (${gate.latestVersionName})` : ""} is
+            uploaded but not on the store yet
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-200/70">
+            Customers see no update prompt while this is pending — sending them
+            to a store page that still serves the old version helps nobody. It
+            clears automatically within the hour once the store publishes it.
+          </p>
+          <button
+            onClick={() => run(() => setLatestBuildLive(platform, channel, true))}
+            disabled={pending}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1.5 text-xs font-semibold text-amber-200 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
+          >
+            Mark live on store now
+          </button>
+        </div>
+      )}
+      {gate && !editing && !awaitingStore && gate.latestBuild > 0 && (
+        <button
+          onClick={() => run(() => setLatestBuildLive(platform, channel, false))}
+          disabled={pending}
+          className="mt-3 text-[11px] text-zinc-500 underline underline-offset-2 transition-colors hover:text-zinc-300 disabled:opacity-50"
+        >
+          Mark as not on the store yet (stops update prompts)
+        </button>
       )}
 
       {/* Edit / create form */}

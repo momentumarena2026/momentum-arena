@@ -2938,6 +2938,13 @@ model AppVersionGate {
   channel           String // "development" | "production"
   latestBuild       Int // newest native build number available on the store
   latestVersionName String? // marketing version of the latest build, e.g. "1.0.0"
+  // Uploading a binary is NOT the same as it being downloadable: App Store
+  // review takes hours-to-days, and our Play uploads land as drafts. CI records
+  // the build with latestIsLive=false, so no "update available" prompt fires
+  // until the store actually serves it — confirmed hourly by
+  // scripts/check-store-availability.ts, or by hand from /admin/ota.
+  latestIsLive      Boolean     @default(false)
+  liveConfirmedAt   DateTime? // when we saw this build live on the store
   minSupportedBuild Int         @default(0) // installed build < this → forced update
   storeUrl          String // App Store / Play Store deep link
   message           String? // optional custom copy for the update prompt
