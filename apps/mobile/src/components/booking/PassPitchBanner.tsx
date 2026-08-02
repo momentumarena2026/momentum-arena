@@ -34,30 +34,37 @@ export function PassPitchBanner({
         end={{ x: 1, y: 1 }}
         style={styles.card}
       >
-        <View style={styles.topRow}>
-          <LinearGradient colors={["#10b981", "#059669"]} style={styles.iconTile}>
-            <Ticket size={20} color="#fff" />
-          </LinearGradient>
-          <View style={{ flex: 1 }}>
-            <Text variant="bodyStrong" color={colors.foreground} style={styles.headline}>
-              Save More with Arena Passes
-            </Text>
-            <Text weight="800" color={colors.emerald400} style={styles.price}>
-              Book from just {formatRupees(pitch.fromPerHour)}/hour*
-            </Text>
+        {/* Plain View owns the vertical rhythm. A `gap` set directly on the
+            LinearGradient isn't counted in the native gradient view's own
+            height, so the last child — the CTA pill — overflowed the card's
+            bottom edge and rendered sliced in half. Giving the gradient a
+            single, normally-measured child keeps its height honest. */}
+        <View style={styles.inner}>
+          <View style={styles.topRow}>
+            <LinearGradient colors={["#10b981", "#059669"]} style={styles.iconTile}>
+              <Ticket size={20} color="#fff" />
+            </LinearGradient>
+            <View style={{ flex: 1 }}>
+              <Text variant="bodyStrong" color={colors.foreground} style={styles.headline}>
+                Save More with Arena Passes
+              </Text>
+              <Text weight="800" color={colors.emerald400} style={styles.price}>
+                Book from just {formatRupees(pitch.fromPerHour)}/hour*
+              </Text>
+            </View>
           </View>
-        </View>
 
-        <Text variant="small" color={colors.zinc300} style={styles.body}>
-          Get guaranteed savings on every game. Choose the pass that fits
-          your schedule.
-        </Text>
-
-        <View style={styles.cta}>
-          <Text variant="small" weight="700" color="#022c22">
-            View Passes
+          <Text variant="small" color={colors.zinc300} style={styles.body}>
+            Get guaranteed savings on every game. Choose the pass that fits
+            your schedule.
           </Text>
-          <ArrowRight size={15} color="#022c22" />
+
+          <View style={styles.cta}>
+            <Text variant="small" weight="700" color="#022c22">
+              View Passes
+            </Text>
+            <ArrowRight size={15} color="#022c22" />
+          </View>
         </View>
       </LinearGradient>
     </Pressable>
@@ -70,6 +77,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(16,185,129,0.45)",
     padding: spacing["4"],
+  },
+  inner: {
     gap: spacing["3"],
   },
   topRow: {
