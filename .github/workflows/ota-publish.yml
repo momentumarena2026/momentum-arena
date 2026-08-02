@@ -77,7 +77,11 @@ jobs:
           OTA_CANARY_PERCENT: "20"
         run: |
           set -e
-          NATIVE_REQUIRED=0
+          # Platforms that did NOT get an OTA this run (missing baseline or
+          # fingerprint drift). Collected so the job can shout about it — a
+          # silent per-platform skip is how production/ios went 3 days
+          # without an OTA while android kept publishing, on green runs.
+          BLOCKED=""
           for PLATFORM in ios android; do
             echo "::group::fingerprint $PLATFORM"
             # Current native fingerprint for this platform.
@@ -89,11 +93,12 @@ jobs:
 
             if [ -z "$BASE" ]; then
               echo "::warning::No fingerprint baseline for $CHANNEL/$PLATFORM — skip (commit a baseline when you ship the native build)."
+              BLOCKED="$BLOCKED $PLATFORM(no-baseline)"
               continue
             fi
             if [ "$CUR" != "$BASE" ]; then
               echo "::warning::NATIVE change detected for $CHANNEL/$PLATFORM (fingerprint differs) — a new store build is required; not publishing OTA."
-              NATIVE_REQUIRED=1
+              BLOCKED="$BLOCKED $PLATFORM(drift)"
               # Auto-trigger a native store build on development (test tracks only —
               # production store builds stay a deliberate manual dispatch).
               if [ "$CHANNEL" = "development" ]; then
@@ -119,6 +124,22 @@ jobs:
                 --changelog "${COMMIT_MSG:0:200}"
             fi
           done
-          if [ "$NATIVE_REQUIRED" = "1" ]; then
-            echo "### ⚠️ Native build required for $CHANNEL — fingerprint changed. Cut a new store build, then update apps/mobile/fingerprints/${CHANNEL}.<platform>.fingerprint." >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$BLOCKED" ]; then
+            {
+              echo "### ⚠️ No OTA published for $CHANNEL:$BLOCKED"
+              echo ""
+              echo "The JS bundle no longer matches the native runtime of the shipped"
+              echo "store build, so publishing would hand installed apps JS their binary"
+              echo "can't run."
+              echo ""
+              echo "Unblock: ship a new store build for the platform(s) above, then commit"
+              echo "the refreshed \`apps/mobile/fingerprints/${CHANNEL}.<platform>.fingerprint\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # Development self-heals (the native build is auto-dispatched above), so
+          # a skip there stays a warning. Production has no such escape hatch — fail
+          # the run so a blocked platform can't rot behind a green checkmark.
+          if [ "$CHANNEL" = "production" ] && [ -n "$BLOCKED" ]; then
+            echo "::error::Production OTA did not publish for:$BLOCKED — see the job summary."
+            exit 1
           fi
