@@ -13,6 +13,7 @@ import {
   upsertAppVersionGate,
   setMinSupportedBuild,
   forceUpdateToLatest,
+  setLatestBuildLive,
 } from "@/actions/admin-app-version";
 
 /**
@@ -152,6 +153,15 @@ export async function POST(request: NextRequest) {
       result = await forceUpdateToLatest(
         str(body.platform),
         str(body.channel)
+      );
+      break;
+    // Manual override for the hourly store-availability checker: a build is
+    // only "available" once the store actually serves it.
+    case "setStoreLive":
+      result = await setLatestBuildLive(
+        str(body.platform),
+        str(body.channel),
+        body.isLive !== false
       );
       break;
     default:

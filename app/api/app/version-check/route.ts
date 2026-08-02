@@ -33,7 +33,11 @@ export async function GET(req: Request) {
         latestBuild: gate.latestBuild,
         latestVersionName: gate.latestVersionName,
         minSupportedBuild: gate.minSupportedBuild,
-        updateAvailable: build < gate.latestBuild,
+        // A build that's uploaded but still in review (or a Play draft) is NOT
+        // downloadable — prompting for it sends the customer to a store page
+        // with no Update button. latestIsLive is flipped by
+        // scripts/check-store-availability.ts (hourly) or from /admin/ota.
+        updateAvailable: gate.latestIsLive && build < gate.latestBuild,
         // Only force when we actually know the build AND it's below the floor.
         forced: build > 0 && build < gate.minSupportedBuild,
         storeUrl: gate.storeUrl,

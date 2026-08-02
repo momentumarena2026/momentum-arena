@@ -1,0 +1,73 @@
+name: Cron — Store Availability
+
+# Hourly: flip AppVersionGate.latestIsLive once a uploaded build is actually
+# downloadable from the App Store / Play production track.
+#
+# CI records a new native build as NOT live (scripts/set-version-gate.ts), so
+# the app stays quiet while the build is in review — otherwise customers get an
+# "update available" nag that deep-links to a store page still serving the old
+# version. This job ends that wait without anyone watching for approval.
+#
+# Runs as an Actions job rather than the usual /api/cron/* ping because reading
+# the Play track needs GOOGLE_PLAY_JSON_KEY, which lives in Actions secrets
+# (same pattern as post-native-release.yml writing the gate).
+#
+# Required repo secrets:
+#   PRODUCTION_DB_URL      - Neon URL for the production DB
+#   GOOGLE_PLAY_JSON_KEY   - Play service-account JSON (android half only)
+# The iOS half uses the public iTunes Lookup API — no credentials.
+
+on:
+  schedule:
+    # Every hour at :20 — offset from the other crons so they don't all wake at
+    # once, and the store's own propagation gets a beat after the hour.
+    - cron: "20 * * * *"
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Report what would change without writing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: store-availability
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Reconcile version gates against the stores
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify required secrets
+        env:
+          DB: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          if [ -z "$DB" ]; then
+            echo "::error::PRODUCTION_DB_URL secret missing — add it under Settings → Secrets → Actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.GOOGLE_PLAY_JSON_KEY }}" ]; then
+            echo "::warning::GOOGLE_PLAY_JSON_KEY missing — the android gate can't be confirmed automatically (use 'Mark live now' in /admin/ota)."
+          fi
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Check store availability
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
+        run: |
+          npx tsx scripts/check-store-availability.ts \
+            ${{ inputs.dryRun && '--dry-run' || '' }}

@@ -1,8 +1,16 @@
 /**
- * Upsert an AppVersionGate row after a native build is uploaded to a store, so
- * the version-check API reports the new build as the latest available. It never
- * downgrades latestBuild and never raises minSupportedBuild — forcing an update
- * stays a deliberate admin action in /admin/ota.
+ * Upsert an AppVersionGate row after a native build is uploaded to a store.
+ *
+ * Uploaded is NOT the same as downloadable — App Store review takes hours to
+ * days, and our Play uploads land as drafts. So a PRODUCTION build is recorded
+ * with latestIsLive=false and shows no "update available" prompt until the
+ * store actually serves it (confirmed hourly by
+ * scripts/check-store-availability.ts, or by hand from /admin/ota). Development
+ * gates are TestFlight / the Play internal track, where a processed build
+ * reaches testers within minutes, so those are marked live immediately.
+ *
+ * It never downgrades latestBuild and never raises minSupportedBuild — forcing
+ * an update stays a deliberate admin action in /admin/ota.
  *
  *   tsx scripts/set-version-gate.ts --platform ios --channel development \
  *     --build 29708123 --versionName 1.0.0 \
@@ -48,20 +56,33 @@ async function main() {
       );
       return;
     }
+    // Test channels are available on upload; the public stores are not.
+    const isLive = channel === "development";
     await db.appVersionGate.upsert({
       where: { platform_channel: { platform, channel } },
-      update: { latestBuild: build, latestVersionName: versionName, storeUrl },
+      update: {
+        latestBuild: build,
+        latestVersionName: versionName,
+        storeUrl,
+        latestIsLive: isLive,
+        liveConfirmedAt: isLive ? new Date() : null,
+      },
       create: {
         platform,
         channel,
         latestBuild: build,
         latestVersionName: versionName,
         storeUrl,
+        latestIsLive: isLive,
+        liveConfirmedAt: isLive ? new Date() : null,
         minSupportedBuild: 0,
       },
     });
     console.log(
-      `✓ gate ${channel}/${platform} -> latestBuild ${build} (${versionName ?? "-"}) ${storeUrl}`,
+      `✓ gate ${channel}/${platform} -> latestBuild ${build} (${versionName ?? "-"}) ${storeUrl}` +
+        (isLive
+          ? " [live]"
+          : " [awaiting store availability — no update prompt until confirmed]"),
     );
   } finally {
     await db.$disconnect();
