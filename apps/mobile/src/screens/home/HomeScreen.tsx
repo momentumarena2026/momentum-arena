@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from "react";
-import { infoBarApi, type InfoBarState } from "../../lib/info-bar";
+import { infoBarApi } from "../../lib/info-bar";
 import { notificationsApi } from "../../lib/user-notifications";
 import {
   Animated,
@@ -56,11 +56,17 @@ import { env } from "../../config/env";
 import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 import { Skeleton } from "../../components/ui/Skeleton";
 import type {
+  HomeStackParamList,
   MainTabsParamList,
   RootStackParamList,
 } from "../../navigation/types";
 
 type Nav = BottomTabNavigationProp<MainTabsParamList, "Home">;
+// Home now hosts its own stack, so pushes that should stay in this tab
+// (tournaments, camps) go through this handle. Cross-tab jumps keep using
+// `navigation` above. Both point at the same navigator tree at runtime —
+// the split is purely so each call site is typed against the right list.
+type HomeNav = NativeStackNavigationProp<HomeStackParamList>;
 type RootNav = NativeStackNavigationProp<RootStackParamList>;
 
 const ASSETS = `${env.apiUrl}`;
@@ -69,21 +75,21 @@ const SPORTS = [
   {
     slug: "CRICKET" as const,
     name: "Cricket",
-    image: `${ASSETS}/cricket.png`,
+    image: `${ASSETS}/opt/cricket.webp`,
     tagline: "Professional turf & bowling machine",
     ...SPORT_COLORS.CRICKET,
   },
   {
     slug: "FOOTBALL" as const,
     name: "Football",
-    image: `${ASSETS}/football.jpeg`,
+    image: `${ASSETS}/opt/football.webp`,
     tagline: "Full-size turf under floodlights",
     ...SPORT_COLORS.FOOTBALL,
   },
   {
     slug: "PICKLEBALL" as const,
     name: "Pickleball",
-    image: `${ASSETS}/pickleball.png`,
+    image: `${ASSETS}/opt/pickleball.webp`,
     tagline: "Fast-growing sport, professional court",
     ...SPORT_COLORS.PICKLEBALL,
     // promoLabel is computed at render time from the live PICKLEBALL25
@@ -103,26 +109,25 @@ const FACILITIES = [
 ];
 
 export function HomeScreen() {
-  // Admin-configurable top strip; static default until the fetch lands
-  // so cold starts still show the offer instantly.
-  const [infoBar, setInfoBar] = useState<InfoBarState>({
-    show: true,
-    text:
-      "New users: Flat ₹100 OFF on your first booking — applied automatically at checkout.",
+  // Admin-configurable top strip.
+  //
+  // This used to seed a hardcoded {show: true, "Flat ₹100 OFF..."} default
+  // "so cold starts show the offer instantly" — but the server is the only
+  // thing that knows whether the bar is on and what it says, so the guess
+  // was shown to every user for a moment and then yanked away the instant
+  // the real answer arrived. Advertising an offer and retracting it is
+  // worse than a beat of nothing.
+  //
+  // Now a normal query: it's prefetched during the splash and persisted to
+  // disk, so a returning user gets the REAL bar on the first frame, and a
+  // first-ever launch shows nothing until we actually know.
+  const { data: infoBar } = useQuery({
+    queryKey: ["info-bar"],
+    queryFn: infoBarApi.get,
+    staleTime: 5 * 60 * 1000,
   });
-  useEffect(() => {
-    let live = true;
-    infoBarApi
-      .get()
-      .then((b) => {
-        if (live) setInfoBar(b);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, []);
   const navigation = useNavigation<Nav>();
+  const homeNav = useNavigation<HomeNav>();
   const rootNav = navigation.getParent<RootNav>();
   const { state } = useAuth();
   const signedIn = state.status === "signedIn";
@@ -270,7 +275,7 @@ export function HomeScreen() {
         {/* Information Bar — admin-configurable announcement strip
             (Web & App Config → Information Bar). Defaults to the
             new-user offer until the fetch lands; hides when disabled. */}
-        {infoBar.show && (
+        {infoBar?.show && (
           <View style={styles.promo}>
             <Text variant="small" weight="600" style={styles.promoText}>
               {infoBar.text}
@@ -346,7 +351,7 @@ export function HomeScreen() {
                 {campsEnabled && (
                   <Pressable
                     onPress={() =>
-                      navigation.navigate("Account", { screen: "Camps" })
+                      homeNav.navigate("Camps")
                     }
                     style={({ pressed }) => [styles.heroTile, styles.heroTileViolet, pressed && styles.pressed]}
                   >
@@ -356,7 +361,7 @@ export function HomeScreen() {
                 {tournamentsEnabled && (
                   <Pressable
                     onPress={() =>
-                      navigation.navigate("Account", { screen: "TournamentsList" })
+                      homeNav.navigate("TournamentsList")
                     }
                     style={({ pressed }) => [styles.heroTile, styles.heroTileGold, pressed && styles.pressed]}
                   >
@@ -604,7 +609,7 @@ export function HomeScreen() {
               the deployed web so both surfaces stay byte-identical. */}
           <View style={styles.layoutImageWrap}>
             <Image
-              source={{ uri: `${ASSETS}/arena-layout.jpg` }}
+              source={{ uri: `${ASSETS}/opt/arena-layout.webp` }}
               style={styles.layoutImage}
               resizeMode="contain"
               accessibilityLabel="Top-down layout of Momentum Arena — cricket/football shared turf, pickleball court, cafe & washrooms, green area, entrance. Total 80x125 ft."

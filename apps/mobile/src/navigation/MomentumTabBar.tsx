@@ -166,18 +166,21 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
         canPreventDefault: true,
       });
       if (!event.defaultPrevented) {
-        if (name === "Account") {
-          // Account is a hub, and the Tournaments screens are pushed onto
-          // ITS stack (no dedicated tab). Entering tournaments from Home
-          // or the arc therefore leaves TournamentsList sitting on top of
-          // the Account stack, so a later "Account" tap reopened
-          // tournaments and the user could never reach their account
-          // again. Naming the root screen pops the stack back to it —
-          // there's no in-progress state under Account worth preserving,
-          // unlike the Sports booking flow.
+        // Hub tabs reset to their root on tap. Both host the cross-cutting
+        // Tournaments/Camps screens, so without this a tab press could
+        // reopen whatever the user was last looking at — tapping "Home"
+        // while a tournament sat on the Home stack would show the
+        // tournament, not home. Neither hub has in-progress state worth
+        // preserving, unlike the Sports booking flow.
+        const HUB_ROOTS: Record<string, string> = {
+          Account: "AccountHome",
+          Home: "HomeMain",
+        };
+        const root = HUB_ROOTS[name];
+        if (root) {
           navigation.navigate({
-            name: "Account",
-            params: { screen: "AccountHome" },
+            name,
+            params: { screen: root },
             merge: false,
           } as never);
         } else {
@@ -201,10 +204,11 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
       }
       if (key === "Camps") {
         trackBottomNavClick("Camps");
-        // Same as Tournaments: lives inside the Account stack, so it
-        // needs nested-screen params rather than a plain navigate.
+        // Camps and Tournaments now live in the HOME stack, not Account:
+        // routing them through Account switched the active tab, so backing
+        // out of a tournament dumped the user on the Account screen.
         navigation.navigate({
-          name: "Account",
+          name: "Home",
           params: { screen: "Camps" },
           merge: true,
         } as never);
@@ -212,12 +216,12 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
       }
       if (key === "Tournaments") {
         trackBottomNavClick("Tournaments");
-        // Lives inside the Account stack (no dedicated tab) — navigate
-        // through the tab navigator with nested-screen params. The tab
-        // bar's navigation prop types navigate() too narrowly for nested
-        // params, hence the object-form cast.
+        // Home stack (no dedicated tab) — navigate through the tab
+        // navigator with nested-screen params. The tab bar's navigation
+        // prop types navigate() too narrowly for nested params, hence the
+        // object-form cast.
         navigation.navigate({
-          name: "Account",
+          name: "Home",
           params: { screen: "TournamentsList" },
           merge: true,
         } as never);

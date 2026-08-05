@@ -8,7 +8,7 @@ import { RootNavigator } from "./src/navigation/RootNavigator";
 import { SplashScreen } from "./src/screens/splash/SplashScreen";
 import { ForceUpdateScreen } from "./src/screens/update/ForceUpdateScreen";
 import { initAnalytics } from "./src/lib/analytics";
-import { prefetchPublicHomeData } from "./src/lib/prefetch";
+import { prefetchPublicHomeData, prefetchHomeImages } from "./src/lib/prefetch";
 import { ensureOtaRolloutBucket } from "./src/lib/ota";
 import {
   checkAppVersion,
@@ -29,6 +29,7 @@ export default function App() {
     // is mounted yet, so without this the first request doesn't leave
     // the phone until ~2.6s in.
     prefetchPublicHomeData();
+    prefetchHomeImages();
   }, []);
 
   // Show the animated splash on every cold start. The native

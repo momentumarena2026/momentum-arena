@@ -1,6 +1,24 @@
 import type { NavigatorScreenParams } from "@react-navigation/native";
 import type { Sport } from "../lib/types";
 
+/**
+ * The Home tab's stack. Tournaments and Camps are registered here AND in
+ * AccountStack on purpose: they're reachable from Home tiles, the tab-bar
+ * arc, Account tiles and deep links, and whichever tab you start from
+ * should be the one you back out to. Route names are identical in both
+ * stacks so a screen can push its next screen without knowing which stack
+ * is hosting it.
+ */
+export type HomeStackParamList = {
+  HomeMain: undefined;
+  TournamentsList: undefined;
+  Camps: undefined;
+  TournamentDetail: { slug: string };
+  TournamentRegister: { slug: string };
+  TournamentLive: { matchId: string; slug: string };
+  TournamentMatch: { matchId: string; slug: string };
+};
+
 export type AccountStackParamList = {
   AccountHome: undefined;
   // Tournaments — hub, public detail (pools/table/bracket/live), captain
@@ -85,7 +103,10 @@ export type PassesStackParamList = {
 };
 
 export type MainTabsParamList = {
-  Home: undefined;
+  // `| undefined` so a plain navigate("Home") still means "the Home tab,
+  // wherever it happens to be" — only callers that want a specific screen
+  // inside the stack pass params.
+  Home: NavigatorScreenParams<HomeStackParamList> | undefined;
   // Tab key kept as "Sports" to mirror the web bottom-nav label
   // (`/book` → "Sports"). The underlying stack is still the booking
   // funnel — naming is purely a UX decision so the user understands
