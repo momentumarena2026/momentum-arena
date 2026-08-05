@@ -11,11 +11,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
-import { Coffee, Home, MapPin, Medal, Plus, ShoppingBag, Ticket, Trophy, User } from "lucide-react-native";
+import { Coffee, GraduationCap, Home, MapPin, Medal, Plus, ShoppingBag, Ticket, Trophy, User } from "lucide-react-native";
 import { Text } from "../components/ui/Text";
 import { colors, duration, easing, STAGGER_MS } from "../theme";
 import { trackBottomNavClick } from "../lib/analytics";
 import { fetchTournamentHub } from "../lib/tournaments";
+import { fetchCampsHub } from "../lib/camps";
 
 /** Where the venue is — same pin the Home screen's "Find us" card opens. */
 const VENUE_MAPS_URL = "https://maps.google.com/?q=27.509167,77.638917";
@@ -30,7 +31,7 @@ const BAR_HEIGHT = 62;
  * Size them independently and you get either icons bunched in the
  * centre with dead space above, or icons drifting off the top.
  */
-const SHEET_R = 100;
+const SHEET_R = 134;
 /** Icon puck; its centre is what lands on the curve. */
 const ICON_SIZE = 46;
 /** Label + gap sitting under the icon — the offset from the item's
@@ -48,20 +49,37 @@ const ICON_CENTRE_OFFSET = LABEL_BLOCK + ICON_SIZE / 2;
  */
 type ArcItem = { key: string; label: string; angle: number; Icon: typeof Coffee };
 
-const ARC_ITEMS_BASE: ArcItem[] = [
-  { key: "Cafe", label: "Cafe", angle: 145, Icon: Coffee },
-  { key: "Shop", label: "Shop", angle: 90, Icon: ShoppingBag },
-  { key: "Location", label: "Reach us", angle: 35, Icon: MapPin },
+/**
+ * Angles are computed rather than hardcoded, because the arc's length
+ * now depends on two independent module switches (tournaments, camps) —
+ * four hardcoded permutations would be four things to keep in sync.
+ * Items spread evenly across ARC_SPAN, centred on straight-up (90°).
+ */
+const ARC_FROM = 152;
+const ARC_TO = 28;
+
+/** In display order, left to right. Optional entries drop out when their
+ *  module is off and the rest re-spread to fill the arc. */
+type ArcSpec = { key: string; label: string; Icon: typeof Coffee };
+const ARC_ORDER: ArcSpec[] = [
+  { key: "Tournaments", label: "Tournaments", Icon: Medal },
+  { key: "Camps", label: "Camps", Icon: GraduationCap },
+  { key: "Cafe", label: "Cafe", Icon: Coffee },
+  { key: "Shop", label: "Shop", Icon: ShoppingBag },
+  { key: "Location", label: "Reach us", Icon: MapPin },
 ];
 
-// Edges hold the venue-wide destinations (Tournaments left, Reach us
-// right); Cafe and Shop sit in the middle two slots.
-const ARC_ITEMS_WITH_TOURNAMENTS: ArcItem[] = [
-  { key: "Tournaments", label: "Tournaments", angle: 150, Icon: Medal },
-  { key: "Cafe", label: "Cafe", angle: 108, Icon: Coffee },
-  { key: "Shop", label: "Shop", angle: 72, Icon: ShoppingBag },
-  { key: "Location", label: "Reach us", angle: 30, Icon: MapPin },
-];
+function buildArc(opts: { tournaments: boolean; camps: boolean }): ArcItem[] {
+  const items = ARC_ORDER.filter((x) =>
+    x.key === "Tournaments" ? opts.tournaments : x.key === "Camps" ? opts.camps : true,
+  );
+  const n = items.length;
+  return items.map((x, i) => ({
+    ...x,
+    // Single item would divide by zero; it belongs straight up.
+    angle: n === 1 ? 90 : ARC_FROM - ((ARC_FROM - ARC_TO) * i) / (n - 1),
+  }));
+}
 
 const TABS = [
   { name: "Home", label: "Home", Icon: Home },
@@ -99,7 +117,15 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
     queryFn: fetchTournamentHub,
     staleTime: 5 * 60 * 1000,
   });
-  const arcItems = tournamentHub?.enabled ? ARC_ITEMS_WITH_TOURNAMENTS : ARC_ITEMS_BASE;
+  const { data: campsHub } = useQuery({
+    queryKey: ["camps-hub"],
+    queryFn: fetchCampsHub,
+    staleTime: 5 * 60 * 1000,
+  });
+  const arcItems = buildArc({
+    tournaments: !!tournamentHub?.enabled,
+    camps: !!campsHub?.enabled,
+  });
 
   useEffect(() => {
     Animated.timing(progress, {
@@ -171,6 +197,17 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
       if (key === "Location") {
         trackBottomNavClick("VenueLocation");
         Linking.openURL(VENUE_MAPS_URL).catch(() => {});
+        return;
+      }
+      if (key === "Camps") {
+        trackBottomNavClick("Camps");
+        // Same as Tournaments: lives inside the Account stack, so it
+        // needs nested-screen params rather than a plain navigate.
+        navigation.navigate({
+          name: "Account",
+          params: { screen: "Camps" },
+          merge: true,
+        } as never);
         return;
       }
       if (key === "Tournaments") {

@@ -24,6 +24,8 @@ import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
+import { fetchTournamentHub } from "../../lib/tournaments";
+import { fetchCampsHub } from "../../lib/camps";
 import {
   Bell,
   Camera,
@@ -133,6 +135,21 @@ export function HomeScreen() {
 
   // Bell badge — unread in-app notifications. Refetches on focus so the
   // badge clears after visiting the Notifications screen.
+  // Module switches drive the second CTA row — same cached queries the
+  // tab-bar arc uses, so the two never disagree about what exists.
+  const { data: tournamentHub } = useQuery({
+    queryKey: ["tournaments"],
+    queryFn: fetchTournamentHub,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: campsHub } = useQuery({
+    queryKey: ["camps-hub"],
+    queryFn: fetchCampsHub,
+    staleTime: 5 * 60 * 1000,
+  });
+  const tournamentsEnabled = !!tournamentHub?.enabled;
+  const campsEnabled = !!campsHub?.enabled;
+
   const { data: notifData } = useQuery({
     queryKey: ["notifications", "unread"],
     queryFn: () => notificationsApi.list(),
@@ -283,36 +300,54 @@ export function HomeScreen() {
           <Text variant="small" color={colors.subtleForeground} align="center">
             Professional courts • Floodlights • Cafeteria • Open 5 AM – 1 AM
           </Text>
+          {/* Two rows of two. Order Food and Book a Court are the
+              everyday actions; Camps and Tournaments sit under them.
+              Camps only appears while the module is on — otherwise
+              Tournaments takes the full width rather than leaving a gap. */}
           <View style={styles.heroCtas}>
-            <Button
-              label="🏟  Book a Court"
-              size="lg"
-              onPress={() =>
-                navigation.navigate("Sports", { screen: "BookSport" })
-              }
-              fullWidth
-              style={styles.heroBtnPrimary}
-            />
-            <Pressable
-              onPress={() => {
-                trackHomepageCafeClick();
-                navigation.navigate("Cafe");
-              }}
-              style={({ pressed }) => [styles.heroBtnAmber, pressed && styles.pressed]}
-            >
-              <Text variant="bodyStrong" color="#fff">☕  Order Food</Text>
-            </Pressable>
-            <Pressable
-              onPress={() =>
-                navigation.navigate("Account", { screen: "TournamentsList" })
-              }
-              // Golden — matches the trophy/prize identity; darker than the
-              // cafe amber so the two CTAs read as distinct. Dark text keeps
-              // the 🏆 glyph and label visible on the golden fill.
-              style={({ pressed }) => [styles.heroBtnAmber, { backgroundColor: "#ca8a04" }, pressed && styles.pressed]}
-            >
-              <Text variant="bodyStrong" color="#fff">🏆  Tournaments</Text>
-            </Pressable>
+            <View style={styles.heroRow}>
+              <Pressable
+                onPress={() => {
+                  trackHomepageCafeClick();
+                  navigation.navigate("Cafe");
+                }}
+                style={({ pressed }) => [styles.heroTile, styles.heroTileAmber, pressed && styles.pressed]}
+              >
+                <Text variant="bodyStrong" color="#fff">☕  Order Food</Text>
+              </Pressable>
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("Sports", { screen: "BookSport" })
+                }
+                style={({ pressed }) => [styles.heroTile, styles.heroTileEmerald, pressed && styles.pressed]}
+              >
+                <Text variant="bodyStrong" color="#032016">🏟  Book a Court</Text>
+              </Pressable>
+            </View>
+            {(campsEnabled || tournamentsEnabled) && (
+              <View style={styles.heroRow}>
+                {campsEnabled && (
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate("Account", { screen: "Camps" })
+                    }
+                    style={({ pressed }) => [styles.heroTile, styles.heroTileViolet, pressed && styles.pressed]}
+                  >
+                    <Text variant="bodyStrong" color="#fff">🎓  Camps</Text>
+                  </Pressable>
+                )}
+                {tournamentsEnabled && (
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate("Account", { screen: "TournamentsList" })
+                    }
+                    style={({ pressed }) => [styles.heroTile, styles.heroTileGold, pressed && styles.pressed]}
+                  >
+                    <Text variant="bodyStrong" color="#fff">🏆  Tournaments</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           </View>
         </View>
 
@@ -1152,17 +1187,19 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-  heroBtnPrimary: {
-    height: 54,
-  },
-  heroBtnAmber: {
-    alignSelf: "stretch",
+  heroRow: { flexDirection: "row", gap: spacing["3"], width: "100%" },
+  heroTile: {
+    flex: 1,
     height: 54,
     borderRadius: radius.lg,
-    backgroundColor: "#d97706",
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: spacing["2"],
   },
+  heroTileAmber: { backgroundColor: "#d97706" },
+  heroTileEmerald: { backgroundColor: colors.emerald500 },
+  heroTileGold: { backgroundColor: "#ca8a04" },
+  heroTileViolet: { backgroundColor: "#7c3aed" },
   section: {
     paddingHorizontal: spacing["6"],
     paddingVertical: spacing["8"],

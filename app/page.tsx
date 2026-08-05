@@ -17,6 +17,7 @@ import { getActiveSportPromo } from "@/actions/sport-promo";
 import { getRainBanner, getInfoBar } from "@/actions/admin-arena-settings";
 import { arePassesEnabled } from "@/lib/passes";
 import { areTournamentsEnabled } from "@/lib/tournaments";
+import { areCampsEnabled } from "@/lib/camps";
 import { RainBanner } from "@/components/rain-banner";
 import { PromoBannerSlot } from "@/components/promo-banner-slot";
 
@@ -193,6 +194,7 @@ export default async function Home() {
   // (AUTO) or forced on by admin. Never throws.
   const passesEnabled = await arePassesEnabled().catch(() => false);
   const tournamentsEnabled = await areTournamentsEnabled().catch(() => false);
+  const campsEnabled = await areCampsEnabled().catch(() => false);
   const rainBanner = await getRainBanner().catch(() => ({
     show: false,
     title: "",
@@ -442,26 +444,33 @@ export default async function Home() {
               </span>
             </div>
 
-            <div className="flex items-center justify-center gap-4 flex-wrap">
-              <a
-                href="#sports"
-                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-4 rounded-full text-base md:text-lg transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/25"
-              >
-                🏟️ Book a Court
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </a>
+            {/* Two per row on phones — Order Food + Book a Court, then
+                Camps + Tournaments. Desktop keeps them on one line. */}
+            <div className="mx-auto grid max-w-2xl grid-cols-2 gap-3 sm:gap-4 md:flex md:flex-wrap md:justify-center">
               <a
                 href="#cafe"
-                className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-bold px-8 py-4 rounded-full text-base md:text-lg transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-amber-500/25"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-amber-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-amber-700 hover:shadow-lg hover:shadow-amber-500/25 sm:px-8 sm:text-base md:text-lg"
               >
                 ☕ Order Food
               </a>
+              <a
+                href="#sports"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-emerald-700 hover:shadow-lg hover:shadow-emerald-500/25 sm:px-8 sm:text-base md:text-lg"
+              >
+                🏟️ Book a Court
+              </a>
+              {campsEnabled && (
+                <Link
+                  href="/camps"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-violet-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-violet-500 hover:shadow-lg hover:shadow-violet-500/25 sm:px-8 sm:text-base md:text-lg"
+                >
+                  🎓 Camps
+                </Link>
+              )}
               {tournamentsEnabled && (
                 <Link
                   href="/tournaments"
-                  className="inline-flex items-center gap-2 bg-yellow-600 hover:bg-yellow-500 text-zinc-950 font-bold px-8 py-4 rounded-full text-base md:text-lg transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-yellow-500/25"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-yellow-600 px-4 py-4 text-sm font-bold text-zinc-950 transition-all duration-300 hover:scale-105 hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-500/25 sm:px-8 sm:text-base md:text-lg"
                 >
                   🏆 Tournaments
                 </Link>

@@ -16,10 +16,22 @@ import {
  * keeps the client to a single fetch helper.
  */
 export async function GET(request: NextRequest) {
-  if (!(await areCampsEnabled())) {
+  const url = new URL(request.url);
+  const enabled = await areCampsEnabled();
+
+  // ?hub=1 answers "should the app show a Camps entry at all?" — it must
+  // NOT 404 when the module is off, or the nav can't tell "disabled"
+  // apart from "request failed". Mirrors /api/mobile/tournaments.
+  if (url.searchParams.get("hub")) {
+    return NextResponse.json({
+      enabled,
+      camps: enabled ? await listPublicCamps() : [],
+    });
+  }
+
+  if (!enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const url = new URL(request.url);
 
   if (url.searchParams.get("mine")) {
     const userId = await getAuthUserId(request);

@@ -7,6 +7,7 @@ import {
   Home,
   MapPin,
   Medal,
+  GraduationCap,
   Plus,
   ShoppingBag,
   Ticket,
@@ -32,7 +33,7 @@ const FAB_SIZE = 60;
 const BAR_HEIGHT = 62;
 /** One radius shared by the sheet and the item fan — icon centres sit
  *  exactly on the curve (see the app file for the full rationale). */
-const SHEET_R = 100;
+const SHEET_R = 134;
 const ICON_SIZE = 46;
 const LABEL_BLOCK = 18;
 const ICON_CENTRE_OFFSET = LABEL_BLOCK + ICON_SIZE / 2;
@@ -54,20 +55,34 @@ type ArcItem = {
   Icon: typeof Coffee;
 };
 
-const ARC_ITEMS_BASE: ArcItem[] = [
-  { key: "Cafe", label: "Cafe", angle: 145, Icon: Coffee },
-  { key: "Shop", label: "Shop", angle: 90, Icon: ShoppingBag },
-  { key: "Location", label: "Reach us", angle: 35, Icon: MapPin },
+/**
+ * Angles are computed, not hardcoded — the arc's length depends on two
+ * independent module switches (tournaments, camps), and four hardcoded
+ * permutations would be four things to keep in sync. Matches the app's
+ * buildArc exactly so the two navs stay identical.
+ */
+const ARC_FROM = 152;
+const ARC_TO = 28;
+
+type ArcSpec = { key: string; label: string; Icon: typeof Coffee };
+const ARC_ORDER: ArcSpec[] = [
+  { key: "Tournaments", label: "Tournaments", Icon: Medal },
+  { key: "Camps", label: "Camps", Icon: GraduationCap },
+  { key: "Cafe", label: "Cafe", Icon: Coffee },
+  { key: "Shop", label: "Shop", Icon: ShoppingBag },
+  { key: "Location", label: "Reach us", Icon: MapPin },
 ];
 
-// Edges hold the venue-wide destinations (Tournaments left, Reach us
-// right); Cafe and Shop sit in the middle two slots.
-const ARC_ITEMS_WITH_TOURNAMENTS: ArcItem[] = [
-  { key: "Tournaments", label: "Tournaments", angle: 150, Icon: Medal },
-  { key: "Cafe", label: "Cafe", angle: 108, Icon: Coffee },
-  { key: "Shop", label: "Shop", angle: 72, Icon: ShoppingBag },
-  { key: "Location", label: "Reach us", angle: 30, Icon: MapPin },
-];
+function buildArc(opts: { tournaments: boolean; camps: boolean }): ArcItem[] {
+  const items = ARC_ORDER.filter((x) =>
+    x.key === "Tournaments" ? opts.tournaments : x.key === "Camps" ? opts.camps : true,
+  );
+  const n = items.length;
+  return items.map((x, i) => ({
+    ...x,
+    angle: n === 1 ? 90 : ARC_FROM - ((ARC_FROM - ARC_TO) * i) / (n - 1),
+  }));
+}
 
 const TABS = [
   {
@@ -119,10 +134,12 @@ function isSlotSelectionPage(pathname: string): boolean {
 
 export function BottomNav({
   tournamentsEnabled = false,
+  campsEnabled = false,
 }: {
   /** Module master-switch — with it ON the arc gains the Tourneys item
    *  and re-spreads to four (same rule as the app). */
   tournamentsEnabled?: boolean;
+  campsEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -157,9 +174,10 @@ export function BottomNav({
     return () => window.removeEventListener("keydown", onKey);
   }, [mounted, closeArc]);
 
-  const arcItems = tournamentsEnabled
-    ? ARC_ITEMS_WITH_TOURNAMENTS
-    : ARC_ITEMS_BASE;
+  const arcItems = buildArc({
+    tournaments: tournamentsEnabled,
+    camps: campsEnabled,
+  });
 
   const onArcPress = useCallback(
     (key: string) => {
@@ -170,9 +188,16 @@ export function BottomNav({
         return;
       }
       trackBottomNavClick(key);
-      router.push(
-        key === "Cafe" ? "/cafe" : key === "Shop" ? "/shop" : "/tournaments",
-      );
+      // Explicit map — the old ternary chain fell through to /tournaments
+      // for anything unrecognised, so a new arc entry would have silently
+      // pointed at the wrong page.
+      const HREF: Record<string, string> = {
+        Cafe: "/cafe",
+        Shop: "/shop",
+        Camps: "/camps",
+        Tournaments: "/tournaments",
+      };
+      router.push(HREF[key] ?? "/");
     },
     [closeArc, router],
   );

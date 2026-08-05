@@ -7,8 +7,9 @@ import { LoginButton } from "@/components/login-modal";
 import { RewardsChip } from "@/components/rewards/rewards-chip";
 import { arePassesEnabled } from "@/lib/passes";
 import { areTournamentsEnabled } from "@/lib/tournaments";
+import { areCampsEnabled } from "@/lib/camps";
 
-type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments";
+type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments" | "camps";
 
 /**
  * Shared customer-funnel top nav (logo + section links + rewards chip +
@@ -21,10 +22,11 @@ type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments";
  * for Cafe) instead of the hover-only zinc used for the rest.
  */
 export async function SiteHeader({ active }: { active?: Section }) {
-  const [session, passesEnabled, tournamentsEnabled] = await Promise.all([
+  const [session, passesEnabled, tournamentsEnabled, campsEnabled] = await Promise.all([
     auth(),
     arePassesEnabled().catch(() => false),
     areTournamentsEnabled().catch(() => false),
+    areCampsEnabled().catch(() => false),
   ]);
   const unread = session?.user?.id
     ? await unreadNotificationCount(session.user.id).catch(() => 0)
@@ -76,6 +78,16 @@ export async function SiteHeader({ active }: { active?: Section }) {
                 className={linkClass("tournaments", "hover:text-emerald-400")}
               >
                 🏆 Tournaments
+              </Link>
+            )}
+            {/* Desktop only — on mobile Camps lives in the bottom-nav arc,
+                which is where the other venue destinations sit. */}
+            {campsEnabled && (
+              <Link
+                href="/camps"
+                className={linkClass("camps", "hover:text-emerald-400")}
+              >
+                🎓 Camps
               </Link>
             )}
           </div>

@@ -62,6 +62,14 @@ export type MyCampRegistration = {
   };
 };
 
+export type CampsHub = { enabled: boolean; camps: CampSummary[] };
+
+/** Module switch + list in one call. The tab bar reads `enabled` to
+ *  decide whether a Camps entry belongs in the arc at all. */
+export async function fetchCampsHub(): Promise<CampsHub> {
+  return api.get<CampsHub>("/api/mobile/camps?hub=1", { auth: false });
+}
+
 export async function fetchCamps(): Promise<CampSummary[]> {
   const res = await api.get<{ camps: CampSummary[] }>("/api/mobile/camps");
   return res.camps;
