@@ -17,6 +17,7 @@ import { CafeOrdersListScreen } from "../screens/cafe/CafeOrdersListScreen";
 import { CafeOrderDetailScreen } from "../screens/cafe/CafeOrderDetailScreen";
 import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
 import { TournamentsListScreen } from "../screens/tournaments/TournamentsListScreen";
+import { CampsScreen } from "../screens/camps/CampsScreen";
 import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailScreen";
 import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
 import { TournamentLiveScreen } from "../screens/tournaments/TournamentLiveScreen";
@@ -129,6 +130,11 @@ export function AccountStack() {
         name="CafeOrderDetail"
         component={CafeOrderDetailScreen}
         options={{ title: "Cafe order" }}
+      />
+      <Stack.Screen
+        name="Camps"
+        component={CampsScreen}
+        options={{ title: "Camps" }}
       />
       <Stack.Screen
         name="TournamentsList"

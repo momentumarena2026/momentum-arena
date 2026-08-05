@@ -7,6 +7,7 @@ export type AccountStackParamList = {
   // registration and the live match screen. Registered in AccountStack so
   // Home tiles + promo-banner deep links can reach them without a new tab.
   TournamentsList: undefined;
+  Camps: undefined;
   TournamentDetail: { slug: string };
   TournamentRegister: { slug: string };
   TournamentLive: { matchId: string; slug: string };
