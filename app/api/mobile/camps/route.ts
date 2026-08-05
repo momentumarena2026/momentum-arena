@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { db } from "@/lib/db";
 import { isDqrConfigured } from "@/lib/phonepe-dqr";
+import { CACHE } from "@/lib/api-cache";
 import {
   areCampsEnabled,
   listPublicCamps,
@@ -25,10 +26,12 @@ export async function GET(request: NextRequest) {
   // NOT 404 when the module is off, or the nav can't tell "disabled"
   // apart from "request failed". Mirrors /api/mobile/tournaments.
   if (url.searchParams.get("hub")) {
-    return NextResponse.json({
-      enabled,
-      camps: enabled ? await listPublicCamps() : [],
-    });
+    return NextResponse.json(
+      { enabled, camps: enabled ? await listPublicCamps() : [] },
+      // Identical for every caller — safe to answer from the Mumbai edge.
+      // The ?mine=1 branch below is per-user and deliberately uncached.
+      { headers: CACHE.catalog },
+    );
   }
 
   if (!enabled) {
@@ -78,12 +81,15 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const camps = await listPublicCamps();
-  // Whether the registration sheet may offer UPI alongside Razorpay —
-  // same gate the tournament hub carries.
-  const gatewayCfg = await db.paymentGatewayConfig
-    .findUnique({ where: { id: "singleton" }, select: { dqrEnabled: true } })
-    .catch(() => null);
+  // Independent reads — one round trip instead of two.
+  const [camps, gatewayCfg] = await Promise.all([
+    listPublicCamps(),
+    // Whether the registration sheet may offer UPI alongside Razorpay —
+    // same gate the tournament hub carries.
+    db.paymentGatewayConfig
+      .findUnique({ where: { id: "singleton" }, select: { dqrEnabled: true } })
+      .catch(() => null),
+  ]);
   return NextResponse.json({
     dqrAvailable: isDqrConfigured() && !!gatewayCfg?.dqrEnabled,
     camps: camps.map((c) => ({
@@ -110,5 +116,5 @@ export async function GET(request: NextRequest) {
       seatsTaken: c._count.registrations,
       seatsLeft: Math.max(0, c.capacity - c._count.registrations),
     })),
-  });
+  }, { headers: CACHE.catalog });
 }
