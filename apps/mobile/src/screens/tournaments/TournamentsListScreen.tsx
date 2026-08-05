@@ -114,6 +114,19 @@ export function TournamentsListScreen() {
                   <Text style={styles.metaText}>₹{t.entryFee.toLocaleString("en-IN")}/team</Text>
                 )}
               </View>
+              {/* Start date — the web card has always shown it and the app
+                  card didn't, so "when is it?" needed a tap. Pinned to IST
+                  because tournament times are venue wall-clock. */}
+              {t.startDate && (
+                <Text style={styles.dateText}>
+                  {new Date(t.startDate).toLocaleDateString("en-IN", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                    timeZone: "Asia/Kolkata",
+                  })}
+                </Text>
+              )}
             </View>
           </Pressable>
         ))}
@@ -124,6 +137,7 @@ export function TournamentsListScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 32 },
+  dateText: { marginTop: 4, fontSize: 12, color: colors.zinc500 },
   empty: { alignItems: "center", paddingVertical: 60, gap: 12 },
   emptyText: { color: colors.zinc500, fontSize: 14 },
   card: {
