@@ -75,7 +75,9 @@ function resolveLink(nav: NavLike, linkUrl: string) {
   const tournamentMatch = path.match(/^\/tournaments\/([^/?#]+)/);
   if (tournamentMatch) {
     nav.navigate("Main", {
-      screen: "Account",
+      // Home stack, not Account: a banner tapped on Home should back out
+      // to Home. `initial: false` keeps HomeMain underneath so it does.
+      screen: "Home",
       params: {
         screen: "TournamentDetail",
         params: { slug: decodeURIComponent(tournamentMatch[1]) },
@@ -86,7 +88,7 @@ function resolveLink(nav: NavLike, linkUrl: string) {
   }
   if (path.startsWith("/tournaments")) {
     nav.navigate("Main", {
-      screen: "Account",
+      screen: "Home",
       params: { screen: "TournamentsList" },
     });
     return;

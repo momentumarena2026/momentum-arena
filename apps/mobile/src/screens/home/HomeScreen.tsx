@@ -56,11 +56,17 @@ import { env } from "../../config/env";
 import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 import { Skeleton } from "../../components/ui/Skeleton";
 import type {
+  HomeStackParamList,
   MainTabsParamList,
   RootStackParamList,
 } from "../../navigation/types";
 
 type Nav = BottomTabNavigationProp<MainTabsParamList, "Home">;
+// Home now hosts its own stack, so pushes that should stay in this tab
+// (tournaments, camps) go through this handle. Cross-tab jumps keep using
+// `navigation` above. Both point at the same navigator tree at runtime —
+// the split is purely so each call site is typed against the right list.
+type HomeNav = NativeStackNavigationProp<HomeStackParamList>;
 type RootNav = NativeStackNavigationProp<RootStackParamList>;
 
 const ASSETS = `${env.apiUrl}`;
@@ -123,6 +129,7 @@ export function HomeScreen() {
     };
   }, []);
   const navigation = useNavigation<Nav>();
+  const homeNav = useNavigation<HomeNav>();
   const rootNav = navigation.getParent<RootNav>();
   const { state } = useAuth();
   const signedIn = state.status === "signedIn";
@@ -346,7 +353,7 @@ export function HomeScreen() {
                 {campsEnabled && (
                   <Pressable
                     onPress={() =>
-                      navigation.navigate("Account", { screen: "Camps" })
+                      homeNav.navigate("Camps")
                     }
                     style={({ pressed }) => [styles.heroTile, styles.heroTileViolet, pressed && styles.pressed]}
                   >
@@ -356,7 +363,7 @@ export function HomeScreen() {
                 {tournamentsEnabled && (
                   <Pressable
                     onPress={() =>
-                      navigation.navigate("Account", { screen: "TournamentsList" })
+                      homeNav.navigate("TournamentsList")
                     }
                     style={({ pressed }) => [styles.heroTile, styles.heroTileGold, pressed && styles.pressed]}
                   >

@@ -1,5 +1,5 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { HomeScreen } from "../screens/home/HomeScreen";
+import { HomeStack } from "./HomeStack";
 import { AccountStack } from "./AccountStack";
 import { BookStack } from "./BookStack";
 import { CafeStack } from "./CafeStack";
@@ -20,7 +20,7 @@ export function MainNavigator() {
       })}
       screenOptions={{ headerShown: false }}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Home" component={HomeStack} />
       <Tab.Screen name="Sports" component={BookStack} />
       <Tab.Screen name="Passes" component={PassesStack} />
       <Tab.Screen name="Account" component={AccountStack} />
