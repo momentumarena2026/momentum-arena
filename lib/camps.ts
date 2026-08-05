@@ -437,3 +437,46 @@ export async function createCampOrder(
   const order = (await res.json()) as { id: string };
   return { orderId: order.id, amount: amountRupees };
 }
+
+/**
+ * Confirm a camp registration from a settled PhonePe DQR transaction.
+ *
+ * `paymentRef` is the only pointer from a PhonePe txn back to the
+ * registration, so a re-initiated QR that overwrote it would orphan the
+ * first payment. The suffix match mirrors confirmDqrTournament: the
+ * registration id is embedded in the txn id, so a superseded txn still
+ * resolves to its row.
+ */
+export async function confirmDqrCamp(
+  transactionId: string,
+  providerReferenceId?: string,
+  amountPaise?: number,
+): Promise<{ registrationId?: string; mismatch?: boolean }> {
+  let reg = await db.campRegistration.findFirst({
+    where: { paymentRef: transactionId },
+    select: { id: true, status: true },
+  });
+
+  // Superseded txn: "DQRC_<regIdTail>_<ms>" still names its registration.
+  if (!reg) {
+    const tail = transactionId.split("_")[1];
+    if (tail) {
+      reg = await db.campRegistration.findFirst({
+        where: { id: { endsWith: tail }, status: "PENDING_PAYMENT" },
+        select: { id: true, status: true },
+      });
+    }
+  }
+  if (!reg) return { mismatch: true };
+  if (reg.status === "CONFIRMED") return { registrationId: reg.id };
+
+  const paid = Math.round((amountPaise ?? 0) / 100);
+  const res = await confirmCampPayment({
+    registrationId: reg.id,
+    paidRupees: paid,
+    method: "PHONEPE",
+    paymentRef: providerReferenceId ?? transactionId,
+  });
+  if (!res.ok) return { mismatch: true };
+  return { registrationId: reg.id };
+}
