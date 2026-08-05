@@ -54,6 +54,7 @@ import {
 } from "../../lib/analytics";
 import { env } from "../../config/env";
 import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
+import { Skeleton } from "../../components/ui/Skeleton";
 import type {
   MainTabsParamList,
   RootStackParamList,
@@ -127,7 +128,12 @@ export function HomeScreen() {
   const signedIn = state.status === "signedIn";
   const firstName = signedIn ? state.user.name?.split(" ")[0] ?? null : null;
 
-  const { data, refetch, isRefetching } = useQuery({
+  const {
+    data,
+    refetch,
+    isRefetching,
+    isLoading: dashboardLoading,
+  } = useQuery({
     queryKey: ["dashboard"],
     queryFn: bookingsApi.dashboard,
     enabled: signedIn,
@@ -137,18 +143,23 @@ export function HomeScreen() {
   // badge clears after visiting the Notifications screen.
   // Module switches drive the second CTA row — same cached queries the
   // tab-bar arc uses, so the two never disagree about what exists.
-  const { data: tournamentHub } = useQuery({
+  const { data: tournamentHub, isLoading: tournamentsLoading } = useQuery({
     queryKey: ["tournaments"],
     queryFn: fetchTournamentHub,
     staleTime: 5 * 60 * 1000,
   });
-  const { data: campsHub } = useQuery({
+  const { data: campsHub, isLoading: campsLoading } = useQuery({
     queryKey: ["camps-hub"],
     queryFn: fetchCampsHub,
     staleTime: 5 * 60 * 1000,
   });
   const tournamentsEnabled = !!tournamentHub?.enabled;
   const campsEnabled = !!campsHub?.enabled;
+  // The module switches decide whether the SECOND CTA row exists at all.
+  // Treating "still loading" as "disabled" made the row appear a beat
+  // later and shove the whole page down — the jump the user sees on
+  // launch. Hold its height until we actually know.
+  const modulesLoading = tournamentsLoading || campsLoading;
 
   const { data: notifData } = useQuery({
     queryKey: ["notifications", "unread"],
@@ -324,7 +335,13 @@ export function HomeScreen() {
                 <Text variant="bodyStrong" color="#032016">🏟  Book a Court</Text>
               </Pressable>
             </View>
-            {(campsEnabled || tournamentsEnabled) && (
+            {modulesLoading ? (
+              <View style={styles.heroRow}>
+                <View style={[styles.heroTile, styles.heroTilePlaceholder]} />
+                <View style={[styles.heroTile, styles.heroTilePlaceholder]} />
+              </View>
+            ) : null}
+            {!modulesLoading && (campsEnabled || tournamentsEnabled) && (
               <View style={styles.heroRow}>
                 {campsEnabled && (
                   <Pressable
@@ -359,7 +376,22 @@ export function HomeScreen() {
         />
 
         {/* Signed-in: upcoming bookings */}
-        {signedIn && data && data.upcomingBookings.length > 0 ? (
+        {/* Signed-in and still fetching: hold a card-shaped placeholder so
+            the sections below don't jump when bookings arrive. Signed-out
+            users never see this — they have no bookings to wait for. */}
+        {signedIn && dashboardLoading ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text variant="heading">Your upcoming bookings</Text>
+            </View>
+            <View style={styles.bookingsList}>
+              <Skeleton height={92} rounded="xl" />
+              <Skeleton height={92} rounded="xl" />
+            </View>
+          </View>
+        ) : null}
+
+        {signedIn && !dashboardLoading && data && data.upcomingBookings.length > 0 ? (
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text variant="heading">Your upcoming bookings</Text>
@@ -1195,6 +1227,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing["2"],
+  },
+  // Same footprint as a real tile, so nothing reflows when the modules
+  // resolve — just a quiet block rather than a spinner.
+  heroTilePlaceholder: {
+    backgroundColor: colors.zinc900,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
   },
   heroTileAmber: { backgroundColor: "#d97706" },
   heroTileEmerald: { backgroundColor: colors.emerald500 },
