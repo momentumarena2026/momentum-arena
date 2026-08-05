@@ -16,7 +16,14 @@ const SPORT_LABEL: Record<string, string> = {
 
 function fmtDate(d: Date | null): string {
   if (!d) return "TBA";
-  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  // Venue wall-clock. Server components format in the server's zone (UTC
+  // on Vercel) unless told otherwise, which shifted dates by 5:30.
+  return new Date(d).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
 }
 
 export default async function TournamentPublicPage({

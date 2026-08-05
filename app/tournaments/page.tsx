@@ -124,10 +124,15 @@ export default async function TournamentsPage({
                   </div>
                   {t.startDate && (
                     <p className="mt-1 text-xs text-zinc-500">
+                      {/* Server-rendered: without an explicit zone this
+                          formats in the SERVER's zone (UTC on Vercel), so a
+                          tournament starting 1 Aug 00:30 IST showed 31 Jul.
+                          Tournament times are venue wall-clock — always IST. */}
                       {new Date(t.startDate).toLocaleDateString("en-IN", {
                         day: "numeric",
                         month: "short",
                         year: "numeric",
+                        timeZone: "Asia/Kolkata",
                       })}
                     </p>
                   )}

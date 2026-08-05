@@ -294,7 +294,7 @@ export function TournamentManage({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 text-sm text-zinc-500">
@@ -308,7 +308,7 @@ export function TournamentManage({
             {STATUS_LABELS[t.status] || t.status}
           </span>
           {t.liveScoringEnabled && (
-            <span className="flex items-center gap-1 rounded-full border border-red-500/40 px-2.5 py-1 text-xs text-red-400">
+            <span className="flex max-w-full flex-wrap items-center gap-1 break-all rounded-full border border-red-500/40 px-2.5 py-1 text-xs text-red-400">
               <Radio className="h-3 w-3" /> Live scoring · {t.liveScreenPlatform.replace("_", " ")}
               {/* A link, not just text — rotating the code changes it, and a
                   bookmarked old URL is the fastest way to see "invalid code". */}
@@ -364,7 +364,10 @@ export function TournamentManage({
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-zinc-800">
+      {/* Seven tabs can't fit a phone. Without a scroller the row forced
+          the page wider than the viewport and every section below it went
+          off-screen. Scroll the strip, keep the page at viewport width. */}
+      <div className="flex gap-1 overflow-x-auto border-b border-zinc-800 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {(
           [
             ["overview", "Overview", LayoutDashboard],
@@ -381,7 +384,7 @@ export function TournamentManage({
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm ${
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm ${
               tab === key
                 ? "border-emerald-500 text-white"
                 : "border-transparent text-zinc-400 hover:text-zinc-200"
