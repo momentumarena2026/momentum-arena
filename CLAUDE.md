@@ -5,6 +5,33 @@ Re-read this file at the start of every session.
 
 ---
 
+## START HERE — project context
+
+**Read `docs/PROJECT-CONTEXT.md` at the start of every session, before planning or
+editing.** It is the living orientation document: what the product is, the deployment
+model, the environment facts, the traps that are expensive to rediscover, and the
+reasoning behind recent architectural decisions. It exists so a session on any machine
+or account can pick this codebase up cold.
+
+**Keep it current as part of the work, not afterwards.** A stale context doc is worse
+than none, because it gets trusted. When you finish a piece of substantive work, update
+it in the same commit if you changed any of:
+
+- a rule, branch policy, deployment step, or environment fact
+- a newly-discovered trap worth never rediscovering again
+- a module added, or an architectural decision whose *reasoning* won't survive in the diff
+- what is shipped vs. still pending
+- a file path in its map, or a new pair of files that must stay in sync
+
+Record **why**, not just what — the diff already records what. Prune what has become
+false. Do not let it become a changelog. Refresh its "Last substantive update" line and
+`main` SHA when you touch it.
+
+Routine work needs no entry: a bug fix that reveals nothing general, a copy tweak, a
+dependency bump. Ask "would the next session waste time without this?" — if no, leave it.
+
+---
+
 ## Git push policy (installed 2026-05-28)
 
 **Only `main` and `development` may be pushed to `origin`. No exceptions.**
@@ -47,6 +74,7 @@ commits created by CI itself.
 
 ## Module docs
 
+- `docs/PROJECT-CONTEXT.md` — **start here**; whole-codebase orientation (see top of file).
 - `docs/PASSES.md` — Monthly Passes: schema, pricing bands, court groups,
   purchase/redemption/sharing flows, cash-basis money story, admin ops.
 - `docs/TRUSTED-DEVICES.md` — the 5-tap hidden admin entry allowlist
