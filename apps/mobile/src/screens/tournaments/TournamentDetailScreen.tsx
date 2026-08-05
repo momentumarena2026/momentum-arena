@@ -24,7 +24,7 @@ import { trackTournamentView } from "../../lib/analytics";
 type Nav = NativeStackNavigationProp<AccountStackParamList>;
 type Rt = RouteProp<AccountStackParamList, "TournamentDetail">;
 
-const TABS = ["Overview", "Pools", "Table", "Matches", "Leaders"] as const;
+const TABS = ["Overview", "Pools", "Table", "Bracket", "Matches", "Leaders"] as const;
 type Tab = (typeof TABS)[number];
 
 function Badge({ team, size = 26 }: { team: TeamLite | undefined | null; size?: number }) {
@@ -302,6 +302,9 @@ export function TournamentDetailScreen() {
   const visibleTabs = TABS.filter((x) => {
     if (x === "Pools" && t.format !== "POOLS_KNOCKOUT") return false;
     if (x === "Table" && t.format === "KNOCKOUT") return false;
+    // A league has no knockout stage, so there's no bracket to draw —
+    // same rule the web centre applies.
+    if (x === "Bracket" && t.format === "LEAGUE") return false;
     return true;
   });
 
@@ -586,6 +589,53 @@ export function TournamentDetailScreen() {
         )}
 
         {/* Matches */}
+        {/* Bracket — knockout stages side by side, scrolled horizontally
+            so a phone can follow R16 → Final without squashing the cards.
+            Derived from `matches`, exactly like the web centre. */}
+        {tab === "Bracket" && (() => {
+          const STAGE_TITLE: Record<string, string> = {
+            R16: "Round of 16",
+            QF: "Quarter Finals",
+            SF: "Semi Finals",
+            FINAL: "Final",
+          };
+          const stages = ["R16", "QF", "SF", "FINAL"].filter((st) =>
+            data.matches.some((m) => m.stage === st),
+          );
+          const third = data.matches.filter((m) => m.stage === "THIRD_PLACE");
+          if (stages.length === 0) {
+            return (
+              <View style={styles.card}>
+                <Text style={styles.cardBody}>
+                  The bracket appears once fixtures are generated.
+                </Text>
+              </View>
+            );
+          }
+          return (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 12, paddingRight: 12 }}
+            >
+              {stages.map((st) => (
+                <View key={st} style={{ width: 260, gap: 8 }}>
+                  <Text style={styles.bracketStage}>{STAGE_TITLE[st]}</Text>
+                  {data.matches
+                    .filter((m) => m.stage === st)
+                    .map((m, i) => matchRow(m, i))}
+                  {st === "FINAL" && third.length > 0 && (
+                    <>
+                      <Text style={styles.bracketStage}>3rd Place</Text>
+                      {third.map((m, i) => matchRow(m, i))}
+                    </>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          );
+        })()}
+
         {tab === "Matches" && (
           <View style={{ gap: 8 }}>
             {data.matches.length === 0 && (
@@ -720,6 +770,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  bracketStage: {
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: colors.zinc400,
+  },
   matchCard: {
     borderRadius: radius.lg,
     borderWidth: 1,
