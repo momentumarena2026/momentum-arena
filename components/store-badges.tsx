@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { headers } from "next/headers";
 import {
   APP_STORE_URL,
@@ -86,6 +87,12 @@ export async function StoreBadges({ variant = "full", className, platform }: Pro
     );
   }
 
+  // The two official badges don't match: Apple's is black-on-black, Google's
+  // is white-on-white. Dropped straight onto our near-black footer the Apple
+  // one would disappear. Both therefore sit on the same white chip, which
+  // gives Apple the light background its guidelines ask for, doubles as the
+  // required clear space, and makes the pair read as one control. The
+  // artwork itself is untouched — only what's behind it.
   return (
     <div className={`flex flex-wrap items-center gap-3 ${className ?? ""}`}>
       {showApple && (
@@ -94,15 +101,15 @@ export async function StoreBadges({ variant = "full", className, platform }: Pro
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Download Momentum Arena on the App Store"
-          className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+          className="flex h-12 items-center rounded-xl bg-white px-3 transition-transform hover:scale-[1.03]"
         >
-          <AppleGlyph className="h-6 w-6 text-white" />
-          <span className="leading-tight">
-            <span className="block text-[10px] uppercase tracking-wide text-zinc-400">
-              Download on the
-            </span>
-            <span className="block text-sm font-semibold text-white">App Store</span>
-          </span>
+          <Image
+            src="/store/app-store.webp"
+            alt="Download on the App Store"
+            width={540}
+            height={189}
+            className="h-7 w-auto"
+          />
         </a>
       )}
       {showPlay && (
@@ -111,15 +118,15 @@ export async function StoreBadges({ variant = "full", className, platform }: Pro
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Get Momentum Arena on Google Play"
-          className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+          className="flex h-12 items-center rounded-xl bg-white px-3 transition-transform hover:scale-[1.03]"
         >
-          <PlayGlyph className="h-6 w-6" />
-          <span className="leading-tight">
-            <span className="block text-[10px] uppercase tracking-wide text-zinc-400">
-              Get it on
-            </span>
-            <span className="block text-sm font-semibold text-white">Google Play</span>
-          </span>
+          <Image
+            src="/store/google-play.webp"
+            alt="Get it on Google Play"
+            width={540}
+            height={177}
+            className="h-7 w-auto"
+          />
         </a>
       )}
     </div>
