@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
@@ -23,6 +24,8 @@ import { useAuth } from "../../providers/AuthProvider";
 import { formatRupees } from "../../lib/format";
 import {
   fetchCamps,
+  initiateCampDqr,
+  pollCampDqr,
   registerForCamp,
   verifyCampPayment,
   type CampSummary,
@@ -75,10 +78,53 @@ export function CampsScreen() {
   });
 
   const q = useQuery({ queryKey: ["camps"], queryFn: fetchCamps });
+  const dqrAvailable = !!q.data?.dqrAvailable;
+  // Same two-way choice the booking, pass and tournament funnels offer.
+  const [method, setMethod] = useState<"upi" | "razorpay">("razorpay");
+  const [dqr, setDqr] = useState<null | {
+    qrImage?: string;
+    qrString?: string;
+    transactionId: string;
+    amount: number;
+    campSlug: string;
+  }>(null);
 
   useEffect(() => {
     trackCampsHubView();
   }, []);
+
+  // UPI leads once we know the venue accepts it.
+  useEffect(() => {
+    if (dqrAvailable) setMethod("upi");
+  }, [dqrAvailable]);
+
+  // Poll while the QR is up. The S2S callback confirms independently, so
+  // this only drives what the screen shows.
+  useEffect(() => {
+    if (!dqr) return;
+    const iv = setInterval(async () => {
+      try {
+        const d = await pollCampDqr(dqr.transactionId);
+        if (d.state === "COMPLETED") {
+          clearInterval(iv);
+          trackCampRegisterCompleted(dqr.campSlug, "CONFIRMED", "upi");
+          setDqr(null);
+          setSheet(null);
+          setForm({ participantName: "", phone: "", participantAge: "", guardianName: "" });
+          void qc.invalidateQueries({ queryKey: ["camps"] });
+          Alert.alert("You're registered 🎉", "See you there!");
+        } else if (d.state === "FAILED") {
+          clearInterval(iv);
+          setDqr(null);
+          Alert.alert("Payment failed", d.error || "Please try again.");
+        }
+      } catch {
+        /* transient — the next tick retries */
+      }
+    }, 3500);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dqr]);
 
   const register = useMutation({
     mutationFn: async (camp: CampSummary) => {
@@ -98,6 +144,20 @@ export function CampsScreen() {
           "none",
         );
         return res;
+      }
+
+      // UPI (PhonePe DQR): show the QR; the poll effect finishes the job.
+      if (method === "upi") {
+        const dq = await initiateCampDqr(res.registrationId);
+        if (dq.error) throw new Error(dq.error);
+        setDqr({
+          qrImage: dq.qrImage,
+          qrString: dq.qrString,
+          transactionId: dq.transactionId,
+          amount: dq.amount,
+          campSlug: camp.slug,
+        });
+        return null;
       }
 
       const paid = (await RazorpayCheckout.open({
@@ -129,6 +189,8 @@ export function CampsScreen() {
       return res;
     },
     onSuccess: (res) => {
+      // null = the UPI QR is now on screen; the poll effect closes out.
+      if (!res) return;
       setSheet(null);
       setForm({ participantName: "", phone: "", participantAge: "", guardianName: "" });
       void qc.invalidateQueries({ queryKey: ["camps"] });
@@ -147,7 +209,7 @@ export function CampsScreen() {
     },
   });
 
-  const camps = q.data ?? [];
+  const camps = q.data?.camps ?? [];
 
   return (
     <Screen padded={false}>
@@ -337,6 +399,25 @@ export function CampsScreen() {
               />
             ))}
 
+            {dqrAvailable && sheet.seatsLeft > 0 && payNowFor(sheet) > 0 && (
+              <View style={styles.methodRow}>
+                {(["upi", "razorpay"] as const).map((v) => (
+                  <Pressable
+                    key={v}
+                    onPress={() => setMethod(v)}
+                    style={[styles.methodBtn, method === v && styles.methodBtnActive]}
+                  >
+                    <Text
+                      variant="small"
+                      color={method === v ? colors.emerald400 : colors.zinc400}
+                    >
+                      {v === "upi" ? "UPI" : "Card / Netbanking"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
             <Button
               label={
                 sheet.seatsLeft <= 0
@@ -360,6 +441,40 @@ export function CampsScreen() {
               size="sm"
               disabled={register.isPending}
               onPress={() => setSheet(null)}
+            />
+          </View>
+        </View>
+      )}
+
+      {/* UPI QR — replaces the form until the payment lands or is cancelled. */}
+      {dqr && (
+        <View style={styles.sheetWrap}>
+          <View style={styles.backdrop} />
+          <View style={[styles.sheet, { alignItems: "center", gap: spacing["3"] }]}>
+            <Text variant="bodyStrong" color={colors.foreground}>
+              Scan to pay {formatRupees(dqr.amount)}
+            </Text>
+            <Text variant="small" color={colors.zinc400}>
+              Use any UPI app — this screen confirms automatically.
+            </Text>
+            {dqr.qrImage ? (
+              <Image source={{ uri: dqr.qrImage }} style={styles.qr} />
+            ) : (
+              <Text variant="tiny" color={colors.zinc400}>
+                {dqr.qrString}
+              </Text>
+            )}
+            <View style={styles.waiting}>
+              <ActivityIndicator size="small" color={colors.emerald400} />
+              <Text variant="small" color={colors.zinc400}>
+                Waiting for payment…
+              </Text>
+            </View>
+            <Button
+              label="Cancel and choose another method"
+              variant="ghost"
+              size="sm"
+              onPress={() => setDqr(null)}
             />
           </View>
         </View>
@@ -470,6 +585,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     padding: spacing["5"],
   },
+  methodRow: { flexDirection: "row", gap: spacing["2"] },
+  methodBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing["2"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+  },
+  methodBtnActive: {
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+  },
+  qr: {
+    width: 220,
+    height: 220,
+    borderRadius: radius.lg,
+    backgroundColor: "#fff",
+  },
+  waiting: { flexDirection: "row", alignItems: "center", gap: spacing["2"] },
   input: {
     height: 44,
     borderRadius: radius.lg,

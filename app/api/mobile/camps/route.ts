@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
+import { db } from "@/lib/db";
+import { isDqrConfigured } from "@/lib/phonepe-dqr";
 import {
   areCampsEnabled,
   listPublicCamps,
@@ -77,7 +79,13 @@ export async function GET(request: NextRequest) {
   }
 
   const camps = await listPublicCamps();
+  // Whether the registration sheet may offer UPI alongside Razorpay —
+  // same gate the tournament hub carries.
+  const gatewayCfg = await db.paymentGatewayConfig
+    .findUnique({ where: { id: "singleton" }, select: { dqrEnabled: true } })
+    .catch(() => null);
   return NextResponse.json({
+    dqrAvailable: isDqrConfigured() && !!gatewayCfg?.dqrEnabled,
     camps: camps.map((c) => ({
       id: c.id,
       slug: c.slug,

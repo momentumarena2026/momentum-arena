@@ -70,9 +70,12 @@ export async function fetchCampsHub(): Promise<CampsHub> {
   return api.get<CampsHub>("/api/mobile/camps?hub=1", { auth: false });
 }
 
-export async function fetchCamps(): Promise<CampSummary[]> {
-  const res = await api.get<{ camps: CampSummary[] }>("/api/mobile/camps");
-  return res.camps;
+export type CampsList = { camps: CampSummary[]; dqrAvailable: boolean };
+
+/** The list plus whether UPI (PhonePe DQR) may be offered at checkout. */
+export async function fetchCamps(): Promise<CampsList> {
+  const res = await api.get<CampsList>("/api/mobile/camps");
+  return { camps: res.camps ?? [], dqrAvailable: !!res.dqrAvailable };
 }
 
 export async function fetchCamp(slug: string): Promise<CampDetail> {
@@ -110,6 +113,34 @@ export async function registerForCamp(input: {
   couponCode?: string;
 }): Promise<CampRegisterResponse> {
   return api.post("/api/camps/register", input);
+}
+
+export type CampDqrInit = {
+  qrImage?: string;
+  qrString?: string;
+  transactionId: string;
+  amount: number;
+  expiresIn?: number;
+  error?: string;
+};
+
+/** Start a UPI (PhonePe DQR) collection for a pending registration. The
+ *  amount is priced server-side — the app never sends one. */
+export async function initiateCampDqr(
+  registrationId: string,
+): Promise<CampDqrInit> {
+  return api.post<CampDqrInit>("/api/phonepe/dqr/camp-initiate", {
+    registrationId,
+  });
+}
+
+export async function pollCampDqr(
+  transactionId: string,
+): Promise<{ state: "PENDING" | "COMPLETED" | "FAILED"; error?: string }> {
+  return api.get(
+    `/api/phonepe/dqr/camp-status?transactionId=${encodeURIComponent(transactionId)}`,
+    { auth: false },
+  );
 }
 
 export async function verifyCampPayment(args: {
