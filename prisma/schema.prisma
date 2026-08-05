@@ -3250,6 +3250,11 @@ model TournamentSlot {
   /// Optional admin label ("Saturday morning") for the customer page.
   label String?
 
+  /// SlotBlock rows raised the moment this window is created, so the
+  /// public booking grid stops selling those hours immediately —
+  /// waiting until the draw is approved left them on sale.
+  slotBlockIds String[] @default([])
+
   createdAt DateTime @default(now())
 
   @@index([tournamentId, date, startHour])
