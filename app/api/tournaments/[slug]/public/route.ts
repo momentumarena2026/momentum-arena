@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeStandings } from "@/lib/tournament-points";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
+import { parsePrizes } from "@/lib/tournament-config";
 
 export const dynamic = "force-dynamic";
 
@@ -182,7 +183,9 @@ export async function GET(
       // web page already renders from its own DB read.
       description: t.description,
       rules: t.rules,
-      prizes: t.prizes,
+      // Same parser the web page uses, so the app can't drift from it —
+      // entries are {place, label} with label as free text.
+      prizes: parsePrizes(t.prizes),
       bannerImageUrl: t.bannerImageUrl,
       endDate: t.endDate,
       membersPerTeamMax: t.membersPerTeamMax,

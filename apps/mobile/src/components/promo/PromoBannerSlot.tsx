@@ -69,6 +69,28 @@ function resolveLink(nav: NavLike, linkUrl: string) {
     nav.navigate("Main", { screen: "Account", params: { screen: "Coupons" } });
     return;
   }
+  // Tournaments and camps live in the app too — without these a banner
+  // pointing at them dropped the user into a mobile browser mid-session,
+  // losing the native back stack and their sign-in.
+  const tournamentMatch = path.match(/^\/tournaments\/([^/?#]+)/);
+  if (tournamentMatch) {
+    nav.navigate("Main", {
+      screen: "Account",
+      params: {
+        screen: "TournamentDetail",
+        params: { slug: decodeURIComponent(tournamentMatch[1]) },
+        initial: false,
+      },
+    });
+    return;
+  }
+  if (path.startsWith("/tournaments")) {
+    nav.navigate("Main", {
+      screen: "Account",
+      params: { screen: "TournamentsList" },
+    });
+    return;
+  }
   // Unrecognised → browser (absolutise site-relative paths).
   const url = /^https?:\/\//.test(linkUrl) ? linkUrl : `${env.apiUrl}${linkUrl}`;
   Linking.openURL(url).catch(() => {});

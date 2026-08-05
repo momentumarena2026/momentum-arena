@@ -73,6 +73,16 @@ export interface DailyEarningsRow {
   day: number; // 1-31
   earnings: number;
   bookingCount: number;
+  // Per-source split, so a day's total can be explained rather than just
+  // shown. Optional because an older app build may talk to a newer server
+  // (and vice versa) during a staged OTA rollout.
+  passCount?: number;
+  teamCount?: number;
+  campCount?: number;
+  bookingEarnings?: number;
+  passEarnings?: number;
+  tournamentEarnings?: number;
+  campEarnings?: number;
 }
 
 /** Month-of-year earnings row (keyed on Booking.date, post-discount). */

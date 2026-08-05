@@ -539,19 +539,25 @@ export function TournamentDetailScreen() {
               </View>
             </View>
 
-            {Array.isArray(t.prizes) && t.prizes.length > 0 ? (
+            {Array.isArray(t.prizes) &&
+            t.prizes.filter((p) => p && p.place && p.label).length > 0 ? (
               <View style={styles.card}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Trophy size={15} color="#fbbf24" />
                   <Text style={styles.cardTitle}>Prizes</Text>
                 </View>
+                {t.prizePool ? (
+                  <Text style={styles.prizePool}>
+                    ₹{t.prizePool.toLocaleString("en-IN")}
+                    <Text style={styles.prizePoolNote}>  total pool</Text>
+                  </Text>
+                ) : null}
                 <View style={{ marginTop: 8, gap: 6 }}>
                   {t.prizes.map((p, i) => (
-                    <DetailRow
-                      key={`${p.place}-${i}`}
-                      label={p.place}
-                      value={`₹${Number(p.amount || 0).toLocaleString("en-IN")}`}
-                    />
+                    // `label` is free text the admin types ("₹3,000 + Trophy",
+                    // or a pass name) — never a number. Rendering it as
+                    // currency showed ₹0 for every prize.
+                    <DetailRow key={`${p.place}-${i}`} label={p.place} value={p.label} />
                   ))}
                 </View>
               </View>
@@ -571,12 +577,20 @@ export function TournamentDetailScreen() {
               <Text style={styles.cardTitle}>Format</Text>
               <Text style={styles.cardBody}>
                 {t.format === "POOLS_KNOCKOUT"
-                  ? `Round-robin pools, top ${t.advancePerPool} of each pool advance to the knockouts.`
+                  ? `${t.poolCount} pools of ${t.teamsPerPool} teams play round-robin. Top ${t.advancePerPool} from each pool advance to the knockouts.`
                   : t.format === "LEAGUE"
-                    ? "Round-robin league — top of the table wins."
-                    : "Straight knockout — lose and you're out."}
-                {t.thirdPlaceMatch ? " A third-place play-off is scheduled." : ""}
+                    ? `All ${t.totalTeams} teams play a round-robin league — top of the table wins.`
+                    : `Straight knockout — lose and you're out. ${t.totalTeams} teams, one champion.`}
               </Text>
+              <Text style={[styles.cardBody, { marginTop: 8 }]}>
+                Squad size: up to {t.membersPerTeamMax} players — add yours any
+                time after registering.
+              </Text>
+              {t.format !== "LEAGUE" && t.thirdPlaceMatch ? (
+                <Text style={[styles.cardBody, { marginTop: 4, color: colors.zinc500 }]}>
+                  Includes a 3rd-place match.
+                </Text>
+              ) : null}
             </View>
             <View style={styles.card}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -857,6 +871,13 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  prizePool: {
+    marginTop: 6,
+    fontSize: 22,
+    fontWeight: "800",
+    color: colors.foreground,
+  },
+  prizePoolNote: { fontSize: 12, fontWeight: "400", color: colors.zinc500 },
   detailRow: {
     flexDirection: "row",
     alignItems: "flex-start",

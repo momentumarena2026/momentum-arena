@@ -60,6 +60,8 @@ export type TournamentPublic = {
     status: string;
     format: string;
     totalTeams: number;
+    poolCount: number;
+    teamsPerPool: number;
     advancePerPool: number;
     revealAt: string | null;
     regOpenAt: string | null;
@@ -75,7 +77,7 @@ export type TournamentPublic = {
     liveScreenPlatform: string;
     description: string | null;
     rules: string | null;
-    prizes: { place: string; amount: number }[] | null;
+    prizes: { place: string; label: string }[] | null;
     bannerImageUrl: string | null;
     endDate: string | null;
     membersPerTeamMax: number;

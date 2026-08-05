@@ -1128,11 +1128,12 @@ export async function getDailyEarningsForMonth(
     // month view silently disagrees with getRevenueOverTime, which has
     // counted them since the cash-basis work.
     const tournamentRows = await db.$queryRaw<
-      { day: number; earnings: bigint }[]
+      { day: number; earnings: bigint; team_count: bigint }[]
     >(Prisma.sql`
       SELECT
         EXTRACT(DAY FROM (tt."paidAt" + interval '330 minutes'))::int AS day,
-        SUM(tt."paidAmount")::bigint AS earnings
+        SUM(tt."paidAmount")::bigint AS earnings,
+        COUNT(*)::bigint AS team_count
       FROM "TournamentTeam" tt
       WHERE tt."paidAmount" > 0
         AND tt."archivedAt" IS NULL
@@ -1144,11 +1145,12 @@ export async function getDailyEarningsForMonth(
     `);
 
     const campRows = await db.$queryRaw<
-      { day: number; earnings: bigint }[]
+      { day: number; earnings: bigint; camp_count: bigint }[]
     >(Prisma.sql`
       SELECT
         EXTRACT(DAY FROM (cr."paidAt" + interval '330 minutes'))::int AS day,
-        SUM(cr."paidAmount")::bigint AS earnings
+        SUM(cr."paidAmount")::bigint AS earnings,
+        COUNT(*)::bigint AS camp_count
       FROM "CampRegistration" cr
       WHERE cr."paidAmount" > 0
         AND cr."archivedAt" IS NULL
@@ -1159,40 +1161,65 @@ export async function getDailyEarningsForMonth(
       ORDER BY day
     `);
 
-    const rowMap = new Map<
-      number,
-      { earnings: number; bookingCount: number; passCount: number }
-    >();
+    // Each day carries its total AND the split by source, so the tooltip
+    // can say "3 bookings · 2 passes · 1 team reg" and the breakdown chart
+    // can stack the four revenue streams without a second round trip.
+    type DayRow = {
+      earnings: number;
+      bookingCount: number;
+      passCount: number;
+      teamCount: number;
+      campCount: number;
+      bookingEarnings: number;
+      passEarnings: number;
+      tournamentEarnings: number;
+      campEarnings: number;
+    };
+    const blank = (): DayRow => ({
+      earnings: 0,
+      bookingCount: 0,
+      passCount: 0,
+      teamCount: 0,
+      campCount: 0,
+      bookingEarnings: 0,
+      passEarnings: 0,
+      tournamentEarnings: 0,
+      campEarnings: 0,
+    });
+    const rowMap = new Map<number, DayRow>();
     for (const r of rows) {
-      rowMap.set(r.day, {
-        earnings: Number(r.earnings),
-        bookingCount: Number(r.booking_count),
-        passCount: 0,
-      });
+      const row = blank();
+      row.earnings = Number(r.earnings);
+      row.bookingEarnings = Number(r.earnings);
+      row.bookingCount = Number(r.booking_count);
+      rowMap.set(r.day, row);
     }
     for (const r of passRows) {
-      const existing =
-        rowMap.get(r.day) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
-      existing.earnings += Number(r.earnings);
-      existing.passCount += Number(r.pass_count);
-      rowMap.set(r.day, existing);
+      const row = rowMap.get(r.day) ?? blank();
+      row.earnings += Number(r.earnings);
+      row.passEarnings += Number(r.earnings);
+      row.passCount += Number(r.pass_count);
+      rowMap.set(r.day, row);
     }
-    for (const r of [...tournamentRows, ...campRows]) {
-      const existing =
-        rowMap.get(r.day) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
-      existing.earnings += Number(r.earnings);
-      rowMap.set(r.day, existing);
+    for (const r of tournamentRows) {
+      const row = rowMap.get(r.day) ?? blank();
+      row.earnings += Number(r.earnings);
+      row.tournamentEarnings += Number(r.earnings);
+      row.teamCount += Number(r.team_count);
+      rowMap.set(r.day, row);
+    }
+    for (const r of campRows) {
+      const row = rowMap.get(r.day) ?? blank();
+      row.earnings += Number(r.earnings);
+      row.campEarnings += Number(r.earnings);
+      row.campCount += Number(r.camp_count);
+      rowMap.set(r.day, row);
     }
 
     const data = Array.from({ length: daysInMonth }, (_, i) => {
       const day = i + 1;
-      const row = rowMap.get(day);
-      return {
-        day,
-        earnings: row?.earnings ?? 0,
-        bookingCount: row?.bookingCount ?? 0,
-        passCount: row?.passCount ?? 0,
-      };
+      const row = rowMap.get(day) ?? blank();
+      return { day, ...row };
     });
 
     return { success: true as const, data };

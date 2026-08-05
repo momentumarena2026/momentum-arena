@@ -26,7 +26,11 @@ import {
   getPaymentMethodBreakdown,
 } from "@/actions/admin-analytics";
 import { formatHourCompact } from "@/lib/court-config";
-import { DailyEarningsChart, MonthlyEarningsChart } from "./earnings-charts";
+import {
+  DailyEarningsChart,
+  MonthlyEarningsChart,
+  RevenueBreakdownChart,
+} from "./earnings-charts";
 
 // --------------- Types ---------------
 
@@ -329,6 +333,8 @@ export function AnalyticsDashboard({
           the top-level date range, since they're framed as "what did we
           earn on calendar day X" rather than "recognized money in window". */}
       <DailyEarningsChart />
+
+      <RevenueBreakdownChart />
       <MonthlyEarningsChart />
 
       {/* Earnings Over Time */}
