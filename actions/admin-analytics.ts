@@ -867,6 +867,8 @@ export async function getKPIStats(
     const [
       sportsAgg,
       passSalesAgg,
+      tournamentAgg,
+      campAgg,
       cafeAgg,
       totalBookings,
       cancelledBookings,
@@ -904,6 +906,27 @@ export async function getKPIStats(
           price: { gt: 0 },
         },
         _sum: { price: true },
+      }),
+      // Tournament entry fees and camp fees — sports income that never
+      // touches Booking or Payment, so the tile under-reported without
+      // these. Cash basis on paidAt, same as pass sales above.
+      db.tournamentTeam.aggregate({
+        where: {
+          status: "CONFIRMED",
+          archivedAt: null,
+          paidAmount: { gt: 0 },
+          paidAt: { gte: from, lte: to },
+        },
+        _sum: { paidAmount: true },
+      }),
+      db.campRegistration.aggregate({
+        where: {
+          status: "CONFIRMED",
+          archivedAt: null,
+          paidAmount: { gt: 0 },
+          paidAt: { gte: from, lte: to },
+        },
+        _sum: { paidAmount: true },
       }),
       // Cafe revenue
       db.cafePayment.aggregate({
@@ -964,7 +987,10 @@ export async function getKPIStats(
     // Booking.totalAmount (sports) is rupees; CafePayment.amount is paise.
     const bookingNetRevenue = Number(sportsAgg[0]?.revenue ?? 0);
     const passSalesRevenue = passSalesAgg._sum.price || 0;
-    const sportsRevenue = bookingNetRevenue + passSalesRevenue;
+    const tournamentRevenue = tournamentAgg._sum.paidAmount || 0;
+    const campRevenue = campAgg._sum.paidAmount || 0;
+    const sportsRevenue =
+      bookingNetRevenue + passSalesRevenue + tournamentRevenue + campRevenue;
     const cafeRevenue = paiseToRupees(cafeAgg._sum.amount || 0);
     const totalRevenue = sportsRevenue + cafeRevenue;
 
@@ -1096,6 +1122,43 @@ export async function getDailyEarningsForMonth(
       ORDER BY day
     `);
 
+    // Tournament entry fees and camp fees never pass through Booking or
+    // Payment — the money sits on the team / registration row. Keyed on
+    // paidAt, bucketed by IST day like pass sales above. Without this the
+    // month view silently disagrees with getRevenueOverTime, which has
+    // counted them since the cash-basis work.
+    const tournamentRows = await db.$queryRaw<
+      { day: number; earnings: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(DAY FROM (tt."paidAt" + interval '330 minutes'))::int AS day,
+        SUM(tt."paidAmount")::bigint AS earnings
+      FROM "TournamentTeam" tt
+      WHERE tt."paidAmount" > 0
+        AND tt."archivedAt" IS NULL
+        AND tt.status = 'CONFIRMED'
+        AND tt."paidAt" >= ${istStart}
+        AND tt."paidAt" < ${istNextStart}
+      GROUP BY day
+      ORDER BY day
+    `);
+
+    const campRows = await db.$queryRaw<
+      { day: number; earnings: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(DAY FROM (cr."paidAt" + interval '330 minutes'))::int AS day,
+        SUM(cr."paidAmount")::bigint AS earnings
+      FROM "CampRegistration" cr
+      WHERE cr."paidAmount" > 0
+        AND cr."archivedAt" IS NULL
+        AND cr.status = 'CONFIRMED'
+        AND cr."paidAt" >= ${istStart}
+        AND cr."paidAt" < ${istNextStart}
+      GROUP BY day
+      ORDER BY day
+    `);
+
     const rowMap = new Map<
       number,
       { earnings: number; bookingCount: number; passCount: number }
@@ -1112,6 +1175,12 @@ export async function getDailyEarningsForMonth(
         rowMap.get(r.day) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
       existing.earnings += Number(r.earnings);
       existing.passCount += Number(r.pass_count);
+      rowMap.set(r.day, existing);
+    }
+    for (const r of [...tournamentRows, ...campRows]) {
+      const existing =
+        rowMap.get(r.day) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
+      existing.earnings += Number(r.earnings);
       rowMap.set(r.day, existing);
     }
 
@@ -1194,6 +1263,42 @@ export async function getMonthlyEarningsForYear(
       ORDER BY month
     `);
 
+    // Tournament entry fees and camp fees never pass through Booking or
+    // Payment — the money sits on the team / registration row. Keyed on
+    // paidAt, bucketed by IST month like pass sales above, so the year
+    // total reconciles with the KPI tile and the month view.
+    const tournamentRows = await db.$queryRaw<
+      { month: number; earnings: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(MONTH FROM (tt."paidAt" + interval '330 minutes'))::int AS month,
+        SUM(tt."paidAmount")::bigint AS earnings
+      FROM "TournamentTeam" tt
+      WHERE tt."paidAmount" > 0
+        AND tt."archivedAt" IS NULL
+        AND tt.status = 'CONFIRMED'
+        AND tt."paidAt" >= ${istStart}
+        AND tt."paidAt" < ${istNextStart}
+      GROUP BY month
+      ORDER BY month
+    `);
+
+    const campRows = await db.$queryRaw<
+      { month: number; earnings: bigint }[]
+    >(Prisma.sql`
+      SELECT
+        EXTRACT(MONTH FROM (cr."paidAt" + interval '330 minutes'))::int AS month,
+        SUM(cr."paidAmount")::bigint AS earnings
+      FROM "CampRegistration" cr
+      WHERE cr."paidAmount" > 0
+        AND cr."archivedAt" IS NULL
+        AND cr.status = 'CONFIRMED'
+        AND cr."paidAt" >= ${istStart}
+        AND cr."paidAt" < ${istNextStart}
+      GROUP BY month
+      ORDER BY month
+    `);
+
     const rowMap = new Map<
       number,
       { earnings: number; bookingCount: number; passCount: number }
@@ -1210,6 +1315,12 @@ export async function getMonthlyEarningsForYear(
         rowMap.get(r.month) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
       existing.earnings += Number(r.earnings);
       existing.passCount += Number(r.pass_count);
+      rowMap.set(r.month, existing);
+    }
+    for (const r of [...tournamentRows, ...campRows]) {
+      const existing =
+        rowMap.get(r.month) ?? { earnings: 0, bookingCount: 0, passCount: 0 };
+      existing.earnings += Number(r.earnings);
       rowMap.set(r.month, existing);
     }
 
