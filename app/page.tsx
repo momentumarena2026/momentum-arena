@@ -396,7 +396,7 @@ export default async function Home() {
                 name was taking the whole header for a duplicate route.
                 What replaces it is what a phone visitor actually can't get
                 elsewhere: their unread count, and a link to the app. */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {session?.user?.id && (
                 <Link
                   href="/notifications"
@@ -413,7 +413,7 @@ export default async function Home() {
               )}
               {/* Phones only: desktop gets the full badges in the footer,
                   and this row is already tight beside the nav links. */}
-              <StoreBadges variant="icon" className="md:hidden" />
+              <StoreBadges variant="icon" className="ml-1 md:hidden" />
               <LoginButton hideChipOnMobile />
             </div>
           </div>
