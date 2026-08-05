@@ -72,6 +72,17 @@
             <data android:scheme="https" android:host="momentumarena.com" />
             <data android:scheme="https" android:host="www.momentumarena.com" />
         </intent-filter>
+        <!--
+          Custom scheme, kept in a SEPARATE filter on purpose: a
+          non-https scheme inside an autoVerify block makes Android fail
+          verification for every entry in that block.
+        -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="momentumarena" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>

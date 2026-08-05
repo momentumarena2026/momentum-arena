@@ -24,6 +24,24 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<!--
+	  Custom scheme, for links that don't travel over https — push payload
+	  deep links and printed QR codes at the venue. Universal Links (the
+	  associated-domains entitlement) handle momentumarena.com itself; this
+	  is the fallback channel, and it's what the al:ios:url meta tag on the
+	  website advertises.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.momentumarena</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>momentumarena</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
