@@ -10,6 +10,8 @@ import { ArrowRight, Bell, Calendar, ChevronRight, Clock } from "lucide-react";
 import { LoginButton } from "@/components/login-modal";
 import { StoreBadges } from "@/components/store-badges";
 import { AppCtaBar } from "@/components/app-cta-bar";
+import { AppStructuredData } from "@/components/app-structured-data";
+import { APP_STORE_URL, PLAY_STORE_URL } from "@/lib/app-store-links";
 import { unreadNotificationCount } from "@/lib/user-notifications";
 import { HomepageSportTracker, HomepageCafeTracker, HomepageCallTracker, HomepageDirectionsTracker } from "@/components/homepage-tracker";
 import { auth } from "@/lib/auth";
@@ -277,6 +279,8 @@ export default async function Home() {
       "https://instagram.com/momentumarena_",
       "https://www.youtube.com/@momentum_arena",
       "https://whatsapp.com/channel/0029VbCQo4S8fewv3rjVp03X",
+      APP_STORE_URL,
+      PLAY_STORE_URL,
     ],
     areaServed: {
       "@type": "City",
@@ -318,6 +322,8 @@ export default async function Home() {
       "https://instagram.com/momentumarena_",
       "https://www.youtube.com/@momentum_arena",
       "https://whatsapp.com/channel/0029VbCQo4S8fewv3rjVp03X",
+      APP_STORE_URL,
+      PLAY_STORE_URL,
     ],
   };
 
@@ -420,6 +426,7 @@ export default async function Home() {
           </div>
         </nav>
         <AppCtaBar top="fixed-20" />
+        <AppStructuredData />
 
         {/* Fixed announcement stack below the nav — the welcome offer, then
             the weather-aware rain banner (when shown). Stacked in one

@@ -21,6 +21,9 @@ import "./globals.css";
 
 
 export const metadata: Metadata = {
+  // Without this Next can't absolutise relative OG/Twitter image paths, and
+  // several crawlers drop a preview whose image URL isn't absolute.
+  metadataBase: new URL("https://momentumarena.com"),
   title: "Momentum Arena Mathura | Cricket, Football & Pickleball Turf Booking",
   description:
     "Book premium sports courts at Momentum Arena, Mathura's best multi-sport facility. Cricket turf, football ground & pickleball courts. Open 6 AM-11 PM daily. Call +91-6396177261 for booking.",
@@ -60,7 +63,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/icon.png",
+        url: "/og-cover.jpg",
         width: 1200,
         height: 630,
         alt: "Momentum Arena - Multi-Sport Facility in Mathura",
@@ -76,7 +79,7 @@ export const metadata: Metadata = {
     title: "Momentum Arena | Sports Facility in Mathura",
     description:
       "Book Cricket, Football & Pickleball courts in Mathura. Premium facility with cafeteria & parking.",
-    images: ["/icon.png"],
+    images: ["/og-cover.jpg"],
     creator: "@momentumarena_",
   },
   robots: {
