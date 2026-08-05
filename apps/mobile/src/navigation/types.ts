@@ -8,6 +8,8 @@ export type AccountStackParamList = {
   // Home tiles + promo-banner deep links can reach them without a new tab.
   TournamentsList: undefined;
   Camps: undefined;
+  MatchStart: undefined;
+  MatchScore: { code: string };
   TournamentDetail: { slug: string };
   TournamentRegister: { slug: string };
   TournamentLive: { matchId: string; slug: string };
