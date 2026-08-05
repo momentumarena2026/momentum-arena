@@ -63,6 +63,7 @@ export type TournamentPublic = {
     advancePerPool: number;
     revealAt: string | null;
     regOpenAt: string | null;
+    regCloseAt: string | null;
     startDate: string | null;
     prizePool: number | null;
     entryFee: number;
@@ -72,6 +73,13 @@ export type TournamentPublic = {
     allowCoupons: boolean;
     liveScoringEnabled: boolean;
     liveScreenPlatform: string;
+    description: string | null;
+    rules: string | null;
+    prizes: { place: string; amount: number }[] | null;
+    bannerImageUrl: string | null;
+    endDate: string | null;
+    membersPerTeamMax: number;
+    thirdPlaceMatch: boolean;
   };
   poolsRevealed: boolean;
   pools: Pool[];

@@ -177,6 +177,16 @@ export async function GET(
       allowCoupons: t.allowCoupons,
       liveScoringEnabled: t.liveScoringEnabled,
       liveScreenPlatform: t.liveScreenPlatform,
+      // The app's detail screen had none of these, so "about / rules /
+      // prizes / when / squad size" were web-only. Public fields the
+      // web page already renders from its own DB read.
+      description: t.description,
+      rules: t.rules,
+      prizes: t.prizes,
+      bannerImageUrl: t.bannerImageUrl,
+      endDate: t.endDate,
+      membersPerTeamMax: t.membersPerTeamMax,
+      thirdPlaceMatch: t.thirdPlaceMatch,
     },
     poolsRevealed,
     pools: poolsRevealed ? t.pools : [],
