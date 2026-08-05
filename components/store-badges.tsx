@@ -43,12 +43,16 @@ function PlayGlyph({ className }: { className?: string }) {
 
 interface Props {
   variant?: "icon" | "full";
+  /** Tighter full badge for the sticky app bar. A CSS `scale` looked right
+   *  but doesn't shrink the LAYOUT box, so the badge kept reserving its
+   *  full width and squeezed the copy beside it into an ellipsis. */
+  compact?: boolean;
   className?: string;
   /** Override the detected platform. Only for previewing both states. */
   platform?: DevicePlatform;
 }
 
-export async function StoreBadges({ variant = "full", className, platform }: Props) {
+export async function StoreBadges({ variant = "full", className, platform, compact = false }: Props) {
   const resolved =
     platform ?? devicePlatform((await headers()).get("user-agent"));
 
@@ -94,14 +98,14 @@ export async function StoreBadges({ variant = "full", className, platform }: Pro
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Download Momentum Arena on the App Store"
-          className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+          className={`flex items-center rounded-xl border border-zinc-700 bg-zinc-900 transition-colors hover:border-zinc-500 hover:bg-zinc-800 ${compact ? "gap-2 px-2.5 py-1.5" : "gap-3 px-4 py-2.5"}`}
         >
-          <AppleGlyph className="h-6 w-6 text-white" />
+          <AppleGlyph className={`${compact ? "h-4 w-4" : "h-6 w-6"} text-white`} />
           <span className="leading-tight">
-            <span className="block text-[10px] uppercase tracking-wide text-zinc-400">
+            <span className={`block uppercase tracking-wide text-zinc-400 ${compact ? "text-[8px]" : "text-[10px]"}`}>
               Download on the
             </span>
-            <span className="block text-sm font-semibold text-white">App Store</span>
+            <span className={`block font-semibold text-white ${compact ? "text-[11px]" : "text-sm"}`}>App Store</span>
           </span>
         </a>
       )}
@@ -111,14 +115,14 @@ export async function StoreBadges({ variant = "full", className, platform }: Pro
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Get Momentum Arena on Google Play"
-          className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+          className={`flex items-center rounded-xl border border-zinc-700 bg-zinc-900 transition-colors hover:border-zinc-500 hover:bg-zinc-800 ${compact ? "gap-2 px-2.5 py-1.5" : "gap-3 px-4 py-2.5"}`}
         >
-          <PlayGlyph className="h-6 w-6" />
+          <PlayGlyph className={compact ? "h-4 w-4" : "h-6 w-6"} />
           <span className="leading-tight">
-            <span className="block text-[10px] uppercase tracking-wide text-zinc-400">
+            <span className={`block uppercase tracking-wide text-zinc-400 ${compact ? "text-[8px]" : "text-[10px]"}`}>
               Get it on
             </span>
-            <span className="block text-sm font-semibold text-white">Google Play</span>
+            <span className={`block font-semibold text-white ${compact ? "text-[11px]" : "text-sm"}`}>Google Play</span>
           </span>
         </a>
       )}

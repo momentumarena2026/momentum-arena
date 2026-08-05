@@ -9,6 +9,7 @@ import { arePassesEnabled } from "@/lib/passes";
 import { areTournamentsEnabled } from "@/lib/tournaments";
 import { areCampsEnabled } from "@/lib/camps";
 import { StoreBadges } from "@/components/store-badges";
+import { AppCtaBar } from "@/components/app-cta-bar";
 
 type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments" | "camps";
 
@@ -40,6 +41,7 @@ export async function SiteHeader({ active }: { active?: Section }) {
       : `${base} text-zinc-300 ${hover}`;
 
   return (
+    <>
     <nav className="border-b border-zinc-800 bg-zinc-950">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
@@ -140,5 +142,7 @@ export async function SiteHeader({ active }: { active?: Section }) {
         </div>
       </div>
     </nav>
+    <AppCtaBar />
+    </>
   );
 }

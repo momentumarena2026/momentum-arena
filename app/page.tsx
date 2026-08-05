@@ -9,6 +9,7 @@ import {
 import { ArrowRight, Bell, Calendar, ChevronRight, Clock } from "lucide-react";
 import { LoginButton } from "@/components/login-modal";
 import { StoreBadges } from "@/components/store-badges";
+import { AppCtaBar } from "@/components/app-cta-bar";
 import { unreadNotificationCount } from "@/lib/user-notifications";
 import { HomepageSportTracker, HomepageCafeTracker, HomepageCallTracker, HomepageDirectionsTracker } from "@/components/homepage-tracker";
 import { auth } from "@/lib/auth";
@@ -418,6 +419,7 @@ export default async function Home() {
             </div>
           </div>
         </nav>
+        <AppCtaBar top="top-20" />
 
         {/* Fixed announcement stack below the nav — the welcome offer, then
             the weather-aware rain banner (when shown). Stacked in one
