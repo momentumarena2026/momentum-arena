@@ -6,6 +6,7 @@ import {
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../providers/AuthProvider";
+import { linking } from "./linking";
 import {
   installForegroundMessageHandler,
   installPushTapHandlers,
@@ -249,6 +250,10 @@ export function RootNavigator() {
     <NavigationContainer
       ref={navigationRef}
       theme={navTheme}
+      // Universal Links / App Links. Without this an incoming
+      // momentumarena.com link opens the app on Home rather than on the
+      // page the user actually tapped.
+      linking={linking}
       // Stamp a page_view event on every screen transition. Fired as
       // `route_name` (not URL — there's no URL on mobile) so the
       // dashboard can group by screen the same way the web tracker

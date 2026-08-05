@@ -54,6 +54,35 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!--
+          App Links. autoVerify makes Android fetch
+          https://momentumarena.com/.well-known/assetlinks.json at install
+          and, if this package + signing fingerprint are listed, open
+          momentumarena.com links in the app rather than Chrome.
+
+          Needs ANDROID_SHA256_FINGERPRINTS set in the web env or
+          verification fails and links keep going to the browser — silently,
+          which is why it is worth checking with `adb shell pm get-app-links`
+          after the next build.
+        -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" android:host="momentumarena.com" />
+            <data android:scheme="https" android:host="www.momentumarena.com" />
+        </intent-filter>
+        <!--
+          Custom scheme, kept in a SEPARATE filter on purpose: a
+          non-https scheme inside an autoVerify block makes Android fail
+          verification for every entry in that block.
+        -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="momentumarena" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>

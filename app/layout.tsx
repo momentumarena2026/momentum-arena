@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ANDROID_PACKAGE, APPLE_APP_ID } from "@/lib/app-store-links";
 import { Michroma } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 
@@ -20,6 +21,9 @@ import "./globals.css";
 
 
 export const metadata: Metadata = {
+  // Without this Next can't absolutise relative OG/Twitter image paths, and
+  // several crawlers drop a preview whose image URL isn't absolute.
+  metadataBase: new URL("https://momentumarena.com"),
   title: "Momentum Arena Mathura | Cricket, Football & Pickleball Turf Booking",
   description:
     "Book premium sports courts at Momentum Arena, Mathura's best multi-sport facility. Cricket turf, football ground & pickleball courts. Open 6 AM-11 PM daily. Call +91-6396177261 for booking.",
@@ -59,7 +63,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/icon.png",
+        url: "/og-cover.jpg",
         width: 1200,
         height: 630,
         alt: "Momentum Arena - Multi-Sport Facility in Mathura",
@@ -67,11 +71,15 @@ export const metadata: Metadata = {
     ],
   },
   twitter: {
+    // "app" would let X render an install card, but it replaces the image
+    // preview entirely — a booking link shared in a group chat is better
+    // served by the photo. The al:* tags above still give app-aware
+    // clients the deep link.
     card: "summary_large_image",
     title: "Momentum Arena | Sports Facility in Mathura",
     description:
       "Book Cricket, Football & Pickleball courts in Mathura. Premium facility with cafeteria & parking.",
-    images: ["/icon.png"],
+    images: ["/og-cover.jpg"],
     creator: "@momentumarena_",
   },
   robots: {
@@ -85,11 +93,30 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
+  // Safari's Smart App Banner: on iPhone this offers the installed app or
+  // an App Store link at the top of the page, above anything we render.
+  itunes: {
+    appId: APPLE_APP_ID,
+  },
   other: {
     "geo.region": "IN-UP",
     "geo.placename": "Mathura",
     "geo.position": "27.509167;77.638917",
     "ICBM": "27.509167, 77.638917",
+    // Chrome on Android's equivalent hint. Not a formal standard the way
+    // apple-itunes-app is, but it is what the Play "app-install" crawlers
+    // and several link previewers look for.
+    "google-play-app": `app-id=${ANDROID_PACKAGE}`,
+    // Deep-link hints so a shared momentumarena.com link can be resolved
+    // to the app by clients that understand them (Twitter/X app cards,
+    // some messengers). Harmless where unsupported.
+    "al:ios:app_store_id": APPLE_APP_ID,
+    "al:ios:app_name": "Momentum Arena",
+    "al:ios:url": "momentumarena://",
+    "al:android:package": ANDROID_PACKAGE,
+    "al:android:app_name": "Momentum Arena",
+    "al:android:url": "momentumarena://",
+    "al:web:should_fallback": "true",
   },
   verification: {
     google: '8wO7NFJxDxbxsAfrEg_n-t6J5g_eE5DHJKYSdQNGSSM',

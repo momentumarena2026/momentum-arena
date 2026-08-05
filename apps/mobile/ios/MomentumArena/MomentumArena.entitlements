@@ -18,5 +18,21 @@
 	-->
 	<key>aps-environment</key>
 	<string>production</string>
+	<!--
+	  Universal Links. iOS fetches
+	  https://momentumarena.com/.well-known/apple-app-site-association on
+	  install and, if this app's ID is listed there, hands matching
+	  https://momentumarena.com/* taps to the app instead of Safari.
+
+	  BOTH halves must agree or nothing happens: this entitlement, and
+	  APPLE_TEAM_ID set in the web env so that file actually serves.
+	  The www host is listed separately — Apple matches the exact host,
+	  it does not follow the apex/www redirect.
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:momentumarena.com</string>
+		<string>applinks:www.momentumarena.com</string>
+	</array>
 </dict>
 </plist>
