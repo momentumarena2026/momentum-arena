@@ -154,7 +154,6 @@ export type RootStackParamList = {
   // On-field scoring. These sit on the ROOT stack, not under Account or
   // AdminShell, because the scorer code is the credential — a volunteer
   // scores without an account of any kind.
-  ScorerEntry: undefined;
   ScorerConsole: { code: string };
 };
 

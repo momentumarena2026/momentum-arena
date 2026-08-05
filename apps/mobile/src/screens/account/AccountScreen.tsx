@@ -274,14 +274,16 @@ export function AccountScreen() {
           subtitle="Ask about courts, hours, or your bookings"
           onPress={() => rootNavigation?.navigate("Chat")}
         />
-        {/* On-field scoring — open to anyone holding a scorer code, so
-            a volunteer doesn't need an admin account. */}
+        {/* Casual ("scratch") scoring — anyone can start a scoreboard for
+            their own game and share the code. Tournament scoring is a
+            different surface entirely: admin-only, reached from the admin
+            tournaments screen with the rotatable scorer code. */}
         <ActionTile
           icon={<Radio size={20} color="#f87171" />}
           iconBg="rgba(248, 113, 113, 0.12)"
           title="Score a match"
-          subtitle="Enter a tournament scorer code"
-          onPress={() => rootNavigation?.navigate("ScorerEntry")}
+          subtitle="Start a scoreboard for your game and share it live"
+          onPress={() => navigation.navigate("MatchStart")}
         />
       </View>
 
