@@ -90,12 +90,23 @@ async function resolveAdmin(): Promise<AdminIdentity | null> {
     // against the row on every call — otherwise "inactive" only takes
     // effect when the cookie expires. Mobile already pays this query.
     const user = session.user as unknown as AdminIdentity;
+    // Read the LIVE row, not just isActive. permissions/adminRole were
+    // being taken from the 30-day JWT, i.e. frozen at login: granting an
+    // admin a new permission did nothing until they happened to log in
+    // again. Worse, it failed confusingly — the sidebar reads the live row
+    // (see app/(admin)/layout.tsx) so the new section appeared, and
+    // clicking it threw "Insufficient permissions". Same single query that
+    // already ran for the deactivation check, so this costs nothing extra.
     const row = await db.adminUser.findUnique({
       where: { id: user.id },
-      select: { isActive: true },
+      select: { isActive: true, permissions: true, role: true },
     });
     if (!row?.isActive) return null;
-    return user;
+    return {
+      ...user,
+      adminRole: row.role ?? user.adminRole,
+      permissions: row.permissions ?? user.permissions,
+    };
   }
   return readMobileAdmin();
 }
