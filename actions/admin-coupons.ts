@@ -13,6 +13,10 @@ import {
   Prisma,
 } from "@prisma/client";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
+import {
+  listAdminBookingCoupons,
+  type AdminCouponOption,
+} from "@/lib/admin-coupon-options";
 
 async function requireAdmin() {
   // MANAGE_COUPONS — matches the admin sidebar gate for /admin/coupons (was
@@ -455,50 +459,11 @@ export async function getCouponUsageDetails(couponId: string) {
 export async function listAdminSportCoupons(
   sport: string,
   category?: string | null
-): Promise<
-  {
-    code: string;
-    description: string | null;
-    type: string;
-    value: number;
-    maxDiscount: number | null;
-    autoApply: boolean;
-  }[]
-> {
-  await requireAdmin();
-
-  const now = new Date();
-  const rows = await db.coupon.findMany({
-    where: {
-      isActive: true,
-      scope: { in: ["SPORTS", "BOTH"] },
-      validFrom: { lte: now },
-      validUntil: { gte: now },
-    },
-    orderBy: [{ autoApply: "desc" }, { createdAt: "desc" }],
-    select: {
-      code: true,
-      description: true,
-      type: true,
-      value: true,
-      maxDiscount: true,
-      autoApply: true,
-      sportFilter: true,
-      categoryExclude: true,
-      maxUses: true,
-      usedCount: true,
-    },
-  });
-
-  return rows
-    .filter((c) => {
-      // Empty sportFilter = every sport.
-      if (c.sportFilter.length > 0 && !c.sportFilter.includes(sport as never)) {
-        return false;
-      }
-      if (category && c.categoryExclude.includes(category as never)) return false;
-      if (c.maxUses !== null && c.usedCount >= c.maxUses) return false;
-      return true;
-    })
-    .map(({ sportFilter: _s, categoryExclude: _c, maxUses: _m, usedCount: _u, ...rest }) => rest);
+): Promise<AdminCouponOption[]> {
+  // MANAGE_BOOKINGS, not MANAGE_COUPONS: this feeds the create-booking
+  // form. Gating it on the coupons permission meant a desk admin who can
+  // take a booking but doesn't administer coupons got a silent empty
+  // picker — the throw is swallowed by the form's catch.
+  await requireAdminBase("MANAGE_BOOKINGS");
+  return listAdminBookingCoupons(sport, category);
 }

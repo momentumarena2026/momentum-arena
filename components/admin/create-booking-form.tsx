@@ -247,6 +247,10 @@ export function CreateBookingForm({
       value: number;
       maxDiscount: number | null;
       autoApply: boolean;
+      /** "First Time only · once per customer", when the coupon can't
+       *  apply to every customer. Shown so a server rejection isn't a
+       *  surprise. */
+      restrictedNote: string | null;
     }[]
   >([]);
   const [selectedCouponCode, setSelectedCouponCode] = useState("");
@@ -1395,6 +1399,12 @@ export function CreateBookingForm({
                   </span>
                 </p>
               )}
+              {selectedCoupon?.restrictedNote ? (
+                <p className="text-[11px] text-amber-300">
+                  {selectedCoupon.restrictedNote} — the server may reject it for
+                  this customer.
+                </p>
+              ) : null}
               {selectedCoupon?.description ? (
                 <p className="text-[11px] text-zinc-500">
                   {selectedCoupon.description}

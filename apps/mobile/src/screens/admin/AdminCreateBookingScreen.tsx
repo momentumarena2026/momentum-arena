@@ -29,6 +29,7 @@ import { colors, radius, spacing } from "../../theme";
 import {
   adminBookingsApi,
   AdminApiError,
+  type AdminBookingCoupon,
   type AdminCourt,
   type AdminEquipmentCatalogItem,
   type AvailableBowlingSlot,
@@ -159,6 +160,10 @@ export function AdminCreateBookingScreen() {
   const [advanceMethod, setAdvanceMethod] = useState<AdvanceMethod>("CASH");
   const [razorpayId, setRazorpayId] = useState("");
   const [note, setNote] = useState("");
+  // Coupon the desk is honouring at the counter. Web parity — the app
+  // had no way to apply one at all, so a customer quoting a live code
+  // could only be served by falling back to a custom amount.
+  const [couponCode, setCouponCode] = useState("");
 
   // ---- Data queries ----
   // courtsQuery feeds both the picker chips AND the bowling/sport/
@@ -219,6 +224,23 @@ export function AdminCreateBookingScreen() {
     enabled: !!courtConfig,
   });
 
+  // Coupons live for this court's sport/category. A failure leaves the
+  // picker hidden — the booking still goes through at full price.
+  const couponsQuery = useQuery({
+    queryKey: [
+      "admin-create-coupons",
+      courtConfig?.sport ?? null,
+      courtConfig?.category ?? null,
+    ],
+    queryFn: () =>
+      adminBookingsApi.couponOptions(
+        courtConfig!.sport,
+        courtConfig!.category ?? null,
+      ),
+    enabled: !!courtConfig,
+  });
+  const couponOptions: AdminBookingCoupon[] = couponsQuery.data?.coupons ?? [];
+
   const slotPrices = slotsQuery.data?.slots ?? [];
   const bowlingPrices = bowlingSlotsQuery.data?.slots ?? [];
   const equipmentCatalog: AdminEquipmentCatalogItem[] =
@@ -268,6 +290,26 @@ export function AdminCreateBookingScreen() {
     parsedCustom >= 0 &&
     (method !== "FREE" ? parsedCustom > 0 : parsedCustom === 0);
   const customAmountOverride = customAmountValid && parsedCustom !== slotSum;
+
+  // Coupon vs custom amount are mutually exclusive — the server rejects
+  // both together, so a typed amount wins and the coupon stands down.
+  const selectedCoupon =
+    couponOptions.find((c) => c.code === couponCode) ?? null;
+  const couponApplies =
+    !!selectedCoupon && method !== "FREE" && !payWithPass && !customAmountValid;
+  // Mirrors actions/coupon-validation.ts: PERCENTAGE value is basis
+  // points and caps at maxDiscount; FLAT is whole rupees, capped at the
+  // slot sum. Equipment isn't discounted, same as the web form.
+  const couponDiscount = (() => {
+    if (!couponApplies || !selectedCoupon) return 0;
+    if (selectedCoupon.type === "PERCENTAGE") {
+      const raw = Math.floor((slotSum * selectedCoupon.value) / 10000);
+      return selectedCoupon.maxDiscount !== null
+        ? Math.min(raw, selectedCoupon.maxDiscount)
+        : raw;
+    }
+    return Math.min(selectedCoupon.value, slotSum);
+  })();
   // Effective total includes the equipment rentals unless admin
   // typed a custom amount (which is treated as inclusive of
   // equipment, same convention the server enforces). FREE locks
@@ -277,7 +319,7 @@ export function AdminCreateBookingScreen() {
       ? 0
       : customAmountValid
         ? parsedCustom
-        : slotSum + equipmentTotalRupees;
+        : slotSum - couponDiscount + equipmentTotalRupees;
 
   const parsedAdvance = parseInt(advanceStr, 10);
   const advanceValid =
@@ -392,6 +434,9 @@ export function AdminCreateBookingScreen() {
         // Only send when the admin actually changed the figure — null
         // here lets the server default to the slot-sum.
         customTotalAmount: customAmountOverride ? parsedCustom : undefined,
+        // Server rejects a coupon alongside a custom amount, and re-runs
+        // the full validator on the code — this is a request, not a grant.
+        applyCouponCode: couponApplies ? couponCode : undefined,
         advanceAmount: isPartial ? parsedAdvance : undefined,
         equipment:
           equipmentPayload.length > 0 ? equipmentPayload : undefined,
@@ -435,6 +480,9 @@ export function AdminCreateBookingScreen() {
     setBowlingSlots([]);
     setSelectedEquipment({});
     setCustomAmountStr("");
+    // A code that was live for the old court's sport may not be for the
+    // new one — the picker reloads, so drop the stale pick.
+    setCouponCode("");
     // courtConfigId is the trigger — date / isBowlingConfig
     // derive from it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -897,6 +945,69 @@ export function AdminCreateBookingScreen() {
         {/* ---------- 6. Total + Payment ---------- */}
         {selectedSlotCount > 0 ? (
           <>
+            {couponOptions.length > 0 && method !== "FREE" && !payWithPass ? (
+              <Section title="COUPON">
+                <Text variant="tiny" color={colors.zinc500}>
+                  Codes live for this sport. The server re-checks every
+                  rule when the booking is created.
+                </Text>
+                <View style={styles.chipRow}>
+                  <Pressable
+                    onPress={() => setCouponCode("")}
+                    style={[styles.chip, !couponCode && styles.chipActive]}
+                  >
+                    <Text
+                      variant="small"
+                      color={!couponCode ? colors.emerald400 : colors.zinc300}
+                    >
+                      No coupon
+                    </Text>
+                  </Pressable>
+                  {couponOptions.map((c) => {
+                    const on = couponCode === c.code;
+                    return (
+                      <Pressable
+                        key={c.code}
+                        onPress={() => setCouponCode(on ? "" : c.code)}
+                        style={[styles.chip, on && styles.chipActive]}
+                      >
+                        <Text
+                          variant="small"
+                          color={on ? colors.emerald400 : colors.zinc300}
+                        >
+                          {c.code} ·{" "}
+                          {c.type === "PERCENTAGE"
+                            ? `${c.value / 100}% off`
+                            : `${formatRupees(c.value)} off`}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {selectedCoupon ? (
+                  <>
+                    {couponDiscount > 0 ? (
+                      <Text variant="small" weight="600" color={colors.emerald400}>
+                        Saves {formatRupees(couponDiscount)} —{" "}
+                        {formatRupees(slotSum)} → {formatRupees(slotSum - couponDiscount)}
+                      </Text>
+                    ) : null}
+                    {customAmountValid ? (
+                      <Text variant="tiny" color={colors.yellow400}>
+                        A custom amount is set — clear it to apply this coupon.
+                      </Text>
+                    ) : null}
+                    {selectedCoupon.restrictedNote ? (
+                      <Text variant="tiny" color={colors.zinc500}>
+                        {selectedCoupon.restrictedNote} — the server may reject
+                        it for this customer.
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+              </Section>
+            ) : null}
+
             <Section title="TOTAL AMOUNT (₹)">
               <Text variant="tiny" color={colors.zinc500}>
                 {method === "FREE"
