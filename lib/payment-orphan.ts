@@ -8,7 +8,10 @@ export type OrphanReason =
   // Tournament entry fees: captured money whose team couldn't be
   // auto-confirmed (amount mismatch, deleted team, …) — the suffix
   // carries the specific cause for the admin worklist.
-  | `tournament-${string}`;
+  | `tournament-${string}`
+  // Camp registrations: captured money whose registration couldn't be
+  // auto-confirmed. Same shape as the tournament suffix.
+  | `camp-${string}`;
 export type OrphanGateway = "RAZORPAY" | "PHONEPE" | "PHONEPE_DQR";
 
 /**

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { onlinePayable } from "@/lib/tournament-config";
 import { validateCoupon } from "@/actions/coupon-validation";
 import { notifyUser } from "@/lib/user-notifications";
@@ -391,4 +392,43 @@ export async function listMyCampRegistrations(userId: string) {
       },
     },
   });
+}
+
+
+/**
+ * Razorpay order for a camp registration.
+ *
+ * Mirrors createPassOrder: the notes carry what was bought, so the verify
+ * route trusts the ORDER rather than the client — otherwise a cheap order
+ * could confirm an expensive registration.
+ */
+export async function createCampOrder(
+  registrationId: string,
+  userId: string,
+  amountRupees: number,
+): Promise<{ orderId: string; amount: number }> {
+  // The secret is deliberately not exported from lib/razorpay — read it
+  // here the same way that module does, so it never crosses a boundary.
+  const auth = Buffer.from(
+    `${RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET ?? ""}`,
+  ).toString("base64");
+  const res = await fetch("https://api.razorpay.com/v1/orders", {
+    method: "POST",
+    signal: AbortSignal.timeout(8000),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${auth}`,
+    },
+    body: JSON.stringify({
+      amount: Math.round(amountRupees * 100),
+      currency: "INR",
+      receipt: `camp_${registrationId.slice(-12)}`,
+      notes: { type: "CAMP", registrationId, userId },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Razorpay camp order failed: ${await res.text()}`);
+  }
+  const order = (await res.json()) as { id: string };
+  return { orderId: order.id, amount: amountRupees };
 }
