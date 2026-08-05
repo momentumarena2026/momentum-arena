@@ -17,10 +17,26 @@ import { StoreBadges } from "@/components/store-badges";
  * app from that browser, so the footer badges are the right (and only)
  * placement there.
  */
-export function AppCtaBar({ top = "top-0" }: { top?: "top-0" | "top-20" }) {
+export function AppCtaBar({
+  top = "top-0",
+}: {
+  /** "none" when the caller already wraps header+strip in one sticky
+   *  block — the strip must not re-stick inside its own sticky parent. */
+  top?: "top-0" | "fixed-20" | "none";
+}) {
   return (
     <div
-      className={`sticky ${top} z-40 border-b border-emerald-400/30 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 shadow-lg shadow-emerald-900/40 md:hidden`}
+      className={`${
+        top === "none"
+          ? ""
+          : top === "fixed-20"
+            ? // Homepage: its nav is `fixed`, and an ancestor's overflow was
+              // killing `sticky` outright (measured: the strip scrolled away
+              // with the page). Fixed matches the nav and can't be broken by
+              // an ancestor.
+              "fixed left-0 right-0 top-20 z-40"
+            : "sticky top-0 z-40"
+      } border-b border-emerald-400/30 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 shadow-lg shadow-emerald-900/40 md:hidden`}
     >
       {/* overflow-hidden is load-bearing: the full badge is wide, and on a
           narrow phone a stray pixel of overflow would give the whole page a

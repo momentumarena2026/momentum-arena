@@ -419,7 +419,7 @@ export default async function Home() {
             </div>
           </div>
         </nav>
-        <AppCtaBar top="top-20" />
+        <AppCtaBar top="fixed-20" />
 
         {/* Fixed announcement stack below the nav — the welcome offer, then
             the weather-aware rain banner (when shown). Stacked in one

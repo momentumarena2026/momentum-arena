@@ -40,8 +40,10 @@ export async function SiteHeader({ active }: { active?: Section }) {
       ? `${base} ${section === "cafe" ? "text-amber-400" : "text-emerald-400"}`
       : `${base} text-zinc-300 ${hover}`;
 
+  // Header and app strip stick together as one block. Making only the
+  // strip sticky left the nav scrolling away above it.
   return (
-    <>
+    <div className="sticky top-0 z-50">
     <nav className="border-b border-zinc-800 bg-zinc-950">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
@@ -142,7 +144,7 @@ export async function SiteHeader({ active }: { active?: Section }) {
         </div>
       </div>
     </nav>
-    <AppCtaBar />
-    </>
+    <AppCtaBar top="none" />
+    </div>
   );
 }
