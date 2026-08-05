@@ -63,7 +63,9 @@ function MySquadCard({ slug }: { slug: string }) {
     enabled: !!authState.user,
   });
   const [editing, setEditing] = useState(false);
-  const [rows, setRows] = useState<{ key: string; name: string; locked: boolean; isCaptain: boolean }[]>([]);
+  const [rows, setRows] = useState<
+    { key: string; name: string; phone: string; locked: boolean; isCaptain: boolean }[]
+  >([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +76,12 @@ function MySquadCard({ slug }: { slug: string }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await updateSquad(team.id, rows.map((r) => r.name.trim()).filter(Boolean));
+      const res = await updateSquad(
+        team.id,
+        rows
+          .filter((r) => r.name.trim())
+          .map((r) => ({ name: r.name.trim(), phone: r.phone.trim() })),
+      );
       if (res.error) setError(res.error);
       else {
         setEditing(false);
@@ -109,6 +116,9 @@ function MySquadCard({ slug }: { slug: string }) {
                 <Text style={{ color: colors.zinc300, fontSize: 12 }}>
                   {m.name}
                   {m.isCaptain ? " ©" : ""}
+                  {m.phone ? (
+                    <Text style={{ color: colors.zinc500 }}> {m.phone}</Text>
+                  ) : null}
                 </Text>
               </View>
             ))}
@@ -116,7 +126,15 @@ function MySquadCard({ slug }: { slug: string }) {
           {team.canEditSquad && (
             <Pressable
               onPress={() => {
-                setRows(team.members.map((m) => ({ key: m.id, name: m.name, locked: m.locked, isCaptain: m.isCaptain })));
+                setRows(
+                  team.members.map((m) => ({
+                    key: m.id,
+                    name: m.name,
+                    phone: m.phone ?? "",
+                    locked: m.locked,
+                    isCaptain: m.isCaptain,
+                  })),
+                );
                 setError(null);
                 setEditing(true);
               }}
@@ -136,11 +154,19 @@ function MySquadCard({ slug }: { slug: string }) {
           {rows.map((r, i) => (
             <View key={r.key} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <TextInput
-                style={sqStyles.input}
+                style={[sqStyles.input, { flex: 2 }]}
                 placeholder={`Player ${i + 1}`}
                 placeholderTextColor={colors.zinc600}
                 value={r.name}
                 onChangeText={(v) => setRows((arr) => arr.map((x, j) => (j === i ? { ...x, name: v } : x)))}
+              />
+              <TextInput
+                style={[sqStyles.input, { flex: 1 }]}
+                placeholder="Phone"
+                placeholderTextColor={colors.zinc600}
+                keyboardType="phone-pad"
+                value={r.phone}
+                onChangeText={(v) => setRows((arr) => arr.map((x, j) => (j === i ? { ...x, phone: v } : x)))}
               />
               {r.isCaptain ? (
                 <Text style={{ color: "#fbbf24", fontSize: 12, fontWeight: "700" }}>C</Text>
@@ -156,7 +182,16 @@ function MySquadCard({ slug }: { slug: string }) {
           {rows.length < team.maxMembers && (
             <Pressable
               onPress={() =>
-                setRows((arr) => [...arr, { key: `new-${arr.length}-${Math.random()}`, name: "", locked: false, isCaptain: false }])
+                setRows((arr) => [
+                  ...arr,
+                  {
+                    key: `new-${arr.length}-${Math.random()}`,
+                    name: "",
+                    phone: "",
+                    locked: false,
+                    isCaptain: false,
+                  },
+                ])
               }
               style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
             >

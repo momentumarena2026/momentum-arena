@@ -141,7 +141,15 @@ export async function registerTeam(payload: RegisterPayload): Promise<RegisterRe
 }
 
 // ── My team + squad (post-registration) ─────────────────────────────
-export type MySquadMember = { id: string; name: string; isCaptain: boolean; locked: boolean };
+export type MySquadMember = {
+  id: string;
+  name: string;
+  /** Optional contact number — the venue uses it when the captain isn't
+   *  around. Never required, so it can't block a squad save. */
+  phone: string | null;
+  isCaptain: boolean;
+  locked: boolean;
+};
 export type MyTeam = {
   id: string;
   name: string;
@@ -167,7 +175,7 @@ export async function getMyTeam(slug: string): Promise<MyTeam | null> {
  *  stat-safely — players with recorded stats can't be dropped). */
 export async function updateSquad(
   teamId: string,
-  members: string[]
+  members: { name: string; phone?: string }[] | string[]
 ): Promise<{ success?: boolean; error?: string }> {
   return api.post("/api/tournaments/squad", { teamId, members });
 }
