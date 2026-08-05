@@ -18,6 +18,8 @@ import { CafeOrderDetailScreen } from "../screens/cafe/CafeOrderDetailScreen";
 import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
 import { TournamentsListScreen } from "../screens/tournaments/TournamentsListScreen";
 import { CampsScreen } from "../screens/camps/CampsScreen";
+import { MatchStartScreen } from "../screens/match/MatchStartScreen";
+import { MatchScoreScreen } from "../screens/match/MatchScoreScreen";
 import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailScreen";
 import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
 import { TournamentLiveScreen } from "../screens/tournaments/TournamentLiveScreen";
@@ -135,6 +137,16 @@ export function AccountStack() {
         name="Camps"
         component={CampsScreen}
         options={{ title: "Camps" }}
+      />
+      <Stack.Screen
+        name="MatchStart"
+        component={MatchStartScreen}
+        options={{ title: "Score a match" }}
+      />
+      <Stack.Screen
+        name="MatchScore"
+        component={MatchScoreScreen}
+        options={{ title: "Scoreboard" }}
       />
       <Stack.Screen
         name="TournamentsList"
