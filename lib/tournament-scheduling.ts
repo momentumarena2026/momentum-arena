@@ -67,13 +67,23 @@ export function totalCapacity(
 export interface TeamForDraw {
   id: string;
   name: string;
-  /** Empty means "no preference" — treated as available for every window. */
+  /**
+   * Hour-level picks, as `<slotId>#<startHour>` keys — a team free
+   * 6-8am inside a 6-10am window shouldn't have to claim the whole
+   * window. Empty means "no preference": available for anything.
+   */
   preferredSlotIds: string[];
 }
 
-/** Windows a team can play, honouring the empty-means-any rule. */
-function canPlay(team: TeamForDraw, slotId: string): boolean {
-  return team.preferredSlotIds.length === 0 || team.preferredSlotIds.includes(slotId);
+/** The stored key for one playable hour. */
+export function slotHourKey(slotId: string, startHour: number): string {
+  return `${slotId}#${startHour}`;
+}
+
+/** Can this team play this specific hour? Empty picks = any. */
+function canPlay(team: TeamForDraw, slot: MatchSlot): boolean {
+  if (team.preferredSlotIds.length === 0) return true;
+  return team.preferredSlotIds.includes(slotHourKey(slot.slotId, slot.startHour));
 }
 
 /** Round-robin pairings within one pool. */
@@ -213,8 +223,8 @@ export function buildDraw(
     let chosen = slots.find(
       (s, i) =>
         !usedSlot.has(i) &&
-        canPlay(home, s.slotId) &&
-        canPlay(away, s.slotId) &&
+        canPlay(home, s) &&
+        canPlay(away, s) &&
         !busy(home.id).has(s.absoluteMinutes) &&
         !busy(away.id).has(s.absoluteMinutes),
     );
