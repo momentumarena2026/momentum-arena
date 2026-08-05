@@ -349,7 +349,11 @@ export async function setTeamStatus(
   const patch: Record<string, unknown> = { status };
   if (status === "CONFIRMED" && team.status !== "CONFIRMED") {
     const confirmed = await db.tournamentTeam.count({
-      where: { tournamentId: team.tournamentId, status: "CONFIRMED" },
+      where: {
+        tournamentId: team.tournamentId,
+        status: "CONFIRMED",
+        archivedAt: null,
+      },
     });
     if (confirmed >= team.tournament.totalTeams) {
       return { success: false, error: "Tournament is already full" };
@@ -452,7 +456,11 @@ export async function adminRegisterTeam(
   if (!t) return { success: false, error: "Tournament not found" };
 
   const taken = await db.tournamentTeam.count({
-    where: { tournamentId: t.id, status: { in: ["CONFIRMED", "PENDING_PAYMENT"] } },
+    where: {
+      tournamentId: t.id,
+      status: { in: ["CONFIRMED", "PENDING_PAYMENT"] },
+      archivedAt: null,
+    },
   });
   if (taken >= t.totalTeams) return { success: false, error: "Tournament is full" };
 
@@ -494,7 +502,13 @@ export async function adminRegisterTeam(
  *  rows (and their stats) instead of being wiped and recreated. */
 export async function adminEditTeam(
   teamId: string,
-  input: { name?: string; color?: string | null; logoUrl?: string | null; members?: string[] }
+  input: {
+    name?: string;
+    color?: string | null;
+    logoUrl?: string | null;
+    /** Bare names still accepted; {name, phone} rows carry contact numbers. */
+    members?: (string | { name: string; phone?: string | null })[];
+  }
 ): Promise<{ success: boolean; error?: string }> {
   await gate();
   const team = await db.tournamentTeam.findUnique({
@@ -541,4 +555,84 @@ export async function rotateScorerCode(
   await db.tournament.update({ where: { id: tournamentId }, data: { scorerCode: code } });
   revalidatePath(`/admin/tournaments/${tournamentId}`);
   return { success: true, code };
+}
+
+
+/**
+ * Archive a team: it leaves the roster, the counts and the draw without
+ * destroying its payment trail or match history.
+ *
+ * Deleting outright is reserved for teams that have neither money nor
+ * results attached — anything else must stay auditable, because a team
+ * that paid ₹2,800 and then vanished is indistinguishable from a
+ * reconciliation error at month end.
+ */
+export async function archiveTournamentTeam(
+  teamId: string,
+  archived = true
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: teamId },
+    select: { tournamentId: true, poolId: true },
+  });
+  if (!team) return { success: false, error: "Team not found" };
+
+  await db.tournamentTeam.update({
+    where: { id: teamId },
+    data: {
+      archivedAt: archived ? new Date() : null,
+      // An archived team can't sit in a pool — the draw would field a
+      // side that isn't playing.
+      ...(archived ? { poolId: null } : {}),
+    },
+  });
+  revalidatePath(`/admin/tournaments/${team.tournamentId}`);
+  return { success: true };
+}
+
+/**
+ * Hard-delete a team. Refuses when there is money or match history on it
+ * — archive those instead, so the audit trail survives.
+ */
+export async function deleteTournamentTeam(
+  teamId: string
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: teamId },
+    select: {
+      tournamentId: true,
+      paidAmount: true,
+      pointsUsed: true,
+      _count: {
+        select: {
+          homeMatches: true,
+          awayMatches: true,
+          playerStats: true,
+        },
+      },
+    },
+  });
+  if (!team) return { success: false, error: "Team not found" };
+
+  if (team.paidAmount > 0 || team.pointsUsed > 0) {
+    return {
+      success: false,
+      error:
+        "This team has paid — archive it instead so the payment stays on the books.",
+    };
+  }
+  const played =
+    team._count.homeMatches + team._count.awayMatches + team._count.playerStats;
+  if (played > 0) {
+    return {
+      success: false,
+      error: "This team has fixtures or recorded stats — archive it instead.",
+    };
+  }
+
+  await db.tournamentTeam.delete({ where: { id: teamId } });
+  revalidatePath(`/admin/tournaments/${team.tournamentId}`);
+  return { success: true };
 }
