@@ -249,19 +249,40 @@ export async function approveSchedule(
   }
 
   // 1. Rewrite pools from the chosen plan.
-  await db.$transaction(async (tx) => {
-    await tx.tournamentTeam.updateMany({ where: { tournamentId }, data: { poolId: null } });
-    await tx.tournamentPool.deleteMany({ where: { tournamentId } });
-    for (let i = 0; i < plan.pools.length; i++) {
-      const pool = await tx.tournamentPool.create({
-        data: { tournamentId, name: `Pool ${String.fromCharCode(65 + i)}`, order: i },
+  //
+  // A create+updateMany PER POOL inside an interactive transaction blew
+  // the 5s default on a pooled connection (surfaced by the E2E drive:
+  // "Transaction not found ... refers to an old closed transaction").
+  // createMany collapses the inserts into one round trip, and the
+  // timeout is raised for the remaining per-pool assignments so a
+  // larger tournament has headroom.
+  await db.$transaction(
+    async (tx) => {
+      await tx.tournamentTeam.updateMany({ where: { tournamentId }, data: { poolId: null } });
+      await tx.tournamentPool.deleteMany({ where: { tournamentId } });
+      await tx.tournamentPool.createMany({
+        data: plan.pools.map((_, i) => ({
+          tournamentId,
+          name: `Pool ${String.fromCharCode(65 + i)}`,
+          order: i,
+        })),
       });
-      await tx.tournamentTeam.updateMany({
-        where: { id: { in: plan.pools[i].map((x) => x.id) } },
-        data: { poolId: pool.id },
+      const created = await tx.tournamentPool.findMany({
+        where: { tournamentId },
+        orderBy: { order: "asc" },
+        select: { id: true, order: true },
       });
-    }
-  });
+      for (const pool of created) {
+        const ids = plan.pools[pool.order]?.map((x) => x.id) ?? [];
+        if (ids.length === 0) continue;
+        await tx.tournamentTeam.updateMany({
+          where: { id: { in: ids } },
+          data: { poolId: pool.id },
+        });
+      }
+    },
+    { timeout: 20000, maxWait: 10000 },
+  );
 
   // 2. Reuse the existing generator so the knockout skeleton, seeding
   //    labels and winner-of chains stay in one place.
