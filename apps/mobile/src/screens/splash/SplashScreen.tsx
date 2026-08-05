@@ -24,7 +24,7 @@ interface Props {
   /**
    * Called once the splash sequence has fully played out and faded.
    * The host (App.tsx) swaps from <SplashScreen/> to <RootNavigator/>
-   * the moment this fires. Total runtime ≈ 2.6s.
+   * the moment this fires. Total runtime = HOLD_MS + 350ms fade.
    */
   onComplete: () => void;
 }
@@ -86,6 +86,10 @@ const GLOW_SIZE = 320;
 // as HomeScreen's two-orb backdrop. Sized intentionally smaller so
 // the emerald stays dominant and amber reads as a warm accent.
 const AMBER_GLOW_SIZE = 230;
+
+/** How long the assembled scene holds before handing off to the app.
+ *  One number, deliberately: it is a fixed tax on every cold start. */
+const HOLD_MS = 1500;
 
 export function SplashScreen({ onComplete }: Props) {
   // ---- Logo ------------------------------------------------------
@@ -275,6 +279,13 @@ export function SplashScreen({ onComplete }: Props) {
 
     // Hold the assembled scene briefly, then crossfade out and tell
     // the host to swap to the real navigator.
+    //
+    // HOLD_MS is a straight tax on every cold start: nothing below the
+    // splash is mounted until it fires, so this is time the user spends
+    // looking at a logo. The scene finishes assembling at ~1350ms (the
+    // wordmark's 850ms delay + its 500ms fade), so anything past that is
+    // dead air — it used to sit at 2300ms, which was ~950ms of it.
+    // 1500ms leaves a beat on the assembled scene and no more.
     const handoff = setTimeout(() => {
       Animated.timing(screenOpacity, {
         toValue: 0,
@@ -284,7 +295,7 @@ export function SplashScreen({ onComplete }: Props) {
       }).start(() => {
         onComplete();
       });
-    }, 2300);
+    }, HOLD_MS);
 
     return () => clearTimeout(handoff);
   }, [

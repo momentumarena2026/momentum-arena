@@ -19,6 +19,7 @@ import {
 import { enablePushAfterLogin, disablePushBeforeLogout } from "../lib/push";
 import { queryClient } from "../lib/queryClient";
 import { clearPersistedQueries } from "../lib/queryPersist";
+import { prefetchSignedInHomeData } from "../lib/prefetch";
 
 type AuthState =
   | { status: "loading"; user: null }
@@ -47,6 +48,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // Optimistic UI from cache, then validate against server.
     const cached = userCache.read();
     if (cached) setState({ status: "signedIn", user: cached });
+
+    // A token exists, so the signed-in home data is worth fetching now —
+    // during the splash, rather than when HomeScreen finally mounts.
+    // Deliberately not waiting on authApi.me() below: these calls carry
+    // the same token and a 401 just makes them no-ops.
+    prefetchSignedInHomeData();
 
     try {
       const fresh = await authApi.me();
