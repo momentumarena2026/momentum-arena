@@ -27,7 +27,13 @@ import {
   type ScoreEvent,
   type WicketKind,
 } from "../../lib/public-match";
-import { replay, type PublicMatchState } from "../../lib/match-engine";
+import {
+  inningsOver,
+  replay,
+  validateScoreEvent,
+  type MatchRules,
+  type PublicMatchState,
+} from "../../lib/match-engine";
 import type { AccountStackParamList } from "../../navigation/types";
 
 /**
@@ -79,6 +85,10 @@ export function MatchScoreScreen() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncFailed, setSyncFailed] = useState(false);
+  // Read by push()'s validator. Refs, not deps: the callback must stay
+  // stable across renders or every tap would re-create the flush timer.
+  const sportRef = useRef<MatchRules["sport"]>("CRICKET");
+  const oversRef = useRef<number | null>(null);
 
   // Seed the local log once from the server. Re-seeding on every refetch
   // would stomp taps that haven't flushed yet.
@@ -130,9 +140,23 @@ export function MatchScoreScreen() {
 
   const push = useCallback(
     (e: ScoreEvent) => {
-      setLog((prev) => [...(prev ?? []), e]);
-      queue.current.push(e);
-      schedule();
+      setLog((prev) => {
+        const log = prev ?? [];
+        // Same rules the server runs, against the same log. Catching it
+        // here keeps an illegal tap out of the batch entirely — otherwise
+        // the server rejects the whole flush and the scorer loses the over.
+        const problem = validateScoreEvent(replay(log, sportRef.current), e, {
+          sport: sportRef.current,
+          oversPerInnings: oversRef.current,
+        });
+        if (problem) {
+          Alert.alert("Can't do that", problem);
+          return prev;
+        }
+        queue.current.push(e);
+        schedule();
+        return [...log, e];
+      });
     },
     [schedule],
   );
@@ -164,6 +188,8 @@ export function MatchScoreScreen() {
 
   const sport = match?.sport ?? "CRICKET";
   const cricket = sport === "CRICKET";
+  sportRef.current = sport;
+  oversRef.current = match?.oversPerInnings ?? null;
 
   // The board: replayed locally for the scorer, straight from the server
   // for everyone else.
@@ -185,6 +211,13 @@ export function MatchScoreScreen() {
   const battingSquad = batA ? s.squadA : s.squadB;
   const bowlingSquad = batA ? s.squadB : s.squadA;
   const scoring = canScore && !done;
+  // Why the innings can't continue, if it can't: overs bowled, all out, or
+  // the target passed. Drives the UI as well as the guards — the reported
+  // bug was the pad staying live past the last over, and the console still
+  // asking for a next bowler that could never bowl.
+  const inningsDone = cricket
+    ? inningsOver(s, { sport, oversPerInnings: match.oversPerInnings })
+    : null;
   // Whoever is out or already at the crease can't walk in again.
   const availableBatters = battingSquad.filter(
     (n) => n !== s.striker && n !== s.nonStriker && !s.batting[n]?.out,
@@ -512,6 +545,39 @@ export function MatchScoreScreen() {
           <Text variant="small" color={colors.zinc500} style={styles.note}>
             This match has finished.
           </Text>
+        ) : inningsDone ? (
+          // Checked BEFORE the openers/bowler prompts: with the overs gone
+          // there is no next bowler to pick, and no ball left to score.
+          <View style={styles.crease}>
+            <Text variant="bodyStrong" color={colors.foreground}>
+              {s.innings === 0 ? "Innings complete" : "Match complete"}
+            </Text>
+            <Text variant="small" color={colors.zinc400}>
+              {inningsDone}
+              {s.innings === 0
+                ? " Hand over to the other side."
+                : " Nothing left to score."}
+            </Text>
+            {s.innings === 0 ? (
+              <Button
+                label="End innings"
+                variant="primary"
+                onPress={() => push({ t: "END_INNINGS" })}
+              />
+            ) : (
+              <Button
+                label="End match"
+                variant="primary"
+                onPress={async () => {
+                  await flush();
+                  const res = await finishMatch(code);
+                  if (res.error) Alert.alert("Couldn't end", res.error);
+                  void q.refetch();
+                  void qc.invalidateQueries({ queryKey: ["my-matches"] });
+                }}
+              />
+            )}
+          </View>
         ) : cricket && !s.striker ? (
           <Button label="Set the openers" variant="primary" onPress={askOpeners} />
         ) : cricket && !s.bowler ? (

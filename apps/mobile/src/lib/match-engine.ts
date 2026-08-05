@@ -6,6 +6,11 @@
  * first. Replaying locally is what lets the pad respond instantly and
  * keeps working through a dead patch of ground-side wifi; the server
  * replays the same log and is still the authority when they disagree.
+ *
+ * validateScoreEvent must be mirrored too, not just replay(): the phone
+ * appends optimistically and flushes in batches, so if it accepted a tap
+ * the server would reject, the whole batch bounces and the scorer loses
+ * the over. Both sides must reach the same verdict from the same log.
  */
 
 export type PublicMatchSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
@@ -92,6 +97,9 @@ export interface PublicMatchState {
   nonStriker: string | null;
   /** null right after an over ends — the scorer must name the next one. */
   bowler: string | null;
+  /** Who bowled the over that just finished, so the "no two overs in a
+   *  row" rule has something to check against. */
+  lastOverBowler: string | null;
   /** Batting card for the side currently in, keyed by player name. */
   batting: Record<string, BatterCard>;
   bowling: Record<string, BowlerCard>;
@@ -117,6 +125,7 @@ const EMPTY: PublicMatchState = {
   striker: null,
   nonStriker: null,
   bowler: null,
+  lastOverBowler: null,
   batting: {},
   bowling: {},
   extras: { wide: 0, noBall: 0, bye: 0, legBye: 0 },
@@ -203,6 +212,7 @@ export function replay(
       const balls = batA ? s.ballsA : s.ballsB;
       if (balls % 6 === 0) {
         swap();
+        s.lastOverBowler = s.bowler;
         s.bowler = null;
         s.thisOver = [];
       }
@@ -350,6 +360,7 @@ export function replay(
           s.striker = null;
           s.nonStriker = null;
           s.bowler = null;
+          s.lastOverBowler = null;
           s.batting = {};
           s.bowling = {};
           s.extras = { wide: 0, noBall: 0, bye: 0, legBye: 0 };
@@ -363,6 +374,206 @@ export function replay(
     }
   }
   return s;
+}
+
+/**
+ * Rules for a scratch match.
+ *
+ * Mirrors validateLiveEvent in lib/tournament-live.ts — same shape (return
+ * a scorer-facing message, or null when the event is legal), same rules
+ * where they apply. The two feature sets differ (no per-bowler quota here,
+ * squads are free-text and optional), but the reasoning is identical: a
+ * disabled button is a courtesy, not a control, so every rule is
+ * re-checked server-side against a fresh replay of the log.
+ *
+ * The APP runs this too, against its local replay, before appending a tap.
+ * That is not belt-and-braces — it's required: the phone scores optimistically
+ * and flushes in batches, so if it accepted a tap the server would reject,
+ * the whole batch bounces and the scorer loses the over. Both sides must
+ * reach the same verdict from the same log.
+ */
+
+/** Standard XI: 10 wickets ends an innings. When the scorer has entered a
+ *  squad we use it instead, so a 6-a-side game ends at 5 down. */
+const DEFAULT_MAX_WICKETS = 10;
+
+export interface MatchRules {
+  sport: PublicMatchSport;
+  /** null / 0 = unlimited (a casual knock with no agreed length). */
+  oversPerInnings?: number | null;
+}
+
+/** Wickets that end the current innings, given who's actually playing. */
+function maxWickets(state: PublicMatchState): number {
+  const squad = state.innings === 0 ? state.squadA : state.squadB;
+  return squad.length > 1 ? squad.length - 1 : DEFAULT_MAX_WICKETS;
+}
+
+/**
+ * Is the innings in progress over? Returns the reason, or null.
+ *
+ * Exported because the UI needs the same answer to decide whether to show
+ * the scoring pad or an "end the innings" prompt — the bug this was written
+ * for was the pad staying live past the last over, and a "pick the next
+ * bowler" prompt appearing for an over that could never be bowled.
+ */
+export function inningsOver(
+  state: PublicMatchState,
+  rules: MatchRules,
+): string | null {
+  if (rules.sport !== "CRICKET") return null;
+  const balls = state.innings === 0 ? state.ballsA : state.ballsB;
+  const wickets = state.innings === 0 ? state.wicketsA : state.wicketsB;
+  const limit = rules.oversPerInnings ?? 0;
+  if (limit > 0 && balls >= limit * 6) {
+    return `Over limit reached — ${limit} ${limit === 1 ? "over" : "overs"} bowled.`;
+  }
+  if (wickets >= maxWickets(state)) return "All out.";
+  // Second innings only: once the target is passed the game is decided.
+  if (state.innings === 1 && state.runsB > state.runsA) {
+    return "Target chased.";
+  }
+  return null;
+}
+
+/** Events that put a ball on the scoreboard. */
+const DELIVERIES = new Set([
+  "RUN",
+  "BYE",
+  "LEG_BYE",
+  "WIDE",
+  "NO_BALL",
+  "WICKET",
+]);
+
+export function validateScoreEvent(
+  state: PublicMatchState,
+  event: ScoreEvent,
+  rules: MatchRules,
+): string | null {
+  // Rosters are always editable — a scorer routinely adds a latecomer.
+  if (event.t === "SQUAD") {
+    const names = event.players.map((p) => p.trim()).filter(Boolean);
+    if (new Set(names.map((n) => n.toLowerCase())).size !== names.length) {
+      return "Two players have the same name — make them unique";
+    }
+    return null;
+  }
+
+  if (rules.sport !== "CRICKET") {
+    const squadFor = (side: "A" | "B") => (side === "A" ? state.squadA : state.squadB);
+    if (event.t === "POINT" && event.player) {
+      // Only enforced once a squad exists; a pickup game may have none.
+      const squad = squadFor(event.side);
+      if (squad.length > 0 && !squad.includes(event.player)) {
+        return `${event.player} isn't in that side`;
+      }
+    }
+    if (event.t === "CARD") {
+      const squad = squadFor(event.side);
+      if (squad.length > 0 && !squad.includes(event.player)) {
+        return `${event.player} isn't in that side`;
+      }
+      const alreadyOff = state.cards.some(
+        (c) => c.player === event.player && c.kind === "RED",
+      );
+      if (alreadyOff) return `${event.player} has already been sent off`;
+    }
+    return null;
+  }
+
+  // ---- Cricket ----
+  const batting = state.innings === 0 ? state.squadA : state.squadB;
+  const bowling = state.innings === 0 ? state.squadB : state.squadA;
+  const inSquad = (squad: string[], name: string) =>
+    squad.length === 0 || squad.includes(name);
+
+  if (event.t === "OPEN") {
+    if (state.striker) return "The openers are already set";
+    if (event.striker === event.nonStriker) {
+      return "The two batters must be different people";
+    }
+    if (!inSquad(batting, event.striker)) return "The striker isn't in the batting side";
+    if (!inSquad(batting, event.nonStriker)) {
+      return "The non-striker isn't in the batting side";
+    }
+    if (!inSquad(bowling, event.bowler)) return "That bowler isn't in the fielding side";
+    return null;
+  }
+
+  if (event.t === "BOWLER") {
+    // The reported bug: the innings was over on overs, yet the console
+    // still asked for — and accepted — the next bowler.
+    const done = inningsOver(state, rules);
+    if (done) return `${done} End the innings instead.`;
+    if (!inSquad(bowling, event.name)) return "That bowler isn't in the fielding side";
+    if (state.bowler === event.name) return `${event.name} is already bowling`;
+    // Only bites when an over is actually starting; mid-over the bowler is
+    // already committed. thisOver is cleared the moment an over closes.
+    if (state.thisOver.length === 0 && state.lastOverBowler === event.name) {
+      return "A bowler can't bowl two overs in a row";
+    }
+    return null;
+  }
+
+  if (DELIVERIES.has(event.t)) {
+    // Innings-over FIRST. Closing an over nulls the bowler and a last
+    // wicket can null the striker, so checking those first told the scorer
+    // to "pick the bowler" when the truth was "the innings is finished" —
+    // a correct block for the wrong reason, which is its own bug.
+    const done = inningsOver(state, rules);
+    if (done) return `${done} End the innings.`;
+    if (!state.striker) return "Set the openers before scoring a ball";
+    if (!state.bowler) return "Pick the bowler for this over first";
+    if (event.t === "WICKET") {
+      const who = event.batter ?? state.striker;
+      if (who && state.batting[who]?.out) return `${who} is already out`;
+      if (event.newBatter) {
+        if (!inSquad(batting, event.newBatter)) {
+          return "The incoming batter isn't in the batting side";
+        }
+        if (state.batting[event.newBatter]?.out) {
+          return `${event.newBatter} is already out`;
+        }
+        if (
+          event.newBatter === state.striker ||
+          event.newBatter === state.nonStriker
+        ) {
+          return `${event.newBatter} is already batting`;
+        }
+      }
+    }
+    return null;
+  }
+
+  if (event.t === "RETIRE") {
+    if (!state.striker && !state.nonStriker) return "Nobody is batting";
+    if (event.newBatter) {
+      if (!inSquad(batting, event.newBatter)) {
+        return "The incoming batter isn't in the batting side";
+      }
+      if (state.batting[event.newBatter]?.out) return `${event.newBatter} is already out`;
+      if (
+        event.newBatter === state.striker ||
+        event.newBatter === state.nonStriker
+      ) {
+        return `${event.newBatter} is already batting`;
+      }
+    }
+    return null;
+  }
+
+  if (event.t === "SWAP") {
+    if (!state.striker || !state.nonStriker) return "Both batters must be at the crease";
+    return null;
+  }
+
+  if (event.t === "END_INNINGS") {
+    if (state.innings >= 1) return "Both innings have already been played";
+    return null;
+  }
+
+  return null;
 }
 
 /** Balls → "12.3" overs, the way a scoreboard reads. */
