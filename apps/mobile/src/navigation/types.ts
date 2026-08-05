@@ -193,6 +193,8 @@ export type AdminCalendarStackParamList = {
 // Mirrors web /admin/cafe + /admin/cafe-orders rolled into one tab.
 export type AdminCafeStackParamList = {
   AdminCafeOrders: undefined;
+  /** Full order history — the live board only carries the open queue. */
+  AdminCafeAllOrders: undefined;
   AdminCafeMenu: undefined;
   AdminCafeCreateOrder: undefined;
 };

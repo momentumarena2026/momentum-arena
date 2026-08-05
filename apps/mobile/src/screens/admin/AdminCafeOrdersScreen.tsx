@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   ChefHat,
+  ClipboardList,
   Clock,
   Coffee,
   Flame,
@@ -193,6 +194,18 @@ export function AdminCafeOrdersScreen() {
           <Plus size={14} color={colors.emerald400} />
           <Text variant="small" color={colors.emerald400} weight="600">
             New order
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => navigation.navigate("AdminCafeAllOrders")}
+          style={({ pressed }) => [
+            styles.menuBtn,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <ClipboardList size={14} color={colors.zinc300} />
+          <Text variant="small" color={colors.zinc300} weight="600">
+            All orders
           </Text>
         </Pressable>
         <Pressable

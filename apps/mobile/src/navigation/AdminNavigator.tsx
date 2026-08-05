@@ -29,6 +29,7 @@ import { AdminCheckinScreen } from "../screens/admin/AdminCheckinScreen";
 import { AdminCalendarScreen } from "../screens/admin/AdminCalendarScreen";
 import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
 import { AdminCafeOrdersScreen } from "../screens/admin/AdminCafeOrdersScreen";
+import { AdminCafeAllOrdersScreen } from "../screens/admin/AdminCafeAllOrdersScreen";
 import { AdminCafeMenuScreen } from "../screens/admin/AdminCafeMenuScreen";
 import { AdminCafeCreateOrderScreen } from "../screens/admin/AdminCafeCreateOrderScreen";
 import { AdminExpensesListScreen } from "../screens/admin/AdminExpensesListScreen";
@@ -333,6 +334,11 @@ function AdminCafeStackNav() {
         name="AdminCafeOrders"
         component={AdminCafeOrdersScreen}
         options={{ headerShown: false }}
+      />
+      <CafeStack.Screen
+        name="AdminCafeAllOrders"
+        component={AdminCafeAllOrdersScreen}
+        options={{ title: "All orders" }}
       />
       <CafeStack.Screen
         name="AdminCafeMenu"
