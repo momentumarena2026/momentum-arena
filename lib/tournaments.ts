@@ -567,9 +567,26 @@ export async function confirmDqrTournament(
   });
   if (!team) {
     // A DQRT_ transaction with no team behind it means its paymentRef was
-    // superseded (or the team was deleted) — the money is real and would
-    // otherwise vanish silently, so file it for admin recovery. The team id
-    // is recoverable from the txn itself: DQRT_<last12 of teamId>_<ms>.
+    // superseded (or the team was deleted). The team id is recoverable from
+    // the txn itself: DQRT_<last12 of teamId>_<ms>.
+    //
+    // Re-initiating the QR (expiry, a second scan attempt) overwrites
+    // team.paymentRef, so the poll for the FIRST txn stops matching even
+    // though that payment confirmed the team perfectly well. Reporting
+    // "we couldn't auto-confirm your team" there alarms a customer whose
+    // spot is in fact booked, and files a bogus orphan on top. Resolve the
+    // team from the txn and treat an already-CONFIRMED team as the success
+    // it is — only genuinely unaccounted money reaches the orphan path.
+    const seg = transactionId.split("_")[1];
+    const superseded = seg
+      ? await db.tournamentTeam.findFirst({
+          where: { id: { endsWith: seg } },
+          select: { id: true, status: true },
+        })
+      : null;
+    if (superseded?.status === "CONFIRMED") {
+      return { teamId: superseded.id };
+    }
     const { recordOrphanPayment } = await import("@/lib/payment-orphan");
     recordOrphanPayment({
       gateway: "PHONEPE_DQR",

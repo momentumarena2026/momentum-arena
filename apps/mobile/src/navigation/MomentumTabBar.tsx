@@ -140,7 +140,23 @@ export function MomentumTabBar({ state, navigation }: BottomTabBarProps) {
         canPreventDefault: true,
       });
       if (!event.defaultPrevented) {
-        navigation.navigate(name as never);
+        if (name === "Account") {
+          // Account is a hub, and the Tournaments screens are pushed onto
+          // ITS stack (no dedicated tab). Entering tournaments from Home
+          // or the arc therefore leaves TournamentsList sitting on top of
+          // the Account stack, so a later "Account" tap reopened
+          // tournaments and the user could never reach their account
+          // again. Naming the root screen pops the stack back to it —
+          // there's no in-progress state under Account worth preserving,
+          // unlike the Sports booking flow.
+          navigation.navigate({
+            name: "Account",
+            params: { screen: "AccountHome" },
+            merge: false,
+          } as never);
+        } else {
+          navigation.navigate(name as never);
+        }
       } else if (isFocused) {
         // Focused + prevented is the pop-to-top case the navigator
         // handles internally; nothing more to do here.
