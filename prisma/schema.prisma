@@ -410,6 +410,7 @@ model CourtConfig {
   updatedAt DateTime @updatedAt
 
   @@unique([sport, size, position])
+  tournamentSlots TournamentSlot[]
 }
 
 // Open-hours windows specific to a court config. Lets the bowling-
@@ -3181,6 +3182,15 @@ model Tournament {
   startDate  DateTime?
   endDate    DateTime?
 
+  /// How long one pool/league match occupies a slot, in minutes. A
+  /// 6-10am window therefore yields (4*60)/duration match slots. Only
+  /// one tournament match runs at a time (venue rule), so this is the
+  /// sole capacity input alongside the windows themselves.
+  matchDurationMinutes Int @default(60)
+  /// Set when an admin approves a generated draw+schedule. Until then
+  /// the generated plan is a proposal and nothing is revealed.
+  scheduleApprovedAt DateTime?
+
   // Points engine (round-robin stages)
   pointsWin   Int      @default(2)
   pointsDraw  Int      @default(1)
@@ -3211,11 +3221,38 @@ model Tournament {
   pools         TournamentPool[]
   teams         TournamentTeam[]
   matches       TournamentMatch[]
+  slots         TournamentSlot[]
   playerStats   TournamentPlayerStat[]
   campaignItems TournamentCampaignItem[]
 
   @@index([status])
   @@index([sport, status])
+}
+
+/// A window the admin pre-decides for pool/league matches — e.g.
+/// "Sat 6-10am". Semi-finals and the final are scheduled by hand and
+/// deliberately do NOT draw from these.
+model TournamentSlot {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  date      DateTime @db.Date
+  startHour Int
+  /// Exclusive. 22 means the window ends at 10pm.
+  endHour   Int
+
+  /// Court these matches run on. Needed to raise the SlotBlock that
+  /// keeps the public booking grid from selling the same hour.
+  courtConfigId String?
+  courtConfig   CourtConfig? @relation(fields: [courtConfigId], references: [id], onDelete: SetNull)
+
+  /// Optional admin label ("Saturday morning") for the customer page.
+  label String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tournamentId, date, startHour])
 }
 
 model TournamentPool {
@@ -3232,6 +3269,9 @@ model TournamentPool {
   @@index([tournamentId])
 }
 
+/// Captain-selected windows the team can play in. Referenced by id
+/// rather than a join table: the set is small, admin-owned, and always
+/// read together with the team.
 model TournamentTeam {
   id           String               @id @default(cuid())
   tournamentId String
@@ -3278,6 +3318,9 @@ model TournamentTeam {
 
   @@index([tournamentId, status])
   @@index([captainUserId])
+  /// TournamentSlot ids the captain ticked. Empty = no preference
+  /// expressed, which the generator treats as "available for any".
+  preferredSlotIds String[] @default([])
 }
 
 model TournamentTeamMember {
