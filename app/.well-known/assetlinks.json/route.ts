@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { ANDROID_PACKAGE, ANDROID_UPLOAD_SHA256 } from "@/lib/app-store-links";
+import {
+  ANDROID_APP_SIGNING_SHA256,
+  ANDROID_PACKAGE,
+  ANDROID_UPLOAD_SHA256,
+} from "@/lib/app-store-links";
 
 /**
  * Digital Asset Links — what Android verifies before letting
@@ -17,17 +21,20 @@ import { ANDROID_PACKAGE, ANDROID_UPLOAD_SHA256 } from "@/lib/app-store-links";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  // Upload key is always listed so internal-test / sideloaded builds
-  // verify; anything in the env var is appended. Production needs the
-  // Play APP-SIGNING fingerprint in that env var — see the note on
-  // ANDROID_UPLOAD_SHA256.
+  // Both keys are listed: the Play app-signing key covers real Store
+  // installs, the upload key covers sideloaded and internal-test builds.
+  // The env var can append more (a second signing key during a rotation).
   const extra = (process.env.ANDROID_SHA256_FINGERPRINTS ?? "")
     .split(",")
     .map((f) => f.trim().toUpperCase())
     .filter(Boolean);
 
   const fingerprints = Array.from(
-    new Set([ANDROID_UPLOAD_SHA256.toUpperCase(), ...extra]),
+    new Set([
+      ANDROID_APP_SIGNING_SHA256.toUpperCase(),
+      ANDROID_UPLOAD_SHA256.toUpperCase(),
+      ...extra,
+    ]),
   );
 
   return NextResponse.json(

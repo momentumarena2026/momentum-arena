@@ -32,6 +32,19 @@ export const APPLE_TEAM_ID = "WHF7M743MW";
 export const ANDROID_UPLOAD_SHA256 =
   "35:3D:77:67:1B:E3:66:A3:E7:1C:F4:5B:C9:23:9F:65:46:38:77:28:71:F6:40:3B:F3:7A:37:B2:13:90:95:EC";
 
+/**
+ * SHA-256 of the PLAY APP-SIGNING key — the certificate Google re-signs
+ * with, so this is what every Play Store install actually carries. Taken
+ * from Play Console -> App signing -> App signing key certificate.
+ *
+ * This is the one that makes App Links verify in production; the upload
+ * key above only covers sideloaded and internal-test builds. Both are
+ * listed, because a device that got the app either way should be able to
+ * open momentumarena.com links.
+ */
+export const ANDROID_APP_SIGNING_SHA256 =
+  "8F:F4:15:04:E4:84:5F:81:D7:6B:85:C2:DE:BB:01:CB:9D:1A:7C:F7:03:8E:10:6D:BE:46:27:39:34:74:47:FB";
+
 export const APP_STORE_URL = `https://apps.apple.com/app/id${APPLE_APP_ID}`;
 export const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
 
