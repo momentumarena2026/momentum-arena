@@ -3537,3 +3537,45 @@ model CampRegistration {
   @@index([campId, status])
   @@index([userId])
 }
+
+
+// ── Public (casual) match scoring ────────────────────────────────────
+// Anyone playing at the arena can spin up a scratch match and score it
+// from their phone. Deliberately SEPARATE from the tournament scoring
+// path: tournament matches are scored only by whoever holds the
+// admin-issued, rotatable scorerCode, and nothing here can touch them.
+
+enum PublicMatchStatus {
+  LIVE
+  COMPLETED
+  ABANDONED
+}
+
+model PublicMatch {
+  id     String            @id @default(cuid())
+  // Short shareable code — friends open the live view with it.
+  code   String            @unique
+  sport  Sport
+  status PublicMatchStatus @default(LIVE)
+
+  teamAName String
+  teamBName String
+
+  // Only the creator can score; everyone else with the code watches.
+  createdByUserId String?
+
+  // Cricket only.
+  oversPerInnings Int?
+
+  // Compact scoreboard, plus an append-only event log that makes undo a
+  // replay rather than a guess at what to subtract.
+  state  Json
+  events Json
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([createdByUserId])
+}
