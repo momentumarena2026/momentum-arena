@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -24,6 +24,11 @@ import {
   verifyCampPayment,
   type CampSummary,
 } from "../../lib/camps";
+import {
+  trackCampsHubView,
+  trackCampRegisterStarted,
+  trackCampRegisterCompleted,
+} from "../../lib/analytics";
 
 /**
  * Camps: browse and register, mirroring /camps on the web. Registration
@@ -68,8 +73,13 @@ export function CampsScreen() {
 
   const q = useQuery({ queryKey: ["camps"], queryFn: fetchCamps });
 
+  useEffect(() => {
+    trackCampsHubView();
+  }, []);
+
   const register = useMutation({
     mutationFn: async (camp: CampSummary) => {
+      trackCampRegisterStarted(camp.slug, camp.fee);
       const res = await registerForCamp({
         campId: camp.id,
         participantName: form.participantName.trim(),
@@ -78,7 +88,14 @@ export function CampsScreen() {
         guardianName: form.guardianName.trim() || undefined,
       });
       // Free camp or waitlisted — nothing to pay.
-      if (!res.payableNow) return res;
+      if (!res.payableNow) {
+        trackCampRegisterCompleted(
+          camp.slug,
+          res.waitlisted ? "WAITLISTED" : "CONFIRMED",
+          "none",
+        );
+        return res;
+      }
 
       const paid = (await RazorpayCheckout.open({
         key: res.keyId!,
@@ -105,6 +122,7 @@ export function CampsScreen() {
         razorpaySignature: paid.razorpay_signature ?? "",
       });
       if (v.error) throw new Error(v.error);
+      trackCampRegisterCompleted(camp.slug, "CONFIRMED", "razorpay");
       return res;
     },
     onSuccess: (res) => {

@@ -167,6 +167,9 @@ export async function registerForCamp(
       paidAmount: paidNow,
       dueAmount,
       paymentMethod: isAdminEntry ? input.offline!.method : null,
+      // A desk walk-in is money in hand right now; an online registration
+      // gets its stamp when the payment confirms.
+      paidAt: paidNow > 0 ? new Date() : null,
       // A free camp (or a fully-collected walk-in) is confirmed outright;
       // anything with money still to come online stays PENDING_PAYMENT so
       // the seat is held but not yet earned.
@@ -232,6 +235,8 @@ export async function confirmCampPayment(args: {
       paidAmount: { increment: Math.max(0, args.paidRupees) },
       paymentMethod: args.method,
       paymentRef: args.paymentRef ?? null,
+      // Cash-basis stamp for analytics / CA.
+      paidAt: new Date(),
     },
   });
   if (claimed.count === 0) return { ok: true, already: true };

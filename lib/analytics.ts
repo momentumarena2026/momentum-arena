@@ -484,3 +484,26 @@ export function trackTournamentRegisterCompleted(
 export function trackTournamentLiveView(matchId: string) {
   trackEvent("tournament_live_view", { match_id: matchId });
 }
+
+// ── Camps funnel ────────────────────────────────────────────────────
+// hub → detail → register, mirrored in apps/mobile/src/lib/analytics.ts
+// so the funnel reads as one across web and app.
+export function trackCampsHubView() {
+  trackEvent("camps_hub_view");
+}
+
+export function trackCampView(slug: string) {
+  trackEvent("camp_view", { slug });
+}
+
+export function trackCampRegisterStarted(slug: string, fee: number) {
+  trackEvent("camp_register_started", { slug, fee });
+}
+
+export function trackCampRegisterCompleted(
+  slug: string,
+  state: string,
+  method: string,
+) {
+  trackEvent("camp_register_completed", { slug, state, method });
+}

@@ -132,6 +132,46 @@ export async function getRevenueOverTime(
             ORDER BY period
           `);
 
+    // Tournament entry fees and camp fees are sports income that never
+    // passes through Booking/Payment — the money sits on the team /
+    // registration row. Keyed on paidAt so it lands in the month the cash
+    // actually arrived, exactly like pass sales above.
+    const tournamentData =
+      scope === "cafe"
+        ? []
+        : await db.$queryRaw<
+            { period: Date; revenue: bigint }[]
+          >(Prisma.sql`
+            SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, tt."paidAt") AS period,
+                   SUM(tt."paidAmount")::bigint AS revenue
+            FROM "TournamentTeam" tt
+            WHERE tt."paidAmount" > 0
+              AND tt."archivedAt" IS NULL
+              AND tt.status = 'CONFIRMED'
+              AND tt."paidAt" >= ${from}
+              AND tt."paidAt" <= ${to}
+            GROUP BY period
+            ORDER BY period
+          `);
+
+    const campData =
+      scope === "cafe"
+        ? []
+        : await db.$queryRaw<
+            { period: Date; revenue: bigint }[]
+          >(Prisma.sql`
+            SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, cr."paidAt") AS period,
+                   SUM(cr."paidAmount")::bigint AS revenue
+            FROM "CampRegistration" cr
+            WHERE cr."paidAmount" > 0
+              AND cr."archivedAt" IS NULL
+              AND cr.status = 'CONFIRMED'
+              AND cr."paidAt" >= ${from}
+              AND cr."paidAt" <= ${to}
+            GROUP BY period
+            ORDER BY period
+          `);
+
     const cafeData =
       scope === "sports"
         ? []
@@ -168,6 +208,19 @@ export async function getRevenueOverTime(
     }
 
     for (const row of passSalesData) {
+      const key = row.period.toISOString().split("T")[0];
+      const existing = periodMap.get(key) || {
+        period: key,
+        sportsRevenue: 0,
+        cafeRevenue: 0,
+        totalRevenue: 0,
+      };
+      existing.sportsRevenue += Number(row.revenue);
+      existing.totalRevenue = existing.sportsRevenue + existing.cafeRevenue;
+      periodMap.set(key, existing);
+    }
+
+    for (const row of [...tournamentData, ...campData]) {
       const key = row.period.toISOString().split("T")[0];
       const existing = periodMap.get(key) || {
         period: key,

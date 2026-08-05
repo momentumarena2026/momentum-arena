@@ -266,7 +266,7 @@ export async function recordCampPayment(
   await gate();
   const reg = await db.campRegistration.findUnique({
     where: { id: registrationId },
-    select: { campId: true, dueAmount: true, status: true },
+    select: { campId: true, dueAmount: true, status: true, paidAt: true },
   });
   if (!reg) return { success: false, error: "Registration not found" };
   const paid = Math.max(0, Math.round(amount));
@@ -278,6 +278,9 @@ export async function recordCampPayment(
       paidAmount: { increment: paid },
       dueAmount: Math.max(0, reg.dueAmount - paid),
       paymentMethod: method,
+      // First money in stamps the cash-basis date; later top-ups keep it,
+      // so revenue never hops months when a balance is settled late.
+      ...(reg.paidAt ? {} : { paidAt: new Date() }),
       // Collecting the balance is also what confirms a pending seat.
       ...(reg.status === "PENDING_PAYMENT" ? { status: "CONFIRMED" as const } : {}),
     },

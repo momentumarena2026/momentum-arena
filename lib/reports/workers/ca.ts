@@ -297,6 +297,104 @@ export async function generateCaMonthlyReport(input: {
     });
   }
 
+  // 5. Tournament entry fees — sports income that never passes through
+  // Booking/Payment, so without its own sheet it was simply missing from
+  // the CA pack. Cash basis on paidAt, same as everything above.
+  const tournamentIncome = await db.tournamentTeam.findMany({
+    where: {
+      status: "CONFIRMED",
+      archivedAt: null,
+      paidAmount: { gt: 0 },
+      paidAt: { gte: monthStart, lt: monthEnd },
+    },
+    select: {
+      paidAt: true,
+      name: true,
+      captainPhone: true,
+      paidAmount: true,
+      dueAmount: true,
+      paymentMethod: true,
+      couponCode: true,
+      discount: true,
+      tournament: { select: { name: true } },
+    },
+    orderBy: { paidAt: "asc" },
+  });
+  const tSheet = wb.addWorksheet("Tournament Entries");
+  tSheet.columns = [
+    { header: "Date", key: "date", width: 20 },
+    { header: "Tournament", key: "tournament", width: 30 },
+    { header: "Team", key: "team", width: 26 },
+    { header: "Captain phone", key: "phone", width: 18 },
+    { header: "Paid (₹)", key: "paid", width: 14 },
+    { header: "Due at venue (₹)", key: "due", width: 16 },
+    { header: "Method", key: "method", width: 14 },
+    { header: "Coupon", key: "coupon", width: 14 },
+    { header: "Discount (₹)", key: "discount", width: 14 },
+  ];
+  styleHeaderRow(tSheet);
+  for (const t of tournamentIncome) {
+    tSheet.addRow({
+      date: t.paidAt ? fmtIst(t.paidAt) : "—",
+      tournament: t.tournament.name,
+      team: t.name,
+      phone: t.captainPhone,
+      paid: t.paidAmount,
+      due: t.dueAmount,
+      method: t.paymentMethod ?? "—",
+      coupon: t.couponCode ?? "—",
+      discount: t.discount,
+    });
+  }
+
+  // 6. Camp fees — same story as tournaments.
+  const campIncome = await db.campRegistration.findMany({
+    where: {
+      status: "CONFIRMED",
+      archivedAt: null,
+      paidAmount: { gt: 0 },
+      paidAt: { gte: monthStart, lt: monthEnd },
+    },
+    select: {
+      paidAt: true,
+      participantName: true,
+      phone: true,
+      paidAmount: true,
+      dueAmount: true,
+      paymentMethod: true,
+      couponCode: true,
+      discount: true,
+      camp: { select: { name: true } },
+    },
+    orderBy: { paidAt: "asc" },
+  });
+  const cSheet = wb.addWorksheet("Camp Registrations");
+  cSheet.columns = [
+    { header: "Date", key: "date", width: 20 },
+    { header: "Camp", key: "camp", width: 30 },
+    { header: "Participant", key: "participant", width: 26 },
+    { header: "Phone", key: "phone", width: 18 },
+    { header: "Paid (₹)", key: "paid", width: 14 },
+    { header: "Due at venue (₹)", key: "due", width: 16 },
+    { header: "Method", key: "method", width: 14 },
+    { header: "Coupon", key: "coupon", width: 14 },
+    { header: "Discount (₹)", key: "discount", width: 14 },
+  ];
+  styleHeaderRow(cSheet);
+  for (const c of campIncome) {
+    cSheet.addRow({
+      date: c.paidAt ? fmtIst(c.paidAt) : "—",
+      camp: c.camp.name,
+      participant: c.participantName,
+      phone: c.phone,
+      paid: c.paidAmount,
+      due: c.dueAmount,
+      method: c.paymentMethod ?? "—",
+      coupon: c.couponCode ?? "—",
+      discount: c.discount,
+    });
+  }
+
   // ─── Output ────────────────────────────────────────────────────
   const ab = await wb.xlsx.writeBuffer();
   const bytes = Buffer.from(ab);

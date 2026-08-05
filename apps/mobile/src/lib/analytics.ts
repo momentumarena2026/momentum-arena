@@ -737,3 +737,21 @@ export function trackTournamentRegisterCompleted(slug: string, state: string, me
 export function trackTournamentLiveView(matchId: string) {
   trackEvent("tournament_live_view", { match_id: matchId });
 }
+
+// ── Camps funnel ────────────────────────────────────────────────────
+// Mirrors lib/analytics.ts on web so the funnel is one series in GA4.
+export function trackCampsHubView() {
+  trackEvent("camps_hub_view");
+}
+
+export function trackCampView(slug: string) {
+  trackEvent("camp_view", { slug });
+}
+
+export function trackCampRegisterStarted(slug: string, fee: number) {
+  trackEvent("camp_register_started", { slug, fee });
+}
+
+export function trackCampRegisterCompleted(slug: string, state: string, method: string) {
+  trackEvent("camp_register_completed", { slug, state, method });
+}
