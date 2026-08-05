@@ -6,6 +6,9 @@ import {
   recordTeamPayment,
   adminRegisterTeam,
   adminEditTeam,
+  rotateScorerCode,
+  archiveTournamentTeam,
+  deleteTournamentTeam,
 } from "@/actions/admin-tournaments";
 import {
   autoAssignPools,
@@ -24,6 +27,9 @@ import { enterMatchResult } from "@/actions/admin-tournament-scores";
  *   dealPools {tournamentId}
  *   generateFixtures {tournamentId}
  *   enterResult {matchId, result}
+ *   rotateScorer {tournamentId}
+ *   archiveTeam {teamId, archived}
+ *   deleteTeam {teamId}
  * Every underlying server action re-gates on MANAGE_TOURNAMENTS itself.
  */
 export async function POST(request: NextRequest) {
@@ -45,6 +51,12 @@ export async function POST(request: NextRequest) {
   else if (op === "dealPools") result = await autoAssignPools(body.tournamentId);
   else if (op === "generateFixtures") result = await generateFixtures(body.tournamentId);
   else if (op === "enterResult") result = await enterMatchResult(body.matchId, body.result);
+  // Web-only until now, which meant a scorer code could only be rotated
+  // from a laptop — the one moment you most want a phone.
+  else if (op === "rotateScorer") result = await rotateScorerCode(String(body.tournamentId || ""));
+  else if (op === "archiveTeam")
+    result = await archiveTournamentTeam(String(body.teamId || ""), body.archived !== false);
+  else if (op === "deleteTeam") result = await deleteTournamentTeam(String(body.teamId || ""));
   else return NextResponse.json({ error: "Unknown op" }, { status: 400 });
 
   if (result && result.success === false) {

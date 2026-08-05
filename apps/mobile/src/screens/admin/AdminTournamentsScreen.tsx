@@ -158,6 +158,20 @@ export function AdminTournamentsScreen() {
               >
                 <Text style={{ color: "#f87171", fontSize: 12 }}>Open scorer</Text>
               </Pressable>
+              {/* Rotating the code was web-only, which is backwards: you
+                  discover it has leaked at the venue, phone in hand. */}
+              <Pressable
+                disabled={busy}
+                onPress={() =>
+                  act(
+                    { op: "rotateScorer", tournamentId: t.id },
+                    "Rotate the scorer code? The old code stops working immediately.",
+                  )
+                }
+                style={styles.chipBtn}
+              >
+                <Text style={{ color: colors.zinc400, fontSize: 12 }}>Rotate</Text>
+              </Pressable>
             </View>
           )}
 
@@ -321,6 +335,22 @@ export function AdminTournamentsScreen() {
                     <Text style={{ color: "#f87171", fontSize: 12 }}>Reject</Text>
                   </Pressable>
                 )}
+                {/* Archive / Delete — web's team modal has both; the app
+                    had neither, so tidying a duplicate entry meant a laptop. */}
+                <Pressable
+                  disabled={busy}
+                  onPress={() => act({ op: "archiveTeam", teamId: team.id, archived: true }, "Archive this team? It stays in the records but leaves the active list.")}
+                  style={styles.chipBtn}
+                >
+                  <Text style={{ color: colors.zinc400, fontSize: 12 }}>Archive</Text>
+                </Pressable>
+                <Pressable
+                  disabled={busy}
+                  onPress={() => act({ op: "deleteTeam", teamId: team.id }, "Delete this team permanently? This cannot be undone.")}
+                  style={styles.chipBtn}
+                >
+                  <Text style={{ color: "#f87171", fontSize: 12 }}>Delete</Text>
+                </Pressable>
               </View>
             </View>
           ))}
