@@ -135,7 +135,16 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
 export function buildDraw(
   teams: TeamForDraw[],
   windows: SlotWindow[],
-  opts: { poolCount: number; matchDurationMinutes: number; seed: number },
+  opts: {
+    poolCount: number;
+    matchDurationMinutes: number;
+    seed: number;
+    /** Off = plain shuffled deal, ignoring preferences when grouping.
+     *  Clustering is usually better, but when everyone's picks line up
+     *  it collapses to a single arrangement — these give the admin a
+     *  genuine alternative to compare against. */
+    cluster?: boolean;
+  },
 ): DrawPlan {
   const slots = expandSlots(windows, opts.matchDurationMinutes);
   const poolCount = Math.max(1, opts.poolCount);
@@ -149,6 +158,7 @@ export function buildDraw(
       ? "" // no preference — filler, fits anywhere
       : t.preferredSlotIds.slice().sort().join("|");
 
+  const useCluster = opts.cluster !== false;
   const groups = new Map<string, TeamForDraw[]>();
   for (const t of seededShuffle(teams, opts.seed)) {
     const k = signature(t);
@@ -169,10 +179,10 @@ export function buildDraw(
       .map((p, i) => ({ p, i }))
       .filter(({ p }) => p.length < perPool);
     const target =
-      candidates.find(({ p }) =>
+      (useCluster ? candidates.find(({ p }) =>
         p.length > 0 &&
         p.every((o) => signature(o) === signature(t) || signature(o) === "" || signature(t) === ""),
-      ) ?? candidates.sort((a, b) => a.p.length - b.p.length)[0] ?? { i: 0 };
+      ) : undefined) ?? candidates.sort((a, b) => a.p.length - b.p.length)[0] ?? { i: 0 };
     pools[target.i].push(t);
   }
 
@@ -262,7 +272,11 @@ export function generateCandidates(
   const tries = opts.count ?? 24;
   const plans: DrawPlan[] = [];
   for (let seed = 1; seed <= tries; seed++) {
-    plans.push(buildDraw(teams, windows, { ...opts, seed }));
+    // Clustered draws honour preferences best; unclustered ones give the
+    // admin a real alternative when every team's picks align and the
+    // clustered arrangement is otherwise the only one on offer.
+    plans.push(buildDraw(teams, windows, { ...opts, seed, cluster: true }));
+    plans.push(buildDraw(teams, windows, { ...opts, seed, cluster: false }));
   }
   // De-duplicate identical pool arrangements so the admin isn't offered
   // the same draw twice under different numbers.
