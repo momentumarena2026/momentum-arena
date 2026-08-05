@@ -403,7 +403,7 @@ export async function recordTeamPayment(
   }
   const team = await db.tournamentTeam.findUnique({
     where: { id: teamId },
-    select: { tournamentId: true, dueAmount: true },
+    select: { tournamentId: true, dueAmount: true, paidAt: true },
   });
   if (!team) return { success: false, error: "Team not found" };
   if (amount > team.dueAmount) {
@@ -415,6 +415,9 @@ export async function recordTeamPayment(
       paidAmount: { increment: amount },
       dueAmount: { decrement: amount },
       paymentMethod: method,
+      // First money in stamps the cash-basis date; a later balance
+      // collection keeps it, so revenue never hops months.
+      ...(team.paidAt ? {} : { paidAt: new Date() }),
       // trail of who took the money lives in the admin audit note
     },
   });

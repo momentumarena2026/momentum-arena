@@ -551,6 +551,8 @@ export async function confirmTournamentEntry(args: {
     where: { id: team.id, status: { in: ["PENDING_PAYMENT", "WAITLISTED"] } },
     data: {
       status: "CONFIRMED",
+      // Cash-basis stamp for analytics / CA — set once, on first confirm.
+      paidAt: new Date(),
       paidAmount: expected,
       dueAmount: netFee - expected,
       paymentMethod: args.method || "RAZORPAY",

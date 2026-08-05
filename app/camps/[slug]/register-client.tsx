@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -12,6 +12,11 @@ import {
   Check,
   Loader2,
 } from "lucide-react";
+import {
+  trackCampView,
+  trackCampRegisterStarted,
+  trackCampRegisterCompleted,
+} from "@/lib/analytics";
 
 type Camp = {
   id: string;
@@ -97,6 +102,11 @@ export function CampRegisterClient({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ waitlisted: boolean } | null>(null);
 
+  // Funnel: hub → detail → register. Fires once per camp.
+  useEffect(() => {
+    trackCampView(camp.slug);
+  }, [camp.slug]);
+
   const open = camp.status === "REGISTRATIONS_OPEN";
   const full = camp.seatsLeft <= 0;
   const payNow =
@@ -114,6 +124,7 @@ export function CampRegisterClient({
     if (busy) return;
     setBusy(true);
     setError(null);
+    trackCampRegisterStarted(camp.slug, camp.fee);
     try {
       const res = await fetch("/api/camps/register", {
         method: "POST",
@@ -125,6 +136,11 @@ export function CampRegisterClient({
 
       // Free camp or waitlisted — nothing to pay.
       if (!data.payableNow) {
+        trackCampRegisterCompleted(
+          camp.slug,
+          data.waitlisted ? "WAITLISTED" : "CONFIRMED",
+          "none",
+        );
         setDone({ waitlisted: !!data.waitlisted });
         router.refresh();
         return;
@@ -157,6 +173,7 @@ export function CampRegisterClient({
           });
           const vd = await v.json().catch(() => ({}));
           if (v.ok) {
+            trackCampRegisterCompleted(camp.slug, "CONFIRMED", "razorpay");
             setDone({ waitlisted: false });
             router.refresh();
           } else {

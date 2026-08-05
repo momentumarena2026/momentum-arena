@@ -3255,6 +3255,10 @@ model TournamentTeam {
   dueAmount     Int     @default(0)
   paymentMethod String? // RAZORPAY | UPI_DQR | CASH | FREE ...
   paymentRef    String? // razorpay payment id / phonePe merchantTxnId
+  // When the money actually arrived — the CASH-BASIS date analytics and
+  // the CA report key on. updatedAt can't serve: it moves on every later
+  // edit, which would silently reassign revenue to another month.
+  paidAt        DateTime?
   couponCode    String?
   discount      Int     @default(0)
   pointsUsed    Int     @default(0)
@@ -3518,6 +3522,8 @@ model CampRegistration {
   dueAmount     Int     @default(0)
   paymentMethod String?
   paymentRef    String?
+  // Cash-basis date the money arrived (see TournamentTeam.paidAt).
+  paidAt        DateTime?
   couponCode    String?
   discount      Int     @default(0)
   pointsUsed    Int     @default(0)
