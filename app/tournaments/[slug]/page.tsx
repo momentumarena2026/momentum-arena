@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight } from "lucide-react";
+import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight, CalendarClock } from "lucide-react";
 import { getMyTournamentTeam, getPublicTournamentBySlug } from "@/lib/tournaments";
 import { onlinePayable, parsePrizes, STATUS_LABELS } from "@/lib/tournament-config";
 import { auth } from "@/lib/auth";
+import { SlotPreferences } from "./slot-preferences";
 import { SquadManager } from "./squad-manager";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,14 @@ export default async function TournamentPublicPage({
   const spotsLeft = Math.max(0, t.totalTeams - confirmed.length);
   const payable = onlinePayable(t.entryFee, t.feeMode, t.advancePct);
   const prizes = parsePrizes(t.prizes);
+  const slots = t.slots ?? [];
+  // 24h -> "10pm"; windows are venue wall-clock, never UTC.
+  const hourLabel = (h: number) => {
+    const hr = h % 24;
+    const am = hr < 12;
+    const v = hr % 12 === 0 ? 12 : hr % 12;
+    return `${v}${am ? "am" : "pm"}`;
+  };
   const myTeam = session?.user?.id
     ? t.teams.find((x) => x.captainUserId === session.user!.id)
     : null;
@@ -117,6 +126,23 @@ export default async function TournamentPublicPage({
       </div>
 
       {/* Captain's squad manager (post-registration, optional) */}
+      {/* Captain's slot picks — sits with the squad manager because
+          both are "things the captain owns after registering". */}
+      {mySquad && slots.length > 0 && (
+        <SlotPreferences
+          teamId={mySquad.id}
+          slots={slots.map((x) => ({
+            id: x.id,
+            date: x.date.toISOString(),
+            startHour: x.startHour,
+            endHour: x.endHour,
+            label: x.label,
+          }))}
+          initial={myTeam?.preferredSlotIds ?? []}
+          locked={!!t.scheduleApprovedAt}
+        />
+      )}
+
       {mySquad && (
         <SquadManager
           teamId={mySquad.id}
@@ -171,6 +197,42 @@ export default async function TournamentPublicPage({
                 <li key={p.place} className="flex items-baseline justify-between gap-3 text-sm">
                   <span className="text-zinc-400">{p.place}</span>
                   <span className="text-right text-zinc-200">{p.label}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Pre-decided match windows */}
+        {slots.length > 0 && (
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+            <h2 className="flex items-center gap-2 font-semibold text-white">
+              <CalendarClock className="h-5 w-5 text-emerald-400" /> Match windows
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Pool matches run inside these windows. Semi-final and final are
+              scheduled separately once the pools finish.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {slots.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-baseline justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
+                >
+                  <span className="text-zinc-300">
+                    {new Date(s.date).toLocaleDateString("en-IN", {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                      timeZone: "Asia/Kolkata",
+                    })}
+                    {s.label ? (
+                      <span className="ml-2 text-xs text-zinc-500">{s.label}</span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 font-medium text-emerald-300">
+                    {hourLabel(s.startHour)} – {hourLabel(s.endHour)}
+                  </span>
                 </li>
               ))}
             </ul>

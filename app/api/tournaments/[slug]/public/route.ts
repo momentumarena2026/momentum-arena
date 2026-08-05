@@ -21,6 +21,13 @@ export async function GET(
   const t = await db.tournament.findUnique({
     where: { slug },
     include: {
+      slots: {
+        orderBy: [{ date: "asc" }, { startHour: "asc" }],
+        select: {
+          id: true, date: true, startHour: true, endHour: true, label: true,
+          courtConfig: { select: { label: true } },
+        },
+      },
       pools: {
         orderBy: { order: "asc" },
         select: { id: true, name: true, order: true },
@@ -190,7 +197,19 @@ export async function GET(
       endDate: t.endDate,
       membersPerTeamMax: t.membersPerTeamMax,
       thirdPlaceMatch: t.thirdPlaceMatch,
+      matchDurationMinutes: t.matchDurationMinutes,
     },
+    // Pre-decided match windows. Public from the moment the admin adds
+    // them — a team deciding whether to enter needs to know when it
+    // would have to turn up. Semi-final and final are not in here.
+    matchSlots: t.slots.map((s2) => ({
+      id: s2.id,
+      date: s2.date.toISOString(),
+      startHour: s2.startHour,
+      endHour: s2.endHour,
+      label: s2.label,
+      courtLabel: s2.courtConfig?.label ?? null,
+    })),
     poolsRevealed,
     pools: poolsRevealed ? t.pools : [],
     teams: t.teams.map((x) => ({

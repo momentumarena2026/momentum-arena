@@ -18,6 +18,7 @@ import {
   type MatchLite,
   type TeamLite,
   type StandRow,
+  saveSlotPreferences,
 } from "../../lib/tournaments";
 import { useAuth } from "../../providers/AuthProvider";
 import type { AccountStackParamList } from "../../navigation/types";
@@ -34,6 +35,13 @@ const fmtDate = (iso: string) =>
     year: "numeric",
     timeZone: "Asia/Kolkata",
   });
+
+const hourLabel = (h: number) => {
+  const hr = h % 24;
+  const am = hr < 12;
+  const v = hr % 12 === 0 ? 12 : hr % 12;
+  return `${v}${am ? "am" : "pm"}`;
+};
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -74,6 +82,82 @@ function Badge({ team, size = 26 }: { team: TeamLite | undefined | null; size?: 
 /** Captain's post-registration squad card — registration only needs the
  *  captain; the squad is built (optionally) here. Sends the full desired
  *  list; the server reconciles it stat-safely. */
+function SlotPicker({
+  teamId,
+  windows,
+  initial,
+  locked,
+  onSaved,
+}: {
+  teamId: string;
+  windows: { id: string; date: string; startHour: number; endHour: number; label: string | null }[];
+  initial: string[];
+  locked: boolean;
+  onSaved: () => void;
+}) {
+  const [picked, setPicked] = useState<string[]>(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  if (windows.length === 0) return null;
+
+  return (
+    <View style={{ marginTop: 12, gap: 8 }}>
+      <Text style={styles.cardTitle}>Your preferred slots</Text>
+      <Text style={styles.cardBody}>
+        Tick every window your team can play — pools and match times are built
+        around these. Leave all unticked if any time works.
+      </Text>
+      {windows.map((w) => {
+        const on = picked.includes(w.id);
+        return (
+          <Pressable
+            key={w.id}
+            disabled={locked}
+            onPress={() =>
+              setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))
+            }
+            style={[styles.slotRow, on && styles.slotRowOn, locked && { opacity: 0.6 }]}
+          >
+            <View style={[styles.slotBox, on && styles.slotBoxOn]}>
+              {on ? <Text style={{ color: "#032016", fontSize: 11, fontWeight: "800" }}>✓</Text> : null}
+            </View>
+            <Text style={{ color: on ? colors.emerald400 : colors.zinc300, fontSize: 13 }}>
+              {fmtDate(w.date)}  {hourLabel(w.startHour)}–{hourLabel(w.endHour)}
+              {w.label ? `  ${w.label}` : ""}
+            </Text>
+          </Pressable>
+        );
+      })}
+      {locked ? (
+        <Text style={styles.cardBody}>
+          The schedule is published — contact the venue to change slots.
+        </Text>
+      ) : (
+        <Pressable
+          disabled={busy}
+          onPress={async () => {
+            setBusy(true);
+            setMsg(null);
+            try {
+              const r = await saveSlotPreferences(teamId, picked);
+              setMsg(r.error ?? "Saved");
+              if (!r.error) onSaved();
+            } catch (e) {
+              setMsg(e instanceof Error ? e.message : "Couldn't save");
+            } finally {
+              setBusy(false);
+            }
+          }}
+          style={[styles.registerBtn, { alignSelf: "flex-start", paddingHorizontal: 16 }]}
+        >
+          <Text style={styles.registerText}>{busy ? "Saving…" : "Save slots"}</Text>
+        </Pressable>
+      )}
+      {msg ? <Text style={styles.cardBody}>{msg}</Text> : null}
+    </View>
+  );
+}
+
 function MySquadCard({ slug }: { slug: string }) {
   const { state: authState } = useAuth();
   const queryClient = useQueryClient();
@@ -90,6 +174,18 @@ function MySquadCard({ slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
 
   if (!team) return null;
+
+  const windows = team.matchSlots ?? [];
+  const locked = !!team.slotsLocked;
+  const picker = (
+    <SlotPicker
+      teamId={team.id}
+      windows={windows}
+      initial={team.preferredSlotIds ?? []}
+      locked={locked}
+      onSaved={() => queryClient.invalidateQueries({ queryKey: ["myTeam", slug] })}
+    />
+  );
 
   const save = async () => {
     if (busy) return;
@@ -232,6 +328,7 @@ function MySquadCard({ slug }: { slug: string }) {
           </View>
         </View>
       )}
+      {picker}
     </View>
   );
 }
@@ -552,6 +649,31 @@ export function TournamentDetailScreen() {
                 />
               </View>
             </View>
+
+            {/* Pre-decided match windows — same information the web page
+                shows, so a team knows when it would have to turn up.
+                Semi-final and final are scheduled separately. */}
+            {Array.isArray(data.matchSlots) && data.matchSlots.length > 0 ? (
+              <View style={styles.card}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <CalendarDays size={15} color={colors.emerald400} />
+                  <Text style={styles.cardTitle}>Match windows</Text>
+                </View>
+                <Text style={[styles.cardBody, { marginTop: 4 }]}>
+                  Pool matches run inside these windows. Semi-final and final
+                  are scheduled separately once the pools finish.
+                </Text>
+                <View style={{ marginTop: 8, gap: 6 }}>
+                  {data.matchSlots.map((w) => (
+                    <DetailRow
+                      key={w.id}
+                      label={`${fmtDate(w.date)}${w.label ? ` · ${w.label}` : ""}`}
+                      value={`${hourLabel(w.startHour)} – ${hourLabel(w.endHour)}`}
+                    />
+                  ))}
+                </View>
+              </View>
+            ) : null}
 
             {Array.isArray(t.prizes) &&
             t.prizes.filter((p) => p && p.place && p.label).length > 0 ? (
@@ -906,6 +1028,26 @@ const styles = StyleSheet.create({
     color: colors.foreground,
   },
   prizePoolNote: { fontSize: 12, fontWeight: "400", color: colors.zinc500 },
+  slotRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: radius.lg,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  slotRowOn: {
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+  },
+  slotBox: {
+    width: 16, height: 16, borderRadius: 4,
+    borderWidth: 1, borderColor: colors.zinc600,
+    alignItems: "center", justifyContent: "center",
+  },
+  slotBoxOn: { backgroundColor: colors.emerald400, borderColor: colors.emerald400 },
   detailRow: {
     flexDirection: "row",
     alignItems: "flex-start",
