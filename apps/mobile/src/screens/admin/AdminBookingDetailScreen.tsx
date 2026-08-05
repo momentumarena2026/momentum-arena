@@ -38,6 +38,7 @@ import {
   adminBookingsApi,
   type AdminBookingDetail,
   AdminApiError,
+  venueAmountStillDue,
 } from "../../lib/admin-bookings";
 import {
   formatDateLong,
@@ -445,10 +446,7 @@ export function AdminBookingDetailScreen() {
   const canEditPayment = booking.status !== "CANCELLED" && payment !== null;
   const canRefund =
     isConfirmed && payment?.status === "COMPLETED" && payment.method !== "FREE";
-  const venueDue =
-    payment?.isPartialPayment && (payment?.remainingAmount ?? 0) > 0
-      ? Math.max(booking.totalAmount - (payment?.advanceAmount ?? 0), 0)
-      : 0;
+  const venueDue = venueAmountStillDue(booking.totalAmount, payment);
   const canMarkCollected = venueDue > 0;
   // Edit-split is only meaningful AFTER the venue remainder has been
   // collected (the partial block flips to "Paid in Full") and there's

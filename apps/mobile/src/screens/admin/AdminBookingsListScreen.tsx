@@ -30,6 +30,7 @@ import {
   adminBookingsApi,
   type AdminBookingListItem,
   type ListFilters,
+  venueAmountStillDue,
 } from "../../lib/admin-bookings";
 import {
   formatDateLong,
@@ -648,11 +649,7 @@ function BookingRow({
   const sport = sportLabel(booking.courtConfig.sport);
   const courtLabel = booking.courtConfig.label;
   // Partial bookings still owe at venue → small amber chip on the row.
-  const venueDue =
-    booking.payment?.isPartialPayment &&
-    (booking.payment?.remainingAmount ?? 0) > 0
-      ? booking.totalAmount - (booking.payment?.advanceAmount ?? 0)
-      : 0;
+  const venueDue = venueAmountStillDue(booking.totalAmount, booking.payment);
 
   return (
     <Pressable

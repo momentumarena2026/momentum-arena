@@ -585,6 +585,10 @@ export default async function AdminBookingsPage({
               isPartialPayment: b.payment.isPartialPayment,
               advanceAmount: b.payment.advanceAmount,
               remainingAmount: b.payment.remainingAmount,
+              // Venue legs already taken — the row chip nets these off so
+              // a part-paid booking stops advertising the full remainder.
+              remainderCashAmount: b.payment.remainderCashAmount,
+              remainderUpiAmount: b.payment.remainderUpiAmount,
             } : null,
             _isRecurringChildPayment: b._isRecurringChildPayment,
             recurringBooking: b.recurringBooking ? {
