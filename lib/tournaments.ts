@@ -89,7 +89,9 @@ export async function listPublicTournaments() {
       regOpenAt: true,
       regCloseAt: true,
       liveScoringEnabled: true,
-      _count: { select: { teams: { where: { status: "CONFIRMED" } } } },
+      _count: {
+        select: { teams: { where: { status: "CONFIRMED", archivedAt: null } } },
+      },
     },
   });
   // Lazily run any due window transitions (usually a no-op for every row).
@@ -109,7 +111,10 @@ export async function getPublicTournamentBySlug(slug: string) {
     where: { slug },
     include: {
       teams: {
-        where: { status: { in: ["CONFIRMED", "WAITLISTED", "PENDING_PAYMENT"] } },
+        where: {
+          status: { in: ["CONFIRMED", "WAITLISTED", "PENDING_PAYMENT"] },
+          archivedAt: null,
+        },
         orderBy: { createdAt: "asc" },
         select: {
           id: true,
@@ -276,7 +281,11 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
 
   // Capacity: CONFIRMED + in-flight PENDING_PAYMENT hold slots.
   const taken = await db.tournamentTeam.count({
-    where: { tournamentId: t.id, status: { in: ["CONFIRMED", "PENDING_PAYMENT"] } },
+    where: {
+      tournamentId: t.id,
+      status: { in: ["CONFIRMED", "PENDING_PAYMENT"] },
+      archivedAt: null,
+    },
   });
   const isFull = taken >= t.totalTeams;
   if (isFull && !t.waitlistEnabled) return { ok: false, error: "The tournament is full" };
@@ -718,20 +727,45 @@ export async function getMyTournamentTeam(tournamentId: string, userId: string) 
  *  kept (case-insensitive) so their recorded stats/events survive. Members
  *  with recorded stats can't be dropped. Shared by the captain editor
  *  (web + app) and both admin roster editors. */
+/** One squad row as submitted by a captain or an admin. */
+export interface SquadMemberInput {
+  name: string;
+  /** Optional — squads get built before every number is known. */
+  phone?: string | null;
+}
+
+/**
+ * Replace a team's squad with `membersInput`, preserving identity (and
+ * therefore recorded stats) for players whose NAME is unchanged.
+ *
+ * Accepts either bare names (legacy callers) or {name, phone} rows.
+ */
 export async function reconcileTeamSquad(
   teamId: string,
-  namesInput: string[],
+  namesInput: (string | SquadMemberInput)[],
   maxMembers: number
 ): Promise<{ ok: boolean; error?: string }> {
   const seen = new Set<string>();
   const names: string[] = [];
+  const phoneByKey = new Map<string, string | null>();
   for (const raw of namesInput) {
-    const name = String(raw).trim().slice(0, 60);
+    const row: SquadMemberInput =
+      typeof raw === "string" ? { name: raw } : raw;
+    const name = String(row.name ?? "").trim().slice(0, 60);
     if (!name) continue;
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     names.push(name);
+    // A bare-string row (or an omitted `phone`) means "this caller doesn't
+    // manage phones" — the app's older squad editor, say. Leave whatever is
+    // stored alone rather than blanking a number someone else entered.
+    // Passing an explicit empty string still clears it.
+    if (typeof raw !== "string" && row.phone !== undefined) {
+      // Keep only digits/+ so a pasted "+91 98765 43210" stores cleanly.
+      const phone = String(row.phone ?? "").replace(/[^\d+]/g, "").slice(0, 15);
+      phoneByKey.set(key, phone || null);
+    }
   }
   if (names.length === 0) return { ok: false, error: "Squad needs at least one player" };
   if (names.length > maxMembers) {
@@ -772,11 +806,24 @@ export async function reconcileTeamSquad(
       if (match) {
         await tx.tournamentTeamMember.update({
           where: { id: match.id },
-          data: { name: names[i], order: i, isCaptain: captainStays ? match.isCaptain : i === 0 },
+          data: {
+            name: names[i],
+            ...(phoneByKey.has(names[i].toLowerCase())
+              ? { phone: phoneByKey.get(names[i].toLowerCase()) ?? null }
+              : {}),
+            order: i,
+            isCaptain: captainStays ? match.isCaptain : i === 0,
+          },
         });
       } else {
         await tx.tournamentTeamMember.create({
-          data: { teamId, name: names[i], order: i, isCaptain: captainStays ? false : i === 0 },
+          data: {
+            teamId,
+            name: names[i],
+            phone: phoneByKey.get(names[i].toLowerCase()) ?? null,
+            order: i,
+            isCaptain: captainStays ? false : i === 0,
+          },
         });
       }
     }
