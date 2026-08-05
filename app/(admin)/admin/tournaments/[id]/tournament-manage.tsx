@@ -27,12 +27,19 @@ import {
 import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
 import { TournamentWizard } from "../tournament-wizard";
 import { PoolsTab } from "./pools-tab";
+import { TeamDetailModal } from "./team-detail-modal";
 import { FixturesTab, type MatchRow } from "./fixtures-tab";
 import { ScoresTab } from "./scores-tab";
 import { CampaignTab } from "./campaign-tab";
 
 // Serialized shapes from getTournamentAdmin (dates as ISO strings).
-type MemberRow = { id: string; name: string; isCaptain: boolean; order: number };
+type MemberRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  isCaptain: boolean;
+  order: number;
+};
 type TeamRow = {
   id: string;
   name: string;
@@ -42,12 +49,17 @@ type TeamRow = {
   poolId: string | null;
   captainName: string;
   captainPhone: string;
+  captainEmail: string | null;
   paidAmount: number;
   dueAmount: number;
   paymentMethod: string | null;
+  paymentRef: string | null;
   couponCode: string | null;
+  discount: number;
+  pointsUsed: number;
   pool: { name: string } | null;
   members: MemberRow[];
+  archivedAt: string | null;
   createdAt: string;
 };
 export type AdminTournament = {
@@ -143,6 +155,11 @@ export function TournamentManage({
   // Per-team squad editor — squads are optional at registration, so
   // admins can build/fix any roster here at any time.
   const [squadFor, setSquadFor] = useState<string | null>(null);
+  // Full team record (squad + phones + money + archive/delete) opens in a
+  // dialog rather than the old comma-separated inline input, where
+  // removing one player meant retyping the line and a phone had nowhere
+  // to live.
+  const [detailTeamId, setDetailTeamId] = useState<string | null>(null);
   const [squadText, setSquadText] = useState("");
   const [showVenueForm, setShowVenueForm] = useState(false);
   const [venueForm, setVenueForm] = useState({
@@ -480,6 +497,11 @@ export function TournamentManage({
                         {team.status.replace("_", " ")}
                       </span>
                       {team.pool && <span className="text-xs text-violet-400">{team.pool.name}</span>}
+                      {team.archivedAt && (
+                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500">
+                          Archived
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-zinc-500">
                       {team.captainName} · {team.captainPhone} · {team.members.length} players
@@ -546,25 +568,44 @@ export function TournamentManage({
                 ) : (
                   <div className="flex flex-wrap items-center gap-1.5">
                     {team.members.map((m) => (
-                      <span key={m.id} className="rounded-full bg-zinc-800 px-2.5 py-1 text-xs text-zinc-300">
+                      <span
+                        key={m.id}
+                        className="rounded-full bg-zinc-800 px-2.5 py-1 text-xs text-zinc-300"
+                        title={m.phone || undefined}
+                      >
                         {m.name}
                         {m.isCaptain && <span className="ml-1 text-emerald-400">©</span>}
+                        {m.phone && (
+                          <span className="ml-1 text-zinc-500">{m.phone}</span>
+                        )}
                       </span>
                     ))}
                     <button
-                      onClick={() => {
-                        setSquadFor(team.id);
-                        setSquadText(team.members.map((m) => m.name).join(", "));
-                      }}
+                      onClick={() => setDetailTeamId(team.id)}
                       className="rounded-full border border-zinc-700 px-2.5 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
                     >
-                      ✎ Edit squad
+                      ✎ Team details
                     </button>
                   </div>
                 )}
               </div>
             </div>
           ))}
+
+          {detailTeamId
+            ? (() => {
+                const team = t.teams.find((x) => x.id === detailTeamId);
+                if (!team) return null;
+                return (
+                  <TeamDetailModal
+                    team={team}
+                    maxMembers={t.membersPerTeamMax}
+                    onClose={() => setDetailTeamId(null)}
+                    onSaved={() => router.refresh()}
+                  />
+                );
+              })()
+            : null}
         </div>
       )}
 
