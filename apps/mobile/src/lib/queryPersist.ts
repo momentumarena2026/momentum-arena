@@ -36,6 +36,7 @@ const PERSIST: readonly string[] = [
   "camps-hub",
   "promo-banners",
   "sport-promo",
+  "info-bar",
   "my-passes",
   "notifications",
 ];

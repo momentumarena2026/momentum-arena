@@ -11,7 +11,9 @@
 export interface SportTheme {
   label: string;
   emoji: string;
-  /** Fallback banner path, relative to the API origin. */
+  /** Fallback banner path, relative to the API origin. Points at the
+   *  resized WebP in /public/opt — the app fetches the raw file (no
+   *  next/image in front of it), and the originals are 1-2MB each. */
   imagePath: string;
   /** Accent — chips, rules, the capacity bar. */
   hex: string;
@@ -24,7 +26,7 @@ const THEMES: Record<string, SportTheme> = {
   CRICKET: {
     label: "Cricket",
     emoji: "🏏",
-    imagePath: "/cricket.png",
+    imagePath: "/opt/cricket.webp",
     hex: "#10b981",
     chipBg: "rgba(16,185,129,0.12)",
     chipBorder: "rgba(16,185,129,0.35)",
@@ -32,7 +34,7 @@ const THEMES: Record<string, SportTheme> = {
   FOOTBALL: {
     label: "Football",
     emoji: "⚽",
-    imagePath: "/football.jpeg",
+    imagePath: "/opt/football.webp",
     hex: "#38bdf8",
     chipBg: "rgba(56,189,248,0.12)",
     chipBorder: "rgba(56,189,248,0.35)",
@@ -40,7 +42,7 @@ const THEMES: Record<string, SportTheme> = {
   PICKLEBALL: {
     label: "Pickleball",
     emoji: "🎾",
-    imagePath: "/pickleball.png",
+    imagePath: "/opt/pickleball.webp",
     hex: "#facc15",
     chipBg: "rgba(250,204,21,0.12)",
     chipBorder: "rgba(250,204,21,0.35)",

@@ -1,3 +1,4 @@
+import { Image } from "react-native";
 import { queryClient } from "./queryClient";
 import { fetchTournamentHub } from "./tournaments";
 import { fetchCampsHub } from "./camps";
@@ -5,6 +6,8 @@ import { bookingApi } from "./booking";
 import { bookingsApi } from "./bookings";
 import { notificationsApi } from "./user-notifications";
 import { promoBannersApi } from "./promo-banners";
+import { infoBarApi } from "./info-bar";
+import { env } from "../config/env";
 
 /**
  * Warm the landing screen's data DURING the splash.
@@ -38,6 +41,7 @@ export function prefetchPublicHomeData(): void {
     void queryClient.prefetchQuery({ queryKey: key, queryFn: fn, staleTime }).catch(() => {});
   };
 
+  warm(["info-bar"], infoBarApi.get, FIVE_MIN);
   warm(["tournaments"], fetchTournamentHub, FIVE_MIN);
   warm(["camps-hub"], fetchCampsHub, FIVE_MIN);
   warm(["sport-promo", "PICKLEBALL"], () => bookingApi.sportPromo("PICKLEBALL"), FIVE_MIN);
@@ -59,4 +63,29 @@ export function prefetchSignedInHomeData(): void {
       staleTime: 60_000,
     })
     .catch(() => {});
+}
+
+/**
+ * Warm the landing screen's images into the native image cache, also
+ * during the splash.
+ *
+ * These are the sport tile backdrops and the arena layout — the first
+ * thing on the screen with real visual weight, and until they decode the
+ * page looks half-built. Worth prefetching only because they're now the
+ * resized WebPs in /public/opt (~30-95KB); the originals were 1-2MB PNGs
+ * and pulling those eagerly would have made the cold start worse, not
+ * better.
+ */
+export function prefetchHomeImages(): void {
+  const urls = [
+    `${env.apiUrl}/opt/cricket.webp`,
+    `${env.apiUrl}/opt/football.webp`,
+    `${env.apiUrl}/opt/pickleball.webp`,
+    `${env.apiUrl}/opt/arena-layout.webp`,
+  ];
+  for (const u of urls) {
+    // Best-effort: a failed prefetch just means the <Image> fetches it
+    // normally when it mounts.
+    Image.prefetch(u).catch(() => {});
+  }
 }
