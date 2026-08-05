@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { isDownloadAppBannerEnabled } from "@/actions/admin-download-app-banner";
 import {
   APP_STORE_URL,
   PLAY_STORE_URL,
@@ -53,6 +54,10 @@ interface Props {
 }
 
 export async function StoreBadges({ variant = "full", className, platform, compact = false }: Props) {
+  // Gated here rather than at each call site: three surfaces render this,
+  // and a switch that only silenced two of them would read as a bug.
+  if (!(await isDownloadAppBannerEnabled())) return null;
+
   const resolved =
     platform ?? devicePlatform((await headers()).get("user-agent"));
 

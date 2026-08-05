@@ -1809,6 +1809,11 @@ model ArenaSettings {
   // and every camp route 404 until an admin turns it on, same as
   // tournaments — so a half-configured camp is never publicly reachable.
   campsEnabled       Boolean @default(false)
+  /// Master switch for every "get the app" surface on the WEBSITE: the
+  /// sticky strip under the mobile header, the store icon in the header,
+  /// and the footer download section. Off by default — the prompts only
+  /// make sense once the store listings are live and worth pointing at.
+  downloadAppBannerEnabled Boolean @default(false)
   updatedAt DateTime @updatedAt
 }
 

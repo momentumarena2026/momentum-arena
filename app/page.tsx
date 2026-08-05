@@ -11,6 +11,7 @@ import { LoginButton } from "@/components/login-modal";
 import { StoreBadges } from "@/components/store-badges";
 import { AppCtaBar } from "@/components/app-cta-bar";
 import { AppStructuredData } from "@/components/app-structured-data";
+import { isDownloadAppBannerEnabled } from "@/actions/admin-download-app-banner";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/lib/app-store-links";
 import { unreadNotificationCount } from "@/lib/user-notifications";
 import { HomepageSportTracker, HomepageCafeTracker, HomepageCallTracker, HomepageDirectionsTracker } from "@/components/homepage-tracker";
@@ -163,6 +164,9 @@ export default async function Home() {
   } catch {
     // Auth failure must not blank the public homepage.
   }
+  // Whole footer row is gated, not just the badges: hiding only the badges
+  // left "Get the Momentum Arena app" sitting above empty space.
+  const downloadAppBanner = await isDownloadAppBannerEnabled();
   const homeUnread = session?.user?.id
     ? await unreadNotificationCount(session.user.id).catch(() => 0)
     : 0;
@@ -1098,11 +1102,12 @@ export default async function Home() {
             so the footer no longer needs `pb-24` mobile clearance — that
             was double-padding once the spacer landed. */}
         <footer className="border-t border-zinc-900 py-8">
-          {/* Get-the-app row. Full badges here rather than the header's
-              bare glyphs: the footer has the room for the wording, and a
-              visitor who has read the whole page is a better moment to ask
-              than one who just landed. StoreBadges picks the right
-              store(s) for the device. */}
+          {/* Get-the-app row, gated by the Download App Banner switch.
+              Full badges here rather than the header's bare glyphs: the
+              footer has room for the wording, and a visitor who has read
+              the whole page is a better moment to ask than one who just
+              landed. StoreBadges picks the right store(s) for the device. */}
+          {downloadAppBanner && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8 flex flex-col items-center gap-3 border-b border-zinc-900 pb-8 sm:flex-row sm:justify-between">
             <div className="text-center sm:text-left">
               <p className="text-sm font-semibold text-white">
@@ -1114,6 +1119,7 @@ export default async function Home() {
             </div>
             <StoreBadges variant="full" />
           </div>
+          )}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex flex-col items-center sm:items-start gap-1">
               <p className="text-zinc-600 text-sm">
