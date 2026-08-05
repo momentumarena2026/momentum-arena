@@ -1,4 +1,5 @@
 import { StoreBadges } from "@/components/store-badges";
+import { isDownloadAppBannerEnabled } from "@/actions/admin-download-app-banner";
 
 /**
  * "Get the app" sticky strip, phones only.
@@ -17,13 +18,17 @@ import { StoreBadges } from "@/components/store-badges";
  * app from that browser, so the footer badges are the right (and only)
  * placement there.
  */
-export function AppCtaBar({
+export async function AppCtaBar({
   top = "top-0",
 }: {
   /** "none" when the caller already wraps header+strip in one sticky
    *  block — the strip must not re-stick inside its own sticky parent. */
   top?: "top-0" | "fixed-20" | "none";
 }) {
+  // Own check: the strip is a green bar with its own copy, so hiding
+  // only the badge inside it would leave an empty coloured band.
+  if (!(await isDownloadAppBannerEnabled())) return null;
+
   return (
     <div
       className={`${
