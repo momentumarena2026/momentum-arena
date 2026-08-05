@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -669,8 +671,18 @@ export function MatchScoreScreen() {
       </ScrollView>
 
       {/* ---- Squad editor ---- */}
+      {/* The only sheet here with a text input, so the only one that needs
+          to lift: the keyboard covers a bottom sheet completely, hiding
+          both the textarea and Save. Same behaviour as ui/Screen's
+          avoidKeyboard — padding on iOS, Android resizes the window itself. */}
       <Modal visible={squadFor !== null} transparent animationType="slide">
-        <View style={styles.sheetWrap}>
+        <KeyboardAvoidingView
+          style={styles.sheetWrap}
+          // "height" on Android rather than the `undefined` ui/Screen uses:
+          // a RN Modal is its own window and doesn't inherit the activity's
+          // adjustResize, so the sheet would stay put under the keyboard.
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
           <Pressable style={styles.backdrop} onPress={() => setSquadFor(null)} />
           <View style={styles.sheet}>
             <Text variant="bodyStrong" color={colors.foreground}>
@@ -695,7 +707,7 @@ export function MatchScoreScreen() {
               onPress={() => setSquadFor(null)}
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ---- How the wicket fell ---- */}
@@ -921,7 +933,11 @@ const styles = StyleSheet.create({
     padding: spacing["5"],
   },
   squadInput: {
-    minHeight: 140,
+    // Kept short on purpose: with the keyboard up the sheet has to fit
+    // title + input + both buttons in what's left of the screen, and a
+    // tall box pushed the Save button back off the bottom.
+    minHeight: 96,
+    maxHeight: 150,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.zinc700,
