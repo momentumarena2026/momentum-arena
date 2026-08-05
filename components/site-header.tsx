@@ -8,6 +8,7 @@ import { RewardsChip } from "@/components/rewards/rewards-chip";
 import { arePassesEnabled } from "@/lib/passes";
 import { areTournamentsEnabled } from "@/lib/tournaments";
 import { areCampsEnabled } from "@/lib/camps";
+import { StoreBadges } from "@/components/store-badges";
 
 type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments" | "camps";
 
@@ -92,7 +93,7 @@ export async function SiteHeader({ active }: { active?: Section }) {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             {session?.user?.id && (
               <Link
                 href="/notifications"
@@ -107,11 +108,15 @@ export async function SiteHeader({ active }: { active?: Section }) {
                 )}
               </Link>
             )}
+            {/* Phones: the app link replaces the account avatar below.
+                Desktop has no bottom nav, so it keeps the avatar and gets
+                its badges in the footer instead. */}
+            <StoreBadges variant="icon" className="ml-1 md:hidden" />
             {session?.user?.id && <RewardsChip userId={session.user.id} />}
             {session?.user ? (
               <Link
                 href="/dashboard"
-                className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+                className="hidden md:flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
                   {(
