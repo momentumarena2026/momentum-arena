@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ANDROID_PACKAGE } from "@/lib/app-store-links";
+import { ANDROID_PACKAGE, APPLE_TEAM_ID } from "@/lib/app-store-links";
 
 /**
  * Apple App Site Association — the file iOS fetches to decide whether
@@ -9,21 +9,15 @@ import { ANDROID_PACKAGE } from "@/lib/app-store-links";
  * be returned as application/json with NO .json extension, and the app id
  * embeds the Apple Team ID, which belongs in env rather than the repo.
  *
- * Set APPLE_TEAM_ID (Apple Developer -> Membership -> Team ID, 10 chars).
- * Until it's set this 404s ON PURPOSE — serving a malformed association
- * file makes iOS cache a failure, and a cached failure is far harder to
- * debug than an honest 404.
+ * The Team ID is NOT a secret — it ships inside this very file, which is
+ * world-readable by design — so it's defaulted here rather than made a
+ * deploy-time step that can be forgotten. APPLE_TEAM_ID still overrides,
+ * which is what a second Apple account would need.
  */
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const teamId = process.env.APPLE_TEAM_ID?.trim();
-  if (!teamId) {
-    return NextResponse.json(
-      { error: "APPLE_TEAM_ID is not configured" },
-      { status: 404 },
-    );
-  }
+  const teamId = process.env.APPLE_TEAM_ID?.trim() || APPLE_TEAM_ID;
 
   return NextResponse.json(
     {

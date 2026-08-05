@@ -9,6 +9,28 @@
 /** Apple's numeric app id — also what the smart app banner needs. */
 export const APPLE_APP_ID = "6783955158";
 export const ANDROID_PACKAGE = "com.momentumarena";
+/** Apple Developer Team ID. Public by design — it is published inside the
+ *  apple-app-site-association file that enables Universal Links. */
+export const APPLE_TEAM_ID = "WHF7M743MW";
+
+/**
+ * SHA-256 of the UPLOAD key (apps/mobile/android/app/upload-keystore.jks).
+ * Not a secret — every assetlinks.json publishes its fingerprints; that is
+ * the whole point of the file.
+ *
+ * This alone is NOT enough for production. Play App Signing means Google
+ * re-signs the app with a DIFFERENT key, so installs from the Play Store
+ * carry the app-signing key's fingerprint, not this one. Listing only this
+ * makes App Links work on sideloaded/internal-test builds and fail
+ * silently on real installs.
+ *
+ * Add the app-signing fingerprint via ANDROID_SHA256_FINGERPRINTS (comma-
+ * separated, it is appended to this one). Play Console -> your app ->
+ * Test and release -> Setup -> App integrity -> App signing key
+ * certificate -> SHA-256 certificate fingerprint.
+ */
+export const ANDROID_UPLOAD_SHA256 =
+  "35:3D:77:67:1B:E3:66:A3:E7:1C:F4:5B:C9:23:9F:65:46:38:77:28:71:F6:40:3B:F3:7A:37:B2:13:90:95:EC";
 
 export const APP_STORE_URL = `https://apps.apple.com/app/id${APPLE_APP_ID}`;
 export const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;

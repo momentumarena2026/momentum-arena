@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ANDROID_PACKAGE } from "@/lib/app-store-links";
+import { ANDROID_PACKAGE, ANDROID_UPLOAD_SHA256 } from "@/lib/app-store-links";
 
 /**
  * Digital Asset Links — what Android verifies before letting
@@ -17,18 +17,18 @@ import { ANDROID_PACKAGE } from "@/lib/app-store-links";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const raw = process.env.ANDROID_SHA256_FINGERPRINTS?.trim();
-  if (!raw) {
-    return NextResponse.json(
-      { error: "ANDROID_SHA256_FINGERPRINTS is not configured" },
-      { status: 404 },
-    );
-  }
-
-  const fingerprints = raw
+  // Upload key is always listed so internal-test / sideloaded builds
+  // verify; anything in the env var is appended. Production needs the
+  // Play APP-SIGNING fingerprint in that env var — see the note on
+  // ANDROID_UPLOAD_SHA256.
+  const extra = (process.env.ANDROID_SHA256_FINGERPRINTS ?? "")
     .split(",")
     .map((f) => f.trim().toUpperCase())
     .filter(Boolean);
+
+  const fingerprints = Array.from(
+    new Set([ANDROID_UPLOAD_SHA256.toUpperCase(), ...extra]),
+  );
 
   return NextResponse.json(
     [
