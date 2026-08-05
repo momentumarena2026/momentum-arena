@@ -110,6 +110,12 @@ export async function getPublicTournamentBySlug(slug: string) {
   const t = await db.tournament.findUnique({
     where: { slug },
     include: {
+      // Pre-decided pool/league windows — shown on the public page so a
+      // team knows when it would have to turn up before it enters.
+      slots: {
+        orderBy: [{ date: "asc" }, { startHour: "asc" }],
+        include: { courtConfig: { select: { label: true } } },
+      },
       teams: {
         where: {
           status: { in: ["CONFIRMED", "WAITLISTED", "PENDING_PAYMENT"] },
@@ -857,4 +863,49 @@ export async function updateMyTeamSquad(
     return { ok: false, error: "The tournament has ended — the squad is locked" };
   }
   return reconcileTeamSquad(teamId, names, team.tournament.membersPerTeamMax);
+}
+
+/**
+ * Captain sets which pre-decided windows their team can play.
+ *
+ * Callable during registration and afterwards — a captain whose
+ * availability changes before the draw is generated should be able to
+ * say so. Locked once the admin has approved a schedule, because the
+ * fixtures are already built on these answers.
+ */
+export async function setTeamSlotPreferences(args: {
+  teamId: string;
+  userId: string;
+  slotIds: string[];
+}): Promise<{ ok: boolean; error?: string }> {
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: args.teamId },
+    select: {
+      id: true,
+      captainUserId: true,
+      tournamentId: true,
+      tournament: { select: { scheduleApprovedAt: true } },
+    },
+  });
+  if (!team) return { ok: false, error: "Team not found" };
+  if (team.captainUserId !== args.userId) {
+    return { ok: false, error: "Only the team captain can set preferences" };
+  }
+  if (team.tournament.scheduleApprovedAt) {
+    return {
+      ok: false,
+      error: "The schedule is already published — contact the venue to change slots",
+    };
+  }
+  // Only ids that belong to THIS tournament; anything else is dropped
+  // rather than trusted.
+  const valid = await db.tournamentSlot.findMany({
+    where: { tournamentId: team.tournamentId, id: { in: args.slotIds } },
+    select: { id: true },
+  });
+  await db.tournamentTeam.update({
+    where: { id: team.id },
+    data: { preferredSlotIds: valid.map((v) => v.id) },
+  });
+  return { ok: true };
 }

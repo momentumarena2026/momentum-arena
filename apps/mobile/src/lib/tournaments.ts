@@ -84,6 +84,15 @@ export type TournamentPublic = {
     thirdPlaceMatch: boolean;
   };
   poolsRevealed: boolean;
+  /** Admin-decided pool/league windows. SF and final are not in here. */
+  matchSlots?: {
+    id: string;
+    date: string;
+    startHour: number;
+    endHour: number;
+    label: string | null;
+    courtLabel: string | null;
+  }[];
   pools: Pool[];
   teams: TeamLite[];
   standings: { poolId: string | null; poolName: string | null; rows: StandRow[] }[];

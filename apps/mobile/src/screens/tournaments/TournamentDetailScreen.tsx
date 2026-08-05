@@ -35,6 +35,13 @@ const fmtDate = (iso: string) =>
     timeZone: "Asia/Kolkata",
   });
 
+const hourLabel = (h: number) => {
+  const hr = h % 24;
+  const am = hr < 12;
+  const v = hr % 12 === 0 ? 12 : hr % 12;
+  return `${v}${am ? "am" : "pm"}`;
+};
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.detailRow}>
@@ -552,6 +559,31 @@ export function TournamentDetailScreen() {
                 />
               </View>
             </View>
+
+            {/* Pre-decided match windows — same information the web page
+                shows, so a team knows when it would have to turn up.
+                Semi-final and final are scheduled separately. */}
+            {Array.isArray(data.matchSlots) && data.matchSlots.length > 0 ? (
+              <View style={styles.card}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <CalendarDays size={15} color={colors.emerald400} />
+                  <Text style={styles.cardTitle}>Match windows</Text>
+                </View>
+                <Text style={[styles.cardBody, { marginTop: 4 }]}>
+                  Pool matches run inside these windows. Semi-final and final
+                  are scheduled separately once the pools finish.
+                </Text>
+                <View style={{ marginTop: 8, gap: 6 }}>
+                  {data.matchSlots.map((w) => (
+                    <DetailRow
+                      key={w.id}
+                      label={`${fmtDate(w.date)}${w.label ? ` · ${w.label}` : ""}`}
+                      value={`${hourLabel(w.startHour)} – ${hourLabel(w.endHour)}`}
+                    />
+                  ))}
+                </View>
+              </View>
+            ) : null}
 
             {Array.isArray(t.prizes) &&
             t.prizes.filter((p) => p && p.place && p.label).length > 0 ? (
