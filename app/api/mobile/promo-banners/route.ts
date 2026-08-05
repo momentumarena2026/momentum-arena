@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLivePromoBanners, bannerRelevantToSport } from "@/lib/promo-banners";
 import type { BannerPlacement } from "@prisma/client";
+import { CACHE } from "@/lib/api-cache";
 
 const VALID = new Set([
   "HOME_TOP",
@@ -49,5 +50,5 @@ export async function GET(request: NextRequest) {
       aspectRatio: b.aspectRatio,
       linkUrl: b.linkUrl,
     })),
-  });
+  }, { headers: CACHE.promo });
 }

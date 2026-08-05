@@ -17,6 +17,8 @@ import {
   trackSignOutClick,
 } from "../lib/analytics";
 import { enablePushAfterLogin, disablePushBeforeLogout } from "../lib/push";
+import { queryClient } from "../lib/queryClient";
+import { clearPersistedQueries } from "../lib/queryPersist";
 
 type AuthState =
   | { status: "loading"; user: null }
@@ -97,6 +99,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // dead-token cleanup on the next failed FCM send.
     await disablePushBeforeLogout();
     await authApi.signOut();
+    // Wipe the warm-start cache too, or the next person to open the app
+    // on this phone sees the previous owner's bookings on the first
+    // frame — before any request could have told us they'd signed out.
+    queryClient.removeQueries();
+    clearPersistedQueries();
     setState({ status: "signedOut", user: null });
   }, []);
 
