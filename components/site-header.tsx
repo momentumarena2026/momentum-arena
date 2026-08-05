@@ -108,7 +108,11 @@ export async function SiteHeader({ active }: { active?: Section }) {
                     "?"
                   ).toUpperCase()}
                 </div>
-                <span className="hidden sm:inline">
+                {/* Name is desktop-only: on phones the right cluster is the
+                    notification bell + avatar, so a long name doesn't crowd
+                    them out. `md` (768px) rather than `sm` so big phones and
+                    small tablets in portrait stay on the compact layout. */}
+                <span className="hidden md:inline">
                   {session.user.name || session.user.email}
                 </span>
               </Link>

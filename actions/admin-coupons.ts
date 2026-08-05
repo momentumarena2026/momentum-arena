@@ -441,3 +441,64 @@ export async function getCouponUsageDetails(couponId: string) {
     return [];
   }
 }
+
+/**
+ * Coupons an admin may apply while creating a booking for `sport`.
+ *
+ * The create-booking form used to expose a single hardcoded checkbox for
+ * the auto-apply launch promo, so when that promo was swapped the admin
+ * lost every way to honour a code a customer quotes at the counter. This
+ * returns the live candidates instead; adminCreateBooking still re-runs
+ * the full customer-side validator on whichever one is picked, so this
+ * list is a convenience, never the authority.
+ */
+export async function listAdminSportCoupons(
+  sport: string,
+  category?: string | null
+): Promise<
+  {
+    code: string;
+    description: string | null;
+    type: string;
+    value: number;
+    maxDiscount: number | null;
+    autoApply: boolean;
+  }[]
+> {
+  await requireAdmin();
+
+  const now = new Date();
+  const rows = await db.coupon.findMany({
+    where: {
+      isActive: true,
+      scope: { in: ["SPORTS", "BOTH"] },
+      validFrom: { lte: now },
+      validUntil: { gte: now },
+    },
+    orderBy: [{ autoApply: "desc" }, { createdAt: "desc" }],
+    select: {
+      code: true,
+      description: true,
+      type: true,
+      value: true,
+      maxDiscount: true,
+      autoApply: true,
+      sportFilter: true,
+      categoryExclude: true,
+      maxUses: true,
+      usedCount: true,
+    },
+  });
+
+  return rows
+    .filter((c) => {
+      // Empty sportFilter = every sport.
+      if (c.sportFilter.length > 0 && !c.sportFilter.includes(sport as never)) {
+        return false;
+      }
+      if (category && c.categoryExclude.includes(category as never)) return false;
+      if (c.maxUses !== null && c.usedCount >= c.maxUses) return false;
+      return true;
+    })
+    .map(({ sportFilter: _s, categoryExclude: _c, maxUses: _m, usedCount: _u, ...rest }) => rest);
+}

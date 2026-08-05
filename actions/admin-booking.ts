@@ -2324,19 +2324,34 @@ export async function adminCreateBooking(data: {
           error: "FREE bookings can't carry a coupon",
         };
       }
-      const promo = await getActiveSportPromo(config.sport, config.category);
-      if (!promo || promo.code !== data.applyCouponCode) {
+      // Admins can apply ANY coupon that's valid for this sport, not just
+      // the auto-apply promo (they're often honouring a code the customer
+      // quotes at the counter). Run the SAME validator the customer path
+      // uses so every rule — scope, sport/category filter, window, usage
+      // caps, user group, per-user limits — is enforced identically and
+      // the discount is computed server-side, never from the client.
+      const { validateCoupon } = await import("@/actions/coupon-validation");
+      const verdict = await validateCoupon(data.applyCouponCode, {
+        scope: "SPORTS",
+        amount: computedTotal,
+        sport: config.sport,
+        bookingCategory: config.category ?? null,
+        bookingDate: dateOnly,
+        userId: data.userId,
+        platform: "web",
+      });
+      if (!verdict.valid || !verdict.discountAmount) {
         return {
           success: false as const,
-          error: "Coupon isn't active for this sport anymore",
+          error: verdict.error || "Coupon isn't valid for this booking",
         };
       }
-      couponDiscount = computeAutoApplyDiscount(computedTotal, promo);
+      couponDiscount = verdict.discountAmount;
       // Look up the coupon row in advance so we can record CouponUsage
       // + increment usedCount inside the booking transaction without a
       // second fetch.
       couponRow = await db.coupon.findUnique({
-        where: { code: data.applyCouponCode },
+        where: { code: data.applyCouponCode.toUpperCase().trim() },
       });
       if (!couponRow) {
         return {

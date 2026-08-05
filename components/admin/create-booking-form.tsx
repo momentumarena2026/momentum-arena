@@ -11,6 +11,7 @@ import {
   previewAdminPassCoverage,
 } from "@/actions/admin-booking";
 import { listEquipmentForBookingCreate } from "@/actions/admin-equipment-rental";
+import { listAdminSportCoupons } from "@/actions/admin-coupons";
 import {
   SPORT_INFO,
   SIZE_INFO,
@@ -233,7 +234,22 @@ export function CreateBookingForm({
   // doing a FREE booking. Mutually exclusive with customAmountStr —
   // when applied, the action computes the discount server-side from
   // the live coupon row, so we don't trust the client to do the math.
-  const [applyPickleballCoupon, setApplyPickleballCoupon] = useState(false);
+  // Any coupon valid for the chosen sport, not just the auto-apply promo:
+  // admins routinely honour a code the customer quotes at the counter, and
+  // hardcoding one promo meant swapping it left them with no way to do that.
+  // The server re-validates whichever code is picked, so this list is only
+  // a convenience.
+  const [couponOptions, setCouponOptions] = useState<
+    {
+      code: string;
+      description: string | null;
+      type: string;
+      value: number;
+      maxDiscount: number | null;
+      autoApply: boolean;
+    }[]
+  >([]);
+  const [selectedCouponCode, setSelectedCouponCode] = useState("");
 
   // Equipment rentals attached at create time. `catalog` is the live
   // list of Equipment rows matching the picked court (sport +
@@ -330,14 +346,22 @@ export function CreateBookingForm({
   // Math uses the same formula the server applies (Math.floor via
   // computeAutoApplyDiscount in lib/auto-apply-promo.ts), so the
   // summary number matches what the customer's receipt will show.
-  const showCouponBox =
-    selectedSport === "PICKLEBALL" &&
-    pickleballPromo?.percentOff != null &&
-    paymentMethod !== "FREE";
-  const couponDiscount =
-    showCouponBox && applyPickleballCoupon && pickleballPromo
-      ? computeAutoApplyDiscount(totalPrice, pickleballPromo)
-      : 0;
+  const showCouponBox = couponOptions.length > 0 && paymentMethod !== "FREE";
+  const selectedCoupon =
+    couponOptions.find((c) => c.code === selectedCouponCode) || null;
+  // Mirrors the server's math in actions/coupon-validation.ts: PERCENTAGE
+  // `value` is basis points and honours maxDiscount; FLAT `value` is rupees.
+  // Preview only — the booking is priced from the server's own validation.
+  const couponDiscount = (() => {
+    if (!showCouponBox || !selectedCoupon) return 0;
+    if (selectedCoupon.type === "PERCENTAGE") {
+      const raw = Math.floor((totalPrice * selectedCoupon.value) / 10000);
+      return selectedCoupon.maxDiscount !== null
+        ? Math.min(raw, selectedCoupon.maxDiscount)
+        : raw;
+    }
+    return Math.min(selectedCoupon.value, totalPrice);
+  })();
 
   // Effective total includes the equipment rentals unless the admin
   // typed a custom amount (which is treated as inclusive of
@@ -432,10 +456,32 @@ export function CreateBookingForm({
   // state lingers and the submit payload would still send
   // applyCouponCode (action would 400, but cheaper to never send it).
   useEffect(() => {
-    if (!showCouponBox && applyPickleballCoupon) {
-      setApplyPickleballCoupon(false);
+    if (!showCouponBox && selectedCouponCode) {
+      setSelectedCouponCode("");
     }
-  }, [showCouponBox, applyPickleballCoupon]);
+  }, [showCouponBox, selectedCouponCode]);
+
+  // Load the coupons that are live for the chosen sport/category. Runs on
+  // every sport or court change so the picker never offers a code the
+  // server would reject. A failure just leaves the picker hidden — the
+  // booking still goes through at full price.
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedSport) {
+      setCouponOptions([]);
+      return;
+    }
+    listAdminSportCoupons(selectedSport, selectedConfig?.category ?? null)
+      .then((rows) => {
+        if (!cancelled) setCouponOptions(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setCouponOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSport, selectedConfig?.category]);
 
   // ---------------------------------------------------------------------------
   // Fetch equipment catalog when the selected court changes
@@ -564,9 +610,7 @@ export function CreateBookingForm({
       // bypasses pricing entirely). When the box is ticked we drop the
       // override even if the field has a stale value in it.
       const applyCouponCode =
-        showCouponBox && applyPickleballCoupon && pickleballPromo
-          ? pickleballPromo.code
-          : undefined;
+        showCouponBox && selectedCouponCode ? selectedCouponCode : undefined;
 
       // Only pass customTotalAmount when admin entered a value that
       // differs from the slot-sum AND no coupon is in play — otherwise
@@ -1314,39 +1358,48 @@ export function CreateBookingForm({
               page render, which removes this block with zero extra
               wiring. Box ticked locks the custom-amount input below
               because action rejects coupon + customTotal together. */}
-          {showCouponBox && pickleballPromo && (
+          {showCouponBox && (
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={applyPickleballCoupon}
-                  onChange={(e) => setApplyPickleballCoupon(e.target.checked)}
-                  className="accent-emerald-500 h-4 w-4 mt-0.5"
-                />
-                <div className="flex-1">
-                  <span className="text-sm font-medium text-white">
-                    Apply {pickleballPromo.percentOff}% off
-                    <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
-                      {pickleballPromo.code}
-                    </span>
-                  </span>
-                  <p className="mt-0.5 text-[11px] text-zinc-400">
-                    Pickleball launch promo. Mutually exclusive with a
-                    custom amount.
-                  </p>
-                  {applyPickleballCoupon && couponDiscount > 0 && (
-                    <p className="mt-1 text-xs text-emerald-300">
-                      Saves {formatPrice(couponDiscount)} —{" "}
-                      <span className="line-through text-zinc-500">
-                        {formatPrice(totalPrice)}
-                      </span>{" "}
-                      <span className="font-semibold">
-                        {formatPrice(effectiveTotal)}
-                      </span>
-                    </p>
-                  )}
-                </div>
+              <label className="block text-sm font-medium text-white">
+                Apply a coupon
               </label>
+              <select
+                value={selectedCouponCode}
+                onChange={(e) => setSelectedCouponCode(e.target.value)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="">No coupon</option>
+                {couponOptions.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} —{" "}
+                    {c.type === "PERCENTAGE"
+                      ? `${c.value / 100}% off${c.maxDiscount !== null ? ` (max ${formatPrice(c.maxDiscount)})` : ""}`
+                      : `${formatPrice(c.value)} off`}
+                    {c.autoApply ? " · auto-apply" : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-zinc-400">
+                Coupons valid for this sport. The server re-checks every rule
+                (window, usage caps, user eligibility) when the booking is
+                created. Mutually exclusive with a custom amount.
+              </p>
+              {selectedCoupon && couponDiscount > 0 && (
+                <p className="text-xs text-emerald-300">
+                  Saves {formatPrice(couponDiscount)} —{" "}
+                  <span className="line-through text-zinc-500">
+                    {formatPrice(totalPrice)}
+                  </span>{" "}
+                  <span className="font-semibold">
+                    {formatPrice(effectiveTotal)}
+                  </span>
+                </p>
+              )}
+              {selectedCoupon?.description ? (
+                <p className="text-[11px] text-zinc-500">
+                  {selectedCoupon.description}
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -1367,7 +1420,7 @@ export function CreateBookingForm({
                 <span className="text-[11px] text-zinc-500">
                   Locked at ₹0 for FREE bookings
                 </span>
-              ) : applyPickleballCoupon ? (
+              ) : !!selectedCouponCode ? (
                 <span className="text-[11px] text-emerald-400">
                   Locked while coupon is applied
                 </span>
@@ -1387,15 +1440,15 @@ export function CreateBookingForm({
                 value={
                   paymentMethod === "FREE"
                     ? "0"
-                    : applyPickleballCoupon
+                    : !!selectedCouponCode
                       ? String(effectiveTotal)
                       : customAmountStr
                 }
                 onChange={(e) => setCustomAmountStr(e.target.value)}
-                disabled={paymentMethod === "FREE" || applyPickleballCoupon}
+                disabled={paymentMethod === "FREE" || !!selectedCouponCode}
                 className="w-40 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-emerald-400 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
               />
-              {paymentMethod !== "FREE" && !applyPickleballCoupon && customAmountOverride && (
+              {paymentMethod !== "FREE" && !!!selectedCouponCode && customAmountOverride && (
                 <span
                   className={`text-xs ${
                     parsedCustom < totalPrice
@@ -1410,21 +1463,21 @@ export function CreateBookingForm({
               )}
             </div>
             {paymentMethod !== "FREE" &&
-              !applyPickleballCoupon &&
+              !!!selectedCouponCode &&
               customAmountStr.trim().length > 0 &&
               !customAmountValid && (
                 <p className="text-xs text-red-400">
                   Enter a positive whole number.
                 </p>
               )}
-            {paymentMethod !== "FREE" && !applyPickleballCoupon && (
+            {paymentMethod !== "FREE" && !!!selectedCouponCode && (
               <p className="text-[11px] text-zinc-500">
                 Leave blank to use the slot-sum, or type any amount the
                 customer actually paid through this channel (incl.
                 Razorpay refs that landed off-system).
               </p>
             )}
-            {paymentMethod !== "FREE" && applyPickleballCoupon && (
+            {paymentMethod !== "FREE" && !!selectedCouponCode && (
               <p className="text-[11px] text-zinc-500">
                 Untick the coupon above to set a custom amount.
               </p>
