@@ -15,7 +15,12 @@ export const STATUS_FLOW: Record<string, string[]> = {
   POOLS_REVEALED: ["LIVE", "CANCELLED"],
   LIVE: ["COMPLETED", "CANCELLED"],
   COMPLETED: [],
-  CANCELLED: [],
+  // Cancelling is a pure status flip — no refunds, no deletions, no
+  // slot-block cleanup, and no campaign fires — so it is fully
+  // reversible and an admin who mis-clicks must not lose a tournament.
+  // Every pre-completion state is offered so it can go back exactly
+  // where it was rather than restarting from DRAFT.
+  CANCELLED: ["DRAFT", "PUBLISHED", "REG_OPEN", "REG_CLOSED", "POOLS_REVEALED", "LIVE"],
 };
 
 export const STATUS_LABELS: Record<string, string> = {

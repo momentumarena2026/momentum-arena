@@ -359,7 +359,9 @@ export function TournamentManage({
       {/* Lifecycle actions */}
       {(STATUS_FLOW[t.status] || []).length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-zinc-500">Move to:</span>
+          <span className="text-xs text-zinc-500">
+            {t.status === "CANCELLED" ? "Restore to:" : "Move to:"}
+          </span>
           {(STATUS_FLOW[t.status] || []).map((to) => (
             <button
               key={to}
