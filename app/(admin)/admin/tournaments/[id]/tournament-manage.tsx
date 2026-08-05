@@ -27,6 +27,7 @@ import {
 import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
 import { TournamentWizard } from "../tournament-wizard";
 import { PoolsTab } from "./pools-tab";
+import { SlotsTab } from "./slots-tab";
 import { TeamDetailModal } from "./team-detail-modal";
 import { FixturesTab, type MatchRow } from "./fixtures-tab";
 import { ScoresTab } from "./scores-tab";
@@ -146,7 +147,8 @@ export function TournamentManage({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<
-    "overview" | "teams" | "pools" | "fixtures" | "scores" | "campaign" | "settings"
+    | "overview" | "teams" | "pools" | "slots" | "fixtures" | "scores"
+    | "campaign" | "settings"
   >("overview");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -394,6 +396,7 @@ export function TournamentManage({
             ...(t.format === "POOLS_KNOCKOUT"
               ? ([["pools", "Pools & Draw", Grid3x3]] as const)
               : []),
+            ["slots", "Slots & Draw", CalendarClock],
             ["fixtures", `Fixtures (${t.matches.length})`, CalendarClock],
             ["scores", "Scores", ClipboardList],
             ["campaign", "Campaign", Megaphone],
@@ -612,6 +615,10 @@ export function TournamentManage({
       )}
 
       {/* ── Pools & Draw ── */}
+      {tab === "slots" && (
+        <SlotsTab tournamentId={t.id} courts={courts} />
+      )}
+
       {tab === "pools" && (
         <PoolsTab
           tournamentId={t.id}
