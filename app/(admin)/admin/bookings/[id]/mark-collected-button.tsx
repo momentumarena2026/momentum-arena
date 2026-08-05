@@ -163,17 +163,24 @@ export function MarkCollectedButton({
   const upiN = upiValid ? upi : 0;
   const discountN = discountStr === "" || isNaN(discount) ? 0 : discount;
   const sum = cashN + upiN + discountN;
+  // A part payment is legitimate: the customer pays some now and owes
+  // the rest. Only an OVERpayment is rejected.
   const canSubmit =
     cashValid &&
     upiValid &&
     discountValid &&
-    sum === remainingAmount &&
+    sum > 0 &&
+    sum <= remainingAmount &&
     cashN + upiN > 0;
+  const stillDue = Math.max(0, remainingAmount - sum);
 
   return (
     <div className="mt-2 space-y-2">
       <p className="text-[11px] font-medium text-amber-200">
         Split {formattedRemaining}:
+        <span className="ml-1 font-normal text-zinc-500">
+          part payments are fine — the balance stays due
+        </span>
       </p>
       <div className="grid grid-cols-3 gap-2">
         <label className="space-y-1">
@@ -229,13 +236,20 @@ export function MarkCollectedButton({
             ? "text-emerald-400"
             : sum > remainingAmount
             ? "text-red-400"
-            : "text-zinc-500"
+            : "text-amber-300"
         }`}
       >
         Sum: ₹{sum.toLocaleString("en-IN")} / ₹{remainingAmount.toLocaleString("en-IN")}
         {discountN > 0 ? (
           <span className="ml-2 text-zinc-500">
             (collected ₹{(cashN + upiN).toLocaleString("en-IN")})
+          </span>
+        ) : null}
+        {sum > remainingAmount ? (
+          <span className="ml-2">— more than is owed</span>
+        ) : stillDue > 0 && sum > 0 ? (
+          <span className="ml-2">
+            — ₹{stillDue.toLocaleString("en-IN")} stays due at venue
           </span>
         ) : null}
       </p>
