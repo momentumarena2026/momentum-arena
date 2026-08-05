@@ -366,6 +366,17 @@ export default async function Home() {
                   🏆 Tournaments
                 </Link>
               )}
+              {/* The home page renders its own nav rather than SiteHeader,
+                  so links added there don't appear here — Camps was
+                  missing on this page only. */}
+              {campsEnabled && (
+                <Link
+                  href="/camps"
+                  className="text-base font-semibold text-zinc-300 hover:text-violet-400 transition flex items-center gap-2"
+                >
+                  🎓 Camps
+                </Link>
+              )}
             </div>
             <LoginButton />
           </div>
@@ -446,23 +457,23 @@ export default async function Home() {
 
             {/* Two per row on phones — Order Food + Book a Court, then
                 Camps + Tournaments. Desktop keeps them on one line. */}
-            <div className="mx-auto grid max-w-2xl grid-cols-2 gap-3 sm:gap-4 md:flex md:flex-wrap md:justify-center">
+            <div className="mx-auto grid max-w-xl grid-cols-2 gap-3 sm:gap-4">
               <a
                 href="#cafe"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-amber-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-amber-700 hover:shadow-lg hover:shadow-amber-500/25 sm:px-8 sm:text-base md:text-lg"
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-amber-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-amber-700 hover:shadow-lg hover:shadow-amber-500/25 sm:px-6 sm:text-base md:text-lg"
               >
                 ☕ Order Food
               </a>
               <a
                 href="#sports"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-emerald-700 hover:shadow-lg hover:shadow-emerald-500/25 sm:px-8 sm:text-base md:text-lg"
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-emerald-700 hover:shadow-lg hover:shadow-emerald-500/25 sm:px-6 sm:text-base md:text-lg"
               >
                 🏟️ Book a Court
               </a>
               {campsEnabled && (
                 <Link
                   href="/camps"
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-violet-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-violet-500 hover:shadow-lg hover:shadow-violet-500/25 sm:px-8 sm:text-base md:text-lg"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-violet-600 px-4 py-4 text-sm font-bold text-white transition-all duration-300 hover:scale-105 hover:bg-violet-500 hover:shadow-lg hover:shadow-violet-500/25 sm:px-6 sm:text-base md:text-lg"
                 >
                   🎓 Camps
                 </Link>
@@ -470,7 +481,7 @@ export default async function Home() {
               {tournamentsEnabled && (
                 <Link
                   href="/tournaments"
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-yellow-600 px-4 py-4 text-sm font-bold text-zinc-950 transition-all duration-300 hover:scale-105 hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-500/25 sm:px-8 sm:text-base md:text-lg"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-yellow-600 px-4 py-4 text-sm font-bold text-zinc-950 transition-all duration-300 hover:scale-105 hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-500/25 sm:px-6 sm:text-base md:text-lg"
                 >
                   🏆 Tournaments
                 </Link>
