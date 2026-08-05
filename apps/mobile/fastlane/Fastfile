@@ -54,6 +54,14 @@ def build_ios
     readonly: false,
     skip_certificate_verification: true,
   )
+  # Sign with the name sigh ACTUALLY produced, not the one we asked for.
+  # Enabling a capability on the App ID invalidates the existing profile but
+  # leaves its NAME taken, so sigh creates "<name> <timestamp>" instead.
+  # Hardcoding IOS_PROFILE_NAME then fails with "No profile for team ...
+  # matching ..." — the 1.0.4 build died exactly there after Associated
+  # Domains was switched on.
+  profile_name = lane_context[SharedValues::SIGH_NAME] || IOS_PROFILE_NAME
+  UI.message("Signing with provisioning profile: #{profile_name}")
   build_app(
     workspace: "ios/MomentumArena.xcworkspace",
     scheme: "MomentumArena",
@@ -62,11 +70,11 @@ def build_ios
     # The project has no Swift Package deps; gym's resolve-packages preflight
     # just times out on CI, so skip it.
     skip_package_dependencies_resolution: true,
-    xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=#{IOS_PROFILE_NAME} CODE_SIGN_IDENTITY=\"Apple Distribution\"",
+    xcargs: "MARKETING_VERSION=#{MARKETING_VERSION} CURRENT_PROJECT_VERSION=#{BUILD_NUMBER} TARGETED_DEVICE_FAMILY=1 DEVELOPMENT_TEAM=#{TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=\"#{profile_name}\" CODE_SIGN_IDENTITY=\"Apple Distribution\"",
     export_options: {
       signingStyle: "manual",
       teamID: TEAM_ID,
-      provisioningProfiles: { "com.momentumarena" => IOS_PROFILE_NAME },
+      provisioningProfiles: { "com.momentumarena" => profile_name },
     },
   )
 end
