@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { sportTheme } from "@/lib/sport-theme";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
@@ -23,6 +24,7 @@ type Camp = {
   slug: string;
   name: string;
   sport: string;
+  bannerImageUrl?: string | null;
   status: string;
   description: string | null;
   rules: string | null;
@@ -225,18 +227,38 @@ export function CampRegisterClient({
     );
   }
 
+  const theme = sportTheme(camp.sport);
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <Link href="/camps" className="text-sm text-zinc-500 hover:text-zinc-300">
         ← Camps
       </Link>
 
-      <p className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
-        {camp.sport}
-      </p>
-      <h1 className="text-3xl font-bold text-white">{camp.name}</h1>
+      {/* Hero — the admin's uploaded image, else the sport's stock photo.
+          Same treatment as the camps list card so the two read as one
+          journey rather than two designs. */}
+      <div className="relative mt-4 h-44 w-full overflow-hidden rounded-2xl border border-zinc-800 sm:h-56">
+        {/* eslint-disable-next-line @next/next/no-img-element -- blob URL, no loader config */}
+        <img
+          src={camp.bannerImageUrl || theme.image}
+          alt=""
+          className="h-full w-full object-cover"
+        />
+        <div className={`absolute inset-0 bg-gradient-to-t ${theme.gradient}`} />
+        <div className="absolute inset-x-0 bottom-0 p-5">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${theme.chip}`}
+          >
+            {theme.emoji} {theme.label}
+          </span>
+          <h1 className="mt-1.5 text-2xl font-bold text-white drop-shadow-sm sm:text-3xl">
+            {camp.name}
+          </h1>
+        </div>
+      </div>
       {camp.description && (
-        <p className="mt-2 text-zinc-400">{camp.description}</p>
+        <p className="mt-4 text-zinc-400">{camp.description}</p>
       )}
 
       <dl className="mt-6 grid gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:grid-cols-2">

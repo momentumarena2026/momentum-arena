@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
+import { CampBannerPicker } from "./banner-picker";
 import { saveCamp, type CampInput } from "@/actions/admin-camps";
 
 type CampRow = {
@@ -226,6 +227,14 @@ export function CampForm({
           placeholder="What the camp covers, what to bring…"
         />
       </div>
+
+      {/* Hero image — the customer card and detail page lead with this;
+          without one they fall back to the sport's stock photo. */}
+      <CampBannerPicker
+        value={form.bannerImageUrl ?? ""}
+        onChange={(url) => set("bannerImageUrl", url)}
+        labelClass={label}
+      />
 
       {/* Schedule */}
       <div className="grid gap-3 sm:grid-cols-2">
