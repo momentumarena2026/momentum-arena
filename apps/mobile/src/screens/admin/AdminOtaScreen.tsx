@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Alert,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,6 @@ import {
   Smartphone,
   ShieldAlert,
   Rocket,
-  Percent,
   Undo2,
   Archive,
   ShieldOff,
@@ -58,6 +58,9 @@ function platformLabel(p: OtaPlatform) {
   return p === "ios" ? "iOS" : "Android";
 }
 
+/** The rollout ladder — go up a rung, watch, go up again. */
+const ROLLOUT_STEPS = [20, 40, 60, 80, 100] as const;
+
 function RolloutBar({ percent }: { percent: number }) {
   const clamped = Math.max(0, Math.min(100, percent));
   return (
@@ -81,9 +84,6 @@ function RolloutBar({ percent }: { percent: number }) {
  */
 function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
   const queryClient = useQueryClient();
-  // Which inline % editor is open for this release.
-  const [editor, setEditor] = useState<"rollout" | "setpct" | null>(null);
-  const [pct, setPct] = useState(String(r.rolloutPercent || 100));
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["admin", "ota"] });
@@ -99,7 +99,6 @@ function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
   const rolloutM = useMutation({
     mutationFn: (percent: number) => adminOtaApi.rollout(r.id, percent),
     onSuccess: () => {
-      setEditor(null);
       void invalidate();
     },
     onError: onMutationError("roll out"),
@@ -107,7 +106,6 @@ function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
   const setPctM = useMutation({
     mutationFn: (percent: number) => adminOtaApi.setPercent(r.id, percent),
     onSuccess: () => {
-      setEditor(null);
       void invalidate();
     },
     onError: onMutationError("set rollout %"),
@@ -129,15 +127,13 @@ function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
     rollbackM.isPending ||
     archiveM.isPending;
 
-  const submitPercent = () => {
-    const value = parseInt(pct, 10);
-    if (isNaN(value) || value < 0 || value > 100) {
-      Alert.alert("Invalid rollout", "Enter a percent between 0 and 100.");
-      return;
-    }
-    if (editor === "rollout") rolloutM.mutate(value);
-    else setPctM.mutate(value);
+  // Same rung either way: a DRAFT publishes at it, a PUBLISHED release
+  // moves to it — so the control doesn't change shape once it goes live.
+  const goTo = (percent: number) => {
+    if (r.status === "PUBLISHED") setPctM.mutate(percent);
+    else rolloutM.mutate(percent);
   };
+
 
   const confirmRollback = () =>
     Alert.alert(
@@ -187,44 +183,50 @@ function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
         </Text>
       ) : null}
 
+      {/* Rollout ladder — one tap per rung. Publishing is a staged
+          decision, not a number to type on a phone keyboard. */}
+      <View style={styles.stepRow}>
+        <Text variant="tiny" color={colors.zinc500}>
+          {r.status === "PUBLISHED" ? "Now at" : "Publish at"}
+        </Text>
+        {ROLLOUT_STEPS.map((step) => {
+          const current = r.status === "PUBLISHED" && r.rolloutPercent === step;
+          return (
+            <Pressable
+              key={step}
+              disabled={pending || current}
+              onPress={() => goTo(step)}
+              style={[styles.stepBtn, current && styles.stepBtnOn]}
+            >
+              <Text variant="tiny" weight="700" color={colors.emerald400}>
+                {step}%
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       {/* Actions */}
       <View style={styles.actionRow}>
-        {r.status !== "PUBLISHED" ? (
+        {r.status === "PUBLISHED" && r.rolloutPercent !== 0 ? (
           <Button
-            label="Roll out"
+            label="Pause"
             size="sm"
-            variant="primary"
+            variant="secondary"
             disabled={pending}
-            leadingIcon={<Rocket size={14} color="#032016" />}
-            onPress={() => {
-              setPct(String(r.rolloutPercent || 100));
-              setEditor(editor === "rollout" ? null : "rollout");
-            }}
+            onPress={() => goTo(0)}
           />
         ) : null}
         {r.status === "PUBLISHED" ? (
-          <>
-            <Button
-              label="Set %"
-              size="sm"
-              variant="secondary"
-              disabled={pending}
-              leadingIcon={<Percent size={14} color={colors.foreground} />}
-              onPress={() => {
-                setPct(String(r.rolloutPercent));
-                setEditor(editor === "setpct" ? null : "setpct");
-              }}
-            />
-            <Button
-              label="Roll back"
-              size="sm"
-              variant="secondary"
-              loading={rollbackM.isPending}
-              disabled={pending}
-              leadingIcon={<Undo2 size={14} color={colors.warning} />}
-              onPress={confirmRollback}
-            />
-          </>
+          <Button
+            label="Roll back"
+            size="sm"
+            variant="secondary"
+            loading={rollbackM.isPending}
+            disabled={pending}
+            leadingIcon={<Undo2 size={14} color={colors.warning} />}
+            onPress={confirmRollback}
+          />
         ) : null}
         {r.status !== "ARCHIVED" ? (
           <Button
@@ -238,30 +240,6 @@ function ReleaseRow({ r, isLive }: { r: OtaReleaseRow; isLive: boolean }) {
           />
         ) : null}
       </View>
-
-      {/* Inline % editor for Roll out / Set % */}
-      {editor ? (
-        <View style={styles.pctEditor}>
-          <View style={{ flex: 1 }}>
-            <Input
-              keyboardType="number-pad"
-              value={pct}
-              onChangeText={setPct}
-              placeholder="0-100"
-              label={editor === "rollout" ? "Publish at %" : "Rollout %"}
-            />
-          </View>
-          <Button
-            label={editor === "rollout" ? "Publish" : "Save"}
-            size="sm"
-            variant="primary"
-            loading={rolloutM.isPending || setPctM.isPending}
-            disabled={pending}
-            onPress={submitPercent}
-            style={styles.pctSubmit}
-          />
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -787,14 +765,27 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: "rgba(253,230,138,0.75)",
   },
-  pctEditor: {
+  stepRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: spacing["2"],
-    marginTop: spacing["1"],
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 10,
   },
-  pctSubmit: {
-    marginBottom: 2,
+  stepBtn: {
+    minWidth: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+  },
+  stepBtnOn: {
+    borderColor: "rgba(16,185,129,0.55)",
+    backgroundColor: "rgba(16,185,129,0.22)",
   },
   gateForm: {
     gap: spacing["2"],

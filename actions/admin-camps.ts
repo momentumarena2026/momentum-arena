@@ -17,6 +17,33 @@ function gate() {
   return requireAdmin("MANAGE_CAMPS");
 }
 
+// ── Module master switch (mirrors tournaments + passes) ──────────────
+// Without this the flag was DB-only, so the whole customer-facing camps
+// module 404'd with no way to turn it on from the admin.
+export async function getCampsEnabled(): Promise<boolean> {
+  await gate();
+  const settings = await db.arenaSettings.findFirst({
+    select: { campsEnabled: true },
+  });
+  return settings?.campsEnabled ?? false;
+}
+
+export async function setCampsEnabled(enabled: boolean): Promise<{ ok: true }> {
+  await gate();
+  const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+  if (existing) {
+    await db.arenaSettings.update({
+      where: { id: existing.id },
+      data: { campsEnabled: enabled },
+    });
+  } else {
+    await db.arenaSettings.create({ data: { campsEnabled: enabled } });
+  }
+  revalidatePath("/admin/camps");
+  revalidatePath("/camps");
+  return { ok: true };
+}
+
 const campSchema = z.object({
   name: z.string().min(1).max(80),
   sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]),

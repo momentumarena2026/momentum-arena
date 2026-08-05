@@ -10,24 +10,28 @@ import {
 } from "@/actions/admin-ota";
 import {
   Rocket,
-  Percent,
   Undo2,
   Archive,
   Loader2,
-  X,
   AlertTriangle,
+  Check,
 } from "lucide-react";
 
 interface OtaActionsProps {
   releaseId: string;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   rolloutPercent: number;
-  // When set, the "Roll out" button is disabled with this as its tooltip —
-  // e.g. the release is older than the currently-live one (rolling it out
-  // wouldn't downgrade devices already on the newer build; matches the
-  // server-side guard in rolloutOtaRelease).
+  // When set, publishing is disabled with this as its tooltip — e.g. the
+  // release is older than the currently-live one (rolling it out wouldn't
+  // downgrade devices already on the newer build; matches the server-side
+  // guard in rolloutOtaRelease).
   disabledReason?: string;
 }
+
+/** The rollout ladder. Publishing is a staged decision, not a free-text
+ *  number: you go up a rung, watch, go up again. Typing "37" was never
+ *  something anyone wanted to do. */
+const STEPS = [20, 40, 60, 80, 100] as const;
 
 export function OtaActions({
   releaseId,
@@ -38,93 +42,123 @@ export function OtaActions({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  // Which inline % editor is open: the "Roll out" publish flow or the
-  // "Set %" adjust flow. Null = no editor open.
-  const [editor, setEditor] = useState<"rollout" | "setpct" | null>(null);
-  const [pct, setPct] = useState(String(rolloutPercent || 100));
+  // Which step is mid-flight, so only that button spins.
+  const [busyStep, setBusyStep] = useState<number | null>(null);
 
-  const run = (fn: () => Promise<{ success: true } | { error: string }>) => {
+  const run = (
+    step: number | null,
+    fn: () => Promise<{ success: true } | { error: string }>,
+  ) => {
     setError(null);
+    setBusyStep(step);
     start(async () => {
       const result = await fn();
-      if ("error" in result) {
-        setError(result.error);
-      } else {
-        setEditor(null);
-        router.refresh();
-      }
+      setBusyStep(null);
+      if ("error" in result) setError(result.error);
+      else router.refresh();
     });
   };
 
-  const submitPercent = () => {
-    const value = parseInt(pct, 10);
-    if (isNaN(value) || value < 0 || value > 100) {
-      setError("Enter a rollout percent between 0 and 100");
-      return;
-    }
-    if (editor === "rollout") {
-      run(() => rolloutOtaRelease(releaseId, value));
-    } else {
-      run(() => setOtaRolloutPercent(releaseId, value));
-    }
-  };
+  // One tap = one decision. A DRAFT publishes at the chosen percent; a
+  // PUBLISHED release just moves to it. Same ladder either way, so the
+  // control doesn't change shape once a release goes live.
+  const goTo = (percent: number) =>
+    run(percent, () =>
+      status === "PUBLISHED"
+        ? setOtaRolloutPercent(releaseId, percent)
+        : rolloutOtaRelease(releaseId, percent),
+    );
+
+  const live = status === "PUBLISHED";
+  const blocked = !live && !!disabledReason;
 
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        {/* Roll out — publishes (DRAFT/ARCHIVED→PUBLISHED) at a chosen % */}
-        {status !== "PUBLISHED" && (
-          <button
-            type="button"
-            disabled={pending || !!disabledReason}
-            title={disabledReason}
-            onClick={() => {
-              setError(null);
-              setPct(String(rolloutPercent || 100));
-              setEditor(editor === "rollout" ? null : "rollout");
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/10 border border-emerald-500/30 px-2.5 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <Rocket className="h-3.5 w-3.5" />
-            Roll out
-          </button>
-        )}
+        <span
+          className="inline-flex items-center gap-1.5 pr-0.5 text-[11px] text-zinc-500"
+          title={
+            live
+              ? "Move this live release to a new share of devices."
+              : "Publish this release to a share of devices."
+          }
+        >
+          <Rocket className="h-3.5 w-3.5" />
+          {live ? "Now at" : "Publish at"}
+        </span>
 
-        {/* Set % — adjust rollout on an already-published release */}
-        {status === "PUBLISHED" && (
+        {STEPS.map((step) => {
+          const current = live && rolloutPercent === step;
+          return (
+            <button
+              key={step}
+              type="button"
+              disabled={pending || blocked || current}
+              title={
+                blocked
+                  ? disabledReason
+                  : current
+                    ? `Already at ${step}%`
+                    : live
+                      ? `Move rollout to ${step}%`
+                      : `Publish at ${step}%`
+              }
+              onClick={() => goTo(step)}
+              className={`inline-flex min-w-[3.25rem] items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
+                current
+                  ? "border-emerald-500/50 bg-emerald-600/20 text-emerald-300 disabled:opacity-100"
+                  : "border-emerald-500/30 bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-40"
+              }`}
+            >
+              {busyStep === step ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : current ? (
+                <Check className="h-3 w-3" />
+              ) : null}
+              {step}%
+            </button>
+          );
+        })}
+
+        {/* Pause — 0% keeps the release live but serves it to nobody, so a
+            bad build stops spreading without archiving it or rolling back. */}
+        {live && rolloutPercent !== 0 && (
           <button
             type="button"
             disabled={pending}
-            onClick={() => {
-              setError(null);
-              setPct(String(rolloutPercent));
-              setEditor(editor === "setpct" ? null : "setpct");
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 transition-colors"
+            title="Stop serving this release to new devices. Devices already updated stay on it — use Roll back to undo that."
+            onClick={() => goTo(0)}
+            className="inline-flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-400 hover:bg-zinc-800 disabled:opacity-40 transition-colors"
           >
-            <Percent className="h-3.5 w-3.5" />
-            Set %
+            {busyStep === 0 ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            Pause
           </button>
         )}
 
+        {live && rolloutPercent === 0 && (
+          <span className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-500">
+            Paused
+          </span>
+        )}
+
         {/* Roll back — only meaningful for a live release */}
-        {status === "PUBLISHED" && (
+        {live && (
           <button
             type="button"
             disabled={pending}
             onClick={() => {
               if (
                 !window.confirm(
-                  "Roll back this release? It will be archived and the previous build re-published at 100%."
+                  "Roll back this release? It will be archived and the previous build re-published at 100%.",
                 )
               ) {
                 return;
               }
-              run(() => rollbackOtaRelease(releaseId));
+              run(null, () => rollbackOtaRelease(releaseId));
             }}
             className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
           >
-            {pending ? (
+            {pending && busyStep === null ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Undo2 className="h-3.5 w-3.5" />
@@ -142,7 +176,7 @@ export function OtaActions({
               if (!window.confirm("Archive this release? It will no longer be served.")) {
                 return;
               }
-              run(() => archiveOtaRelease(releaseId));
+              run(null, () => archiveOtaRelease(releaseId));
             }}
             className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-400 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40 transition-colors"
           >
@@ -151,48 +185,6 @@ export function OtaActions({
           </button>
         )}
       </div>
-
-      {/* Inline % editor for Roll out / Set % */}
-      {editor && (
-        <div className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 p-1.5">
-          <span className="pl-1 text-[11px] text-zinc-500">
-            {editor === "rollout" ? "Publish at" : "Rollout"}
-          </span>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            value={pct}
-            onChange={(e) => setPct(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submitPercent();
-            }}
-            autoFocus
-            className="w-16 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-white"
-          />
-          <span className="text-[11px] text-zinc-500">%</span>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={submitPercent}
-            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors"
-          >
-            {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-            {editor === "rollout" ? "Publish" : "Save"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setEditor(null);
-              setError(null);
-            }}
-            className="rounded-md p-1 text-zinc-500 hover:text-white"
-            aria-label="Cancel"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
 
       {error && (
         <p className="inline-flex items-center gap-1 text-[11px] text-red-400">
