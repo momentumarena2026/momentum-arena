@@ -226,7 +226,7 @@ export function AdminPassesScreen() {
     queryFn: () => adminPassesApi.data(),
   });
 
-  const [tab, setTab] = useState<"plans" | "sold" | "sharing">("plans");
+  const [tab, setTab] = useState<"plans" | "sold" | "issue" | "sharing">("plans");
   const [busy, setBusy] = useState(false);
 
   const refresh = () => void qc.invalidateQueries({ queryKey: ["admin", "passes"] });
@@ -387,7 +387,10 @@ export function AdminPassesScreen() {
             [
               { key: "plans", label: `Plans (${plans.length})` },
               { key: "sold", label: `Sold (${sold.length})` },
-              { key: "sharing", label: "Sharing" },
+              // Web splits Issue onto its own tab and calls the last one
+              // Settings — match that so the two admins read the same.
+              { key: "issue", label: "Issue" },
+              { key: "sharing", label: "Settings" },
             ] as const
           ).map((t) => (
             <Pressable
@@ -519,8 +522,12 @@ export function AdminPassesScreen() {
         )}
 
         {/* ── SOLD ── */}
-        {tab === "sold" && (
+        {tab === "issue" && (
           <View style={styles.stack}>
+            <Text style={styles.emptyText}>
+              Sell a pass at the venue, or gift a custom one. Issued passes
+              appear under Sold.
+            </Text>
             <View style={styles.rowButtons}>
               <Button
                 label="Issue pass"
@@ -536,7 +543,11 @@ export function AdminPassesScreen() {
                 style={{ flex: 1 }}
               />
             </View>
+          </View>
+        )}
 
+        {tab === "sold" && (
+          <View style={styles.stack}>
             {sold.length === 0 && (
               <Text style={styles.emptyText}>No passes sold yet.</Text>
             )}
