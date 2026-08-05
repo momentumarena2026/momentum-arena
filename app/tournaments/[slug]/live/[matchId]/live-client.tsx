@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { trackTournamentLiveView } from "@/lib/analytics";
 import { Loader2, Radio, Smartphone, Trophy } from "lucide-react";
 
 type TeamLite = { id: string; name: string; color: string | null; logoUrl: string | null };
@@ -80,6 +81,10 @@ function eventLine(e: LiveEvent, teams: Map<string, string>): string | null {
 }
 
 export function LiveMatchClient({ matchId, tvMode }: { matchId: string; tvMode: boolean }) {
+  // Tail of the tournaments funnel — see trackTournamentView in the centre.
+  useEffect(() => {
+    trackTournamentLiveView(matchId);
+  }, [matchId]);
   const [data, setData] = useState<LivePayload | null>(null);
   const [clock, setClock] = useState<number | null>(null);
 

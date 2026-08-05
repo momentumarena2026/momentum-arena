@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  trackTournamentRegisterStarted,
+  trackTournamentRegisterCompleted,
+} from "@/lib/analytics";
 import { Loader2, Upload, Ticket, PartyPopper, QrCode, CreditCard, Coins, Users } from "lucide-react";
 import { onlinePayable } from "@/lib/tournament-config";
 import { validateCoupon } from "@/actions/coupon-validation";
@@ -46,6 +50,10 @@ type Props = {
 };
 
 export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) {
+  // Funnel middle — see trackTournamentView in tournament-center.tsx.
+  useEffect(() => {
+    trackTournamentRegisterStarted(t.slug, t.entryFee);
+  }, [t.slug, t.entryFee]);
   const router = useRouter();
   const [teamName, setTeamName] = useState("");
   const [color, setColor] = useState(COLORS[4]);
@@ -103,6 +111,7 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
         const r = await fetch(`/api/phonepe/dqr/tournament-status?transactionId=${dqr.transactionId}`);
         const d = await r.json();
         if (d.state === "COMPLETED") {
+          trackTournamentRegisterCompleted(t.slug, "CONFIRMED", "upi");
           clearInterval(iv);
           setDqr(null);
           setDone({ state: "CONFIRMED" });
@@ -246,6 +255,7 @@ export function RegisterClient({ tournament: t, prefill, dqrAvailable }: Props) 
             });
             const vd = await v.json();
             if (!v.ok) throw new Error(vd.error || "Payment confirmation failed");
+            trackTournamentRegisterCompleted(t.slug, "CONFIRMED", "razorpay");
             setDone({ state: "CONFIRMED" });
             router.refresh();
           } catch (e) {

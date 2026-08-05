@@ -4,6 +4,7 @@ import { validateCoupon } from "@/actions/coupon-validation";
 import { redeemForTournament, refundRedemption } from "@/lib/rewards/redeem";
 import { awardTournamentPoints } from "@/lib/rewards/earn";
 import { onlinePayable } from "@/lib/tournament-config";
+import { notifyUser } from "@/lib/user-notifications";
 
 // The key secret isn't exported from lib/razorpay — read it like lib/passes does.
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
@@ -507,8 +508,16 @@ export async function confirmTournamentEntry(args: {
       discount: true,
       couponCode: true,
       captainUserId: true,
+      name: true,
       tournament: {
-        select: { id: true, entryFee: true, feeMode: true, advancePct: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          entryFee: true,
+          feeMode: true,
+          advancePct: true,
+        },
       },
     },
   });
@@ -546,6 +555,37 @@ export async function confirmTournamentEntry(args: {
   // Earn on the amount actually paid — idempotent per team, and its
   // failure must never fail a captured payment's confirmation.
   await awardTournamentPoints(team.id).catch(() => {});
+
+  // Tell both sides the money landed. This runs inside the claimed-once
+  // branch above, so a racing webhook + status-poll pair can't double-send.
+  // Everything here is best-effort: a push outage must never fail a
+  // confirmation whose payment is already captured.
+  if (team.captainUserId) {
+    void notifyUser(team.captainUserId, {
+      type: "TOURNAMENT_CONFIRMED",
+      title: "You're in! 🏆",
+      body: `${team.name} is confirmed for ${team.tournament.name}. Payment of ₹${args.paidRupees.toLocaleString("en-IN")} received.`,
+      link: `/tournaments/${team.tournament.slug}`,
+    });
+  }
+  void import("./push")
+    .then(({ sendToAdmins }) =>
+      sendToAdmins(
+        {
+          title: "Tournament entry paid",
+          body: `${team.name} paid ₹${args.paidRupees.toLocaleString("en-IN")} for ${team.tournament.name} — confirm the team.`,
+          data: {
+            kind: "admin_tournament_paid",
+            link: `/admin/tournaments/${team.tournament.id}?tab=teams`,
+          },
+        },
+        { source: "event" },
+      ),
+    )
+    .catch((err) =>
+      console.error("[tournaments] admin paid-push failed:", err),
+    );
+
   return { ok: true };
 }
 

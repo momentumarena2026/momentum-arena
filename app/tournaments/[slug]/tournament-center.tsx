@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackTournamentView } from "@/lib/analytics";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import confetti from "canvas-confetti";
@@ -95,6 +96,12 @@ function Countdown({ target }: { target: string }) {
 }
 
 export function TournamentCenter({ slug, initialTab }: { slug: string; initialTab: CenterTab }) {
+  // GA4 funnel: hub → detail → register → live. The app half shipped with
+  // the module but the web half was never wired, so these screens reported
+  // nothing. Fires once per slug, not per tab switch.
+  useEffect(() => {
+    trackTournamentView(slug);
+  }, [slug]);
   const [data, setData] = useState<Payload | null>(null);
   const [tab, setTab] = useState<CenterTab>(initialTab);
   const [drawPlayed, setDrawPlayed] = useState(false);
