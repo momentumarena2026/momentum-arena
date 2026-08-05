@@ -82,14 +82,23 @@ export async function POST(request: NextRequest) {
   if (!code) return NextResponse.json({ error: "Missing code" }, { status: 400 });
 
   if (action === "score" || action === "undo") {
+    // `events` is the batched form the app uses: taps are applied on the
+    // phone and flushed together, so a burst becomes one write. `event`
+    // stays for the single-tap web pad.
+    const batch = Array.isArray(body?.events)
+      ? (body.events as Array<ScoreEvent | { t: "UNDO" }>)
+      : null;
     const res = await scorePublicMatch({
       code,
       userId,
-      event: action === "undo" ? { t: "UNDO" } : (body.event as ScoreEvent),
+      event:
+        batch ??
+        (action === "undo" ? { t: "UNDO" } : (body.event as ScoreEvent)),
     });
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });
-    const match = await getPublicMatch(code);
-    return NextResponse.json({ state: match?.state });
+    // The replayed state comes back from the write itself — no second
+    // read just to tell the client what it already computed locally.
+    return NextResponse.json({ state: res.state, eventCount: res.eventCount });
   }
 
   if (action === "finish") {

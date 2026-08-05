@@ -32,8 +32,11 @@ interface DqrCheckoutProps {
   advanceAmount?: number;
   remainingAmount?: number;
   /** "booking" hits /api/phonepe/dqr/*, "cafe" the cafe-* variants,
-   *  "pass" the pass-* variants (holdId carries the PassPlan id). */
-  surface?: "booking" | "cafe" | "pass";
+   *  "pass" the pass-* variants (holdId carries the PassPlan id),
+   *  "camp" the camp-* variants (holdId carries the CampRegistration
+   *  id). Each surface only changes the two URLs and which id the
+   *  status payload settles on. */
+  surface?: "booking" | "cafe" | "pass" | "camp";
   /** Extra fields merged into the initiate POST body (e.g. a pass
    *  start date). */
   initiateExtra?: Record<string, unknown>;
@@ -147,18 +150,22 @@ export function DqrCheckout({
   const settledIdRef = useRef<string | null>(null);
 
   const displayAmount = isAdvance && advanceAmount ? advanceAmount : amount;
-  const initiateUrl =
-    surface === "cafe"
-      ? "/api/phonepe/dqr/cafe-initiate"
-      : surface === "pass"
-        ? "/api/phonepe/dqr/pass-initiate"
-        : "/api/phonepe/dqr/initiate";
-  const statusBase =
-    surface === "cafe"
-      ? "/api/phonepe/dqr/cafe-status"
-      : surface === "pass"
-        ? "/api/phonepe/dqr/pass-status"
-        : "/api/phonepe/dqr/status";
+  // Explicit maps — the old nested ternaries silently fell through to
+  // the booking route for any surface they didn't name.
+  const INITIATE_URL: Record<string, string> = {
+    booking: "/api/phonepe/dqr/initiate",
+    cafe: "/api/phonepe/dqr/cafe-initiate",
+    pass: "/api/phonepe/dqr/pass-initiate",
+    camp: "/api/phonepe/dqr/camp-initiate",
+  };
+  const STATUS_URL: Record<string, string> = {
+    booking: "/api/phonepe/dqr/status",
+    cafe: "/api/phonepe/dqr/cafe-status",
+    pass: "/api/phonepe/dqr/pass-status",
+    camp: "/api/phonepe/dqr/camp-status",
+  };
+  const initiateUrl = INITIATE_URL[surface] ?? INITIATE_URL.booking;
+  const statusBase = STATUS_URL[surface] ?? STATUS_URL.booking;
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -222,7 +229,9 @@ export function DqrCheckout({
           ? data.orderId
           : surface === "pass"
             ? data.userPassId
-            : data.bookingId;
+            : surface === "camp"
+              ? data.registrationId
+              : data.bookingId;
       if (data.state === "COMPLETED" && settledId) {
         doneRef.current = true;
         stopPolling();

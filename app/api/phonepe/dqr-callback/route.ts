@@ -7,6 +7,7 @@ import {
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import { confirmDqrPass } from "@/lib/passes";
 import { confirmDqrTournament } from "@/lib/tournaments";
+import { confirmDqrCamp } from "@/lib/camps";
 
 /**
  * PhonePe Dynamic QR S2S callback — the authoritative confirmation
@@ -89,6 +90,19 @@ export async function POST(request: NextRequest) {
     if (tournament.mismatch) {
       console.error(
         `[dqr-callback] tournament amount mismatch for txn ${transactionId}, amount ${data.amount} — orphaned`,
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // Camps sit before passes in the chain for the same reason
+    // tournaments do: each resolver is keyed on its own paymentRef, so
+    // order only decides how many lookups run, not correctness. Without
+    // this branch a camp payer who closes the tab is never confirmed —
+    // the poll would be the only path.
+    const camp = await confirmDqrCamp(transactionId, providerRef, data.amount);
+    if (camp.registrationId) {
+      console.log(
+        `[dqr-callback] camp registration ${camp.registrationId} confirmed (txn ${transactionId})`,
       );
       return NextResponse.json({ success: true });
     }

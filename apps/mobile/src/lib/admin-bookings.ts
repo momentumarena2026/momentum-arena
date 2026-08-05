@@ -238,6 +238,20 @@ export interface AdminCourt {
   slotDurationMinutes: number;
 }
 
+/** A coupon the desk may apply while creating a booking. `value` follows
+ *  the Coupon model: basis points for PERCENTAGE, whole rupees for FLAT. */
+export interface AdminBookingCoupon {
+  code: string;
+  description: string | null;
+  type: string;
+  value: number;
+  maxDiscount: number | null;
+  autoApply: boolean;
+  /** "First Time only · once per customer" — why the server might still
+   *  reject it for this particular customer. */
+  restrictedNote: string | null;
+}
+
 export interface AvailableSlot {
   hour: number;
   price: number;
@@ -390,6 +404,7 @@ export const adminBookingsApi = {
     razorpayPaymentId?: string;
     advanceAmount?: number;
     customTotalAmount?: number;
+    applyCouponCode?: string;
     equipment?: Array<{ equipmentId: string; quantity: number }>;
     payWithPass?: boolean;
     note?: string;
@@ -398,6 +413,20 @@ export const adminBookingsApi = {
       method: "POST",
       body,
     });
+  },
+
+  // Coupons the desk may apply to a booking it's creating. A prefilter —
+  // the create call re-runs the full validator on whichever code is sent.
+  couponOptions(
+    sport: string,
+    category?: string | null,
+  ): Promise<{ coupons: AdminBookingCoupon[] }> {
+    const params = new URLSearchParams({ sport });
+    if (category) params.set("category", category);
+    return request(
+      `/api/mobile/admin/bookings/coupon-options?${params.toString()}`,
+      { method: "GET" },
+    );
   },
 
   // Would this customer's passes cover these slots? Drives the

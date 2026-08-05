@@ -1,4 +1,15 @@
 import { api } from "./api";
+import type {
+  PublicMatchState,
+  ScoreEvent,
+  WicketKind,
+} from "./match-engine";
+
+// The scoreboard shape lives in the engine so the local replay and the
+// server's agree by construction. Re-exported here because every screen
+// already imports from this module.
+export type MatchState = PublicMatchState;
+export type { ScoreEvent, WicketKind };
 
 /**
  * Casual ("scratch") match scoring — the app half.
@@ -11,16 +22,6 @@ import { api } from "./api";
 
 export type MatchSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
 
-export interface MatchState {
-  innings: number;
-  runsA: number;
-  runsB: number;
-  wicketsA: number;
-  wicketsB: number;
-  ballsA: number;
-  ballsB: number;
-}
-
 export interface PublicMatch {
   code: string;
   sport: MatchSport;
@@ -29,6 +30,8 @@ export interface PublicMatch {
   teamBName: string;
   oversPerInnings: number | null;
   state: MatchState;
+  /** The raw log, so the scorer's phone can append and replay locally. */
+  events: ScoreEvent[];
   /** Server-decided: only the creator gets the scoring pad. */
   canScore: boolean;
 }
@@ -42,14 +45,6 @@ export interface MyMatch {
   createdAt: string;
   state: MatchState;
 }
-
-export type ScoreEvent =
-  | { t: "RUN"; runs: number }
-  | { t: "WICKET" }
-  | { t: "WIDE" }
-  | { t: "NO_BALL"; runs?: number }
-  | { t: "END_INNINGS" }
-  | { t: "POINT"; side: "A" | "B" };
 
 export const overs = (balls: number) =>
   `${Math.floor(balls / 6)}.${balls % 6}`;
@@ -80,6 +75,21 @@ export async function scoreMatch(
   event: ScoreEvent,
 ): Promise<{ state?: MatchState; error?: string }> {
   return api.post("/api/match", { action: "score", code, event });
+}
+
+/**
+ * Flush a run of locally-applied taps in one write.
+ *
+ * The scorer's phone is the fast path: each tap is replayed on-device and
+ * queued, then the queue goes up as a batch. Sending the whole batch (in
+ * order, including any undos the scorer made before it flushed) means the
+ * server replays exactly the same log we did, so the two can't drift.
+ */
+export async function scoreMatchBatch(
+  code: string,
+  events: Array<ScoreEvent | { t: "UNDO" }>,
+): Promise<{ state?: MatchState; eventCount?: number; error?: string }> {
+  return api.post("/api/match", { action: "score", code, events });
 }
 
 export async function undoMatch(

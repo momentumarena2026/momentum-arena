@@ -12,6 +12,8 @@ import {
   UserRound,
   Check,
   Loader2,
+  QrCode,
+  CreditCard,
 } from "lucide-react";
 import {
   trackCampView,
@@ -85,10 +87,12 @@ export function CampRegisterClient({
   camp,
   signedIn,
   prefill,
+  dqrAvailable,
 }: {
   camp: Camp;
   signedIn: boolean;
   prefill: { name: string; phone: string; email: string };
+  dqrAvailable: boolean;
 }) {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -103,11 +107,53 @@ export function CampRegisterClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ waitlisted: boolean } | null>(null);
+  // Same two-way choice the booking, pass and tournament funnels offer.
+  // UPI leads when the venue has PhonePe DQR switched on.
+  const [method, setMethod] = useState<"upi" | "razorpay">(
+    dqrAvailable ? "upi" : "razorpay",
+  );
+  const [dqr, setDqr] = useState<null | {
+    qrImage?: string;
+    qrString?: string;
+    transactionId: string;
+    amount: number;
+  }>(null);
 
   // Funnel: hub → detail → register. Fires once per camp.
   useEffect(() => {
     trackCampView(camp.slug);
   }, [camp.slug]);
+
+  // Poll while the QR is on screen. The S2S callback also confirms, so a
+  // payer who closes the tab still gets their seat — this only drives
+  // what *this* screen shows.
+  useEffect(() => {
+    if (!dqr) return;
+    const iv = setInterval(async () => {
+      try {
+        const r = await fetch(
+          `/api/phonepe/dqr/camp-status?transactionId=${dqr.transactionId}`,
+        );
+        const d = await r.json();
+        if (d.state === "COMPLETED") {
+          clearInterval(iv);
+          trackCampRegisterCompleted(camp.slug, "CONFIRMED", "upi");
+          setDqr(null);
+          setDone({ waitlisted: false });
+          router.refresh();
+        } else if (d.state === "FAILED") {
+          clearInterval(iv);
+          setDqr(null);
+          setBusy(false);
+          setError(d.error || "Payment failed — please try again");
+        }
+      } catch {
+        /* transient — the next tick retries */
+      }
+    }, 3500);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dqr]);
 
   const open = camp.status === "REGISTRATIONS_OPEN";
   const full = camp.seatsLeft <= 0;
@@ -145,6 +191,24 @@ export function CampRegisterClient({
         );
         setDone({ waitlisted: !!data.waitlisted });
         router.refresh();
+        return;
+      }
+
+      // UPI (PhonePe DQR): show the QR; the poll effect finishes the job.
+      if (method === "upi") {
+        const dq = await fetch("/api/phonepe/dqr/camp-initiate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ registrationId: data.registrationId }),
+        });
+        const dqd = await dq.json();
+        if (!dq.ok) throw new Error(dqd.error || "Couldn't start the UPI payment");
+        setDqr({
+          qrImage: dqd.qrImage,
+          qrString: dqd.qrString,
+          transactionId: dqd.transactionId,
+          amount: dqd.amount,
+        });
         return;
       }
 
@@ -194,6 +258,44 @@ export function CampRegisterClient({
       setBusy(false);
     }
   };
+
+  if (dqr) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-12 text-center">
+        <h1 className="text-xl font-bold text-white">
+          Scan to pay {inr(dqr.amount)}
+        </h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          {camp.name}. Pay from any UPI app — this screen confirms on its own.
+        </p>
+        {dqr.qrImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={dqr.qrImage}
+            alt="UPI QR"
+            className="mx-auto mt-6 w-64 rounded-2xl bg-white p-3"
+          />
+        ) : (
+          <p className="mt-6 break-all rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-xs text-zinc-400">
+            {dqr.qrString}
+          </p>
+        )}
+        <p className="mt-4 flex items-center justify-center gap-2 text-sm text-zinc-500">
+          <Loader2 className="h-4 w-4 animate-spin text-emerald-500" /> Waiting
+          for payment…
+        </p>
+        <button
+          onClick={() => {
+            setDqr(null);
+            setBusy(false);
+          }}
+          className="mt-6 text-sm text-zinc-400 underline"
+        >
+          Cancel and choose another method
+        </button>
+      </div>
+    );
+  }
 
   if (done) {
     return (
@@ -371,6 +473,29 @@ export function CampRegisterClient({
                 value={form.couponCode}
                 onChange={(e) => set("couponCode", e.target.value)}
               />
+            )}
+            {dqrAvailable && payNow > 0 && !full && (
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-zinc-500">
+                  Pay with
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMethod("upi")}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-2.5 text-sm ${method === "upi" ? "border-emerald-500/50 bg-emerald-600/10 text-emerald-300" : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`}
+                  >
+                    <QrCode className="h-4 w-4" /> UPI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMethod("razorpay")}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-2.5 text-sm ${method === "razorpay" ? "border-emerald-500/50 bg-emerald-600/10 text-emerald-300" : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`}
+                  >
+                    <CreditCard className="h-4 w-4" /> Card / Netbanking
+                  </button>
+                </div>
+              </div>
             )}
             <button
               onClick={submit}
