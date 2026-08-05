@@ -61,12 +61,21 @@ export function SlotsTab({
   }, [tournamentId]);
   useEffect(load, [load]);
 
-  const run = (fn: () => Promise<{ success: boolean; error?: string }>) => {
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const run = (fn: () => Promise<{ success: boolean; error?: string; clashes?: number }>) => {
     setError(null);
     start(async () => {
       const r = await fn();
       if (!r.success) setError(r.error ?? "Something went wrong");
       else {
+        // Blocking stops NEW bookings; anything already booked in those
+        // hours stays and has to be moved by hand.
+        setNotice(
+          r.clashes
+            ? `Window added and its hours are now blocked. ${r.clashes} existing booking${r.clashes === 1 ? "" : "s"} already sit in this window — move ${r.clashes === 1 ? "it" : "them"} from the calendar.`
+            : null,
+        );
         load();
         router.refresh();
       }
@@ -80,6 +89,12 @@ export function SlotsTab({
 
   return (
     <div className="space-y-6">
+      {notice && (
+        <p className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          <AlertTriangle className="h-4 w-4 shrink-0" /> {notice}
+        </p>
+      )}
+
       {error && (
         <p className="flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
           <AlertTriangle className="h-4 w-4" /> {error}
@@ -119,7 +134,8 @@ export function SlotsTab({
         </h3>
         <p className="mt-1 text-xs text-zinc-500">
           Customers see these on the tournament page, and captains pick which
-          ones their team can play.
+          ones their team can play. Adding a window blocks those hours on the
+          booking grid straight away; deleting it hands them back.
         </p>
 
         {plan && plan.slots.length > 0 && (

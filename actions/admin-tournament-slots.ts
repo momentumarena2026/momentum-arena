@@ -35,28 +35,65 @@ const slotSchema = z.object({
 
 export async function addTournamentSlot(
   input: z.infer<typeof slotSchema>,
-): Promise<{ success: boolean; error?: string }> {
-  await gate();
+): Promise<{ success: boolean; error?: string; clashes?: number }> {
+  const admin = await gate();
   const parsed = slotSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: "Invalid slot" };
   const d = parsed.data;
   if (d.endHour <= d.startHour) {
     return { success: false, error: "End hour must be after the start hour" };
   }
+  // Date-only column — parse as UTC midnight so the stored day is the
+  // day the admin picked, not a timezone-shifted neighbour.
+  const date = new Date(`${d.date}T00:00:00.000Z`);
+  const hours = Array.from(
+    { length: d.endHour - d.startHour },
+    (_, i) => d.startHour + i,
+  );
+
+  // Block the venue hours NOW, not at approval. A window that is only
+  // reserved once the draw is approved stays on sale in the meantime,
+  // and the tournament can lose its own slots to public bookings.
+  const blockIds: string[] = [];
+  let clashes = 0;
+  if (d.courtConfigId) {
+    // Existing bookings are NOT cancelled — blocking only stops new
+    // ones. Surface the count so the admin can move them by hand.
+    clashes = await db.booking.count({
+      where: {
+        courtConfigId: d.courtConfigId,
+        date,
+        status: { in: ["CONFIRMED", "COMPLETED"] },
+        slots: { some: { startHour: { in: hours } } },
+      },
+    });
+    for (const h of hours) {
+      const b = await db.slotBlock.create({
+        data: {
+          courtConfigId: d.courtConfigId,
+          date,
+          startHour: h,
+          reason: "Tournament window",
+          blockedBy: admin.id,
+        },
+      });
+      blockIds.push(b.id);
+    }
+  }
+
   await db.tournamentSlot.create({
     data: {
       tournamentId: d.tournamentId,
-      // Date-only column — parse as UTC midnight so the stored day is
-      // the day the admin picked, not a timezone-shifted neighbour.
-      date: new Date(`${d.date}T00:00:00.000Z`),
+      date,
       startHour: d.startHour,
       endHour: d.endHour,
       courtConfigId: d.courtConfigId || null,
       label: d.label?.trim() || null,
+      slotBlockIds: blockIds,
     },
   });
   revalidatePath(`/admin/tournaments/${d.tournamentId}`);
-  return { success: true };
+  return { success: true, clashes };
 }
 
 export async function deleteTournamentSlot(
@@ -65,9 +102,13 @@ export async function deleteTournamentSlot(
   await gate();
   const slot = await db.tournamentSlot.findUnique({
     where: { id: slotId },
-    select: { tournamentId: true },
+    select: { tournamentId: true, slotBlockIds: true },
   });
   if (!slot) return { success: false, error: "Slot not found" };
+  // Removing a window hands its hours back to the booking grid.
+  if (slot.slotBlockIds.length > 0) {
+    await db.slotBlock.deleteMany({ where: { id: { in: slot.slotBlockIds } } });
+  }
   // Teams may have ticked this window; drop it from their preferences
   // so nothing points at a slot that no longer exists.
   const teams = await db.tournamentTeam.findMany({
@@ -317,32 +358,14 @@ export async function approveSchedule(
       ),
     );
 
-    // Block the venue hours this match occupies so the booking grid
-    // can't sell them underneath the tournament.
-    const blockIds: string[] = [];
-    if (slot?.courtConfigId) {
-      const hours = Math.max(1, Math.round(t.matchDurationMinutes / 60));
-      for (let h = 0; h < hours; h++) {
-        const b = await db.slotBlock.create({
-          data: {
-            courtConfigId: slot.courtConfigId,
-            sport: t.sport,
-            date: new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate())),
-            startHour: pm.slot.startHour + h,
-            reason: "Tournament match",
-            blockedBy: admin.id,
-          },
-        });
-        blockIds.push(b.id);
-      }
-    }
-
+    // No SlotBlock created here: the window already blocked these hours
+    // when the admin added it. Creating another would double-block and
+    // leave orphans behind when the window is later removed.
     await db.tournamentMatch.update({
       where: { id: row.id },
       data: {
         scheduledAt,
         courtConfigId: slot?.courtConfigId ?? null,
-        slotBlockIds: blockIds,
       },
     });
     scheduled++;

@@ -1,0 +1,65 @@
+name: Backfill tournament slot blocks (production)
+
+# Tournament windows created before blocking moved to window-creation time
+# reserved nothing — their hours stayed on sale until the draw was approved.
+# This raises the missing SlotBlocks so the venue can't sell a window the
+# tournament already owns. Skips hours already blocked; never cancels an
+# existing booking, only reports the clash.
+#
+# Manual only. Defaults to a DRY RUN — you must tick `apply` to write.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually write (unticked = dry run, prints what would change)"
+        type: boolean
+        default: false
+
+jobs:
+  backfill:
+    name: Backfill slot blocks
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty! Add PRODUCTION_DB_URL to repository secrets."
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run backfill
+        run: |
+          ARGS=""
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="$ARGS --apply"; fi
+          echo "Running: npx tsx scripts/backfill-tournament-slot-blocks.ts $ARGS"
+          npx tsx scripts/backfill-tournament-slot-blocks.ts $ARGS 2>&1 | tee backfill.log
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Backfill slot blocks — ${{ inputs.apply == true && 'APPLIED' || 'DRY RUN' }}"
+            echo ""
+            echo '```'
+            tail -40 backfill.log 2>/dev/null || echo "(no output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
