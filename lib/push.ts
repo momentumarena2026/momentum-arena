@@ -112,7 +112,9 @@ export type PushKind =
   // admin app at the row that needs attention (confirm the team, or the
   // sold-passes tab).
   | "admin_tournament_paid"
-  | "admin_pass_purchased";
+  | "admin_pass_purchased"
+  // Someone registered for a coaching camp (online or entered at the desk).
+  | "admin_camp_registration";
 
 export interface PushPayload {
   title: string;
