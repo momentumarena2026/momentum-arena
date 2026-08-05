@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TournamentHubTracker } from "./hub-tracker";
 import { Trophy, Users, IndianRupee, Radio, ChevronLeft, ChevronRight } from "lucide-react";
 import { listPublicTournaments } from "@/lib/tournaments";
 
@@ -74,6 +75,7 @@ export default async function TournamentsPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
+      <TournamentHubTracker />
       <div className="mb-8 text-center">
         <h1 className="text-3xl font-bold text-white sm:text-4xl">🏆 Tournaments</h1>
         <p className="mt-2 text-zinc-400">

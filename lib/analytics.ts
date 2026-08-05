@@ -455,3 +455,32 @@ export function trackPassRedeemed(coveredMinutes: number, remainderAmount: numbe
 export function trackPassMemberAdded() {
   trackEvent("pass_member_added");
 }
+
+// ── Tournaments funnel ──────────────────────────────────────────────
+// Mirrors apps/mobile/src/lib/analytics.ts so hub → detail → register →
+// live reads as one funnel across web and app in GA4. The app half was
+// wired with the module; the web half was missed, which is why the
+// tournament screens reported nothing.
+export function trackTournamentHubView() {
+  trackEvent("tournament_hub_view");
+}
+
+export function trackTournamentView(slug: string) {
+  trackEvent("tournament_view", { slug });
+}
+
+export function trackTournamentRegisterStarted(slug: string, fee: number) {
+  trackEvent("tournament_register_started", { slug, fee });
+}
+
+export function trackTournamentRegisterCompleted(
+  slug: string,
+  state: string,
+  method: string,
+) {
+  trackEvent("tournament_register_completed", { slug, state, method });
+}
+
+export function trackTournamentLiveView(matchId: string) {
+  trackEvent("tournament_live_view", { match_id: matchId });
+}

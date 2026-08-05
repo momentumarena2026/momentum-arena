@@ -169,6 +169,24 @@ export async function materializeUserPass(args: {
       body: `${plan.name} is ready — ${hrs} hours to play, valid ${plan.validityDays} days. Book a slot and pay with your pass.`,
       link: "/account?tab=passes",
     });
+    // Mirror it to the floor team: a pass sale is revenue they should see
+    // land, same as a booking. Best-effort — a push outage must never fail
+    // a purchase whose money is already captured.
+    void import("./push")
+      .then(({ sendToAdmins }) =>
+        sendToAdmins(
+          {
+            title: "Pass sold 🎟️",
+            body: `${plan.name} — ${hrs}h, ₹${plan.price.toLocaleString("en-IN")}.`,
+            data: {
+              kind: "admin_pass_purchased",
+              link: "/admin/passes?tab=sold",
+            },
+          },
+          { source: "event" },
+        ),
+      )
+      .catch((err) => console.error("[passes] admin sale-push failed:", err));
     return { userPassId: created.id, alreadyDone: false };
   } catch (err) {
     // Verify + webhook race the find-then-create: the loser hits the

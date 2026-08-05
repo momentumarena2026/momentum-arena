@@ -107,7 +107,12 @@ export type PushKind =
   // queue accordingly.
   | "admin_pending_booking"
   | "admin_booking_confirmed"
-  | "admin_booking_cancelled";
+  | "admin_booking_cancelled"
+  // Money landed for a tournament entry / a pass sale. Both deep-link the
+  // admin app at the row that needs attention (confirm the team, or the
+  // sold-passes tab).
+  | "admin_tournament_paid"
+  | "admin_pass_purchased";
 
 export interface PushPayload {
   title: string;
