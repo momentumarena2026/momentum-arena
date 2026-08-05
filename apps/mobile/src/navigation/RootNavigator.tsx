@@ -16,6 +16,7 @@ import {
   trackPageView,
   trackWaitlistNotificationTapped,
 } from "../lib/analytics";
+import { OfflineBanner } from "../components/OfflineBanner";
 import { NavLoader } from "../components/NavLoader";
 import { InAppNotificationBanner } from "../components/InAppNotificationBanner";
 import { colors } from "../theme";
@@ -327,6 +328,9 @@ export function RootNavigator() {
         sits above every screen, customer + admin alike. Driven by
         TanStack Query in-flight state. */}
     <NavLoader />
+    {/* Connectivity bar — overlay sibling of the navigator so it shows
+        on every screen, customer and admin alike. */}
+    <OfflineBanner />
     {banner && (
       <InAppNotificationBanner
         key={banner.id}
