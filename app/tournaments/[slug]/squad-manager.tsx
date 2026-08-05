@@ -4,7 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, Trash2, Users, ChevronDown, ChevronUp, Lock } from "lucide-react";
 
-type Member = { id: string; name: string; isCaptain: boolean; locked: boolean };
+type Member = {
+  id: string;
+  name: string;
+  phone: string | null;
+  isCaptain: boolean;
+  locked: boolean;
+};
 
 type Props = {
   teamId: string;
@@ -20,17 +26,32 @@ type Props = {
 export function SquadManager({ teamId, members, maxMembers, canEdit }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(members.length <= 1);
-  const [rows, setRows] = useState<{ key: string; name: string; locked: boolean; isCaptain: boolean }[]>(
-    members.map((m) => ({ key: m.id, name: m.name, locked: m.locked, isCaptain: m.isCaptain }))
+  const [rows, setRows] = useState<
+    { key: string; name: string; phone: string; locked: boolean; isCaptain: boolean }[]
+  >(
+    members.map((m) => ({
+      key: m.id,
+      name: m.name,
+      phone: m.phone ?? "",
+      locked: m.locked,
+      isCaptain: m.isCaptain,
+    }))
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const filled = rows.map((r) => r.name.trim()).filter(Boolean);
+  const kept = rows.filter((r) => r.name.trim());
+  const filled = kept.map((r) => r.name.trim());
+  // A phone-only edit is still an edit — without this the Save button
+  // stayed disabled after typing a number and nothing was persisted.
   const dirty =
-    filled.length !== members.length ||
-    filled.some((n, i) => n !== members[i]?.name);
+    kept.length !== members.length ||
+    kept.some(
+      (r, i) =>
+        r.name.trim() !== members[i]?.name ||
+        r.phone.trim() !== (members[i]?.phone ?? ""),
+    );
 
   const save = async () => {
     if (saving) return;
@@ -41,7 +62,13 @@ export function SquadManager({ teamId, members, maxMembers, canEdit }: Props) {
       const res = await fetch("/api/tournaments/squad", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamId, members: filled }),
+        body: JSON.stringify({
+          teamId,
+          members: kept.map((r) => ({
+            name: r.name.trim(),
+            phone: r.phone.trim(),
+          })),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't save the squad");
@@ -85,11 +112,22 @@ export function SquadManager({ teamId, members, maxMembers, canEdit }: Props) {
                       {i + 1}
                     </span>
                     <input
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none"
+                      className="min-w-0 flex-[2] rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none"
                       placeholder={`Player ${i + 1}`}
                       value={r.name}
                       onChange={(e) =>
                         setRows((arr) => arr.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
+                      }
+                    />
+                    {/* Optional — the venue uses it to reach a player when
+                        the captain isn't around. Never blocks a save. */}
+                    <input
+                      className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none"
+                      placeholder="Phone"
+                      inputMode="tel"
+                      value={r.phone}
+                      onChange={(e) =>
+                        setRows((arr) => arr.map((x, j) => (j === i ? { ...x, phone: e.target.value } : x)))
                       }
                     />
                     {r.isCaptain && (
@@ -117,7 +155,13 @@ export function SquadManager({ teamId, members, maxMembers, canEdit }: Props) {
                   onClick={() =>
                     setRows((arr) => [
                       ...arr,
-                      { key: `new-${Date.now()}-${arr.length}`, name: "", locked: false, isCaptain: false },
+                      {
+                        key: `new-${Date.now()}-${arr.length}`,
+                        name: "",
+                        phone: "",
+                        locked: false,
+                        isCaptain: false,
+                      },
                     ])
                   }
                   className="flex items-center gap-1 text-xs text-emerald-400 hover:underline"

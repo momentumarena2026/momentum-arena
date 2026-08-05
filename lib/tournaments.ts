@@ -697,6 +697,7 @@ export async function getMyTournamentTeam(tournamentId: string, userId: string) 
         select: {
           id: true,
           name: true,
+          phone: true,
           isCaptain: true,
           _count: { select: { playerStats: true, matchEvents: true, potmMatches: true } },
         },
@@ -716,6 +717,7 @@ export async function getMyTournamentTeam(tournamentId: string, userId: string) 
     members: team.members.map((m) => ({
       id: m.id,
       name: m.name,
+      phone: m.phone,
       isCaptain: m.isCaptain,
       // Locked = has recorded stats/events — renaming is fine, removal isn't.
       locked: m._count.playerStats + m._count.matchEvents + m._count.potmMatches > 0,
@@ -835,7 +837,7 @@ export async function reconcileTeamSquad(
 export async function updateMyTeamSquad(
   teamId: string,
   userId: string,
-  names: string[]
+  names: (string | SquadMemberInput)[]
 ): Promise<{ ok: boolean; error?: string }> {
   const team = await db.tournamentTeam.findUnique({
     where: { id: teamId },
