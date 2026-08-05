@@ -70,48 +70,73 @@ export function SlotPreferences({
         <CalendarClock className="h-5 w-5 text-emerald-400" /> Your preferred slots
       </h2>
       <p className="mt-1 text-xs text-zinc-500">
-        Tick every window your team can play. Pools and match times are built
+        Tick every hour your team can play. Pools and match times are built
         around these — the more you tick, the better your chances of getting
         times that suit you. Leave all unticked if any time works.
       </p>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        {slots.map((s) => {
-          const on = picked.includes(s.id);
+      <div className="mt-3 space-y-4">
+        {slots.map((w) => {
+          const hours = Array.from(
+            { length: w.endHour - w.startHour },
+            (_, i) => w.startHour + i,
+          );
+          const dayLabel = new Date(w.date).toLocaleDateString("en-IN", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            timeZone: "Asia/Kolkata",
+          });
+          const allOn = hours.every((h) => picked.includes(`${w.id}#${h}`));
           return (
-            <button
-              key={s.id}
-              type="button"
-              disabled={locked}
-              onClick={() => toggle(s.id)}
-              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                on
-                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
-                  : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-600"
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              <span
-                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                  on ? "border-emerald-400 bg-emerald-500" : "border-zinc-600"
-                }`}
-              >
-                {on && <Check className="h-3 w-3 text-zinc-950" />}
-              </span>
-              <span>
-                {new Date(s.date).toLocaleDateString("en-IN", {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                  timeZone: "Asia/Kolkata",
-                })}{" "}
-                <span className="font-medium">
-                  {hourLabel(s.startHour)}–{hourLabel(s.endHour)}
+            <div key={w.id}>
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <span className="text-xs font-semibold text-zinc-300">
+                  {dayLabel}
+                  <span className="ml-2 font-normal text-zinc-500">
+                    {hourLabel(w.startHour)}–{hourLabel(w.endHour)}
+                    {w.label ? ` · ${w.label}` : ""}
+                  </span>
                 </span>
-                {s.label && (
-                  <span className="ml-1 text-xs text-zinc-500">{s.label}</span>
-                )}
-              </span>
-            </button>
+                <button
+                  type="button"
+                  disabled={locked}
+                  onClick={() =>
+                    setPicked((p) => {
+                      const keys = hours.map((h) => `${w.id}#${h}`);
+                      return allOn
+                        ? p.filter((x) => !keys.includes(x))
+                        : Array.from(new Set([...p, ...keys]));
+                    })
+                  }
+                  className="text-[11px] text-emerald-400 hover:underline disabled:opacity-50"
+                >
+                  {allOn ? "Clear all" : "Select all"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {hours.map((h) => {
+                  const key = `${w.id}#${h}`;
+                  const on = picked.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={locked}
+                      onClick={() => toggle(key)}
+                      className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition ${
+                        on
+                          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+                          : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-600"
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      {on && <Check className="h-3 w-3" />}
+                      {hourLabel(h)}–{hourLabel(h + 1)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </div>

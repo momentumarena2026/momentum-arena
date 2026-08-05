@@ -921,15 +921,24 @@ export async function setTeamSlotPreferences(args: {
       error: "The schedule is already published — contact the venue to change slots",
     };
   }
-  // Only ids that belong to THIS tournament; anything else is dropped
-  // rather than trusted.
-  const valid = await db.tournamentSlot.findMany({
-    where: { tournamentId: team.tournamentId, id: { in: args.slotIds } },
-    select: { id: true },
+  // Picks are hour-level keys: `<slotId>#<startHour>`. Keep only keys
+  // whose window belongs to THIS tournament AND whose hour actually
+  // falls inside that window — anything else is dropped, not trusted.
+  const windows = await db.tournamentSlot.findMany({
+    where: { tournamentId: team.tournamentId },
+    select: { id: true, startHour: true, endHour: true },
+  });
+  const byId = new Map(windows.map((w) => [w.id, w]));
+  const valid = args.slotIds.filter((key) => {
+    const [slotId, rawHour] = key.split("#");
+    const w = byId.get(slotId);
+    if (!w) return false;
+    const hour = Number(rawHour);
+    return Number.isInteger(hour) && hour >= w.startHour && hour < w.endHour;
   });
   await db.tournamentTeam.update({
     where: { id: team.id },
-    data: { preferredSlotIds: valid.map((v) => v.id) },
+    data: { preferredSlotIds: Array.from(new Set(valid)) },
   });
   return { ok: true };
 }

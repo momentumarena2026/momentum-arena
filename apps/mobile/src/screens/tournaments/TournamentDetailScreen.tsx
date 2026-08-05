@@ -104,28 +104,47 @@ function SlotPicker({
     <View style={{ marginTop: 12, gap: 8 }}>
       <Text style={styles.cardTitle}>Your preferred slots</Text>
       <Text style={styles.cardBody}>
-        Tick every window your team can play — pools and match times are built
+        Tick every hour your team can play — pools and match times are built
         around these. Leave all unticked if any time works.
       </Text>
       {windows.map((w) => {
-        const on = picked.includes(w.id);
+        const hours = Array.from(
+          { length: w.endHour - w.startHour },
+          (_, i) => w.startHour + i,
+        );
         return (
-          <Pressable
-            key={w.id}
-            disabled={locked}
-            onPress={() =>
-              setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))
-            }
-            style={[styles.slotRow, on && styles.slotRowOn, locked && { opacity: 0.6 }]}
-          >
-            <View style={[styles.slotBox, on && styles.slotBoxOn]}>
-              {on ? <Text style={{ color: "#032016", fontSize: 11, fontWeight: "800" }}>✓</Text> : null}
-            </View>
-            <Text style={{ color: on ? colors.emerald400 : colors.zinc300, fontSize: 13 }}>
-              {fmtDate(w.date)}  {hourLabel(w.startHour)}–{hourLabel(w.endHour)}
-              {w.label ? `  ${w.label}` : ""}
+          <View key={w.id} style={{ gap: 6 }}>
+            <Text variant="tiny" color={colors.zinc500}>
+              {fmtDate(w.date)} · {hourLabel(w.startHour)}–{hourLabel(w.endHour)}
+              {w.label ? ` · ${w.label}` : ""}
             </Text>
-          </Pressable>
+            <View style={styles.hourGrid}>
+              {hours.map((h) => {
+                const key = `${w.id}#${h}`;
+                const on = picked.includes(key);
+                return (
+                  <Pressable
+                    key={key}
+                    disabled={locked}
+                    onPress={() =>
+                      setPicked((p) =>
+                        p.includes(key) ? p.filter((x) => x !== key) : [...p, key],
+                      )
+                    }
+                    style={[styles.hourChip, on && styles.slotRowOn, locked && { opacity: 0.6 }]}
+                  >
+                    <Text
+                      variant="tiny"
+                      weight={on ? "700" : "500"}
+                      color={on ? colors.emerald400 : colors.zinc300}
+                    >
+                      {hourLabel(h)}–{hourLabel(h + 1)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
         );
       })}
       {locked ? (
@@ -1028,6 +1047,16 @@ const styles = StyleSheet.create({
     color: colors.foreground,
   },
   prizePoolNote: { fontSize: 12, fontWeight: "400", color: colors.zinc500 },
+  hourGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  hourChip: {
+    minWidth: 92,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: radius.lg,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
