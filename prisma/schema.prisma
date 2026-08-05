@@ -1804,6 +1804,10 @@ model ArenaSettings {
   // and blocks registration. Admin management keeps working so a
   // tournament can be prepared before the module goes public.
   tournamentsEnabled Boolean @default(false)
+  // Coaching camps (football / cricket). Off by default: the customer hub
+  // and every camp route 404 until an admin turns it on, same as
+  // tournaments — so a half-configured camp is never publicly reachable.
+  campsEnabled       Boolean @default(false)
   updatedAt DateTime @updatedAt
 }
 
@@ -3420,4 +3424,110 @@ model TournamentCampaignItem {
   updatedAt DateTime @updatedAt
 
   @@index([tournamentId, milestone])
+}
+
+
+// ── Coaching camps ──────────────────────────────────────────────────
+// A camp is a fixed-length coaching programme (e.g. "Summer Cricket
+// Camp, 15 days") that people register FOR — not a slot they book. It
+// deliberately reuses the tournament module's money vocabulary
+// (feeMode/advancePct, coupons, reward points, waitlist) so the venue's
+// mental model and the reporting stay the same, without dragging in
+// pools, fixtures or scoring, which a camp has no use for.
+
+enum CampStatus {
+  DRAFT
+  REGISTRATIONS_OPEN
+  REGISTRATIONS_CLOSED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum CampRegistrationStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  WAITLISTED
+  WITHDRAWN
+  REJECTED
+}
+
+model Camp {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  name        String
+  sport       Sport
+  status      CampStatus @default(DRAFT)
+  description String?
+  rules       String?
+  bannerImageUrl String?
+
+  // Schedule. Sessions repeat on `daysOfWeek` (0=Sun … 6=Sat) between
+  // startHour and endHour, across the startDate..endDate window.
+  startDate  DateTime
+  endDate    DateTime
+  daysOfWeek Int[]
+  startHour  Int
+  endHour    Int
+  regOpenAt  DateTime?
+  regCloseAt DateTime?
+
+  // Who it's for.
+  ageMin    Int?
+  ageMax    Int?
+  coachName String?
+  venueNote String?
+
+  // Money (rupees), mirroring the tournament fee model.
+  capacity          Int
+  fee               Int     @default(0)
+  feeMode           String  @default("FULL") // FULL | ADVANCE | FREE
+  advancePct        Int     @default(50)
+  allowCoupons      Boolean @default(true)
+  allowRewardPoints Boolean @default(true)
+  waitlistEnabled   Boolean @default(true)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registrations CampRegistration[]
+
+  @@index([status, startDate])
+}
+
+model CampRegistration {
+  id     String                 @id @default(cuid())
+  campId String
+  camp   Camp                   @relation(fields: [campId], references: [id], onDelete: Cascade)
+  status CampRegistrationStatus @default(PENDING_PAYMENT)
+
+  // The account that registered (null for a walk-in an admin entered).
+  userId String?
+
+  participantName String
+  participantAge  Int?
+  guardianName    String?
+  phone           String
+  email           String?
+  notes           String?
+
+  // Money — accumulates like a tournament team: advance online, the rest
+  // collected at the venue.
+  paidAmount    Int     @default(0)
+  dueAmount     Int     @default(0)
+  paymentMethod String?
+  paymentRef    String?
+  couponCode    String?
+  discount      Int     @default(0)
+  pointsUsed    Int     @default(0)
+
+  // Soft delete, so a withdrawn registration keeps its payment trail.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([campId, status])
+  @@index([userId])
 }

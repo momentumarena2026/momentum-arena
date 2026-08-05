@@ -1,0 +1,306 @@
+"use server";
+
+import { z } from "zod";
+import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/admin-auth";
+import { db } from "@/lib/db";
+import { registerForCamp, campSeatsTaken } from "@/lib/camps";
+
+/**
+ * Admin side of the camps module: configure a camp, work its roster, and
+ * register a walk-in at the desk.
+ *
+ * Everything here is gated on MANAGE_CAMPS. Money rules live in
+ * lib/camps.ts so the desk and the customer path can't drift apart.
+ */
+function gate() {
+  return requireAdmin("MANAGE_CAMPS");
+}
+
+const campSchema = z.object({
+  name: z.string().min(1).max(80),
+  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]),
+  description: z.string().optional(),
+  rules: z.string().optional(),
+  bannerImageUrl: z.string().optional(),
+  startDate: z.string(),
+  endDate: z.string(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)),
+  startHour: z.number().int().min(0).max(23),
+  endHour: z.number().int().min(1).max(24),
+  regOpenAt: z.string().optional(),
+  regCloseAt: z.string().optional(),
+  ageMin: z.number().int().nullable().optional(),
+  ageMax: z.number().int().nullable().optional(),
+  coachName: z.string().optional(),
+  venueNote: z.string().optional(),
+  capacity: z.number().int().min(1),
+  fee: z.number().int().min(0),
+  feeMode: z.enum(["FULL", "ADVANCE", "FREE"]),
+  advancePct: z.number().int().min(1).max(99),
+  allowCoupons: z.boolean(),
+  allowRewardPoints: z.boolean(),
+  waitlistEnabled: z.boolean(),
+});
+
+export type CampInput = z.infer<typeof campSchema>;
+
+/** Admin datetime-local values are venue wall-clock: pin them to IST or a
+ *  UTC server silently shifts 6:00 PM to 11:30 PM. Same helper the
+ *  tournament wizard uses. */
+function toDate(s: string | undefined): Date | null {
+  if (!s) return null;
+  const bare = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(s);
+  if (!bare) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const withTime = s.includes("T") ? s : `${s}T00:00`;
+  const d = new Date(`${withTime}${withTime.length === 16 ? ":00" : ""}+05:30`);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+}
+
+export async function listCamps() {
+  await gate();
+  const camps = await db.camp.findMany({
+    orderBy: [{ startDate: "desc" }],
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      sport: true,
+      status: true,
+      startDate: true,
+      endDate: true,
+      capacity: true,
+      fee: true,
+      _count: {
+        select: {
+          registrations: {
+            where: {
+              status: { in: ["CONFIRMED", "PENDING_PAYMENT"] },
+              archivedAt: null,
+            },
+          },
+        },
+      },
+    },
+  });
+  return camps;
+}
+
+export async function getCampAdmin(id: string) {
+  await gate();
+  return db.camp.findUnique({
+    where: { id },
+    include: {
+      registrations: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+}
+
+export async function saveCamp(
+  input: CampInput & { id?: string },
+): Promise<{ success: boolean; error?: string; id?: string }> {
+  const admin = await gate();
+  const parsed = campSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message || "Invalid input" };
+  }
+  const d = parsed.data;
+
+  if (d.endHour <= d.startHour) {
+    return { success: false, error: "End time must be after the start time" };
+  }
+  if (d.daysOfWeek.length === 0) {
+    return { success: false, error: "Pick at least one session day" };
+  }
+  const start = toDate(d.startDate);
+  const end = toDate(d.endDate);
+  if (!start || !end) return { success: false, error: "Invalid dates" };
+  if (end < start) {
+    return { success: false, error: "The camp can't end before it starts" };
+  }
+
+  const data = {
+    name: d.name.trim(),
+    sport: d.sport,
+    description: d.description?.trim() || null,
+    rules: d.rules?.trim() || null,
+    bannerImageUrl: d.bannerImageUrl?.trim() || null,
+    startDate: start,
+    endDate: end,
+    daysOfWeek: d.daysOfWeek,
+    startHour: d.startHour,
+    endHour: d.endHour,
+    regOpenAt: toDate(d.regOpenAt),
+    regCloseAt: toDate(d.regCloseAt),
+    ageMin: d.ageMin ?? null,
+    ageMax: d.ageMax ?? null,
+    coachName: d.coachName?.trim() || null,
+    venueNote: d.venueNote?.trim() || null,
+    capacity: d.capacity,
+    fee: d.fee,
+    feeMode: d.feeMode,
+    advancePct: d.advancePct,
+    allowCoupons: d.allowCoupons,
+    allowRewardPoints: d.allowRewardPoints,
+    waitlistEnabled: d.waitlistEnabled,
+  };
+
+  if (input.id) {
+    // Shrinking capacity below the seats already sold would silently
+    // oversell the camp — refuse instead of letting it happen quietly.
+    const taken = await campSeatsTaken(input.id);
+    if (d.capacity < taken) {
+      return {
+        success: false,
+        error: `${taken} seats are already taken — capacity can't go below that.`,
+      };
+    }
+    await db.camp.update({ where: { id: input.id }, data });
+    revalidatePath("/admin/camps");
+    revalidatePath(`/admin/camps/${input.id}`);
+    return { success: true, id: input.id };
+  }
+
+  // New camp: unique slug from the name.
+  const base = slugify(d.name) || "camp";
+  let slug = base;
+  for (let i = 2; await db.camp.findUnique({ where: { slug }, select: { id: true } }); i++) {
+    slug = `${base}-${i}`;
+  }
+  const created = await db.camp.create({
+    data: { ...data, slug, createdBy: admin.id },
+    select: { id: true },
+  });
+  revalidatePath("/admin/camps");
+  return { success: true, id: created.id };
+}
+
+export async function setCampStatus(
+  campId: string,
+  status: "DRAFT" | "REGISTRATIONS_OPEN" | "REGISTRATIONS_CLOSED" | "ONGOING" | "COMPLETED" | "CANCELLED",
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const camp = await db.camp.findUnique({
+    where: { id: campId },
+    select: { id: true },
+  });
+  if (!camp) return { success: false, error: "Camp not found" };
+  await db.camp.update({ where: { id: campId }, data: { status } });
+  revalidatePath("/admin/camps");
+  revalidatePath(`/admin/camps/${campId}`);
+  return { success: true };
+}
+
+/** Register a walk-in at the desk — cash or QR taken in person. */
+export async function adminRegisterForCamp(input: {
+  campId: string;
+  participantName: string;
+  participantAge?: number | null;
+  guardianName?: string | null;
+  phone: string;
+  email?: string | null;
+  notes?: string | null;
+  paidAmount: number;
+  method: string;
+}): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const res = await registerForCamp({
+    campId: input.campId,
+    participantName: input.participantName,
+    participantAge: input.participantAge ?? null,
+    guardianName: input.guardianName ?? null,
+    phone: input.phone,
+    email: input.email ?? null,
+    notes: input.notes ?? null,
+    offline: { paidAmount: input.paidAmount, method: input.method },
+  });
+  if (!res.ok) return { success: false, error: res.error };
+  revalidatePath(`/admin/camps/${input.campId}`);
+  return { success: true };
+}
+
+export async function setCampRegistrationStatus(
+  registrationId: string,
+  status: "PENDING_PAYMENT" | "CONFIRMED" | "WAITLISTED" | "WITHDRAWN" | "REJECTED",
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const reg = await db.campRegistration.findUnique({
+    where: { id: registrationId },
+    select: { campId: true, camp: { select: { capacity: true } } },
+  });
+  if (!reg) return { success: false, error: "Registration not found" };
+
+  if (status === "CONFIRMED") {
+    const taken = await campSeatsTaken(reg.campId);
+    if (taken >= reg.camp.capacity) {
+      return { success: false, error: "The camp is already full" };
+    }
+  }
+  await db.campRegistration.update({
+    where: { id: registrationId },
+    data: { status },
+  });
+  revalidatePath(`/admin/camps/${reg.campId}`);
+  return { success: true };
+}
+
+/** Record money taken at the desk against an existing registration. */
+export async function recordCampPayment(
+  registrationId: string,
+  amount: number,
+  method: string,
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const reg = await db.campRegistration.findUnique({
+    where: { id: registrationId },
+    select: { campId: true, dueAmount: true, status: true },
+  });
+  if (!reg) return { success: false, error: "Registration not found" };
+  const paid = Math.max(0, Math.round(amount));
+  if (paid <= 0) return { success: false, error: "Enter an amount above ₹0" };
+
+  await db.campRegistration.update({
+    where: { id: registrationId },
+    data: {
+      paidAmount: { increment: paid },
+      dueAmount: Math.max(0, reg.dueAmount - paid),
+      paymentMethod: method,
+      // Collecting the balance is also what confirms a pending seat.
+      ...(reg.status === "PENDING_PAYMENT" ? { status: "CONFIRMED" as const } : {}),
+    },
+  });
+  revalidatePath(`/admin/camps/${reg.campId}`);
+  return { success: true };
+}
+
+/** Soft-delete: keeps the payment trail, frees the seat. */
+export async function archiveCampRegistration(
+  registrationId: string,
+  archived = true,
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const reg = await db.campRegistration.findUnique({
+    where: { id: registrationId },
+    select: { campId: true },
+  });
+  if (!reg) return { success: false, error: "Registration not found" };
+  await db.campRegistration.update({
+    where: { id: registrationId },
+    data: { archivedAt: archived ? new Date() : null },
+  });
+  revalidatePath(`/admin/camps/${reg.campId}`);
+  return { success: true };
+}
