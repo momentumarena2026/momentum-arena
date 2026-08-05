@@ -4,8 +4,9 @@ import { areTournamentsEnabled, updateMyTeamSquad } from "@/lib/tournaments";
 
 /** Captain updates their team's squad any time after registration.
  *  Unified auth: web cookie or mobile bearer — the app reuses this route.
- *  Body: { teamId, members: string[] } — the full desired player list;
- *  the server reconciles it stat-safely (see reconcileTeamSquad). */
+ *  Body: { teamId, members } — the full desired player list, as bare
+ *  strings or {name, phone} rows. The server reconciles it stat-safely
+ *  (see reconcileTeamSquad); bare strings leave stored phones alone. */
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId(request);
   if (!userId) {
@@ -22,7 +23,17 @@ export async function POST(request: NextRequest) {
   const result = await updateMyTeamSquad(
     String(teamId),
     userId,
-    members.map((m: unknown) => String(m))
+    members.map((m: unknown) =>
+      m && typeof m === "object"
+        ? {
+            name: String((m as { name?: unknown }).name ?? ""),
+            phone:
+              (m as { phone?: unknown }).phone === undefined
+                ? undefined
+                : String((m as { phone?: unknown }).phone ?? ""),
+          }
+        : String(m),
+    ),
   );
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
