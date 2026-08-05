@@ -208,6 +208,34 @@ function Body({
     color: colors.emerald500,
   }));
   const dailyTotal = data.dailyEarnings.data.reduce((s, d) => s + d.earnings, 0);
+
+  // ── Revenue breakdown: where each day's money came from ──
+  // The web tooltip does this on hover; there's no hover on a phone, so the
+  // split is spelled out per day instead.
+  const breakdownStreams = [
+    { key: "bookingEarnings", label: "Bookings", color: colors.emerald500 },
+    { key: "passEarnings", label: "Pass sales", color: "#38bdf8" },
+    { key: "tournamentEarnings", label: "Tournament entries", color: "#fbbf24" },
+    { key: "campEarnings", label: "Camp fees", color: "#a78bfa" },
+  ] as const;
+  const streamTotals = data.dailyEarnings.data.reduce(
+    (acc, d) => ({
+      bookingEarnings: acc.bookingEarnings + (d.bookingEarnings ?? 0),
+      passEarnings: acc.passEarnings + (d.passEarnings ?? 0),
+      tournamentEarnings: acc.tournamentEarnings + (d.tournamentEarnings ?? 0),
+      campEarnings: acc.campEarnings + (d.campEarnings ?? 0),
+      bookingCount: acc.bookingCount + (d.bookingCount ?? 0),
+      passCount: acc.passCount + (d.passCount ?? 0),
+      teamCount: acc.teamCount + (d.teamCount ?? 0),
+      campCount: acc.campCount + (d.campCount ?? 0),
+    }),
+    {
+      bookingEarnings: 0, passEarnings: 0, tournamentEarnings: 0, campEarnings: 0,
+      bookingCount: 0, passCount: 0, teamCount: 0, campCount: 0,
+    },
+  );
+  // Only days that earned — 31 rows of zeroes is noise on a phone.
+  const breakdownDays = data.dailyEarnings.data.filter((d) => d.earnings > 0);
   const dailyLabel = `${MONTHS[data.dailyEarnings.month - 1]} ${data.dailyEarnings.year}`;
 
   // ── Monthly earnings (calendar year) → BarChart ──
@@ -330,6 +358,95 @@ function Body({
           <EmptyChart text="No data for this month" />
         ) : (
           <BarChart data={dailyBars} formatValue={formatRupeesShort} />
+        )}
+      </ChartCard>
+
+      {/* ── Revenue breakdown (same month, split by source) ── */}
+      <ChartCard
+        title="Revenue Breakdown — Day by Day"
+        subtitle={`${dailyLabel} · where the money came from`}
+      >
+        <View style={styles.streamGrid}>
+          {breakdownStreams.map((s2) => {
+            const amount = streamTotals[s2.key];
+            const count =
+              s2.key === "bookingEarnings"
+                ? streamTotals.bookingCount
+                : s2.key === "passEarnings"
+                  ? streamTotals.passCount
+                  : s2.key === "tournamentEarnings"
+                    ? streamTotals.teamCount
+                    : streamTotals.campCount;
+            const share = dailyTotal ? Math.round((amount / dailyTotal) * 100) : 0;
+            return (
+              <View key={s2.key} style={styles.streamCard}>
+                <View style={styles.streamHead}>
+                  <View style={[styles.dot, { backgroundColor: s2.color }]} />
+                  <Text variant="tiny" color={colors.zinc500}>
+                    {s2.label}
+                  </Text>
+                </View>
+                <Text variant="bodyStrong" color={colors.foreground}>
+                  {formatRupees(amount)}
+                </Text>
+                <Text variant="tiny" color={colors.zinc600}>
+                  {count} · {share}%
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+
+        {breakdownDays.length === 0 ? (
+          <EmptyChart text="No earnings this month" />
+        ) : (
+          <View style={styles.dayList}>
+            {breakdownDays.map((d) => {
+              const parts = [
+                [d.bookingCount ?? 0, "Booking", "Bookings"],
+                [d.passCount ?? 0, "Pass", "Passes"],
+                [d.teamCount ?? 0, "Team Reg", "Team Regs"],
+                [d.campCount ?? 0, "Camp Reg", "Camp Regs"],
+              ] as const;
+              const line = parts
+                .filter(([n]) => n > 0)
+                .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`)
+                .join(" · ");
+              return (
+                <View key={d.day} style={styles.dayRow}>
+                  <View style={styles.dayNum}>
+                    <Text variant="small" weight="700" color={colors.foreground}>
+                      {d.day}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="small" color={colors.zinc300}>
+                      {line || "—"}
+                    </Text>
+                    <View style={styles.streamBar}>
+                      {breakdownStreams.map((s2) => {
+                        const amt = d[s2.key] ?? 0;
+                        if (amt <= 0) return null;
+                        return (
+                          <View
+                            key={s2.key}
+                            style={{
+                              flex: amt,
+                              backgroundColor: s2.color,
+                              height: 4,
+                            }}
+                          />
+                        );
+                      })}
+                    </View>
+                  </View>
+                  <Text variant="small" weight="700" color={colors.emerald400}>
+                    {formatRupees(d.earnings)}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
         )}
       </ChartCard>
 
@@ -572,6 +689,47 @@ function ymd(d: Date): string {
 }
 
 const styles = StyleSheet.create({
+  streamGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing["2"],
+    marginBottom: spacing["3"],
+  },
+  streamCard: {
+    flexGrow: 1,
+    flexBasis: "45%",
+    gap: 2,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    padding: spacing["3"],
+  },
+  streamHead: { flexDirection: "row", alignItems: "center", gap: 5 },
+  dot: { width: 7, height: 7, borderRadius: 4 },
+  dayList: { gap: spacing["2"] },
+  dayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    borderTopWidth: 1,
+    borderTopColor: colors.zinc800,
+    paddingTop: spacing["2"],
+  },
+  dayNum: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.lg,
+    backgroundColor: colors.zinc900,
+  },
+  streamBar: {
+    flexDirection: "row",
+    marginTop: 5,
+    height: 4,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
   scroll: {
     paddingHorizontal: spacing["5"],
     paddingTop: spacing["3"],
