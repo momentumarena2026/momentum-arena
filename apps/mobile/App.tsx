@@ -8,6 +8,7 @@ import { RootNavigator } from "./src/navigation/RootNavigator";
 import { SplashScreen } from "./src/screens/splash/SplashScreen";
 import { ForceUpdateScreen } from "./src/screens/update/ForceUpdateScreen";
 import { initAnalytics } from "./src/lib/analytics";
+import { prefetchPublicHomeData } from "./src/lib/prefetch";
 import { ensureOtaRolloutBucket } from "./src/lib/ota";
 import {
   checkAppVersion,
@@ -23,6 +24,11 @@ export default function App() {
     initAnalytics();
     // Assign a sticky OTA rollout bucket once, for staged % rollouts.
     ensureOtaRolloutBucket();
+    // Start the landing screen's public data NOW, so it downloads while
+    // the splash animates instead of after it. Nothing below the splash
+    // is mounted yet, so without this the first request doesn't leave
+    // the phone until ~2.6s in.
+    prefetchPublicHomeData();
   }, []);
 
   // Show the animated splash on every cold start. The native
