@@ -90,6 +90,16 @@ export interface CafeOrderListItem {
   } | null;
 }
 
+/** One page of order history from /orders/list. */
+export interface CafeOrderHistoryPage {
+  total: number;
+  totalPages: number;
+  orders: (Omit<CafeOrderListItem, "payment"> & {
+    paymentMethod: string | null;
+    paymentStatus: string | null;
+  })[];
+}
+
 export interface LiveCafeOrders {
   PENDING: CafeOrderListItem[];
   PREPARING: CafeOrderListItem[];
@@ -167,6 +177,23 @@ export const adminCafeApi = {
 
   liveOrders(): Promise<LiveCafeOrders> {
     return request("/api/mobile/admin/cafe/orders/live", { method: "GET" });
+  },
+
+  /** Paginated order HISTORY (the live board only shows the open queue). */
+  listOrders(filters: {
+    date?: string;
+    status?: CafeOrderStatus | "";
+    search?: string;
+    page?: number;
+  }): Promise<CafeOrderHistoryPage> {
+    const q = new URLSearchParams();
+    if (filters.date) q.set("date", filters.date);
+    if (filters.status) q.set("status", filters.status);
+    if (filters.search) q.set("search", filters.search);
+    q.set("page", String(filters.page ?? 1));
+    return request(`/api/mobile/admin/cafe/orders/list?${q.toString()}`, {
+      method: "GET",
+    });
   },
 
   orderStats(): Promise<CafeOrderStats> {
