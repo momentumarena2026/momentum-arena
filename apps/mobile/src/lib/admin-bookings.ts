@@ -731,3 +731,29 @@ export interface AdminEquipmentCatalogItem {
   sport: string | null;
   category: string | null;
 }
+
+/**
+ * How much is STILL owed at the venue on a partial-payment booking.
+ * Mirrors venueAmountStillDue in lib/payment-split.ts — a remainder can
+ * be collected in instalments, so the legs already taken must be netted
+ * off or every surface keeps offering the full amount.
+ *
+ * Discount legs are NOT subtracted: applying one already reduced
+ * Booking.totalAmount, so it is inside `totalAmount`.
+ */
+export function venueAmountStillDue(
+  totalAmount: number,
+  payment: {
+    isPartialPayment?: boolean;
+    advanceAmount?: number | null;
+    remainingAmount?: number | null;
+    remainderCashAmount?: number | null;
+    remainderUpiAmount?: number | null;
+  } | null,
+): number {
+  if (!payment?.isPartialPayment) return 0;
+  if ((payment.remainingAmount ?? 0) <= 0) return 0;
+  const collected =
+    (payment.remainderCashAmount ?? 0) + (payment.remainderUpiAmount ?? 0);
+  return Math.max(totalAmount - (payment.advanceAmount ?? 0) - collected, 0);
+}

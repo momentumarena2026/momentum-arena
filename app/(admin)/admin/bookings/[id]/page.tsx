@@ -564,7 +564,17 @@ export default async function AdminBookingDetailPage({
               // derived so the UI stays correct regardless of stored drift.
               const storedRemaining = booking.payment.remainingAmount ?? 0;
               const collected = storedRemaining <= 0;
-              const remaining = collected ? 0 : Math.max(total - advance, 0);
+              // Net off venue money already taken. Remainders can now be
+              // collected in instalments, so total - advance alone would
+              // keep offering the FULL amount after a part payment.
+              // Discount legs aren't subtracted: applying one already
+              // reduced Booking.totalAmount, so they're in `total`.
+              const collectedAtVenue =
+                (booking.payment.remainderCashAmount ?? 0) +
+                (booking.payment.remainderUpiAmount ?? 0);
+              const remaining = collected
+                ? 0
+                : Math.max(total - advance - collectedAtVenue, 0);
               const percentPaid =
                 total > 0 ? Math.round((advance / total) * 100) : 0;
               const borderClass = collected
@@ -640,11 +650,22 @@ export default async function AdminBookingDetailPage({
                     {formatPrice(advance)}
                   </span>
                 </div>
+                {!collected && collectedAtVenue > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-emerald-200">
+                      Part paid at venue
+                      {remainderLabel ? ` · ${remainderLabel}` : ""}
+                    </span>
+                    <span className="font-semibold text-emerald-400">
+                      {formatPrice(collectedAtVenue)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-xs">
                   <span className={collected ? "text-emerald-200" : "text-amber-200"}>
                     {collected
                       ? `Collected at venue${remainderLabel ? ` · ${remainderLabel}` : ""}`
-                      : "Collect at venue"}
+                      : "Still to collect"}
                   </span>
                   <span className={`font-bold ${collected ? "text-emerald-300" : "text-amber-300"}`}>
                     {formatPrice(collected ? venueTotal : remaining)}

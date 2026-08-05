@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { venueAmountStillDue } from "@/lib/payment-split";
 import Link from "next/link";
 import { formatSlotsAsRanges } from "@/lib/court-config";
 import {
@@ -37,6 +38,11 @@ interface BookingPayment {
   isPartialPayment?: boolean;
   advanceAmount?: number | null;
   remainingAmount?: number | null;
+  // Venue legs already collected — needed so the "Collect ₹X at venue"
+  // chip nets off part payments instead of always offering the full
+  // remainder.
+  remainderCashAmount?: number | null;
+  remainderUpiAmount?: number | null;
 }
 
 interface BookingData {
@@ -371,7 +377,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
                     stored the PRE-discount remainder and showed ₹X-too-high on
                     coupon bookings. Using Payment.remainingAmount only as the
                     "still owed?" boolean gate. */}
-                Collect {formatPrice(Math.max(booking.totalAmount - (booking.payment.advanceAmount ?? 0), 0))} at venue
+                Collect {formatPrice(venueAmountStillDue(booking.totalAmount, booking.payment))} at venue
               </span>
             )}
           </div>
@@ -390,7 +396,7 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
           </div>
           {booking.payment?.isPartialPayment && (booking.payment.remainingAmount ?? 0) > 0 && (
             <p className="mt-0.5 text-[10px] font-semibold text-amber-300">
-              {formatPrice(Math.max(booking.totalAmount - (booking.payment.advanceAmount ?? 0), 0))} at venue
+              {formatPrice(venueAmountStillDue(booking.totalAmount, booking.payment))} at venue
             </p>
           )}
         </div>

@@ -84,3 +84,35 @@ export function splitCafePayment(p: CafePaymentForSplit) {
       p.method === "RAZORPAY" || p.method === "PHONEPE" ? p.amount : 0,
   };
 }
+
+/**
+ * How much is STILL owed at the venue on a partial-payment booking.
+ *
+ * Derived from totalAmount - advance rather than trusting
+ * Payment.remainingAmount, which on historical rows stored the
+ * pre-discount figure and reads ₹100 high on coupon bookings. The
+ * venue legs already collected are then netted off, because a
+ * remainder can be settled in instalments — without that, every
+ * surface keeps offering the FULL amount after a part payment.
+ *
+ * Discount legs are deliberately NOT subtracted: applying a discount
+ * already reduces Booking.totalAmount, so it is inside `totalAmount`.
+ */
+export function venueAmountStillDue(
+  totalAmount: number,
+  // Optional-tolerant: some callers project a narrower Payment shape.
+  // A missing leg reads as 0, which is the pre-instalment behaviour.
+  payment: {
+    advanceAmount?: number | null;
+    remainingAmount?: number | null;
+    remainderCashAmount?: number | null;
+    remainderUpiAmount?: number | null;
+  },
+): number {
+  // remainingAmount is the authoritative "settled?" flag — it hits 0
+  // only when the collection completed.
+  if ((payment.remainingAmount ?? 0) <= 0) return 0;
+  const collected =
+    (payment.remainderCashAmount ?? 0) + (payment.remainderUpiAmount ?? 0);
+  return Math.max(totalAmount - (payment.advanceAmount ?? 0) - collected, 0);
+}
