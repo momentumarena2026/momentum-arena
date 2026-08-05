@@ -7,7 +7,7 @@ import { Trophy, Users, Radio } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { colors, radius } from "../../theme";
+import { colors, radius, spacing } from "../../theme";
 import { fetchTournamentHub, type TournamentListItem } from "../../lib/tournaments";
 import { trackTournamentHubView } from "../../lib/analytics";
 import type { AccountStackParamList } from "../../navigation/types";
@@ -41,7 +41,7 @@ export function TournamentsListScreen() {
   );
 
   return (
-    <Screen>
+    <Screen padded={false}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.emerald400} />}
@@ -136,7 +136,10 @@ export function TournamentsListScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 32 },
+  // padded={false} on <Screen> — this is the ONLY horizontal
+  // padding, matching camps/passes at spacing 5. Leaving Screen
+  // padded stacked 24 + 16 and made these screens 40px a side.
+  content: { padding: spacing["5"], gap: 12, paddingBottom: 32 },
   dateText: { marginTop: 4, fontSize: 12, color: colors.zinc500 },
   empty: { alignItems: "center", paddingVertical: 60, gap: 12 },
   emptyText: { color: colors.zinc500, fontSize: 14 },

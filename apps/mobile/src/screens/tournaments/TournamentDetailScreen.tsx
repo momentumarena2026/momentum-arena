@@ -8,7 +8,9 @@ import { Trophy, Radio, Users, Plus, Trash2, Lock, CalendarDays, ScrollText } fr
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { colors, radius } from "../../theme";
+import { colors, radius, spacing } from "../../theme";
+import { sportTheme } from "../../lib/sport-theme";
+import { env } from "../../config/env";
 import {
   getTournament,
   getMyTeam,
@@ -303,7 +305,7 @@ export function TournamentDetailScreen() {
 
   if (isLoading || !data) {
     return (
-      <Screen>
+      <Screen padded={false}>
         <View style={{ padding: 16, gap: 12 }}>
           <Skeleton height={140} />
           <Skeleton height={80} />
@@ -436,11 +438,23 @@ export function TournamentDetailScreen() {
   };
 
   return (
-    <Screen>
+    <Screen padded={false}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.emerald400} />}
       >
+        {/* Banner — the admin's uploaded image, else the sport's stock
+            photo. Web leads with this; the app rendered no image at all. */}
+        <View style={styles.banner}>
+          <Image
+            source={{ uri: t.bannerImageUrl || `${env.apiUrl}${sportTheme(t.sport).imagePath}` }}
+            style={styles.bannerImg}
+            resizeMode="cover"
+          />
+          <View style={[styles.bannerFade, styles.bannerFadeSoft]} />
+          <View style={[styles.bannerFade, styles.bannerFadeDeep]} />
+        </View>
+
         {/* Hero */}
         <View style={styles.hero}>
           <Text style={styles.title}>{t.name}</Text>
@@ -794,7 +808,21 @@ export function TournamentDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 32 },
+  // padded={false} on <Screen> — this is the ONLY horizontal
+  // padding, matching camps/passes at spacing 5. Leaving Screen
+  // padded stacked 24 + 16 and made these screens 40px a side.
+  content: { padding: spacing["5"], gap: 12, paddingBottom: 32 },
+  banner: {
+    height: 150,
+    width: "100%",
+    borderRadius: radius.xl,
+    overflow: "hidden",
+    position: "relative",
+  },
+  bannerImg: { width: "100%", height: "100%" },
+  bannerFade: { position: "absolute", left: 0, right: 0, bottom: 0 },
+  bannerFadeSoft: { height: 90, backgroundColor: "rgba(9,9,11,0.35)" },
+  bannerFadeDeep: { height: 40, backgroundColor: "rgba(9,9,11,0.6)" },
   hero: {
     borderRadius: radius.xl,
     borderWidth: 1,
