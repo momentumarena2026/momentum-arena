@@ -1224,7 +1224,10 @@ const styles = StyleSheet.create({
     textDecorationLine: "line-through",
   },
   passPitch: {
-    marginHorizontal: spacing["5"],
+    // No horizontal margin: the ScrollView already pads by spacing[6], and
+    // adding more here made the pass banner narrower than the promo banner
+    // directly above it. marginTop separates the two — they were flush.
+    marginTop: spacing["4"],
     marginBottom: spacing["2"],
   },
   promoBanner: {
