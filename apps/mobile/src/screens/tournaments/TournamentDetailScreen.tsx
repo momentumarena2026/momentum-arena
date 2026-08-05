@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import { Trophy, Radio, Users, Plus, Trash2, Lock } from "lucide-react-native";
+import { Trophy, Radio, Users, Plus, Trash2, Lock, CalendarDays, ScrollText } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -23,6 +23,24 @@ import { trackTournamentView } from "../../lib/analytics";
 
 type Nav = NativeStackNavigationProp<AccountStackParamList>;
 type Rt = RouteProp<AccountStackParamList, "TournamentDetail">;
+
+/** Tournament times are venue wall-clock — always render them in IST. */
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
 
 const TABS = ["Overview", "Pools", "Table", "Bracket", "Matches", "Leaders"] as const;
 type Tab = (typeof TABS)[number];
@@ -481,6 +499,74 @@ export function TournamentDetailScreen() {
         {/* Overview */}
         {tab === "Overview" && (
           <View style={{ gap: 8 }}>
+            {/* About / prizes / rules / key facts — all of this was on the
+                web page and none of it reached the app, which is what
+                "information is missing" meant. */}
+            {t.description ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>About</Text>
+                <Text style={styles.cardBody}>{t.description}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.card}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <CalendarDays size={15} color={colors.emerald400} />
+                <Text style={styles.cardTitle}>Details</Text>
+              </View>
+              <View style={{ marginTop: 8, gap: 6 }}>
+                {t.startDate && (
+                  <DetailRow
+                    label="Starts"
+                    value={fmtDate(t.startDate)}
+                  />
+                )}
+                {t.endDate && <DetailRow label="Ends" value={fmtDate(t.endDate)} />}
+                {t.regCloseAt && (
+                  <DetailRow label="Registration closes" value={fmtDate(t.regCloseAt)} />
+                )}
+                <DetailRow label="Squad size" value={`Up to ${t.membersPerTeamMax} players`} />
+                <DetailRow
+                  label="Entry fee"
+                  value={
+                    t.feeMode === "FREE"
+                      ? "Free entry"
+                      : `₹${t.entryFee.toLocaleString("en-IN")} per team${
+                          t.feeMode === "ADVANCE" ? ` (₹${Math.round((t.entryFee * t.advancePct) / 100).toLocaleString("en-IN")} to book)` : ""
+                        }`
+                  }
+                />
+              </View>
+            </View>
+
+            {Array.isArray(t.prizes) && t.prizes.length > 0 ? (
+              <View style={styles.card}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Trophy size={15} color="#fbbf24" />
+                  <Text style={styles.cardTitle}>Prizes</Text>
+                </View>
+                <View style={{ marginTop: 8, gap: 6 }}>
+                  {t.prizes.map((p, i) => (
+                    <DetailRow
+                      key={`${p.place}-${i}`}
+                      label={p.place}
+                      value={`₹${Number(p.amount || 0).toLocaleString("en-IN")}`}
+                    />
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
+            {t.rules ? (
+              <View style={styles.card}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <ScrollText size={15} color={colors.emerald400} />
+                  <Text style={styles.cardTitle}>Rules</Text>
+                </View>
+                <Text style={[styles.cardBody, { marginTop: 6 }]}>{t.rules}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Format</Text>
               <Text style={styles.cardBody}>
@@ -489,6 +575,7 @@ export function TournamentDetailScreen() {
                   : t.format === "LEAGUE"
                     ? "Round-robin league — top of the table wins."
                     : "Straight knockout — lose and you're out."}
+                {t.thirdPlaceMatch ? " A third-place play-off is scheduled." : ""}
               </Text>
             </View>
             <View style={styles.card}>
@@ -770,6 +857,20 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  detailLabel: { color: colors.zinc500, fontSize: 13, flexShrink: 0 },
+  detailValue: {
+    color: colors.zinc300,
+    fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
+    textAlign: "right",
+  },
   bracketStage: {
     textAlign: "center",
     fontSize: 11,
