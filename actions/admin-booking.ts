@@ -358,20 +358,30 @@ export async function markRemainderCollected(
     return { success: false, error: "Remainder already collected" };
   }
   const advance = booking.payment.advanceAmount ?? 0;
-  const remaining = Math.max(booking.totalAmount - advance, 0);
+  // Legs already taken at the venue on earlier instalments. A discount
+  // leg is NOT subtracted here because it was already mirrored onto
+  // Booking.totalAmount when it was applied — counting it twice would
+  // shrink the balance below what is actually owed.
+  const priorCash = booking.payment.remainderCashAmount ?? 0;
+  const priorUpi = booking.payment.remainderUpiAmount ?? 0;
+  const priorDiscount = booking.payment.remainderDiscountAmount ?? 0;
+  const collectedSoFar = priorCash + priorUpi;
+  const remaining = Math.max(booking.totalAmount - advance - collectedSoFar, 0);
   if (remaining <= 0) {
     return { success: false, error: "Remainder already collected" };
   }
-  // Cash + UPI + Discount must equal the remainder. The discount slice
-  // is what the venue absorbs; it doesn't increase Payment.amount.
-  if (cashAmount + upiAmount + discountAmount !== remaining) {
+  // Cash + UPI + Discount may be LESS than the remainder — a customer
+  // who pays part now and promises the rest in a few days leaves a
+  // smaller balance still due at the venue. It must never EXCEED the
+  // remainder, which would be an overpayment, not a collection.
+  const applied = cashAmount + upiAmount + discountAmount;
+  if (applied > remaining) {
     return {
       success: false,
-      error: `Cash + UPI + Discount must total Rs.${remaining} (got Rs.${
-        cashAmount + upiAmount + discountAmount
-      })`,
+      error: `Cash + UPI + Discount can't exceed the Rs.${remaining} still owed (got Rs.${applied})`,
     };
   }
+  const stillOwed = remaining - applied;
 
   const admin = await db.adminUser.findUnique({ where: { id: adminId } });
   const adminUsername = admin?.username ?? "unknown";
@@ -380,10 +390,18 @@ export async function markRemainderCollected(
   // collection was a single non-discount method. Anything mixed (or any
   // discount applied) leaves it null and lets the display layer fall
   // back to the per-leg amounts.
+  // Legs accumulate across repeat collections — collecting Rs.500 today
+  // and Rs.500 next week must end up reading Rs.1000 cash, not Rs.500.
+  const totalCash = priorCash + cashAmount;
+  const totalUpi = priorUpi + upiAmount;
+  const totalDiscount = priorDiscount + discountAmount;
+
+  // Derived from the ACCUMULATED legs, so a booking settled in two cash
+  // instalments still reads as a plain cash collection.
   const singleMethod =
-    discountAmount === 0 && cashAmount > 0 && upiAmount === 0
+    totalDiscount === 0 && totalCash > 0 && totalUpi === 0
       ? "CASH"
-      : discountAmount === 0 && upiAmount > 0 && cashAmount === 0
+      : totalDiscount === 0 && totalUpi > 0 && totalCash === 0
       ? "UPI_QR"
       : null;
 
@@ -410,15 +428,15 @@ export async function markRemainderCollected(
       where: { id: booking.payment!.id },
       data: {
         amount: booking.payment!.amount + collectedAtVenue,
-        remainingAmount: 0,
+        remainingAmount: stillOwed,
         remainderMethod: singleMethod,
-        remainderCashAmount: cashAmount,
-        remainderUpiAmount: upiAmount,
-        remainderDiscountAmount: discountAmount > 0 ? discountAmount : null,
-        // PARTIAL -> COMPLETED now that the venue collection has been
-        // recorded. Idempotent: if a prior state was already COMPLETED
-        // (legacy rows), this is a no-op write.
-        status: "COMPLETED",
+        remainderCashAmount: totalCash,
+        remainderUpiAmount: totalUpi,
+        remainderDiscountAmount: totalDiscount > 0 ? totalDiscount : null,
+        // Only COMPLETED once nothing is left owed — a part-collection
+        // stays PARTIAL so the booking keeps showing up under "Cash Due
+        // at Venue" for the balance.
+        status: stillOwed > 0 ? "PARTIAL" : "COMPLETED",
       },
     });
     await tx.bookingEditHistory.create({
@@ -427,11 +445,14 @@ export async function markRemainderCollected(
         adminId,
         adminUsername,
         editType: "REMAINDER_COLLECTED",
-        note: `Collected remaining Rs.${remaining} at venue: ${describeSplit(
+        // Record what was actually taken THIS time plus what is still
+        // owed — "collected Rs.2000" on a part payment would misread the
+        // ledger later.
+        note: `Collected Rs.${applied} of Rs.${remaining} at venue: ${describeSplit(
           cashAmount,
           upiAmount,
           discountAmount,
-        )}`,
+        )}${stillOwed > 0 ? ` — Rs.${stillOwed} still due` : ""}`,
       },
     });
     if (discountAmount > 0) {
@@ -544,6 +565,8 @@ export async function updateRemainderSplit(
   const admin = await db.adminUser.findUnique({ where: { id: adminId } });
   const adminUsername = admin?.username ?? "unknown";
 
+  // This is a CORRECTION of an existing split, not another instalment —
+  // the new figures replace the stored ones, so no accumulation here.
   const singleMethod =
     discountAmount === 0 && cashAmount > 0 && upiAmount === 0
       ? "CASH"

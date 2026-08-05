@@ -23,6 +23,15 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "lh3.googleusercontent.com",
       },
+      {
+        // Vercel Blob — every image WE store (camp banners, team logos,
+        // promo banners) lives here. Without this next/image refuses the
+        // URL and renders a broken image, while local fallbacks like
+        // /cricket.png still work, which makes it look like the upload
+        // failed when it actually succeeded.
+        protocol: "https",
+        hostname: "**.blob.vercel-storage.com",
+      },
     ],
   },
   // Keep these as Node-only externals. @neondatabase/serverless pulls in
