@@ -130,6 +130,8 @@ export async function getPublicTournamentBySlug(slug: string) {
           status: true,
           poolId: true,
           captainUserId: true,
+          // Drives the captain's slot-preference checkboxes.
+          preferredSlotIds: true,
         },
       },
       pools: {
@@ -699,7 +701,18 @@ export async function getMyTournamentTeam(tournamentId: string, userId: string) 
       color: true,
       logoUrl: true,
       dueAmount: true,
-      tournament: { select: { status: true, membersPerTeamMax: true } },
+      preferredSlotIds: true,
+      tournament: {
+        select: {
+          status: true,
+          membersPerTeamMax: true,
+          scheduleApprovedAt: true,
+          slots: {
+            orderBy: [{ date: "asc" }, { startHour: "asc" }],
+            select: { id: true, date: true, startHour: true, endHour: true, label: true },
+          },
+        },
+      },
       members: {
         orderBy: [{ isCaptain: "desc" }, { order: "asc" }],
         select: {
@@ -722,6 +735,17 @@ export async function getMyTournamentTeam(tournamentId: string, userId: string) 
     dueAmount: team.dueAmount,
     maxMembers: team.tournament.membersPerTeamMax,
     canEditSquad: !["COMPLETED", "CANCELLED"].includes(team.tournament.status),
+    // Slot picks + the windows to pick from. Locked once the schedule
+    // is approved — the fixtures are built on these answers.
+    preferredSlotIds: team.preferredSlotIds,
+    slotsLocked: !!team.tournament.scheduleApprovedAt,
+    matchSlots: team.tournament.slots.map((x) => ({
+      id: x.id,
+      date: x.date.toISOString(),
+      startHour: x.startHour,
+      endHour: x.endHour,
+      label: x.label,
+    })),
     members: team.members.map((m) => ({
       id: m.id,
       name: m.name,

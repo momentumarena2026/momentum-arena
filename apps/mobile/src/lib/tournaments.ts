@@ -170,6 +170,12 @@ export type MySquadMember = {
   locked: boolean;
 };
 export type MyTeam = {
+  /** Captain's slot picks and the windows to pick from. */
+  preferredSlotIds?: string[];
+  slotsLocked?: boolean;
+  matchSlots?: {
+    id: string; date: string; startHour: number; endHour: number; label: string | null;
+  }[];
   id: string;
   name: string;
   status: string;
@@ -384,4 +390,13 @@ export async function pollTournamentDqr(
   transactionId: string
 ): Promise<{ state: string; teamId?: string; error?: string }> {
   return api.get(`/api/phonepe/dqr/tournament-status?transactionId=${transactionId}`, { auth: false });
+}
+
+
+/** Captain saves which pre-decided windows the team can play. */
+export async function saveSlotPreferences(
+  teamId: string,
+  slotIds: string[],
+): Promise<{ success?: boolean; error?: string }> {
+  return api.post("/api/tournaments/slot-preferences", { teamId, slotIds });
 }

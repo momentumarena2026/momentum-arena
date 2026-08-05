@@ -4,6 +4,7 @@ import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight, Calendar
 import { getMyTournamentTeam, getPublicTournamentBySlug } from "@/lib/tournaments";
 import { onlinePayable, parsePrizes, STATUS_LABELS } from "@/lib/tournament-config";
 import { auth } from "@/lib/auth";
+import { SlotPreferences } from "./slot-preferences";
 import { SquadManager } from "./squad-manager";
 
 export const dynamic = "force-dynamic";
@@ -125,6 +126,23 @@ export default async function TournamentPublicPage({
       </div>
 
       {/* Captain's squad manager (post-registration, optional) */}
+      {/* Captain's slot picks — sits with the squad manager because
+          both are "things the captain owns after registering". */}
+      {mySquad && slots.length > 0 && (
+        <SlotPreferences
+          teamId={mySquad.id}
+          slots={slots.map((x) => ({
+            id: x.id,
+            date: x.date.toISOString(),
+            startHour: x.startHour,
+            endHour: x.endHour,
+            label: x.label,
+          }))}
+          initial={myTeam?.preferredSlotIds ?? []}
+          locked={!!t.scheduleApprovedAt}
+        />
+      )}
+
       {mySquad && (
         <SquadManager
           teamId={mySquad.id}
