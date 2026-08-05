@@ -1,0 +1,53 @@
+import { NextResponse } from "next/server";
+import { ANDROID_PACKAGE } from "@/lib/app-store-links";
+
+/**
+ * Apple App Site Association — the file iOS fetches to decide whether
+ * momentumarena.com links may open the app (Universal Links).
+ *
+ * Served from a route rather than a static file for two reasons: it must
+ * be returned as application/json with NO .json extension, and the app id
+ * embeds the Apple Team ID, which belongs in env rather than the repo.
+ *
+ * Set APPLE_TEAM_ID (Apple Developer -> Membership -> Team ID, 10 chars).
+ * Until it's set this 404s ON PURPOSE — serving a malformed association
+ * file makes iOS cache a failure, and a cached failure is far harder to
+ * debug than an honest 404.
+ */
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const teamId = process.env.APPLE_TEAM_ID?.trim();
+  if (!teamId) {
+    return NextResponse.json(
+      { error: "APPLE_TEAM_ID is not configured" },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      applinks: {
+        // `details` alone is the modern form; `apps` must still be present
+        // and empty or older iOS rejects the file.
+        apps: [],
+        details: [
+          {
+            appID: `${teamId}.${ANDROID_PACKAGE}`,
+            // The iOS bundle id matches the Android package here
+            // (com.momentumarena) — see apps/mobile/app.json.
+            paths: ["*"],
+          },
+        ],
+      },
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        // iOS refetches periodically; a day is long enough to be cheap and
+        // short enough that a fix lands without waiting a week.
+        "Cache-Control": "public, max-age=0, s-maxage=86400",
+      },
+    },
+  );
+}
