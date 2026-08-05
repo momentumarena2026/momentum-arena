@@ -569,7 +569,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   passPitch: {
-    marginHorizontal: spacing["5"],
+    // Matches BookSlotsScreen: full content width, with breathing room
+    // above so it never sits flush against a promo banner.
+    marginTop: spacing["4"],
     marginBottom: spacing["3"],
   },
   section: {

@@ -1377,6 +1377,49 @@ export function AdminBookingDetailScreen() {
               venue absorbs. Cash + UPI + Discount must equal{" "}
               {formatRupees(venueDue)}.
             </Text>
+            {/* The overwhelmingly common case at the counter is "they paid
+                the whole thing, one way". Typing the figure into the right
+                box for that is needless friction (and a chance to fat-finger
+                an amount), so offer it in one tap — the split fields below
+                stay for genuine splits. */}
+            <View style={styles.collectQuickRow}>
+              <Pressable
+                onPress={() =>
+                  setCollectModal((st) => ({
+                    ...st,
+                    cash: String(venueDue),
+                    upi: "",
+                    discount: "",
+                  }))
+                }
+                style={({ pressed }) => [
+                  styles.collectQuickBtn,
+                  pressed && { opacity: 0.75 },
+                ]}
+              >
+                <Text variant="small" weight="700" color={colors.emerald400}>
+                  All {formatRupees(venueDue)} cash
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() =>
+                  setCollectModal((st) => ({
+                    ...st,
+                    cash: "",
+                    upi: String(venueDue),
+                    discount: "",
+                  }))
+                }
+                style={({ pressed }) => [
+                  styles.collectQuickBtn,
+                  pressed && { opacity: 0.75 },
+                ]}
+              >
+                <Text variant="small" weight="700" color={colors.emerald400}>
+                  All {formatRupees(venueDue)} UPI
+                </Text>
+              </Pressable>
+            </View>
             <View style={styles.collectRow}>
               <View style={styles.collectField}>
                 <Text variant="tiny" color={colors.zinc500} style={styles.collectLabel}>
@@ -2003,6 +2046,21 @@ const styles = StyleSheet.create({
   refundChoiceSelected: {
     borderColor: "rgba(239, 68, 68, 0.40)",
     backgroundColor: "rgba(239, 68, 68, 0.10)",
+  },
+  collectQuickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing["2"],
+  },
+  collectQuickBtn: {
+    flexGrow: 1,
+    alignItems: "center",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.45)",
+    backgroundColor: "rgba(16,185,129,0.10)",
+    paddingHorizontal: spacing["3"],
+    paddingVertical: spacing["2"],
   },
   collectTitle: { color: colors.yellow400 },
   collectRow: {
