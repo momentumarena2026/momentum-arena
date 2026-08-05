@@ -6,8 +6,10 @@ import {
   MdSportsSoccer,
   MdSportsTennis,
 } from "react-icons/md";
-import { ArrowRight, Calendar, ChevronRight, Clock } from "lucide-react";
+import { ArrowRight, Bell, Calendar, ChevronRight, Clock } from "lucide-react";
 import { LoginButton } from "@/components/login-modal";
+import { StoreBadges } from "@/components/store-badges";
+import { unreadNotificationCount } from "@/lib/user-notifications";
 import { HomepageSportTracker, HomepageCafeTracker, HomepageCallTracker, HomepageDirectionsTracker } from "@/components/homepage-tracker";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -150,8 +152,19 @@ export default async function Home() {
     courtConfig: { sport: string; label: string };
     slots: { startHour: number }[];
   }> = [];
+  // Hoisted out of the try below: the header needs the session (and the
+  // unread count) too, and the original was scoped to the bookings fetch.
+  let session = null;
   try {
-    const session = await auth();
+    session = await auth();
+  } catch {
+    // Auth failure must not blank the public homepage.
+  }
+  const homeUnread = session?.user?.id
+    ? await unreadNotificationCount(session.user.id).catch(() => 0)
+    : 0;
+
+  try {
     if (session?.user?.id) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -378,7 +391,31 @@ export default async function Home() {
                 </Link>
               )}
             </div>
-            <LoginButton />
+            {/* Right cluster. On phones the account pill is dropped — the
+                bottom nav already has an Account tab, and the pill's full
+                name was taking the whole header for a duplicate route.
+                What replaces it is what a phone visitor actually can't get
+                elsewhere: their unread count, and a link to the app. */}
+            <div className="flex items-center gap-2">
+              {session?.user?.id && (
+                <Link
+                  href="/notifications"
+                  aria-label="My Notifications"
+                  className="relative rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white md:hidden"
+                >
+                  <Bell className="h-5 w-5" />
+                  {homeUnread > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-emerald-950">
+                      {homeUnread > 9 ? "9+" : homeUnread}
+                    </span>
+                  )}
+                </Link>
+              )}
+              {/* Phones only: desktop gets the full badges in the footer,
+                  and this row is already tight beside the nav links. */}
+              <StoreBadges variant="icon" className="md:hidden" />
+              <LoginButton hideChipOnMobile />
+            </div>
           </div>
         </nav>
 
@@ -1052,6 +1089,22 @@ export default async function Home() {
             so the footer no longer needs `pb-24` mobile clearance — that
             was double-padding once the spacer landed. */}
         <footer className="border-t border-zinc-900 py-8">
+          {/* Get-the-app row. Full badges here rather than the header's
+              bare glyphs: the footer has the room for the wording, and a
+              visitor who has read the whole page is a better moment to ask
+              than one who just landed. StoreBadges picks the right
+              store(s) for the device. */}
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8 flex flex-col items-center gap-3 border-b border-zinc-900 pb-8 sm:flex-row sm:justify-between">
+            <div className="text-center sm:text-left">
+              <p className="text-sm font-semibold text-white">
+                Get the Momentum Arena app
+              </p>
+              <p className="text-xs text-zinc-500">
+                Book faster, track your passes and follow matches live.
+              </p>
+            </div>
+            <StoreBadges variant="full" />
+          </div>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex flex-col items-center sm:items-start gap-1">
               <p className="text-zinc-600 text-sm">
