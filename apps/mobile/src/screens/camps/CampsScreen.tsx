@@ -12,7 +12,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import RazorpayCheckout from "react-native-razorpay";
 import { CalendarDays, Clock, Users, IndianRupee } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
+import { Image } from "react-native";
 import { Text } from "../../components/ui/Text";
+import { sportTheme } from "../../lib/sport-theme";
+import { env } from "../../config/env";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { Button } from "../../components/ui/Button";
 import { colors, radius, spacing } from "../../theme";
@@ -186,19 +189,61 @@ export function CampsScreen() {
           const open = c.status === "REGISTRATIONS_OPEN";
           const full = c.seatsLeft <= 0;
           const now = payNowFor(c);
+          const t = sportTheme(c.sport);
           return (
             <View key={c.id} style={styles.card}>
-              <Text
-                variant="tiny"
-                weight="700"
-                color={colors.emerald400}
-                style={styles.sport}
-              >
-                {c.sport}
-              </Text>
-              <Text variant="bodyStrong" color={colors.foreground}>
-                {c.name}
-              </Text>
+              {/* Banner — the admin's upload, else the sport's stock
+                  photo. Same treatment as the web card. */}
+              <View style={styles.banner}>
+                <Image
+                  source={{ uri: c.bannerImageUrl || `${env.apiUrl}${t.imagePath}` }}
+                  style={styles.bannerImg}
+                  resizeMode="cover"
+                />
+                {/* Two stacked scrims instead of a gradient — this app has
+                    no expo-linear-gradient, and a soft two-step fade is
+                    enough to keep the title legible over any photo. */}
+                <View style={[styles.bannerFade, styles.bannerFadeSoft]} />
+                <View style={[styles.bannerFade, styles.bannerFadeDeep]} />
+                <View style={styles.bannerBody}>
+                  <View style={styles.chipRow}>
+                    <View
+                      style={[
+                        styles.sportChip,
+                        { backgroundColor: t.chipBg, borderColor: t.chipBorder },
+                      ]}
+                    >
+                      <Text variant="tiny" weight="700" color={t.hex}>
+                        {t.emoji} {t.label.toUpperCase()}
+                      </Text>
+                    </View>
+                    {open && !full && c.seatsLeft <= 5 ? (
+                      <View style={styles.lowChip}>
+                        <Text variant="tiny" weight="700" color="#fca5a5">
+                          {c.seatsLeft} LEFT
+                        </Text>
+                      </View>
+                    ) : null}
+                    {!open ? (
+                      <View style={styles.closedChip}>
+                        <Text variant="tiny" weight="700" color={colors.zinc300}>
+                          {c.status === "ONGOING" ? "RUNNING" : "CLOSED"}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text
+                    variant="bodyStrong"
+                    color={colors.foreground}
+                    style={{ marginTop: 4 }}
+                    numberOfLines={2}
+                  >
+                    {c.name}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.cardBody}>
               {c.description ? (
                 <Text variant="small" color={colors.zinc400} numberOfLines={2}>
                   {c.description}
@@ -224,6 +269,19 @@ export function CampsScreen() {
                 </Row>
               </View>
 
+              {/* Capacity — easier to feel than to read off a number. */}
+              <View style={styles.capTrack}>
+                <View
+                  style={[
+                    styles.capFill,
+                    {
+                      backgroundColor: t.hex,
+                      width: `${Math.min(100, Math.round(((c.capacity - c.seatsLeft) / Math.max(1, c.capacity)) * 100))}%`,
+                    },
+                  ]}
+                />
+              </View>
+
               {open && (!full || c.waitlistEnabled) ? (
                 <Button
                   label={full ? "Join waitlist" : "Register"}
@@ -236,6 +294,7 @@ export function CampsScreen() {
                   {open ? "This camp is full." : "Registrations are closed."}
                 </Text>
               )}
+              </View>
             </View>
           );
         })}
@@ -335,13 +394,52 @@ const styles = StyleSheet.create({
   header: { gap: spacing["1"] },
   loading: { gap: spacing["4"] },
   empty: { marginTop: spacing["6"], textAlign: "center" },
+  banner: { height: 128, width: "100%", position: "relative" },
+  bannerImg: { width: "100%", height: "100%" },
+  bannerFade: { position: "absolute", left: 0, right: 0, bottom: 0 },
+  bannerFadeSoft: { height: 96, backgroundColor: "rgba(9,9,11,0.45)" },
+  bannerFadeDeep: { height: 52, backgroundColor: "rgba(9,9,11,0.72)" },
+  bannerBody: { position: "absolute", left: 14, right: 14, bottom: 10 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  sportChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  lowChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderColor: "rgba(248,113,113,0.4)",
+    backgroundColor: "rgba(248,113,113,0.15)",
+  },
+  closedChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderColor: colors.zinc700,
+    backgroundColor: "rgba(9,9,11,0.7)",
+  },
+  cardBody: { padding: 14, gap: 8 },
+  capTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.zinc800,
+    overflow: "hidden",
+  },
+  capFill: { height: "100%", borderRadius: 2 },
   card: {
-    gap: spacing["2"],
+    // No padding + overflow hidden so the banner runs edge to edge and
+    // gets clipped by the card's own corner radius; the text below sits
+    // in cardBody, which carries the padding instead.
     borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.zinc800,
     backgroundColor: colors.zinc900,
-    padding: spacing["4"],
+    overflow: "hidden",
   },
   sport: { letterSpacing: 1 },
   rows: { gap: 6, marginTop: spacing["1"] },
