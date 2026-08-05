@@ -123,7 +123,7 @@ export function CampaignTab({ tournamentId }: { tournamentId: string }) {
                       {sent ? (
                         <span className="flex items-center gap-1 text-xs text-emerald-400">
                           <Check className="h-3 w-3" /> Sent
-                          {item.sentAt && ` · ${new Date(item.sentAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`}
+                          {item.sentAt && ` · ${new Date(item.sentAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`}
                         </span>
                       ) : item.status === "SKIPPED" ? (
                         <span className="text-xs text-amber-400">Skipped (banner needs an image — edit to re-arm)</span>
