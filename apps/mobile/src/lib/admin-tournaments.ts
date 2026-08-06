@@ -52,6 +52,14 @@ export interface AdminTournamentDetail {
   status: string;
   format: string;
   totalTeams: number;
+  /// VENUE or THIRD_PARTY. THIRD_PARTY swaps team entry fees for a hire
+  /// quote the organiser pays us — see the Organiser section on the screen.
+  host: "VENUE" | "THIRD_PARTY";
+  organizerName: string | null;
+  organizerPhone: string | null;
+  organizerEmail: string | null;
+  quotedAmount: number;
+  organizerNote: string | null;
   entryFee: number;
   liveScoringEnabled: boolean;
   scorerCode: string | null;
@@ -73,4 +81,25 @@ export const adminTournamentsApi = {
       method: "POST",
       body,
     }),
+  /** Organiser ledger. Goes through the same action endpoint but returns
+   *  data, so it needs its own response type. */
+  organizerLedger: (tournamentId: string) =>
+    request<{ success: boolean; ledger: OrganizerLedger }>(
+      "/api/mobile/admin/tournaments/action",
+      { method: "POST", body: { op: "organizerLedger", tournamentId } },
+    ),
 };
+
+export interface OrganizerLedger {
+  quotedAmount: number;
+  receivedAmount: number;
+  outstanding: number;
+  payments: {
+    id: string;
+    amount: number;
+    method: string;
+    reference: string | null;
+    receivedAt: string;
+    note: string | null;
+  }[];
+}

@@ -15,6 +15,11 @@ import {
   generateFixtures,
 } from "@/actions/admin-tournament-fixtures";
 import { enterMatchResult } from "@/actions/admin-tournament-scores";
+import {
+  getOrganizerLedger,
+  recordOrganizerPayment,
+  deleteOrganizerPayment,
+} from "@/actions/admin-tournament-organizer";
 
 /**
  * POST /api/mobile/admin/tournaments/action — one dispatch endpoint for the
@@ -57,6 +62,27 @@ export async function POST(request: NextRequest) {
   else if (op === "archiveTeam")
     result = await archiveTournamentTeam(String(body.teamId || ""), body.archived !== false);
   else if (op === "deleteTeam") result = await deleteTournamentTeam(String(body.teamId || ""));
+  // Third-party organiser billing. organizerLedger is a READ that returns
+  // data rather than {success}, so it answers before the shared
+  // success-shape handling below — that path always replies {success:true}
+  // and would throw the ledger away.
+  else if (op === "organizerLedger") {
+    const ledger = await getOrganizerLedger(String(body.tournamentId || ""));
+    if (!ledger) {
+      return NextResponse.json({ error: "Not a third-party tournament" }, { status: 400 });
+    }
+    return NextResponse.json({ success: true, ledger });
+  } else if (op === "organizerPay")
+    result = await recordOrganizerPayment({
+      tournamentId: String(body.tournamentId || ""),
+      amount: Number(body.amount) || 0,
+      method: body.method || "CASH",
+      reference: body.reference || undefined,
+      receivedAt: String(body.receivedAt || ""),
+      note: body.note || undefined,
+    });
+  else if (op === "organizerPayDelete")
+    result = await deleteOrganizerPayment(String(body.paymentId || ""));
   else return NextResponse.json({ error: "Unknown op" }, { status: 400 });
 
   if (result && result.success === false) {
