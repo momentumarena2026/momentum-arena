@@ -255,6 +255,64 @@ See also the App Store / TestFlight specifics in project memory
 
 ---
 
+### 8c. Version pinning — do NOT use `bump` on both platforms ⚠️
+
+Both native workflows resolve the version through
+`apps/mobile/scripts/version.js`, and `post-native-release` **commits the
+result back to `main`**. Dispatching iOS and Android with `bump=patch`
+therefore RACES: iOS writes `1.0.3`, Android then reads that and builds
+`1.0.4`. Two platforms, two different versions, one release.
+
+Always pin first, then dispatch both with `bump=none`:
+
+```bash
+node apps/mobile/scripts/version.js 1.0.5     # explicit set
+git add apps/mobile/version.json && git commit -m "chore(release): 1.0.5"
+git push origin HEAD:main
+gh workflow run native-ios.yml     --ref main -f track=appstore   -f bump=none
+gh workflow run native-android.yml --ref main -f track=production -f bump=none
+```
+
+Check the pin survived before dispatching — a still-running earlier build's
+`post-native-release` can overwrite it:
+
+```bash
+git fetch origin && git show origin/main:apps/mobile/version.json
+```
+
+### 8d. New iOS capability = two extra failures, in this order ⚠️
+
+Learned the hard way shipping Universal Links (1.0.2 → 1.0.5, three failed
+builds). Adding ANY entitlement to `MomentumArena.entitlements`:
+
+1. **First failure** — `Provisioning profile "MomentumArenaAppStoreCI"
+   doesn't include the <capability> entitlement.`
+   Fix in the portal, not the repo: developer.apple.com → Identifiers →
+   `com.momentumarena` → tick the capability → Save. Nothing in CI can do
+   this for you.
+
+2. **Second failure** — `No profile for team 'WHF7M743MW' matching
+   'MomentumArenaAppStoreCI' found.`
+   Enabling a capability invalidates the old profile but leaves its NAME
+   taken, so sigh regenerates it as `MomentumArenaAppStoreCI <timestamp>`.
+   The Fastfile now signs with `lane_context[SharedValues::SIGH_NAME]`
+   rather than the constant, so this one is already fixed — but if you see
+   it again, that's the cause.
+
+Android needs no equivalent: App Links verify off `assetlinks.json`, with
+no capability to enable.
+
+### 8e. Read the failure properly
+
+`gh run view <id> --log` returns nothing while a run is IN PROGRESS. To get
+the real error from a finished run — the fastlane summary in the UI is not
+the error:
+
+```bash
+gh run view <run-id> --log-failed | grep -iE "error:|entitlement|provisioning"
+```
+
+
 ## 9. Cron jobs (automatic — nothing to deploy)
 
 - **Vercel crons** (`vercel.json`) hit `/api/cron/*` on schedule (cleanup-locks,

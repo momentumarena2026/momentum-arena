@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-08-06 · accurate as of `main` = `af1b75b`.
+**Last substantive update:** 2026-08-06 · accurate as of `main` = `6a96eeb` (app 1.0.5).
 
 > ### Maintaining this file
 > Update it as part of the work, not as an afterthought — a stale context doc is worse than
@@ -40,7 +40,7 @@ or function was true when written, so confirm it still exists before relying on 
 Modules in production: **bookings** (hourly courts + 30-min bowling machine), **cafe**,
 **shop**, **passes** (multi-pass coverage engine), **coupons/rewards**, **tournaments**
 (full engine: registration → pools → fixtures → live scoring → bracket), **camps**
-(coaching programmes), **promo banners**, **in-app notifications**, **push (FCM)**,
+(coaching programmes), **promo banners**, **in-app notifications**, **push (FCM)**, **deep links (Universal Links / App Links)**,
 **analytics**, **HR/legal doc generation** (NDA/offer letters), **OTA release management**.
 
 Payments: **Razorpay** (gateway) and **PhonePe DQR** (dynamic UPI QR), plus cash/static-QR
@@ -149,7 +149,17 @@ Anything else means main has drifted — stop and investigate, do not push.
    verified against a real `next build` + `next start`, never the dev server.
 9. Web pages that render bare against the black background usually mean a **missing
    `layout.tsx`** for that route group (this was the `/camps` bug).
-10. `next/image` needs an explicit `remotePatterns` entry — Vercel Blob URLs
+10. **Native release: pin the version, never `bump` both platforms.** Both
+    workflows resolve the version through `version.js` and commit it back to
+    `main`, so two `bump=patch` dispatches race and ship different numbers.
+    Pin, push, then dispatch both with `bump=none`. Full runbook:
+    `docs/DEPLOYMENT.md` §8c–8e.
+11. **A new iOS entitlement costs two failed builds** unless you pre-empt it:
+    the capability must be enabled on the App ID in the Apple portal (CI
+    cannot do it), and enabling it invalidates the profile while keeping its
+    name, so sigh regenerates a timestamped one. The Fastfile now signs with
+    `SharedValues::SIGH_NAME` rather than a constant.
+12. `next/image` needs an explicit `remotePatterns` entry — Vercel Blob URLs
     (`**.blob.vercel-storage.com`) had to be added to `next.config.ts`.
 
 ---
@@ -320,6 +330,42 @@ underneath it. `gcTime` also raised 5min → 30min.
 forces `no-store`, so the dev server proves nothing). Payloads confirmed unchanged on all
 four endpoints. This mattered — `force-dynamic` on the tournaments route could plausibly
 have overridden the header. It doesn't.
+
+---
+
+## 6b. Website ↔ app bridge (2026-08-06)
+
+**Deep links.** momentumarena.com links open the app when installed, else the
+site. Both halves live here:
+- Web: `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json`,
+  served from routes (Apple's must be `application/json` with NO `.json`
+  extension). Team ID and both Android fingerprints are constants in
+  `lib/app-store-links.ts` — **none of them are secret**, they're published
+  inside those world-readable files by design.
+- App: `associated-domains` entitlement (iOS), `autoVerify` intent-filter
+  (Android), `momentumarena://` scheme, and `apps/mobile/src/navigation/linking.ts`
+  mapping URLs → screens.
+
+> Android lists TWO fingerprints. Play App Signing re-signs, so Store installs
+> carry the app-signing key, not the upload key. Listing only the upload key
+> makes links work on test builds and fail **silently** in production.
+
+**Get-the-app prompts** — sticky strip under the mobile header, store icon in
+the header, footer download row. All three gated by one flag,
+`ArenaSettings.downloadAppBannerEnabled`, **default OFF**, toggled at
+`/admin/config/download-app-banner`. Gated inside `StoreBadges` so no caller
+can forget it; the footer row and the strip gate separately too, because
+hiding only the badges left a heading above empty space.
+
+**App SEO** — `apple-itunes-app` (Smart App Banner), `google-play-app`, `al:*`
+App Links tags, two `MobileApplication` JSON-LD entries, `metadataBase`, a real
+1200×630 OG card, and a PWA manifest. These are deliberately NOT gated by the
+banner switch: they describe the app to crawlers rather than prompting a
+visitor.
+
+**Push templates** — `lib/push-templates.ts` now covers passes, tournaments,
+camps and shop alongside bookings/cafe/rewards. Adding a module means adding
+its templates here, or it ships with no push voice at all.
 
 ---
 

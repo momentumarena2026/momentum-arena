@@ -223,6 +223,181 @@ export const PUSH_TEMPLATES = [
     variables: [{ name: "points", description: "Points credited", example: "50" }],
   },
   // ── Admin alerts ──────────────────────────────────────────────────
+  // ── Customer: passes ──────────────────────────────────────────────
+  {
+    key: "pass_purchased",
+    audience: "customer",
+    label: "Pass purchased",
+    trigger: "When a pass purchase is confirmed, or an admin issues/gifts one.",
+    defaultTitle: "Pass activated",
+    defaultBody: "Your {planName} is live — {balance} to use until {expiry}.",
+    variables: [
+      { name: "planName", description: "Pass plan name", example: "Monthly Cricket" },
+      { name: "balance", description: "Opening balance", example: "10 hours" },
+      { name: "expiry", description: "Valid-until date", example: "31 Aug" },
+    ],
+  },
+  {
+    key: "pass_expiring_soon",
+    audience: "customer",
+    label: "Pass expiring soon",
+    trigger: "A few days before a pass expires while it still has balance left.",
+    defaultTitle: "Your pass expires {expiry}",
+    defaultBody: "{balance} still on your {planName}. Book before it lapses.",
+    variables: [
+      { name: "planName", description: "Pass plan name", example: "Monthly Cricket" },
+      { name: "balance", description: "Remaining balance", example: "3 hours" },
+      { name: "expiry", description: "Expiry date", example: "31 Aug" },
+    ],
+  },
+  {
+    key: "pass_low_balance",
+    audience: "customer",
+    label: "Pass running low",
+    trigger: "When a redemption drops a pass below its low-balance threshold.",
+    defaultTitle: "Pass running low",
+    defaultBody: "Only {balance} left on your {planName}. Top up anytime.",
+    variables: [
+      { name: "planName", description: "Pass plan name", example: "Monthly Cricket" },
+      { name: "balance", description: "Remaining balance", example: "1 hour" },
+    ],
+  },
+  {
+    key: "pass_shared_with_you",
+    audience: "customer",
+    label: "Pass shared with you",
+    trigger: "When a pass owner adds this customer as a shared member.",
+    defaultTitle: "{ownerName} shared a pass with you",
+    defaultBody: "You can now book on their {planName}.",
+    variables: [
+      { name: "ownerName", description: "Pass owner's name", example: "Rohit" },
+      { name: "planName", description: "Pass plan name", example: "Monthly Cricket" },
+    ],
+  },
+
+  // ── Customer: tournaments ─────────────────────────────────────────
+  {
+    key: "tournament_registration_confirmed",
+    audience: "customer",
+    label: "Team registered",
+    trigger: "When a team's entry fee is paid and the registration is confirmed.",
+    defaultTitle: "{teamName} is in",
+    defaultBody: "You're registered for {tournamentName}. Draw is announced soon.",
+    variables: [
+      { name: "teamName", description: "Team name", example: "Mathura Warriors" },
+      { name: "tournamentName", description: "Tournament name", example: "Momentum Cup" },
+    ],
+  },
+  {
+    key: "tournament_pools_revealed",
+    audience: "customer",
+    label: "Pools & fixtures revealed",
+    trigger: "When an admin reveals the draw — sent to every confirmed team.",
+    defaultTitle: "The draw is out",
+    defaultBody: "{teamName} is in {poolName}. First match {when}.",
+    variables: [
+      { name: "teamName", description: "Team name", example: "Mathura Warriors" },
+      { name: "poolName", description: "Pool the team landed in", example: "Pool B" },
+      { name: "when", description: "First match date and time", example: "15 Aug 9 AM" },
+    ],
+  },
+  {
+    key: "tournament_match_reminder",
+    audience: "customer",
+    label: "Match reminder",
+    trigger: "Ahead of a scheduled tournament match, to both teams.",
+    defaultTitle: "Match in {hours}h",
+    defaultBody: "{teamName} v {opponent} at {when}.",
+    variables: [
+      { name: "hours", description: "Hours until start", example: "2" },
+      { name: "teamName", description: "Team name", example: "Mathura Warriors" },
+      { name: "opponent", description: "Opposing team", example: "Vrindavan XI" },
+      { name: "when", description: "Match time", example: "9 AM" },
+    ],
+  },
+  {
+    key: "tournament_match_result",
+    audience: "customer",
+    label: "Match result",
+    trigger: "When a scorer finishes a match — sent to both teams.",
+    defaultTitle: "{result}",
+    defaultBody: "{teamName} v {opponent} — {summary}.",
+    variables: [
+      { name: "result", description: "Won / Lost headline", example: "You won!" },
+      { name: "teamName", description: "Team name", example: "Mathura Warriors" },
+      { name: "opponent", description: "Opposing team", example: "Vrindavan XI" },
+      { name: "summary", description: "Score summary", example: "142/6 beat 138/9" },
+    ],
+  },
+
+  // ── Customer: camps ───────────────────────────────────────────────
+  {
+    key: "camp_registration_confirmed",
+    audience: "customer",
+    label: "Camp registration confirmed",
+    trigger: "When a camp registration is paid and confirmed.",
+    defaultTitle: "Registered for {campName}",
+    defaultBody: "{participantName} starts {startDate}. {dueNote}",
+    variables: [
+      { name: "campName", description: "Camp name", example: "Summer Cricket Camp" },
+      { name: "participantName", description: "Participant", example: "Aarav" },
+      { name: "startDate", description: "Camp start date", example: "1 Sep" },
+      { name: "dueNote", description: "Balance-due note, blank if paid in full", example: "Rs.2,000 due at the venue." },
+    ],
+  },
+  {
+    key: "camp_starting_soon",
+    audience: "customer",
+    label: "Camp starting soon",
+    trigger: "A day or two before a camp's first session.",
+    defaultTitle: "{campName} starts {startDate}",
+    defaultBody: "See {participantName} at {time}. {venueNote}",
+    variables: [
+      { name: "campName", description: "Camp name", example: "Summer Cricket Camp" },
+      { name: "participantName", description: "Participant", example: "Aarav" },
+      { name: "startDate", description: "Start date", example: "tomorrow" },
+      { name: "time", description: "Session time", example: "6 AM" },
+      { name: "venueNote", description: "Where to report", example: "Report at the main gate." },
+    ],
+  },
+  {
+    key: "camp_waitlist_spot_open",
+    audience: "customer",
+    label: "Camp waitlist spot open",
+    trigger: "When a seat frees up and a waitlisted registration can be confirmed.",
+    defaultTitle: "A spot opened in {campName}",
+    defaultBody: "Confirm now — seats go fast.",
+    variables: [
+      { name: "campName", description: "Camp name", example: "Summer Cricket Camp" },
+    ],
+  },
+
+  // ── Customer: shop ────────────────────────────────────────────────
+  {
+    key: "shop_order_confirmed",
+    audience: "customer",
+    label: "Shop order confirmed",
+    trigger: "When a shop order's payment is confirmed.",
+    defaultTitle: "Order confirmed",
+    defaultBody: "Order {orderRef} for {total}. We'll tell you when it's ready.",
+    variables: [
+      { name: "orderRef", description: "Order reference", example: "#1042" },
+      { name: "total", description: "Order total", example: "Rs.1,850" },
+    ],
+  },
+  {
+    key: "shop_order_ready",
+    audience: "customer",
+    label: "Shop order ready",
+    trigger: "When an admin marks a shop order ready for collection.",
+    defaultTitle: "Ready to collect",
+    defaultBody: "Order {orderRef} is waiting at the counter.",
+    variables: [
+      { name: "orderRef", description: "Order reference", example: "#1042" },
+    ],
+  },
+
+  // ── Admin ─────────────────────────────────────────────────────────
   {
     key: "admin_pending_booking",
     audience: "admin",
