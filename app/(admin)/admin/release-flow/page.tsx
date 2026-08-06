@@ -386,6 +386,25 @@ export default async function ReleaseFlowPage() {
           </p>
         </div>
 
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
+          <p className="text-sm font-semibold text-amber-200">
+            After promoting to main, dispatch the OTA publish by hand
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-300">
+            The OTA workflow triggers on <Code>push</Code> with{" "}
+            <Code>paths: apps/mobile/**</Code>. That fires reliably on{" "}
+            <span className="text-zinc-100">development</span> but has stopped firing on{" "}
+            <span className="text-zinc-100">main</span>: on 2026-08-07 a development push
+            and the main promotion of the same code, one minute apart, produced a run for
+            development and nothing for main. The workflow is active, the paths do match,
+            and there is no <Code>[skip ci]</Code> token — the cause is not known. So run{" "}
+            <Code>gh workflow run ota-publish.yml --ref main</Code> after every promotion,
+            and check a run actually appeared. Publishing twice is harmless (it is a
+            DRAFT you roll out from OTA Updates); not publishing leaves every app on the
+            old bundle with no signal that anything is wrong.
+          </p>
+        </div>
+
         <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3.5">
           <p className="text-sm font-semibold text-white">Reading a failed build</p>
           <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
