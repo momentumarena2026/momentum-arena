@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { listCourtsForTournament } from "@/actions/admin-tournament-fixtures";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import {
   listTournamentsAdmin,
@@ -19,7 +20,10 @@ export async function GET(request: NextRequest) {
   if (id) {
     const t = await getTournamentAdmin(id);
     if (!t) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ tournament: t });
+    // Courts ride along so the app can schedule a fixture without a second
+    // round trip — the screen needs them the moment the detail renders.
+    const courts = await listCourtsForTournament(id);
+    return NextResponse.json({ tournament: t, courts });
   }
   const rows = await listTournamentsAdmin();
   return NextResponse.json({

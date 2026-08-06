@@ -33,6 +33,7 @@ import { FixturesTab, type MatchRow } from "./fixtures-tab";
 import { ScoresTab } from "./scores-tab";
 import { CampaignTab } from "./campaign-tab";
 import { OrganizerTab } from "./organizer-tab";
+import { AddFixture } from "./add-fixture";
 
 // Serialized shapes from getTournamentAdmin (dates as ISO strings).
 type MemberRow = {
@@ -655,7 +656,22 @@ export function TournamentManage({
 
       {/* ── Fixtures ── */}
       {tab === "fixtures" && (
-        <FixturesTab tournamentId={t.id} matches={t.matches} courts={courts} />
+        <div className="space-y-4">
+          {/* Hand-entered fixtures. Essential for a third-party event —
+              the organiser hands us their schedule and generateFixtures
+              can't express it (a double round-robin, an odd number of
+              semi-finals). Useful on our own events for the same reason. */}
+          <div className="pt-4">
+            <AddFixture
+              tournamentId={t.id}
+              teams={t.teams
+                .filter((x) => x.status === "CONFIRMED")
+                .map((x) => ({ id: x.id, name: x.name }))}
+              onAdded={() => router.refresh()}
+            />
+          </div>
+          <FixturesTab tournamentId={t.id} matches={t.matches} courts={courts} />
+        </div>
       )}
 
       {/* ── Scores ── */}

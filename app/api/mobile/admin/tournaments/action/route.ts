@@ -13,8 +13,14 @@ import {
 import {
   autoAssignPools,
   generateFixtures,
+  scheduleMatch,
+  unscheduleMatch,
 } from "@/actions/admin-tournament-fixtures";
 import { enterMatchResult } from "@/actions/admin-tournament-scores";
+import {
+  createManualMatch,
+  deleteManualMatch,
+} from "@/actions/admin-tournament-manual-fixtures";
 import {
   getOrganizerLedger,
   recordOrganizerPayment,
@@ -81,6 +87,32 @@ export async function POST(request: NextRequest) {
       receivedAt: String(body.receivedAt || ""),
       note: body.note || undefined,
     });
+  // Hand-entered fixtures — for schedules generateFixtures cannot derive
+  // (a second leg, an odd number of semi-finals). Same action the web
+  // admin uses, so the guards live in one place.
+  else if (op === "addMatch")
+    result = await createManualMatch({
+      tournamentId: String(body.tournamentId || ""),
+      stage: body.stage,
+      roundLabel: String(body.roundLabel || ""),
+      homeTeamId: body.homeTeamId || undefined,
+      awayTeamId: body.awayTeamId || undefined,
+      homeSourceLabel: body.homeSourceLabel || undefined,
+      awaySourceLabel: body.awaySourceLabel || undefined,
+    });
+  // Date + court for a fixture. Was web-only, which meant the app could
+  // create a match it could not then place on the calendar.
+  else if (op === "scheduleMatch")
+    result = await scheduleMatch(String(body.matchId || ""), {
+      courtConfigId: String(body.courtConfigId || ""),
+      date: String(body.date || ""),
+      startHour: Number(body.startHour) || 0,
+      hours: Number(body.hours) || 1,
+    });
+  else if (op === "unscheduleMatch")
+    result = await unscheduleMatch(String(body.matchId || ""));
+  else if (op === "deleteMatch")
+    result = await deleteManualMatch(String(body.matchId || ""));
   else if (op === "organizerPayDelete")
     result = await deleteOrganizerPayment(String(body.paymentId || ""));
   else return NextResponse.json({ error: "Unknown op" }, { status: 400 });

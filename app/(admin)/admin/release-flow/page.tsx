@@ -388,22 +388,18 @@ export default async function ReleaseFlowPage() {
 
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
           <p className="text-sm font-semibold text-amber-200">
-            After promoting to main, dispatch the OTA publish by hand
+            OTA publish lands ~30 minutes after the push — that is normal
           </p>
           <p className="mt-1.5 text-xs leading-relaxed text-zinc-300">
-            The OTA workflow triggers on <Code>push</Code> with{" "}
-            <Code>paths: apps/mobile/**</Code>. That fires reliably on{" "}
-            <span className="text-zinc-100">development</span> but has stopped firing on{" "}
-            <span className="text-zinc-100">main</span>: on 2026-08-07 a development push
-            and the main promotion of the same code, one minute apart, produced a run for
-            development and nothing for main. The workflow is active, the paths do match,
-            and there is no skip-ci token — the cause is not known. So dispatch it by hand
-            after a promotion — but only when the merge actually touched{" "}
-            <Code>apps/mobile/**</Code> or <Code>scripts/publish-ota.ts</Code>, which is
-            what the path filter used to guarantee. A web-only or docs-only promotion
-            needs no OTA. The runbook has a one-liner that checks before dispatching.
-            Not publishing when the app HAS changed is the costly direction: every
-            install stays on the old bundle with no signal that anything is wrong.
+            The workflow triggers on <Code>push</Code> for both development and main and
+            it works — it is just slow. Measured 7 Aug: a development push at 19:42 got
+            its run at 20:12, a main push at 20:05 got its run at 20:35. Checking the
+            run list right after pushing shows nothing, which looks identical to a broken
+            trigger; do not read it that way. Wait 45 minutes and look up the run by
+            commit SHA. If you want the draft sooner, dispatch it by hand — but only when
+            the promotion actually touched <Code>apps/mobile/**</Code>, so a web-only
+            change publishes nothing. The delayed push run will still arrive; two drafts
+            are harmless since you roll out one from OTA Updates.
           </p>
         </div>
 

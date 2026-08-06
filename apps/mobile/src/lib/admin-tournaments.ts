@@ -68,11 +68,18 @@ export interface AdminTournamentDetail {
   pools: { id: string; name: string }[];
 }
 
+/** Courts a fixture can be scheduled on. Sent with the detail payload so
+ *  the screen has them the moment it renders. */
+export interface AdminCourt {
+  id: string;
+  label: string;
+}
+
 export const adminTournamentsApi = {
   list: () =>
     request<{ tournaments: AdminTournamentCard[] }>("/api/mobile/admin/tournaments", { method: "GET" }),
   detail: (id: string) =>
-    request<{ tournament: AdminTournamentDetail }>(
+    request<{ tournament: AdminTournamentDetail; courts: AdminCourt[] }>(
       `/api/mobile/admin/tournaments?id=${id}`,
       { method: "GET" }
     ),
