@@ -74,7 +74,9 @@ export interface CafeOrderListItem {
   orderNumber: string;
   status: CafeOrderStatus;
   totalAmount: number;
-  /** Still owed on a part-paid order. 0 when square. */
+  /** Still owed on a part-paid order. 0 when square. Derived server-side by
+   *  getCafeOrders (total minus counter payment minus settlements), never
+   *  stored — a stored balance goes stale the moment an order is edited. */
   dueAmount?: number;
   createdAt: string;
   note: string | null;
