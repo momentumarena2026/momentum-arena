@@ -397,11 +397,13 @@ export default async function ReleaseFlowPage() {
             <span className="text-zinc-100">main</span>: on 2026-08-07 a development push
             and the main promotion of the same code, one minute apart, produced a run for
             development and nothing for main. The workflow is active, the paths do match,
-            and there is no <Code>[skip ci]</Code> token — the cause is not known. So run{" "}
-            <Code>gh workflow run ota-publish.yml --ref main</Code> after every promotion,
-            and check a run actually appeared. Publishing twice is harmless (it is a
-            DRAFT you roll out from OTA Updates); not publishing leaves every app on the
-            old bundle with no signal that anything is wrong.
+            and there is no skip-ci token — the cause is not known. So dispatch it by hand
+            after a promotion — but only when the merge actually touched{" "}
+            <Code>apps/mobile/**</Code> or <Code>scripts/publish-ota.ts</Code>, which is
+            what the path filter used to guarantee. A web-only or docs-only promotion
+            needs no OTA. The runbook has a one-liner that checks before dispatching.
+            Not publishing when the app HAS changed is the costly direction: every
+            install stays on the old bundle with no signal that anything is wrong.
           </p>
         </div>
 
