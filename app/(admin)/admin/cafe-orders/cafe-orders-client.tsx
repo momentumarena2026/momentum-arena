@@ -26,6 +26,8 @@ interface OrderRow {
   orderNumber: string;
   status: CafeOrderStatus;
   totalAmount: number;
+  /** Still owed on a part-paid order. 0 when square. */
+  dueAmount?: number;
   note: string | null;
   guestName: string | null;
   guestPhone: string | null;
@@ -273,6 +275,15 @@ export function CafeOrdersClient({
                           .map((i) => `${i.quantity}x ${i.itemName}`)
                           .join(", ")}
                       </p>
+                      {/* The note is often the whole point of the order
+                          ("no ice", "table 4") — it was only visible after
+                          opening the order, which is a click too late at a
+                          busy counter. */}
+                      {order.note ? (
+                        <p className="mt-0.5 text-xs italic text-amber-300/80">
+                          📝 {order.note}
+                        </p>
+                      ) : null}
                     </div>
                   </Link>
                   <div className="flex items-center gap-2">
@@ -280,6 +291,11 @@ export function CafeOrdersClient({
                       <p className="text-sm font-semibold text-white">
                         {formatPrice(order.totalAmount)}
                       </p>
+                      {order.dueAmount && order.dueAmount > 0 ? (
+                        <p className="whitespace-nowrap rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                          {formatPrice(order.dueAmount)} due
+                        </p>
+                      ) : null}
                       <p className="text-[10px] text-zinc-500 whitespace-nowrap">
                         {formatOrderDateTime(order.createdAt)}
                       </p>

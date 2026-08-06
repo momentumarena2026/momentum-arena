@@ -94,6 +94,8 @@ export async function getCafeOrders(
         items: { include: { cafeItem: { select: { name: true, isVeg: true } } } },
         user: { select: { id: true, name: true, email: true, phone: true } },
         payment: true,
+        // Needed to work out what is still owed on a part-paid order.
+        settlements: { select: { amount: true } },
         createdByAdmin: { select: { username: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -103,7 +105,21 @@ export async function getCafeOrders(
     db.cafeOrder.count({ where }),
   ]);
 
-  return { orders, total, page, totalPages: Math.ceil(total / limit) };
+  // Attach the outstanding balance so the list can flag part-paid orders
+  // without every caller re-deriving it. Always computed, never stored —
+  // a stored balance goes stale the moment an order is edited.
+  const rows = orders.map((o) => {
+    const captured =
+      (o.payment && (o.payment.status === "COMPLETED" || o.payment.status === "PARTIAL")
+        ? o.payment.amount
+        : 0) + o.settlements.reduce((sum, x) => sum + x.amount, 0);
+    return {
+      ...o,
+      dueAmount: Math.max(0, Math.round((o.totalAmount - captured) * 100) / 100),
+    };
+  });
+
+  return { orders: rows, total, page, totalPages: Math.ceil(total / limit) };
 }
 
 export async function getCafeOrderStats() {
