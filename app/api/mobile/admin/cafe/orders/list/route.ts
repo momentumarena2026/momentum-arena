@@ -32,6 +32,8 @@ export async function GET(request: NextRequest) {
       orderNumber: o.orderNumber,
       status: o.status,
       totalAmount: o.totalAmount,
+      // Derived by getCafeOrders — what is still owed on a part-paid order.
+      dueAmount: o.dueAmount,
       createdAt: o.createdAt.toISOString(),
       note: o.note,
       guestName: o.guestName,

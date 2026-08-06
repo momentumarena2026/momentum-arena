@@ -42,6 +42,7 @@ export default async function AdminCafeOrdersPage({
           orderNumber: o.orderNumber,
           status: o.status,
           totalAmount: o.totalAmount,
+          dueAmount: o.dueAmount,
           note: o.note,
           guestName: o.guestName,
           guestPhone: o.guestPhone,

@@ -194,6 +194,14 @@ export function AdminCafeAllOrdersScreen() {
             <Text weight="700" color={colors.foreground}>
               {formatRupees(o.totalAmount)}
             </Text>
+            {/* Part-paid orders: the balance matters more at the counter
+                than the total does, so it gets its own line rather than
+                hiding behind a tap into the order. */}
+            {o.dueAmount && o.dueAmount > 0 ? (
+              <Text variant="small" weight="700" color={colors.yellow400}>
+                {formatRupees(o.dueAmount)} due
+              </Text>
+            ) : null}
           </View>
         )}
         ListFooterComponent={

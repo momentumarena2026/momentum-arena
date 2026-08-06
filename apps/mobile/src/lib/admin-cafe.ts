@@ -74,6 +74,8 @@ export interface CafeOrderListItem {
   orderNumber: string;
   status: CafeOrderStatus;
   totalAmount: number;
+  /** Still owed on a part-paid order. 0 when square. */
+  dueAmount?: number;
   createdAt: string;
   note: string | null;
   guestName: string | null;
