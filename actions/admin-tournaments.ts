@@ -71,6 +71,13 @@ const wizardSchema = z.object({
   oversPerInnings: z.number().int().min(0).max(90).optional(),
   bracketSeeding: z.enum(["POOL_ORDER", "OVERALL_RANK"]).optional(),
 
+  host: z.enum(["VENUE", "THIRD_PARTY"]).optional(),
+  organizerName: z.string().trim().max(120).optional(),
+  organizerPhone: z.string().trim().max(20).optional(),
+  organizerEmail: z.string().trim().max(160).optional(),
+  quotedAmount: z.number().int().min(0).max(1_00_00_000).optional(),
+  organizerNote: z.string().trim().max(1000).optional(),
+
   entryFee: z.number().int().min(0).max(10_00_000),
   feeMode: z.enum(["FULL", "ADVANCE", "FREE"]),
   advancePct: z.number().int().min(1).max(99),
@@ -112,6 +119,7 @@ function toDate(s: string | undefined): Date | null {
 }
 
 function wizardData(d: TournamentWizardInput) {
+  const thirdParty = d.host === "THIRD_PARTY";
   return {
     name: d.name,
     sport: d.sport,
@@ -129,8 +137,18 @@ function wizardData(d: TournamentWizardInput) {
     maxOversPerBowler: d.sport === "CRICKET" ? (d.maxOversPerBowler ?? 0) : 0,
     oversPerInnings: d.sport === "CRICKET" ? (d.oversPerInnings ?? 0) : 0,
     bracketSeeding: d.format === "POOLS_KNOCKOUT" ? (d.bracketSeeding ?? "POOL_ORDER") : "POOL_ORDER",
-    entryFee: d.feeMode === "FREE" ? 0 : d.entryFee,
-    feeMode: d.feeMode,
+    host: d.host ?? "VENUE",
+    organizerName: thirdParty ? d.organizerName || null : null,
+    organizerPhone: thirdParty ? d.organizerPhone || null : null,
+    organizerEmail: thirdParty ? d.organizerEmail || null : null,
+    quotedAmount: thirdParty ? (d.quotedAmount ?? 0) : 0,
+    organizerNote: thirdParty ? d.organizerNote || null : null,
+    // A third-party event takes no money from teams — the organiser
+    // collects entry fees themselves. Pinned here rather than trusted from
+    // the form, so no checkout can be constructed for one even if the
+    // wizard is bypassed.
+    entryFee: thirdParty || d.feeMode === "FREE" ? 0 : d.entryFee,
+    feeMode: thirdParty ? ("FREE" as const) : d.feeMode,
     advancePct: d.advancePct,
     allowCoupons: d.allowCoupons,
     allowRewardPoints: d.allowRewardPoints,

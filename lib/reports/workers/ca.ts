@@ -347,6 +347,39 @@ export async function generateCaMonthlyReport(input: {
     });
   }
 
+  // 5b. Venue hire from third-party organisers. Appended to the SAME
+  // sheet as entry fees rather than given its own, because the user asked
+  // for this to read as tournament income — one sheet an accountant can
+  // total. The Team column names the organiser so the two kinds of row
+  // stay tellable apart, and there is no overlap with the rows above: a
+  // THIRD_PARTY tournament's teams are never charged.
+  const organizerIncome = await db.tournamentOrganizerPayment.findMany({
+    where: { receivedAt: { gte: monthStart, lt: monthEnd } },
+    select: {
+      receivedAt: true,
+      amount: true,
+      method: true,
+      reference: true,
+      tournament: {
+        select: { name: true, organizerName: true, organizerPhone: true, quotedAmount: true },
+      },
+    },
+    orderBy: { receivedAt: "asc" },
+  });
+  for (const o of organizerIncome) {
+    tSheet.addRow({
+      date: fmtIst(o.receivedAt),
+      tournament: o.tournament.name,
+      team: `Venue hire — ${o.tournament.organizerName ?? "organiser"}`,
+      phone: o.tournament.organizerPhone ?? "—",
+      paid: o.amount,
+      due: 0,
+      method: o.method,
+      coupon: o.reference ?? "—",
+      discount: 0,
+    });
+  }
+
   // 6. Camp fees — same story as tournaments.
   const campIncome = await db.campRegistration.findMany({
     where: {

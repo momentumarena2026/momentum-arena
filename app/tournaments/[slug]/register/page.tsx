@@ -19,6 +19,9 @@ export default async function TournamentRegisterPage({
   }
   const t = await getPublicTournamentBySlug(slug);
   if (!t) notFound();
+  // Third-party events take no registrations from us. The server action
+  // rejects them too; this just avoids showing a form that can only fail.
+  if (t.host === "THIRD_PARTY") redirect(`/tournaments/${slug}`);
   if (t.status !== "REG_OPEN") redirect(`/tournaments/${slug}`);
   const mine = t.teams.find((x) => x.captainUserId === session.user!.id);
   if (mine) redirect(`/tournaments/${slug}`);

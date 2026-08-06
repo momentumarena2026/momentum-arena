@@ -433,6 +433,7 @@ export function TournamentDetailScreen() {
   }
 
   const t = data.tournament;
+  const isThirdParty = t.host === "THIRD_PARTY";
   const liveOk =
     t.liveScoringEnabled && ["BOTH", "APP_ONLY"].includes(t.liveScreenPlatform);
   const liveMatches = data.matches.filter((m) => m.status === "LIVE");
@@ -575,7 +576,8 @@ export function TournamentDetailScreen() {
           <Text style={styles.title}>{t.name}</Text>
           <Text style={styles.subtitle}>
             {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format} ·{" "}
-            {data.teams.length}/{t.totalTeams} teams
+            {data.teams.length}
+            {isThirdParty ? "" : `/${t.totalTeams}`} teams
           </Text>
           {t.prizePool ? (
             <View style={styles.prizeRow}>
@@ -583,25 +585,38 @@ export function TournamentDetailScreen() {
               <Text style={styles.prizeText}>₹{t.prizePool.toLocaleString("en-IN")} prize pool</Text>
             </View>
           ) : null}
-          {t.status === "PUBLISHED" && (
-            <Text style={{ color: "#7dd3fc", fontSize: 13, marginTop: 4 }}>
-              {t.regOpenAt && new Date(t.regOpenAt) > new Date()
-                ? `Registrations open ${new Date(t.regOpenAt).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`
-                : "Registrations opening soon"}
+          {/* An external organiser runs their own sign-ups — there is
+              nothing for us to register here, so name them instead of
+              offering a button that the server would reject anyway. */}
+          {isThirdParty ? (
+            <Text style={{ color: "#7dd3fc", fontSize: 13, marginTop: 6 }}>
+              Hosted by {t.organizerName || "an external organiser"} — register with them
+              directly
             </Text>
-          )}
-          {t.status === "REG_OPEN" && (
-            <Pressable
-              onPress={() => navigation.navigate("TournamentRegister", { slug })}
-              style={({ pressed }) => [styles.registerBtn, pressed && { opacity: 0.85 }]}
-            >
-              <Text style={styles.registerText}>Register your team</Text>
-            </Pressable>
+          ) : (
+            <>
+              {t.status === "PUBLISHED" && (
+                <Text style={{ color: "#7dd3fc", fontSize: 13, marginTop: 4 }}>
+                  {t.regOpenAt && new Date(t.regOpenAt) > new Date()
+                    ? `Registrations open ${new Date(t.regOpenAt).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`
+                    : "Registrations opening soon"}
+                </Text>
+              )}
+              {t.status === "REG_OPEN" && (
+                <Pressable
+                  onPress={() => navigation.navigate("TournamentRegister", { slug })}
+                  style={({ pressed }) => [styles.registerBtn, pressed && { opacity: 0.85 }]}
+                >
+                  <Text style={styles.registerText}>Register your team</Text>
+                </Pressable>
+              )}
+            </>
           )}
         </View>
 
-        {/* Captain's squad manager (post-registration, optional) */}
-        <MySquadCard slug={slug} />
+        {/* Captain's squad manager (post-registration, optional) — only
+            reachable when the team registered through us. */}
+        {!isThirdParty && <MySquadCard slug={slug} />}
 
         {/* LIVE card(s), pinned above the tabs */}
         {liveMatches.map((m) => liveCard(m))}

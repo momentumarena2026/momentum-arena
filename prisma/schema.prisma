@@ -252,26 +252,26 @@ enum RewardAlertSeverity {
 }
 
 model User {
-  id            String      @id @default(cuid())
-  name          String?
-  email         String?     @unique
-  phone         String?     @unique
-  emailVerified DateTime?
-  phoneVerified DateTime?
-  image         String?
-  passwordHash  String?
-  passwordSetAt DateTime?
-  role          UserRole    @default(CUSTOMER)
-  accounts      Account[]
-  sessions      Session[]
-  bookings      Booking[]
-  passes        UserPass[]
+  id              String       @id @default(cuid())
+  name            String?
+  email           String?      @unique
+  phone           String?      @unique
+  emailVerified   DateTime?
+  phoneVerified   DateTime?
+  image           String?
+  passwordHash    String?
+  passwordSetAt   DateTime?
+  role            UserRole     @default(CUSTOMER)
+  accounts        Account[]
+  sessions        Session[]
+  bookings        Booking[]
+  passes          UserPass[]
   passMemberships PassMember[]
-  slotHolds     SlotHold[]
-  cafeOrders    CafeOrder[]
-  referralCode  String?     @unique
-  referredBy    String?
-  birthday      DateTime?
+  slotHolds       SlotHold[]
+  cafeOrders      CafeOrder[]
+  referralCode    String?      @unique
+  referredBy      String?
+  birthday        DateTime?
 
   rewardBalance      RewardBalance?
   rewardTransactions RewardTransaction[]
@@ -294,7 +294,7 @@ model User {
   // signs into. Tokens rotate (FCM may invalidate them); the mobile
   // client reposts on rotation, and dead tokens are pruned when FCM
   // returns `messaging/registration-token-not-registered`.
-  pushDevices PushDevice[]
+  pushDevices   PushDevice[]
   notifications UserNotification[]
 
   // First-party analytics — every event the user fires (web + mobile)
@@ -400,17 +400,17 @@ model CourtConfig {
   slotHolds         SlotHold[]
   prices            PricingRule[]
   passPlans         PassPlan[]
-  userPasses        UserPass[]    @relation("UserPassCourt")
+  userPasses        UserPass[]         @relation("UserPassCourt")
   slotBlocks        SlotBlock[]
   waitlistEntries   Waitlist[]
   recurringBookings RecurringBooking[]
   operatingWindows  OperatingWindow[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  tournamentSlots TournamentSlot[]
 
   @@unique([sport, size, position])
-  tournamentSlots TournamentSlot[]
 }
 
 // Open-hours windows specific to a court config. Lets the bowling-
@@ -449,13 +449,13 @@ model OperatingWindow {
 // Deleted atomically when user commits to a payment (online success OR UPI "I've paid").
 // If user abandons checkout, the hold just expires — no Booking is ever created.
 model SlotHold {
-  id            String      @id @default(cuid())
-  userId        String
-  user          User        @relation(fields: [userId], references: [id])
-  courtConfigId String
-  courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
-  date          DateTime    @db.Date
-  hours         Int[]
+  id               String      @id @default(cuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id])
+  courtConfigId    String
+  courtConfig      CourtConfig @relation(fields: [courtConfigId], references: [id])
+  date             DateTime    @db.Date
+  hours            Int[]
   // Parallel array to `hours` — startMinutes[i] is the minute
   // offset (0 or 30) of the slot whose hour lives at hours[i].
   // Stored as a separate column rather than packed into `hours`
@@ -463,12 +463,12 @@ model SlotHold {
   // pre-bowling hold this column is empty and code treats every
   // entry as starting at :00. Bowling-machine holds always fill
   // it. Same length as `hours` when populated.
-  startMinutes  Int[]       @default([])
+  startMinutes     Int[]       @default([])
   // [{ hour: number, minute?: number, price: number }, ...] — the
   // optional `minute` defaults to 0 when missing, keeping legacy
   // payloads valid while letting bowling-machine slot prices be
   // disambiguated for the :30 slot inside the same hour.
-  slotPrices    Json
+  slotPrices       Json
   // ── "Book via Pass / Pass + Pay" checkout mode ─────────────────────
   // Set when the customer picks the Pass tab at checkout. Every money
   // endpoint then prices against (totalAmount − coverage.coveredAmount)
@@ -479,8 +479,8 @@ model SlotHold {
   //   coveredSlots: [{h,m,min}] }
   passModeId       String?
   passModeCoverage Json?
-  totalAmount   Int
-  expiresAt     DateTime
+  totalAmount      Int
+  expiresAt        DateTime
 
   // In-flight payment attempt tracking.
   // On payment initiation, expiresAt is extended so the hold survives the
@@ -765,8 +765,8 @@ model Notification {
 // (the banner auto-retires with the promo). Repurposed from an unused
 // legacy model of the same name (no code ever queried it).
 model PromoBanner {
-  id    String @id @default(cuid())
-  title String // admin label + accessibility alt text
+  id          String            @id @default(cuid())
+  title       String // admin label + accessibility alt text
   // Optimised upload variants (webp; see /api/admin/promo-banners/upload).
   // Site-relative paths (seeded /public assets) are allowed — the mobile
   // API absolutises them against the request origin.
@@ -774,23 +774,23 @@ model PromoBanner {
   appImageUrl String?
   // width/height ratio of the master upload — the app reserves layout
   // with it before the image loads.
-  aspectRatio Float @default(3)
+  aspectRatio Float             @default(3)
   // Where a tap lands (web URL or site-relative path). The app resolves
   // known paths to native screens and falls back to the browser.
-  linkUrl   String?
-  placement BannerPlacement[]
+  linkUrl     String?
+  placement   BannerPlacement[]
   // SLOT_SELECTION refinement: when non-empty, the banner only shows on
   // these sports' slot pages. Empty = every sport (legacy rows fall back
   // to a linkUrl heuristic — see lib/promo-banners.bannerRelevantToSport).
-  slotSports Sport[] @default([])
+  slotSports  Sport[]           @default([])
   // Coupon-linked lifetime (see header comment).
-  couponId String?
-  coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  startsAt  DateTime?
-  endsAt    DateTime?
-  isActive  Boolean @default(true)
-  sortOrder Int     @default(0)
-  createdBy String?
+  couponId    String?
+  coupon      Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isActive    Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  createdBy   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -881,32 +881,32 @@ enum UserPassStatus {
 // debit audit (drives restore-on-cancel).
 
 model PassPlan {
-  id            String      @id @default(cuid())
-  name          String
-  sport         Sport
-  courtConfigId String
-  courtConfig   CourtConfig @relation(fields: [courtConfigId], references: [id])
+  id                   String      @id @default(cuid())
+  name                 String
+  sport                Sport
+  courtConfigId        String
+  courtConfig          CourtConfig @relation(fields: [courtConfigId], references: [id])
   // Balance sold, in MINUTES (5h = 300) so 30-min bowling slots
   // debit cleanly with integer math.
-  totalMinutes  Int
+  totalMinutes         Int
   // The headline per-hour rate the discount is marketed against
   // (e.g. ₹2,000/hr → pass effective ₹1,900/hr). Pre-filled from the
   // config's highest PricingRule; admin can adjust. Rupees.
-  anchorPricePerHour Int
+  anchorPricePerHour   Int
   // anchor × hours — the "actual price" shown struck through.
-  baseAmount    Int
-  discountPercent Float
+  baseAmount           Int
+  discountPercent      Float
   // Final sell price, rupees, rounded.
-  price         Int
-  validityDays  Int
+  price                Int
+  validityDays         Int
   // Pricing bands the pass may be redeemed on — a JSON array of
   // { dayType, timeType } cells that ALL shared `anchorPrice` (per slot)
   // at creation. Redemption only covers slots in these bands. On a later
   // sport-price change a band whose price no longer equals anchorPrice
   // stops being valid; a plan with no valid band is treated as inactive.
   // (Empty/absent = legacy unrestricted.)
-  bands         Json?
-  anchorPrice   Int?
+  bands                Json?
+  anchorPrice          Int?
   // Cheapest-hour showcase: the sport's designated "your hour is cheaper
   // with a pass" plan. Which bucket it anchors (peak / off-peak / both)
   // is DERIVED from the plan's own bands — an off-peak pass can only
@@ -914,11 +914,11 @@ model PassPlan {
   // most one anchor per (sport, derived bucket); the admin action clears
   // overlapping holders. Drives the slot-selection "Play more, pay less"
   // banner.
-  isCheapestHourAnchor Boolean @default(false)
-  isActive      Boolean  @default(true)
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isCheapestHourAnchor Boolean     @default(false)
+  isActive             Boolean     @default(true)
+  sortOrder            Int         @default(0)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   userPasses UserPass[]
 
@@ -926,14 +926,14 @@ model PassPlan {
 }
 
 model UserPass {
-  id     String @id @default(cuid())
+  id     String    @id @default(cuid())
   // Optional: a bespoke gift pass (admin-created, private, not sold as
   // a public PassPlan) has no plan behind it — everything it needs is
   // snapshotted below. Storefront purchases + at-venue issues set it.
   planId String?
   plan   PassPlan? @relation(fields: [planId], references: [id])
   userId String
-  user   User   @relation(fields: [userId], references: [id])
+  user   User      @relation(fields: [userId], references: [id])
 
   // Plan snapshot at purchase time — plan edits never mutate what a
   // customer already bought.
@@ -964,8 +964,8 @@ model UserPass {
 
   // Purchase payment refs (money-first: the row is only created after
   // the gateway verifies/webhooks the capture).
-  razorpayOrderId   String? @unique
-  razorpayPaymentId String?
+  razorpayOrderId      String? @unique
+  razorpayPaymentId    String?
   // DQR (PhonePe UPI) idempotency key — set when a pass is bought via
   // the dynamic-QR flow instead of Razorpay.
   phonePeMerchantTxnId String? @unique
@@ -1005,24 +1005,24 @@ model PassMember {
 }
 
 model PassRedemption {
-  id         String   @id @default(cuid())
-  userPassId String
-  userPass   UserPass @relation(fields: [userPassId], references: [id])
+  id            String    @id @default(cuid())
+  userPassId    String
+  userPass      UserPass  @relation(fields: [userPassId], references: [id])
   // One redemption per (booking, pass). A booking may draw on several
   // passes at once (peak + off-peak stacking, balance spread across an
   // old and a new pass) — each contributing pass gets its own row.
-  bookingId  String
-  minutes    Int
+  bookingId     String
+  minutes       Int
   // Value attribution (rupees): what the redeemed minutes actually cost
   // the customer at the pass's effective rate (pass.price × minutes /
   // totalMinutes). Revenue stays recognised ONCE at pass purchase; this
   // is the per-booking worth shown on bookings / analytics / reports.
-  value      Int      @default(0)
+  value         Int       @default(0)
   // List-price rupees this redemption SETTLES on the booking (the
   // covered slots at slot pricing). Drives owed-at-venue math so a
   // pass-paid booking never shows "collect at venue". 0 for pass-paid
   // extends (their slots are recorded at ₹0 and never join the total).
-  coveredAmount Int   @default(0)
+  coveredAmount Int       @default(0)
   // WHICH slots the pass paid for: [{ h, m, min }] — startHour,
   // startMinute and durationMinutes of each covered slot.
   //
@@ -1037,10 +1037,10 @@ model PassRedemption {
   //
   // Null on rows written before this field existed — treated as "no
   // per-slot record", falling back to the stored coveredAmount.
-  coveredSlots Json?
-  createdAt  DateTime @default(now())
+  coveredSlots  Json?
+  createdAt     DateTime  @default(now())
   // Set when an eligible cancellation restored these minutes.
-  restoredAt DateTime?
+  restoredAt    DateTime?
 
   @@unique([bookingId, userPassId])
   @@index([bookingId])
@@ -1051,7 +1051,7 @@ model PassRedemption {
 // carry the transactionId — so we persist the mapping here and
 // materialise the UserPass on the status poll / S2S callback.
 model PassPurchaseIntent {
-  id                   String   @id @default(cuid())
+  id                   String    @id @default(cuid())
   // See CafePaymentIntent.claimedAt — customer-asserted payment awaiting
   // admin verification. Deliberately does NOT issue the pass: an
   // unverified pass would be immediately redeemable.
@@ -1059,11 +1059,11 @@ model PassPurchaseIntent {
   planId               String
   userId               String
   // Scheduled start captured at initiate, carried onto the UserPass.
-  startsAt             DateTime @default(now())
-  phonePeMerchantTxnId String?  @unique
+  startsAt             DateTime  @default(now())
+  phonePeMerchantTxnId String?   @unique
   // UserPass id once materialised (idempotency fast-path).
   consumedUserPassId   String?
-  createdAt            DateTime @default(now())
+  createdAt            DateTime  @default(now())
 
   @@index([createdAt])
 }
@@ -1207,54 +1207,53 @@ model CafeItem {
  * payment verifies — abandoned intents stay here (and a sweeper
  * deletes them past `expiresAt`) so the CafeOrder table never
  * carries phantom cancelled rows.
- *
  * Mirrors the SlotHold → Booking pattern on the sports side.
  */
 model CafePaymentIntent {
-  id                   String        @id @default(cuid())
+  id            String        @id @default(cuid())
   // The customer told us they paid but the gateway hasn't confirmed it
   // (the PhonePe intent-replication gap). Surfaces in the admin
   // "Unconfirmed Payments" queue for manual verification; cleared when
   // the intent is consumed or the claim is rejected.
-  claimedAt            DateTime?
-  userId               String?
-  guestName            String?
-  guestPhone           String?
-  note                 String?
-  paymentMethod        PaymentMethod // RAZORPAY or PHONEPE only
+  claimedAt     DateTime?
+  userId        String?
+  guestName     String?
+  guestPhone    String?
+  note          String?
+  paymentMethod PaymentMethod // RAZORPAY or PHONEPE only
 
   // Snapshot of the cart at intent time. Stored as JSON because the
   // intent never serves a relational query — we materialise it
   // into CafeOrderItem rows at verify time, where the relational
   // model takes over.
-  cart                 Json
+  cart Json
 
   // Totals frozen at intent time so the customer is paying the
   // amount they saw. Re-validated at verify time against current
   // CafeItem prices; on mismatch we refuse + refund.
-  totalAmount          Float
-  originalAmount       Float
-  discountAmount       Float         @default(0)
-  discountCodeId       String?
+  totalAmount    Float
+  originalAmount Float
+  discountAmount Float   @default(0)
+  discountCodeId String?
 
   // Gateway references. Stamped after the create-order /
   // initiate-payment call so the verify endpoint can look up the
   // intent from a Razorpay order id / PhonePe merchant txn id.
-  razorpayOrderId      String?       @unique
-  phonePeMerchantTxnId String?       @unique
+  razorpayOrderId      String? @unique
+  phonePeMerchantTxnId String? @unique
 
   // TTL — past this the sweeper cleans the row up. 30 min matches
   // the upper bound a customer might leave a payment modal open
   // without abandoning.
-  expiresAt            DateTime
+  expiresAt DateTime
 
   // Set when the intent has been materialised into a CafeOrder
   // (verify succeeded). Used for idempotency on duplicate verify
   // callbacks.
-  consumedAt           DateTime?
-  consumedOrderId      String?       @unique
+  consumedAt      DateTime?
+  consumedOrderId String?   @unique
 
-  createdAt            DateTime      @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([expiresAt])
@@ -1473,15 +1472,15 @@ model Coupon {
   validPlatforms String[] @default([])
 
   // Behavior
-  isStackable  Boolean @default(false)
-  stackGroup   String?
-  isPublic     Boolean @default(true) // visible on customer coupon page
-  isSystemCode Boolean @default(false) // auto-applied (new user, referral, etc.)
+  isStackable       Boolean @default(false)
+  stackGroup        String?
+  isPublic          Boolean @default(true) // visible on customer coupon page
+  isSystemCode      Boolean @default(false) // auto-applied (new user, referral, etc.)
   // Admin-flagged checkout auto-apply: both checkouts try these coupons
   // FIRST (before the new-user / sport fallback codes) — full
   // validateCoupon eligibility still applies, so an inapplicable
   // auto-apply coupon silently falls through to the next candidate.
-  autoApply    Boolean @default(false)
+  autoApply         Boolean @default(false)
   // Show this coupon's effective (struck-through) pricing on the
   // slot-selection page. Only honoured alongside autoApply — the slot
   // tiles must never advertise a price checkout won't deliver.
@@ -1492,8 +1491,8 @@ model Coupon {
   isActive   Boolean  @default(true)
   createdBy  String
 
-  conditions CouponCondition[]
-  usages     CouponUsage[]
+  conditions   CouponCondition[]
+  usages       CouponUsage[]
   // Promotion banners tied to this coupon — the banner stays live only
   // while the coupon is active + inside its validity window.
   promoBanners PromoBanner[]
@@ -1625,13 +1624,13 @@ model RewardConfig {
   pointValuePaise    Int @default(100)
 
   // Redemption guard rails
-  minPointsToRedeem        Int @default(50)
+  minPointsToRedeem        Int   @default(50)
   // Float so admins can express finer caps (e.g. 2.5%) without
   // bumping the column to basis points everywhere. Math at the
   // redemption site is `Math.floor(billPaise * pct / 100)` — works
   // for both ints and floats.
   maxRedemptionPctOfBill   Float @default(20) // % cap
-  maxRedemptionPaisePerTxn Int @default(50000) // ₹500 absolute cap
+  maxRedemptionPaisePerTxn Int   @default(50000) // ₹500 absolute cap
 
   // Expiry — points are EARNED with expiresAt = now() + this window.
   // LIFO consumption (oldest first) keeps the math simple.
@@ -1777,44 +1776,43 @@ model RewardAlert {
  * (inclusive, 0..23); `closeHour` is the exclusive end (1..25 —
  * 25 representing the slot starting at midnight, ending 1am next
  * day, matching the existing convention).
- *
  * Read by every customer slot picker + admin calendar + pricing
  * generator. Edited from /admin/pricing.
  */
 model ArenaSettings {
-  id        String   @id @default(cuid())
-  openHour  Int      @default(5)
-  closeHour Int      @default(25)
+  id                       String   @id @default(cuid())
+  openHour                 Int      @default(5)
+  closeHour                Int      @default(25)
   // "Rain doesn't slow us down" banner. mode: AUTO (show only when it's
   // raining / rain is forecast in Mathura), ON (always show), OFF (never).
   // rainBannerText optionally overrides the default banner copy.
-  rainBannerMode String  @default("AUTO")
-  rainBannerText String?
+  rainBannerMode           String   @default("AUTO")
+  rainBannerText           String?
   // "Information Bar" — the strip at the very top of the home page
   // (web + app). Text is admin-editable; null falls back to the built-in
   // new-user offer copy so existing behaviour survives the migration.
-  infoBarEnabled Boolean @default(true)
-  infoBarText    String?
+  infoBarEnabled           Boolean  @default(true)
+  infoBarText              String?
   // Master switch for the Monthly Passes storefront. OFF hides the
   // customer /passes buying page + plan listing and blocks the
   // purchase API. Already-sold passes keep redeeming at checkout
   // regardless — disabling sales never voids paid hours.
-  passesEnabled  Boolean @default(false)
+  passesEnabled            Boolean  @default(false)
   // Master switch for the Tournaments module. OFF hides the customer
   // /tournaments pages, the header/nav entries (web + app quick-arc)
   // and blocks registration. Admin management keeps working so a
   // tournament can be prepared before the module goes public.
-  tournamentsEnabled Boolean @default(false)
+  tournamentsEnabled       Boolean  @default(false)
   // Coaching camps (football / cricket). Off by default: the customer hub
   // and every camp route 404 until an admin turns it on, same as
   // tournaments — so a half-configured camp is never publicly reachable.
-  campsEnabled       Boolean @default(false)
+  campsEnabled             Boolean  @default(false)
   /// Master switch for every "get the app" surface on the WEBSITE: the
   /// sticky strip under the mobile header, the store icon in the header,
   /// and the footer download section. Off by default — the prompts only
   /// make sense once the store listings are live and worth pointing at.
-  downloadAppBannerEnabled Boolean @default(false)
-  updatedAt DateTime @updatedAt
+  downloadAppBannerEnabled Boolean  @default(false)
+  updatedAt                DateTime @updatedAt
 }
 
 model CafeSettings {
@@ -2146,11 +2144,11 @@ enum ExpenseModule {
 }
 
 model Expense {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   module      ExpenseModule @default(GENERAL)
   // Calendar date of the expense (what would be typed into the sheet),
   // independent of createdAt which tracks row entry time.
-  date        DateTime @db.Date
+  date        DateTime      @db.Date
   description String
   amount      Int
   // Foreign-key-lite references to ExpenseOption.label: we store the
@@ -2908,10 +2906,10 @@ model OtaRelease {
   launchAssetUrl         String // Vercel Blob URL
   launchAssetContentType String @default("application/javascript")
 
-  metadata   Json      @default("{}") // manifest.metadata
-  extra      Json      @default("{}") // manifest.extra (e.g. { expoClient })
-  commitTime DateTime? // rollBackToEmbedded.parameters.commitTime
-  changelog  String?
+  metadata    Json      @default("{}") // manifest.metadata
+  extra       Json      @default("{}") // manifest.extra (e.g. { expoClient })
+  commitTime  DateTime? // rollBackToEmbedded.parameters.commitTime
+  changelog   String?
   publishedBy String? // AdminUser.id who rolled it out
 
   createdAt   DateTime  @default(now())
@@ -3104,6 +3102,17 @@ enum TournamentStatus {
   CANCELLED
 }
 
+/// Who runs the tournament. VENUE is everything we've built so far: we
+/// own it, teams register with us and pay entry fees. THIRD_PARTY is an
+/// outside organiser hiring the venue — they handle their own teams and
+/// entry money, hand us dates + slots, and pay US a quoted hire fee in
+/// instalments. Every other tournament feature (draw, fixtures, scoring,
+/// match centre) works identically for both.
+enum TournamentHost {
+  VENUE
+  THIRD_PARTY
+}
+
 enum TournamentFeeMode {
   FULL // whole entry fee online to confirm
   ADVANCE // advancePct online, rest collected at venue
@@ -3156,21 +3165,35 @@ model Tournament {
   bannerImageUrl String? // hero image (web + app)
 
   // Capacity & structure
-  totalTeams       Int
-  poolCount        Int     @default(0) // POOLS_KNOCKOUT only
-  teamsPerPool     Int     @default(0)
-  advancePerPool   Int     @default(0) // how many qualify from each pool
-  thirdPlaceMatch  Boolean @default(false)
+  totalTeams        Int
+  poolCount         Int            @default(0) // POOLS_KNOCKOUT only
+  teamsPerPool      Int            @default(0)
+  advancePerPool    Int            @default(0) // how many qualify from each pool
+  thirdPlaceMatch   Boolean        @default(false)
   /// POOLS_KNOCKOUT: how the qualifiers are seeded into the bracket.
-  bracketSeeding   BracketSeeding @default(POOL_ORDER)
-  membersPerTeamMin Int    @default(1)
+  bracketSeeding    BracketSeeding @default(POOL_ORDER)
+  membersPerTeamMin Int            @default(1)
   membersPerTeamMax Int
   /// Cricket: overs one bowler may bowl in a match. 0 = no limit. The
   /// scorer console greys out a bowler once they've bowled their quota.
-  maxOversPerBowler Int    @default(0)
+  maxOversPerBowler Int            @default(0)
   /// Cricket: overs per side. 0 = unlimited. The innings closes on the
   /// last legal ball, and the scorer can't bowl past it.
-  oversPerInnings   Int    @default(0)
+  oversPerInnings   Int            @default(0)
+
+  /// VENUE (default) or THIRD_PARTY. On THIRD_PARTY the public page
+  /// drops registration entirely and entryFee is pinned to 0 — the
+  /// organiser collects entry money themselves, off our books.
+  host TournamentHost @default(VENUE)
+
+  // Third-party organiser (THIRD_PARTY only; null on our own events)
+  organizerName  String?
+  organizerPhone String?
+  organizerEmail String?
+  /// What we quoted them for the hire, rupees. Receipts against it are
+  /// TournamentOrganizerPayment rows; outstanding = quoted - received.
+  quotedAmount   Int     @default(0)
+  organizerNote  String?
 
   // Fees
   entryFee          Int               @default(0) // rupees
@@ -3191,10 +3214,10 @@ model Tournament {
   /// 6-10am window therefore yields (4*60)/duration match slots. Only
   /// one tournament match runs at a time (venue rule), so this is the
   /// sole capacity input alongside the windows themselves.
-  matchDurationMinutes Int @default(60)
+  matchDurationMinutes Int       @default(60)
   /// Set when an admin approves a generated draw+schedule. Until then
   /// the generated plan is a proposal and nothing is revealed.
-  scheduleApprovedAt DateTime?
+  scheduleApprovedAt   DateTime?
 
   // Points engine (round-robin stages)
   pointsWin   Int      @default(2)
@@ -3223,15 +3246,49 @@ model Tournament {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  pools         TournamentPool[]
-  teams         TournamentTeam[]
-  matches       TournamentMatch[]
-  slots         TournamentSlot[]
-  playerStats   TournamentPlayerStat[]
-  campaignItems TournamentCampaignItem[]
+  pools             TournamentPool[]
+  teams             TournamentTeam[]
+  matches           TournamentMatch[]
+  slots             TournamentSlot[]
+  playerStats       TournamentPlayerStat[]
+  campaignItems     TournamentCampaignItem[]
+  organizerPayments TournamentOrganizerPayment[]
 
   @@index([status])
   @@index([sport, status])
+}
+
+/// One receipt from a third-party organiser against Tournament.quotedAmount.
+///
+/// A table rather than advanceAmount/balanceAmount columns on Tournament:
+/// "some advance, rest afterward" is two rows today but three or four is
+/// routine, and each receipt needs its OWN date. Analytics and the CA
+/// report are cash-basis, so money handed over in September has to land in
+/// September — two fixed columns can't express that, and the same reasoning
+/// is why TournamentTeam carries paidAt instead of leaning on updatedAt.
+model TournamentOrganizerPayment {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  /// Rupees. Always positive — a correction is a delete, not a negative row.
+  amount     Int
+  /// CASH | BANK_TRANSFER | UPI | CHEQUE | RAZORPAY
+  method     String
+  /// UTR / cheque number / txn id, whatever the method gives us.
+  reference  String?
+  /// When the money actually arrived. This is the cash-basis date every
+  /// revenue query keys on — NOT createdAt, which is merely when an admin
+  /// got round to typing it in.
+  receivedAt DateTime
+  note       String?
+  recordedBy String? // admin user id
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tournamentId])
+  @@index([receivedAt])
 }
 
 /// A window the admin pre-decides for pool/league matches — e.g.
@@ -3301,8 +3358,8 @@ model TournamentTeam {
   captainEmail  String?
 
   // Money (rupees). paidAmount accumulates (advance + venue collection).
-  paidAmount    Int     @default(0)
-  dueAmount     Int     @default(0)
+  paidAmount    Int       @default(0)
+  dueAmount     Int       @default(0)
   paymentMethod String? // RAZORPAY | UPI_DQR | CASH | FREE ...
   paymentRef    String? // razorpay payment id / phonePe merchantTxnId
   // When the money actually arrived — the CASH-BASIS date analytics and
@@ -3310,27 +3367,27 @@ model TournamentTeam {
   // edit, which would silently reassign revenue to another month.
   paidAt        DateTime?
   couponCode    String?
-  discount      Int     @default(0)
-  pointsUsed    Int     @default(0)
+  discount      Int       @default(0)
+  pointsUsed    Int       @default(0)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   // Soft-delete for admins: an archived team drops out of the roster and
   // every count without destroying its payment trail or match history.
   // Hard delete stays available only while a team has neither.
   archivedAt DateTime?
 
-  members     TournamentTeamMember[]
-  homeMatches TournamentMatch[]      @relation("homeTeam")
-  awayMatches TournamentMatch[]      @relation("awayTeam")
-  wonMatches  TournamentMatch[]      @relation("winnerTeam")
-  playerStats TournamentPlayerStat[]
+  members          TournamentTeamMember[]
+  homeMatches      TournamentMatch[]      @relation("homeTeam")
+  awayMatches      TournamentMatch[]      @relation("awayTeam")
+  wonMatches       TournamentMatch[]      @relation("winnerTeam")
+  playerStats      TournamentPlayerStat[]
+  /// TournamentSlot ids the captain ticked. Empty = no preference
+  /// expressed, which the generator treats as "available for any".
+  preferredSlotIds String[]               @default([])
 
   @@index([tournamentId, status])
   @@index([captainUserId])
-  /// TournamentSlot ids the captain ticked. Empty = no preference
-  /// expressed, which the generator treats as "available for any".
-  preferredSlotIds String[] @default([])
 }
 
 model TournamentTeamMember {
@@ -3345,9 +3402,9 @@ model TournamentTeamMember {
   isCaptain Boolean        @default(false)
   order     Int            @default(0)
 
-  playerStats   TournamentPlayerStat[]
-  potmMatches   TournamentMatch[]      @relation("playerOfMatch")
-  matchEvents   TournamentMatchEvent[]
+  playerStats TournamentPlayerStat[]
+  potmMatches TournamentMatch[]      @relation("playerOfMatch")
+  matchEvents TournamentMatchEvent[]
 
   @@index([teamId])
 }
@@ -3379,20 +3436,20 @@ model TournamentMatch {
   courtConfigId String?
   courtConfig   CourtConfig? @relation(fields: [courtConfigId], references: [id], onDelete: SetNull)
   scheduledAt   DateTime?
-  durationMins  Int       @default(60)
-  slotBlockIds  String[]  @default([]) // SlotBlock rows created for this match
+  durationMins  Int          @default(60)
+  slotBlockIds  String[]     @default([]) // SlotBlock rows created for this match
 
   // Result
-  homeScore    Int?
-  awayScore    Int?
+  homeScore     Int?
+  awayScore     Int?
   // Sport-specific score labels, e.g. cricket "142/7 (16.0)" — the numeric
   // homeScore/awayScore stay canonical for points/tiebreakers.
   homeScoreNote String?
   awayScoreNote String?
-  isDraw       Boolean @default(false)
-  winnerTeamId String?
-  winnerTeam   TournamentTeam? @relation("winnerTeam", fields: [winnerTeamId], references: [id], onDelete: SetNull)
-  resultNote   String?
+  isDraw        Boolean         @default(false)
+  winnerTeamId  String?
+  winnerTeam    TournamentTeam? @relation("winnerTeam", fields: [winnerTeamId], references: [id], onDelete: SetNull)
+  resultNote    String?
 
   playerOfMatchId String?
   playerOfMatch   TournamentTeamMember? @relation("playerOfMatch", fields: [playerOfMatchId], references: [id], onDelete: SetNull)
@@ -3401,9 +3458,9 @@ model TournamentMatch {
   // liveState: sport-specific snapshot folded from events, e.g. cricket
   // {inning, battingTeamId, runs, wickets, balls, target} — kept denormalised
   // so audience screens read ONE row + recent events.
-  liveState      Json?
-  clockStartedAt DateTime? // football: running-clock anchor (null = paused)
-  clockElapsedSec Int      @default(0) // accumulated paused-at seconds
+  liveState       Json?
+  clockStartedAt  DateTime? // football: running-clock anchor (null = paused)
+  clockElapsedSec Int       @default(0) // accumulated paused-at seconds
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3423,9 +3480,9 @@ model TournamentMatch {
 //  football: GOAL {teamId, memberId?}, CARD {...}, CLOCK_START, CLOCK_STOP
 //  pickleball: POINT {teamId}, GAME_END
 model TournamentMatchEvent {
-  id        String          @id @default(cuid())
+  id        String                @id @default(cuid())
   matchId   String
-  match     TournamentMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  match     TournamentMatch       @relation(fields: [matchId], references: [id], onDelete: Cascade)
   seq       Int
   kind      String
   teamId    String?
@@ -3433,7 +3490,7 @@ model TournamentMatchEvent {
   member    TournamentTeamMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
   data      Json?
   createdBy String // admin id or "scorer"
-  createdAt DateTime @default(now())
+  createdAt DateTime              @default(now())
 
   @@unique([matchId, seq])
   @@index([matchId, seq])
@@ -3483,7 +3540,6 @@ model TournamentCampaignItem {
   @@index([tournamentId, milestone])
 }
 
-
 // ── Coaching camps ──────────────────────────────────────────────────
 // A camp is a fixed-length coaching programme (e.g. "Summer Cricket
 // Camp, 15 days") that people register FOR — not a slot they book. It
@@ -3510,13 +3566,13 @@ enum CampRegistrationStatus {
 }
 
 model Camp {
-  id          String     @id @default(cuid())
-  slug        String     @unique
-  name        String
-  sport       Sport
-  status      CampStatus @default(DRAFT)
-  description String?
-  rules       String?
+  id             String     @id @default(cuid())
+  slug           String     @unique
+  name           String
+  sport          Sport
+  status         CampStatus @default(DRAFT)
+  description    String?
+  rules          String?
   bannerImageUrl String?
 
   // Schedule. Sessions repeat on `daysOfWeek` (0=Sun … 6=Sat) between
@@ -3571,15 +3627,15 @@ model CampRegistration {
 
   // Money — accumulates like a tournament team: advance online, the rest
   // collected at the venue.
-  paidAmount    Int     @default(0)
-  dueAmount     Int     @default(0)
+  paidAmount    Int       @default(0)
+  dueAmount     Int       @default(0)
   paymentMethod String?
   paymentRef    String?
   // Cash-basis date the money arrived (see TournamentTeam.paidAt).
   paidAt        DateTime?
   couponCode    String?
-  discount      Int     @default(0)
-  pointsUsed    Int     @default(0)
+  discount      Int       @default(0)
+  pointsUsed    Int       @default(0)
 
   // Soft delete, so a withdrawn registration keeps its payment trail.
   archivedAt DateTime?
@@ -3590,7 +3646,6 @@ model CampRegistration {
   @@index([campId, status])
   @@index([userId])
 }
-
 
 // ── Public (casual) match scoring ────────────────────────────────────
 // Anyone playing at the arena can spin up a scratch match and score it

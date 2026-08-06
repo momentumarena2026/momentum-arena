@@ -61,6 +61,12 @@ export function defaultWizardState(): TournamentWizardInput {
     maxOversPerBowler: 0,
     oversPerInnings: 0,
     bracketSeeding: "POOL_ORDER",
+    host: "VENUE",
+    organizerName: "",
+    organizerPhone: "",
+    organizerEmail: "",
+    quotedAmount: 0,
+    organizerNote: "",
     entryFee: 2000,
     feeMode: "FULL",
     advancePct: 50,
@@ -131,6 +137,7 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
 
   const warnings = useMemo(() => structureWarnings(form), [form]);
   const payable = onlinePayable(form.entryFee, form.feeMode, form.advancePct);
+  const isThirdParty = form.host === "THIRD_PARTY";
 
   const handleSave = async () => {
     setError(null);
@@ -341,6 +348,50 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
               </p>
             </div>
           )}
+          {/* Who is running this. Third-party events invert the money:
+              the organiser collects entry fees themselves and pays US for
+              the hire, so every team-facing fee control below is
+              meaningless and is hidden rather than left to confuse. */}
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Hosted by</label>
+            <select
+              className={inputCls}
+              value={form.host ?? "VENUE"}
+              onChange={(e) => set("host", e.target.value as "VENUE" | "THIRD_PARTY")}
+            >
+              <option value="VENUE">Momentum Arena (we run it)</option>
+              <option value="THIRD_PARTY">Third party (they hire the venue)</option>
+            </select>
+          </div>
+          {isThirdParty ? (
+            <>
+              <div>
+                <label className={labelCls}>Organiser name</label>
+                <input className={inputCls} value={form.organizerName ?? ""} onChange={(e) => set("organizerName", e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Organiser phone</label>
+                <input className={inputCls} value={form.organizerPhone ?? ""} onChange={(e) => set("organizerPhone", e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Organiser email</label>
+                <input className={inputCls} value={form.organizerEmail ?? ""} onChange={(e) => set("organizerEmail", e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Quoted amount (₹)</label>
+                <input className={inputCls} inputMode="numeric" value={form.quotedAmount || ""} onChange={(e) => set("quotedAmount", num(e.target.value))} />
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  What we quoted for the hire. Record what they actually pay — advance
+                  and balance — on the Organiser &amp; Payments tab after saving.
+                </p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Internal note</label>
+                <input className={inputCls} value={form.organizerNote ?? ""} onChange={(e) => set("organizerNote", e.target.value)} />
+              </div>
+            </>
+          ) : (
+          <>
           <div>
             <label className={labelCls}>Entry Fee (₹ / team)</label>
             <input className={inputCls} inputMode="numeric" disabled={form.feeMode === "FREE"} value={form.feeMode === "FREE" ? 0 : form.entryFee || ""} onChange={(e) => set("entryFee", num(e.target.value))} />
@@ -359,14 +410,25 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
               <input className={inputCls} inputMode="numeric" value={form.advancePct || ""} onChange={(e) => set("advancePct", num(e.target.value))} />
             </div>
           )}
+          </>
+          )}
         </div>
-        {form.feeMode !== "FREE" && (
+        {isThirdParty && (
+          <p className="text-xs text-amber-400/80">
+            Teams cannot register through us for a third-party event — the organiser
+            handles sign-ups and entry money. The public page shows the schedule,
+            fixtures and scores only.
+          </p>
+        )}
+        {!isThirdParty && form.feeMode !== "FREE" && (
           <p className="text-xs text-zinc-500">
             Team pays <span className="text-emerald-400">₹{payable.toLocaleString("en-IN")}</span> online at registration
             {form.feeMode === "ADVANCE" && <> · ₹{(form.entryFee - payable).toLocaleString("en-IN")} at the venue</>}
           </p>
         )}
-        <div className="flex flex-wrap gap-4">
+        {/* Coupons, points and the waitlist all act on a registration we
+            never take for a third-party event. */}
+        <div className={`flex flex-wrap gap-4 ${isThirdParty ? "hidden" : ""}`}>
           <label className="flex items-center gap-2 text-sm text-zinc-300">
             <input type="checkbox" className="h-4 w-4 accent-emerald-500" checked={form.allowCoupons} onChange={(e) => set("allowCoupons", e.target.checked)} />
             Allow coupons
