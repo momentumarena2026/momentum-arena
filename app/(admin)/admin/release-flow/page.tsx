@@ -348,9 +348,58 @@ export default async function ReleaseFlowPage() {
         </div>
       </section>
 
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-white">⚠️ Native release traps</h2>
+        <p className="text-sm text-zinc-400">
+          Learned across 1.0.2 → 1.0.5, which cost three failed iOS builds. Each of these
+          fails in a way that looks like something else.
+        </p>
+
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
+          <p className="text-sm font-semibold text-amber-200">
+            Pin the version — never dispatch both platforms with “bump”
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-300">
+            Both native workflows resolve the version through{" "}
+            <Code>apps/mobile/scripts/version.js</Code>, and the post-release job{" "}
+            <span className="text-zinc-100">commits the result back to main</span>. Running iOS
+            and Android with <Code>bump=patch</Code> therefore races: iOS writes 1.0.3, Android
+            reads that and builds 1.0.4 — one release, two version numbers. Set the version
+            explicitly, push it, then dispatch both with <Code>bump=none</Code>.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
+          <p className="text-sm font-semibold text-amber-200">
+            A new iOS capability costs two failed builds unless you pre-empt it
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-300">
+            Adding any entitlement (Associated Domains, HealthKit, …) fails first with{" "}
+            <span className="text-zinc-100">“profile doesn’t include the … entitlement”</span> —
+            fix that in the Apple portal, not the repo: Identifiers →{" "}
+            <Code>com.momentumarena</Code> → tick the capability → Save. CI cannot do it.
+            It then fails a second time with{" "}
+            <span className="text-zinc-100">“No profile … matching MomentumArenaAppStoreCI”</span>,
+            because enabling a capability invalidates the profile but keeps its name, so
+            fastlane regenerates a timestamped one. That second failure is already fixed —
+            the Fastfile signs with the name fastlane actually produced.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3.5">
+          <p className="text-sm font-semibold text-white">Reading a failed build</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
+            The fastlane summary shown in the GitHub UI is <span className="text-zinc-200">not</span>{" "}
+            the error — it only says which step died. Use{" "}
+            <Code>gh run view &lt;id&gt; --log-failed</Code> for the real message. Note that{" "}
+            <Code>--log</Code> returns nothing at all while a run is still in progress.
+          </p>
+        </div>
+      </section>
+
       <p className="border-t border-zinc-900 pt-4 text-xs text-zinc-600">
         This page mirrors the live CI/CD pipeline (Vercel deploys, <Code>.github/workflows/ota-publish.yml</Code>, and the
-        fastlane lanes). Keep it in sync when the pipeline changes. Last reviewed 26 Jun 2026.
+        fastlane lanes). Keep it in sync when the pipeline changes. Last reviewed 6 Aug 2026 (1.0.5 — deep-link release).
       </p>
     </div>
   );
