@@ -6,9 +6,12 @@ import {
   getOrganizerLedger,
   recordOrganizerPayment,
   deleteOrganizerPayment,
-  ORGANIZER_PAYMENT_METHODS,
   type OrganizerLedger,
 } from "@/actions/admin-tournament-organizer";
+import {
+  ORGANIZER_PAYMENT_METHODS,
+  ORGANIZER_METHOD_LABEL as METHOD_LABEL,
+} from "@/lib/tournament-organizer";
 
 /**
  * The money tab for a third-party tournament.
@@ -16,14 +19,6 @@ import {
  * Only rendered when host === THIRD_PARTY — our own tournaments take money
  * from teams instead, which the Teams tab already shows.
  */
-
-const METHOD_LABEL: Record<string, string> = {
-  CASH: "Cash",
-  BANK_TRANSFER: "Bank transfer",
-  UPI: "UPI",
-  CHEQUE: "Cheque",
-  RAZORPAY: "Razorpay",
-};
 
 function inr(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
@@ -63,9 +58,17 @@ export function OrganizerTab({
 
   async function refresh() {
     setLoading(true);
-    const l = await getOrganizerLedger(tournamentId);
-    setLedger(l);
-    setLoading(false);
+    try {
+      const l = await getOrganizerLedger(tournamentId);
+      setLedger(l);
+    } catch (e) {
+      // Without this the tab sat on "Loading…" forever whenever the action
+      // threw — the failure mode that hid a broken "use server" export.
+      // Say something instead of hanging.
+      setError(e instanceof Error ? e.message : "Could not load payments");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -111,6 +114,13 @@ export function OrganizerTab({
   }
 
   if (loading) return <p className="py-8 text-sm text-zinc-500">Loading…</p>;
+  if (error && !ledger) {
+    return (
+      <p className="my-6 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-300">
+        {error}
+      </p>
+    );
+  }
   if (!ledger) {
     return (
       <p className="py-8 text-sm text-zinc-500">
