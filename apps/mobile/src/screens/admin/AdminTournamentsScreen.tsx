@@ -68,6 +68,15 @@ export function AdminTournamentsScreen() {
   // rather than folded into the detail payload, so our own tournaments —
   // the overwhelming majority — pay nothing for a panel they never show.
   const [orgOpen, setOrgOpen] = useState(false);
+  const [fxOpen, setFxOpen] = useState(false);
+  const [fx, setFx] = useState({
+    stage: "LEAGUE",
+    roundLabel: "",
+    homeTeamId: "",
+    awayTeamId: "",
+    homeSourceLabel: "",
+    awaySourceLabel: "",
+  });
   const [ledger, setLedger] = useState<OrganizerLedger | null>(null);
   const [org, setOrg] = useState({
     amount: "",
@@ -231,7 +240,68 @@ export function AdminTournamentsScreen() {
             <Pressable disabled={busy} onPress={() => act({ op: "generateFixtures", tournamentId: t.id }, "Generate/regenerate fixtures?")} style={styles.chipBtn}>
               <Text style={{ color: "#7dd3fc", fontSize: 12 }}>📅 Generate fixtures</Text>
             </Pressable>
+            <Pressable disabled={busy} onPress={() => setFxOpen((x) => !x)} style={styles.chipBtn}>
+              <Text style={{ color: colors.emerald400, fontSize: 12 }}>+ Add match by hand</Text>
+            </Pressable>
           </View>
+
+          {/* Hand-entered fixture. Needed whenever the organiser's schedule
+              is something generateFixtures cannot derive — a second leg, an
+              odd number of semi-finals. Either side may be a real team or a
+              placeholder ("Winner SF1") when it is not decided yet. */}
+          {fxOpen && (
+            <View style={styles.card}>
+              <TextInput style={input as never} placeholder="Stage: LEAGUE / SF / FINAL / QF / R16 / POOL / THIRD_PLACE" autoCapitalize="characters" placeholderTextColor={colors.zinc600} value={fx.stage} onChangeText={(v) => setFx((f) => ({ ...f, stage: v }))} />
+              <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Label, e.g. Match 4 / Semi-Final 1" placeholderTextColor={colors.zinc600} value={fx.roundLabel} onChangeText={(v) => setFx((f) => ({ ...f, roundLabel: v }))} />
+              <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 10 }}>
+                Home — pick a team, or leave blank and give a placeholder
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                {t.teams.filter((x) => x.status === "CONFIRMED").map((tm) => (
+                  <Pressable key={tm.id} onPress={() => setFx((f) => ({ ...f, homeTeamId: f.homeTeamId === tm.id ? "" : tm.id }))} style={[styles.chipBtn, fx.homeTeamId === tm.id && { borderColor: colors.emerald400 }]}>
+                    <Text style={{ color: fx.homeTeamId === tm.id ? colors.emerald400 : colors.zinc400, fontSize: 11 }}>{tm.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {!fx.homeTeamId && (
+                <TextInput style={[input as never, { marginTop: 6 }]} placeholder="Home placeholder, e.g. Winner SF1" placeholderTextColor={colors.zinc600} value={fx.homeSourceLabel} onChangeText={(v) => setFx((f) => ({ ...f, homeSourceLabel: v }))} />
+              )}
+              <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 10 }}>Away</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                {t.teams.filter((x) => x.status === "CONFIRMED").map((tm) => (
+                  <Pressable key={tm.id} onPress={() => setFx((f) => ({ ...f, awayTeamId: f.awayTeamId === tm.id ? "" : tm.id }))} style={[styles.chipBtn, fx.awayTeamId === tm.id && { borderColor: colors.emerald400 }]}>
+                    <Text style={{ color: fx.awayTeamId === tm.id ? colors.emerald400 : colors.zinc400, fontSize: 11 }}>{tm.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {!fx.awayTeamId && (
+                <TextInput style={[input as never, { marginTop: 6 }]} placeholder="Away placeholder, e.g. Winner SF2" placeholderTextColor={colors.zinc600} value={fx.awaySourceLabel} onChangeText={(v) => setFx((f) => ({ ...f, awaySourceLabel: v }))} />
+              )}
+              <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 8 }}>
+                Set the date and court afterwards from the web admin.
+              </Text>
+              <Pressable
+                disabled={busy}
+                onPress={async () => {
+                  await act({
+                    op: "addMatch",
+                    tournamentId: t.id,
+                    stage: (fx.stage || "LEAGUE").trim().toUpperCase(),
+                    roundLabel: fx.roundLabel.trim() || fx.stage || "Match",
+                    homeTeamId: fx.homeTeamId || undefined,
+                    awayTeamId: fx.awayTeamId || undefined,
+                    homeSourceLabel: fx.homeTeamId ? undefined : fx.homeSourceLabel.trim() || undefined,
+                    awaySourceLabel: fx.awayTeamId ? undefined : fx.awaySourceLabel.trim() || undefined,
+                  });
+                  setFx({ stage: "LEAGUE", roundLabel: "", homeTeamId: "", awayTeamId: "", homeSourceLabel: "", awaySourceLabel: "" });
+                  setFxOpen(false);
+                }}
+                style={[styles.chipBtn, { marginTop: 10 }]}
+              >
+                <Text style={{ color: colors.emerald400, fontSize: 12 }}>Add match</Text>
+              </Pressable>
+            </View>
+          )}
 
           {/* Organiser & payments — third-party events only. Our own
               tournaments take money from teams instead, which the Teams
