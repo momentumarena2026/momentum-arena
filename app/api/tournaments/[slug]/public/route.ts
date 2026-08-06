@@ -178,6 +178,10 @@ export async function GET(
       regCloseAt: t.regCloseAt,
       startDate: t.startDate,
       prizePool: t.prizePool,
+      // Who runs it. The app hides registration and shows "Hosted by …"
+      // on THIRD_PARTY, matching the web page.
+      host: t.host,
+      organizerName: t.organizerName,
       entryFee: t.entryFee,
       feeMode: t.feeMode,
       advancePct: t.advancePct,

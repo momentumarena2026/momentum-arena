@@ -226,6 +226,7 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       name: true,
       sport: true,
       status: true,
+      host: true,
       totalTeams: true,
       membersPerTeamMin: true,
       membersPerTeamMax: true,
@@ -240,6 +241,13 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
     },
   });
   if (!t) return { ok: false, error: "Tournament not found" };
+  // A third-party organiser runs their own registrations off our platform,
+  // so there is nothing here to sign up for. Checked server-side rather
+  // than by hiding the button: a hidden control is not a closed door, and
+  // this route also backs the mobile app and any stale open tab.
+  if (t.host === "THIRD_PARTY") {
+    return { ok: false, error: "This tournament is run by an external organiser — register with them directly" };
+  }
   const effectiveStatus = await applyScheduledTransitions(t);
   if (effectiveStatus !== "REG_OPEN") return { ok: false, error: "Registrations are not open" };
   if (t.regCloseAt && new Date() > t.regCloseAt) {

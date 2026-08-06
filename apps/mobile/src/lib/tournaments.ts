@@ -82,6 +82,10 @@ export type TournamentPublic = {
     endDate: string | null;
     membersPerTeamMax: number;
     thirdPlaceMatch: boolean;
+    /// VENUE or THIRD_PARTY. THIRD_PARTY hides registration and
+    /// names the organiser instead — see TournamentDetailScreen.
+    host: "VENUE" | "THIRD_PARTY";
+    organizerName: string | null;
   };
   poolsRevealed: boolean;
   /** Admin-decided pool/league windows. SF and final are not in here. */

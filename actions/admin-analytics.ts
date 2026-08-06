@@ -868,6 +868,7 @@ export async function getKPIStats(
       sportsAgg,
       passSalesAgg,
       tournamentAgg,
+      organizerAgg,
       campAgg,
       cafeAgg,
       totalBookings,
@@ -918,6 +919,14 @@ export async function getKPIStats(
           paidAt: { gte: from, lte: to },
         },
         _sum: { paidAmount: true },
+      }),
+      // Venue-hire money from third-party organisers. Counted in the SAME
+      // tournament bucket as entry fees, and there is no double-count risk:
+      // a THIRD_PARTY tournament's teams carry paidAmount 0, so the query
+      // above contributes nothing for them. Cash basis on receivedAt.
+      db.tournamentOrganizerPayment.aggregate({
+        where: { receivedAt: { gte: from, lte: to } },
+        _sum: { amount: true },
       }),
       db.campRegistration.aggregate({
         where: {
@@ -987,7 +996,8 @@ export async function getKPIStats(
     // Booking.totalAmount (sports) is rupees; CafePayment.amount is paise.
     const bookingNetRevenue = Number(sportsAgg[0]?.revenue ?? 0);
     const passSalesRevenue = passSalesAgg._sum.price || 0;
-    const tournamentRevenue = tournamentAgg._sum.paidAmount || 0;
+    const tournamentRevenue =
+      (tournamentAgg._sum.paidAmount || 0) + (organizerAgg._sum.amount || 0);
     const campRevenue = campAgg._sum.paidAmount || 0;
     const sportsRevenue =
       bookingNetRevenue + passSalesRevenue + tournamentRevenue + campRevenue;

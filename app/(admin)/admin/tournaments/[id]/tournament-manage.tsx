@@ -32,6 +32,7 @@ import { TeamDetailModal } from "./team-detail-modal";
 import { FixturesTab, type MatchRow } from "./fixtures-tab";
 import { ScoresTab } from "./scores-tab";
 import { CampaignTab } from "./campaign-tab";
+import { OrganizerTab } from "./organizer-tab";
 
 // Serialized shapes from getTournamentAdmin (dates as ISO strings).
 type MemberRow = {
@@ -104,6 +105,12 @@ export type AdminTournament = {
   liveScoringEnabled: boolean;
   liveScreenPlatform: "BOTH" | "APP_ONLY" | "WEB_ONLY" | "OFF";
   scorerCode: string | null;
+  host: "VENUE" | "THIRD_PARTY";
+  organizerName: string | null;
+  organizerPhone: string | null;
+  organizerEmail: string | null;
+  quotedAmount: number;
+  organizerNote: string | null;
   teams: TeamRow[];
   pools: { id: string; name: string; order: number; teams: { id: string; name: string }[] }[];
   matches: MatchRow[];
@@ -148,7 +155,7 @@ export function TournamentManage({
   const router = useRouter();
   const [tab, setTab] = useState<
     | "overview" | "teams" | "pools" | "slots" | "fixtures" | "scores"
-    | "campaign" | "settings"
+    | "campaign" | "organizer" | "settings"
   >("overview");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -287,6 +294,12 @@ export function TournamentManage({
     thirdPlaceMatch: t.thirdPlaceMatch,
     membersPerTeamMin: t.membersPerTeamMin,
     membersPerTeamMax: t.membersPerTeamMax,
+    host: t.host,
+    organizerName: t.organizerName || "",
+    organizerPhone: t.organizerPhone || "",
+    organizerEmail: t.organizerEmail || "",
+    quotedAmount: t.quotedAmount,
+    organizerNote: t.organizerNote || "",
     maxOversPerBowler: t.maxOversPerBowler,
     oversPerInnings: t.oversPerInnings,
     bracketSeeding: t.bracketSeeding,
@@ -400,6 +413,11 @@ export function TournamentManage({
             ["fixtures", `Fixtures (${t.matches.length})`, CalendarClock],
             ["scores", "Scores", ClipboardList],
             ["campaign", "Campaign", Megaphone],
+            // Organiser money exists only when someone outside the venue is
+            // paying us for the hire; our own events take money from teams.
+            ...(t.host === "THIRD_PARTY"
+              ? ([["organizer", "Organiser & Payments", IndianRupee]] as const)
+              : []),
             ["settings", "Settings", Settings],
           ] as const
         ).map(([key, label, Icon]) => (
@@ -647,6 +665,16 @@ export function TournamentManage({
 
       {/* ── Campaign ── */}
       {tab === "campaign" && <CampaignTab tournamentId={t.id} />}
+
+      {tab === "organizer" && (
+        <OrganizerTab
+          tournamentId={t.id}
+          organizerName={t.organizerName}
+          organizerPhone={t.organizerPhone}
+          organizerEmail={t.organizerEmail}
+          organizerNote={t.organizerNote}
+        />
+      )}
 
       {/* ── Settings ── */}
       {tab === "settings" && <TournamentWizard initial={wizardInitial} />}

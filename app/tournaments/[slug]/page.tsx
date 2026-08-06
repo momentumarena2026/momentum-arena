@@ -39,6 +39,7 @@ export default async function TournamentPublicPage({
   const confirmed = t.teams.filter((x) => x.status === "CONFIRMED");
   const spotsLeft = Math.max(0, t.totalTeams - confirmed.length);
   const payable = onlinePayable(t.entryFee, t.feeMode, t.advancePct);
+  const thirdParty = t.host === "THIRD_PARTY";
   const prizes = parsePrizes(t.prizes);
   const slots = t.slots ?? [];
   // 24h -> "10pm"; windows are venue wall-clock, never UTC.
@@ -91,12 +92,13 @@ export default async function TournamentPublicPage({
               {t.endDate && <> – {fmtDate(t.endDate)}</>}
             </span>
             <span className="flex items-center gap-1.5">
-              <Users className="h-4 w-4 text-zinc-500" /> {confirmed.length}/{t.totalTeams} teams
-              {t.status === "REG_OPEN" && spotsLeft > 0 && (
+              <Users className="h-4 w-4 text-zinc-500" /> {confirmed.length}
+              {!thirdParty && <>/{t.totalTeams}</>} teams
+              {!thirdParty && t.status === "REG_OPEN" && spotsLeft > 0 && (
                 <span className="text-emerald-400">· {spotsLeft} spots left</span>
               )}
             </span>
-            {t.feeMode !== "FREE" && (
+            {!thirdParty && t.feeMode !== "FREE" && (
               <span className="flex items-center gap-1.5">
                 <IndianRupee className="h-4 w-4 text-zinc-500" /> ₹{t.entryFee.toLocaleString("en-IN")}/team
                 {t.feeMode === "ADVANCE" && <span className="text-zinc-500">(₹{payable} online)</span>}
@@ -106,7 +108,17 @@ export default async function TournamentPublicPage({
 
           {/* CTA */}
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            {myTeam ? (
+            {/* An external organiser runs their own sign-ups, so there is
+                nothing here for us to sell. Say who to talk to instead of
+                showing a dead Register button. */}
+            {thirdParty ? (
+              <span className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-300">
+                Hosted by {t.organizerName || "an external organiser"}
+                {t.status === "REG_OPEN" || t.status === "PUBLISHED"
+                  ? " — register with them directly"
+                  : ""}
+              </span>
+            ) : myTeam ? (
               <span className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-300">
                 ✓ Your team &quot;{myTeam.name}&quot; is {myTeam.status === "CONFIRMED" ? "confirmed" : myTeam.status === "WAITLISTED" ? "on the waitlist" : "awaiting payment"}
               </span>
