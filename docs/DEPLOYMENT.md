@@ -269,9 +269,25 @@ Ruled out with evidence: the workflow is `active` (API), the promotions
 genuinely changed `apps/mobile/**` files, and no commit in the pushed range
 carries a `[skip ci]`-family token. Root cause NOT established.
 
-Because of that, do not rely on the push trigger after a promotion. Run:
+Because of that, do not rely on the push trigger after a promotion. But do
+NOT dispatch unconditionally either -- OTA should publish only when the app
+actually changed, exactly as the path filter used to ensure. Publishing a
+bundle for a web-only or docs-only promotion is pure noise.
 
-    gh workflow run ota-publish.yml --ref main
+Run this after promoting; it dispatches only when the merge touched the app:
+
+    git diff --name-only origin/main~1 origin/main \
+      | grep -qE '^(apps/mobile/|scripts/publish-ota\.ts)' \
+      && gh workflow run ota-publish.yml --ref main \
+      || echo "no app change in this promotion - no OTA needed"
+
+(The same two paths the workflow filters on. `apps/mobile/fingerprints/**`
+matches too, which is deliberate: a fingerprint change is how the workflow
+detects a native change and warns that a store build is required.)
+
+The workflow still decides JS-only vs native by itself -- a JS-only change
+publishes a DRAFT to roll out from /admin/ota, a native change warns that a
+store build is needed. Dispatching never forces an OTA onto a native change.
 
 Then confirm a run exists before telling anyone the app is updated:
 
