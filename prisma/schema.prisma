@@ -1281,6 +1281,7 @@ model CafeOrder {
 
   items       CafeOrderItem[]
   payment     CafePayment?
+  settlements CafeOrderSettlement[]
   editHistory CafeOrderEditHistory[]
 
   createdAt DateTime @default(now())
@@ -1363,6 +1364,43 @@ model CafePayment {
   // Same idempotency rationale as Payment — keep cafe webhook lookups fast.
   @@index([razorpayPaymentId])
   @@index([phonePeMerchantTxnId])
+}
+
+/// A later payment against an order that was only part-paid at the counter.
+///
+/// The venue rings up ₹100, the customer hands over ₹20 cash + ₹50 UPI and
+/// promises the rest tomorrow. CafePayment records what was taken THEN
+/// (status PARTIAL); each catch-up payment lands here.
+///
+/// A separate table rather than accumulating CafePayment.amount, for the
+/// same reason TournamentOrganizerPayment exists: cafe revenue is
+/// cash-basis, so tomorrow's ₹30 has to book to tomorrow. Adding it to the
+/// original row would move the whole ₹100 to whichever date was touched
+/// last, silently reassigning revenue between days — and between months at
+/// a month boundary.
+model CafeOrderSettlement {
+  id      String    @id @default(cuid())
+  orderId String
+  order   CafeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// Rupees actually collected in this instalment = cashAmount + upiAmount.
+  amount     Float
+  cashAmount Float @default(0)
+  upiAmount  Float @default(0)
+
+  /// Dominant slice, for at-a-glance display. The two columns above are
+  /// the truth; this is convenience, exactly like CafePayment.method.
+  method PaymentMethod
+
+  /// When the money arrived — the cash-basis date revenue keys on.
+  receivedAt DateTime @default(now())
+  note       String?
+  recordedBy String? // admin user id
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([receivedAt])
 }
 
 model CafeDiscount {

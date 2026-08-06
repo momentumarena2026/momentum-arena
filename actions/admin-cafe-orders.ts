@@ -436,14 +436,22 @@ export async function adminCreateCafeOrder(data: {
           error: "Split must have at least one of cash or UPI > 0",
         };
       }
-      if (Math.abs(cash + upi - totalAmount) > 0.01) {
+      // Overpayment is still a mistake; UNDERpayment is now legitimate —
+      // the customer settles the rest later. The shortfall is not stored:
+      // due = order total − everything captured, derived wherever it's
+      // needed, so it can never drift out of step with the money rows.
+      if (cash + upi - totalAmount > 0.01) {
         return {
           success: false,
-          error: `Split must sum to ₹${totalAmount} (got ₹${cash + upi})`,
+          error: `Split is more than the order total ₹${totalAmount} (got ₹${cash + upi})`,
         };
       }
       resolvedMethod = upi > cash ? "UPI_QR" : "CASH";
-      resolvedPaymentStatus = "COMPLETED";
+      // PARTIAL is what makes the pending amount visible everywhere. The
+      // captured slice still counts as revenue on the day it was taken —
+      // see the PARTIAL handling in admin-analytics and the CA report.
+      resolvedPaymentStatus =
+        totalAmount - (cash + upi) > 0.01 ? "PARTIAL" : "COMPLETED";
       splitCashAmount = cash;
       splitUpiAmount = upi;
     }
@@ -544,14 +552,29 @@ export async function adminCreateCafeOrder(data: {
             create: {
               method: resolvedMethod,
               status: resolvedPaymentStatus,
-              amount: totalAmount,
+              // PARTIAL stores what was actually COLLECTED, not the order
+              // total — this column is what revenue sums, so leaving the
+              // full total here would book money the venue hasn't got.
+              // Every other status keeps the total: PENDING means "this
+              // much is expected" and is excluded from revenue anyway.
+              amount:
+                resolvedPaymentStatus === "PARTIAL"
+                  ? (splitCashAmount ?? 0) + (splitUpiAmount ?? 0)
+                  : totalAmount,
               // Stamp split slices when a split spec was provided.
               // Stays null on single-method orders so the order
               // detail page's "is mixed?" check (any non-null slice)
               // keeps its meaning.
               splitCashAmount,
               splitUpiAmount,
-              confirmedAt: resolvedPaymentStatus === "COMPLETED" ? new Date() : null,
+              // PARTIAL is confirmed money too — the cash is in the till
+              // today even though the order isn't square. Revenue is
+              // cash-basis on this date, so it must be stamped.
+              confirmedAt:
+                resolvedPaymentStatus === "COMPLETED" ||
+                resolvedPaymentStatus === "PARTIAL"
+                  ? new Date()
+                  : null,
               confirmedBy: resolvedPaymentStatus === "COMPLETED" ? admin.id : null,
             },
           },
