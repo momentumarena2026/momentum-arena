@@ -69,6 +69,8 @@ export function AdminTournamentsScreen() {
   // the overwhelming majority — pay nothing for a panel they never show.
   const [orgOpen, setOrgOpen] = useState(false);
   const [fxOpen, setFxOpen] = useState(false);
+  const [schedFor, setSchedFor] = useState<string | null>(null);
+  const [sched, setSched] = useState({ date: "", startHour: "", hours: "1", courtConfigId: "" });
   const [fx, setFx] = useState({
     stage: "LEAGUE",
     roundLabel: "",
@@ -101,6 +103,7 @@ export function AdminTournamentsScreen() {
     refetchInterval: 12000,
   });
   const t: AdminTournamentDetail | undefined = detailData?.tournament;
+  const courts = detailData?.courts ?? [];
 
   const loadLedger = useCallback(async () => {
     if (!t || t.host !== "THIRD_PARTY") return;
@@ -251,7 +254,14 @@ export function AdminTournamentsScreen() {
               placeholder ("Winner SF1") when it is not decided yet. */}
           {fxOpen && (
             <View style={styles.card}>
-              <TextInput style={input as never} placeholder="Stage: LEAGUE / SF / FINAL / QF / R16 / POOL / THIRD_PLACE" autoCapitalize="characters" placeholderTextColor={colors.zinc600} value={fx.stage} onChangeText={(v) => setFx((f) => ({ ...f, stage: v }))} />
+              <Text style={{ color: colors.zinc500, fontSize: 11 }}>Stage</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                {(["LEAGUE", "POOL", "R16", "QF", "SF", "THIRD_PLACE", "FINAL"] as const).map((sg) => (
+                  <Pressable key={sg} onPress={() => setFx((f) => ({ ...f, stage: sg }))} style={[styles.chipBtn, fx.stage === sg && { borderColor: colors.emerald400 }]}>
+                    <Text style={{ color: fx.stage === sg ? colors.emerald400 : colors.zinc400, fontSize: 11 }}>{sg}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Label, e.g. Match 4 / Semi-Final 1" placeholderTextColor={colors.zinc600} value={fx.roundLabel} onChangeText={(v) => setFx((f) => ({ ...f, roundLabel: v }))} />
               <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 10 }}>
                 Home — pick a team, or leave blank and give a placeholder
@@ -553,6 +563,96 @@ export function AdminTournamentsScreen() {
                   <Text style={{ color: "#f87171", fontSize: 12 }}>Delete</Text>
                 </Pressable>
               </View>
+            </View>
+          ))}
+
+          {/* Fixtures — every match, with the date/court control and delete.
+              Both were web-only, so the app could create a fixture it then
+              could not place on the calendar or remove. */}
+          <Text style={styles.section}>Fixtures ({t.matches.length})</Text>
+          {t.matches.map((m) => (
+            <View key={m.id} style={styles.card}>
+              <Text style={{ color: colors.zinc500, fontSize: 11 }}>
+                {m.stage} · {m.roundLabel}
+              </Text>
+              <Text style={{ color: colors.foreground, fontSize: 13, marginTop: 2 }}>
+                {m.homeTeam?.name ?? m.homeSourceLabel ?? "TBD"} vs{" "}
+                {m.awayTeam?.name ?? m.awaySourceLabel ?? "TBD"}
+              </Text>
+              {m.scheduledAt ? (
+                <Text style={{ color: colors.emerald400, fontSize: 11, marginTop: 2 }}>
+                  {new Date(m.scheduledAt).toLocaleString("en-IN", {
+                    day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+                    timeZone: "Asia/Kolkata",
+                  })}
+                </Text>
+              ) : (
+                <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 2 }}>Not scheduled</Text>
+              )}
+
+              {schedFor === m.id ? (
+                <View style={{ marginTop: 8 }}>
+                  <TextInput style={input as never} placeholder="Date YYYY-MM-DD" placeholderTextColor={colors.zinc600} value={sched.date} onChangeText={(v) => setSched((f) => ({ ...f, date: v }))} />
+                  <View style={[styles.rowWrap, { marginTop: 8 }]}>
+                    <TextInput style={[input as never, { width: 90 }]} placeholder="Hour 0-23" keyboardType="numeric" placeholderTextColor={colors.zinc600} value={sched.startHour} onChangeText={(v) => setSched((f) => ({ ...f, startHour: v }))} />
+                    <TextInput style={[input as never, { width: 90 }]} placeholder="Hours" keyboardType="numeric" placeholderTextColor={colors.zinc600} value={sched.hours} onChangeText={(v) => setSched((f) => ({ ...f, hours: v }))} />
+                  </View>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {courts.map((c) => (
+                      <Pressable key={c.id} onPress={() => setSched((f) => ({ ...f, courtConfigId: c.id }))} style={[styles.chipBtn, sched.courtConfigId === c.id && { borderColor: colors.emerald400 }]}>
+                        <Text style={{ color: sched.courtConfigId === c.id ? colors.emerald400 : colors.zinc400, fontSize: 11 }}>{c.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View style={[styles.rowWrap, { marginTop: 8 }]}>
+                    <Pressable
+                      disabled={busy}
+                      onPress={async () => {
+                        await act({
+                          op: "scheduleMatch",
+                          matchId: m.id,
+                          courtConfigId: sched.courtConfigId,
+                          date: sched.date.trim(),
+                          startHour: Number(sched.startHour) || 0,
+                          hours: Number(sched.hours) || 1,
+                        });
+                        setSchedFor(null);
+                      }}
+                      style={styles.chipBtn}
+                    >
+                      <Text style={{ color: colors.emerald400, fontSize: 12 }}>Save</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setSchedFor(null)} style={styles.chipBtn}>
+                      <Text style={{ color: colors.zinc400, fontSize: 12 }}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View style={[styles.rowWrap, { marginTop: 8 }]}>
+                  <Pressable
+                    disabled={busy}
+                    onPress={() => {
+                      setSchedFor(m.id);
+                      setSched({ date: "", startHour: "", hours: "1", courtConfigId: courts[0]?.id ?? "" });
+                    }}
+                    style={styles.chipBtn}
+                  >
+                    <Text style={{ color: "#7dd3fc", fontSize: 12 }}>
+                      {m.scheduledAt ? "✎ Reschedule" : "📅 Schedule"}
+                    </Text>
+                  </Pressable>
+                  {m.scheduledAt && (
+                    <Pressable disabled={busy} onPress={() => act({ op: "unscheduleMatch", matchId: m.id }, "Remove the date and free the court hours?")} style={styles.chipBtn}>
+                      <Text style={{ color: colors.zinc400, fontSize: 12 }}>Unschedule</Text>
+                    </Pressable>
+                  )}
+                  {/* Server refuses once a match is played or scored, so this
+                      cannot quietly rewrite the points table. */}
+                  <Pressable disabled={busy} onPress={() => act({ op: "deleteMatch", matchId: m.id }, "Delete this fixture?")} style={styles.chipBtn}>
+                    <Text style={{ color: "#f87171", fontSize: 12 }}>Delete</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
           ))}
 

@@ -13,6 +13,8 @@ import {
 import {
   autoAssignPools,
   generateFixtures,
+  scheduleMatch,
+  unscheduleMatch,
 } from "@/actions/admin-tournament-fixtures";
 import { enterMatchResult } from "@/actions/admin-tournament-scores";
 import {
@@ -98,6 +100,17 @@ export async function POST(request: NextRequest) {
       homeSourceLabel: body.homeSourceLabel || undefined,
       awaySourceLabel: body.awaySourceLabel || undefined,
     });
+  // Date + court for a fixture. Was web-only, which meant the app could
+  // create a match it could not then place on the calendar.
+  else if (op === "scheduleMatch")
+    result = await scheduleMatch(String(body.matchId || ""), {
+      courtConfigId: String(body.courtConfigId || ""),
+      date: String(body.date || ""),
+      startHour: Number(body.startHour) || 0,
+      hours: Number(body.hours) || 1,
+    });
+  else if (op === "unscheduleMatch")
+    result = await unscheduleMatch(String(body.matchId || ""));
   else if (op === "deleteMatch")
     result = await deleteManualMatch(String(body.matchId || ""));
   else if (op === "organizerPayDelete")
