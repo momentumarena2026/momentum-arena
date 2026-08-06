@@ -233,3 +233,49 @@ export const adminCafeApi = {
     });
   },
 };
+
+
+/**
+ * Part-paid orders: the outstanding balance and collecting it.
+ *
+ * Mirrors the web admin's CafeDuePanel. Amounts are rupees, and receivedAt
+ * is a date-only string — the day the money arrived is what revenue keys
+ * on, so it must be sendable rather than assumed to be today.
+ */
+export interface CafeDue {
+  orderId: string;
+  orderNumber: string;
+  totalAmount: number;
+  collectedAtCounter: number;
+  collectedLater: number;
+  dueAmount: number;
+  settlements: {
+    id: string;
+    amount: number;
+    cashAmount: number;
+    upiAmount: number;
+    method: string;
+    receivedAt: string;
+    note: string | null;
+  }[];
+}
+
+export async function getCafeOrderDue(orderId: string): Promise<CafeDue> {
+  return request<CafeDue>(
+    `/api/mobile/admin/cafe/orders/due?orderId=${encodeURIComponent(orderId)}`,
+    { method: "GET" },
+  );
+}
+
+export async function settleCafeOrderDue(input: {
+  orderId: string;
+  cashAmount: number;
+  upiAmount: number;
+  receivedAt?: string;
+  note?: string;
+}): Promise<{ success: true; dueAmount: number }> {
+  return request<{ success: true; dueAmount: number }>(
+    "/api/mobile/admin/cafe/orders/due",
+    { method: "POST", body: input },
+  );
+}

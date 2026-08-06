@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -18,6 +18,7 @@ import {
   adminTournamentsApi,
   type AdminMatchRow,
   type AdminTournamentDetail,
+  type OrganizerLedger,
 } from "../../lib/admin-tournaments";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -63,6 +64,17 @@ export function AdminTournamentsScreen() {
   const [scoreFor, setScoreFor] = useState<string | null>(null);
   const [scores, setScores] = useState({ home: "", away: "" });
   const [venueOpen, setVenueOpen] = useState(false);
+  // Organiser billing (THIRD_PARTY only). The ledger is fetched on demand
+  // rather than folded into the detail payload, so our own tournaments —
+  // the overwhelming majority — pay nothing for a panel they never show.
+  const [orgOpen, setOrgOpen] = useState(false);
+  const [ledger, setLedger] = useState<OrganizerLedger | null>(null);
+  const [org, setOrg] = useState({
+    amount: "",
+    method: "CASH",
+    receivedAt: new Date().toISOString().slice(0, 10),
+    reference: "",
+  });
   const [venue, setVenue] = useState({ teamName: "", captainName: "", captainPhone: "", members: "", collectedAmount: "", method: "CASH" });
   // Per-team squad editor — squads are optional at registration, so
   // admins can build/fix any roster from here.
@@ -80,6 +92,22 @@ export function AdminTournamentsScreen() {
     refetchInterval: 12000,
   });
   const t: AdminTournamentDetail | undefined = detailData?.tournament;
+
+  const loadLedger = useCallback(async () => {
+    if (!t || t.host !== "THIRD_PARTY") return;
+    try {
+      const res = await adminTournamentsApi.organizerLedger(t.id);
+      setLedger(res.ledger);
+    } catch {
+      // A missing ledger just leaves the tiles at zero; it must never take
+      // the whole tournament screen down.
+      setLedger(null);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void loadLedger();
+  }, [loadLedger]);
 
   const act = async (body: Record<string, unknown>, confirmMsg?: string) => {
     const run = async () => {
@@ -204,6 +232,109 @@ export function AdminTournamentsScreen() {
               <Text style={{ color: "#7dd3fc", fontSize: 12 }}>📅 Generate fixtures</Text>
             </Pressable>
           </View>
+
+          {/* Organiser & payments — third-party events only. Our own
+              tournaments take money from teams instead, which the Teams
+              section below already covers. */}
+          {t.host === "THIRD_PARTY" && (
+            <>
+              <Text style={styles.section}>Organiser &amp; payments</Text>
+              <View style={styles.card}>
+                <Text style={{ color: colors.zinc300, fontWeight: "700" }}>
+                  {t.organizerName || "Organiser"}
+                </Text>
+                {(t.organizerPhone || t.organizerEmail) && (
+                  <Text style={{ color: colors.zinc400, fontSize: 12, marginTop: 2 }}>
+                    {[t.organizerPhone, t.organizerEmail].filter(Boolean).join(" · ")}
+                  </Text>
+                )}
+                <View style={{ flexDirection: "row", gap: 16, marginTop: 10 }}>
+                  <View>
+                    <Text style={{ color: colors.zinc500, fontSize: 10 }}>QUOTED</Text>
+                    <Text style={{ color: colors.zinc300, fontWeight: "700" }}>
+                      ₹{t.quotedAmount.toLocaleString("en-IN")}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text style={{ color: colors.zinc500, fontSize: 10 }}>RECEIVED</Text>
+                    <Text style={{ color: colors.emerald400, fontWeight: "700" }}>
+                      ₹{(ledger?.receivedAmount ?? 0).toLocaleString("en-IN")}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text style={{ color: colors.zinc500, fontSize: 10 }}>OUTSTANDING</Text>
+                    <Text
+                      style={{
+                        color: (ledger?.outstanding ?? 0) > 0 ? "#fbbf24" : colors.emerald400,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {(ledger?.outstanding ?? 0) > 0
+                        ? `₹${(ledger?.outstanding ?? 0).toLocaleString("en-IN")}`
+                        : "Settled"}
+                    </Text>
+                  </View>
+                </View>
+
+                {ledger?.payments.map((pmt) => (
+                  <Text key={pmt.id} style={{ color: colors.zinc400, fontSize: 11, marginTop: 6 }}>
+                    {new Date(pmt.receivedAt).toLocaleDateString("en-IN", {
+                      day: "numeric",
+                      month: "short",
+                    })}{" "}
+                    — ₹{pmt.amount.toLocaleString("en-IN")} {pmt.method}
+                    {pmt.reference ? ` · ${pmt.reference}` : ""}
+                  </Text>
+                ))}
+
+                {orgOpen ? (
+                  <View style={{ marginTop: 10 }}>
+                    <TextInput style={input as never} placeholder="Amount ₹" keyboardType="numeric" placeholderTextColor={colors.zinc600} value={org.amount} onChangeText={(v) => setOrg((f) => ({ ...f, amount: v }))} />
+                    <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Method (CASH / BANK_TRANSFER / UPI / CHEQUE)" autoCapitalize="characters" placeholderTextColor={colors.zinc600} value={org.method} onChangeText={(v) => setOrg((f) => ({ ...f, method: v }))} />
+                    <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Received on (YYYY-MM-DD)" placeholderTextColor={colors.zinc600} value={org.receivedAt} onChangeText={(v) => setOrg((f) => ({ ...f, receivedAt: v }))} />
+                    <TextInput style={[input as never, { marginTop: 8 }]} placeholder="Reference (UTR / cheque no.)" placeholderTextColor={colors.zinc600} value={org.reference} onChangeText={(v) => setOrg((f) => ({ ...f, reference: v }))} />
+                    {/* The received date decides the accounting month, so
+                        entering last week's cash today must not book to
+                        today — say so rather than let it surprise. */}
+                    <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 6 }}>
+                      Counts as revenue on the received date.
+                    </Text>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                      <Pressable
+                        disabled={busy}
+                        onPress={async () => {
+                          await act(
+                            {
+                              op: "organizerPay",
+                              tournamentId: t.id,
+                              amount: Number(org.amount) || 0,
+                              method: org.method || "CASH",
+                              receivedAt: org.receivedAt,
+                              reference: org.reference || undefined,
+                            },
+                            undefined,
+                          );
+                          setOrg({ amount: "", method: "CASH", receivedAt: org.receivedAt, reference: "" });
+                          setOrgOpen(false);
+                          void loadLedger();
+                        }}
+                        style={styles.chipBtn}
+                      >
+                        <Text style={{ color: colors.emerald400, fontSize: 12 }}>Save payment</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setOrgOpen(false)} style={styles.chipBtn}>
+                        <Text style={{ color: colors.zinc400, fontSize: 12 }}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <Pressable onPress={() => setOrgOpen(true)} style={[styles.chipBtn, { marginTop: 10 }]}>
+                    <Text style={{ color: colors.emerald400, fontSize: 12 }}>+ Record payment</Text>
+                  </Pressable>
+                )}
+              </View>
+            </>
+          )}
 
           {/* Teams */}
           <Text style={styles.section}>Teams</Text>

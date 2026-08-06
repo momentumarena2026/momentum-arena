@@ -236,9 +236,12 @@ export function CreateCafeOrderForm({
         setError("Split must have at least one of cash or UPI > 0");
         return;
       }
-      if (Math.abs(cash + upi - totalAmount) > 0.01) {
+      // Paying LESS than the total is now allowed — the shortfall becomes a
+      // balance the customer settles later, recorded from the order page.
+      // Paying MORE is still a mistake and stays blocked.
+      if (cash + upi - totalAmount > 0.01) {
         setError(
-          `Split sums to ₹${cash + upi} but the order total is ₹${totalAmount}`,
+          `Split is ₹${cash + upi}, more than the order total ₹${totalAmount}`,
         );
         return;
       }
@@ -698,6 +701,7 @@ export function CreateCafeOrderForm({
                 const upiN = Number(splitUpi) || 0;
                 const sum = cashN + upiN;
                 const ok = Math.abs(sum - totalAmount) < 0.01 && cashN + upiN > 0;
+                const pending = Math.round((totalAmount - sum) * 100) / 100;
                 return (
                   <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 space-y-2">
                     <div className="grid grid-cols-2 gap-2">
@@ -750,6 +754,15 @@ export function CreateCafeOrderForm({
                     >
                       Sum: {formatPrice(sum)} / {formatPrice(totalAmount)}
                     </p>
+                    {/* A shortfall is a legitimate outcome, not an error —
+                        say so plainly so the counter knows the order will
+                        save with a balance rather than be rejected. */}
+                    {sum > 0 && pending > 0.01 && (
+                      <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] font-semibold text-amber-300">
+                        {formatPrice(pending)} pending — saved as due, collect
+                        it later from the order page
+                      </p>
+                    )}
                   </div>
                 );
               })()

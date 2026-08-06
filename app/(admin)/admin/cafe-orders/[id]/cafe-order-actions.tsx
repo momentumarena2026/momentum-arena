@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { EditCafePaymentModal } from "@/components/admin/cafe/edit-cafe-payment-modal";
 import { MarkCafePaidButton } from "@/components/admin/cafe/mark-cafe-paid-button";
+import { CafeDuePanel } from "@/components/admin/cafe/cafe-due-panel";
 import { EditCafeSplitButton } from "@/components/admin/cafe/edit-cafe-split-button";
 import { formatPrice } from "@/lib/pricing";
 
@@ -354,14 +355,25 @@ export function CafeOrderActions({
             </div>
           </div>
 
-          {/* Mark-paid picker — only for PENDING / PARTIAL */}
-          {payment.status === "PENDING" || payment.status === "PARTIAL" ? (
+          {/* Mark-paid picker — PENDING only. A PARTIAL order goes through
+              CafeDuePanel instead: mark-paid would rewrite the payment
+              amount to the full total and stamp today's date, losing both
+              what was actually taken at the counter and the day the
+              balance arrived. Two paths to the same money, one of which
+              quietly corrupts it, is worse than one. */}
+          {payment.status === "PENDING" ? (
             <MarkCafePaidButton
               orderId={order.id}
               totalAmount={order.totalAmount}
               formattedTotal={formatPrice(order.totalAmount)}
             />
           ) : null}
+
+          {/* Outstanding balance + collect form. Renders nothing when the
+              order is square, so it costs the normal case nothing. */}
+          <div className="mt-3">
+            <CafeDuePanel orderId={order.id} />
+          </div>
 
           {/* Split breakdown + edit-split affordance, only when
               the payment was collected as a mixed tender. */}

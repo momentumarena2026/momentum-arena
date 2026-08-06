@@ -4,6 +4,10 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
+// Not declared here: a "use server" module may only export async
+// functions, and exporting the array from this file broke the whole
+// module at load time.
+import { ORGANIZER_PAYMENT_METHODS } from "@/lib/tournament-organizer";
 
 /**
  * Money owed by a third-party organiser who hired the venue.
@@ -18,15 +22,6 @@ function gate() {
   return requireAdmin("MANAGE_TOURNAMENTS");
 }
 
-/** Methods an organiser actually pays by. Kept as a string column on the
- *  row (not an enum) so adding one never needs a migration. */
-export const ORGANIZER_PAYMENT_METHODS = [
-  "CASH",
-  "BANK_TRANSFER",
-  "UPI",
-  "CHEQUE",
-  "RAZORPAY",
-] as const;
 
 const paymentSchema = z.object({
   tournamentId: z.string().min(1),
