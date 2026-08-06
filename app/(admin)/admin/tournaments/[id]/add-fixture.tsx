@@ -4,9 +4,12 @@ import { useState, useTransition } from "react";
 import { Plus } from "lucide-react";
 import {
   createManualMatch,
-  MANUAL_STAGES,
   type ManualFixtureInput,
 } from "@/actions/admin-tournament-manual-fixtures";
+import {
+  MANUAL_STAGES,
+  MANUAL_STAGE_LABEL as STAGE_LABEL,
+} from "@/lib/tournament-manual-stages";
 
 /**
  * Add one fixture by hand.
@@ -19,16 +22,6 @@ import {
  * Either side can be a real team OR a placeholder label ("Winner SF1",
  * "Finalist 1") for a fixture whose teams aren't known yet.
  */
-
-const STAGE_LABEL: Record<string, string> = {
-  LEAGUE: "League",
-  POOL: "Pool",
-  R16: "Round of 16",
-  QF: "Quarter-final",
-  SF: "Semi-final",
-  THIRD_PLACE: "Third place",
-  FINAL: "Final",
-};
 
 export function AddFixture({
   tournamentId,
