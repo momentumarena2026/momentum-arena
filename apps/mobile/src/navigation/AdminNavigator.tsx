@@ -29,6 +29,7 @@ import { AdminCheckinScreen } from "../screens/admin/AdminCheckinScreen";
 import { AdminCalendarScreen } from "../screens/admin/AdminCalendarScreen";
 import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
 import { AdminCafeOrdersScreen } from "../screens/admin/AdminCafeOrdersScreen";
+import { AdminCafeOrderDetailScreen } from "../screens/admin/AdminCafeOrderDetailScreen";
 import { AdminCafeAllOrdersScreen } from "../screens/admin/AdminCafeAllOrdersScreen";
 import { AdminCafeMenuScreen } from "../screens/admin/AdminCafeMenuScreen";
 import { AdminCafeCreateOrderScreen } from "../screens/admin/AdminCafeCreateOrderScreen";
@@ -339,6 +340,13 @@ function AdminCafeStackNav() {
         name="AdminCafeAllOrders"
         component={AdminCafeAllOrdersScreen}
         options={{ title: "All orders" }}
+      />
+      {/* Order detail — opened by tapping a row in All orders, which used
+          to be inert. Mirrors the web detail's sections. */}
+      <CafeStack.Screen
+        name="AdminCafeOrderDetail"
+        component={AdminCafeOrderDetailScreen}
+        options={{ title: "Order" }}
       />
       <CafeStack.Screen
         name="AdminCafeMenu"
