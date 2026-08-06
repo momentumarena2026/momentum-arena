@@ -60,8 +60,11 @@ export default async function TournamentPublicPage({
       {/* Hero */}
       <div className="overflow-hidden rounded-2xl border border-zinc-800">
         {t.bannerImageUrl ? (
+          // Natural height, no crop — see the note on the tournaments list.
+          // The old h-48/sm:h-64 + object-cover lost the left and right thirds
+          // of the poster, which is where the branding and prizes live.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={t.bannerImageUrl} alt="" className="h-48 w-full object-cover sm:h-64" />
+          <img src={t.bannerImageUrl} alt="" className="block w-full" />
         ) : (
           <div className="flex h-48 items-center justify-center bg-gradient-to-br from-emerald-900/70 via-zinc-900 to-zinc-950 sm:h-64">
             <Trophy className="h-16 w-16 text-emerald-500/60" />

@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { TournamentBanner } from "../../components/TournamentBanner";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -65,7 +66,7 @@ export function TournamentsListScreen() {
             style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
           >
             {t.bannerImageUrl ? (
-              <Image source={{ uri: t.bannerImageUrl }} style={styles.banner} resizeMode="cover" />
+              <TournamentBanner uri={t.bannerImageUrl} />
             ) : (
               <View style={[styles.banner, styles.bannerFallback]}>
                 <Text style={{ fontSize: 44 }}>{SPORT_EMOJI[t.sport] || "🏆"}</Text>
@@ -150,6 +151,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     overflow: "hidden",
   },
+  // Only the emoji fallback uses this now — a real banner sizes itself
+  // from the artwork (TournamentBanner).
   banner: { height: 120, width: "100%" },
   bannerFallback: {
     alignItems: "center",

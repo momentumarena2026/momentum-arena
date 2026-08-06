@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { TournamentBanner } from "../../components/TournamentBanner";
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -561,15 +562,13 @@ export function TournamentDetailScreen() {
       >
         {/* Banner — the admin's uploaded image, else the sport's stock
             photo. Web leads with this; the app rendered no image at all. */}
-        <View style={styles.banner}>
-          <Image
-            source={{ uri: t.bannerImageUrl || `${env.apiUrl}${sportTheme(t.sport).imagePath}` }}
-            style={styles.bannerImg}
-            resizeMode="cover"
-          />
+        <TournamentBanner
+          uri={t.bannerImageUrl || `${env.apiUrl}${sportTheme(t.sport).imagePath}`}
+          style={styles.banner}
+        >
           <View style={[styles.bannerFade, styles.bannerFadeSoft]} />
           <View style={[styles.bannerFade, styles.bannerFadeDeep]} />
-        </View>
+        </TournamentBanner>
 
         {/* Hero */}
         <View style={styles.hero}>
@@ -953,14 +952,12 @@ const styles = StyleSheet.create({
   // padding, matching camps/passes at spacing 5. Leaving Screen
   // padded stacked 24 + 16 and made these screens 40px a side.
   content: { padding: spacing["5"], gap: 12, paddingBottom: 32 },
+  // No height here on purpose: TournamentBanner sets the box from the
+  // artwork's own ratio, so a fixed 150 would put the crop straight back.
   banner: {
-    height: 150,
-    width: "100%",
     borderRadius: radius.xl,
-    overflow: "hidden",
     position: "relative",
   },
-  bannerImg: { width: "100%", height: "100%" },
   bannerFade: { position: "absolute", left: 0, right: 0, bottom: 0 },
   bannerFadeSoft: { height: 90, backgroundColor: "rgba(9,9,11,0.35)" },
   bannerFadeDeep: { height: 40, backgroundColor: "rgba(9,9,11,0.6)" },
