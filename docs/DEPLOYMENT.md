@@ -255,52 +255,38 @@ See also the App Store / TestFlight specifics in project memory
 
 ---
 
-### 8b-bis. Promotions must dispatch the OTA publish explicitly
+### 8b-bis. OTA publish runs ~30 minutes after the push — wait, don't panic
 
 `ota-publish.yml` triggers on `push` to development and main with
-`paths: apps/mobile/**`. On **development this fires reliably**. On **main
-it does not**: 2026-08-07, `89cbb82` (development) and `ed35032` (the main
-promotion of that same code, pushed one minute later) — the development
-push produced run #290, the main push produced nothing. `6481e36` likewise
-produced nothing. An earlier main push (`2b7b3e7`) did fire, so this is not
-a permanent misconfiguration.
+`paths: apps/mobile/**`. It works on BOTH branches. What it is not is
+prompt: measured 2026-08-07, runs are created about 30 minutes after the
+push.
 
-Ruled out with evidence: the workflow is `active` (API), the promotions
-genuinely changed `apps/mobile/**` files, and no commit in the pushed range
-carries a `[skip ci]`-family token. Root cause NOT established.
+    89cbb82  development  pushed 19:42 UTC -> run #290 created 20:12  (30 min)
+    6481e36  main         pushed 20:05 UTC -> run #292 created 20:35  (30 min)
 
-Because of that, do not rely on the push trigger after a promotion. But do
-NOT dispatch unconditionally either -- OTA should publish only when the app
-actually changed, exactly as the path filter used to ensure. Publishing a
-bundle for a web-only or docs-only promotion is pure noise.
+This burned most of an afternoon. Checking the run list seconds after a
+push shows nothing, which looks exactly like a broken trigger, and three
+separate wrong theories got built on that (path filters, lost webhooks,
+main-vs-development). The GitHub PushEvent API confirmed every push was
+delivered; the runs simply had not been created yet.
 
-Run this after promoting; it dispatches only when the merge touched the app:
+RULE: never conclude "CI did not fire" from a check made near the push.
+Give it 45 minutes, and check by commit SHA:
+
+    gh api "repos/momentumarena2026/momentum-arena/actions/workflows/ota-publish.yml/runs?per_page=5" \
+      --jq '.workflow_runs[] | "\(.run_number) \(.event) \(.head_branch) \(.head_sha[0:7]) \(.conclusion)"'
+
+Dispatching by hand is still legitimate when you want the draft NOW rather
+than in half an hour, but gate it on the app actually having changed so a
+web-only promotion publishes nothing:
 
     git diff --name-only origin/main~1 origin/main \
       | grep -qE '^(apps/mobile/|scripts/publish-ota\.ts)' \
-      && gh workflow run ota-publish.yml --ref main \
-      || echo "no app change in this promotion - no OTA needed"
+      && gh workflow run ota-publish.yml --ref main
 
-(The same two paths the workflow filters on. `apps/mobile/fingerprints/**`
-matches too, which is deliberate: a fingerprint change is how the workflow
-detects a native change and warns that a store build is required.)
-
-The workflow still decides JS-only vs native by itself -- a JS-only change
-publishes a DRAFT to roll out from /admin/ota, a native change warns that a
-store build is needed. Dispatching never forces an OTA onto a native change.
-
-Then confirm a run exists before telling anyone the app is updated:
-
-    gh api "repos/momentumarena2026/momentum-arena/actions/workflows/ota-publish.yml/runs?per_page=3" \
-      --jq '.workflow_runs[] | "\(.run_number) \(.event) \(.head_branch) \(.head_sha[0:7]) \(.conclusion)"'
-
-A duplicate publish is harmless — OTA publishes a DRAFT and the admin rolls
-out one from /admin/ota. A missing publish is not: the app silently stays
-on the previous bundle.
-
-Corollary for diagnosis: never conclude "CI did not fire" from a check made
-seconds after a push. Runs can be created up to ~30 minutes late (measured
-on development). Check by commit SHA, not by wall-clock proximity.
+Expect the delayed push run to arrive afterwards as well. Two drafts are
+harmless — you roll out one from /admin/ota.
 
 ## 8c. Version pinning — do NOT use `bump` on both platforms ⚠️
 
