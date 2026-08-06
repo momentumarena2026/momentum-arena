@@ -222,6 +222,9 @@ export type AdminCafeStackParamList = {
   AdminCafeOrders: undefined;
   /** Full order history — the live board only carries the open queue. */
   AdminCafeAllOrders: undefined;
+  /// The order travels as a param: the list already holds every field the
+  /// detail shows, so a detail endpoint would be a second source of truth.
+  AdminCafeOrderDetail: { order: import("../lib/admin-cafe").CafeOrderHistoryRow };
   AdminCafeMenu: undefined;
   AdminCafeCreateOrder: undefined;
 };

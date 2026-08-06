@@ -95,13 +95,17 @@ export interface CafeOrderListItem {
 }
 
 /** One page of order history from /orders/list. */
+/** A row as the history list renders it: payment flattened onto the order.
+ *  Named so the order-detail route can take one as a param. */
+export type CafeOrderHistoryRow = Omit<CafeOrderListItem, "payment"> & {
+  paymentMethod: string | null;
+  paymentStatus: string | null;
+};
+
 export interface CafeOrderHistoryPage {
   total: number;
   totalPages: number;
-  orders: (Omit<CafeOrderListItem, "payment"> & {
-    paymentMethod: string | null;
-    paymentStatus: string | null;
-  })[];
+  orders: CafeOrderHistoryRow[];
 }
 
 export interface LiveCafeOrders {
@@ -277,8 +281,8 @@ export async function settleCafeOrderDue(input: {
   upiAmount: number;
   receivedAt?: string;
   note?: string;
-}): Promise<{ success: true; dueAmount: number }> {
-  return request<{ success: true; dueAmount: number }>(
+}): Promise<{ success: true; dueAmount: number } | { success: false; error: string }> {
+  return request<{ success: true; dueAmount: number } | { success: false; error: string }>(
     "/api/mobile/admin/cafe/orders/due",
     { method: "POST", body: input },
   );

@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { AdminCafeStackParamList } from "../../navigation/types";
 import {
   ActivityIndicator,
   FlatList,
@@ -53,6 +56,8 @@ function istStamp(iso: string): string {
 }
 
 export function AdminCafeAllOrdersScreen() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AdminCafeStackParamList>>();
   const [status, setStatus] = useState<CafeOrderStatus | "">("");
   const [search, setSearch] = useState("");
   const [applied, setApplied] = useState("");
@@ -160,7 +165,12 @@ export function AdminCafeAllOrdersScreen() {
           )
         }
         renderItem={({ item: o }) => (
-          <View style={styles.card}>
+          // The row was inert: tapping an order did nothing, so everything
+          // that would not fit on the card was unreachable from the app.
+          <Pressable
+            onPress={() => navigation.navigate("AdminCafeOrderDetail", { order: o })}
+            style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
+          >
             <View style={styles.cardTop}>
               <Text weight="700" color={colors.foreground}>
                 #{o.orderNumber}
@@ -202,7 +212,7 @@ export function AdminCafeAllOrdersScreen() {
                 {formatRupees(o.dueAmount)} due
               </Text>
             ) : null}
-          </View>
+          </Pressable>
         )}
         ListFooterComponent={
           totalPages > 1 ? (
