@@ -21,6 +21,10 @@ export type HomeStackParamList = {
 
 export type AccountStackParamList = {
   AccountHome: undefined;
+  /// Tournament scoring by code — reachable without an admin account so a
+  /// third-party organiser can run their own matches. The code is the
+  /// credential (CSPRNG, rotatable, rate-limited).
+  ScorerConsole: { code: string };
   // Tournaments — hub, public detail (pools/table/bracket/live), captain
   // registration and the live match screen. Registered in AccountStack so
   // Home tiles + promo-banner deep links can reach them without a new tab.
