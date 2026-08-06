@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { notifyBookingActivity } from "@/lib/booking-activity";
 
 import { db } from "@/lib/db";
 // Type-only — the runtime helper stays behind the existing dynamic
@@ -711,6 +712,9 @@ export async function cancelBooking(bookingId: string, reason: string) {
     ]);
   });
 
+  // Tell the customer — fire-and-forget, never blocks the operation.
+  void notifyBookingActivity(bookingId, "CANCELLED", { reason });
+
   return { success: true };
 }
 
@@ -838,6 +842,9 @@ export async function refundBooking(
       ),
     ]);
   });
+
+  // Tell the customer — fire-and-forget, never blocks the operation.
+  void notifyBookingActivity(bookingId, "REFUNDED");
 
   return { success: true };
 }
@@ -1293,6 +1300,9 @@ export async function adminEditPayment(
       );
     }
   });
+
+  // Tell the customer — fire-and-forget, never blocks the operation.
+  void notifyBookingActivity(bookingId, "PAYMENT_UPDATED");
 
   return { success: true as const };
 }
@@ -3418,6 +3428,9 @@ export async function adminEditBookingSlots(
       });
     }
 
+    // Tell the customer — fire-and-forget, never blocks the operation.
+    void notifyBookingActivity(bookingId, "SLOTS_CHANGED");
+
     return { success: true as const };
   } catch (error) {
     return {
@@ -4922,6 +4935,9 @@ export async function extendBookingByThirtyMin(
 
     await revalidateBookingPaths(bookingId);
 
+    // Tell the customer — fire-and-forget, never blocks the operation.
+    void notifyBookingActivity(bookingId, "EXTENDED");
+
     return {
       success: true,
       newSlot: {
@@ -5111,6 +5127,12 @@ async function closeOutBooking(
     });
 
     await revalidateBookingPaths(bookingId);
+
+    // Tell the customer — fire-and-forget, never blocks the operation.
+    void notifyBookingActivity(
+      bookingId,
+      closingStatus === "ABSENT" ? "MARKED_ABSENT" : "COMPLETED",
+    );
 
     return { success: true };
   } catch (error) {
