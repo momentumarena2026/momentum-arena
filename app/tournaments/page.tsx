@@ -104,8 +104,12 @@ export default async function TournamentsPage({
                 className="group overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60 transition hover:border-emerald-500/40"
               >
                 {t.bannerImageUrl ? (
+                  // No fixed height + object-cover: these banners are designed
+                  // posters whose artwork runs edge to edge, so cropping them to
+                  // a set box cut the title off one side and the player off the
+                  // other. Natural height shows the whole poster at any width.
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={t.bannerImageUrl} alt="" className="h-32 w-full object-cover" />
+                  <img src={t.bannerImageUrl} alt="" className="block w-full" />
                 ) : (
                   <div className="flex h-32 items-center justify-center bg-gradient-to-br from-emerald-900/60 to-zinc-900 text-5xl">
                     {SPORT_EMOJI[t.sport] || "🏆"}
