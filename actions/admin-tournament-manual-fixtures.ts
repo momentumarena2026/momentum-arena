@@ -4,6 +4,9 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
+// A "use server" module may only export async functions — the constant
+// lives in lib/ for that reason.
+import { MANUAL_STAGES } from "@/lib/tournament-manual-stages";
 
 /**
  * Hand-entered fixtures.
@@ -27,16 +30,6 @@ import { db } from "@/lib/db";
 function gate() {
   return requireAdmin("MANAGE_TOURNAMENTS");
 }
-
-export const MANUAL_STAGES = [
-  "LEAGUE",
-  "POOL",
-  "R16",
-  "QF",
-  "SF",
-  "THIRD_PLACE",
-  "FINAL",
-] as const;
 
 const createSchema = z.object({
   tournamentId: z.string().min(1),
