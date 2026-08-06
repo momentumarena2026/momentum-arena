@@ -104,6 +104,12 @@ export function AdminTournamentsScreen() {
   });
   const t: AdminTournamentDetail | undefined = detailData?.tournament;
   const courts = detailData?.courts ?? [];
+  const windows = detailData?.windows ?? [];
+
+  const hr = (h: number) =>
+    h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
+  const windowLabel = (w: (typeof windows)[number]) =>
+    `${new Date(w.date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" })} · ${hr(w.startHour)}–${hr(w.endHour)}${w.courtLabel ? ` · ${w.courtLabel}` : ""}`;
 
   const loadLedger = useCallback(async () => {
     if (!t || t.host !== "THIRD_PARTY") return;
@@ -592,6 +598,43 @@ export function AdminTournamentsScreen() {
 
               {schedFor === m.id ? (
                 <View style={{ marginTop: 8 }}>
+                  {/* Lead with the committed windows: they are what hold
+                      these hours off the customer booking grid, so anything
+                      outside one is time we are still selling. Semis and the
+                      final legitimately sit outside, hence the manual fields
+                      below stay usable. */}
+                  {windows.length > 0 && (
+                    <>
+                      <Text style={{ color: colors.zinc500, fontSize: 11 }}>Match window</Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4, marginBottom: 8 }}>
+                        {windows.map((w) => {
+                          const picked =
+                            sched.date === w.date.slice(0, 10) &&
+                            Number(sched.startHour) >= w.startHour &&
+                            Number(sched.startHour) < w.endHour;
+                          return (
+                            <Pressable
+                              key={w.id}
+                              onPress={() =>
+                                setSched((f) => ({
+                                  ...f,
+                                  date: w.date.slice(0, 10),
+                                  startHour: String(w.startHour),
+                                  courtConfigId:
+                                    courts.find((c) => c.label === w.courtLabel)?.id || f.courtConfigId,
+                                }))
+                              }
+                              style={[styles.chipBtn, picked && { borderColor: colors.emerald400 }]}
+                            >
+                              <Text style={{ color: picked ? colors.emerald400 : colors.zinc400, fontSize: 11 }}>
+                                {windowLabel(w)}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
                   <TextInput style={input as never} placeholder="Date YYYY-MM-DD" placeholderTextColor={colors.zinc600} value={sched.date} onChangeText={(v) => setSched((f) => ({ ...f, date: v }))} />
                   <View style={[styles.rowWrap, { marginTop: 8 }]}>
                     <TextInput style={[input as never, { width: 90 }]} placeholder="Hour 0-23" keyboardType="numeric" placeholderTextColor={colors.zinc600} value={sched.startHour} onChangeText={(v) => setSched((f) => ({ ...f, startHour: v }))} />
