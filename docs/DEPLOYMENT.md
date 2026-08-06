@@ -255,7 +255,38 @@ See also the App Store / TestFlight specifics in project memory
 
 ---
 
-### 8c. Version pinning — do NOT use `bump` on both platforms ⚠️
+### 8b-bis. Promotions must dispatch the OTA publish explicitly
+
+`ota-publish.yml` triggers on `push` to development and main with
+`paths: apps/mobile/**`. On **development this fires reliably**. On **main
+it does not**: 2026-08-07, `89cbb82` (development) and `ed35032` (the main
+promotion of that same code, pushed one minute later) — the development
+push produced run #290, the main push produced nothing. `6481e36` likewise
+produced nothing. An earlier main push (`2b7b3e7`) did fire, so this is not
+a permanent misconfiguration.
+
+Ruled out with evidence: the workflow is `active` (API), the promotions
+genuinely changed `apps/mobile/**` files, and no commit in the pushed range
+carries a `[skip ci]`-family token. Root cause NOT established.
+
+Because of that, do not rely on the push trigger after a promotion. Run:
+
+    gh workflow run ota-publish.yml --ref main
+
+Then confirm a run exists before telling anyone the app is updated:
+
+    gh api "repos/momentumarena2026/momentum-arena/actions/workflows/ota-publish.yml/runs?per_page=3" \
+      --jq '.workflow_runs[] | "\(.run_number) \(.event) \(.head_branch) \(.head_sha[0:7]) \(.conclusion)"'
+
+A duplicate publish is harmless — OTA publishes a DRAFT and the admin rolls
+out one from /admin/ota. A missing publish is not: the app silently stays
+on the previous bundle.
+
+Corollary for diagnosis: never conclude "CI did not fire" from a check made
+seconds after a push. Runs can be created up to ~30 minutes late (measured
+on development). Check by commit SHA, not by wall-clock proximity.
+
+## 8c. Version pinning — do NOT use `bump` on both platforms ⚠️
 
 Both native workflows resolve the version through
 `apps/mobile/scripts/version.js`, and `post-native-release` **commits the
