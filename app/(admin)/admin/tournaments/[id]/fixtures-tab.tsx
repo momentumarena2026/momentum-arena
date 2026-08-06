@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Wand2, CalendarClock, X } from "lucide-react";
 import {
@@ -8,6 +8,8 @@ import {
   scheduleMatch,
   unscheduleMatch,
 } from "@/actions/admin-tournament-fixtures";
+import { deleteManualMatch } from "@/actions/admin-tournament-manual-fixtures";
+import { getSlotPlanning } from "@/actions/admin-tournament-slots";
 
 export type MatchRow = {
   id: string;
@@ -66,6 +68,42 @@ export function FixturesTab({
   const [error, setError] = useState<string | null>(null);
   const [schedFor, setSchedFor] = useState<string | null>(null);
   const [form, setForm] = useState({ courtConfigId: "", date: "", startHour: 18, hours: 1 });
+  /** The match windows the admin already committed to on Slots & Draw.
+   *  Scheduling should land inside one of these — they are what blocks the
+   *  customer booking grid, so a match placed outside them is playing on
+   *  hours we are still selling. */
+  const [windows, setWindows] = useState<
+    { id: string; date: string; startHour: number; endHour: number; label: string | null; courtLabel: string | null }[]
+  >([]);
+
+  useEffect(() => {
+    void getSlotPlanning(tournamentId)
+      .then((p) => setWindows(p?.slots ?? []))
+      // A failed load just falls back to free date/hour entry rather than
+      // blocking scheduling entirely.
+      .catch(() => setWindows([]));
+  }, [tournamentId]);
+
+  const windowLabel = (w: (typeof windows)[number]) => {
+    const d = new Date(w.date).toLocaleDateString("en-IN", {
+      weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata",
+    });
+    const hr = (h: number) => (h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`);
+    return `${d} · ${hr(w.startHour)}–${hr(w.endHour)}${w.courtLabel ? ` · ${w.courtLabel}` : ""}${w.label ? ` (${w.label})` : ""}`;
+  };
+
+  const remove = async (matchId: string) => {
+    if (!confirm("Delete this fixture?")) return;
+    setBusy(matchId);
+    setError(null);
+    try {
+      const res = await deleteManualMatch(matchId);
+      if (!res.success) setError(res.error);
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const generate = async () => {
     setBusy("gen");
@@ -201,11 +239,60 @@ export function FixturesTab({
                         </button>
                       )
                     )}
+                    {/* Server refuses once a match is live, completed or
+                        scored, so this can't silently rewrite standings. */}
+                    <button
+                      onClick={() => remove(m.id)}
+                      disabled={busy === m.id}
+                      title="Delete this fixture"
+                      className="rounded-lg border border-zinc-700 px-2 py-1.5 text-xs text-zinc-400 hover:border-red-500/40 hover:text-red-400 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
 
                 {schedFor === m.id && (
                   <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-zinc-800 pt-3">
+                    {windows.length > 0 && (
+                      <div>
+                        <label className="mb-1 block text-[10px] uppercase text-zinc-500">
+                          Match window
+                        </label>
+                        <select
+                          className="rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-xs text-white"
+                          value={
+                            windows.find(
+                              (w) =>
+                                w.date.slice(0, 10) === form.date &&
+                                form.startHour >= w.startHour &&
+                                form.startHour < w.endHour,
+                            )?.id ?? ""
+                          }
+                          onChange={(e) => {
+                            const w = windows.find((x) => x.id === e.target.value);
+                            if (!w) return;
+                            // Picking a window fills in its date, its court and
+                            // its first hour, so the default is always a slot
+                            // that is already blocked off.
+                            setForm((f) => ({
+                              ...f,
+                              date: w.date.slice(0, 10),
+                              startHour: w.startHour,
+                              courtConfigId:
+                                courts.find((c) => c.label === w.courtLabel)?.id || f.courtConfigId,
+                            }));
+                          }}
+                        >
+                          <option value="">— pick a window —</option>
+                          {windows.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {windowLabel(w)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="mb-1 block text-[10px] uppercase text-zinc-500">Court</label>
                       <select
@@ -234,11 +321,22 @@ export function FixturesTab({
                         value={form.startHour}
                         onChange={(e) => setForm((f) => ({ ...f, startHour: Number(e.target.value) }))}
                       >
-                        {Array.from({ length: 24 }, (_, h) => (
-                          <option key={h} value={h}>
-                            {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
-                          </option>
-                        ))}
+                        {(() => {
+                          // Inside a window, only its own hours are offered —
+                          // anything else is time we are still selling to the
+                          // public. Semis and the final legitimately sit
+                          // outside the windows, so with no match we fall back
+                          // to all 24.
+                          const w = windows.find((x) => x.date.slice(0, 10) === form.date);
+                          const hours = w
+                            ? Array.from({ length: Math.max(1, w.endHour - w.startHour) }, (_, i) => w.startHour + i)
+                            : Array.from({ length: 24 }, (_, h) => h);
+                          return hours.map((h) => (
+                            <option key={h} value={h}>
+                              {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
+                            </option>
+                          ));
+                        })()}
                       </select>
                     </div>
                     <div>
