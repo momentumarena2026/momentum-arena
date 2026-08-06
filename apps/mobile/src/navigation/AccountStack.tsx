@@ -19,6 +19,7 @@ import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScr
 import { TournamentsListScreen } from "../screens/tournaments/TournamentsListScreen";
 import { CampsScreen } from "../screens/camps/CampsScreen";
 import { MatchStartScreen } from "../screens/match/MatchStartScreen";
+import { ScorerConsoleScreen } from "../screens/tournaments/ScorerConsoleScreen";
 import { MatchScoreScreen } from "../screens/match/MatchScoreScreen";
 import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailScreen";
 import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
@@ -147,6 +148,18 @@ export function AccountStack() {
         name="MatchScore"
         component={MatchScoreScreen}
         options={{ title: "Scoreboard" }}
+      />
+      {/* Tournament scoring by code. Reachable without an admin account on
+          purpose: the venue hands a third-party organiser their scorer code
+          and they run their own matches from the app. The code IS the
+          credential -- CSPRNG-generated, rotatable from the admin tournament
+          header, and rate-limited server-side -- so possession of it is the
+          authorisation, exactly as it is for the web /score/[code] console
+          this mirrors. */}
+      <Stack.Screen
+        name="ScorerConsole"
+        component={ScorerConsoleScreen}
+        options={{ title: "Tournament scoring" }}
       />
       <Stack.Screen
         name="TournamentsList"

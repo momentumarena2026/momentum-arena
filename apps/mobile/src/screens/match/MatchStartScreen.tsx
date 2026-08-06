@@ -40,6 +40,7 @@ export function MatchStartScreen() {
   const [b, setB] = useState("");
   const [oversInput, setOvers] = useState("6");
   const [joinCode, setJoinCode] = useState("");
+  const [scorerCode, setScorerCode] = useState("");
 
   const mine = useQuery({ queryKey: ["my-matches"], queryFn: fetchMyMatches });
 
@@ -165,6 +166,42 @@ export function MatchStartScreen() {
               onPress={() =>
                 navigation.navigate("MatchScore", {
                   code: joinCode.trim().toUpperCase(),
+                })
+              }
+            />
+          </View>
+        </View>
+
+        {/* Tournament scoring — a separate credential and a separate
+            console from the scratch matches above, so it gets its own
+            block rather than overloading the match-code field. Getting
+            them confused would mean typing a tournament credential into a
+            public match lookup. */}
+        <View style={styles.card}>
+          <Text variant="bodyStrong" color={colors.foreground}>
+            Score a tournament match
+          </Text>
+          <Text variant="small" color={colors.zinc500}>
+            Enter the scorer code the venue gave you.
+          </Text>
+          <View style={styles.joinRow}>
+            <TextInput
+              style={[styles.input, styles.joinInput]}
+              placeholder="Scorer code"
+              placeholderTextColor={colors.zinc600}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              value={scorerCode}
+              onChangeText={setScorerCode}
+            />
+            <Button
+              label="Open"
+              size="sm"
+              variant="secondary"
+              disabled={!scorerCode.trim()}
+              onPress={() =>
+                navigation.navigate("ScorerConsole", {
+                  code: scorerCode.trim().toUpperCase(),
                 })
               }
             />
