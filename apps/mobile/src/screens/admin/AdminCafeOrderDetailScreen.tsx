@@ -8,6 +8,10 @@ import {
   adminCafeApi,
   getCafeOrderDue,
   settleCafeOrderDue,
+  addOrderItems,
+  cancelOrderItems,
+  getOrderHistory,
+  type CafeOrderEdit,
   type CafeDue,
   type CafeOrderHistoryRow,
 } from "../../lib/admin-cafe";
@@ -50,6 +54,9 @@ export function AdminCafeOrderDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [history, setHistory] = useState<CafeOrderEdit[]>([]);
+  const [menu, setMenu] = useState<{ id: string; name: string; price: number }[]>([]);
+  const [editing, setEditing] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [cash, setCash] = useState("");
   const [upi, setUpi] = useState("");
@@ -63,7 +70,34 @@ export function AdminCafeOrderDetailScreen() {
     }
   }
 
+  async function loadHistory() {
+    try {
+      setHistory((await getOrderHistory(order.id)).history);
+    } catch {
+      setHistory([]);
+    }
+  }
+
+  async function loadMenu() {
+    try {
+      const res = await adminCafeApi.items();
+      setMenu(res.items.map((i) => ({ id: i.id, name: i.name, price: i.price })));
+    } catch {
+      setMenu([]);
+    }
+  }
+
+  /** Items and totals are recomputed server-side, so after any edit the
+   *  screen refetches rather than patching its local copy — guessing the
+   *  new total here is how the app and the till start disagreeing. */
+  async function afterItemEdit() {
+    await Promise.all([loadDue(), loadHistory()]);
+    Alert.alert("Order updated", "Reopen the order to see the new totals.");
+  }
+
   useEffect(() => {
+    void loadHistory();
+    void loadMenu();
     void loadDue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id]);
@@ -248,6 +282,113 @@ export function AdminCafeOrderDetailScreen() {
         <Text variant="small" color="#f87171">{error}</Text>
       ) : null}
 
+      {/* EDIT ORDER ITEMS */}
+      <View style={styles.card}>
+        <Text variant="small" color={colors.zinc500}>EDIT ORDER ITEMS</Text>
+        {editing ? (
+          <>
+            <Text variant="small" color={colors.zinc400}>
+              Tap an item to add one to this order.
+            </Text>
+            <View style={styles.row}>
+              {menu.map((mi) => (
+                <Pressable
+                  key={mi.id}
+                  disabled={busy}
+                  onPress={async () => {
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      await addOrderItems(order.id, [{ cafeItemId: mi.id, quantity: 1 }]);
+                      await afterItemEdit();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Could not add the item");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  style={styles.btn}
+                >
+                  <Text variant="small" color={colors.zinc300}>
+                    + {mi.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text variant="small" color={colors.zinc400} style={{ marginTop: 8 }}>
+              Remove a line:
+            </Text>
+            <View style={styles.row}>
+              {order.items.map((i) => (
+                <Pressable
+                  key={i.id}
+                  disabled={busy}
+                  onPress={() => {
+                    Alert.alert("Remove this line?", `${i.quantity}× ${i.itemName}`, [
+                      { text: "Keep", style: "cancel" },
+                      {
+                        text: "Remove",
+                        style: "destructive",
+                        onPress: async () => {
+                          setBusy(true);
+                          try {
+                            await cancelOrderItems(order.id, [i.id]);
+                            await afterItemEdit();
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : "Could not remove");
+                          } finally {
+                            setBusy(false);
+                          }
+                        },
+                      },
+                    ]);
+                  }}
+                  style={styles.btn}
+                >
+                  <Text variant="small" color="#f87171">
+                    − {i.quantity}× {i.itemName}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable onPress={() => setEditing(false)} style={[styles.btn, { marginTop: 8 }]}>
+              <Text variant="small" color={colors.zinc400}>Done</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable onPress={() => setEditing(true)} style={styles.btn}>
+            <Text variant="small" color="#7dd3fc">Edit items</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* HISTORY */}
+      <View style={styles.card}>
+        <Text variant="small" color={colors.zinc500}>HISTORY</Text>
+        {history.length === 0 ? (
+          <Text variant="small" color={colors.zinc500}>No history yet</Text>
+        ) : (
+          history.map((h) => (
+            <View key={h.id} style={{ marginTop: 6 }}>
+              <Text variant="small" color={colors.zinc300}>
+                {h.editType.replace(/_/g, " ").toLowerCase()}
+                {h.previousAmount != null && h.newAmount != null
+                  ? ` · ${formatRupees(h.previousAmount)} → ${formatRupees(h.newAmount)}`
+                  : ""}
+              </Text>
+              <Text variant="small" color={colors.zinc500}>
+                {h.adminUsername} ·{" "}
+                {new Date(h.createdAt).toLocaleString("en-IN", {
+                  day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+                  timeZone: "Asia/Kolkata",
+                })}
+                {h.note ? ` · ${h.note}` : ""}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
       {/* ACTIONS */}
       <View style={styles.card}>
         <Text variant="small" color={colors.zinc500}>ACTIONS</Text>
@@ -266,12 +407,6 @@ export function AdminCafeOrderDetailScreen() {
             <Text variant="small" color={colors.zinc400}>Back</Text>
           </Pressable>
         </View>
-        {/* Edit Order Items and History are on the web detail but not here
-            yet — the item editor is a screen in its own right. Say so
-            rather than let the app look complete when it is not. */}
-        <Text variant="small" color={colors.zinc500} style={{ marginTop: 8 }}>
-          Editing items and the change history are on the web admin.
-        </Text>
       </View>
     </ScrollView>
   );

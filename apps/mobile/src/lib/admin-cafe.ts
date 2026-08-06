@@ -287,3 +287,52 @@ export async function settleCafeOrderDue(input: {
     { method: "POST", body: input },
   );
 }
+
+
+/** One edit-history row on a cafe order. */
+export interface CafeOrderEdit {
+  id: string;
+  adminUsername: string;
+  /// ITEMS_ADDED | ITEMS_REMOVED | QUANTITY_CHANGED | STATUS_CHANGED |
+  /// ORDER_CANCELLED | ORDER_CREATED
+  editType: string;
+  previousAmount: number | null;
+  newAmount: number | null;
+  note: string | null;
+  createdAt: string;
+}
+
+/**
+ * Editing an order's items and reading its change history.
+ *
+ * Both go through the same server actions the web admin uses, so the
+ * stock guard, the total recalculation and the history write stay in one
+ * implementation — the app never recomputes an order total itself.
+ */
+export async function addOrderItems(
+  orderId: string,
+  items: { cafeItemId: string; quantity: number }[],
+): Promise<{ success: true }> {
+  return request(`/api/mobile/admin/cafe/orders/${orderId}/items`, {
+    method: "POST",
+    body: { op: "add", items },
+  });
+}
+
+export async function cancelOrderItems(
+  orderId: string,
+  orderItemIds: string[],
+): Promise<{ success: true }> {
+  return request(`/api/mobile/admin/cafe/orders/${orderId}/items`, {
+    method: "POST",
+    body: { op: "cancel", orderItemIds },
+  });
+}
+
+export async function getOrderHistory(
+  orderId: string,
+): Promise<{ history: CafeOrderEdit[] }> {
+  return request(`/api/mobile/admin/cafe/orders/${orderId}/history`, {
+    method: "GET",
+  });
+}
