@@ -305,13 +305,32 @@ export async function scheduleMatch(
   if (bookingClash) {
     return { success: false, error: "A customer booking already occupies that court/time" };
   }
-  // Clash 2: other slot blocks (excluding this match's own).
+  // Clash 2: other slot blocks — but NOT this tournament's own.
+  //
+  // Two kinds of block belong to us and must not count as a conflict:
+  //   1. this match's existing block (a reschedule within its own hours), and
+  //   2. the tournament's MATCH WINDOWS, which raise SlotBlock rows the
+  //      moment the window is created so the public grid stops selling
+  //      those hours immediately.
+  //
+  // Without (2), scheduling a match into the very window it was meant for
+  // failed with "That slot is already blocked (Tournament window)" — the
+  // tournament colliding with itself, which made the windows actively
+  // useless: the better you planned, the less you could schedule.
+  const ownWindows = await db.tournamentSlot.findMany({
+    where: { tournamentId: match.tournamentId },
+    select: { slotBlockIds: true },
+  });
+  const ownBlockIds = [
+    ...match.slotBlockIds,
+    ...ownWindows.flatMap((w) => w.slotBlockIds),
+  ];
   const blockClash = await db.slotBlock.findFirst({
     where: {
       courtConfigId,
       date: day,
       startHour: { in: hoursList },
-      id: { notIn: match.slotBlockIds },
+      id: { notIn: ownBlockIds },
     },
     select: { id: true, reason: true },
   });
