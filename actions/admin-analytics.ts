@@ -684,7 +684,11 @@ export async function getTopCustomers(
     // Get cafe spending per user (limit to 5000 records)
     const cafePayments = await db.cafePayment.findMany({
       where: {
-        status: "COMPLETED",
+        // PARTIAL counts too: the money was in the till on confirmedAt even
+        // though the order is not square yet, and CafePayment.amount holds
+        // only the captured slice for those rows. Excluding them made a
+        // part-paid order's takings vanish from revenue entirely.
+        status: { in: ["COMPLETED", "PARTIAL"] },
         confirmedAt: { gte: from, lte: to },
       },
       select: {
@@ -799,7 +803,11 @@ export async function getPaymentMethodBreakdown(
     const cafePayments = await db.cafePayment.groupBy({
       by: ["method"],
       where: {
-        status: "COMPLETED",
+        // PARTIAL counts too: the money was in the till on confirmedAt even
+        // though the order is not square yet, and CafePayment.amount holds
+        // only the captured slice for those rows. Excluding them made a
+        // part-paid order's takings vanish from revenue entirely.
+        status: { in: ["COMPLETED", "PARTIAL"] },
         confirmedAt: { gte: from, lte: to },
       },
       _count: { id: true },
@@ -871,6 +879,7 @@ export async function getKPIStats(
       organizerAgg,
       campAgg,
       cafeAgg,
+      cafeSettlementAgg,
       totalBookings,
       cancelledBookings,
       totalOrders,
@@ -940,11 +949,21 @@ export async function getKPIStats(
       // Cafe revenue
       db.cafePayment.aggregate({
         where: {
-          status: "COMPLETED",
+          // See the note on the other cafe queries — PARTIAL rows carry
+          // only what was actually collected, so they belong in revenue.
+          status: { in: ["COMPLETED", "PARTIAL"] },
           confirmedAt: { gte: from, lte: to },
         },
         _sum: { amount: true },
         _count: { id: true },
+      }),
+      // Catch-up payments on part-paid orders, on the date each instalment
+      // actually arrived. Without this, the balance a customer settles
+      // tomorrow never reaches revenue at all — the counter payment row
+      // holds only what was taken at the counter.
+      db.cafeOrderSettlement.aggregate({
+        where: { receivedAt: { gte: from, lte: to } },
+        _sum: { amount: true },
       }),
       // Total non-cancelled bookings. Also the cancellation-rate
       // denominator, so closeouts must stay in it — otherwise the
@@ -1001,7 +1020,13 @@ export async function getKPIStats(
     const campRevenue = campAgg._sum.paidAmount || 0;
     const sportsRevenue =
       bookingNetRevenue + passSalesRevenue + tournamentRevenue + campRevenue;
-    const cafeRevenue = paiseToRupees(cafeAgg._sum.amount || 0);
+    // NOTE: the paiseToRupees() call on cafeAgg is PRE-EXISTING and looks
+    // wrong — CafePayment.amount is documented as rupees, and the cafe
+    // groupBy above adds it without converting. Left untouched rather than
+    // silently changing a headline revenue figure inside an unrelated
+    // change. Settlements are added in rupees, which is correct for them.
+    const cafeRevenue =
+      paiseToRupees(cafeAgg._sum.amount || 0) + (cafeSettlementAgg._sum.amount || 0);
     const totalRevenue = sportsRevenue + cafeRevenue;
 
     // Avg booking value stays a BOOKING metric — pass sales aren't
