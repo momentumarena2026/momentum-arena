@@ -75,11 +75,26 @@ export interface AdminCourt {
   label: string;
 }
 
+/** A match window from Slots & Draw. Scheduling defaults inside one of
+ *  these because they are what hold the hours off the booking grid. */
+export interface AdminSlotWindow {
+  id: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  label: string | null;
+  courtLabel: string | null;
+}
+
 export const adminTournamentsApi = {
   list: () =>
     request<{ tournaments: AdminTournamentCard[] }>("/api/mobile/admin/tournaments", { method: "GET" }),
   detail: (id: string) =>
-    request<{ tournament: AdminTournamentDetail; courts: AdminCourt[] }>(
+    request<{
+      tournament: AdminTournamentDetail;
+      courts: AdminCourt[];
+      windows: AdminSlotWindow[];
+    }>(
       `/api/mobile/admin/tournaments?id=${id}`,
       { method: "GET" }
     ),

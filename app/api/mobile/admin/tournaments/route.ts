@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSlotPlanning } from "@/actions/admin-tournament-slots";
 import { listCourtsForTournament } from "@/actions/admin-tournament-fixtures";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import {
@@ -23,7 +24,12 @@ export async function GET(request: NextRequest) {
     // Courts ride along so the app can schedule a fixture without a second
     // round trip — the screen needs them the moment the detail renders.
     const courts = await listCourtsForTournament(id);
-    return NextResponse.json({ tournament: t, courts });
+    // The match windows already committed on Slots & Draw. Scheduling
+    // should land inside one: those windows are what block the customer
+    // booking grid, so a match placed outside them is on hours we are
+    // still selling.
+    const planning = await getSlotPlanning(id);
+    return NextResponse.json({ tournament: t, courts, windows: planning?.slots ?? [] });
   }
   const rows = await listTournamentsAdmin();
   return NextResponse.json({
