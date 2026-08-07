@@ -59,6 +59,39 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Apex -> www, for everything EXCEPT /.well-known/.
+  //
+  // This redirect used to live in Vercel's domain settings, which applies it
+  // to every path. That broke Android App Links: the verifier fetches
+  // https://momentumarena.com/.well-known/assetlinks.json and does NOT follow
+  // redirects, so it saw a 307 and failed the domain ("Domain non-redirect
+  // failed" in Play Console). Same rule applies to iOS Universal Links and
+  // apple-app-site-association, which is why the whole directory is excluded
+  // rather than the one file.
+  //
+  // The apex is now connected to Production in Vercel so it can serve those
+  // files directly, and this brings the redirect back for human traffic. That
+  // matters because session cookies are host-scoped: without it, signing in on
+  // www leaves you signed out on the apex — two separate sessions on what
+  // looks like one site. Scoping the cookie to .momentumarena.com would also
+  // "fix" it, but that would hand production session cookies to
+  // development.momentumarena.com, so redirecting is the safer of the two.
+  //
+  // Keeping people on www also keeps the GA4 host check in lib/analytics.ts
+  // honest and leaves search consolidated on a single host.
+  async redirects() {
+    return [
+      {
+        source: "/:path((?!\\.well-known\\/).*)",
+        has: [{ type: "host", value: "momentumarena.com" }],
+        destination: "https://www.momentumarena.com/:path",
+        // Temporary, matching the 307 Vercel was serving. Worth revisiting as
+        // permanent once this is proven, but a cached permanent redirect is
+        // painful to undo if the host choice ever changes.
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
