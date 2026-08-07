@@ -115,7 +115,7 @@ export async function SiteHeader({ active }: { active?: Section }) {
             {/* Phones: the app link replaces the account avatar below.
                 Desktop has no bottom nav, so it keeps the avatar and gets
                 its badges in the footer instead. */}
-            <StoreBadges variant="icon" className="ml-1 md:hidden" />
+            <StoreBadges variant="icon" placement="header" className="ml-1 md:hidden" />
             {session?.user?.id && <RewardsChip userId={session.user.id} />}
             {session?.user ? (
               <Link

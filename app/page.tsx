@@ -424,7 +424,7 @@ export default async function Home() {
               )}
               {/* Phones only: desktop gets the full badges in the footer,
                   and this row is already tight beside the nav links. */}
-              <StoreBadges variant="icon" className="ml-1 md:hidden" />
+              <StoreBadges variant="icon" placement="header" className="ml-1 md:hidden" />
               <LoginButton hideChipOnMobile />
             </div>
           </div>
@@ -1117,7 +1117,7 @@ export default async function Home() {
                 Book faster, track your passes and follow matches live.
               </p>
             </div>
-            <StoreBadges variant="full" />
+            <StoreBadges variant="full" placement="footer" />
           </div>
           )}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">

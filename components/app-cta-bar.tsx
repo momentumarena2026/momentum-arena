@@ -59,7 +59,7 @@ export async function AppCtaBar({
         </div>
         {/* The footer's full badge in its compact size — a real size, not a
             CSS scale, so it actually gives the copy its width back. */}
-        <StoreBadges variant="full" compact className="shrink-0" />
+        <StoreBadges variant="full" compact placement="sticky_bar" className="shrink-0" />
       </div>
     </div>
   );
