@@ -60,6 +60,10 @@ export interface DqrFlowStatus {
   confirmedId?: string | null;
   /** FAILED but money WAS captured — show `error`, never "try again". */
   paymentReceived?: boolean;
+  /** A prior transaction on this booking is still PENDING at the gateway,
+   *  so the server refused to mint a second QR. Distinct from
+   *  paymentReceived: we do not know yet whether money moved. */
+  pendingTxn?: boolean;
   error?: string;
 }
 export interface DqrEndpoints {
@@ -174,6 +178,10 @@ export function DqrCheckout({
   // Money WAS captured despite the failure — suppresses every retry
   // affordance so the customer can't pay a second time.
   const [paymentReceived, setPaymentReceived] = useState(false);
+  // A prior transaction on this booking is still PENDING at the gateway.
+  // Distinct from paymentReceived: we do NOT know whether money moved, so
+  // the honest action is "check", not "pay again" and not "give up".
+  const [pendingTxn, setPendingTxn] = useState(false);
   // The customer has plausibly moved money (opened a UPI app). From here
   // nothing may invite a second payment — mirrors the web sheet.
   const mayHavePaidRef = useRef(false);
@@ -258,6 +266,7 @@ export function DqrCheckout({
         // repriced mid-payment). Telling that customer to "try again"
         // is how double payments happen.
         if (res.paymentReceived) setPaymentReceived(true);
+        if (res.pendingTxn) setPendingTxn(true);
         setError(
           res.paymentReceived && res.error
             ? res.error
@@ -874,9 +883,33 @@ export function DqrCheckout({
                     "we've logged your payment" is the one thing worth
                     saying to someone staring at an error. */}
                 {claimNotice ? <ClaimNotice text={claimNotice} /> : null}
+                {/* An in-flight transaction gets a status check, never a
+                    retry. The server refused to mint precisely because a
+                    second QR would overwrite the pointer to a payment that
+                    may already be real — the 2026-07-11 incident. Tapping
+                    "Try again" here called initiate() straight after copy
+                    telling the customer not to pay again. */}
+                {pendingTxn && !paymentReceived ? (
+                  <Pressable
+                    onPress={() => {
+                      setError(null);
+                      setClaimNotice(null);
+                      void checkStatus();
+                    }}
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <RefreshCw size={16} color="#fff" />
+                    <Text variant="body" weight="600" color="#fff">
+                      Check payment status
+                    </Text>
+                  </Pressable>
+                ) : null}
                 {/* No retry once the gateway has the money — a second QR
                     here is exactly how a customer pays twice. */}
-                {!paymentReceived ? (
+                {!paymentReceived && !pendingTxn ? (
                   <Pressable
                     onPress={() => {
                       setPhase("init");

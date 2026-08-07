@@ -142,7 +142,9 @@ export async function settlePriorDqrTxn(args: {
       pendingTxn: true,
       transactionId,
       error:
-        "A payment on this booking is still being confirmed. If you've already paid, please do NOT pay again — we're checking with your bank.",
+        "We're still waiting on your bank to confirm a payment for this booking. " +
+        "If you paid, do NOT pay again — this usually clears within a few minutes. " +
+        "If you didn't finish paying, wait for that attempt to time out and start again.",
     });
   }
 
@@ -224,7 +226,9 @@ export async function settlePriorTournamentDqrTxn(args: {
       pendingTxn: true,
       transactionId,
       error:
-        "A payment on this registration is still being confirmed. If you've already paid, please do NOT pay again — we're checking with your bank.",
+        "We're still waiting on your bank to confirm a payment for this registration. " +
+        "If you paid, do NOT pay again — this usually clears within a few minutes. " +
+        "If you didn't finish paying, wait for that attempt to time out and start again.",
     });
   }
 
