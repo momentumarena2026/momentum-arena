@@ -1,3 +1,4 @@
+import { SITE_URL } from "./site";
 const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
 const MSG91_EMAIL_API = "https://control.msg91.com/api/v5/email/send";
 
@@ -24,7 +25,7 @@ const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   process.env.AUTH_URL ||
   process.env.NEXTAUTH_URL ||
-  "https://momentumarena.com";
+  SITE_URL;
 
 // Superadmin recovery email addresses — loaded from env var
 export const SUPERADMIN_RECOVERY_EMAILS = (

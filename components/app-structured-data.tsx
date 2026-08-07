@@ -1,3 +1,4 @@
+import { SITE_URL } from "@/lib/site";
 import {
   ANDROID_PACKAGE,
   APPLE_APP_ID,
@@ -34,7 +35,7 @@ export function AppStructuredData() {
     publisher: {
       "@type": "Organization",
       name: "Momentum Arena",
-      url: "https://momentumarena.com",
+      url: SITE_URL,
     },
     inLanguage: "en-IN",
     offers: {
@@ -52,7 +53,7 @@ export function AppStructuredData() {
     downloadUrl: APP_STORE_URL,
     url: APP_STORE_URL,
     identifier: APPLE_APP_ID,
-    screenshot: "https://momentumarena.com/og-cover.jpg",
+    screenshot: `${SITE_URL}/og-cover.jpg`,
   };
 
   const android = {
@@ -63,7 +64,7 @@ export function AppStructuredData() {
     downloadUrl: PLAY_STORE_URL,
     url: PLAY_STORE_URL,
     identifier: ANDROID_PACKAGE,
-    screenshot: "https://momentumarena.com/og-cover.jpg",
+    screenshot: `${SITE_URL}/og-cover.jpg`,
   };
 
   return (

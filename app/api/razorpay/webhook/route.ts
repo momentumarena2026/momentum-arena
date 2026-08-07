@@ -53,7 +53,8 @@ import { recordOrphanPayment } from "@/lib/payment-orphan";
  * Health check: a GET request returns 200 with the route's status so
  * we can quickly verify the route is reachable + the webhook secret
  * is configured without firing a real Razorpay event. Production
- * smoke-test: `curl https://momentumarena.com/api/razorpay/webhook`.
+ * smoke-test: `curl https://www.momentumarena.com/api/razorpay/webhook`.
+ * (www, not the apex — the apex 307s everything except /.well-known/.)
  */
 export async function GET() {
   return NextResponse.json({
