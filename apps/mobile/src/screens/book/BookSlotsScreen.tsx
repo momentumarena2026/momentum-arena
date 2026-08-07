@@ -10,6 +10,10 @@ import {
   View,
 } from "react-native";
 import {
+  Pressable as GesturePressable,
+  ScrollView as GestureScrollView,
+} from "react-native-gesture-handler";
+import {
   useNavigation,
   useRoute,
   type RouteProp,
@@ -742,7 +746,7 @@ function DateStrip({
   );
 
   return (
-    <ScrollView
+    <GestureScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.dateRow}
@@ -751,7 +755,7 @@ function DateStrip({
         const info = formatDateIST(dateStr);
         const isSelected = selectedDate === dateStr;
         return (
-          <Pressable
+          <GesturePressable
             key={dateStr}
             onPress={() => onDateChange(dateStr)}
             style={({ pressed }) => [
@@ -794,10 +798,10 @@ function DateStrip({
                 Today
               </Text>
             ) : null}
-          </Pressable>
+          </GesturePressable>
         );
       })}
-    </ScrollView>
+    </GestureScrollView>
   );
 }
 
