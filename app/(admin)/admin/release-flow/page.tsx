@@ -388,18 +388,17 @@ export default async function ReleaseFlowPage() {
 
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
           <p className="text-sm font-semibold text-amber-200">
-            OTA publish lands ~30 minutes after the push — that is normal
+            OTA publishes itself, about 30 minutes after the push
           </p>
           <p className="mt-1.5 text-xs leading-relaxed text-zinc-300">
             The workflow triggers on <Code>push</Code> for both development and main and
             it works — it is just slow. Measured 7 Aug: a development push at 19:42 got
-            its run at 20:12, a main push at 20:05 got its run at 20:35. Checking the
+            its run at 20:12, a main push at 20:05 got its run at 20:35. Do NOT dispatch
+            it by hand; that only adds a duplicate draft to choose between. Checking the
             run list right after pushing shows nothing, which looks identical to a broken
-            trigger; do not read it that way. Wait 45 minutes and look up the run by
-            commit SHA. If you want the draft sooner, dispatch it by hand — but only when
-            the promotion actually touched <Code>apps/mobile/**</Code>, so a web-only
-            change publishes nothing. The delayed push run will still arrive; two drafts
-            are harmless since you roll out one from OTA Updates.
+            trigger — do not read it that way. Wait 45 minutes and look the run up by
+            commit SHA. Rollout stays manual by design: the workflow publishes a draft
+            and you release it from OTA Updates.
           </p>
         </div>
 

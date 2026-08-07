@@ -255,38 +255,33 @@ See also the App Store / TestFlight specifics in project memory
 
 ---
 
-### 8b-bis. OTA publish runs ~30 minutes after the push — wait, don't panic
+### 8b-bis. OTA publishes itself — do NOT dispatch it by hand
 
 `ota-publish.yml` triggers on `push` to development and main with
-`paths: apps/mobile/**`. It works on BOTH branches. What it is not is
-prompt: measured 2026-08-07, runs are created about 30 minutes after the
-push.
+`paths: apps/mobile/**`. It works on both branches. It is simply not
+prompt: runs are created about 30 minutes after the push.
 
     89cbb82  development  pushed 19:42 UTC -> run #290 created 20:12  (30 min)
     6481e36  main         pushed 20:05 UTC -> run #292 created 20:35  (30 min)
 
-This burned most of an afternoon. Checking the run list seconds after a
-push shows nothing, which looks exactly like a broken trigger, and three
-separate wrong theories got built on that (path filters, lost webhooks,
-main-vs-development). The GitHub PushEvent API confirmed every push was
-delivered; the runs simply had not been created yet.
+Do not run `gh workflow run ota-publish.yml` after a promotion. The trigger
+handles it, and dispatching only adds a duplicate draft to /admin/ota for
+someone to pick between.
+
+The trap this replaces: checking the run list seconds after a push shows
+nothing, which looks exactly like a broken trigger. Three separate wrong
+theories got built on that (path filters, lost webhooks, main-vs-
+development) before the timestamps settled it. The GitHub PushEvent API had
+already confirmed every push was delivered.
 
 RULE: never conclude "CI did not fire" from a check made near the push.
-Give it 45 minutes, and check by commit SHA:
+Give it 45 minutes, then look the run up by commit SHA:
 
     gh api "repos/momentumarena2026/momentum-arena/actions/workflows/ota-publish.yml/runs?per_page=5" \
       --jq '.workflow_runs[] | "\(.run_number) \(.event) \(.head_branch) \(.head_sha[0:7]) \(.conclusion)"'
 
-Dispatching by hand is still legitimate when you want the draft NOW rather
-than in half an hour, but gate it on the app actually having changed so a
-web-only promotion publishes nothing:
-
-    git diff --name-only origin/main~1 origin/main \
-      | grep -qE '^(apps/mobile/|scripts/publish-ota\.ts)' \
-      && gh workflow run ota-publish.yml --ref main
-
-Expect the delayed push run to arrive afterwards as well. Two drafts are
-harmless — you roll out one from /admin/ota.
+Rollout stays manual by design: the workflow publishes a DRAFT and an admin
+releases it from /admin/ota.
 
 ## 8c. Version pinning — do NOT use `bump` on both platforms ⚠️
 
