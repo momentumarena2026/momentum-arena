@@ -12,7 +12,7 @@ import { CheckoutAuth } from "@/components/checkout-auth";
 import { formatPrice } from "@/lib/pricing";
 import { formatHoursAsRanges } from "@/lib/court-config";
 import type { SlotAvailability } from "@/lib/availability";
-import { Loader2, RefreshCw, Calendar } from "lucide-react";
+import { Loader2, RefreshCw, Calendar, Lock } from "lucide-react";
 import { getPublicRecurringConfig } from "@/actions/admin-recurring";
 import type { RecurringTier, DailyTier } from "@/actions/admin-recurring";
 import {
@@ -756,6 +756,29 @@ export function SlotSelectionClient({
       {/* Inline auth for guests */}
       {showAuth && !isAuthenticated && (
         <CheckoutAuth onAuthenticated={handleAuthenticated} />
+      )}
+
+      {/* Signed out with nothing picked yet: offer sign-in on its own.
+          The sticky footer below is built around a selection and only
+          renders once one exists, so a signed-out visitor previously had
+          no way to sign in from this page at all — they had to select a
+          slot first to discover the button. Signing in needs no slot. */}
+      {!isAuthenticated && status !== "loading" && selectedHours.length === 0 && !showAuth && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-black/95 p-4 backdrop-blur-md md:sticky md:bottom-4 md:z-auto md:rounded-xl md:border">
+          <button
+            onClick={() => setShowAuth(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-emerald-700"
+          >
+            <Lock className="h-4 w-4" />
+            Sign in to continue
+          </button>
+          <p className="mt-2 text-center text-xs text-zinc-500">
+            Sign in first, or pick your slots and we&apos;ll ask on the way to checkout.
+          </p>
+        </div>
+      )}
+      {!isAuthenticated && selectedHours.length === 0 && !showAuth && (
+        <div className="h-28 md:h-0" />
       )}
 
       {/* Bottom spacer for mobile fixed bar */}

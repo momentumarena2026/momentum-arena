@@ -648,7 +648,12 @@ export function BookSlotsScreen() {
         <Button
           label={signedIn ? "Continue" : "Sign in to continue"}
           onPress={handleContinue}
-          disabled={selected.length === 0}
+          // Signing in does not need a slot. Gating this on a selection
+          // left a signed-out user staring at a dead "Sign in to
+          // continue" button — they had to guess that picking a slot
+          // was the way to reach the login screen. handleContinue
+          // already routes a signed-out tap straight to Phone.
+          disabled={signedIn && selected.length === 0}
           loading={locking}
           size="lg"
           leadingIcon={
