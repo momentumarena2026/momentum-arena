@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/site";
 
 /**
  * XML sitemap for crawlers (Google / Bing / Yandex).
@@ -16,7 +17,7 @@ import type { MetadataRoute } from "next";
  * updatedAt: "desc" }})` etc.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = "https://momentumarena.com";
+  const base = SITE_URL;
   const now = new Date();
 
   // Sport list — matches the Sport enum in prisma/schema.prisma. If

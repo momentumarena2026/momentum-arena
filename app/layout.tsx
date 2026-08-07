@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SITE_URL } from "@/lib/site";
 import { ANDROID_PACKAGE, APPLE_APP_ID } from "@/lib/app-store-links";
 import { Michroma } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
@@ -23,7 +24,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   // Without this Next can't absolutise relative OG/Twitter image paths, and
   // several crawlers drop a preview whose image URL isn't absolute.
-  metadataBase: new URL("https://momentumarena.com"),
+  metadataBase: new URL(SITE_URL),
   title: "Momentum Arena Mathura | Cricket, Football & Pickleball Turf Booking",
   description:
     "Book premium sports courts at Momentum Arena, Mathura's best multi-sport facility. Cricket turf, football ground & pickleball courts. Open 6 AM-11 PM daily. Call +91-6396177261 for booking.",
@@ -57,7 +58,7 @@ export const metadata: Metadata = {
     title: "Momentum Arena | Premier Sports Facility in Mathura, UP",
     description:
       "Mathura's best sports destination with Cricket, Football & Pickleball courts. Spectator seating, cafeteria & parking. Book now!",
-    url: "https://momentumarena.com",
+    url: SITE_URL,
     siteName: "Momentum Arena",
     locale: "en_IN",
     type: "website",

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { SITE_URL } from "@/lib/site";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
@@ -74,7 +75,7 @@ export async function PUT(request: NextRequest) {
           dateStyle: "medium",
           timeStyle: "short",
         }),
-        adminUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com"}/admin/generator`,
+        adminUrl: `${process.env.NEXT_PUBLIC_APP_URL || SITE_URL}/admin/generator`,
       }).catch((err) => console.error("PIN change email error:", err));
     }
 

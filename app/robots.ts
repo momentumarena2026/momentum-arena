@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/site";
 
 /**
  * robots.txt for crawler access control.
@@ -19,7 +20,7 @@ import type { MetadataRoute } from "next";
  * the sitemap.
  */
 export default function robots(): MetadataRoute.Robots {
-  const base = "https://momentumarena.com";
+  const base = SITE_URL;
 
   return {
     rules: [

@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { SITE_URL } from "@/lib/site";
 import Link from "next/link";
 import { FaWhatsapp, FaInstagram, FaYoutube } from "react-icons/fa";
 import {
@@ -227,18 +228,18 @@ export default async function Home() {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
-    "@id": "https://momentumarena.com/#organization",
+    "@id": `${SITE_URL}/#organization`,
     name: "Momentum Arena",
-    image: "https://momentumarena.com/icon.png",
+    image: `${SITE_URL}/icon.png`,
     logo: {
       "@type": "ImageObject",
-      url: "https://momentumarena.com/icon.png",
+      url: `${SITE_URL}/icon.png`,
       width: 512,
       height: 512,
     },
     description:
       "Momentum Arena is Mathura's premier multi-sport facility offering professional Cricket, Football and Pickleball courts with spectator seating and cafeteria",
-    url: "https://momentumarena.com",
+    url: SITE_URL,
     telephone: "+91-6396177261",
     priceRange: "₹₹",
     address: {
@@ -305,9 +306,9 @@ export default async function Home() {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "Momentum Arena",
-    url: "https://momentumarena.com",
-    logo: "https://momentumarena.com/icon.png",
-    image: "https://momentumarena.com/icon.png",
+    url: SITE_URL,
+    logo: `${SITE_URL}/icon.png`,
+    image: `${SITE_URL}/icon.png`,
     description: "Mathura's premier multi-sport facility",
     address: {
       "@type": "PostalAddress",

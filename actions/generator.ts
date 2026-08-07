@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { SITE_URL } from "@/lib/site";
 import { adminAuth } from "@/lib/admin-auth-session";
 import { isGeneratorPinVerified } from "@/lib/generator-pin";
 import { sendPinChangedEmail } from "@/lib/generator-notifications";
@@ -101,7 +102,7 @@ export async function updateGeneratorConfig(data: {
           dateStyle: "medium",
           timeStyle: "short",
         }),
-        adminUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://momentumarena.com"}/admin/generator`,
+        adminUrl: `${process.env.NEXT_PUBLIC_APP_URL || SITE_URL}/admin/generator`,
       }).catch((err) => console.error("PIN change email error:", err));
     }
 
