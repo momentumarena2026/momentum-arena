@@ -147,7 +147,15 @@ export async function getPublicTournamentBySlug(slug: string) {
 
 // ── Abandoned-checkout sweep ────────────────────────────────────────
 /** How long a PENDING_PAYMENT team keeps its slot before it's released. */
-const PENDING_PAYMENT_TTL_MINUTES = 30;
+// 10, not 30: this only exists to stop an abandoned checkout holding a
+// slot forever, and 30 minutes locked a captain out of their own
+// tournament long after they had given up and wanted to retry.
+//
+// The row is WITHDRAWN, never deleted. Deleting would free the name and
+// the slot just the same, but it also destroys the row a late gateway
+// confirmation attaches to — PhonePe DQR can settle after the window —
+// and that is the orphaned-payment leak we already fixed on bookings.
+const PENDING_PAYMENT_TTL_MINUTES = 10;
 
 /** Release registrations whose payment was never completed.
  *
@@ -280,10 +288,49 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
       captainUserId: input.userId,
       status: { in: ["CONFIRMED", "PENDING_PAYMENT", "WAITLISTED"] },
     },
-    select: { id: true },
+    select: { id: true, status: true, pointsUsed: true },
   });
   if (existing) {
-    return { ok: false, error: "You have already registered a team in this tournament" };
+    // The captain's OWN abandoned checkout is not a collision — it is them
+    // trying again. Cancelling at the payment sheet used to lock them out
+    // of their own tournament for the whole TTL, behind an error that read
+    // as though someone else had taken their place.
+    //
+    // Release it here and let registration proceed normally: exactly what
+    // the sweep would do minutes later, just without the wait. The row is
+    // WITHDRAWN rather than deleted so a late gateway confirmation still
+    // has something to attach to, and any reward points go back.
+    if (existing.status === "PENDING_PAYMENT") {
+      const released = await db.tournamentTeam.updateMany({
+        where: { id: existing.id, status: "PENDING_PAYMENT" },
+        data: { status: "WITHDRAWN", pointsUsed: 0 },
+      });
+      // count === 0 means a payment confirmed in the gap between our read
+      // and this write. That team is real now, so do NOT let a second one
+      // through — tell them it is done.
+      if (released.count === 0) {
+        return {
+          ok: false,
+          error: "Your team is already registered for this tournament",
+        };
+      }
+      if (existing.pointsUsed > 0 && input.userId) {
+        await refundRedemption({
+          userId: input.userId,
+          points: existing.pointsUsed,
+          tournamentTeamId: existing.id,
+          reason: "tournament registration retried",
+        }).catch(() => {});
+      }
+    } else {
+      return {
+        ok: false,
+        error:
+          existing.status === "WAITLISTED"
+            ? "Your team is already on the waitlist for this tournament"
+            : "Your team is already registered for this tournament",
+      };
+    }
   }
   const nameTaken = await db.tournamentTeam.findFirst({
     where: {
