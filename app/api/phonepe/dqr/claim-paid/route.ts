@@ -2,7 +2,10 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { getValidHold } from "@/lib/slot-hold";
 import { createBookingFromHold } from "@/actions/booking";
-import { notifyAdminPendingBooking } from "@/lib/notifications";
+import {
+  notifyAdminPendingBooking,
+  notifyAdminPendingManualPayment,
+} from "@/lib/notifications";
 import { probeUntilSettled } from "@/lib/dqr-inflight";
 import { db } from "@/lib/db";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
@@ -157,6 +160,23 @@ export async function POST(request: NextRequest) {
         data: { claimedAt: new Date() },
       });
     }
+    // Tell the admins, exactly as the booking path does. This branch
+    // returns before notifyAdminPendingBooking further down, so without
+    // this a pass or cafe claim sat in the unconfirmed queue in silence.
+    //
+    // Inside after() for the same reason as the booking call: a bare
+    // promise is killed when the function freezes on response.
+    after(async () => {
+      const claimant = await db.user
+        .findUnique({ where: { id: userId }, select: { name: true, phone: true } })
+        .catch(() => null);
+      await notifyAdminPendingManualPayment(
+        surface === "cafe" ? "cafe" : "pass",
+        claimant?.name || claimant?.phone || "A customer",
+      ).catch((err) =>
+        console.error(`[dqr] admin pending ${surface} notify failed`, err),
+      );
+    });
     logServerAction({
       userId,
       category: AnalyticsCategory.PAYMENT,

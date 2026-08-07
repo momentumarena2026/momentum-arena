@@ -354,6 +354,80 @@ export async function notifyAdminPendingBooking(
   }
 }
 
+/**
+ * A customer claimed they paid for a PASS or a CAFE order by hand (the
+ * "I've paid" button on the static-QR flow), so it is sitting in the
+ * unconfirmed queue waiting for an admin to verify the UTR.
+ *
+ * Until now only the BOOKING path notified anyone: claim-paid returns
+ * early for pass/cafe, well before notifyAdminPendingBooking is reached,
+ * so a pass claim landed in the queue silently and waited for somebody to
+ * happen to look.
+ *
+ * Reuses the admin_pending_booking push template AND the same MSG91 DLT
+ * template as bookings, per the venue's request — one message, one habit.
+ * The SMS deep-links to the unconfirmed queue either way; the surface
+ * shows on the push so an admin knows what they are opening.
+ */
+export async function notifyAdminPendingManualPayment(
+  surface: "pass" | "cafe",
+  customerName: string,
+): Promise<void> {
+  // Awaited, not fire-and-forget: callers wrap this in after(), and the
+  // serverless freeze kills any promise still in flight on return. That
+  // is exactly why the booking SMS used to land only sometimes.
+  await sendTemplatedToAdmins(
+    "admin_pending_booking",
+    { customerName },
+    { kind: "admin_pending_booking", surface },
+  ).catch((err) =>
+    console.error(`[push] admin pending ${surface} claim failed:`, err),
+  );
+
+  const adminPhones = parseAdminPhones();
+  if (adminPhones.length === 0) {
+    console.log(
+      `[DEV] No admin phones configured. Skipping ${surface} claim notification`,
+    );
+    return;
+  }
+
+  const adminPanelUrl =
+    "https://www.momentumarena.com/admin/bookings/unconfirmed";
+
+  if (!MSG91_AUTH_KEY || !MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID) {
+    console.log(
+      `\n[DEV] Admin Pending ${surface} SMS:`,
+      `\n  customer_name: ${customerName}`,
+      `\n  admin_panel_url: ${adminPanelUrl}`,
+      `\n  to: ${adminPhones.join(", ")}\n`,
+    );
+    return;
+  }
+
+  try {
+    const response = await fetch("https://control.msg91.com/api/v5/flow/", {
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+      headers: { "Content-Type": "application/json", authkey: MSG91_AUTH_KEY },
+      body: JSON.stringify({
+        template_id: MSG91_ADMIN_PENDING_BOOKING_TEMPLATE_ID,
+        recipients: adminPhones.map((phone) => ({
+          mobiles: phone,
+          name: customerName,
+          url: adminPanelUrl,
+        })),
+      }),
+    });
+    console.log(
+      `MSG91 admin pending ${surface} response:`,
+      JSON.stringify(await response.json()),
+    );
+  } catch (error) {
+    console.error(`MSG91 admin pending ${surface} notification error:`, error);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // notifyAdminBookingConfirmed
 // ---------------------------------------------------------------------------
