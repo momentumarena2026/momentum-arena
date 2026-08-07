@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { StoreBadgeLink } from "@/components/store-badge-link";
 import { isDownloadAppBannerEnabled } from "@/actions/admin-download-app-banner";
 import {
   APP_STORE_URL,
@@ -44,6 +45,10 @@ function PlayGlyph({ className }: { className?: string }) {
 
 interface Props {
   variant?: "icon" | "full";
+  /** Where this badge sits, so the download funnel can attribute the tap.
+   *  Defaults to "other" rather than guessing — an unlabelled tap is
+   *  better than one filed under the wrong surface. */
+  placement?: "header" | "footer" | "sticky_bar" | "other";
   /** Tighter full badge for the sticky app bar. A CSS `scale` looked right
    *  but doesn't shrink the LAYOUT box, so the badge kept reserving its
    *  full width and squeezed the copy beside it into an ellipsis. */
@@ -53,7 +58,13 @@ interface Props {
   platform?: DevicePlatform;
 }
 
-export async function StoreBadges({ variant = "full", className, platform, compact = false }: Props) {
+export async function StoreBadges({
+  variant = "full",
+  className,
+  platform,
+  compact = false,
+  placement = "other",
+}: Props) {
   // Gated here rather than at each call site: three surfaces render this,
   // and a switch that only silenced two of them would read as a bug.
   if (!(await isDownloadAppBannerEnabled())) return null;
@@ -68,28 +79,28 @@ export async function StoreBadges({ variant = "full", className, platform, compa
     return (
       <div className={`flex items-center gap-1.5 ${className ?? ""}`}>
         {showApple && (
-          <a
+          <StoreBadgeLink
             href={APP_STORE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Download Momentum Arena on the App Store"
+            store="ios"
+            placement={placement}
+            ariaLabel="Download Momentum Arena on the App Store"
             title="Download on the App Store"
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
           >
             <AppleGlyph className="h-4 w-4" />
-          </a>
+          </StoreBadgeLink>
         )}
         {showPlay && (
-          <a
+          <StoreBadgeLink
             href={PLAY_STORE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Get Momentum Arena on Google Play"
+            store="android"
+            placement={placement}
+            ariaLabel="Get Momentum Arena on Google Play"
             title="Get it on Google Play"
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 transition-colors hover:border-zinc-500"
           >
             <PlayGlyph className="h-4 w-4" />
-          </a>
+          </StoreBadgeLink>
         )}
       </div>
     );
@@ -98,11 +109,11 @@ export async function StoreBadges({ variant = "full", className, platform, compa
   return (
     <div className={`flex flex-wrap items-center gap-3 ${className ?? ""}`}>
       {showApple && (
-        <a
+        <StoreBadgeLink
           href={APP_STORE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Download Momentum Arena on the App Store"
+          store="ios"
+          placement={placement}
+          ariaLabel="Download Momentum Arena on the App Store"
           className={`flex items-center rounded-xl border border-zinc-700 bg-zinc-900 transition-colors hover:border-zinc-500 hover:bg-zinc-800 ${compact ? "gap-2 px-2.5 py-1.5" : "gap-3 px-4 py-2.5"}`}
         >
           <AppleGlyph className={`${compact ? "h-4 w-4" : "h-6 w-6"} text-white`} />
@@ -112,14 +123,14 @@ export async function StoreBadges({ variant = "full", className, platform, compa
             </span>
             <span className={`block font-semibold text-white ${compact ? "text-[11px]" : "text-sm"}`}>App Store</span>
           </span>
-        </a>
+        </StoreBadgeLink>
       )}
       {showPlay && (
-        <a
+        <StoreBadgeLink
           href={PLAY_STORE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Get Momentum Arena on Google Play"
+          store="android"
+          placement={placement}
+          ariaLabel="Get Momentum Arena on Google Play"
           className={`flex items-center rounded-xl border border-zinc-700 bg-zinc-900 transition-colors hover:border-zinc-500 hover:bg-zinc-800 ${compact ? "gap-2 px-2.5 py-1.5" : "gap-3 px-4 py-2.5"}`}
         >
           <PlayGlyph className={compact ? "h-4 w-4" : "h-6 w-6"} />
@@ -129,7 +140,7 @@ export async function StoreBadges({ variant = "full", className, platform, compa
             </span>
             <span className={`block font-semibold text-white ${compact ? "text-[11px]" : "text-sm"}`}>Google Play</span>
           </span>
-        </a>
+        </StoreBadgeLink>
       )}
     </div>
   );

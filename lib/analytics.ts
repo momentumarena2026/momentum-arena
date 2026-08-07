@@ -65,6 +65,23 @@ export function trackEvent(
   }
 }
 
+// ─── App download ─────────────────────────────────────────────────
+
+/**
+ * A tap on a "get the app" badge. `placement` distinguishes the header
+ * icon from the footer badge and the sticky bar, so we can tell which
+ * surface actually earns installs rather than only that some did.
+ *
+ * NAVIGATION rather than a new category: this is a link out of the site,
+ * the same family as deep_link_opened.
+ */
+export function trackDownloadAppClick(
+  store: "ios" | "android",
+  placement: "header" | "footer" | "sticky_bar" | "other",
+) {
+  trackEvent("download_app_click", { store, placement }, "NAVIGATION");
+}
+
 // ─── Booking Funnel ───────────────────────────────────────────────
 
 export function trackSportSelected(sport: string) {
