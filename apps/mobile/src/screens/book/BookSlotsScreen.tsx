@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -424,17 +423,7 @@ export function BookSlotsScreen() {
         // course header) so the customer keeps the day strip in
         // reach while scrolling slots — matches the web sticky
         // date picker behavior on /book/[sport]/[configId].
-        // iOS only. On Android a stuck sticky header is translated
-        // outside its parent's bounds, and Android does not deliver
-        // touches to views outside those bounds — so once the customer
-        // selected a slot (which grows the content enough for the header
-        // to actually stick) the date strip stopped responding and they
-        // were trapped on that date until they deselected. iOS delivers
-        // those touches, which is why it only broke on Android.
-        //
-        // The strip simply scrolls with the content on Android: a small
-        // loss of convenience instead of a dead control.
-        stickyHeaderIndices={Platform.OS === "ios" ? [1] : undefined}
+        stickyHeaderIndices={[1]}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
