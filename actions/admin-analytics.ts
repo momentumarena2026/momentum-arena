@@ -151,6 +151,20 @@ export async function getRevenueOverTime(
               AND tt."paidAt" >= ${from}
               AND tt."paidAt" <= ${to}
             GROUP BY period
+
+            UNION ALL
+
+            -- Venue hire from a third-party organiser is tournament income
+            -- on the same footing as an entry fee: it is what that
+            -- tournament earned us. Those events charge teams nothing, so
+            -- without this row the whole event reads as zero revenue.
+            SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, op."receivedAt") AS period,
+                   SUM(op."amount")::bigint AS revenue
+            FROM "TournamentOrganizerPayment" op
+            WHERE op."amount" > 0
+              AND op."receivedAt" >= ${from}
+              AND op."receivedAt" <= ${to}
+            GROUP BY period
             ORDER BY period
           `);
 
@@ -1176,6 +1190,24 @@ export async function getDailyEarningsForMonth(
         AND tt."paidAt" >= ${istStart}
         AND tt."paidAt" < ${istNextStart}
       GROUP BY day
+
+      UNION ALL
+
+      -- Venue hire from third-party organisers. Without this the day-by-day
+      -- breakdown showed nothing for a third-party event: its teams pay us
+      -- nothing (the organiser collects entry fees), so the query above
+      -- returns no rows for it and a recorded hire payment was invisible
+      -- here even though the revenue tile counted it. Same UNION shape and
+      -- the same IST day bucket; cash basis on receivedAt.
+      SELECT
+        EXTRACT(DAY FROM (op."receivedAt" + interval '330 minutes'))::int AS day,
+        SUM(op."amount")::bigint AS earnings,
+        COUNT(*)::bigint AS team_count
+      FROM "TournamentOrganizerPayment" op
+      WHERE op."amount" > 0
+        AND op."receivedAt" >= ${istStart}
+        AND op."receivedAt" < ${istNextStart}
+      GROUP BY day
       ORDER BY day
     `);
 
@@ -1341,6 +1373,20 @@ export async function getMonthlyEarningsForYear(
         AND tt.status = 'CONFIRMED'
         AND tt."paidAt" >= ${istStart}
         AND tt."paidAt" < ${istNextStart}
+      GROUP BY month
+
+      UNION ALL
+
+      -- Third-party venue hire, same reasoning as the daily query: those
+      -- tournaments take nothing from teams, so without this the whole
+      -- month reads as zero tournament revenue.
+      SELECT
+        EXTRACT(MONTH FROM (op."receivedAt" + interval '330 minutes'))::int AS month,
+        SUM(op."amount")::bigint AS earnings
+      FROM "TournamentOrganizerPayment" op
+      WHERE op."amount" > 0
+        AND op."receivedAt" >= ${istStart}
+        AND op."receivedAt" < ${istNextStart}
       GROUP BY month
       ORDER BY month
     `);
