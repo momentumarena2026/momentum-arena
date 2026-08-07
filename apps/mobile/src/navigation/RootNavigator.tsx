@@ -189,6 +189,22 @@ export function RootNavigator() {
         case "admin_booking_confirmed":
         case "admin_booking_cancelled":
           if (payload.bookingId) {
+            // Build the stack as [list, detail] rather than navigating
+            // straight to the detail.
+            //
+            // A plain nested navigate leaves the detail as the ONLY route in
+            // the Bookings stack, with two consequences an admin actually
+            // hit: Back had nothing to pop to so it fell out to whichever
+            // tab was showing when the push arrived (Analytics), and the
+            // Bookings tab stayed parked on that one booking — tapping
+            // Bookings later reopened it instead of the list.
+            //
+            // Giving the stack its list underneath makes Back mean "the
+            // bookings list" and leaves the tab in a sane state afterwards.
+            navigationRef.navigate("AdminShell", {
+              screen: "AdminBookings",
+              params: { screen: "AdminBookingsList" },
+            });
             navigationRef.navigate("AdminShell", {
               screen: "AdminBookings",
               params: {
