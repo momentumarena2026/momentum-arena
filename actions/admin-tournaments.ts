@@ -11,6 +11,10 @@ import {
   structureWarnings,
 } from "@/lib/tournament-config";
 import { reconcileTeamSquad } from "@/lib/tournaments";
+import {
+  TEAM_COLLECT_METHODS,
+  TEAM_REGISTER_METHODS,
+} from "@/lib/tournament-payments";
 
 async function gate() {
   return requireAdmin("MANAGE_TOURNAMENTS");
@@ -333,6 +337,12 @@ export async function getTournamentAdmin(id: string) {
           courtConfig: { select: { label: true } },
         },
       },
+      // Match windows, so the team dialog can turn a team's stored
+      // `<slotId>#<hour>` picks back into readable days and hours.
+      slots: {
+        orderBy: [{ date: "asc" }, { startHour: "asc" }],
+        include: { courtConfig: { select: { label: true } } },
+      },
       _count: { select: { matches: true } },
     },
   });
@@ -419,6 +429,13 @@ export async function recordTeamPayment(
   if (!Number.isInteger(amount) || amount <= 0) {
     return { success: false, error: "Enter a valid amount" };
   }
+  // Whitelist the method. It used to be an unvalidated string written
+  // straight onto the row, so a typo (or a crafted call) could park an
+  // unknown method on the team and quietly break every report that groups
+  // by it. FREE is not collectable — see lib/tournament-payments.ts.
+  if (!(TEAM_COLLECT_METHODS as readonly string[]).includes(method)) {
+    return { success: false, error: "Pick a valid payment method" };
+  }
   const team = await db.tournamentTeam.findUnique({
     where: { id: teamId },
     select: { tournamentId: true, dueAmount: true, paidAt: true },
@@ -454,7 +471,7 @@ const adminRegisterSchema = z.object({
   members: z.array(z.string().trim().min(1).max(60)).max(50).default([]),
   /** ₹ collected at the venue right now (0 allowed — collect later). */
   collectedAmount: z.number().int().min(0).max(10_00_000),
-  method: z.enum(["CASH", "STATIC_QR", "FREE"]),
+  method: z.enum(TEAM_REGISTER_METHODS),
 });
 
 /** Venue-side registration by an admin — mirrors admin bookings / issue-pass:
@@ -508,6 +525,13 @@ export async function adminRegisterTeam(
       paidAmount: paid,
       dueAmount: Math.max(0, fee - paid),
       paymentMethod: d.method,
+      // Stamp the cash-basis date only when money actually changed hands.
+      // Registering with "collect later" leaves this null on purpose, so
+      // the fee shows up as revenue on the day it is collected rather than
+      // the day the team was entered. Without this, cash taken at the
+      // counter during registration was recorded with no date at all and
+      // never reached the analytics or the CA report, which key on paidAt.
+      paidAt: paid > 0 ? new Date() : null,
       members: {
         create: squad.map((name, i) => ({ name, order: i, isCaptain: i === 0 })),
       },

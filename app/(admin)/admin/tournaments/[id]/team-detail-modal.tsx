@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, Plus, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import {
   adminEditTeam,
@@ -32,13 +32,46 @@ export type TeamDetail = {
   couponCode: string | null;
   discount?: number;
   pointsUsed?: number;
+  /** Hour-level picks, stored as `<slotId>#<startHour>`. */
+  preferredSlotIds?: string[];
   pool: { name: string } | null;
   members: TeamMemberRow[];
   archivedAt: string | null;
   createdAt: string;
 };
 
+export type SlotWindow = {
+  id: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  label: string | null;
+  courtConfig: { label: string } | null;
+};
+
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+
+// Same formatting the captain saw when picking (see slot-preferences.tsx),
+// so admin and customer are reading the same words.
+const hourLabel = (h: number) => {
+  const hr = h % 24;
+  const am = hr < 12;
+  const v = hr % 12 === 0 ? 12 : hr % 12;
+  return `${v}${am ? "am" : "pm"}`;
+};
+
+/** Collapse [6,7,8,11] into "6-9am, 11am-12pm" — a wall of single hours
+ *  is unreadable when a captain ticks a whole morning. */
+function hourRanges(hours: number[]): string {
+  const sorted = [...hours].sort((a, b) => a - b);
+  const spans: [number, number][] = [];
+  for (const h of sorted) {
+    const last = spans[spans.length - 1];
+    if (last && h === last[1]) last[1] = h + 1;
+    else spans.push([h, h + 1]);
+  }
+  return spans.map(([a, b]) => `${hourLabel(a)}\u2013${hourLabel(b)}`).join(", ");
+}
 
 /**
  * Full team record in one place — squad (name + phone, editable), the
@@ -54,11 +87,14 @@ const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
  */
 export function TeamDetailModal({
   team,
+  slots,
   maxMembers,
   onClose,
   onSaved,
 }: {
   team: TeamDetail;
+  /** Every match window on the tournament, to resolve the team's picks. */
+  slots?: SlotWindow[];
   maxMembers: number;
   onClose: () => void;
   onSaved: () => void;
@@ -79,6 +115,26 @@ export function TeamDetailModal({
   }, [team]);
 
   const archived = !!team.archivedAt;
+
+  // Resolve the stored `<slotId>#<hour>` picks against the live windows.
+  // A window deleted since the captain picked is skipped: the delete path
+  // prunes those keys, but a stale one must never render as a blank row.
+  const preferred = useMemo(() => {
+    const picks = team.preferredSlotIds ?? [];
+    if (!slots?.length || picks.length === 0) return [];
+    const byWindow = new Map<string, number[]>();
+    for (const key of picks) {
+      const [slotId, raw] = key.split("#");
+      const hour = Number(raw);
+      if (!slotId || !Number.isInteger(hour)) continue;
+      const list = byWindow.get(slotId);
+      if (list) list.push(hour);
+      else byWindow.set(slotId, [hour]);
+    }
+    return slots
+      .filter((w) => byWindow.has(w.id))
+      .map((w) => ({ window: w, hours: byWindow.get(w.id) as number[] }));
+  }, [team.preferredSlotIds, slots]);
 
   async function run(key: string, fn: () => Promise<{ success: boolean; error?: string }>) {
     setBusy(key);
@@ -198,6 +254,50 @@ export function TeamDetailModal({
               {team.captainPhone}
               {team.captainEmail ? ` · ${team.captainEmail}` : ""}
             </p>
+          </section>
+
+          {/* Preferred slots — read-only. The captain owns these picks;
+              the draw generator only schedules a team into hours it
+              ticked, so an admin chasing "why is this team unscheduled?"
+              needs to see them without opening the customer site. */}
+          <section className="mb-5">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Preferred slots
+            </h3>
+            {!slots?.length ? (
+              <p className="text-xs text-zinc-500">
+                No match windows created for this tournament yet.
+              </p>
+            ) : preferred.length === 0 ? (
+              // Empty picks are not "unanswered" — the generator reads
+              // them as "any window works", so say that rather than
+              // leaving a blank the admin has to interpret.
+              <p className="text-xs text-zinc-400">
+                No preference set —{" "}
+                <span className="text-zinc-500">available for any window.</span>
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {preferred.map(({ window: w, hours }) => (
+                  <li key={w.id} className="text-sm">
+                    <span className="text-white">
+                      {new Date(w.date).toLocaleDateString("en-IN", {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                        timeZone: "Asia/Kolkata",
+                      })}
+                    </span>
+                    <span className="ml-2 text-emerald-400">{hourRanges(hours)}</span>
+                    <span className="ml-2 text-xs text-zinc-500">
+                      {hours.length} of {w.endHour - w.startHour} hrs
+                      {w.label ? ` · ${w.label}` : ""}
+                      {w.courtConfig ? ` · ${w.courtConfig.label}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           {/* Team name */}

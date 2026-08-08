@@ -28,6 +28,8 @@ export interface AdminTeamRow {
   dueAmount: number;
   paymentMethod: string | null;
   pool: { name: string } | null;
+  /** Hour-level picks, stored as `<slotId>#<startHour>`. */
+  preferredSlotIds?: string[];
   members: { id: string; name: string }[];
 }
 

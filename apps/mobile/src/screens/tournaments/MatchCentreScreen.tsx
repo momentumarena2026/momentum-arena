@@ -9,6 +9,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius } from "../../theme";
 import { getMatchCentre, type InningsCard } from "../../lib/tournaments";
 import type { AccountStackParamList } from "../../navigation/types";
+import { usePullToRefresh } from "../../hooks/usePullToRefresh";
 
 // ESPNcricinfo-shaped match centre for the app: result header, then
 // Scorecard / Commentary / Info. Live matches refetch on an interval.
@@ -105,11 +106,14 @@ export function MatchCentreScreen() {
   const { matchId } = useRoute<Rt>().params;
   const [tab, setTab] = useState<Tab>("Scorecard");
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ["match-centre", matchId],
     queryFn: () => getMatchCentre(matchId),
     refetchInterval: (q) => (q.state.data?.match.status === "LIVE" ? 5000 : false),
   });
+  // A live match refetches every 5s; that must not flash the spinner.
+  const { refreshing: pullRefreshing, onRefresh: onPullRefresh } =
+    usePullToRefresh(refetch);
 
   if (isLoading || !data) {
     return (
@@ -131,7 +135,7 @@ export function MatchCentreScreen() {
     <Screen>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.emerald400} />}
+        refreshControl={<RefreshControl refreshing={pullRefreshing} onRefresh={onPullRefresh} tintColor={colors.emerald400} />}
       >
         {/* Header */}
         <View style={styles.card}>

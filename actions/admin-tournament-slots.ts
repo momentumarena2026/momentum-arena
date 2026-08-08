@@ -188,9 +188,15 @@ export async function getSlotPlanning(tournamentId: string) {
       endHour: s.endHour,
       label: s.label,
       courtLabel: s.courtConfig?.label ?? null,
-      // How many teams ticked this window — the admin's signal for
-      // whether a window is worth keeping.
-      preferredBy: t.teams.filter((x) => x.preferredSlotIds.includes(s.id)).length,
+      // How many teams ticked ANY hour in this window — the admin's
+      // signal for whether a window is worth keeping.
+      //
+      // This compared against the bare slot id, but picks are stored as
+      // `<slotId>#<startHour>` (see slotHourKey), so the count was always
+      // zero and every window looked unwanted.
+      preferredBy: t.teams.filter((x) =>
+        x.preferredSlotIds.some((k) => k.startsWith(`${s.id}#`)),
+      ).length,
     })),
   };
 }

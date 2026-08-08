@@ -24,6 +24,7 @@ import {
 import { useAuth } from "../../providers/AuthProvider";
 import type { AccountStackParamList } from "../../navigation/types";
 import { trackTournamentView } from "../../lib/analytics";
+import { usePullToRefresh } from "../../hooks/usePullToRefresh";
 
 type Nav = NativeStackNavigationProp<AccountStackParamList>;
 type Rt = RouteProp<AccountStackParamList, "TournamentDetail">;
@@ -408,11 +409,14 @@ export function TournamentDetailScreen() {
     trackTournamentView(slug);
   }, [slug]);
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ["tournament", slug],
     queryFn: () => getTournament(slug),
     refetchInterval: 10000,
   });
+  // Poll silently — the spinner belongs to the pull gesture only.
+  const { refreshing: pullRefreshing, onRefresh: onPullRefresh } =
+    usePullToRefresh(refetch);
 
   const teams = useMemo(
     () => new Map((data?.teams || []).map((t) => [t.id, t])),
@@ -559,7 +563,7 @@ export function TournamentDetailScreen() {
     <Screen padded={false}>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.emerald400} />}
+        refreshControl={<RefreshControl refreshing={pullRefreshing} onRefresh={onPullRefresh} tintColor={colors.emerald400} />}
       >
         {/* Banner — the admin's uploaded image, else the sport's stock
             photo. Web leads with this; the app rendered no image at all. */}
