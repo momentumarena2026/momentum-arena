@@ -177,11 +177,33 @@ const styles = StyleSheet.create({
   title: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
   body: { color: colors.zinc400, fontSize: 12, textAlign: "center", lineHeight: 18 },
   dialWrap: { width: SIZE, height: SIZE, alignItems: "center", justifyContent: "center" },
-  dialCentre: { position: "absolute", alignItems: "center" },
-  bigNum: { color: "#c4b5fd", fontSize: 34, fontWeight: "800" },
-  bigLabel: { color: colors.zinc500, fontSize: 11, marginTop: -2 },
+  // Pinned to all four edges rather than left to size itself. An
+  // absolute box with no insets takes its height from the glyphs, and a
+  // 34px number with no lineHeight overflowed it — the digits rendered
+  // with their tops sliced off.
+  dialCentre: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Explicit lineHeight on every number here: the default is
+  // font-dependent, and these sit inside fixed-size boxes where a tall
+  // glyph has nowhere to go.
+  bigNum: {
+    color: "#c4b5fd",
+    fontSize: 34,
+    lineHeight: 42,
+    fontWeight: "800",
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  bigLabel: { color: colors.zinc500, fontSize: 11, lineHeight: 14 },
   unitsRow: { flexDirection: "row", gap: 18 },
   unit: { alignItems: "center", minWidth: 46 },
-  unitNum: { color: colors.foreground, fontSize: 20, fontWeight: "700" },
+  unitNum: { color: colors.foreground, fontSize: 20, lineHeight: 26, fontWeight: "700" },
   unitLabel: { color: colors.zinc500, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6 },
 });
