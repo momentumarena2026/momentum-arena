@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Shuffle, Eye } from "lucide-react";
-import { autoAssignPools, moveTeamToPool } from "@/actions/admin-tournament-fixtures";
+import { Loader2, Shuffle, Eye, LayoutGrid, Trash2 } from "lucide-react";
+import {
+  autoAssignPools,
+  clearPools,
+  createEmptyPools,
+  moveTeamToPool,
+} from "@/actions/admin-tournament-fixtures";
 
 type Team = { id: string; name: string; status: string; poolId?: string | null; color: string | null };
 type Pool = { id: string; name: string; order: number };
@@ -40,6 +45,32 @@ export function PoolsTab({
     }
   };
 
+  const makeEmpty = async () => {
+    if (pools.length && !confirm("Replace the current pools with empty ones? Every team becomes unassigned.")) return;
+    setBusy("empty");
+    setError(null);
+    try {
+      const res = await createEmptyPools(tournamentId);
+      if (!res.success) setError(res.error || "Failed");
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const wipe = async () => {
+    if (!confirm("Delete all pools? Every team becomes unassigned.")) return;
+    setBusy("clear");
+    setError(null);
+    try {
+      const res = await clearPools(tournamentId);
+      if (!res.success) setError(res.error || "Failed");
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const move = async (teamId: string, poolId: string) => {
     setBusy(teamId);
     setError(null);
@@ -63,6 +94,26 @@ export function PoolsTab({
           {busy === "deal" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shuffle className="h-4 w-4" />}
           {pools.length ? "Re-deal pools (random)" : "Deal pools (random)"}
         </button>
+        {/* Build the grid by hand instead of re-rolling until the random
+            deal happens to agree with you. */}
+        <button
+          onClick={makeEmpty}
+          disabled={busy === "empty" || locked}
+          className="flex items-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+        >
+          {busy === "empty" ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutGrid className="h-4 w-4" />}
+          Create empty pools
+        </button>
+        {pools.length > 0 && (
+          <button
+            onClick={wipe}
+            disabled={busy === "clear" || locked}
+            className="flex items-center gap-2 rounded-xl border border-red-500/30 px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-600/10 disabled:opacity-40"
+          >
+            {busy === "clear" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Clear pools
+          </button>
+        )}
         {revealAt && (
           <span className="flex items-center gap-1.5 text-xs text-violet-400">
             <Eye className="h-3.5 w-3.5" /> Reveal countdown set:{" "}
@@ -74,8 +125,10 @@ export function PoolsTab({
       <p className="text-xs text-zinc-500">
         Pools stay hidden from customers until you move the tournament to{" "}
         <span className="text-violet-400">Pools Revealed</span> (or the reveal countdown hits zero
-        after you transition). Re-dealing randomises everything again; use the per-team selector for
-        manual tweaks.
+        after you transition). The random deal groups teams by the slots they said they can play, so
+        a pool&apos;s round-robin fits the windows its members share — re-deal for a different
+        arrangement, start from empty pools to build it yourself, and use the per-team selector
+        either way.
       </p>
       {error && <p className="text-sm text-red-400">{error}</p>}
 
