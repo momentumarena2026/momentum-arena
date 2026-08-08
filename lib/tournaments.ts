@@ -976,24 +976,41 @@ export async function setTeamSlotPreferences(args: {
       error: "The schedule is already published — contact the venue to change slots",
     };
   }
-  // Picks are hour-level keys: `<slotId>#<startHour>`. Keep only keys
-  // whose window belongs to THIS tournament AND whose hour actually
-  // falls inside that window — anything else is dropped, not trusted.
+  const valid = await filterValidSlotKeys(team.tournamentId, args.slotIds);
+  await db.tournamentTeam.update({
+    where: { id: team.id },
+    data: { preferredSlotIds: valid },
+  });
+  return { ok: true };
+}
+
+/**
+ * Keep only the hour keys (`<slotId>#<startHour>`) whose window belongs to
+ * THIS tournament and whose hour actually falls inside that window.
+ * Anything else is dropped, not trusted.
+ *
+ * Shared by the captain's own save and the admin's — an admin entering a
+ * team's availability over the phone must land the same keys the draw
+ * generator reads, or the team quietly becomes unschedulable.
+ */
+export async function filterValidSlotKeys(
+  tournamentId: string,
+  keys: string[],
+): Promise<string[]> {
   const windows = await db.tournamentSlot.findMany({
-    where: { tournamentId: team.tournamentId },
+    where: { tournamentId },
     select: { id: true, startHour: true, endHour: true },
   });
   const byId = new Map(windows.map((w) => [w.id, w]));
-  const valid = args.slotIds.filter((key) => {
-    const [slotId, rawHour] = key.split("#");
-    const w = byId.get(slotId);
-    if (!w) return false;
-    const hour = Number(rawHour);
-    return Number.isInteger(hour) && hour >= w.startHour && hour < w.endHour;
-  });
-  await db.tournamentTeam.update({
-    where: { id: team.id },
-    data: { preferredSlotIds: Array.from(new Set(valid)) },
-  });
-  return { ok: true };
+  return Array.from(
+    new Set(
+      keys.filter((key) => {
+        const [slotId, rawHour] = key.split("#");
+        const w = byId.get(slotId);
+        if (!w) return false;
+        const hour = Number(rawHour);
+        return Number.isInteger(hour) && hour >= w.startHour && hour < w.endHour;
+      }),
+    ),
+  );
 }

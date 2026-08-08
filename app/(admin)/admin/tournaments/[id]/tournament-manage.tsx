@@ -125,6 +125,7 @@ export type AdminTournament = {
   organizerEmail: string | null;
   quotedAmount: number;
   organizerNote: string | null;
+  scheduleApprovedAt: string | null;
   teams: TeamRow[];
   slots: {
     id: string;
@@ -687,6 +688,7 @@ export function TournamentManage({
                   <TeamDetailModal
                     team={team}
                     slots={t.slots}
+                    scheduleApproved={!!t.scheduleApprovedAt}
                     maxMembers={t.membersPerTeamMax}
                     onClose={() => setDetailTeamId(null)}
                     onSaved={() => router.refresh()}
