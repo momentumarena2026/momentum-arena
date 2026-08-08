@@ -116,96 +116,81 @@ function ReleaseSlotCard({
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800 text-left text-[11px] uppercase tracking-wider text-zinc-500">
-                  <th className="px-5 py-2.5 font-medium">OTA</th>
-                  <th className="px-5 py-2.5 font-medium">Status</th>
-                  <th className="px-5 py-2.5 font-medium">Rollout</th>
-                  <th className="w-full px-5 py-2.5 font-medium">Changelog</th>
-                  <th className="px-5 py-2.5 font-medium">Created</th>
-                  <th className="px-5 py-2.5 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.map((r) => {
-                  const badge = STATUS_BADGE[r.status];
-                  // Rolling out a release older than the live one never cleanly
-                  // reverts (expo-updates won't downgrade) — block it in the UI
-                  // to match the server guard.
-                  const olderThanLive =
-                    !!live &&
-                    r.id !== live.id &&
-                    new Date(r.createdAt).getTime() <
-                      new Date(live.createdAt).getTime();
-                  return (
-                    <tr
-                      key={r.id}
-                      className="border-b border-zinc-800/60 align-top transition-colors last:border-0 hover:bg-zinc-800/30"
+          {/* One block per release rather than a table row.
+              The table gave Changelog `w-full` and left Actions whatever
+              was spare, so the rollout ladder wrapped one chip per line
+              and a single release ran taller than the viewport. Blocks
+              hand the controls the row's whole width, and stack cleanly
+              on a phone instead of scrolling sideways. */}
+          <ul className="divide-y divide-zinc-800/60">
+            {pageRows.map((r) => {
+              const badge = STATUS_BADGE[r.status];
+              // Rolling out a release older than the live one never cleanly
+              // reverts (expo-updates won't downgrade) — block it in the UI
+              // to match the server guard.
+              const olderThanLive =
+                !!live &&
+                r.id !== live.id &&
+                new Date(r.createdAt).getTime() <
+                  new Date(live.createdAt).getTime();
+              return (
+                <li
+                  key={r.id}
+                  className="px-4 py-3.5 transition-colors hover:bg-zinc-800/20 sm:px-5"
+                >
+                  {/* Identity line */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <span className="font-medium text-white">
+                      OTA #{r.sequence}
+                    </span>
+                    <span
+                      className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium ${badge.cls}`}
                     >
-                      <td className="whitespace-nowrap px-5 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-white">
-                            OTA #{r.sequence}
-                          </span>
-                          {r.kind === "ROLLBACK" && (
-                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
-                              Rollback
-                            </span>
-                          )}
-                        </div>
-                        <span className="block text-[11px] text-zinc-500">
-                          rt {r.runtimeVersion}
-                        </span>
-                        <span className="font-mono text-[11px] text-zinc-600">
-                          {shortId(r.id)}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span
-                          className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium ${badge.cls}`}
-                        >
-                          {badge.label}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        {r.status === "PUBLISHED" ? (
-                          <RolloutBar percent={r.rolloutPercent} />
-                        ) : (
-                          <span className="text-zinc-600">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        {r.changelog ? (
-                          <span className="line-clamp-2 text-zinc-400">
-                            {r.changelog}
-                          </span>
-                        ) : (
-                          <span className="text-zinc-600">—</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-3.5 text-zinc-400">
-                        {formatDate(r.createdAt)}
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        <OtaActions
-                          releaseId={r.id}
-                          status={r.status}
-                          rolloutPercent={r.rolloutPercent}
-                          disabledReason={
-                            olderThanLive
-                              ? "Older than the live release — devices won't downgrade. Use Roll back or publish a new release."
-                              : undefined
-                          }
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      {badge.label}
+                    </span>
+                    {r.kind === "ROLLBACK" && (
+                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+                        Rollback
+                      </span>
+                    )}
+                    {/* RolloutBar renders a div — keep it out of a span so
+                        the markup stays valid and React doesn't warn. */}
+                    {r.status === "PUBLISHED" && (
+                      <div className="ml-1">
+                        <RolloutBar percent={r.rolloutPercent} />
+                      </div>
+                    )}
+                    <span className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
+                      <span className="hidden sm:inline">rt {r.runtimeVersion}</span>
+                      <span className="hidden font-mono text-zinc-600 sm:inline">
+                        {shortId(r.id)}
+                      </span>
+                      {formatDate(r.createdAt)}
+                    </span>
+                  </div>
+
+                  {r.changelog && (
+                    <p className="mt-1.5 line-clamp-2 text-sm text-zinc-400">
+                      {r.changelog}
+                    </p>
+                  )}
+
+                  <div className="mt-2.5">
+                    <OtaActions
+                      releaseId={r.id}
+                      status={r.status}
+                      rolloutPercent={r.rolloutPercent}
+                      disabledReason={
+                        olderThanLive
+                          ? "Older than the live release — devices won't downgrade. Use Roll back or publish a new release."
+                          : undefined
+                      }
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
 
           {/* Pagination footer */}
           {pageCount > 1 && (
