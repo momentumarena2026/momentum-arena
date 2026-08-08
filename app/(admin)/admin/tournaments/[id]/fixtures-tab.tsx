@@ -23,6 +23,10 @@ export type MatchRow = {
   awaySourceLabel: string | null;
   homeScore: number | null;
   awayScore: number | null;
+  /** Scorer-facing display strings, e.g. "142/7 (16.0)". Written by
+   *  live scoring; null on a match nobody scored. */
+  homeScoreNote: string | null;
+  awayScoreNote: string | null;
   pool: { name: string } | null;
   courtConfig: { label: string } | null;
   scheduledAt: string | null;

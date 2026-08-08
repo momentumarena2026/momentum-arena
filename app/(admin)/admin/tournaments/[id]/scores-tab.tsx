@@ -59,12 +59,18 @@ export function ScoresTab({
     }
     setOpenFor(m.id);
     setError(null);
+    // Seed from whatever live scoring already recorded. applyLiveEvent
+    // keeps homeScore/awayScore current ball by ball, so a match that was
+    // scored on the console arrives here filled in and the admin only has
+    // to confirm it. A match nobody scored has nulls and stays blank for
+    // manual entry — the form is deliberately not cleared to "0", which
+    // would look like a recorded goalless result.
     setForm({
-      homeScore: "",
-      awayScore: "",
-      homeScoreNote: "",
-      awayScoreNote: "",
-      isDraw: false,
+      homeScore: m.homeScore != null ? String(m.homeScore) : "",
+      awayScore: m.awayScore != null ? String(m.awayScore) : "",
+      homeScoreNote: m.homeScoreNote ?? "",
+      awayScoreNote: m.awayScoreNote ?? "",
+      isDraw: m.homeScore != null && m.homeScore === m.awayScore,
       winnerTeamId: "",
       resultNote: "",
       playerOfMatchId: "",
@@ -189,18 +195,43 @@ export function ScoresTab({
                 <div className="mt-0.5 text-sm text-zinc-100">
                   {m.homeTeam?.name} <span className="text-zinc-600">vs</span> {m.awayTeam?.name}
                 </div>
+                {/* A match already scored on the console shows its score
+                    here, so an admin can tell at a glance which rows need
+                    typing and which only need confirming. */}
+                {m.homeScore != null && (
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
+                      Live scored
+                    </span>
+                    <span className="text-zinc-400">
+                      {m.homeScoreNote || m.homeScore}
+                      <span className="text-zinc-600"> — </span>
+                      {m.awayScoreNote || m.awayScore}
+                    </span>
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => openEntry(m)}
                 className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-medium text-emerald-400 hover:bg-emerald-600/10"
               >
                 <ClipboardEdit className="h-3.5 w-3.5" />
-                {openFor === m.id ? "Close" : "Enter result"}
+                {openFor === m.id
+                  ? "Close"
+                  : m.homeScore != null
+                  ? "Confirm result"
+                  : "Enter result"}
               </button>
             </div>
 
             {openFor === m.id && (
               <div className="mt-4 space-y-4 border-t border-zinc-800 pt-4">
+                {m.homeScore != null && (
+                  <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+                    Filled in from live scoring. Check it against the scorer&apos;s
+                    card and save — edit any field if the console got it wrong.
+                  </p>
+                )}
                 {/* Scores */}
                 <div className="grid gap-3 sm:grid-cols-2">
                   {(["home", "away"] as const).map((side) => (
