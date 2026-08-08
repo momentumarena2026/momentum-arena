@@ -100,6 +100,11 @@ export function ScorerConsole({ code }: { code: string }) {
   // over) — it belongs in a sheet that opens on demand, not in a permanent
   // wall of chips that pushes the run pad off the screen.
   const [picker, setPicker] = useState<"striker" | "nonStriker" | "bowler" | "goal" | null>(null);
+  // Add-a-player, inline in the picker. A team that registered without
+  // a squad used to dead-end here with "add them from the admin
+  // console" — no use to whoever is scoring at the boundary.
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -748,8 +753,8 @@ export function ScorerConsole({ code }: { code: string }) {
                 };
                 if (list.length === 0) {
                   return (
-                    <p className="p-5 text-sm text-zinc-500">
-                      No players in this squad yet — add them from the admin console.
+                    <p className="px-5 pb-1 pt-5 text-sm text-zinc-500">
+                      No squad entered for this team — add players as they come in.
                     </p>
                   );
                 }
@@ -811,6 +816,63 @@ export function ScorerConsole({ code }: { code: string }) {
                   );
                 });
               })()}
+              {/* Always available, not only when the squad is empty: a
+                  substitute arrives, or a name is spelled differently on
+                  the day, and neither should send the scorer to a laptop
+                  in the middle of an over. */}
+              {picker !== "goal" && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const name = newName.trim();
+                    const batting =
+                      cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+                    const bowling =
+                      batting.id === match.homeTeam.id ? match.awayTeam : match.homeTeam;
+                    const team = picker === "bowler" ? bowling : batting;
+                    if (!name || adding) return;
+                    setAdding(true);
+                    try {
+                      const res = await fetch(
+                        `/api/tournaments/scorer/${encodeURIComponent(code)}/player`,
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ teamId: team.id, name }),
+                        },
+                      );
+                      const data = await res.json();
+                      if (!res.ok || !data.member) {
+                        setError(data.error || "Couldn't add that player");
+                        return;
+                      }
+                      setNewName("");
+                      // Refetch so the new name appears in the list with
+                      // everyone else rather than being spliced in locally
+                      // and drifting from the server's ordering.
+                      await refresh();
+                    } finally {
+                      setAdding(false);
+                    }
+                  }}
+                  className="flex items-center gap-2 border-t border-zinc-800 px-5 py-4"
+                >
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Add a player…"
+                    disabled={adding}
+                    className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-600"
+                  />
+                  <button
+                    type="submit"
+                    disabled={adding || !newName.trim()}
+                    className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-400 disabled:opacity-40"
+                  >
+                    {adding ? "Adding…" : "Add"}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         </div>

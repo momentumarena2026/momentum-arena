@@ -126,6 +126,46 @@ function isChipActive<V extends string>(
   return current?.includes(value as V) ?? false;
 }
 
+/**
+ * Where the booking came from. Stored on Booking.platform as a plain
+ * string ("web" | "android" | "ios") rather than an enum, so an unknown
+ * value is rendered as-is instead of vanishing — a future "kiosk" should
+ * show up on the row the day it starts writing rows, not the day someone
+ * remembers to update this map.
+ */
+const PLATFORM_PILL: Record<string, { label: string; tone: string; bg: string; border: string }> = {
+  ios: {
+    label: "iOS",
+    tone: "#e4e4e7",
+    bg: "rgba(228, 228, 231, 0.10)",
+    border: "rgba(228, 228, 231, 0.25)",
+  },
+  android: {
+    label: "Android",
+    tone: "#86efac",
+    bg: "rgba(134, 239, 172, 0.10)",
+    border: "rgba(134, 239, 172, 0.25)",
+  },
+  web: {
+    label: "Web",
+    tone: "#93c5fd",
+    bg: "rgba(147, 197, 253, 0.10)",
+    border: "rgba(147, 197, 253, 0.25)",
+  },
+};
+
+function platformPill(platform: string | null | undefined) {
+  if (!platform) return null;
+  return (
+    PLATFORM_PILL[platform.toLowerCase()] ?? {
+      label: platform,
+      tone: colors.zinc400,
+      bg: "rgba(161, 161, 170, 0.10)",
+      border: "rgba(161, 161, 170, 0.25)",
+    }
+  );
+}
+
 // Row status pill. Label and tone live together so the two can't
 // drift apart — COMPLETED and ABSENT are terminal but NOT cancelled
 // (the venue kept the advance), so they read as their own states
@@ -650,6 +690,7 @@ function BookingRow({
   const courtLabel = booking.courtConfig.label;
   // Partial bookings still owe at venue → small amber chip on the row.
   const venueDue = venueAmountStillDue(booking.totalAmount, booking.payment);
+  const platform = platformPill(booking.platform);
 
   return (
     <Pressable
@@ -673,6 +714,20 @@ function BookingRow({
             <View style={styles.adminPill}>
               <Text variant="tiny" weight="600" color={colors.yellow400}>
                 ADMIN
+              </Text>
+            </View>
+          ) : null}
+          {/* Where the booking was made. Sits with ADMIN because both
+              answer the same question — who/what created this row. */}
+          {platform ? (
+            <View
+              style={[
+                styles.platformPill,
+                { backgroundColor: platform.bg, borderColor: platform.border },
+              ]}
+            >
+              <Text variant="tiny" weight="600" color={platform.tone}>
+                {platform.label}
               </Text>
             </View>
           ) : null}
@@ -974,6 +1029,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(250, 204, 21, 0.30)",
     backgroundColor: "rgba(250, 204, 21, 0.10)",
+  },
+  platformPill: {
+    paddingHorizontal: spacing["1"],
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
   },
   rowMeta: {
     flexDirection: "row",

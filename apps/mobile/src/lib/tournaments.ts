@@ -373,6 +373,26 @@ export async function sendScorerAction(
   });
 }
 
+/**
+ * Add a player to a team mid-match, from the scorer console.
+ *
+ * Append-only and scoped to the code's own tournament server-side — see
+ * app/api/tournaments/scorer/[code]/player/route.ts for why it is that
+ * narrow. Returns the existing member when the name already exists, so a
+ * double tap can't split one player's stats across two rows.
+ */
+export async function addScorerPlayer(
+  code: string,
+  teamId: string,
+  name: string,
+): Promise<{ ok?: boolean; member?: { id: string; name: string }; error?: string }> {
+  return api.post(
+    `/api/tournaments/scorer/${encodeURIComponent(code)}/player`,
+    { teamId, name },
+    { auth: false },
+  );
+}
+
 export async function fetchRewardsPreview(amount: number): Promise<{ maxPoints: number; maxPaise: number }> {
   return api.get(`/api/tournaments/rewards-preview?amount=${amount}`);
 }

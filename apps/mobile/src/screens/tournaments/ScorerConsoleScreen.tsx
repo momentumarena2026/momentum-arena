@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -20,6 +21,7 @@ import {
   type ScorerBoot,
   type ScorerMatch,
   type ScorerTeam,
+  addScorerPlayer,
 } from "../../lib/tournaments";
 import type { RootStackParamList } from "../../navigation/types";
 
@@ -178,6 +180,11 @@ export function ScorerConsoleScreen() {
   const [pickStriker, setPickStriker] = useState("");
   const [pickNonStriker, setPickNonStriker] = useState("");
   const [pickBowler, setPickBowler] = useState("");
+  // Add-a-player, inline in the picker. A squad that was never entered
+  // used to dead-end here with "add them from the admin console" — no
+  // use to a volunteer at the boundary with the batter waiting.
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -394,6 +401,53 @@ export function ScorerConsoleScreen() {
     picker === "bowler" ? bowling : picker === "goal" ? null : picker ? batting : null;
   const pickerValue =
     picker === "striker" ? strikerId : picker === "nonStriker" ? nonStrikerId : picker === "bowler" ? bowlerId : pickStriker;
+  /** Create the player, then select them straight away — the scorer
+   *  opened this sheet to choose someone, so making them tap the new name
+   *  afterwards is a step for nothing. */
+  const submitNewPlayer = async () => {
+    const name = newName.trim();
+    if (!name || !pickerTeam || adding) return;
+    setAdding(true);
+    setError(null);
+    try {
+      const r = await addScorerPlayer(code, pickerTeam.id, name);
+      if (r.error || !r.member) {
+        setError(r.error || "Couldn't add that player");
+        return;
+      }
+      const created = r.member;
+      // Fold into the local boot payload so the list updates now rather
+      // than after a refetch — the console polls, but the scorer is
+      // mid-over and shouldn't wait for the next tick.
+      setBoot((b) =>
+        b
+          ? {
+              ...b,
+              matches: b.matches.map((m) =>
+                m.id !== match.id
+                  ? m
+                  : {
+                      ...m,
+                      homeTeam:
+                        m.homeTeam.id === pickerTeam.id
+                          ? { ...m.homeTeam, members: [...m.homeTeam.members, created] }
+                          : m.homeTeam,
+                      awayTeam:
+                        m.awayTeam.id === pickerTeam.id
+                          ? { ...m.awayTeam, members: [...m.awayTeam.members, created] }
+                          : m.awayTeam,
+                    },
+              ),
+            }
+          : b,
+      );
+      setNewName("");
+      applyPick(created.id);
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const applyPick = (id: string) => {
     if (picker === "striker") setPickStriker(id);
     else if (picker === "nonStriker") setPickNonStriker(id);
@@ -779,10 +833,36 @@ export function ScorerConsoleScreen() {
                 );
               })}
               {(pickerTeam ? pickerTeam.members : allPlayers).length === 0 && (
-                <Text style={[s.dim, { padding: 16 }]}>
-                  No players in this squad yet — add them from the admin console.
+                <Text style={[s.dim, { padding: 16, paddingBottom: 4 }]}>
+                  No squad entered for this team — add players as they come in.
                 </Text>
               )}
+              {/* Always available, not just when the squad is empty: a
+                  substitute turns up, or a name is spelled differently on
+                  the day, and neither should send the scorer to a laptop
+                  mid-over. */}
+              {pickerTeam ? (
+                <View style={s.addRow}>
+                  <TextInput
+                    style={s.addInput}
+                    placeholder="Add a player…"
+                    placeholderTextColor={colors.zinc600}
+                    value={newName}
+                    onChangeText={setNewName}
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                    onSubmitEditing={submitNewPlayer}
+                    editable={!adding}
+                  />
+                  <Pressable
+                    onPress={submitNewPlayer}
+                    disabled={adding || !newName.trim()}
+                    style={[s.addBtn, (adding || !newName.trim()) && { opacity: 0.4 }]}
+                  >
+                    <Text style={s.addBtnText}>{adding ? "Adding…" : "Add"}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -793,6 +873,34 @@ export function ScorerConsoleScreen() {
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  addRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.zinc800,
+  },
+  addInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    color: colors.foreground,
+    fontSize: 14,
+  },
+  addBtn: {
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.4)",
+    backgroundColor: "rgba(52, 211, 153, 0.12)",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  addBtnText: { color: colors.emerald400, fontSize: 13, fontWeight: "700" },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 },
   bigMsg: { color: colors.foreground, fontSize: 18, fontWeight: "700" },
   dim: { color: colors.zinc500, fontSize: 13 },
