@@ -160,6 +160,9 @@ export function RootNavigator() {
               params: {
                 screen: "CafeOrderDetail",
                 params: { orderId },
+                // Without this the Account tab is left showing only this
+                // order, with no way back to the account screen.
+                initial: false,
               },
             });
           } else {
@@ -250,33 +253,32 @@ export function RootNavigator() {
         case "admin_pending_booking":
           navigationRef.navigate("AdminShell", {
             screen: "AdminBookings",
-            params: { screen: "AdminUnconfirmedBookingsList" },
+            // Same reason as the detail below — the queue needs the list
+            // beneath it or Back and the Bookings tab both dead-end on it.
+            params: { screen: "AdminUnconfirmedBookingsList", initial: false },
           });
           break;
         case "admin_booking_confirmed":
         case "admin_booking_cancelled":
           if (payload.bookingId) {
-            // Build the stack as [list, detail] rather than navigating
-            // straight to the detail.
+            // `initial: false` is load-bearing: without it the Bookings
+            // stack initialises with the detail as its ONLY route, and the
+            // admin is stranded. Back has nothing to pop, so the tab
+            // navigator handles it and drops them on the first tab; and the
+            // Bookings tab itself stays parked on that one booking, so
+            // tapping Bookings reopens the same detail forever. There is no
+            // route to the list from anywhere.
             //
-            // A plain nested navigate leaves the detail as the ONLY route in
-            // the Bookings stack, with two consequences an admin actually
-            // hit: Back had nothing to pop to so it fell out to whichever
-            // tab was showing when the push arrived (Analytics), and the
-            // Bookings tab stayed parked on that one booking — tapping
-            // Bookings later reopened it instead of the list.
-            //
-            // Giving the stack its list underneath makes Back mean "the
-            // bookings list" and leaves the tab in a sane state afterwards.
-            navigationRef.navigate("AdminShell", {
-              screen: "AdminBookings",
-              params: { screen: "AdminBookingsList" },
-            });
+            // Two chained navigates were tried here and cannot work: while
+            // the Bookings stack is still unmounted both actions resolve
+            // against the *tab* navigator, so the second just overwrites the
+            // first's nested state and the list never lands underneath.
             navigationRef.navigate("AdminShell", {
               screen: "AdminBookings",
               params: {
                 screen: "AdminBookingDetail",
                 params: { bookingId: payload.bookingId },
+                initial: false,
               },
             });
           } else {
