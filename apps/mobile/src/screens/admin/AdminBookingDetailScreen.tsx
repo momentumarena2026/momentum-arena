@@ -169,6 +169,11 @@ export function AdminBookingDetailScreen() {
   // by the collect card's onLayout once it has run the scroll. Using
   // a ref (not state) so toggling it doesn't trigger an extra render.
   const shouldScrollToCollectRef = useRef(false);
+  // Same story for the extend form: it mounts after the action-button
+  // stack, so "+30 min later" opened a form the user never saw and the
+  // button read as broken. The collect flow already solved this; extend
+  // was left behind.
+  const shouldScrollToExtendRef = useRef(false);
   // Native-stack header height — the keyboard-avoiding offset so the
   // collect form lifts to exactly above the keyboard, not under the header.
   const headerHeight = useHeaderHeight();
@@ -350,6 +355,7 @@ export function AdminBookingDetailScreen() {
   });
 
   async function openExtend(direction: "before" | "after") {
+    shouldScrollToExtendRef.current = true;
     setExtendOpen({ direction, price: "", usePass: false });
     try {
       const r = await adminBookingsApi.suggestedExtendPrice(
@@ -1102,7 +1108,19 @@ export function AdminBookingDetailScreen() {
             suggested half-rate; admin can override (0 for free /
             courtesy, any positive int otherwise). */}
         {extendOpen ? (
-          <View style={styles.refundForm}>
+          <View
+            style={styles.refundForm}
+            onLayout={(e) => {
+              if (!shouldScrollToExtendRef.current) return;
+              shouldScrollToExtendRef.current = false;
+              // Land slightly above the card so the heading and the
+              // price hint are both visible, not flush with the header.
+              scrollRef.current?.scrollTo({
+                y: Math.max(e.nativeEvent.layout.y - 24, 0),
+                animated: true,
+              });
+            }}
+          >
             <Text variant="bodyStrong">
               Extend +30 min{" "}
               {extendOpen.direction === "before"
