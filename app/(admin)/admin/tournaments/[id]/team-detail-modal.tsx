@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X, Plus, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import {
   adminEditTeam,
+  adminSetTeamSlotPreferences,
   archiveTournamentTeam,
   deleteTournamentTeam,
 } from "@/actions/admin-tournaments";
@@ -88,6 +89,7 @@ function hourRanges(hours: number[]): string {
 export function TeamDetailModal({
   team,
   slots,
+  scheduleApproved,
   maxMembers,
   onClose,
   onSaved,
@@ -95,6 +97,9 @@ export function TeamDetailModal({
   team: TeamDetail;
   /** Every match window on the tournament, to resolve the team's picks. */
   slots?: SlotWindow[];
+  /** Fixtures already built on the current answers — changing picks now
+   *  will not re-run the draw, so the UI has to say so. */
+  scheduleApproved?: boolean;
   maxMembers: number;
   onClose: () => void;
   onSaved: () => void;
@@ -105,12 +110,16 @@ export function TeamDetailModal({
   const [teamName, setTeamName] = useState(team.name);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingSlots, setEditingSlots] = useState(false);
+  const [picked, setPicked] = useState<string[]>(team.preferredSlotIds ?? []);
 
   // Re-seed when the parent hands us a different team (or fresh data
   // after a save) — otherwise the dialog would keep the old squad.
   useEffect(() => {
     setRows(team.members.map((m) => ({ name: m.name, phone: m.phone ?? "" })));
     setTeamName(team.name);
+    setPicked(team.preferredSlotIds ?? []);
+    setEditingSlots(false);
     setError(null);
   }, [team]);
 
@@ -261,10 +270,121 @@ export function TeamDetailModal({
               ticked, so an admin chasing "why is this team unscheduled?"
               needs to see them without opening the customer site. */}
           <section className="mb-5">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Preferred slots
-            </h3>
-            {!slots?.length ? (
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Preferred slots
+              </h3>
+              {!!slots?.length && !archived && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPicked(team.preferredSlotIds ?? []);
+                    setEditingSlots((v) => !v);
+                  }}
+                  className="text-[11px] text-emerald-400 hover:underline"
+                >
+                  {editingSlots ? "Cancel" : "Edit"}
+                </button>
+              )}
+            </div>
+            {editingSlots && slots?.length ? (
+              <div className="space-y-3">
+                {scheduleApproved && (
+                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200/90">
+                    Fixtures are already published and were built on the current
+                    answers. Changing these will not move any existing match —
+                    reschedule by hand if needed.
+                  </p>
+                )}
+                {slots.map((w) => {
+                  const hours = Array.from(
+                    { length: w.endHour - w.startHour },
+                    (_, i) => w.startHour + i,
+                  );
+                  const keys = hours.map((h) => `${w.id}#${h}`);
+                  const allOn = keys.every((k) => picked.includes(k));
+                  return (
+                    <div key={w.id}>
+                      <div className="mb-1.5 flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold text-zinc-300">
+                          {new Date(w.date).toLocaleDateString("en-IN", {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                            timeZone: "Asia/Kolkata",
+                          })}
+                          <span className="ml-2 font-normal text-zinc-500">
+                            {hourLabel(w.startHour)}&ndash;{hourLabel(w.endHour)}
+                            {w.label ? ` · ${w.label}` : ""}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPicked((p) =>
+                              allOn
+                                ? p.filter((x) => !keys.includes(x))
+                                : Array.from(new Set([...p, ...keys])),
+                            )
+                          }
+                          className="text-[11px] text-emerald-400 hover:underline"
+                        >
+                          {allOn ? "Clear all" : "Select all"}
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                        {hours.map((h) => {
+                          const key = `${w.id}#${h}`;
+                          const on = picked.includes(key);
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() =>
+                                setPicked((p) =>
+                                  p.includes(key)
+                                    ? p.filter((x) => x !== key)
+                                    : [...p, key],
+                                )
+                              }
+                              className={`rounded-lg border px-2 py-1.5 text-xs ${
+                                on
+                                  ? "border-emerald-400 bg-emerald-500/15 text-emerald-300"
+                                  : "border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                              }`}
+                            >
+                              {hourLabel(h)}&ndash;{hourLabel(h + 1)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Ticking nothing is a real answer — it tells the draw the
+                    team can play any window — so saying so beats an empty
+                    grid the admin has to interpret. */}
+                <p className="text-[11px] text-zinc-500">
+                  {picked.length === 0
+                    ? "Nothing ticked — the draw will treat this team as available for any window."
+                    : `${picked.length} hour${picked.length > 1 ? "s" : ""} ticked.`}
+                </p>
+                <button
+                  type="button"
+                  disabled={busy === "slots"}
+                  onClick={() =>
+                    run("slots", async () => {
+                      const r = await adminSetTeamSlotPreferences(team.id, picked);
+                      if (r.success) setEditingSlots(false);
+                      return r;
+                    })
+                  }
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busy === "slots" ? "Saving…" : "Save preferred slots"}
+                </button>
+              </div>
+            ) : !slots?.length ? (
               <p className="text-xs text-zinc-500">
                 No match windows created for this tournament yet.
               </p>

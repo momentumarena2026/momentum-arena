@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
+import { dealPools } from "@/lib/tournament-scheduling";
 import {
   roundRobinRounds,
   buildKnockoutSkeleton,
@@ -32,7 +33,10 @@ export async function autoAssignPools(
       status: true,
       format: true,
       poolCount: true,
-      teams: { where: { status: "CONFIRMED" }, select: { id: true } },
+      teams: {
+        where: { status: "CONFIRMED" },
+        select: { id: true, preferredSlotIds: true },
+      },
     },
   });
   if (!t) return { success: false, error: "Tournament not found" };
@@ -45,7 +49,15 @@ export async function autoAssignPools(
     return { success: false, error: `Need at least ${t.poolCount} confirmed teams` };
   }
 
-  const shuffled = shuffle(t.teams.map((x) => x.id));
+  // Cluster by availability rather than shuffling blind. A pool plays a
+  // round-robin inside the windows its members share, so scattering teams
+  // with different availability guarantees fixtures nobody can attend.
+  // The seed keeps a single deal reproducible while re-dealing still
+  // produces a genuinely different arrangement.
+  const dealt = dealPools(
+    t.teams.map((x) => ({ id: x.id, preferredSlotIds: x.preferredSlotIds })),
+    { poolCount: t.poolCount, seed: Math.floor(Math.random() * 2147483647) },
+  );
   await db.$transaction(async (tx) => {
     // Recreate pools fresh (drops any manual assignment).
     await tx.tournamentTeam.updateMany({
@@ -60,12 +72,13 @@ export async function autoAssignPools(
         })
       )
     );
-    // Deal round-robin.
-    for (let i = 0; i < shuffled.length; i++) {
-      await tx.tournamentTeam.update({
-        where: { id: shuffled[i] },
-        data: { poolId: pools[i % pools.length].id, seed: Math.floor(i / pools.length) + 1 },
-      });
+    for (let p = 0; p < dealt.length; p++) {
+      for (let i = 0; i < dealt[p].length; i++) {
+        await tx.tournamentTeam.update({
+          where: { id: dealt[p][i].id },
+          data: { poolId: pools[p].id, seed: i + 1 },
+        });
+      }
     }
   });
   revalidatePath(`/admin/tournaments/${tournamentId}`);
@@ -87,6 +100,93 @@ export async function moveTeamToPool(
   }
   await db.tournamentTeam.update({ where: { id: teamId }, data: { poolId } });
   revalidatePath(`/admin/tournaments/${team.tournamentId}`);
+  return { success: true };
+}
+
+/**
+ * Create the configured number of EMPTY pools and leave every team
+ * unassigned.
+ *
+ * The random deal is the fast path, but an admin who already knows how
+ * the pools should look (seedings, a local rivalry to keep apart, a team
+ * that must play early) had no way to express it without dealing at
+ * random first and then dragging teams out of the arrangement they were
+ * given. This starts from a blank grid instead; the per-team selector
+ * fills it.
+ */
+export async function createEmptyPools(
+  tournamentId: string,
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const t = await db.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { id: true, status: true, format: true, poolCount: true },
+  });
+  if (!t) return { success: false, error: "Tournament not found" };
+  if (t.format !== "POOLS_KNOCKOUT") return { success: false, error: "Not a pools tournament" };
+  if (!["REG_OPEN", "REG_CLOSED"].includes(t.status)) {
+    return { success: false, error: "Pools are locked after the reveal" };
+  }
+  if (t.poolCount < 2) return { success: false, error: "Configure at least 2 pools first" };
+
+  await db.$transaction(async (tx) => {
+    await tx.tournamentTeam.updateMany({
+      where: { tournamentId },
+      data: { poolId: null, seed: null },
+    });
+    await tx.tournamentPool.deleteMany({ where: { tournamentId } });
+    for (let i = 0; i < t.poolCount; i++) {
+      await tx.tournamentPool.create({
+        data: { tournamentId, name: POOL_NAMES[i] || `Pool ${i + 1}`, order: i },
+      });
+    }
+  });
+  revalidatePath(`/admin/tournaments/${tournamentId}`);
+  return { success: true };
+}
+
+/**
+ * Throw the whole draw away — pools deleted, every team unassigned.
+ *
+ * Re-dealing already replaces an arrangement, but there was no way to get
+ * back to nothing, so a deal you disliked had to be replaced by another
+ * deal rather than simply undone.
+ *
+ * Refuses once fixtures exist: those matches were built from these pools,
+ * and deleting the pools underneath them would leave a fixture list
+ * referring to groupings that no longer exist. Regenerate fixtures first.
+ */
+export async function clearPools(
+  tournamentId: string,
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const t = await db.tournament.findUnique({
+    where: { id: tournamentId },
+    select: {
+      id: true,
+      status: true,
+      _count: { select: { matches: true } },
+    },
+  });
+  if (!t) return { success: false, error: "Tournament not found" };
+  if (!["REG_OPEN", "REG_CLOSED"].includes(t.status)) {
+    return { success: false, error: "Pools are locked after the reveal" };
+  }
+  if (t._count.matches > 0) {
+    return {
+      success: false,
+      error: "Fixtures already exist — clear or regenerate them before clearing pools",
+    };
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.tournamentTeam.updateMany({
+      where: { tournamentId },
+      data: { poolId: null, seed: null },
+    });
+    await tx.tournamentPool.deleteMany({ where: { tournamentId } });
+  });
+  revalidatePath(`/admin/tournaments/${tournamentId}`);
   return { success: true };
 }
 

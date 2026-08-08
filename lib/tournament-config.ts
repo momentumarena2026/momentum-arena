@@ -172,3 +172,23 @@ export function scorerCodeGen(): string {
   for (let i = 0; i < 10; i++) out += alphabet[bytes[i]! % alphabet.length];
   return out;
 }
+
+/**
+ * Statuses at which POOL-stage matches are public.
+ *
+ * Before the reveal the fixtures ARE the draw, so the public payload
+ * strips pool matches (see app/api/tournaments/[slug]/public/route.ts).
+ * The consequence is easy to miss: a scorer can be scoring a pool match
+ * live while every spectator sees nothing, with no error anywhere. The
+ * admin page warns on exactly this condition, so both sides read the
+ * rule from here rather than each keeping a copy that can drift.
+ */
+export const POOL_MATCHES_PUBLIC_STATUSES = [
+  "POOLS_REVEALED",
+  "LIVE",
+  "COMPLETED",
+] as const;
+
+export function poolMatchesArePublic(status: string): boolean {
+  return (POOL_MATCHES_PUBLIC_STATUSES as readonly string[]).includes(status);
+}

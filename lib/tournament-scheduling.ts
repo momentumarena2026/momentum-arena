@@ -134,6 +134,67 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
 }
 
 /**
+ * Deal teams into pools, clustering by availability first.
+ *
+ * This is the whole point of collecting preferences: teams that can play
+ * the same windows belong in the same pool, because a pool's round-robin
+ * has to fit inside the windows its members share. A preference-blind
+ * deal scatters them and every fixture becomes a compromise — or worse,
+ * unschedulable.
+ *
+ * Exported because two callers need the same answer: the candidate-draw
+ * builder below, and the admin's "Deal pools" button, which used to do a
+ * plain shuffle and quietly threw the preferences away.
+ */
+export function dealPools<T extends { preferredSlotIds: string[] }>(
+  // Generic on purpose: dealing needs the picks and nothing else, so the
+  // admin's "Deal pools" path doesn't have to over-fetch a full
+  // TeamForDraw just to satisfy a type.
+  teams: T[],
+  opts: {
+    poolCount: number;
+    seed: number;
+    /** Off = plain shuffled deal, ignoring preferences when grouping. */
+    cluster?: boolean;
+  },
+): T[][] {
+  const poolCount = Math.max(1, opts.poolCount);
+  const signature = (t: T) =>
+    t.preferredSlotIds.length === 0
+      ? "" // no preference — filler, fits anywhere
+      : t.preferredSlotIds.slice().sort().join("|");
+
+  const useCluster = opts.cluster !== false;
+  const groups = new Map<string, T[]>();
+  for (const t of seededShuffle(teams, opts.seed)) {
+    const k = signature(t);
+    groups.set(k, [...(groups.get(k) ?? []), t]);
+  }
+  // Biggest, most-constrained groups placed first; the "any" group is
+  // left till last so it can pad whichever pools end up short.
+  const ordered = [...groups.entries()]
+    .sort((a, b) => (a[0] === "" ? 1 : b[0] === "" ? -1 : b[1].length - a[1].length))
+    .flatMap(([, v]) => v);
+
+  const pools: T[][] = Array.from({ length: poolCount }, () => []);
+  const perPool = Math.ceil(teams.length / poolCount);
+  for (const t of ordered) {
+    // Prefer a pool that already shares this team's windows and has
+    // room; otherwise the emptiest pool, to keep sizes even.
+    const candidates = pools
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => p.length < perPool);
+    const target =
+      (useCluster ? candidates.find(({ p }) =>
+        p.length > 0 &&
+        p.every((o) => signature(o) === signature(t) || signature(o) === "" || signature(t) === ""),
+      ) : undefined) ?? candidates.sort((a, b) => a.p.length - b.p.length)[0] ?? { i: 0 };
+    pools[target.i].push(t);
+  }
+  return pools;
+}
+
+/**
  * Build one candidate draw: deal teams into pools, then greedily place
  * every pool match into the earliest slot where BOTH teams are free and
  * available.
@@ -157,44 +218,11 @@ export function buildDraw(
   },
 ): DrawPlan {
   const slots = expandSlots(windows, opts.matchDurationMinutes);
-  const poolCount = Math.max(1, opts.poolCount);
-  // Cluster by availability BEFORE dealing. This is the whole point of
-  // collecting preferences: teams that can play the same windows belong
-  // in the same pool, because a pool's round-robin has to fit inside
-  // the windows its members share. A preference-blind deal scatters
-  // them and every fixture becomes a compromise.
-  const signature = (t: TeamForDraw) =>
-    t.preferredSlotIds.length === 0
-      ? "" // no preference — filler, fits anywhere
-      : t.preferredSlotIds.slice().sort().join("|");
-
-  const useCluster = opts.cluster !== false;
-  const groups = new Map<string, TeamForDraw[]>();
-  for (const t of seededShuffle(teams, opts.seed)) {
-    const k = signature(t);
-    groups.set(k, [...(groups.get(k) ?? []), t]);
-  }
-  // Biggest, most-constrained groups placed first; the "any" group is
-  // left till last so it can pad whichever pools end up short.
-  const ordered = [...groups.entries()]
-    .sort((a, b) => (a[0] === "" ? 1 : b[0] === "" ? -1 : b[1].length - a[1].length))
-    .flatMap(([, v]) => v);
-
-  const pools: TeamForDraw[][] = Array.from({ length: poolCount }, () => []);
-  const perPool = Math.ceil(teams.length / poolCount);
-  for (const t of ordered) {
-    // Prefer a pool that already shares this team's windows and has
-    // room; otherwise the emptiest pool, to keep sizes even.
-    const candidates = pools
-      .map((p, i) => ({ p, i }))
-      .filter(({ p }) => p.length < perPool);
-    const target =
-      (useCluster ? candidates.find(({ p }) =>
-        p.length > 0 &&
-        p.every((o) => signature(o) === signature(t) || signature(o) === "" || signature(t) === ""),
-      ) : undefined) ?? candidates.sort((a, b) => a.p.length - b.p.length)[0] ?? { i: 0 };
-    pools[target.i].push(t);
-  }
+  const pools = dealPools(teams, {
+    poolCount: opts.poolCount,
+    seed: opts.seed,
+    cluster: opts.cluster,
+  });
 
   const matches: DrawMatch[] = [];
   for (let p = 0; p < pools.length; p++) {

@@ -10,7 +10,7 @@ import {
   scorerCodeGen,
   structureWarnings,
 } from "@/lib/tournament-config";
-import { reconcileTeamSquad } from "@/lib/tournaments";
+import { reconcileTeamSquad, filterValidSlotKeys } from "@/lib/tournaments";
 import {
   TEAM_COLLECT_METHODS,
   TEAM_REGISTER_METHODS,
@@ -584,6 +584,46 @@ export async function adminEditTeam(
 
 /** Rotate the scorer code — the ONLY way to revoke a shared/leaked code.
  *  Anyone still holding the old one loses access immediately. */
+/**
+ * Set a team's preferred hours on their behalf.
+ *
+ * Captains phone the venue with their availability far more often than
+ * they open the app, and until now that could only be recorded by asking
+ * them to do it themselves — a team with no picks reads to the draw
+ * generator as "any window works", which quietly schedules them into
+ * hours they cannot play.
+ *
+ * Unlike the captain's own save this is NOT blocked once the schedule is
+ * approved: the customer-facing error tells them to contact the venue, so
+ * the venue has to be able to act on that. The UI warns that fixtures
+ * were already built on the old answers.
+ */
+export async function adminSetTeamSlotPreferences(
+  teamId: string,
+  slotKeys: string[],
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  if (!Array.isArray(slotKeys) || slotKeys.length > 500) {
+    return { success: false, error: "Invalid selection" };
+  }
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: teamId },
+    select: { id: true, tournamentId: true },
+  });
+  if (!team) return { success: false, error: "Team not found" };
+
+  const valid = await filterValidSlotKeys(
+    team.tournamentId,
+    slotKeys.map((k) => String(k)),
+  );
+  await db.tournamentTeam.update({
+    where: { id: team.id },
+    data: { preferredSlotIds: valid },
+  });
+  revalidatePath(`/admin/tournaments/${team.tournamentId}`);
+  return { success: true };
+}
+
 export async function rotateScorerCode(
   tournamentId: string
 ): Promise<{ success: boolean; error?: string; code?: string }> {
