@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { computeStandings } from "@/lib/tournament-points";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 import { parsePrizes } from "@/lib/tournament-config";
+import { poolMatchesArePublic } from "@/lib/tournament-config";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ export async function GET(
   }
   t.status = (await applyScheduledTransitions(t)) as typeof t.status;
 
-  const poolsRevealed = ["POOLS_REVEALED", "LIVE", "COMPLETED"].includes(t.status);
+  const poolsRevealed = poolMatchesArePublic(t.status);
   const teamNames = new Map(t.teams.map((x) => [x.id, x.name]));
   const cfg = {
     pointsWin: t.pointsWin,

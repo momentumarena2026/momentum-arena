@@ -412,7 +412,21 @@ export function TournamentDetailScreen() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["tournament", slug],
     queryFn: () => getTournament(slug),
-    refetchInterval: 10000,
+    // Poll hard only when there is something actually changing. A ball is
+    // scored every few seconds, so a live match earns 10s; the rest of the
+    // page (teams, table, fixtures) moves on human timescales and used to
+    // get the same 10s treatment all day, on a finished tournament too.
+    //
+    // Deliberately slow rather than off when nothing is live: stopping
+    // entirely means a match starting while the customer sits on this
+    // screen never appears until they navigate away and back.
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (!d) return 10000;
+      if (d.matches?.some((m) => m.status === "LIVE")) return 10000;
+      const done = ["COMPLETED", "CANCELLED"].includes(d.tournament.status);
+      return done ? false : 60000;
+    },
   });
   // Poll silently — the spinner belongs to the pull gesture only.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } =

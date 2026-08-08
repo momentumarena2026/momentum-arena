@@ -24,7 +24,12 @@ import {
   rotateScorerCode,
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
-import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
+import {
+  STATUS_FLOW,
+  STATUS_LABELS,
+  onlinePayable,
+  poolMatchesArePublic,
+} from "@/lib/tournament-config";
 import {
   TEAM_COLLECT_METHODS,
   TEAM_REGISTER_METHODS,
@@ -388,6 +393,31 @@ export function TournamentManage({
           {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format} · {confirmed}/{t.totalTeams} teams confirmed · Public URL: /tournaments/{t.slug}
         </p>
       </div>
+
+      {/* Scoring is happening but nobody can watch it.
+          Before POOLS_REVEALED the public payload strips pool matches,
+          because until the reveal the fixtures ARE the draw. Nothing
+          errors — the scorer console works, the score saves, and every
+          spectator sees an empty tournament page. This is the only place
+          that failure is visible, so say it loudly and give the fix. */}
+      {!poolMatchesArePublic(t.status) &&
+        t.matches.some(
+          (m) => m.stage === "POOL" && (m.status === "LIVE" || m.homeScore != null),
+        ) && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+            <p className="text-sm font-semibold text-amber-300">
+              Pool matches are being scored, but spectators can&apos;t see them
+            </p>
+            <p className="mt-1 text-xs text-amber-200/80">
+              This tournament is still <strong>{STATUS_LABELS[t.status] ?? t.status}</strong>.
+              Pool fixtures stay hidden from the public tournament page until the
+              draw is revealed, so live scores are going nowhere.
+              {(STATUS_FLOW[t.status] || []).includes("POOLS_REVEALED")
+                ? " Move it to Pools Revealed (or Live) to publish them."
+                : " Move it to Live to publish them."}
+            </p>
+          </div>
+        )}
 
       {/* Lifecycle actions */}
       {(STATUS_FLOW[t.status] || []).length > 0 && (
