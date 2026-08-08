@@ -23,6 +23,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { AdminMoreStackParamList } from "../../navigation/types";
+import { usePullToRefresh } from "../../hooks/usePullToRefresh";
 
 // Lifecycle transitions mirrored from lib/tournament-config STATUS_FLOW.
 const FLOW: Record<string, string[]> = {
@@ -92,7 +93,7 @@ export function AdminTournamentsScreen() {
   const [squadFor, setSquadFor] = useState<string | null>(null);
   const [squadText, setSquadText] = useState("");
 
-  const { data: list, isLoading, refetch, isRefetching } = useQuery({
+  const { data: list, isLoading, refetch } = useQuery({
     queryKey: ["admin-tournaments"],
     queryFn: adminTournamentsApi.list,
   });
@@ -102,6 +103,10 @@ export function AdminTournamentsScreen() {
     enabled: !!openId,
     refetchInterval: 12000,
   });
+  // The open tournament polls every 12s for live scores; keep that
+  // invisible and let the spinner mean "I pulled".
+  const { refreshing: pullRefreshing, onRefresh: onPullRefresh } =
+    usePullToRefresh(refetch);
   const t: AdminTournamentDetail | undefined = detailData?.tournament;
   const courts = detailData?.courts ?? [];
   const windows = detailData?.windows ?? [];
@@ -750,7 +755,7 @@ export function AdminTournamentsScreen() {
     <Screen>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.emerald400} />}
+        refreshControl={<RefreshControl refreshing={pullRefreshing} onRefresh={onPullRefresh} tintColor={colors.emerald400} />}
       >
         {isLoading && <Skeleton height={90} />}
         {!isLoading && (list?.tournaments.length ?? 0) === 0 && (
