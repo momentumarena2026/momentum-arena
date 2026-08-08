@@ -17,6 +17,7 @@ import { colors, radius } from "../../theme";
 import {
   adminTournamentsApi,
   type AdminMatchRow,
+  type AdminSlotWindow,
   type AdminTournamentDetail,
   type OrganizerLedger,
 } from "../../lib/admin-tournaments";
@@ -54,6 +55,57 @@ const input: object = {
   paddingVertical: 9,
   fontSize: 13,
 };
+
+const hourLabel = (h: number) => {
+  const hr = h % 24;
+  const am = hr < 12;
+  const v = hr % 12 === 0 ? 12 : hr % 12;
+  return `${v}${am ? "am" : "pm"}`;
+};
+
+/**
+ * Turn a team's stored `<slotId>#<hour>` picks into something readable on
+ * a phone: "Sat 9 6-9am · Sun 10 4-6pm". Empty picks mean "any window
+ * works" to the draw generator, so say that rather than showing nothing.
+ */
+function preferredSummary(
+  picks: string[] | undefined,
+  windows: AdminSlotWindow[],
+): string {
+  if (!picks || picks.length === 0) return "any window";
+  const byWindow = new Map<string, number[]>();
+  for (const key of picks) {
+    const [slotId, raw] = key.split("#");
+    const hour = Number(raw);
+    if (!slotId || !Number.isInteger(hour)) continue;
+    const list = byWindow.get(slotId);
+    if (list) list.push(hour);
+    else byWindow.set(slotId, [hour]);
+  }
+  const parts: string[] = [];
+  for (const w of windows) {
+    const hours = byWindow.get(w.id);
+    if (!hours?.length) continue;
+    const sorted = [...hours].sort((a, b) => a - b);
+    const spans: [number, number][] = [];
+    for (const h of sorted) {
+      const last = spans[spans.length - 1];
+      if (last && h === last[1]) last[1] = h + 1;
+      else spans.push([h, h + 1]);
+    }
+    const day = new Date(w.date).toLocaleDateString("en-IN", {
+      weekday: "short",
+      day: "numeric",
+      timeZone: "Asia/Kolkata",
+    });
+    parts.push(
+      `${day} ${spans.map(([a, b]) => `${hourLabel(a)}\u2013${hourLabel(b)}`).join(", ")}`,
+    );
+  }
+  // Picks whose window was deleted resolve to nothing — don't imply the
+  // captain left it blank when they didn't.
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
 
 export function AdminTournamentsScreen() {
   const queryClient = useQueryClient();
@@ -484,6 +536,17 @@ export function AdminTournamentsScreen() {
                 {team.captainName} · {team.captainPhone} · Paid ₹{team.paidAmount}
                 {team.dueAmount > 0 ? ` · Due ₹${team.dueAmount}` : ""}
               </Text>
+              {/* What hours the captain said the team can play. The draw
+                  only schedules a team into hours it ticked, so this is
+                  the first thing to check when a team goes unscheduled. */}
+              {windows.length > 0 && (
+                <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 2 }}>
+                  Prefers:{" "}
+                  <Text style={{ color: colors.emerald400 }}>
+                    {preferredSummary(team.preferredSlotIds, windows)}
+                  </Text>
+                </Text>
+              )}
               {squadFor === team.id ? (
                 <View style={{ marginTop: 8, gap: 8 }}>
                   <TextInput

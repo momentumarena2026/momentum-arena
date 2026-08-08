@@ -337,6 +337,12 @@ export async function getTournamentAdmin(id: string) {
           courtConfig: { select: { label: true } },
         },
       },
+      // Match windows, so the team dialog can turn a team's stored
+      // `<slotId>#<hour>` picks back into readable days and hours.
+      slots: {
+        orderBy: [{ date: "asc" }, { startHour: "asc" }],
+        include: { courtConfig: { select: { label: true } } },
+      },
       _count: { select: { matches: true } },
     },
   });

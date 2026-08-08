@@ -66,6 +66,8 @@ type TeamRow = {
   couponCode: string | null;
   discount: number;
   pointsUsed: number;
+  /** Hour-level picks, stored as `<slotId>#<startHour>`. */
+  preferredSlotIds: string[];
   pool: { name: string } | null;
   members: MemberRow[];
   archivedAt: string | null;
@@ -119,6 +121,14 @@ export type AdminTournament = {
   quotedAmount: number;
   organizerNote: string | null;
   teams: TeamRow[];
+  slots: {
+    id: string;
+    date: string;
+    startHour: number;
+    endHour: number;
+    label: string | null;
+    courtConfig: { label: string } | null;
+  }[];
   pools: { id: string; name: string; order: number; teams: { id: string; name: string }[] }[];
   matches: MatchRow[];
   _count: { matches: number };
@@ -646,6 +656,7 @@ export function TournamentManage({
                 return (
                   <TeamDetailModal
                     team={team}
+                    slots={t.slots}
                     maxMembers={t.membersPerTeamMax}
                     onClose={() => setDetailTeamId(null)}
                     onSaved={() => router.refresh()}
