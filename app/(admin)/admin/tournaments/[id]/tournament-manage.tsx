@@ -25,6 +25,12 @@ import {
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
 import { STATUS_FLOW, STATUS_LABELS, onlinePayable } from "@/lib/tournament-config";
+import {
+  TEAM_COLLECT_METHODS,
+  TEAM_REGISTER_METHODS,
+  TEAM_PAYMENT_METHOD_LABEL,
+  type TeamCollectMethod,
+} from "@/lib/tournament-payments";
 import { TournamentWizard } from "../tournament-wizard";
 import { PoolsTab } from "./pools-tab";
 import { SlotsTab } from "./slots-tab";
@@ -162,6 +168,7 @@ export function TournamentManage({
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
   const [collectAmt, setCollectAmt] = useState("");
+  const [collectMethod, setCollectMethod] = useState<TeamCollectMethod>("CASH");
   // Per-team squad editor — squads are optional at registration, so
   // admins can build/fix any roster here at any time.
   const [squadFor, setSquadFor] = useState<string | null>(null);
@@ -268,7 +275,7 @@ export function TournamentManage({
     setBusy(`pay-${teamId}`);
     setError(null);
     try {
-      const res = await recordTeamPayment(teamId, amt, "CASH");
+      const res = await recordTeamPayment(teamId, amt, collectMethod);
       if (!res.success) setError(res.error || "Failed");
       else {
         setCollectFor(null);
@@ -475,9 +482,11 @@ export function TournamentManage({
                 <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder="Players (comma-separated, optional)" value={venueForm.members} onChange={(e) => setVenueForm((f) => ({ ...f, members: e.target.value }))} />
                 <input className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" placeholder={`Collected now (fee ₹${t.entryFee})`} inputMode="numeric" value={venueForm.collectedAmount} onChange={(e) => setVenueForm((f) => ({ ...f, collectedAmount: e.target.value }))} />
                 <select className="rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white" value={venueForm.method} onChange={(e) => setVenueForm((f) => ({ ...f, method: e.target.value as "CASH" | "STATIC_QR" | "FREE" }))}>
-                  <option value="CASH">Cash</option>
-                  <option value="STATIC_QR">Static QR (UPI at counter)</option>
-                  <option value="FREE">Free entry</option>
+                  {TEAM_REGISTER_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {TEAM_PAYMENT_METHOD_LABEL[m]}
+                    </option>
+                  ))}
                 </select>
               </div>
               <p className="text-xs text-zinc-500">
@@ -546,7 +555,7 @@ export function TournamentManage({
                     <button onClick={() => doTeamStatus(team.id, "WAITLISTED")} disabled={busy === `team-${team.id}`} className="rounded-lg border border-sky-500/30 px-2.5 py-1.5 text-xs text-sky-400 hover:bg-sky-600/10 disabled:opacity-50">Waitlist</button>
                   )}
                   {team.dueAmount > 0 && (
-                    <button onClick={() => { setCollectFor(collectFor === team.id ? null : team.id); setCollectAmt(String(team.dueAmount)); }} className="flex items-center gap-1 rounded-lg border border-amber-500/30 px-2.5 py-1.5 text-xs text-amber-400 hover:bg-amber-600/10">
+                    <button onClick={() => { setCollectFor(collectFor === team.id ? null : team.id); setCollectAmt(String(team.dueAmount)); setCollectMethod("CASH"); }} className="flex items-center gap-1 rounded-lg border border-amber-500/30 px-2.5 py-1.5 text-xs text-amber-400 hover:bg-amber-600/10">
                       <IndianRupee className="h-3 w-3" /> Collect
                     </button>
                   )}
@@ -556,15 +565,29 @@ export function TournamentManage({
                 </div>
               </div>
               {collectFor === team.id && (
-                <div className="mt-3 flex items-center gap-2 border-t border-zinc-800 pt-3">
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
                   <input
                     className="w-32 rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white"
                     inputMode="numeric"
                     value={collectAmt}
                     onChange={(e) => setCollectAmt(e.target.value)}
                   />
+                  {/* Cash isn't the only way money arrives at the counter —
+                      most of it comes in on the printed UPI QR. Recording
+                      it all as CASH made the payment-mode split useless. */}
+                  <select
+                    className="rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white"
+                    value={collectMethod}
+                    onChange={(e) => setCollectMethod(e.target.value as TeamCollectMethod)}
+                  >
+                    {TEAM_COLLECT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {TEAM_PAYMENT_METHOD_LABEL[m]}
+                      </option>
+                    ))}
+                  </select>
                   <button onClick={() => doCollect(team.id)} disabled={busy === `pay-${team.id}`} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-400 hover:bg-emerald-600/10 disabled:opacity-50">
-                    {busy === `pay-${team.id}` ? "Saving…" : "Record cash collection"}
+                    {busy === `pay-${team.id}` ? "Saving…" : "Record collection"}
                   </button>
                 </div>
               )}

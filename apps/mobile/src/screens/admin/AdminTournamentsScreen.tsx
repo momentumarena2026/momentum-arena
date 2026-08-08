@@ -438,7 +438,7 @@ export function AdminTournamentsScreen() {
                 {(["CASH", "STATIC_QR", "FREE"] as const).map((m) => (
                   <Pressable key={m} onPress={() => setVenue((f) => ({ ...f, method: m }))} style={[styles.chipBtn, venue.method === m && { backgroundColor: colors.emerald500_10 }]}>
                     <Text style={{ color: venue.method === m ? colors.emerald400 : colors.zinc400, fontSize: 12 }}>
-                      {m === "STATIC_QR" ? "Static QR" : m === "CASH" ? "Cash" : "Free"}
+                      {m === "STATIC_QR" ? "UPI (QR)" : m === "CASH" ? "Cash" : "Free"}
                     </Text>
                   </Pressable>
                 ))}
@@ -536,17 +536,27 @@ export function AdminTournamentsScreen() {
                     <Text style={{ color: colors.emerald400, fontSize: 12 }}>Confirm</Text>
                   </Pressable>
                 )}
-                {team.dueAmount > 0 && (
-                  <Pressable
-                    disabled={busy}
-                    onPress={() =>
-                      act({ op: "collect", teamId: team.id, amount: team.dueAmount, method: "CASH" }, `Collect ₹${team.dueAmount} cash?`)
-                    }
-                    style={styles.chipBtn}
-                  >
-                    <Text style={{ color: "#fbbf24", fontSize: 12 }}>Collect ₹{team.dueAmount}</Text>
-                  </Pressable>
-                )}
+                {/* One chip per method. Most counter money arrives on the
+                    printed UPI QR, but this used to record everything as
+                    CASH, which made the payment-mode split meaningless. */}
+                {team.dueAmount > 0 &&
+                  (["CASH", "STATIC_QR"] as const).map((m) => (
+                    <Pressable
+                      key={m}
+                      disabled={busy}
+                      onPress={() =>
+                        act(
+                          { op: "collect", teamId: team.id, amount: team.dueAmount, method: m },
+                          `Collect ₹${team.dueAmount} by ${m === "CASH" ? "cash" : "UPI"}?`,
+                        )
+                      }
+                      style={styles.chipBtn}
+                    >
+                      <Text style={{ color: "#fbbf24", fontSize: 12 }}>
+                        ₹{team.dueAmount} {m === "CASH" ? "cash" : "UPI"}
+                      </Text>
+                    </Pressable>
+                  ))}
                 {!["REJECTED", "WITHDRAWN"].includes(team.status) && (
                   <Pressable disabled={busy} onPress={() => act({ op: "teamStatus", teamId: team.id, status: "REJECTED" }, "Reject this team? Redeemed points are refunded.")} style={styles.chipBtn}>
                     <Text style={{ color: "#f87171", fontSize: 12 }}>Reject</Text>
