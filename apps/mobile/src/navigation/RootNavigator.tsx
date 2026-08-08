@@ -26,6 +26,8 @@ import { PhoneScreen } from "../screens/auth/PhoneScreen";
 import { OtpScreen } from "../screens/auth/OtpScreen";
 import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
 import { AdminNavigator } from "./AdminNavigator";
+import { adminTokenStorage } from "../lib/storage";
+import { useAdminAuth } from "../providers/AdminAuthProvider";
 import { ChatScreen } from "../screens/chat/ChatScreen";
 import type { RootStackParamList } from "./types";
 import { navigationRef } from "./navigationRef";
@@ -48,6 +50,71 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
   const { state } = useAuth();
+  const { state: adminState } = useAdminAuth();
+
+  /**
+   * Land straight in admin on a phone that has an admin session.
+   *
+   * Staff were reaching admin through a 5-tap easter egg on the account
+   * screen, every single launch. A device only holds an admin token if an
+   * admin signed in on it, and admin login requires the device to be
+   * trusted — so the token's presence already means "this phone runs
+   * admin", with no trust round-trip to make.
+   *
+   * The read is a local Keychain lookup, so it rides the auth-restore
+   * spinner that already gates boot rather than adding a stall. Token
+   * validation still happens in AdminAuthProvider, but behind an
+   * already-rendered screen instead of in front of it.
+   *
+   * A customer's phone has no token and is completely unaffected — the
+   * easter egg stays the only way in.
+   */
+  const [landOnAdmin, setLandOnAdmin] = useState<boolean | null>(null);
+  // Whether THIS launch auto-landed, so the fallback below only fires for
+  // an automatic landing and never yanks an admin who navigated in by hand.
+  const autoLandedRef = useRef(false);
+  // Readiness has to be STATE, not an isReady() call inside the effect:
+  // the effect's other deps settle before the container mounts, so an
+  // early return on isReady() was a dead end that never retried.
+  const [navReady, setNavReady] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    adminTokenStorage
+      .read()
+      .then((token) => {
+        if (!alive) return;
+        autoLandedRef.current = !!token;
+        setLandOnAdmin(!!token);
+      })
+      // A Keychain failure must not brick the launch — fall back to the
+      // customer app, which is what an unconfigured phone gets anyway.
+      .catch(() => {
+        if (alive) setLandOnAdmin(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // The token was present but the server rejected it (revoked admin,
+  // deleted user, expired session). AdminAuthProvider has already cleared
+  // the Keychain slot; drop quietly to the customer app rather than
+  // stranding the user on an admin shell with no admin behind it.
+  useEffect(() => {
+    // Depends on BOTH signals, not just the status. With no usable token
+    // adminAuth resolves to signedOut immediately — before the Keychain
+    // read finishes — so watching status alone meant this ran once, too
+    // early, and never again: the app landed in admin and stayed there
+    // showing "Not signed in as admin".
+    if (!navReady || !landOnAdmin || adminState.status !== "signedOut") return;
+    autoLandedRef.current = false;
+    setLandOnAdmin(false);
+    navigationRef.reset({
+      index: 0,
+      routes: [{ name: "Main", params: { screen: "Home" } }],
+    });
+  }, [adminState.status, landOnAdmin, navReady]);
   // navigationRef is module-level (see ./navigationRef) rather than from
   // useNavigationContainerRef, so screens nested deep inside another
   // navigator can reach root routes explicitly instead of relying on the
@@ -253,7 +320,7 @@ export function RootNavigator() {
     });
   }, []);
 
-  if (state.status === "loading") {
+  if (state.status === "loading" || landOnAdmin === null) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -275,6 +342,27 @@ export function RootNavigator() {
       // dashboard can group by screen the same way the web tracker
       // groups by pathname.
       onReady={() => {
+        setNavReady(true);
+        // Push admin ON TOP of Main rather than replacing it as the
+        // initial route. Two reasons, both learned the hard way:
+        // navigationRef isn't ready until this fires, so a reset issued
+        // from an effect silently does nothing; and AdminNavigator hides
+        // every tab when there's no admin, so landing straight there with
+        // a stale token renders a blank screen with no way out. With Main
+        // underneath there is always somewhere safe to fall back to.
+        if (landOnAdmin) {
+          // Same stack the admin login builds on success: Main at the
+          // bottom, AdminShell on top. Keeping Main underneath is what
+          // makes the fallback below possible and gives the header's
+          // "Customer" button somewhere to land.
+          navigationRef.reset({
+            index: 1,
+            routes: [
+              { name: "Main", params: { screen: "Home" } },
+              { name: "AdminShell" },
+            ],
+          });
+        }
         const route = navigationRef.getCurrentRoute()?.name;
         if (route) trackPageView(route);
       }}
