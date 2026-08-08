@@ -24,6 +24,7 @@ import {
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
+import { CafeThumb } from "../../components/admin/CafeThumb";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -662,10 +663,11 @@ function ItemRow({
         },
       ]}
     >
+      <CafeThumb uri={item.image} isVeg={item.isVeg} />
       <Pressable onPress={onEdit} style={{ flex: 1, gap: 2 }} hitSlop={4}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <Text variant="bodyStrong" numberOfLines={1}>
-            {item.isVeg ? "🥬" : "🍗"} {item.name}
+            {item.name}
           </Text>
           {item.quantity != null ? (
             <Badge label="Ready" tone="success" />

@@ -12,6 +12,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Minus, Plus } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
+import { CafeThumb } from "../../components/admin/CafeThumb";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -137,6 +138,7 @@ export function AdminCafeCreateOrderScreen() {
               const soldOut = it.quantity === 0;
               return (
                 <Card key={it.id} style={styles.itemRow}>
+                  <CafeThumb uri={it.image} isVeg={it.isVeg} size={40} />
                   <View style={{ flex: 1 }}>
                     <Text variant="body" weight="500" color={colors.foreground}>
                       {it.name}
