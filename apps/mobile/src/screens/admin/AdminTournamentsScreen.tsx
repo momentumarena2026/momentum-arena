@@ -797,8 +797,22 @@ export function AdminTournamentsScreen() {
                     </Pressable>
                   </View>
                 ) : (
-                  <Pressable onPress={() => { setScoreFor(m.id); setScores({ home: "", away: "" }); }} style={[styles.chipBtn, { marginTop: 8, alignSelf: "flex-start" }]}>
-                    <Text style={{ color: "#7dd3fc", fontSize: 12 }}>Enter result</Text>
+                  <Pressable
+                    // Seed from live scoring when the console already
+                    // recorded it — an admin should confirm a scored match,
+                    // not retype it. Nulls stay blank for manual entry.
+                    onPress={() => {
+                      setScoreFor(m.id);
+                      setScores({
+                        home: m.homeScore != null ? String(m.homeScore) : "",
+                        away: m.awayScore != null ? String(m.awayScore) : "",
+                      });
+                    }}
+                    style={[styles.chipBtn, { marginTop: 8, alignSelf: "flex-start" }]}
+                  >
+                    <Text style={{ color: "#7dd3fc", fontSize: 12 }}>
+                      {m.homeScore != null ? "Confirm result" : "Enter result"}
+                    </Text>
                   </Pressable>
                 )}
               </View>
