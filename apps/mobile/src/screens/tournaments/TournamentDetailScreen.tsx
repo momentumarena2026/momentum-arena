@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Animated, { FadeInDown } from "react-native-reanimated";
+import { PoolRevealCeremony } from "../../components/tournaments/PoolRevealCeremony";
+import { PoolRevealCountdown } from "../../components/tournaments/PoolRevealCountdown";
 import { Trophy, Radio, Users, Plus, Trash2, Lock, CalendarDays, ScrollText } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -424,6 +426,13 @@ export function TournamentDetailScreen() {
       const d = q.state.data;
       if (!d) return 10000;
       if (d.matches?.some((m) => m.status === "LIVE")) return 10000;
+      // Around the reveal instant, poll hard. A customer watching the
+      // countdown hit zero should see the draw within seconds, and the
+      // 60s idle cadence would leave them staring at a finished clock.
+      if (!d.poolsRevealed && d.tournament.revealAt) {
+        const ms = new Date(d.tournament.revealAt).getTime() - Date.now();
+        if (ms < 120_000 && ms > -300_000) return 5000;
+      }
       const done = ["COMPLETED", "CANCELLED"].includes(d.tournament.status);
       return done ? false : 60000;
     },
@@ -799,36 +808,16 @@ export function TournamentDetailScreen() {
         {/* Pools */}
         {tab === "Pools" &&
           (!data.poolsRevealed ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>✨ Pool reveal coming up</Text>
-              <Text style={styles.cardBody}>
-                {t.revealAt
-                  ? `The draw goes live ${new Date(t.revealAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })} — watch this space!`
-                  : "The draw will be revealed soon."}
-              </Text>
-            </View>
+            <PoolRevealCountdown revealAt={t.revealAt} />
           ) : (
-            <View style={{ gap: 12 }}>
-              {data.pools.map((pool, pi) => (
-                <Animated.View key={pool.id} entering={FadeInDown.delay(pi * 90)} style={styles.card}>
-                  <Text style={[styles.cardTitle, { color: "#a78bfa" }]}>{pool.name}</Text>
-                  <View style={{ gap: 8, marginTop: 8 }}>
-                    {data.teams
-                      .filter((x) => x.poolId === pool.id)
-                      .map((team, ti) => (
-                        <Animated.View
-                          key={team.id}
-                          entering={FadeInDown.delay(pi * 90 + ti * 60)}
-                          style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-                        >
-                          <Badge team={team} size={28} />
-                          <Text style={{ color: colors.foreground, fontSize: 14, fontWeight: "600" }}>{team.name}</Text>
-                        </Animated.View>
-                      ))}
-                  </View>
-                </Animated.View>
-              ))}
-            </View>
+            // The draw ceremony, matching the web reveal — pool-by-pool
+            // round-robin, spring flip-in, confetti on the last card.
+            <PoolRevealCeremony
+              pools={data.pools}
+              teams={data.teams}
+              advancePerPool={t.advancePerPool}
+              renderBadge={(team) => <Badge team={team} size={28} />}
+            />
           ))}
 
         {/* Table */}
