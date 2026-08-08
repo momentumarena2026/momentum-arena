@@ -73,10 +73,16 @@ export function OtaActions({
   const blocked = !live && !!disabledReason;
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap items-center gap-1.5">
+    <div className="space-y-2">
+      {/* The ladder as one segmented track.
+          These were five separate chips in a wrapping row inside a narrow
+          table cell, so each fell onto its own line and a single release
+          grew taller than the screen. A connected track reads as one
+          control — "you are here, next rung is that" — and spends the
+          horizontal space the row already had. */}
+      <div className="flex flex-wrap items-center gap-2">
         <span
-          className="inline-flex items-center gap-1.5 pr-0.5 text-[11px] text-zinc-500"
+          className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-zinc-500"
           title={
             live
               ? "Move this live release to a new share of devices."
@@ -87,39 +93,57 @@ export function OtaActions({
           {live ? "Now at" : "Publish at"}
         </span>
 
-        {STEPS.map((step) => {
-          const current = live && rolloutPercent === step;
-          return (
-            <button
-              key={step}
-              type="button"
-              disabled={pending || blocked || current}
-              title={
-                blocked
-                  ? disabledReason
-                  : current
-                    ? `Already at ${step}%`
-                    : live
-                      ? `Move rollout to ${step}%`
-                      : `Publish at ${step}%`
-              }
-              onClick={() => goTo(step)}
-              className={`inline-flex min-w-[3.25rem] items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
-                current
-                  ? "border-emerald-500/50 bg-emerald-600/20 text-emerald-300 disabled:opacity-100"
-                  : "border-emerald-500/30 bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-40"
-              }`}
-            >
-              {busyStep === step ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : current ? (
-                <Check className="h-3 w-3" />
-              ) : null}
-              {step}%
-            </button>
-          );
-        })}
+        <div
+          role="group"
+          aria-label="Rollout percentage"
+          className="grid flex-1 grid-cols-5 overflow-hidden rounded-lg border border-emerald-500/30 sm:flex-none sm:w-[19rem]"
+        >
+          {STEPS.map((step, i) => {
+            const current = live && rolloutPercent === step;
+            // Rungs already passed read as filled, so the track shows how
+            // far the release has travelled at a glance.
+            const passed = live && rolloutPercent > step;
+            return (
+              <button
+                key={step}
+                type="button"
+                disabled={pending || blocked || current}
+                title={
+                  blocked
+                    ? disabledReason
+                    : current
+                      ? `Already at ${step}%`
+                      : live
+                        ? `Move rollout to ${step}%`
+                        : `Publish at ${step}%`
+                }
+                onClick={() => goTo(step)}
+                className={`inline-flex items-center justify-center gap-1 px-1 py-1.5 text-xs font-semibold tabular-nums transition-colors disabled:cursor-not-allowed ${
+                  i > 0 ? "border-l border-emerald-500/20" : ""
+                } ${
+                  current
+                    ? "bg-emerald-500/25 text-emerald-200 disabled:opacity-100"
+                    : passed
+                      ? "bg-emerald-600/10 text-emerald-500/70 hover:bg-emerald-600/20"
+                      : "text-emerald-400 hover:bg-emerald-600/15 disabled:opacity-40"
+                }`}
+              >
+                {busyStep === step ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : current ? (
+                  <Check className="h-3 w-3" />
+                ) : null}
+                {step}%
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
+      {/* Secondary actions on their own line: pausing, reverting and
+          retiring are different in kind from moving the ladder, and
+          sitting them in the same row invited a mis-click. */}
+      <div className="flex flex-wrap items-center gap-1.5">
         {/* Pause — 0% keeps the release live but serves it to nobody, so a
             bad build stops spreading without archiving it or rolling back. */}
         {live && rolloutPercent !== 0 && (
