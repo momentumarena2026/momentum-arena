@@ -14,6 +14,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius } from "../../theme";
+import { ReorderableRows } from "../../components/admin/ReorderableRows";
 import {
   adminTournamentsApi,
   type AdminMatchRow,
@@ -35,6 +36,20 @@ const FLOW: Record<string, string[]> = {
   POOLS_REVEALED: ["LIVE", "CANCELLED"],
   LIVE: ["COMPLETED", "CANCELLED"],
 };
+/** Fixture groups, in the order a tournament is played. Reordering is
+ *  scoped to one of these — a pool match and a final are not
+ *  interchangeable positions. */
+const FIXTURE_STAGES = ["POOL", "LEAGUE", "R16", "QF", "SF", "THIRD_PLACE", "FINAL"];
+const FIXTURE_STAGE_LABEL: Record<string, string> = {
+  POOL: "Pool stage",
+  LEAGUE: "League",
+  R16: "Round of 16",
+  QF: "Quarter finals",
+  SF: "Semi finals",
+  THIRD_PLACE: "Third place",
+  FINAL: "Final",
+};
+
 const LABEL: Record<string, string> = {
   PUBLISHED: "Publish",
   REG_OPEN: "Open Registrations",
@@ -203,6 +218,37 @@ export function AdminTournamentsScreen() {
         { text: "Yes", onPress: run },
       ]);
     } else await run();
+  };
+
+  // Fixture running order. `sequence` is display order only, so this is
+  // safe at any point; the local override just keeps the row where it was
+  // dropped instead of waiting for the refetch.
+  const [fixtureOrder, setFixtureOrder] = useState<Record<string, string[]>>({});
+
+  const reorderFixtures = async (
+    tournamentId: string,
+    stage: string,
+    orderedIds: string[],
+  ) => {
+    const previous = fixtureOrder[stage];
+    setFixtureOrder((o) => ({ ...o, [stage]: orderedIds }));
+    try {
+      await adminTournamentsApi.action({
+        op: "reorderFixtures",
+        tournamentId,
+        stage,
+        orderedIds,
+      });
+    } catch (e) {
+      // Snap back rather than showing an order the server never took.
+      setFixtureOrder((o) => {
+        const next = { ...o };
+        if (previous) next[stage] = previous;
+        else delete next[stage];
+        return next;
+      });
+      Alert.alert("Couldn't reorder", e instanceof Error ? e.message : "Try again.");
+    }
   };
 
   const submitScore = async (m: AdminMatchRow) => {
@@ -661,7 +707,38 @@ export function AdminTournamentsScreen() {
               Both were web-only, so the app could create a fixture it then
               could not place on the calendar or remove. */}
           <Text style={styles.section}>Fixtures ({t.matches.length})</Text>
-          {t.matches.map((m) => (
+          {t.matches.length > 0 && (
+            <Text style={{ color: colors.zinc500, fontSize: 11, marginBottom: 6 }}>
+              Press and hold a fixture to drag it into a different running order.
+            </Text>
+          )}
+          {FIXTURE_STAGES.map((stage) => {
+            const inStage = t.matches.filter((m) => m.stage === stage);
+            if (inStage.length === 0) return null;
+            const custom = fixtureOrder[stage];
+            const ordered = custom
+              ? [
+                  ...custom.flatMap((id) => {
+                    const hit = inStage.find((m) => m.id === id);
+                    return hit ? [hit] : [];
+                  }),
+                  // A fixture added since the drag is appended, not lost.
+                  ...inStage.filter((m) => !custom.includes(m.id)),
+                ]
+              : inStage;
+            return (
+              <View key={stage}>
+                <Text style={{ color: colors.zinc600, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginTop: 4, marginBottom: 4 }}>
+                  {FIXTURE_STAGE_LABEL[stage] ?? stage}
+                </Text>
+                <ReorderableRows
+                  items={ordered}
+                  keyOf={(m) => m.id}
+                  // A row with its scheduling form open must not move under
+                  // the finger while someone is typing into it.
+                  canDrag={(m) => schedFor !== m.id}
+                  onReorder={(ids) => void reorderFixtures(t.id, stage, ids)}
+                  renderItem={(m) => (
             <View key={m.id} style={styles.card}>
               <Text style={{ color: colors.zinc500, fontSize: 11 }}>
                 {m.stage} · {m.roundLabel}
@@ -782,7 +859,11 @@ export function AdminTournamentsScreen() {
                 </View>
               )}
             </View>
-          ))}
+                  )}
+                />
+              </View>
+            );
+          })}
 
           {/* Scores */}
           <Text style={styles.section}>Scores</Text>

@@ -20,6 +20,7 @@ import { enterMatchResult } from "@/actions/admin-tournament-scores";
 import {
   createManualMatch,
   deleteManualMatch,
+  reorderStageFixtures,
 } from "@/actions/admin-tournament-manual-fixtures";
 import {
   getOrganizerLedger,
@@ -113,6 +114,12 @@ export async function POST(request: NextRequest) {
     result = await unscheduleMatch(String(body.matchId || ""));
   else if (op === "deleteMatch")
     result = await deleteManualMatch(String(body.matchId || ""));
+  else if (op === "reorderFixtures")
+    result = await reorderStageFixtures(
+      String(body.tournamentId || ""),
+      String(body.stage || ""),
+      Array.isArray(body.orderedIds) ? body.orderedIds.map(String) : [],
+    );
   else if (op === "organizerPayDelete")
     result = await deleteOrganizerPayment(String(body.paymentId || ""));
   else return NextResponse.json({ error: "Unknown op" }, { status: 400 });
