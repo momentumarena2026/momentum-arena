@@ -28,9 +28,17 @@ export type MatchRow = {
   homeScoreNote: string | null;
   awayScoreNote: string | null;
   pool: { name: string } | null;
+  poolId: string | null;
   courtConfig: { label: string } | null;
   scheduledAt: string | null;
   durationMins: number;
+  isDraw: boolean;
+  winnerTeamId: string | null;
+  /** Knockout wiring — the Bracket tab follows these back from the final. */
+  homeSourceMatchId: string | null;
+  awaySourceMatchId: string | null;
+  /** Scorer's ball-by-ball fold; feeds NRR on the points table. */
+  liveState: unknown;
 };
 
 type Court = { id: string; label: string; size: string };

@@ -14,6 +14,9 @@ import {
   CalendarClock,
   ClipboardList,
   Megaphone,
+  Table2,
+  GitBranch,
+  Medal,
 } from "lucide-react";
 import {
   transitionTournament,
@@ -43,6 +46,8 @@ import { TeamDetailModal } from "./team-detail-modal";
 import { FixturesTab, type MatchRow } from "./fixtures-tab";
 import { ScoresTab } from "./scores-tab";
 import { CampaignTab } from "./campaign-tab";
+import { BracketTab, PointsTableTab, LeadersTab } from "./standings-tabs";
+import type { Leaderboard } from "@/lib/tournament-leaderboards";
 import { OrganizerTab } from "./organizer-tab";
 import { AddFixture } from "./add-fixture";
 
@@ -171,13 +176,16 @@ function toLocalInput(iso: string | null): string {
 export function TournamentManage({
   tournament: t,
   courts,
+  leaderboards,
 }: {
   tournament: AdminTournament;
   courts: { id: string; label: string; size: string }[];
+  leaderboards: Leaderboard[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<
     | "overview" | "teams" | "pools" | "slots" | "fixtures" | "scores"
+    | "table" | "bracket" | "leaders"
     | "campaign" | "organizer" | "settings"
   >("overview");
   const [busy, setBusy] = useState<string | null>(null);
@@ -461,6 +469,14 @@ export function TournamentManage({
             ["slots", "Slots & Draw", CalendarClock],
             ["fixtures", `Fixtures (${t.matches.length})`, CalendarClock],
             ["scores", "Scores", ClipboardList],
+            // A league has no bracket; a pure knockout has no points table.
+            ...(t.format === "KNOCKOUT"
+              ? ([] as const)
+              : ([["table", "Points Table", Table2]] as const)),
+            ...(t.format === "LEAGUE"
+              ? ([] as const)
+              : ([["bracket", "Bracket", GitBranch]] as const)),
+            ["leaders", "Leaders", Medal],
             ["campaign", "Campaign", Megaphone],
             // Organiser money exists only when someone outside the venue is
             // paying us for the hire; our own events take money from teams.
@@ -483,6 +499,22 @@ export function TournamentManage({
           </button>
         ))}
       </div>
+
+      {/* ── Points table ── */}
+      {tab === "table" && (
+        <PointsTableTab
+          tournament={t}
+          matches={t.matches}
+          teams={t.teams}
+          pools={t.pools}
+        />
+      )}
+
+      {/* ── Bracket ── */}
+      {tab === "bracket" && <BracketTab matches={t.matches} teams={t.teams} />}
+
+      {/* ── Leaders ── */}
+      {tab === "leaders" && <LeadersTab leaderboards={leaderboards} />}
 
       {/* ── Overview ── */}
       {tab === "overview" && (

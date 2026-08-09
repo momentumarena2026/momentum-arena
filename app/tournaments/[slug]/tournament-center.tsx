@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { trackTournamentView } from "@/lib/analytics";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import { BracketView } from "@/components/tournaments/BracketView";
 import confetti from "canvas-confetti";
 import { Loader2, Radio, Trophy, Medal, CalendarDays, Table2, GitBranch, Sparkles } from "lucide-react";
 
@@ -27,6 +28,7 @@ type MatchLite = {
   id: string; stage: string; status: string; sequence: number; roundLabel: string | null;
   poolId: string | null; homeTeamId: string | null; awayTeamId: string | null;
   homeSourceLabel: string | null; awaySourceLabel: string | null;
+  homeSourceMatchId?: string | null; awaySourceMatchId?: string | null;
   homeScore: number | null; awayScore: number | null;
   homeScoreNote: string | null; awayScoreNote: string | null;
   isDraw: boolean; winnerTeamId: string | null; scheduledAt: string | null;
@@ -550,46 +552,11 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
 
       {/* ══ BRACKET ══ */}
       {tab === "bracket" && (
-        <div className="overflow-x-auto pb-4">
-          {(() => {
-            const stages = ["R16", "QF", "SF", "FINAL"].filter((st) => data.matches.some((m) => m.stage === st));
-            const third = data.matches.filter((m) => m.stage === "THIRD_PLACE");
-            if (stages.length === 0) {
-              return (
-                <p className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 text-center text-sm text-zinc-500">
-                  The bracket appears once fixtures are generated.
-                </p>
-              );
-            }
-            const STAGE_TITLE: Record<string, string> = { R16: "Round of 16", QF: "Quarter Finals", SF: "Semi Finals", FINAL: "Final" };
-            return (
-              <div className="flex min-w-max gap-6">
-                {stages.map((st, si) => (
-                  <motion.div
-                    key={st}
-                    initial={{ opacity: 0, x: 16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: si * 0.12 }}
-                    className="flex w-64 flex-col justify-around gap-4"
-                  >
-                    <div className="text-center text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                      {STAGE_TITLE[st]}
-                    </div>
-                    {data.matches
-                      .filter((m) => m.stage === st)
-                      .map((m) => matchCard(m, true))}
-                    {st === "FINAL" && third.length > 0 && (
-                      <div>
-                        <div className="mb-2 text-center text-[11px] uppercase tracking-wider text-zinc-500">3rd Place</div>
-                        {third.map((m) => matchCard(m, true))}
-                      </div>
-                    )}
-                  </motion.div>
-                ))}
-              </div>
-            );
-          })()}
-        </div>
+        <BracketView
+          matches={data.matches}
+          teams={teams}
+          renderBadge={(team) => <TeamBadge team={team as TeamLite | null} size={20} />}
+        />
       )}
 
       {/* ══ MATCHES ══ */}
