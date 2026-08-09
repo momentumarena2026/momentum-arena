@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { trackTournamentView } from "@/lib/analytics";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { BracketView } from "@/components/tournaments/BracketView";
 import confetti from "canvas-confetti";
@@ -139,6 +140,7 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
     return () => clearInterval(iv);
   }, [load]);
 
+  const router = useRouter();
   const teams = useMemo(() => new Map((data?.teams || []).map((t) => [t.id, t])), [data]);
 
   // Draw ceremony: ordered list of (team, pool) reveals, pool-by-pool round-robin.
@@ -556,6 +558,7 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
           matches={data.matches}
           teams={teams}
           renderBadge={(team) => <TeamBadge team={team as TeamLite | null} size={20} />}
+          onMatchClick={(m) => router.push(`/tournaments/${slug}/match/${m.id}`)}
         />
       )}
 

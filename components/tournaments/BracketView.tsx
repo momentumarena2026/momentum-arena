@@ -67,12 +67,15 @@ export function BracketView({
   teams,
   renderBadge,
   onMatchClick,
+  canClick,
   emptyText = "The bracket appears once knockout fixtures are generated.",
 }: {
   matches: BracketMatch[];
   teams: Map<string, BracketTeam>;
   renderBadge?: (team: BracketTeam | null) => ReactNode;
   onMatchClick?: (m: BracketMatch) => void;
+  /** Which boxes are worth clicking. Defaults to all of them. */
+  canClick?: (m: BracketMatch) => boolean;
   emptyText?: string;
 }) {
   const ko = matches.filter((m) => KO_STAGES.includes(m.stage));
@@ -156,6 +159,7 @@ export function BracketView({
                 teams={teams}
                 renderBadge={renderBadge}
                 onMatchClick={onMatchClick}
+                canClick={canClick}
               />
               {champion && (
                 <>
@@ -190,6 +194,7 @@ export function BracketView({
                     teams={teams}
                     renderBadge={renderBadge}
                     onMatchClick={onMatchClick}
+                    canClick={canClick}
                   />
                 </div>
               ))}
@@ -211,11 +216,13 @@ function BracketNode({
   teams,
   renderBadge,
   onMatchClick,
+  canClick,
 }: {
   node: Node;
   teams: Map<string, BracketTeam>;
   renderBadge?: (team: BracketTeam | null) => ReactNode;
   onMatchClick?: (m: BracketMatch) => void;
+  canClick?: (m: BracketMatch) => boolean;
 }) {
   const { match, feeders } = node;
 
@@ -230,6 +237,7 @@ function BracketNode({
                 teams={teams}
                 renderBadge={renderBadge}
                 onMatchClick={onMatchClick}
+                canClick={canClick}
               />
               <Elbow />
               {/* Half of the vertical spine: the upper feeder draws from its
@@ -254,6 +262,7 @@ function BracketNode({
           teams={teams}
           renderBadge={renderBadge}
           onMatchClick={onMatchClick}
+          canClick={canClick}
         />
       </div>
     </div>
@@ -265,11 +274,13 @@ function MatchBox({
   teams,
   renderBadge,
   onMatchClick,
+  canClick,
 }: {
   match: BracketMatch;
   teams: Map<string, BracketTeam>;
   renderBadge?: (team: BracketTeam | null) => ReactNode;
   onMatchClick?: (m: BracketMatch) => void;
+  canClick?: (m: BracketMatch) => boolean;
 }) {
   const live = m.status === "LIVE";
   const sides = [
@@ -287,16 +298,17 @@ function MatchBox({
     },
   ];
 
-  const Wrapper = onMatchClick ? "button" : "div";
+  const clickable = !!onMatchClick && (canClick?.(m) ?? true);
+  const Wrapper = clickable ? "button" : "div";
 
   return (
     <Wrapper
-      {...(onMatchClick
-        ? { onClick: () => onMatchClick(m), type: "button" as const }
+      {...(clickable
+        ? { onClick: () => onMatchClick!(m), type: "button" as const }
         : {})}
       className={`block w-full overflow-hidden rounded-xl border text-left ${
         live ? "border-red-500/50" : "border-zinc-800"
-      } bg-zinc-900/70 ${onMatchClick ? "transition-colors hover:border-zinc-600" : ""}`}
+      } bg-zinc-900/70 ${clickable ? "cursor-pointer transition-colors hover:border-zinc-600" : ""}`}
     >
       <div className="flex items-center justify-between bg-zinc-900 px-2.5 py-1 text-[10px] uppercase tracking-wide text-zinc-500">
         <span className="truncate">{m.roundLabel || STAGE_TITLE[m.stage] || m.stage}</span>

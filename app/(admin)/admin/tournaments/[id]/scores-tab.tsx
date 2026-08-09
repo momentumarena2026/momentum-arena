@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, ClipboardEdit, RotateCcw, Award } from "lucide-react";
 import {
@@ -22,10 +22,15 @@ export function ScoresTab({
   tournamentId,
   matches,
   statFields,
+  focusMatchId,
 }: {
   tournamentId: string;
   matches: MatchRow[];
   statFields: { key: string; label: string }[];
+  /** Set when the organiser arrived by clicking a bracket box — that
+   *  match's entry form opens and scrolls into view, so they land on the
+   *  match they clicked instead of the top of a long list. */
+  focusMatchId?: string | null;
 }) {
   const router = useRouter();
   const [openFor, setOpenFor] = useState<string | null>(null);
@@ -80,6 +85,27 @@ export function ScoresTab({
     const r = await getMatchRosters(m.id);
     setRoster((r as Roster) || null);
   };
+
+  // Bracket -> Scores hand-off. Keyed on the id so re-selecting the same
+  // match after closing the form works, but a re-render doesn't reopen it.
+  const focusedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusMatchId) {
+      focusedRef.current = null;
+      return;
+    }
+    if (focusedRef.current === focusMatchId) return;
+    const m = matches.find((x) => x.id === focusMatchId);
+    if (!m) return;
+    focusedRef.current = focusMatchId;
+    if (openFor !== m.id) void openEntry(m);
+    requestAnimationFrame(() =>
+      document
+        .getElementById(`score-row-${focusMatchId}`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" }),
+    );
+  });
+
 
   const submit = async (m: MatchRow) => {
     setBusy(m.id);
@@ -188,7 +214,7 @@ export function ScoresTab({
       )}
       <div className="space-y-2">
         {ready.map((m) => (
-          <div key={m.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+          <div key={m.id} id={`score-row-${m.id}`} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-xs text-zinc-500">{m.roundLabel}</div>
@@ -360,7 +386,7 @@ export function ScoresTab({
       </h4>
       <div className="space-y-2">
         {completed.map((m) => (
-          <div key={m.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3.5">
+          <div key={m.id} id={`score-row-${m.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3.5">
             <div>
               <div className="text-xs text-zinc-500">{m.roundLabel}{m.status === "WALKOVER" ? " · walkover" : ""}</div>
               <div className="mt-0.5 text-sm text-zinc-100">

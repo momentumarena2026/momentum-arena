@@ -188,6 +188,8 @@ export function TournamentManage({
     | "table" | "bracket" | "leaders"
     | "campaign" | "organizer" | "settings"
   >("overview");
+  // Which match a bracket click asked the Scores tab to open.
+  const [focusMatchId, setFocusMatchId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
@@ -511,7 +513,19 @@ export function TournamentManage({
       )}
 
       {/* ── Bracket ── */}
-      {tab === "bracket" && <BracketTab matches={t.matches} teams={t.teams} />}
+      {tab === "bracket" && (
+        <BracketTab
+          matches={t.matches}
+          teams={t.teams}
+          // Clicking a tie is almost always a prelude to entering its
+          // result, so send them straight there rather than making them
+          // find the same match again in the Scores list.
+          onMatchClick={(id) => {
+            setFocusMatchId(id);
+            setTab("scores");
+          }}
+        />
+      )}
 
       {/* ── Leaders ── */}
       {tab === "leaders" && <LeadersTab leaderboards={leaderboards} />}
@@ -774,7 +788,12 @@ export function TournamentManage({
 
       {/* ── Scores ── */}
       {tab === "scores" && (
-        <ScoresTab tournamentId={t.id} matches={t.matches} statFields={t.statFields || []} />
+        <ScoresTab
+          tournamentId={t.id}
+          matches={t.matches}
+          statFields={t.statFields || []}
+          focusMatchId={focusMatchId}
+        />
       )}
 
       {/* ── Campaign ── */}
