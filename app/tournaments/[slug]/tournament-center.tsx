@@ -557,6 +557,7 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
         <BracketView
           matches={data.matches}
           teams={teams}
+          pools={data.pools}
           renderBadge={(team) => <TeamBadge team={team as TeamLite | null} size={20} />}
           onMatchClick={(m) => router.push(`/tournaments/${slug}/match/${m.id}`)}
         />

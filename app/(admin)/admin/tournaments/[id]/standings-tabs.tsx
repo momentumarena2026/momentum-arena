@@ -72,10 +72,12 @@ function teamMap(teams: TeamLite[]) {
 export function BracketTab({
   matches,
   teams,
+  pools,
   onMatchClick,
 }: {
   matches: MatchRow[];
   teams: TeamLite[];
+  pools: { id: string; name: string }[];
   onMatchClick?: (matchId: string) => void;
 }) {
   const lookup = useMemo(() => teamMap(teams), [teams]);
@@ -98,14 +100,16 @@ export function BracketTab({
         homeScoreNote: m.homeScoreNote,
         awayScoreNote: m.awayScoreNote,
         winnerTeamId: m.winnerTeamId,
+        poolId: m.poolId,
       }))}
       teams={lookup}
+      pools={pools}
       renderBadge={(team) => <TeamDot team={team} size={18} />}
       onMatchClick={onMatchClick ? (m) => onMatchClick(m.id) : undefined}
       // A slot still reading "Winner SF1" has nothing to score, so it
       // stays inert instead of offering a click that goes nowhere.
       canClick={(m) => !!m.homeTeamId && !!m.awayTeamId}
-      emptyText="No knockout fixtures yet — generate them from the Fixtures tab."
+      emptyText="No fixtures yet — generate them from the Fixtures tab."
     />
   );
 }

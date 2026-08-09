@@ -31,7 +31,10 @@ export async function GET(request: NextRequest) {
     const planning = await getSlotPlanning(id);
     return NextResponse.json({ tournament: t, courts, windows: planning?.slots ?? [] });
   }
-  const rows = await listTournamentsAdmin();
+  // Archived events are hidden unless asked for, matching the web list.
+  const rows = await listTournamentsAdmin(
+    new URL(request.url).searchParams.get("archived") === "1",
+  );
   return NextResponse.json({
     tournaments: rows.map((t) => ({
       id: t.id,
@@ -45,6 +48,7 @@ export async function GET(request: NextRequest) {
       scorerCode: t.scorerCode,
       teams: t._count.teams,
       matches: t._count.matches,
+      archivedAt: t.archivedAt ? t.archivedAt.toISOString() : null,
     })),
   });
 }

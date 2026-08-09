@@ -333,12 +333,54 @@ export async function setTournamentsEnabled(enabled: boolean): Promise<{ ok: tru
 }
 
 // ── Reads ───────────────────────────────────────────────────────────
-export async function listTournamentsAdmin() {
+export async function listTournamentsAdmin(includeArchived = false) {
   await gate();
   return db.tournament.findMany({
+    where: includeArchived ? {} : { archivedAt: null },
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { teams: true, matches: true } } },
   });
+}
+
+/**
+ * File a finished tournament away, or bring it back.
+ *
+ * Deliberately not a delete: the teams, fixtures, scores and money stay
+ * exactly where they are, and the record is still reachable by URL. All
+ * that changes is that it stops filling the admin list and disappears
+ * from the public tournaments page — a venue that runs a cup every month
+ * would otherwise scroll past a year of finished ones to reach the live
+ * one. Fully reversible, so a mis-click costs nothing.
+ */
+export async function setTournamentArchived(
+  id: string,
+  archived = true,
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  const t = await db.tournament.findUnique({
+    where: { id },
+    select: { id: true, status: true },
+  });
+  if (!t) return { success: false, error: "Tournament not found" };
+  // Archiving something still being played would pull it off the public
+  // page mid-event, with teams looking for their fixtures.
+  if (archived && ["REG_OPEN", "LIVE"].includes(t.status)) {
+    return {
+      success: false,
+      error:
+        t.status === "LIVE"
+          ? "This tournament is live — complete it first"
+          : "Registrations are open — close them first",
+    };
+  }
+  await db.tournament.update({
+    where: { id },
+    data: { archivedAt: archived ? new Date() : null },
+  });
+  revalidatePath("/admin/tournaments");
+  revalidatePath(`/admin/tournaments/${id}`);
+  revalidatePath("/tournaments");
+  return { success: true };
 }
 
 export async function getTournamentAdmin(id: string) {

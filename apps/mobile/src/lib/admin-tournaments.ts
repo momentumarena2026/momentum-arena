@@ -13,6 +13,8 @@ export interface AdminTournamentCard {
   totalTeams: number;
   entryFee: number;
   liveScoringEnabled: boolean;
+  /** Set when filed away; hidden from the default list. */
+  archivedAt?: string | null;
   scorerCode: string | null;
   teams: number;
   matches: number;
@@ -48,6 +50,8 @@ export interface AdminMatchRow {
 }
 
 export interface AdminTournamentDetail {
+  /** Set when filed away; the detail screen offers Unarchive instead. */
+  archivedAt?: string | null;
   id: string;
   name: string;
   sport: string;
@@ -89,8 +93,11 @@ export interface AdminSlotWindow {
 }
 
 export const adminTournamentsApi = {
-  list: () =>
-    request<{ tournaments: AdminTournamentCard[] }>("/api/mobile/admin/tournaments", { method: "GET" }),
+  list: (includeArchived = false) =>
+    request<{ tournaments: AdminTournamentCard[] }>(
+      `/api/mobile/admin/tournaments${includeArchived ? "?archived=1" : ""}`,
+      { method: "GET" },
+    ),
   detail: (id: string) =>
     request<{
       tournament: AdminTournamentDetail;

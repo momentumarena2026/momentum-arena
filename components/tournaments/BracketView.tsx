@@ -35,6 +35,7 @@ export type BracketMatch = {
   homeScoreNote?: string | null;
   awayScoreNote?: string | null;
   winnerTeamId: string | null;
+  poolId?: string | null;
 };
 
 export type BracketTeam = {
@@ -68,10 +69,15 @@ export function BracketView({
   renderBadge,
   onMatchClick,
   canClick,
+  pools = [],
   emptyText = "The bracket appears once knockout fixtures are generated.",
 }: {
   matches: BracketMatch[];
   teams: Map<string, BracketTeam>;
+  /** Pools, in order. Given these, the pool stage is drawn as the first
+   *  column so the whole tournament reads left to right in one picture
+   *  instead of the knockout arriving from nowhere. */
+  pools?: { id: string; name: string }[];
   renderBadge?: (team: BracketTeam | null) => ReactNode;
   onMatchClick?: (m: BracketMatch) => void;
   /** Which boxes are worth clicking. Defaults to all of them. */
@@ -81,7 +87,28 @@ export function BracketView({
   const ko = matches.filter((m) => KO_STAGES.includes(m.stage));
   const third = matches.filter((m) => m.stage === "THIRD_PLACE");
 
-  if (ko.length === 0) {
+  // Pool (or league) matches, grouped the way they are played. A pool is a
+  // round-robin, not a tree, so these get a column of their own with no
+  // connectors: nothing here feeds a specific knockout slot, the standings
+  // do. Drawing a line would claim a link that doesn't exist.
+  const groupMatches = matches.filter(
+    (m) => m.stage === "POOL" || m.stage === "LEAGUE",
+  );
+  const poolGroups = pools
+    .map((p) => ({ name: p.name, items: groupMatches.filter((m) => m.poolId === p.id) }))
+    .filter((g) => g.items.length > 0);
+  // Anything without a pool (a league, or a pool deleted since) still shows.
+  const looseGroup = groupMatches.filter(
+    (m) => !m.poolId || !pools.some((p) => p.id === m.poolId),
+  );
+  if (looseGroup.length > 0) {
+    poolGroups.push({
+      name: groupMatches[0]?.stage === "LEAGUE" ? "League" : "Pool stage",
+      items: looseGroup,
+    });
+  }
+
+  if (ko.length === 0 && poolGroups.length === 0) {
     return (
       <p className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 text-center text-sm text-zinc-500">
         {emptyText}
@@ -119,7 +146,7 @@ export function BracketView({
     )
     .map((m) => build(m, new Set()));
 
-  const columns = Math.max(...roots.map(depthOf));
+  const columns = roots.length > 0 ? Math.max(...roots.map(depthOf)) : 0;
 
   // Column headings. The deepest chain ends at the root's stage, so walking
   // back that many stages from it names each column left to right.
@@ -134,6 +161,36 @@ export function BracketView({
 
   return (
     <div className="overflow-x-auto pb-4">
+      <div className="flex min-w-max items-start gap-6">
+        {poolGroups.length > 0 && (
+          <div className="w-[236px] shrink-0">
+            <div className="pb-3 text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Pool stage
+            </div>
+            <div className="space-y-4">
+              {poolGroups.map((g) => (
+                <div key={g.name}>
+                  <div className="mb-1.5 text-[11px] font-semibold text-violet-300">
+                    {g.name}
+                  </div>
+                  <div className="space-y-1.5">
+                    {g.items.map((m) => (
+                      <MatchBox
+                        key={m.id}
+                        match={m}
+                        teams={teams}
+                        renderBadge={renderBadge}
+                        onMatchClick={onMatchClick}
+                        canClick={canClick}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       <div className="min-w-max">
         <div className="flex">
           {headings.map((st) => (
@@ -181,7 +238,9 @@ export function BracketView({
           ))}
         </div>
 
-        {third.length > 0 && (
+        </div>
+      </div>
+      {third.length > 0 && (
           <div className="mt-8">
             <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
               Third place
@@ -201,7 +260,6 @@ export function BracketView({
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 }

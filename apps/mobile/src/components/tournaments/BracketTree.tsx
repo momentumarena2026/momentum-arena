@@ -40,18 +40,41 @@ function depthOf(n: Node): number {
 export function BracketTree({
   matches,
   teams,
+  pools = [],
   onMatchPress,
   renderBadge,
 }: {
   matches: MatchLite[];
   teams: Map<string, TeamLite>;
+  /** Pools, in order — draws the pool stage as the first column so the
+   *  whole tournament reads left to right, as on the web. */
+  pools?: { id: string; name: string }[];
   onMatchPress?: (m: MatchLite) => void;
   renderBadge?: (team: TeamLite | null) => React.ReactNode;
 }) {
   const ko = matches.filter((m) => KO_STAGES.includes(m.stage));
   const third = matches.filter((m) => m.stage === "THIRD_PLACE");
 
-  if (ko.length === 0) {
+  // A pool is a round-robin, not a tree, so it gets a plain column with no
+  // connectors — nothing here feeds a specific knockout slot, the
+  // standings do.
+  const groupMatches = matches.filter(
+    (m) => m.stage === "POOL" || m.stage === "LEAGUE",
+  );
+  const poolGroups = pools
+    .map((p) => ({ name: p.name, items: groupMatches.filter((m) => m.poolId === p.id) }))
+    .filter((g) => g.items.length > 0);
+  const loose = groupMatches.filter(
+    (m) => !m.poolId || !pools.some((p) => p.id === m.poolId),
+  );
+  if (loose.length > 0) {
+    poolGroups.push({
+      name: groupMatches[0]?.stage === "LEAGUE" ? "League" : "Pool stage",
+      items: loose,
+    });
+  }
+
+  if (ko.length === 0 && poolGroups.length === 0) {
     return (
       <View style={styles.empty}>
         <Text variant="small" color={colors.zinc500}>
@@ -82,7 +105,7 @@ export function BracketTree({
     .sort((a, b) => KO_STAGES.indexOf(b.stage) - KO_STAGES.indexOf(a.stage))
     .map((m) => build(m, new Set()));
 
-  const columns = Math.max(...roots.map(depthOf));
+  const columns = roots.length > 0 ? Math.max(...roots.map(depthOf)) : 0;
   const rootStage = roots[0]?.match.stage ?? "FINAL";
   const endIdx = KO_STAGES.indexOf(rootStage);
   const headings = KO_STAGES.slice(Math.max(0, endIdx - columns + 1), endIdx + 1);
@@ -94,7 +117,28 @@ export function BracketTree({
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={{ paddingRight: 16 }}>
+      <View style={{ paddingRight: 16, flexDirection: "row", alignItems: "flex-start" }}>
+        {poolGroups.length > 0 && (
+          <View style={{ width: BOX_W, marginRight: 16 }}>
+            <Text style={[styles.heading, { width: BOX_W }]}>Pool stage</Text>
+            {poolGroups.map((g) => (
+              <View key={g.name} style={{ marginBottom: 12 }}>
+                <Text style={styles.poolName}>{g.name}</Text>
+                {g.items.map((m) => (
+                  <View key={m.id} style={{ marginBottom: 6 }}>
+                    <MatchBox
+                      match={m}
+                      teams={teams}
+                      onMatchPress={onMatchPress}
+                      renderBadge={renderBadge}
+                    />
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        )}
+        <View>
         <View style={{ flexDirection: "row" }}>
           {headings.map((st) => (
             <Text key={st} style={styles.heading}>
@@ -140,6 +184,7 @@ export function BracketTree({
           </View>
         ))}
 
+        </View>
         {third.length > 0 && (
           <View style={{ marginTop: 8 }}>
             <Text style={[styles.heading, { width: BOX_W, textAlign: "left" }]}>
@@ -317,6 +362,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.zinc900,
     padding: 24,
     alignItems: "center",
+  },
+  poolName: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#c4b5fd",
+    marginBottom: 4,
   },
   heading: {
     width: BOX_W + ELBOW_W * 2,

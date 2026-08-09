@@ -9,6 +9,7 @@ import {
   rotateScorerCode,
   archiveTournamentTeam,
   deleteTournamentTeam,
+  setTournamentArchived,
 } from "@/actions/admin-tournaments";
 import {
   autoAssignPools,
@@ -114,6 +115,11 @@ export async function POST(request: NextRequest) {
     result = await unscheduleMatch(String(body.matchId || ""));
   else if (op === "deleteMatch")
     result = await deleteManualMatch(String(body.matchId || ""));
+  else if (op === "archiveTournament")
+    result = await setTournamentArchived(
+      String(body.tournamentId || ""),
+      body.archived !== false,
+    );
   else if (op === "reorderFixtures")
     result = await reorderStageFixtures(
       String(body.tournamentId || ""),
