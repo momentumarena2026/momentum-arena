@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -41,6 +42,17 @@ export function MatchStartScreen() {
   const [oversInput, setOvers] = useState("6");
   const [joinCode, setJoinCode] = useState("");
   const [scorerCode, setScorerCode] = useState("");
+  const headerHeight = useHeaderHeight();
+  // Shrinking the viewport for the keyboard is only half of it: React
+  // Native does not scroll the focused input into view, so the two cards
+  // at the bottom of this screen stayed underneath it. Each records its
+  // own offset and scrolls itself to the top of the viewport on focus —
+  // at the top it clears the keyboard whatever height that keyboard is,
+  // which also avoids guessing before the keyboard has finished animating.
+  const scrollRef = useRef<ScrollView>(null);
+  const cardY = useRef<Record<string, number>>({});
+  const revealCard = (key: string) =>
+    scrollRef.current?.scrollTo({ y: Math.max(0, (cardY.current[key] ?? 0) - 12), animated: true });
 
   const mine = useQuery({ queryKey: ["my-matches"], queryFn: fetchMyMatches });
 
@@ -66,9 +78,18 @@ export function MatchStartScreen() {
   });
 
   return (
-    <Screen padded={false}>
+    // The scorer-code field sits at the bottom of this screen, so the
+    // keyboard covered it completely — you were typing a code you couldn't
+    // see. The offset is the native-stack header's height; without it iOS
+    // lifts the content by the wrong amount and leaves the field under the
+    // keyboard anyway.
+    <Screen padded={false} avoidKeyboard keyboardVerticalOffset={headerHeight}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scroll}
+        // Without this the first tap on "Open" only dismisses the keyboard
+        // and you have to tap again.
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={mine.isRefetching}
@@ -145,7 +166,12 @@ export function MatchStartScreen() {
           />
         </View>
 
-        <View style={styles.card}>
+        <View
+          style={styles.card}
+          onLayout={(e) => {
+            cardY.current.follow = e.nativeEvent.layout.y;
+          }}
+        >
           <Text variant="bodyStrong" color={colors.foreground}>
             Follow a match
           </Text>
@@ -154,6 +180,7 @@ export function MatchStartScreen() {
               style={[styles.input, styles.joinInput]}
               placeholder="Match code"
               placeholderTextColor={colors.zinc600}
+              onFocus={() => revealCard("follow")}
               autoCapitalize="characters"
               value={joinCode}
               onChangeText={setJoinCode}
@@ -177,7 +204,12 @@ export function MatchStartScreen() {
             block rather than overloading the match-code field. Getting
             them confused would mean typing a tournament credential into a
             public match lookup. */}
-        <View style={styles.card}>
+        <View
+          style={styles.card}
+          onLayout={(e) => {
+            cardY.current.scorer = e.nativeEvent.layout.y;
+          }}
+        >
           <Text variant="bodyStrong" color={colors.foreground}>
             Score a tournament match
           </Text>
@@ -189,6 +221,7 @@ export function MatchStartScreen() {
               style={[styles.input, styles.joinInput]}
               placeholder="Scorer code"
               placeholderTextColor={colors.zinc600}
+              onFocus={() => revealCard("scorer")}
               autoCapitalize="characters"
               autoCorrect={false}
               value={scorerCode}
@@ -255,7 +288,9 @@ const styles = StyleSheet.create({
   scroll: {
     padding: spacing["5"],
     gap: spacing["4"],
-    paddingBottom: spacing["10"],
+    // Room to scroll the last card up to the top of the viewport. Without
+    // it the content ends before the card can clear the keyboard.
+    paddingBottom: 320,
   },
   header: { gap: spacing["1"] },
   titleRow: { flexDirection: "row", alignItems: "center", gap: spacing["2"] },
