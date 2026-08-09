@@ -7,11 +7,26 @@ import {
   autoAssignPools,
   clearPools,
   createEmptyPools,
-  moveTeamToPool,
 } from "@/actions/admin-tournament-fixtures";
+import { PoolBoard } from "./pool-board";
 
-type Team = { id: string; name: string; status: string; poolId?: string | null; color: string | null };
+type Team = {
+  id: string;
+  name: string;
+  status: string;
+  poolId?: string | null;
+  color: string | null;
+  preferredSlotIds: string[];
+};
 type Pool = { id: string; name: string; order: number };
+type Slot = {
+  id: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  label: string | null;
+  courtConfig: { label: string } | null;
+};
 
 export function PoolsTab({
   tournamentId,
@@ -19,12 +34,16 @@ export function PoolsTab({
   revealAt,
   pools,
   teams,
+  slots,
+  teamsPerPool,
 }: {
   tournamentId: string;
   status: string;
   revealAt: string | null;
   pools: Pool[];
   teams: Team[];
+  slots: Slot[];
+  teamsPerPool: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -64,18 +83,6 @@ export function PoolsTab({
     setError(null);
     try {
       const res = await clearPools(tournamentId);
-      if (!res.success) setError(res.error || "Failed");
-      else router.refresh();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const move = async (teamId: string, poolId: string) => {
-    setBusy(teamId);
-    setError(null);
-    try {
-      const res = await moveTeamToPool(teamId, poolId || null);
       if (!res.success) setError(res.error || "Failed");
       else router.refresh();
     } finally {
@@ -127,8 +134,7 @@ export function PoolsTab({
         <span className="text-violet-400">Pools Revealed</span> (or the reveal countdown hits zero
         after you transition). The random deal groups teams by the slots they said they can play, so
         a pool&apos;s round-robin fits the windows its members share — re-deal for a different
-        arrangement, start from empty pools to build it yourself, and use the per-team selector
-        either way.
+        arrangement, or start from empty pools and drag teams in yourself.
       </p>
       {error && <p className="text-sm text-red-400">{error}</p>}
 
@@ -137,64 +143,13 @@ export function PoolsTab({
           No pools dealt yet. {confirmed.length} confirmed teams ready.
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {pools.map((pool) => {
-            const poolTeams = confirmed.filter((t) => t.poolId === pool.id);
-            return (
-              <div key={pool.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                <h4 className="mb-3 font-semibold text-violet-300">{pool.name}</h4>
-                <div className="space-y-2">
-                  {poolTeams.map((t) => (
-                    <div key={t.id} className="flex items-center gap-2 rounded-lg bg-zinc-800/60 p-2">
-                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: t.color || "#52525b" }} />
-                      <span className="flex-1 truncate text-sm text-zinc-200">{t.name}</span>
-                      {!locked && (
-                        <select
-                          className="rounded border border-zinc-700 bg-zinc-800 p-1 text-xs text-zinc-400"
-                          value={pool.id}
-                          disabled={busy === t.id}
-                          onChange={(e) => move(t.id, e.target.value)}
-                        >
-                          {pools.map((p) => (
-                            <option key={p.id} value={p.id}>{p.name.replace("Pool ", "")}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  ))}
-                  {poolTeams.length === 0 && <p className="text-xs text-zinc-600">Empty</p>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Unassigned confirmed teams */}
-      {pools.length > 0 && confirmed.some((t) => !t.poolId) && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <h4 className="mb-2 text-sm font-medium text-amber-400">Unassigned teams</h4>
-          <div className="flex flex-wrap gap-2">
-            {confirmed
-              .filter((t) => !t.poolId)
-              .map((t) => (
-                <div key={t.id} className="flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200">
-                  {t.name}
-                  <select
-                    className="rounded border border-zinc-700 bg-zinc-900 p-1 text-xs text-zinc-400"
-                    value=""
-                    disabled={busy === t.id}
-                    onChange={(e) => e.target.value && move(t.id, e.target.value)}
-                  >
-                    <option value="">Assign…</option>
-                    {pools.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-          </div>
-        </div>
+        <PoolBoard
+          pools={pools}
+          teams={confirmed}
+          slots={slots}
+          teamsPerPool={teamsPerPool}
+          locked={locked}
+        />
       )}
     </div>
   );
