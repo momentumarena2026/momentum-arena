@@ -904,6 +904,7 @@ export function TournamentDetailScreen() {
           <BracketTree
             matches={data.matches}
             teams={teams}
+            pools={data.pools}
             renderBadge={(team) => <Badge team={team ?? undefined} size={16} />}
             onMatchPress={(m) =>
               navigation.navigate("TournamentMatch", { matchId: m.id, slug })
