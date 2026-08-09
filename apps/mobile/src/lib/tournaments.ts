@@ -38,6 +38,9 @@ export type MatchLite = {
   awayTeamId: string | null;
   homeSourceLabel: string | null;
   awaySourceLabel: string | null;
+  /** Knockout wiring — the bracket follows these back from the final. */
+  homeSourceMatchId?: string | null;
+  awaySourceMatchId?: string | null;
   homeScore: number | null;
   awayScore: number | null;
   homeScoreNote: string | null;

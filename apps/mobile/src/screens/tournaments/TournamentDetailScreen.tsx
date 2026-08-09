@@ -12,6 +12,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
+import { BracketTree } from "../../components/tournaments/BracketTree";
 import { sportTheme } from "../../lib/sport-theme";
 import { env } from "../../config/env";
 import {
@@ -898,52 +899,17 @@ export function TournamentDetailScreen() {
         )}
 
         {/* Matches */}
-        {/* Bracket — knockout stages side by side, scrolled horizontally
-            so a phone can follow R16 → Final without squashing the cards.
-            Derived from `matches`, exactly like the web centre. */}
-        {tab === "Bracket" && (() => {
-          const STAGE_TITLE: Record<string, string> = {
-            R16: "Round of 16",
-            QF: "Quarter Finals",
-            SF: "Semi Finals",
-            FINAL: "Final",
-          };
-          const stages = ["R16", "QF", "SF", "FINAL"].filter((st) =>
-            data.matches.some((m) => m.stage === st),
-          );
-          const third = data.matches.filter((m) => m.stage === "THIRD_PLACE");
-          if (stages.length === 0) {
-            return (
-              <View style={styles.card}>
-                <Text style={styles.cardBody}>
-                  The bracket appears once fixtures are generated.
-                </Text>
-              </View>
-            );
-          }
-          return (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 12, paddingRight: 12 }}
-            >
-              {stages.map((st) => (
-                <View key={st} style={{ width: 260, gap: 8 }}>
-                  <Text style={styles.bracketStage}>{STAGE_TITLE[st]}</Text>
-                  {data.matches
-                    .filter((m) => m.stage === st)
-                    .map((m, i) => matchRow(m, i))}
-                  {st === "FINAL" && third.length > 0 && (
-                    <>
-                      <Text style={styles.bracketStage}>3rd Place</Text>
-                      {third.map((m, i) => matchRow(m, i))}
-                    </>
-                  )}
-                </View>
-              ))}
-            </ScrollView>
-          );
-        })()}
+        {/* Bracket — drawn with its connectors, mirroring the web view. */}
+        {tab === "Bracket" && (
+          <BracketTree
+            matches={data.matches}
+            teams={teams}
+            renderBadge={(team) => <Badge team={team ?? undefined} size={16} />}
+            onMatchPress={(m) =>
+              navigation.navigate("TournamentMatch", { matchId: m.id, slug })
+            }
+          />
+        )}
 
         {tab === "Matches" && (
           <View style={{ gap: 8 }}>
