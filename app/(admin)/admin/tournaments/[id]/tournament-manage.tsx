@@ -762,7 +762,10 @@ export function TournamentManage({
             status: x.status,
             poolId: x.poolId,
             color: x.color,
+            preferredSlotIds: x.preferredSlotIds,
           }))}
+          slots={t.slots}
+          teamsPerPool={t.teamsPerPool}
         />
       )}
 
