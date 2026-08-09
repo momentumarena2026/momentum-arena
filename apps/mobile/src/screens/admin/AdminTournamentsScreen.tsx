@@ -31,7 +31,7 @@ const FLOW: Record<string, string[]> = {
   DRAFT: ["PUBLISHED", "CANCELLED"],
   PUBLISHED: ["REG_OPEN", "CANCELLED"],
   REG_OPEN: ["REG_CLOSED", "CANCELLED"],
-  REG_CLOSED: ["POOLS_REVEALED", "LIVE", "CANCELLED"],
+  REG_CLOSED: ["REG_OPEN", "POOLS_REVEALED", "LIVE", "CANCELLED"],
   POOLS_REVEALED: ["LIVE", "CANCELLED"],
   LIVE: ["COMPLETED", "CANCELLED"],
 };
@@ -285,12 +285,19 @@ export function AdminTournamentsScreen() {
                 key={to}
                 disabled={busy}
                 onPress={() =>
-                  act({ op: "transition", tournamentId: t.id, to }, `Move to ${LABEL[to] || to}?`)
+                  act(
+                    { op: "transition", tournamentId: t.id, to },
+                    to === "REG_OPEN" && t.status === "REG_CLOSED"
+                      ? "Reopen registrations? Any closing time already set is cleared, so it stays open until you close it."
+                      : `Move to ${LABEL[to] || to}?`,
+                  )
                 }
                 style={[styles.chipBtn, to === "CANCELLED" && { borderColor: "rgba(248,113,113,0.4)" }]}
               >
                 <Text style={{ color: to === "CANCELLED" ? "#f87171" : colors.emerald400, fontSize: 12 }}>
-                  {LABEL[to] || to}
+                  {to === "REG_OPEN" && t.status === "REG_CLOSED"
+                    ? "Reopen Registrations"
+                    : LABEL[to] || to}
                 </Text>
               </Pressable>
             ))}
