@@ -174,6 +174,20 @@ export function FixturesTab({
   // rides in dataTransfer so the drop works from either source.
   const dragRef = useRef<string | null>(null);
 
+  /** The window the form is currently sitting in.
+   *
+   *  Matching on the date alone is not enough: a single day routinely has
+   *  more than one window (a morning and an evening block, or two courts),
+   *  and taking the first match meant the Start list offered the morning's
+   *  hours after you had picked the evening window. */
+  const windowFor = (date: string, startHour: number) =>
+    windows.find(
+      (w) =>
+        w.date.slice(0, 10) === date &&
+        startHour >= w.startHour &&
+        startHour < w.endHour,
+    );
+
   const grouped = STAGE_ORDER.map((stage) => {
     const items = matches.filter((m) => m.stage === stage);
     const custom = order[stage];
@@ -367,14 +381,7 @@ export function FixturesTab({
                         </label>
                         <select
                           className="rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-xs text-white"
-                          value={
-                            windows.find(
-                              (w) =>
-                                w.date.slice(0, 10) === form.date &&
-                                form.startHour >= w.startHour &&
-                                form.startHour < w.endHour,
-                            )?.id ?? ""
-                          }
+                          value={windowFor(form.date, form.startHour)?.id ?? ""}
                           onChange={(e) => {
                             const w = windows.find((x) => x.id === e.target.value);
                             if (!w) return;
@@ -433,7 +440,7 @@ export function FixturesTab({
                           // public. Semis and the final legitimately sit
                           // outside the windows, so with no match we fall back
                           // to all 24.
-                          const w = windows.find((x) => x.date.slice(0, 10) === form.date);
+                          const w = windowFor(form.date, form.startHour);
                           const hours = w
                             ? Array.from({ length: Math.max(1, w.endHour - w.startHour) }, (_, i) => w.startHour + i)
                             : Array.from({ length: 24 }, (_, h) => h);
