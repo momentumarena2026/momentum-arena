@@ -145,6 +145,7 @@ export async function GET(
       poolCount: t.poolCount,
       teamsPerPool: t.teamsPerPool,
       advancePerPool: t.advancePerPool,
+      bracketSeeding: t.bracketSeeding,
       revealAt: t.revealAt,
       regOpenAt: t.regOpenAt,
       regCloseAt: t.regCloseAt,

@@ -172,6 +172,19 @@ export function buildKnockoutSkeleton(
  *              qualifiers, where seed 1 goes straight to the final) and the
  *              bye has to be earned rather than handed to a pool letter.
  */
+/**
+ * What a pool's Nth-placed team is called on the bracket.
+ *
+ * The generator stamps this onto the knockout slot's sourceLabel, and the
+ * bracket matches on it to draw the line from pool to tie — so both sides
+ * have to read it from here or the link silently stops resolving.
+ */
+export function poolQualifierLabel(poolName: string, rank: number): string {
+  if (rank === 1) return `Winner ${poolName}`;
+  if (rank === 2) return `Runner-up ${poolName}`;
+  return `${poolName} #${rank}`;
+}
+
 export function poolQualifierSlots(
   poolNames: string[],
   advancePerPool: number,
@@ -191,7 +204,7 @@ export function poolQualifierSlots(
         kind: "pool",
         poolName: pool,
         rank,
-        label: rank === 1 ? `Winner ${pool}` : rank === 2 ? `Runner-up ${pool}` : `${pool} #${rank}`,
+        label: poolQualifierLabel(pool, rank),
       });
     }
   }

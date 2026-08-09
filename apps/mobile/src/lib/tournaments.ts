@@ -70,6 +70,7 @@ export type TournamentPublic = {
     poolCount: number;
     teamsPerPool: number;
     advancePerPool: number;
+    bracketSeeding: "POOL_ORDER" | "OVERALL_RANK";
     revealAt: string | null;
     regOpenAt: string | null;
     regCloseAt: string | null;
