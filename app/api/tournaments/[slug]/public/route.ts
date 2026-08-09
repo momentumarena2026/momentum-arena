@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeStandings } from "@/lib/tournament-points";
+import { computeStandings, inningsFromLiveState } from "@/lib/tournament-points";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 import { parsePrizes } from "@/lib/tournament-config";
 import { poolMatchesArePublic } from "@/lib/tournament-config";
@@ -72,11 +72,13 @@ export async function GET(
 
   const poolsRevealed = poolMatchesArePublic(t.status);
   const teamNames = new Map(t.teams.map((x) => [x.id, x.name]));
+  const isCricket = t.sport === "CRICKET";
   const cfg = {
     pointsWin: t.pointsWin,
     pointsDraw: t.pointsDraw,
     pointsLoss: t.pointsLoss,
     tiebreakers: t.tiebreakers,
+    oversPerInnings: t.oversPerInnings,
   };
 
   // Standings per pool (or one league table).
@@ -98,6 +100,9 @@ export async function GET(
         awayScore: m.awayScore!,
         isDraw: m.isDraw,
         winnerTeamId: m.winnerTeamId,
+        // The scorer's ball-by-ball fold, still on the row after the match
+        // completes. Only cricket has a run rate to speak of.
+        innings: isCricket ? inningsFromLiveState(m.liveState) : undefined,
       }));
 
   let standings: { poolId: string | null; poolName: string | null; rows: unknown[] }[] = [];

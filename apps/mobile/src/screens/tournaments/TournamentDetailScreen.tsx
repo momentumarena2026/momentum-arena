@@ -460,6 +460,8 @@ export function TournamentDetailScreen() {
   }
 
   const t = data.tournament;
+  // NRR is cricket-only; every other sport reads its margin off +/−.
+  const isCricket = t.sport === "CRICKET";
   const isThirdParty = t.host === "THIRD_PARTY";
   const liveOk =
     t.liveScoringEnabled && ["BOTH", "APP_ONLY"].includes(t.liveScreenPlatform);
@@ -832,8 +834,15 @@ export function TournamentDetailScreen() {
               <View key={s.poolId || "league"} style={styles.card}>
                 {s.poolName && <Text style={[styles.cardTitle, { color: "#a78bfa" }]}>{s.poolName}</Text>}
                 <View style={[styles.tRow, { marginTop: s.poolName ? 8 : 0 }]}>
-                  {["#", "Team", "P", "W", "L", "+/−", "Pts"].map((h, i) => (
-                    <Text key={h} style={[styles.tHead, i === 1 && { flex: 1, textAlign: "left" }]}>
+                  {["#", "Team", "P", "W", "L", "+/−", ...(isCricket ? ["NRR"] : []), "Pts"].map((h, i) => (
+                    <Text
+                      key={h}
+                      style={[
+                        styles.tHead,
+                        i === 1 && { flex: 1, textAlign: "left" },
+                        h === "NRR" && styles.tNrrWidth,
+                      ]}
+                    >
                       {h}
                     </Text>
                   ))}
@@ -856,6 +865,29 @@ export function TournamentDetailScreen() {
                         {r.scoreDiff > 0 ? "+" : ""}
                         {r.scoreDiff}
                       </Text>
+                      {isCricket && (
+                        <Text
+                          style={[
+                            styles.tCell,
+                            styles.tNrrWidth,
+                            {
+                              color:
+                                r.nrr == null
+                                  ? colors.zinc600
+                                  : r.nrr > 0
+                                    ? colors.emerald400
+                                    : r.nrr < 0
+                                      ? "#f87171"
+                                      : colors.zinc400,
+                            },
+                          ]}
+                        >
+                          {r.nrr == null
+                            ? "—"
+                            : `${r.nrr > 0 ? "+" : r.nrr < 0 ? "\u2212" : ""}${Math.abs(r.nrr).toFixed(3)}`}
+                          {r.nrr != null && r.nrrMatches < r.played ? "*" : ""}
+                        </Text>
+                      )}
                       <Text style={[styles.tCell, { color: colors.foreground, fontWeight: "700" }]}>{r.points}</Text>
                     </View>
                   );
@@ -1130,6 +1162,8 @@ const styles = StyleSheet.create({
   tRow: { flexDirection: "row", alignItems: "center", paddingVertical: 6, gap: 4 },
   tHead: { width: 30, textAlign: "center", color: colors.zinc500, fontSize: 11 },
   tCell: { width: 30, textAlign: "center", color: colors.zinc300, fontSize: 12 },
+  /** "+1.500" needs more room than a two-digit count. */
+  tNrrWidth: { width: 48, fontSize: 11 },
   barTrack: { height: 5, borderRadius: 3, backgroundColor: colors.zinc800, marginVertical: 3, overflow: "hidden" },
   barFill: { height: 5, borderRadius: 3 },
 });

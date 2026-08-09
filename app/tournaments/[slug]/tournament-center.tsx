@@ -13,7 +13,16 @@ type Pool = { id: string; name: string; order: number };
 type StandRow = {
   teamId: string; played: number; won: number; drawn: number; lost: number;
   scoreFor: number; scoreAgainst: number; scoreDiff: number; points: number;
+  nrr: number | null; nrrMatches: number;
 };
+
+/** Cricket convention: signed, three decimals. "—" when no match this team
+ *  played was scored ball-by-ball, since there is no run rate to state. */
+function formatNrr(n: number | null): string {
+  if (n == null) return "—";
+  const v = n.toFixed(3);
+  return n > 0 ? `+${v}` : v.replace("-", "\u2212");
+}
 type MatchLite = {
   id: string; stage: string; status: string; sequence: number; roundLabel: string | null;
   poolId: string | null; homeTeamId: string | null; awayTeamId: string | null;
@@ -189,6 +198,9 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
   }
 
   const t = data.tournament;
+  // NRR is a cricket statistic; the column is hidden for every other sport,
+  // which already reads goal/point difference from the +/− column.
+  const isCricket = t.sport === "CRICKET";
   const liveMatches = data.matches.filter((m) => m.status === "LIVE");
   const showLiveLinks =
     t.liveScoringEnabled && ["BOTH", "APP_ONLY", "WEB_ONLY"].includes(t.liveScreenPlatform);
@@ -458,6 +470,9 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
                       <th className="py-2.5 pr-3 text-center font-medium">D</th>
                       <th className="py-2.5 pr-3 text-center font-medium">L</th>
                       <th className="py-2.5 pr-3 text-center font-medium">+/−</th>
+                      {isCricket && (
+                        <th className="py-2.5 pr-3 text-center font-medium">NRR</th>
+                      )}
                       <th className="py-2.5 pr-4 text-center font-medium">Pts</th>
                     </tr>
                   </thead>
@@ -488,6 +503,31 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
                             {r.scoreDiff > 0 ? "+" : ""}
                             {r.scoreDiff}
                           </td>
+                          {isCricket && (
+                            <td
+                              className={`py-2.5 pr-3 text-center tabular-nums ${
+                                r.nrr == null
+                                  ? "text-zinc-600"
+                                  : r.nrr > 0
+                                    ? "text-emerald-400"
+                                    : r.nrr < 0
+                                      ? "text-red-400"
+                                      : "text-zinc-400"
+                              }`}
+                              title={
+                                r.nrr == null
+                                  ? "No ball-by-ball data for this team's matches"
+                                  : r.nrrMatches < r.played
+                                    ? `From ${r.nrrMatches} of ${r.played} matches — the rest were scored by hand`
+                                    : undefined
+                              }
+                            >
+                              {formatNrr(r.nrr)}
+                              {r.nrr != null && r.nrrMatches < r.played && (
+                                <span className="text-zinc-600">*</span>
+                              )}
+                            </td>
+                          )}
                           <td className="py-2.5 pr-4 text-center">
                             <span className="font-bold text-white">{r.points}</span>
                           </td>

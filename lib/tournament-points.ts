@@ -3,6 +3,14 @@
 // admin Scores tab, the public points table and the knockout seeding
 // resolution (pool ranks).
 
+/** One completed innings, for net run rate. Cricket only. */
+export type InningsLine = {
+  teamId: string;
+  runs: number;
+  balls: number;
+  wickets: number;
+};
+
 export type CompletedRR = {
   homeTeamId: string;
   awayTeamId: string;
@@ -10,6 +18,10 @@ export type CompletedRR = {
   awayScore: number;
   isDraw: boolean;
   winnerTeamId: string | null;
+  /** Both innings of a cricket match. Absent for other sports, and for
+   *  results an admin typed in by hand — those carry no ball count, so
+   *  they cannot contribute to NRR. */
+  innings?: InningsLine[];
 };
 
 export type StandingRow = {
@@ -22,14 +34,81 @@ export type StandingRow = {
   scoreAgainst: number;
   scoreDiff: number;
   points: number;
+  /** Net run rate, cricket only. null when no match had ball-by-ball data.
+   *  Runs/balls below are the NRR subtotals — they count only the matches
+   *  that carried innings data, so they deliberately differ from
+   *  scoreFor/scoreAgainst, which count every completed match. */
+  nrr: number | null;
+  nrrRunsFor: number;
+  nrrBallsFor: number;
+  nrrRunsAgainst: number;
+  nrrBallsAgainst: number;
+  /** Matches that fed the NRR. Less than `played` means the rest were
+   *  scored by hand; the UI flags that rather than quietly implying the
+   *  figure covers everything. */
+  nrrMatches: number;
 };
 
 export type PointsConfig = {
   pointsWin: number;
   pointsDraw: number;
   pointsLoss: number;
-  tiebreakers: string[]; // H2H | SCORE_DIFF | SCORE_FOR | NAME
+  tiebreakers: string[]; // H2H | SCORE_DIFF | SCORE_FOR | NRR | NAME
+  /** Cricket: overs per side, 0 = unlimited. Drives the all-out rule. */
+  oversPerInnings?: number;
 };
+
+/** Matches the live scoring engine's all-out threshold. */
+const MAX_WICKETS_PER_INNINGS = 10;
+
+/**
+ * Overs a side is charged with for NRR.
+ *
+ * The one rule people get wrong: a side bowled out is charged its FULL
+ * quota, not the overs it actually used. Without that, collapsing for 40
+ * in 6 of 20 overs would score as a 6.67 run rate and *improve* the NRR of
+ * the team that just got skittled. The same figure is used on both sides
+ * of the innings, so the bowling team is credited with the full quota too.
+ *
+ * With no over limit configured (oversPerInnings 0) there is no quota to
+ * charge, so actual balls are all we can use.
+ */
+function chargedBalls(line: InningsLine, quotaBalls: number): number {
+  if (quotaBalls > 0 && line.wickets >= MAX_WICKETS_PER_INNINGS) return quotaBalls;
+  return line.balls;
+}
+
+/** Runs per over from a ball count, or null when nothing was bowled. */
+function runRate(runs: number, balls: number): number | null {
+  return balls > 0 ? runs / (balls / 6) : null;
+}
+
+/**
+ * Pull the two innings out of a match's persisted `liveState`.
+ *
+ * The scorer folds every ball into liveState.innings and it survives the
+ * match being completed, so the points table gets NRR off the row it has
+ * already loaded — no event-log replay, no extra query.
+ */
+export function inningsFromLiveState(liveState: unknown): InningsLine[] | undefined {
+  if (!liveState || typeof liveState !== "object") return undefined;
+  const raw = (liveState as { innings?: unknown }).innings;
+  if (!Array.isArray(raw)) return undefined;
+  const lines: InningsLine[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    if (typeof e.teamId !== "string") continue;
+    if (typeof e.runs !== "number" || typeof e.balls !== "number") continue;
+    lines.push({
+      teamId: e.teamId,
+      runs: e.runs,
+      balls: e.balls,
+      wickets: typeof e.wickets === "number" ? e.wickets : 0,
+    });
+  }
+  return lines.length ? lines : undefined;
+}
 
 export function computeStandings(
   teamIds: string[],
@@ -37,6 +116,7 @@ export function computeStandings(
   cfg: PointsConfig,
   teamNames?: Map<string, string>
 ): StandingRow[] {
+  const quotaBalls = (cfg.oversPerInnings ?? 0) * 6;
   const rows = new Map<string, StandingRow>();
   for (const id of teamIds) {
     rows.set(id, {
@@ -49,6 +129,12 @@ export function computeStandings(
       scoreAgainst: 0,
       scoreDiff: 0,
       points: 0,
+      nrr: null,
+      nrrRunsFor: 0,
+      nrrBallsFor: 0,
+      nrrRunsAgainst: 0,
+      nrrBallsAgainst: 0,
+      nrrMatches: 0,
     });
   }
 
@@ -78,8 +164,36 @@ export function computeStandings(
       away.points += cfg.pointsWin;
       home.points += cfg.pointsLoss;
     }
+
+    // NRR needs both innings of the match. A half-recorded match is left
+    // out entirely rather than charging one side runs the other never
+    // conceded -- a lopsided ledger is worse than a smaller sample.
+    const lines = m.innings;
+    if (!lines || lines.length !== 2) continue;
+    const sides = [m.homeTeamId, m.awayTeamId];
+    if (!lines.every((l) => sides.includes(l.teamId))) continue;
+    if (lines[0].teamId === lines[1].teamId) continue;
+    const charged = lines.map((l) => chargedBalls(l, quotaBalls));
+    if (charged.some((b) => b <= 0)) continue;
+
+    lines.forEach((line, i) => {
+      const bat = rows.get(line.teamId);
+      const bowl = rows.get(line.teamId === m.homeTeamId ? m.awayTeamId : m.homeTeamId);
+      if (!bat || !bowl) return;
+      bat.nrrRunsFor += line.runs;
+      bat.nrrBallsFor += charged[i];
+      bowl.nrrRunsAgainst += line.runs;
+      bowl.nrrBallsAgainst += charged[i];
+    });
+    home.nrrMatches++;
+    away.nrrMatches++;
   }
-  for (const r of rows.values()) r.scoreDiff = r.scoreFor - r.scoreAgainst;
+  for (const r of rows.values()) {
+    r.scoreDiff = r.scoreFor - r.scoreAgainst;
+    const scored = runRate(r.nrrRunsFor, r.nrrBallsFor);
+    const conceded = runRate(r.nrrRunsAgainst, r.nrrBallsAgainst);
+    r.nrr = scored != null && conceded != null ? scored - conceded : null;
+  }
 
   const list = [...rows.values()];
 
@@ -119,6 +233,14 @@ export function computeStandings(
           if (tb === "H2H" && h2h) d = (h2h.get(b.teamId) || 0) - (h2h.get(a.teamId) || 0);
           else if (tb === "SCORE_DIFF") d = b.scoreDiff - a.scoreDiff;
           else if (tb === "SCORE_FOR") d = b.scoreFor - a.scoreFor;
+          else if (tb === "NRR") {
+            // A team with no ball data sorts last among equals rather than
+            // being treated as 0.000, which would rank it above anyone
+            // genuinely negative.
+            const x = a.nrr;
+            const y = b.nrr;
+            d = x == null && y == null ? 0 : x == null ? 1 : y == null ? -1 : y - x;
+          }
           else if (tb === "NAME") d = name(a.teamId).localeCompare(name(b.teamId));
           if (d !== 0) return d;
         }
