@@ -148,3 +148,48 @@ export async function deleteManualMatch(
   revalidatePath(`/admin/tournaments/${m.tournamentId}`);
   return { success: true };
 }
+
+/**
+ * Reorder the fixtures inside one stage.
+ *
+ * `sequence` is display order and nothing else — progression follows
+ * homeSourceMatchId/awaySourceMatchId, and the points table follows
+ * results — so shuffling it is safe at any point in the tournament. What
+ * it changes is the running order the organiser reads down when deciding
+ * what to schedule next, which is the whole reason to want it.
+ *
+ * roundLabel is deliberately left alone. "Pool A · Match 2" is the match's
+ * name, printed on the public page and used in conversation; renaming
+ * matches because someone dragged a row would be a worse surprise than a
+ * list whose labels aren't in numeric order.
+ */
+export async function reorderStageFixtures(
+  tournamentId: string,
+  stage: string,
+  orderedIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  if (orderedIds.length === 0) return { success: true };
+
+  // Load what the stage actually holds rather than trusting the ids: a
+  // stale tab could send a match that has since been deleted, or — the
+  // one that matters — an id from another tournament.
+  const rows = await db.tournamentMatch.findMany({
+    where: { tournamentId, stage: stage as never },
+    select: { id: true },
+  });
+  const allowed = new Set(rows.map((r) => r.id));
+  const ids = orderedIds.filter((id) => allowed.has(id));
+  if (ids.length !== rows.length) {
+    return { success: false, error: "Fixture list changed — reload and try again" };
+  }
+
+  await db.$transaction(
+    ids.map((id, i) =>
+      db.tournamentMatch.update({ where: { id }, data: { sequence: i + 1 } }),
+    ),
+  );
+
+  revalidatePath(`/admin/tournaments/${tournamentId}`);
+  return { success: true };
+}

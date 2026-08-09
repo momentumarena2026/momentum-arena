@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { reorderStageFixtures } from "@/actions/admin-tournament-manual-fixtures";
 import { useRouter } from "next/navigation";
-import { Loader2, Wand2, CalendarClock, X } from "lucide-react";
+import { Loader2, Wand2, CalendarClock, X, GripVertical } from "lucide-react";
 import {
   generateFixtures,
   scheduleMatch,
@@ -160,10 +161,62 @@ export function FixturesTab({
     }
   };
 
-  const grouped = STAGE_ORDER.map((stage) => ({
-    stage,
-    items: matches.filter((m) => m.stage === stage),
-  })).filter((g) => g.items.length > 0);
+  // Drag-to-reorder. The list shows the server's order until a drop, then
+  // this override takes over so the row moves under the cursor rather than
+  // after a round trip.
+  const [order, setOrder] = useState<Record<string, string[]>>({});
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  // The id also lives in a ref because dragover/drop fire against the
+  // render that was current when the drag began: read from state and a
+  // drag that starts and lands before React re-renders sees null and the
+  // drop is silently dropped. The ref is always current, and the id also
+  // rides in dataTransfer so the drop works from either source.
+  const dragRef = useRef<string | null>(null);
+
+  const grouped = STAGE_ORDER.map((stage) => {
+    const items = matches.filter((m) => m.stage === stage);
+    const custom = order[stage];
+    if (custom) {
+      const byId = new Map(items.map((m) => [m.id, m]));
+      // Anything the override doesn't know about (a fixture added since)
+      // is appended rather than dropped from the list.
+      const sorted = custom.flatMap((id) => (byId.get(id) ? [byId.get(id)!] : []));
+      const rest = items.filter((m) => !custom.includes(m.id));
+      return { stage, items: [...sorted, ...rest] };
+    }
+    return { stage, items };
+  }).filter((g) => g.items.length > 0);
+
+  const dropOn = async (stage: string, targetId: string, from: string | null) => {
+    dragRef.current = null;
+    setDragId(null);
+    setOverId(null);
+    if (!from || from === targetId) return;
+    const items = grouped.find((g) => g.stage === stage)?.items ?? [];
+    const ids = items.map((m) => m.id);
+    const fromIdx = ids.indexOf(from);
+    const toIdx = ids.indexOf(targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+    const previous = order[stage];
+    setOrder((o) => ({ ...o, [stage]: ids }));
+    setError(null);
+    const res = await reorderStageFixtures(tournamentId, stage, ids).catch(() => ({
+      success: false as const,
+      error: "Could not reach the server — check you are still signed in",
+    }));
+    if (!res.success) {
+      // Snap back rather than leaving an order that was never saved.
+      setOrder((o) => {
+        const next = { ...o };
+        if (previous) next[stage] = previous;
+        else delete next[stage];
+        return next;
+      });
+      setError(res.error || "Could not reorder");
+    }
+  };
 
   const sideName = (m: MatchRow, side: "home" | "away") => {
     const team = side === "home" ? m.homeTeam : m.awayTeam;
@@ -202,8 +255,48 @@ export function FixturesTab({
           </h4>
           <div className="space-y-2">
             {g.items.map((m) => (
-              <div key={m.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3.5">
+              <div
+                key={m.id}
+                draggable
+                onDragStart={(e) => {
+                  dragRef.current = m.id;
+                  e.dataTransfer.setData("text/plain", m.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDragId(m.id);
+                }}
+                onDragEnd={() => {
+                  dragRef.current = null;
+                  setDragId(null);
+                  setOverId(null);
+                }}
+                onDragOver={(e) => {
+                  if (!dragRef.current) return;
+                  e.preventDefault();
+                  setOverId(m.id);
+                }}
+                onDragLeave={() => setOverId((x) => (x === m.id ? null : x))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  void dropOn(
+                    g.stage,
+                    m.id,
+                    e.dataTransfer.getData("text/plain") || dragRef.current,
+                  );
+                }}
+                className={`rounded-xl border bg-zinc-900 p-3.5 ${
+                  overId === m.id && dragId !== m.id
+                    ? "border-emerald-500"
+                    : dragId === m.id
+                      ? "border-zinc-700 opacity-50"
+                      : "border-zinc-800"
+                }`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <GripVertical
+                      className="h-4 w-4 shrink-0 cursor-grab text-zinc-600 active:cursor-grabbing"
+                      aria-hidden
+                    />
                   <div className="min-w-0">
                     <div className="text-xs text-zinc-500">
                       {m.roundLabel}
@@ -219,6 +312,7 @@ export function FixturesTab({
                         </span>
                       )}
                     </div>
+                  </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {m.scheduledAt ? (

@@ -763,7 +763,19 @@ export function TournamentManage({
 
       {/* ── Pools & Draw ── */}
       {tab === "slots" && (
-        <SlotsTab tournamentId={t.id} courts={courts} />
+        <SlotsTab
+          tournamentId={t.id}
+          courts={courts}
+          existingPools={t.pools
+            .map((p) => ({
+              name: p.name,
+              teams: t.teams.filter(
+                (x) => x.poolId === p.id && x.status === "CONFIRMED",
+              ).length,
+            }))
+            .filter((p) => p.teams > 0)}
+          existingFixtures={t.matches.length}
+        />
       )}
 
       {tab === "pools" && (
