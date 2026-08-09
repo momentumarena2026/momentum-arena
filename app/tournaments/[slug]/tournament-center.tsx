@@ -39,7 +39,7 @@ type MatchLite = {
 type Payload = {
   tournament: {
     id: string; slug: string; name: string; sport: string; status: string; format: string;
-    advancePerPool: number; revealAt: string | null; liveScoringEnabled: boolean;
+    advancePerPool: number; bracketSeeding: "POOL_ORDER" | "OVERALL_RANK"; revealAt: string | null; liveScoringEnabled: boolean;
     liveScreenPlatform: string;
   };
   poolsRevealed: boolean;
@@ -558,6 +558,8 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
           matches={data.matches}
           teams={teams}
           pools={data.pools}
+          advancePerPool={t.advancePerPool}
+          bracketSeeding={t.bracketSeeding}
           renderBadge={(team) => <TeamBadge team={team as TeamLite | null} size={20} />}
           onMatchClick={(m) => router.push(`/tournaments/${slug}/match/${m.id}`)}
         />

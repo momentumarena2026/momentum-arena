@@ -1,6 +1,7 @@
 "use client";
 
 import { Trophy } from "lucide-react";
+import { poolQualifierLabel } from "@/lib/tournament-fixtures";
 import type { ReactNode } from "react";
 
 /**
@@ -70,6 +71,8 @@ export function BracketView({
   onMatchClick,
   canClick,
   pools = [],
+  advancePerPool = 0,
+  bracketSeeding = "POOL_ORDER",
   emptyText = "The bracket appears once knockout fixtures are generated.",
 }: {
   matches: BracketMatch[];
@@ -78,6 +81,12 @@ export function BracketView({
    *  column so the whole tournament reads left to right in one picture
    *  instead of the knockout arriving from nowhere. */
   pools?: { id: string; name: string }[];
+  /** How many go through from each pool — drives the qualifier slots. */
+  advancePerPool?: number;
+  /** POOL_ORDER pins each qualifier to a named knockout slot. OVERALL_RANK
+   *  ranks every qualifier against every other once the pools finish, so
+   *  which tie a pool feeds is genuinely unknown until then. */
+  bracketSeeding?: "POOL_ORDER" | "OVERALL_RANK";
   renderBadge?: (team: BracketTeam | null) => ReactNode;
   onMatchClick?: (m: BracketMatch) => void;
   /** Which boxes are worth clicking. Defaults to all of them. */
@@ -94,8 +103,12 @@ export function BracketView({
   const groupMatches = matches.filter(
     (m) => m.stage === "POOL" || m.stage === "LEAGUE",
   );
-  const poolGroups = pools
-    .map((p) => ({ name: p.name, items: groupMatches.filter((m) => m.poolId === p.id) }))
+  const poolGroups: { name: string; poolName?: string; items: BracketMatch[] }[] = pools
+    .map((p) => ({
+      name: p.name,
+      poolName: p.name,
+      items: groupMatches.filter((m) => m.poolId === p.id),
+    }))
     .filter((g) => g.items.length > 0);
   // Anything without a pool (a league, or a pool deleted since) still shows.
   const looseGroup = groupMatches.filter(
@@ -107,6 +120,20 @@ export function BracketView({
       items: looseGroup,
     });
   }
+
+  // Where each qualifier ends up. Under POOL_ORDER the generator stamped a
+  // pool-specific label onto the knockout slot, so the destination is a
+  // fact we can look up. Under OVERALL_RANK it isn't — the slot says
+  // "Seed #3", and which pool supplies it depends on results that haven't
+  // happened. Saying so is better than drawing a line that might be wrong.
+  const destinationOf = (poolName: string, rank: number): string | null => {
+    if (bracketSeeding !== "POOL_ORDER") return null;
+    const label = poolQualifierLabel(poolName, rank);
+    const hit = ko.find(
+      (m) => m.homeSourceLabel === label || m.awaySourceLabel === label,
+    );
+    return hit ? hit.roundLabel || STAGE_TITLE[hit.stage] || hit.stage : null;
+  };
 
   if (ko.length === 0 && poolGroups.length === 0) {
     return (
@@ -185,8 +212,50 @@ export function BracketView({
                       />
                     ))}
                   </div>
+
+                  {/* Who leaves this pool, and where they go. */}
+                  {advancePerPool > 0 && ko.length > 0 && g.poolName && (
+                    <div className="relative mt-1.5 pr-7">
+                      {Array.from({ length: advancePerPool }, (_, i) => {
+                        const rank = i + 1;
+                        const to = destinationOf(g.poolName!, rank);
+                        return (
+                          <div key={rank} className="relative flex items-center py-0.5">
+                            <div className="flex-1 rounded-lg border border-dashed border-emerald-500/40 bg-emerald-500/[0.06] px-2 py-1 text-[11px] text-emerald-300">
+                              {rank === 1 ? "1st" : rank === 2 ? "2nd" : `${rank}th`}
+                              <span className="text-emerald-500/70">
+                                {to ? ` → ${to}` : " → seeded overall"}
+                              </span>
+                            </div>
+                            {/* Stub out to the spine. */}
+                            <span className="h-px w-7 shrink-0 bg-emerald-500/40" />
+                            {/* Half-spine each, so the group's qualifiers
+                                join into one line leaving the pool. */}
+                            {advancePerPool > 1 && (
+                              <span
+                                className={`absolute right-0 w-px bg-emerald-500/40 ${
+                                  i === 0
+                                    ? "top-1/2 bottom-0"
+                                    : i === advancePerPool - 1
+                                      ? "top-0 bottom-1/2"
+                                      : "top-0 bottom-0"
+                                }`}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
+              {advancePerPool > 0 && ko.length > 0 && (
+                <p className="pt-1 text-[10px] leading-relaxed text-zinc-600">
+                  {bracketSeeding === "POOL_ORDER"
+                    ? `Top ${advancePerPool} from each pool go through to the tie named above.`
+                    : `Top ${advancePerPool} from each pool go through, then all qualifiers are seeded against each other — which tie a pool feeds is decided once every pool finishes.`}
+                </p>
+              )}
             </div>
           </div>
         )}

@@ -73,11 +73,15 @@ export function BracketTab({
   matches,
   teams,
   pools,
+  advancePerPool,
+  bracketSeeding,
   onMatchClick,
 }: {
   matches: MatchRow[];
   teams: TeamLite[];
   pools: { id: string; name: string }[];
+  advancePerPool: number;
+  bracketSeeding: "POOL_ORDER" | "OVERALL_RANK";
   onMatchClick?: (matchId: string) => void;
 }) {
   const lookup = useMemo(() => teamMap(teams), [teams]);
@@ -104,6 +108,8 @@ export function BracketTab({
       }))}
       teams={lookup}
       pools={pools}
+      advancePerPool={advancePerPool}
+      bracketSeeding={bracketSeeding}
       renderBadge={(team) => <TeamDot team={team} size={18} />}
       onMatchClick={onMatchClick ? (m) => onMatchClick(m.id) : undefined}
       // A slot still reading "Winner SF1" has nothing to score, so it

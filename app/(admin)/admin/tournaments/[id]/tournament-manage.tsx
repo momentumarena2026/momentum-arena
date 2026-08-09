@@ -564,6 +564,8 @@ export function TournamentManage({
           matches={t.matches}
           teams={t.teams}
           pools={t.pools}
+          advancePerPool={t.advancePerPool}
+          bracketSeeding={t.bracketSeeding}
           // Clicking a tie is almost always a prelude to entering its
           // result, so send them straight there rather than making them
           // find the same match again in the Scores list.

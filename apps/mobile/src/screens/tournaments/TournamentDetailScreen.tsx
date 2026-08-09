@@ -905,6 +905,8 @@ export function TournamentDetailScreen() {
             matches={data.matches}
             teams={teams}
             pools={data.pools}
+            advancePerPool={t.advancePerPool}
+            bracketSeeding={t.bracketSeeding}
             renderBadge={(team) => <Badge team={team ?? undefined} size={16} />}
             onMatchPress={(m) =>
               navigation.navigate("TournamentMatch", { matchId: m.id, slug })

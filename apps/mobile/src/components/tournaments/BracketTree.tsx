@@ -2,6 +2,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../ui/Text";
 import { colors, radius } from "../../theme";
 import type { MatchLite, TeamLite } from "../../lib/tournaments";
+import { poolQualifierLabel } from "../../lib/bracket-labels";
 
 /**
  * Knockout bracket for the app — the web BracketView, in React Native.
@@ -41,6 +42,8 @@ export function BracketTree({
   matches,
   teams,
   pools = [],
+  advancePerPool = 0,
+  bracketSeeding = "POOL_ORDER",
   onMatchPress,
   renderBadge,
 }: {
@@ -49,6 +52,11 @@ export function BracketTree({
   /** Pools, in order — draws the pool stage as the first column so the
    *  whole tournament reads left to right, as on the web. */
   pools?: { id: string; name: string }[];
+  /** How many go through from each pool. */
+  advancePerPool?: number;
+  /** OVERALL_RANK seeds all qualifiers against each other once the pools
+   *  finish, so which tie a pool feeds isn't knowable in advance. */
+  bracketSeeding?: "POOL_ORDER" | "OVERALL_RANK";
   onMatchPress?: (m: MatchLite) => void;
   renderBadge?: (team: TeamLite | null) => React.ReactNode;
 }) {
@@ -61,9 +69,24 @@ export function BracketTree({
   const groupMatches = matches.filter(
     (m) => m.stage === "POOL" || m.stage === "LEAGUE",
   );
-  const poolGroups = pools
-    .map((p) => ({ name: p.name, items: groupMatches.filter((m) => m.poolId === p.id) }))
+  const poolGroups: { name: string; poolName?: string; items: MatchLite[] }[] = pools
+    .map((p) => ({
+      name: p.name,
+      poolName: p.name,
+      items: groupMatches.filter((m) => m.poolId === p.id),
+    }))
     .filter((g) => g.items.length > 0);
+
+  // Same rule as the web view: a pool-specific label on a knockout slot is
+  // a fact to look up; "Seed #3" is not, so it says so instead.
+  const destinationOf = (poolName: string, rank: number): string | null => {
+    if (bracketSeeding !== "POOL_ORDER") return null;
+    const label = poolQualifierLabel(poolName, rank);
+    const hit = ko.find(
+      (m) => m.homeSourceLabel === label || m.awaySourceLabel === label,
+    );
+    return hit ? hit.roundLabel || STAGE_TITLE[hit.stage] || hit.stage : null;
+  };
   const loose = groupMatches.filter(
     (m) => !m.poolId || !pools.some((p) => p.id === m.poolId),
   );
@@ -134,6 +157,22 @@ export function BracketTree({
                     />
                   </View>
                 ))}
+                {advancePerPool > 0 && ko.length > 0 && g.poolName
+                  ? Array.from({ length: advancePerPool }, (_, i) => {
+                      const rank = i + 1;
+                      const to = destinationOf(g.poolName!, rank);
+                      return (
+                        <View key={rank} style={styles.qualifier}>
+                          <Text style={styles.qualifierText}>
+                            {rank === 1 ? "1st" : rank === 2 ? "2nd" : `${rank}th`}
+                            <Text style={styles.qualifierTo}>
+                              {to ? ` → ${to}` : " → seeded overall"}
+                            </Text>
+                          </Text>
+                        </View>
+                      );
+                    })
+                  : null}
               </View>
             ))}
           </View>
@@ -363,6 +402,18 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: "center",
   },
+  qualifier: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "rgba(16,185,129,0.4)",
+    backgroundColor: "rgba(16,185,129,0.06)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
+  qualifierText: { fontSize: 11, color: "#6ee7b7" },
+  qualifierTo: { color: "rgba(16,185,129,0.7)" },
   poolName: {
     fontSize: 11,
     fontWeight: "700",
