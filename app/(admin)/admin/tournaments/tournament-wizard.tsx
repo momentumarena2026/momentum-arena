@@ -35,6 +35,7 @@ const PASS_BANDS = [
 ];
 
 const TIEBREAKER_LABELS: Record<string, string> = {
+  NRR: "Net run rate",
   H2H: "Head-to-head",
   SCORE_DIFF: "Score difference",
   SCORE_FOR: "Scores for",
@@ -42,6 +43,26 @@ const TIEBREAKER_LABELS: Record<string, string> = {
 };
 
 export type WizardInitial = TournamentWizardInput & { id?: string };
+
+type Tiebreaker = TournamentWizardInput["tiebreakers"][number];
+
+const BASE_TIEBREAKERS: Tiebreaker[] = ["H2H", "SCORE_DIFF", "SCORE_FOR"];
+
+/**
+ * Keep the visible chain honest.
+ *
+ * The standings engine ranks cricket on net run rate before anything else
+ * (see standingsConfig), whatever this list says. Showing a cricket
+ * tournament a chain without NRR would tell the organiser the table is
+ * ordered one way while it is actually ordered another — so NRR is added
+ * here too, and stays reorderable like every other key. Switching away
+ * from cricket drops it again, since no other sport has a run rate.
+ */
+function tiebreakersForSport(sport: string, current: Tiebreaker[]): Tiebreaker[] {
+  const withoutNrr = current.filter((k) => k !== "NRR");
+  if (sport !== "CRICKET") return withoutNrr;
+  return current.includes("NRR") ? current : ["NRR", ...withoutNrr];
+}
 
 export function defaultWizardState(): TournamentWizardInput {
   return {
@@ -81,7 +102,7 @@ export function defaultWizardState(): TournamentWizardInput {
     pointsWin: 2,
     pointsDraw: 1,
     pointsLoss: 0,
-    tiebreakers: ["H2H", "SCORE_DIFF", "SCORE_FOR"],
+    tiebreakers: ["NRR", ...BASE_TIEBREAKERS],
     statFields: DEFAULT_STAT_FIELDS.CRICKET,
     prizePool: null,
     prizes: [
@@ -96,7 +117,12 @@ export function defaultWizardState(): TournamentWizardInput {
 export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
   const router = useRouter();
   const [form, setForm] = useState<TournamentWizardInput>(
-    initial ? { ...initial } : defaultWizardState()
+    initial
+      ? {
+          ...initial,
+          tiebreakers: tiebreakersForSport(initial.sport, initial.tiebreakers),
+        }
+      : defaultWizardState()
   );
   const [saving, setSaving] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
@@ -183,7 +209,12 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
             <label className={labelCls}>Sport *</label>
             <select className={inputCls} value={form.sport} onChange={(e) => {
               const sport = e.target.value as TournamentWizardInput["sport"];
-              setForm((f) => ({ ...f, sport, statFields: DEFAULT_STAT_FIELDS[sport] || [] }));
+              setForm((f) => ({
+                ...f,
+                sport,
+                statFields: DEFAULT_STAT_FIELDS[sport] || [],
+                tiebreakers: tiebreakersForSport(sport, f.tiebreakers),
+              }));
             }}>
               {SPORTS.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>

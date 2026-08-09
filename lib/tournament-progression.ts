@@ -1,5 +1,10 @@
 import { db } from "@/lib/db";
-import { computeStandings, type StandingRow } from "@/lib/tournament-points";
+import {
+  computeStandings,
+  inningsFromLiveState,
+  standingsConfig,
+  type StandingRow,
+} from "@/lib/tournament-points";
 
 // Bracket progression: after any result lands, resolve every knockout slot
 // that has become decidable. Idempotent — safe to run repeatedly:
@@ -56,16 +61,17 @@ export async function applyProgression(tournamentId: string): Promise<void> {
         awayScore: m.awayScore!,
         isDraw: m.isDraw,
         winnerTeamId: m.winnerTeamId,
+        // Seeding has to see the same innings the public table sees. Rank
+        // the pools on a chain that includes NRR but without the run-rate
+        // data behind it and the table would show one team qualifying
+        // while the bracket advanced another.
+        innings:
+          t.sport === "CRICKET" ? inningsFromLiveState(m.liveState) : undefined,
       }));
     const standings = computeStandings(
       pool.teams.map((x) => x.id),
       completed,
-      {
-        pointsWin: t.pointsWin,
-        pointsDraw: t.pointsDraw,
-        pointsLoss: t.pointsLoss,
-        tiebreakers: t.tiebreakers,
-      },
+      standingsConfig(t),
       new Map(t.teams.map((x) => [x.id, x.name]))
     );
     poolRank.set(pool.name, standings.map((s) => s.teamId));

@@ -99,7 +99,12 @@ const wizardSchema = z.object({
   pointsWin: z.number().int().min(0).max(10),
   pointsDraw: z.number().int().min(0).max(10),
   pointsLoss: z.number().int().min(0).max(10),
-  tiebreakers: z.array(z.enum(["H2H", "SCORE_DIFF", "SCORE_FOR", "NAME"])).min(1),
+  // NRR is accepted for every sport so the key round-trips, but it only
+  // resolves to anything for cricket — elsewhere no innings are recorded,
+  // every row is null, and the chain falls through to the next key.
+  tiebreakers: z
+    .array(z.enum(["NRR", "H2H", "SCORE_DIFF", "SCORE_FOR", "NAME"]))
+    .min(1),
 
   statFields: z.array(statFieldSchema).max(12),
   prizePool: z.number().int().min(0).max(1_00_00_000).nullable(),

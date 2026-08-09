@@ -45,7 +45,8 @@ export type StandingRow = {
   nrrBallsAgainst: number;
   /** Matches that fed the NRR. Less than `played` means the rest were
    *  scored by hand; the UI flags that rather than quietly implying the
-   *  figure covers everything. */
+   *  figure covers everything, and the NRR tiebreaker abstains rather
+   *  than ranking a team on a figure it does not have. */
   nrrMatches: number;
 };
 
@@ -57,6 +58,41 @@ export type PointsConfig = {
   /** Cricket: overs per side, 0 = unlimited. Drives the all-out rule. */
   oversPerInnings?: number;
 };
+
+/**
+ * Standings config for a tournament, with the cricket convention applied.
+ *
+ * Cricket separates teams level on points by net run rate before anything
+ * else — that is how every cricket table people have seen is ordered. So
+ * NRR is prepended for cricket rather than left to each organiser to
+ * remember. An organiser who has deliberately placed NRR somewhere in the
+ * chain keeps their position; nothing is moved.
+ *
+ * Every caller must go through this. Standings are computed in three
+ * places — the public table, knockout seeding and prize allocation — and
+ * if one of them ranked on a different chain the table would show one
+ * team qualifying while the bracket advanced another.
+ */
+export function standingsConfig(t: {
+  sport: string;
+  pointsWin: number;
+  pointsDraw: number;
+  pointsLoss: number;
+  tiebreakers: string[];
+  oversPerInnings?: number | null;
+}): PointsConfig {
+  const cricket = t.sport === "CRICKET";
+  return {
+    pointsWin: t.pointsWin,
+    pointsDraw: t.pointsDraw,
+    pointsLoss: t.pointsLoss,
+    tiebreakers:
+      cricket && !t.tiebreakers.includes("NRR")
+        ? ["NRR", ...t.tiebreakers]
+        : t.tiebreakers,
+    oversPerInnings: t.oversPerInnings ?? 0,
+  };
+}
 
 /** Matches the live scoring engine's all-out threshold. */
 const MAX_WICKETS_PER_INNINGS = 10;
@@ -234,12 +270,16 @@ export function computeStandings(
           else if (tb === "SCORE_DIFF") d = b.scoreDiff - a.scoreDiff;
           else if (tb === "SCORE_FOR") d = b.scoreFor - a.scoreFor;
           else if (tb === "NRR") {
-            // A team with no ball data sorts last among equals rather than
-            // being treated as 0.000, which would rank it above anyone
-            // genuinely negative.
+            // Rank on NRR only when BOTH sides have one. Treating a missing
+            // NRR as 0.000 would put a team with no data above anyone
+            // genuinely negative; sorting it last instead is just as
+            // invented — it would drop a team purely because its matches
+            // happened not to be scored ball-by-ball, which says nothing
+            // about how it played. So when either side is missing, this
+            // key abstains and the next tiebreaker decides.
             const x = a.nrr;
             const y = b.nrr;
-            d = x == null && y == null ? 0 : x == null ? 1 : y == null ? -1 : y - x;
+            d = x == null || y == null ? 0 : y - x;
           }
           else if (tb === "NAME") d = name(a.teamId).localeCompare(name(b.teamId));
           if (d !== 0) return d;
