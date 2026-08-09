@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeStandings, inningsFromLiveState } from "@/lib/tournament-points";
+import { computeStandings, inningsFromLiveState, standingsConfig } from "@/lib/tournament-points";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 import { parsePrizes } from "@/lib/tournament-config";
 import { poolMatchesArePublic } from "@/lib/tournament-config";
@@ -73,13 +73,7 @@ export async function GET(
   const poolsRevealed = poolMatchesArePublic(t.status);
   const teamNames = new Map(t.teams.map((x) => [x.id, x.name]));
   const isCricket = t.sport === "CRICKET";
-  const cfg = {
-    pointsWin: t.pointsWin,
-    pointsDraw: t.pointsDraw,
-    pointsLoss: t.pointsLoss,
-    tiebreakers: t.tiebreakers,
-    oversPerInnings: t.oversPerInnings,
-  };
+  const cfg = standingsConfig(t);
 
   // Standings per pool (or one league table).
   const completedRR = (poolId: string | null) =>

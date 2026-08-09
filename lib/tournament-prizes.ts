@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { computeStandings } from "@/lib/tournament-points";
+import { computeStandings, inningsFromLiveState, standingsConfig } from "@/lib/tournament-points";
 import { parseBands, type Band } from "@/lib/pass-bands";
 
 // Prize passes.
@@ -78,6 +78,10 @@ export async function resolvePlacements(tournamentId: string): Promise<Placement
     where: { id: tournamentId },
     select: {
       format: true,
+      // sport + oversPerInnings drive the NRR tiebreaker for cricket, so
+      // prize order matches the table the teams were looking at.
+      sport: true,
+      oversPerInnings: true,
       pointsWin: true,
       pointsDraw: true,
       pointsLoss: true,
@@ -96,6 +100,7 @@ export async function resolvePlacements(tournamentId: string): Promise<Placement
           awayScore: true,
           isDraw: true,
           winnerTeamId: true,
+          liveState: true,
         },
       },
     },
@@ -135,17 +140,15 @@ export async function resolvePlacements(tournamentId: string): Promise<Placement
         awayScore: m.awayScore!,
         isDraw: m.isDraw,
         winnerTeamId: m.winnerTeamId,
+        // Prize money follows the same order the table showed.
+        innings:
+          t.sport === "CRICKET" ? inningsFromLiveState(m.liveState) : undefined,
       }));
     if (completed.length === 0) return [];
     const standings = computeStandings(
       t.teams.map((x) => x.id),
       completed,
-      {
-        pointsWin: t.pointsWin,
-        pointsDraw: t.pointsDraw,
-        pointsLoss: t.pointsLoss,
-        tiebreakers: t.tiebreakers,
-      },
+      standingsConfig(t),
       new Map(t.teams.map((x) => [x.id, x.name]))
     );
     standings.forEach((s, i) => {
