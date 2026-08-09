@@ -260,7 +260,10 @@ export async function transitionTournament(
   toStatus: string
 ): Promise<{ success: boolean; error?: string }> {
   const admin = await gate();
-  const t = await db.tournament.findUnique({ where: { id }, select: { status: true, format: true } });
+  const t = await db.tournament.findUnique({
+    where: { id },
+    select: { status: true, format: true, regCloseAt: true },
+  });
   if (!t) return { success: false, error: "Tournament not found" };
   const allowed = STATUS_FLOW[t.status] || [];
   if (!allowed.includes(toStatus)) {
@@ -269,7 +272,23 @@ export async function transitionTournament(
   if (toStatus === "POOLS_REVEALED" && t.format !== "POOLS_KNOCKOUT") {
     return { success: false, error: "Only pools tournaments can reveal pools" };
   }
-  await db.tournament.update({ where: { id }, data: { status: toStatus as never } });
+
+  // Reopening registrations means nothing while the closing time sits in
+  // the past — three separate places would undo it. applyScheduledTransitions
+  // flips the status straight back on the next public page load, the
+  // tournament list does the same lazily, and registerTeam refuses with
+  // "Registrations have closed" even when the status says otherwise. So the
+  // deadline is cleared and the window stays open until an admin closes it
+  // again or sets a new one in Settings.
+  const reopening = toStatus === "REG_OPEN" && !!t.regCloseAt && t.regCloseAt < new Date();
+
+  await db.tournament.update({
+    where: { id },
+    data: {
+      status: toStatus as never,
+      ...(reopening ? { regCloseAt: null } : {}),
+    },
+  });
   // Prize passes are minted on completion, to the captain of whichever team
   // finished in the configured position. Idempotent, and deliberately
   // non-fatal: a pass that can't be issued (captain never linked an

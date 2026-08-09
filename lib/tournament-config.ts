@@ -11,7 +11,12 @@ export const STATUS_FLOW: Record<string, string[]> = {
   DRAFT: ["PUBLISHED", "CANCELLED"],
   PUBLISHED: ["REG_OPEN", "CANCELLED"],
   REG_OPEN: ["REG_CLOSED", "CANCELLED"],
-  REG_CLOSED: ["POOLS_REVEALED", "LIVE", "CANCELLED"], // LIVE directly for LEAGUE/KNOCKOUT
+  // Reopening is first because it is the one an admin reaches for in a
+  // hurry: a couple more teams turn up after the deadline and the event
+  // has room. Nothing about closing is destructive, so going back is
+  // just a status flip (plus clearing the stale deadline — see
+  // transitionTournament).
+  REG_CLOSED: ["REG_OPEN", "POOLS_REVEALED", "LIVE", "CANCELLED"], // LIVE directly for LEAGUE/KNOCKOUT
   POOLS_REVEALED: ["LIVE", "CANCELLED"],
   LIVE: ["COMPLETED", "CANCELLED"],
   COMPLETED: [],

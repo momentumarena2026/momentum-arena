@@ -448,9 +448,25 @@ export function TournamentManage({
               } disabled:opacity-50`}
             >
               {busy === `tr-${to}` && <Loader2 className="h-3 w-3 animate-spin" />}
-              {STATUS_LABELS[to] || to}
+              {/* "Registrations Open" is a state, not an instruction. Going
+                  back to it is the one transition that reads as an action,
+                  so it gets an action's name. */}
+              {t.status === "REG_CLOSED" && to === "REG_OPEN"
+                ? "Reopen Registrations"
+                : STATUS_LABELS[to] || to}
             </button>
           ))}
+          {t.status === "REG_CLOSED" && t.regCloseAt && (
+            <span className="w-full text-xs text-zinc-500">
+              Reopening clears the closing time ({" "}
+              {new Date(t.regCloseAt).toLocaleString("en-IN", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}{" "}
+              ), otherwise it would close itself again straight away. Set a new
+              one in Settings, or close it by hand when you have enough teams.
+            </span>
+          )}
         </div>
       )}
 
