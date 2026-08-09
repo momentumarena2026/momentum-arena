@@ -23,6 +23,10 @@ export type StandRow = {
   lost: number;
   scoreDiff: number;
   points: number;
+  /** Cricket net run rate; null when no match this team played was scored
+   *  ball-by-ball. nrrMatches < played means the rest were typed in. */
+  nrr: number | null;
+  nrrMatches: number;
 };
 export type MatchLite = {
   id: string;
