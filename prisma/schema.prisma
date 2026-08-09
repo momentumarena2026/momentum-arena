@@ -3281,6 +3281,14 @@ model Tournament {
   scorerCode         String?            @unique // field-scorer console access
 
   createdBy String? // admin id
+  /// Set when an admin files the tournament away. It keeps every record —
+  /// teams, fixtures, scores, money — but drops out of the admin list and
+  /// the public tournaments list, so a finished season stops crowding the
+  /// screen. A direct link still resolves, deliberately: old links and
+  /// bookmarks keep working. Nullable rather than a boolean so the "when"
+  /// is recoverable.
+  archivedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -160,9 +160,11 @@ export function AdminTournamentsScreen() {
   const [squadFor, setSquadFor] = useState<string | null>(null);
   const [squadText, setSquadText] = useState("");
 
+  // Archived events stay out of the way until asked for, as on the web.
+  const [showArchived, setShowArchived] = useState(false);
   const { data: list, isLoading, refetch } = useQuery({
-    queryKey: ["admin-tournaments"],
-    queryFn: adminTournamentsApi.list,
+    queryKey: ["admin-tournaments", showArchived],
+    queryFn: () => adminTournamentsApi.list(showArchived),
   });
   const { data: detailData, refetch: refetchDetail } = useQuery({
     queryKey: ["admin-tournament", openId],
@@ -347,6 +349,25 @@ export function AdminTournamentsScreen() {
                 </Text>
               </Pressable>
             ))}
+            {/* Filing away is about the list, not the lifecycle, so it sits
+                with the transitions but is not one of them. The server
+                still refuses while the event is live or open. */}
+            <Pressable
+              disabled={busy}
+              onPress={() =>
+                act(
+                  { op: "archiveTournament", tournamentId: t.id, archived: !t.archivedAt },
+                  t.archivedAt
+                    ? "Bring this tournament back into the list?"
+                    : "Archive this tournament? It keeps every record but leaves the active list here and the public tournaments list.",
+                )
+              }
+              style={styles.chipBtn}
+            >
+              <Text style={{ color: colors.zinc300, fontSize: 12 }}>
+                {t.archivedAt ? "Unarchive" : "Archive"}
+              </Text>
+            </Pressable>
           </View>
 
           {/* Structure ops */}
@@ -922,12 +943,22 @@ export function AdminTournamentsScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={pullRefreshing} onRefresh={onPullRefresh} tintColor={colors.emerald400} />}
       >
+        <Pressable
+          onPress={() => setShowArchived((v) => !v)}
+          style={[styles.chipBtn, { alignSelf: "flex-start", marginBottom: 10 }]}
+        >
+          <Text style={{ color: showArchived ? colors.emerald400 : colors.zinc400, fontSize: 12 }}>
+            {showArchived ? "Hide archived" : "Show archived"}
+          </Text>
+        </Pressable>
         {isLoading && <Skeleton height={90} />}
         {!isLoading && (list?.tournaments.length ?? 0) === 0 && (
           <View style={{ alignItems: "center", paddingVertical: 50, gap: 10 }}>
             <Trophy size={36} color={colors.zinc600} />
             <Text style={{ color: colors.zinc500, fontSize: 13 }}>
-              No tournaments yet — create one from the web admin.
+              {showArchived
+                ? "Nothing here at all yet."
+                : "No active tournaments — create one from the web admin, or show the archived ones."}
             </Text>
           </View>
         )}

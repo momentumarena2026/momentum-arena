@@ -71,7 +71,7 @@ export async function applyScheduledTransitions(t: {
 // ── Public reads ────────────────────────────────────────────────────
 export async function listPublicTournaments() {
   const rows = await db.tournament.findMany({
-    where: { status: { notIn: ["DRAFT", "CANCELLED"] } },
+    where: { status: { notIn: ["DRAFT", "CANCELLED"] }, archivedAt: null },
     orderBy: [{ startDate: "asc" }, { createdAt: "desc" }],
     select: {
       id: true,

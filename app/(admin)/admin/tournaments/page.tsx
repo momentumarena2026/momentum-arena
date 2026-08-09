@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, Plus, Trophy } from "lucide-react";
+import { Archive, BookOpen, Plus, Trophy } from "lucide-react";
 import { listTournamentsAdmin, getTournamentsEnabled } from "@/actions/admin-tournaments";
 import { STATUS_LABELS } from "@/lib/tournament-config";
 import { ModuleToggle } from "./module-toggle";
@@ -17,9 +17,17 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: "text-zinc-500 border-zinc-800",
 };
 
-export default async function AdminTournamentsPage() {
+export default async function AdminTournamentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ archived?: string }>;
+}) {
+  // Archived events are out of the way by default but one click from view,
+  // because "where did last season go" is a question the list has to be
+  // able to answer.
+  const showArchived = (await searchParams).archived === "1";
   const [tournaments, enabled] = await Promise.all([
-    listTournamentsAdmin(),
+    listTournamentsAdmin(showArchived),
     getTournamentsEnabled(),
   ]);
 
@@ -41,6 +49,13 @@ export default async function AdminTournamentsPage() {
             <BookOpen className="h-4 w-4" /> How to use
           </Link>
           <Link
+            href={showArchived ? "/admin/tournaments" : "/admin/tournaments?archived=1"}
+            className="flex shrink-0 items-center gap-2 rounded-xl border border-zinc-700 px-4 py-3 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+          >
+            <Archive className="h-4 w-4" />
+            {showArchived ? "Hide archived" : "Show archived"}
+          </Link>
+          <Link
             href="/admin/tournaments/new"
             className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 px-4 py-3 text-sm font-medium text-emerald-400 hover:bg-emerald-600/20"
           >
@@ -52,7 +67,11 @@ export default async function AdminTournamentsPage() {
       {tournaments.length === 0 ? (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-10 text-center">
           <Trophy className="mx-auto h-10 w-10 text-zinc-700" />
-          <p className="mt-3 text-zinc-400">No tournaments yet. Create your first one.</p>
+          <p className="mt-3 text-zinc-400">
+            {showArchived
+              ? "Nothing here — no tournaments at all yet."
+              : "No active tournaments. Create one, or show the archived ones."}
+          </p>
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -60,7 +79,9 @@ export default async function AdminTournamentsPage() {
             <Link
               key={t.id}
               href={`/admin/tournaments/${t.id}`}
-              className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-zinc-700"
+              className={`rounded-xl border bg-zinc-900 p-5 transition hover:border-zinc-700 ${
+                t.archivedAt ? "border-zinc-800/60 opacity-60" : "border-zinc-800"
+              }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -69,8 +90,15 @@ export default async function AdminTournamentsPage() {
                     {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format === "LEAGUE" ? "League" : "Knockout"} · {t.totalTeams} teams
                   </p>
                 </div>
-                <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs ${STATUS_COLORS[t.status] || ""}`}>
-                  {STATUS_LABELS[t.status] || t.status}
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {t.archivedAt && (
+                    <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-500">
+                      Archived
+                    </span>
+                  )}
+                  <span className={`rounded-full border px-2.5 py-1 text-xs ${STATUS_COLORS[t.status] || ""}`}>
+                    {STATUS_LABELS[t.status] || t.status}
+                  </span>
                 </span>
               </div>
               <div className="mt-3 flex gap-4 text-xs text-zinc-400">

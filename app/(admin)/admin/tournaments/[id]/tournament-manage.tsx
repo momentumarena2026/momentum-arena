@@ -17,6 +17,7 @@ import {
   Table2,
   GitBranch,
   Medal,
+  Archive,
 } from "lucide-react";
 import {
   transitionTournament,
@@ -25,6 +26,7 @@ import {
   adminRegisterTeam,
   adminEditTeam,
   rotateScorerCode,
+  setTournamentArchived,
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
 import {
@@ -131,6 +133,7 @@ export type AdminTournament = {
   quotedAmount: number;
   organizerNote: string | null;
   scheduleApprovedAt: string | null;
+  archivedAt: string | null;
   teams: TeamRow[];
   slots: {
     id: string;
@@ -270,6 +273,18 @@ export function TournamentManage({
 
   const confirmed = t.teams.filter((x) => x.status === "CONFIRMED").length;
   const payable = onlinePayable(t.entryFee, t.feeMode, t.advancePct);
+
+  const doArchive = async () => {
+    setBusy("archive");
+    setError(null);
+    try {
+      const res = await setTournamentArchived(t.id, !t.archivedAt);
+      if (!res.success) setError(res.error || "Failed");
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const doTransition = async (to: string) => {
     setBusy(`tr-${to}`);
@@ -456,6 +471,21 @@ export function TournamentManage({
                 : STATUS_LABELS[to] || to}
             </button>
           ))}
+          {/* Filing away is about the list, not the tournament, so it sits
+              apart from the status transitions and stays available at any
+              status — the server still refuses while it is live or open. */}
+          <button
+            onClick={doArchive}
+            disabled={busy === "archive"}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {busy === "archive" ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Archive className="h-3 w-3" />
+            )}
+            {t.archivedAt ? "Unarchive" : "Archive"}
+          </button>
           {t.status === "REG_CLOSED" && t.regCloseAt && (
             <span className="w-full text-xs text-zinc-500">
               Reopening clears the closing time ({" "}
