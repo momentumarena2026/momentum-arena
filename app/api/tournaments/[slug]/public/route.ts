@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeStandings, inningsFromLiveState, standingsConfig } from "@/lib/tournament-points";
+import { getTournamentLeaderboards } from "@/lib/tournament-leaderboards";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 import { parsePrizes } from "@/lib/tournament-config";
 import { poolMatchesArePublic } from "@/lib/tournament-config";
@@ -50,6 +51,10 @@ export async function GET(
           awayTeamId: true,
           homeSourceLabel: true,
           awaySourceLabel: true,
+          // The bracket is drawn by following these back from the final,
+          // so the connectors match how the rounds are actually wired.
+          homeSourceMatchId: true,
+          awaySourceMatchId: true,
           homeScore: true,
           awayScore: true,
           homeScoreNote: true,
@@ -126,40 +131,7 @@ export async function GET(
     key: string;
     label: string;
   }[];
-  const leaderboards = await Promise.all(
-    statFields.map(async (sf) => {
-      const rows = await db.tournamentPlayerStat.groupBy({
-        by: ["memberId"],
-        where: { tournamentId: t.id, statKey: sf.key },
-        _sum: { value: true },
-        orderBy: { _sum: { value: "desc" } },
-        take: 10,
-      });
-      const members = await db.tournamentTeamMember.findMany({
-        where: { id: { in: rows.map((r) => r.memberId) } },
-        select: { id: true, name: true, team: { select: { name: true, color: true } } },
-      });
-      const memberMap = new Map(members.map((m) => [m.id, m]));
-      return {
-        key: sf.key,
-        label: sf.label,
-        rows: rows
-          .map((r) => {
-            const mem = memberMap.get(r.memberId);
-            return mem
-              ? {
-                  memberId: r.memberId,
-                  name: mem.name,
-                  teamName: mem.team.name,
-                  teamColor: mem.team.color,
-                  value: r._sum.value || 0,
-                }
-              : null;
-          })
-          .filter(Boolean),
-      };
-    })
-  );
+  const leaderboards = await getTournamentLeaderboards(t.id, statFields);
 
   return NextResponse.json({
     tournament: {
