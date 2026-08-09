@@ -39,9 +39,15 @@ const istDay = (iso: string) =>
 export function SlotsTab({
   tournamentId,
   courts,
+  existingPools,
+  existingFixtures,
 }: {
   tournamentId: string;
   courts: { id: string; label: string }[];
+  /** Pools that already have teams in them, and fixtures already created.
+   *  Approving a plan destroys both, so the warning needs the counts. */
+  existingPools: { name: string; teams: number }[];
+  existingFixtures: number;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -262,6 +268,32 @@ export function SlotsTab({
             </p>
           )}
 
+          {/* This button rebuilds the draw from scratch. An organiser who
+              has already arranged the pools by hand on Pools & Draw has no
+              way of knowing that from the label, and approving a plan
+              silently discards their work. */}
+          {(existingPools.length > 0 || existingFixtures > 0) && (
+            <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-300">
+              Approving a plan below <strong>replaces</strong> what you already have:
+              {existingPools.length > 0 && (
+                <>
+                  {" "}
+                  {existingPools.length} pool{existingPools.length === 1 ? "" : "s"} (
+                  {existingPools.map((p) => `${p.name} · ${p.teams}`).join(", ")}) are deleted and
+                  rebuilt from its own draw
+                </>
+              )}
+              {existingPools.length > 0 && existingFixtures > 0 && ", and"}
+              {existingFixtures > 0 && (
+                <>
+                  {" "}
+                  all {existingFixtures} fixture{existingFixtures === 1 ? "" : "s"} are regenerated
+                </>
+              )}
+              . If you arranged the pools yourself on Pools &amp; Draw, generate the fixtures from
+              the Fixtures tab instead and set times there.
+            </p>
+          )}
           <button
             disabled={pending || plan.slots.length === 0}
             onClick={() => {
@@ -317,13 +349,21 @@ export function SlotsTab({
                   </ul>
                   <button
                     disabled={pending}
-                    onClick={() =>
+                    onClick={() => {
+                      if (
+                        (existingPools.length > 0 || existingFixtures > 0) &&
+                        !confirm(
+                          `This replaces your current draw — ${existingPools.length} pool(s) and ${existingFixtures} fixture(s) are deleted and rebuilt from Option ${i + 1}. Continue?`,
+                        )
+                      ) {
+                        return;
+                      }
                       run(async () => {
                         const r = await approveSchedule(tournamentId, i);
                         if (r.success) setCands(null);
                         return r;
-                      })
-                    }
+                      });
+                    }}
                     className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
                   >
                     <Check className="h-3.5 w-3.5" /> Approve this draw
