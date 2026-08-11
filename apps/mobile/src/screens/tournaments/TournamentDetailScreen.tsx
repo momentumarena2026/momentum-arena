@@ -10,6 +10,7 @@ import { PoolRevealCountdown } from "../../components/tournaments/PoolRevealCoun
 import { Trophy, Radio, Users, Plus, Trash2, Lock, CalendarDays, ScrollText } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
+import { RichText, looksLikeRichText } from "../../components/ui/RichText";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import { BracketTree } from "../../components/tournaments/BracketTree";
@@ -768,7 +769,18 @@ export function TournamentDetailScreen() {
                   <ScrollText size={15} color={colors.emerald400} />
                   <Text style={styles.cardTitle}>Rules</Text>
                 </View>
-                <Text style={[styles.cardBody, { marginTop: 6 }]}>{t.rules}</Text>
+                {/* Rules written in the admin editor arrive as HTML,
+                    already sanitised server-side. Older rows are plain
+                    text with real newlines — drawn through the renderer
+                    those line breaks would vanish, so they keep the
+                    plain <Text> they always had. */}
+                {looksLikeRichText(t.rules) ? (
+                  <View style={{ marginTop: 2 }}>
+                    <RichText html={t.rules} />
+                  </View>
+                ) : (
+                  <Text style={[styles.cardBody, { marginTop: 6 }]}>{t.rules}</Text>
+                )}
               </View>
             ) : null}
 

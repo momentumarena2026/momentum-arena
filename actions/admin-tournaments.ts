@@ -11,6 +11,7 @@ import {
   structureWarnings,
 } from "@/lib/tournament-config";
 import { reconcileTeamSquad, filterValidSlotKeys } from "@/lib/tournaments";
+import { sanitizeRichText } from "@/lib/rich-text.server";
 import {
   TEAM_COLLECT_METHODS,
   TEAM_REGISTER_METHODS,
@@ -60,7 +61,10 @@ const wizardSchema = z.object({
   sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]),
   format: z.enum(["LEAGUE", "KNOCKOUT", "POOLS_KNOCKOUT"]),
   description: z.string().trim().max(2000).optional(),
-  rules: z.string().trim().max(20000).optional(),
+  // Raised from 20k with the move to rich text: the same rules carry
+  // markup now, so the old ceiling would reject a document that was
+  // comfortably under it as plain text.
+  rules: z.string().trim().max(60000).optional(),
   bannerImageUrl: z.string().trim().max(500).optional(),
 
   totalTeams: z.number().int().min(2).max(128),
@@ -134,7 +138,11 @@ function wizardData(d: TournamentWizardInput) {
     sport: d.sport,
     format: d.format,
     description: d.description || null,
-    rules: d.rules || null,
+    // Rules arrive as HTML from the admin editor. Scrubbed here rather
+    // than at render because the mobile app reads the same string
+    // straight off the public API and has no sanitiser of its own — the
+    // database boundary is the one point every reader passes through.
+    rules: sanitizeRichText(d.rules),
     bannerImageUrl: d.bannerImageUrl || null,
     totalTeams: d.totalTeams,
     poolCount: d.format === "POOLS_KNOCKOUT" ? d.poolCount : 0,
