@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +29,7 @@ import {
   CalendarDays,
   Check,
   Clock,
+  Hourglass,
   Lock,
   X,
 } from "lucide-react-native";
@@ -89,6 +90,18 @@ type Nav = NativeStackNavigationProp<BookStackParamList, "BookSlots">;
 type Rt = RouteProp<BookStackParamList, "BookSlots">;
 
 const DATE_WINDOW_DAYS = 30; // Web shows 30 days of scrollable dates.
+
+// Sky accent for the "someone else is paying for this" tile. Not in
+// the theme palette because nothing else uses it; the web grid uses
+// Tailwind's sky-400/300 at the same opacities.
+const SKY_400 = "#38bdf8";
+const SKY_300 = "#7dd3fc";
+
+/** "4:07" / "0:09" — mm:ss, floored, never negative. */
+function mmss(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 export function BookSlotsScreen() {
   const { params } = useRoute<Rt>();
@@ -533,6 +546,10 @@ export function BookSlotsScreen() {
               selected={selected}
               onToggle={toggleHour}
               promo={promo}
+              // A slot someone else was paying for just came free (or
+              // didn't) — pull fresh availability rather than leave a
+              // spent countdown on screen.
+              onLockExpired={() => void refetch()}
               waitlistedHours={waitlistedByHour}
               onLeaveWaitlist={isMedium ? undefined : handleLeaveWaitlist}
               onUnavailableTap={
@@ -821,6 +838,7 @@ function SlotGrid({
   promo,
   waitlistedHours,
   onLeaveWaitlist,
+  onLockExpired,
 }: {
   slots: SlotAvailability[];
   selected: number[];
@@ -853,9 +871,44 @@ function SlotGrid({
    *  tap REMOVES the entry via onLeaveWaitlist. */
   waitlistedHours?: Map<number, string>;
   onLeaveWaitlist?: (hour: number) => void;
+  /**
+   * Fired once when the soonest checkout hold on the grid lapses, so
+   * the parent can refetch. Without it the tile counts down to zero
+   * and sits there — the dead end this whole treatment exists to
+   * remove, just with a nicer label on it.
+   */
+  onLockExpired?: () => void;
 }) {
   const showDiscount =
     promo != null && (promo.percentOff != null || promo.type === "FLAT");
+
+  // ── Live countdown on slots someone else is paying for ───────────
+  // One clock for the grid; each tile derives its own remaining time.
+  // No interval at all when nothing is mid-checkout, which is the
+  // common case.
+  const [now, setNow] = useState(() => Date.now());
+  const soonestExpiry = useMemo(() => {
+    const times = slots
+      .filter((s) => s.status === "locked" && s.lockKind === "checkout" && s.lockedUntil)
+      .map((s) => Date.parse(s.lockedUntil!))
+      .filter((t) => Number.isFinite(t));
+    return times.length > 0 ? Math.min(...times) : null;
+  }, [slots]);
+
+  useEffect(() => {
+    if (soonestExpiry == null) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [soonestExpiry]);
+
+  const refetchedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (soonestExpiry == null || !onLockExpired) return;
+    if (now < soonestExpiry || refetchedFor.current === soonestExpiry) return;
+    refetchedFor.current = soonestExpiry;
+    onLockExpired();
+  }, [now, soonestExpiry, onLockExpired]);
+
   return (
     <View style={styles.slotsGrid}>
       {slots.map((slot) => {
@@ -893,6 +946,35 @@ function SlotGrid({
         const blockedReasonTag = slot.blockedReason
           ? summarizeBlockers(slot.blockedReason.blockedBy)
           : null;
+
+        // Someone is on the payment screen for this slot right now.
+        // The hold dies by itself, so saying when beats saying
+        // "Booked" — a customer told the latter walks away from a
+        // slot that is usually back within a couple of minutes.
+        const isCheckoutLock =
+          slot.status === "locked" &&
+          slot.lockKind === "checkout" &&
+          Boolean(slot.lockedUntil);
+        const lockMsLeft = isCheckoutLock
+          ? Date.parse(slot.lockedUntil!) - now
+          : NaN;
+        const payingNow = Number.isFinite(lockMsLeft) && lockMsLeft > 0 && !isPast;
+        // Countdown spent, refetch not back yet. Holding the tile here
+        // keeps "Booked" from flashing back on at the exact second the
+        // customer is watching to see if they got it.
+        const lockSettling =
+          isCheckoutLock && !payingNow && !isPast && Number.isFinite(lockMsLeft);
+        // Paid by static QR / UPI, waiting on an admin to match the
+        // UTR by hand. No countdown — that wait has no knowable end.
+        const verifying =
+          slot.status === "locked" && slot.lockKind === "verification" && !isPast;
+
+        // The pivot still outranks both: booking a free half NOW beats
+        // waiting out someone else's checkout.
+        const payingTile =
+          (payingNow || lockSettling) && !softBlockInteractive && !isWaitlisted;
+        const verifyingTile =
+          verifying && !softBlockInteractive && !payingTile && !isWaitlisted;
 
         return (
           <Pressable
@@ -933,6 +1015,8 @@ function SlotGrid({
                 ? styles.slotWaitlisted
                 : softBlockInteractive
                 ? styles.slotSoftBlocked
+                : payingTile
+                ? styles.slotBeingPaid
                 : bookedFutureInteractive
                 ? styles.slotBookedFuture
                 : styles.slotUnavailable,
@@ -970,6 +1054,8 @@ function SlotGrid({
                 <BellRing size={14} color={colors.emerald400} />
               ) : softBlockInteractive ? (
                 <ArrowRightLeft size={14} color={colors.yellow400} />
+              ) : payingTile ? (
+                <Hourglass size={14} color={SKY_400} />
               ) : bookedFutureInteractive ? (
                 <Bell size={14} color={colors.destructive} />
               ) : null}
@@ -1002,6 +1088,8 @@ function SlotGrid({
                     ? colors.emerald400
                     : softBlockInteractive
                     ? colors.yellow400
+                    : payingTile
+                    ? SKY_300
                     : bookedFutureInteractive
                     ? colors.destructive_300
                     : colors.zinc500
@@ -1014,6 +1102,14 @@ function SlotGrid({
                   ? "On the list · tap to leave"
                   : softBlockInteractive
                   ? `${availabilityTag ?? "Available"} · tap`
+                  : payingTile
+                  ? payingNow
+                    ? `Being paid for · frees in ${mmss(lockMsLeft)}`
+                    : "Checking… · just a moment"
+                  : verifyingTile
+                  ? bookedFutureInteractive
+                    ? "Payment being verified · Notify me"
+                    : "Payment being verified"
                   : bookedFutureInteractive
                   ? blockedReasonTag
                     ? `${blockedReasonTag} · Notify me`
@@ -1156,6 +1252,13 @@ const styles = StyleSheet.create({
   slotSoftBlocked: {
     backgroundColor: "rgba(245, 158, 11, 0.10)",
     borderColor: "rgba(245, 158, 11, 0.40)",
+  },
+  // Sky, not amber: amber already means "there's another court you can
+  // pivot to" on this same grid, and two ambers meaning different
+  // things is how a colour code stops being read at all.
+  slotBeingPaid: {
+    backgroundColor: "rgba(14, 165, 233, 0.10)",
+    borderColor: "rgba(14, 165, 233, 0.40)",
   },
   slotSelected: {
     backgroundColor: colors.emerald500_20,

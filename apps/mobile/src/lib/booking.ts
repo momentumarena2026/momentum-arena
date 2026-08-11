@@ -41,11 +41,23 @@ export interface BlockedReason {
   alternativesAtThisHour: BlockingConfig[];
 }
 
+/**
+ * Why an hour reads as "locked" — mirror of lib/availability.ts.
+ * "checkout" is another customer on the payment screen, gone by
+ * `lockedUntil`; "verification" is a paid booking waiting on an admin
+ * to match the UTR, which has no knowable end.
+ */
+export type LockKind = "checkout" | "verification";
+
 export interface SlotAvailability {
   hour: number;
   status: SlotStatus;
   price: number;
   blockedReason?: BlockedReason;
+  /** Set only when `status` is "locked". */
+  lockKind?: LockKind;
+  /** ISO expiry of the checkout hold; only with lockKind "checkout". */
+  lockedUntil?: string;
   /**
    * Canonical storage coordinates this displayed slot maps to. Set
    * only by the display-shifted server variant for the late-night
@@ -151,6 +163,10 @@ export interface BowlingSlotAvailability {
   minute: 0 | 30;
   status: SlotStatus;
   price: number;
+  /** Set only when `status` is "locked". See LockKind. */
+  lockKind?: LockKind;
+  /** ISO expiry of the checkout hold; only with lockKind "checkout". */
+  lockedUntil?: string;
 }
 
 export interface LockResult {

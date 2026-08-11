@@ -1,6 +1,6 @@
 import { BookingCategory, CourtZone, DayType } from "@prisma/client";
 import { db } from "./db";
-import { OCCUPYING_BOOKING_STATUSES } from "./availability";
+import { OCCUPYING_BOOKING_STATUSES, type LockKind } from "./availability";
 import {
   getCurrentHourIST,
   getCurrentMinuteIST,
@@ -28,6 +28,10 @@ export interface BowlingSlot {
   minute: number;
   status: SlotStatus;
   price: number; // rupees per 30-min slot
+  /** See LockKind in lib/availability.ts — same two meanings. */
+  lockKind?: LockKind;
+  /** ISO expiry of the checkout hold; only with lockKind "checkout". */
+  lockedUntil?: string;
 }
 
 /**
@@ -146,17 +150,25 @@ export async function getBowlingMachineAvailability(
     return `${h}:${m}`;
   }
 
+  /** Keys held by a booking awaiting manual payment verification. */
+  const verifyingKeys = new Set<string>();
   for (const booking of conflictingBookings) {
     // Only PENDING is provisional; CONFIRMED and the closed-out
     // COMPLETED / ABSENT sessions are firmly "booked".
     const status = booking.status === "PENDING" ? "locked" : "booked";
+    const markVerifying = (key: string) => {
+      if (status === "locked") verifyingKeys.add(key);
+    };
     for (const s of booking.slots) {
       if (s.durationMinutes === 30) {
         set(keyOf(s.startHour, s.startMinute), status);
+        markVerifying(keyOf(s.startHour, s.startMinute));
       } else {
         // 60-min booking → blocks both halves of the hour
         set(keyOf(s.startHour, 0), status);
         set(keyOf(s.startHour, 30), status);
+        markVerifying(keyOf(s.startHour, 0));
+        markVerifying(keyOf(s.startHour, 30));
       }
     }
   }
@@ -171,6 +183,14 @@ export async function getBowlingMachineAvailability(
       },
     },
   });
+  /** Key → when the LAST hold covering it lapses (epoch ms). */
+  const holdExpiryByKey = new Map<string, number>();
+  // Latest expiry wins — the slot isn't free again until every hold on
+  // it is gone, so counting down to the first would flip the tile back
+  // to bookable while someone else is still paying.
+  const noteExpiry = (key: string, at: Date) => {
+    holdExpiryByKey.set(key, Math.max(holdExpiryByKey.get(key) ?? 0, at.getTime()));
+  };
   for (const hold of activeHolds) {
     // hold.hours[i] paired with hold.startMinutes[i] (or 0 when the
     // parallel array is empty, i.e. a legacy 60-min hold).
@@ -181,10 +201,25 @@ export async function getBowlingMachineAvailability(
       if (hold.startMinutes.length === 0) {
         set(keyOf(h, 0), "locked");
         set(keyOf(h, 30), "locked");
+        noteExpiry(keyOf(h, 0), hold.expiresAt);
+        noteExpiry(keyOf(h, 30), hold.expiresAt);
       } else {
         set(keyOf(h, m), "locked");
+        noteExpiry(keyOf(h, m), hold.expiresAt);
       }
     }
+  }
+
+  /** Same precedence rule as lib/availability.ts: verification outranks a hold. */
+  function lockFieldsFor(
+    key: string,
+    status: SlotStatus,
+  ): { lockKind?: LockKind; lockedUntil?: string } {
+    if (status !== "locked") return {};
+    if (verifyingKeys.has(key)) return { lockKind: "verification" };
+    const until = holdExpiryByKey.get(key);
+    if (until === undefined) return {};
+    return { lockKind: "checkout", lockedUntil: new Date(until).toISOString() };
   }
 
   // ── Admin slot blocks ──────────────────────────────────────────
@@ -300,7 +335,13 @@ export async function getBowlingMachineAvailability(
         status = "closed";
       }
     }
-    return { hour, minute, status, price: slotPrice };
+    return {
+      hour,
+      minute,
+      status,
+      price: slotPrice,
+      ...lockFieldsFor(key, status),
+    };
   });
 }
 

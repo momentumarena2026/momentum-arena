@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DatePicker } from "@/components/booking/date-picker";
@@ -17,6 +17,16 @@ interface BowlingSlot {
   minute: number;
   status: "available" | "booked" | "locked" | "blocked" | "closed";
   price: number;
+  /** See LockKind in lib/availability.ts. */
+  lockKind?: "checkout" | "verification";
+  /** ISO expiry of the checkout hold; only with lockKind "checkout". */
+  lockedUntil?: string;
+}
+
+/** "4:07" / "0:09" — mm:ss, floored, never negative. */
+function mmss(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 interface Props {
@@ -89,6 +99,33 @@ export function BowlingSlotPickerClient({
     void fetchAvailability(selectedDate);
     setSelectedKeys(new Set());
   }, [fetchAvailability, selectedDate]);
+
+  // ── Live countdown on slots someone else is paying for ───────────
+  // Same treatment as the hourly SlotGrid: one clock for the grid, and
+  // a single refetch when the earliest hold lapses so the tile frees
+  // itself instead of sitting at zero.
+  const [now, setNow] = useState(() => Date.now());
+  const soonestExpiry = useMemo(() => {
+    const times = slots
+      .filter((s) => s.status === "locked" && s.lockKind === "checkout" && s.lockedUntil)
+      .map((s) => Date.parse(s.lockedUntil!))
+      .filter((t) => Number.isFinite(t));
+    return times.length > 0 ? Math.min(...times) : null;
+  }, [slots]);
+
+  useEffect(() => {
+    if (soonestExpiry == null) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [soonestExpiry]);
+
+  const refetchedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (soonestExpiry == null) return;
+    if (now < soonestExpiry || refetchedFor.current === soonestExpiry) return;
+    refetchedFor.current = soonestExpiry;
+    void fetchAvailability(selectedDate);
+  }, [now, soonestExpiry, fetchAvailability, selectedDate]);
 
   function keyOf(h: number, m: number) {
     return `${h}:${m}`;
@@ -267,6 +304,23 @@ export function BowlingSlotPickerClient({
                 const isPast = slot.status === "closed";
                 const isBooked =
                   slot.status === "booked" || slot.status === "locked";
+                // Someone else is mid-checkout on this half-hour. Says
+                // when it frees rather than "Booked", which was the same
+                // dead end the hourly grid had — the tooltip already
+                // knew the difference, but nobody hovers on a phone.
+                const lockMsLeft =
+                  slot.lockKind === "checkout" && slot.lockedUntil
+                    ? Date.parse(slot.lockedUntil) - now
+                    : NaN;
+                const counting =
+                  Number.isFinite(lockMsLeft) && lockMsLeft > 0 && !isPast;
+                // Countdown done, refetch not back yet. Holding the sky
+                // tile through the gap keeps "Booked" off a slot that
+                // may well have just come free.
+                const settling =
+                  Number.isFinite(lockMsLeft) && lockMsLeft <= 0 && !isPast;
+                const payingNow = counting || settling;
+                const verifying = slot.lockKind === "verification" && !isPast;
                 return (
                   <button
                     key={k}
@@ -278,9 +332,11 @@ export function BowlingSlotPickerClient({
                         ? "border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50"
                         : isAvail
                           ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30"
-                          : isBooked
-                            ? "bg-red-500/10 border-red-500/40 cursor-not-allowed"
-                            : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
+                          : payingNow
+                            ? "bg-sky-500/10 border-sky-500/40 cursor-not-allowed"
+                            : isBooked
+                              ? "bg-red-500/10 border-red-500/40 cursor-not-allowed"
+                              : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
                     }`}
                     title={
                       slot.status === "booked"
@@ -312,18 +368,31 @@ export function BowlingSlotPickerClient({
                       className={`mt-1 text-xs ${
                         isAvail
                           ? "text-zinc-400"
-                          : isBooked
-                            ? "text-red-300/90"
-                            : "text-zinc-500"
+                          : payingNow
+                            ? "text-sky-300/90"
+                            : isBooked
+                              ? "text-red-300/90"
+                              : "text-zinc-500"
                       }`}
                     >
-                      {isAvail
-                        ? formatPrice(slot.price)
-                        : isBooked
-                          ? "Booked"
-                          : isPast
-                            ? "Past"
-                            : "Unavailable"}
+                      {isAvail ? (
+                        formatPrice(slot.price)
+                      ) : payingNow ? (
+                        <span className="block">
+                          {counting ? "Being paid for" : "Checking…"}
+                          <span className="block text-[10px] font-semibold text-sky-400">
+                            {counting ? `Frees in ${mmss(lockMsLeft)}` : "Just a moment"}
+                          </span>
+                        </span>
+                      ) : verifying ? (
+                        "Payment being verified"
+                      ) : isBooked ? (
+                        "Booked"
+                      ) : isPast ? (
+                        "Past"
+                      ) : (
+                        "Unavailable"
+                      )}
                     </div>
                   </button>
                 );
