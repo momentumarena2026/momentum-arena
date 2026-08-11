@@ -6,6 +6,24 @@ import { getTodayIST, getCurrentHourIST } from "./ist-date";
 export type SlotStatus = "available" | "booked" | "locked" | "blocked";
 
 /**
+ * Why an hour reads as "locked" — which is not one thing, and the
+ * difference decides what the next customer should be told:
+ *
+ *  - "checkout"     — a SlotHold. Someone is on the payment screen
+ *                     right now. It dies on its own at `lockedUntil`
+ *                     (LOCK_TTL_MINUTES, currently 5), so this is a
+ *                     wait worth naming: "free again at 7:42".
+ *  - "verification" — a PENDING booking. The customer paid by static
+ *                     QR / UPI and an admin has to match the UTR by
+ *                     hand, which can sit for hours. Offering a
+ *                     countdown here would be a promise we can't keep.
+ *
+ * Both used to render as a flat "Booked · Notify me", which sent
+ * people away from a slot that was often free again a minute later.
+ */
+export type LockKind = "checkout" | "verification";
+
+/**
  * Lightweight snapshot of a court config used in `blockedReason`.
  * Carries just enough for the customer-facing tile + alternatives
  * sheet to render labels ("Right half booked" / "Switch to Half
@@ -45,6 +63,18 @@ export interface SlotAvailability {
   status: SlotStatus;
   price: number; // in rupees
   blockedReason?: BlockedReason;
+  /** Set only when `status` is "locked". See LockKind. */
+  lockKind?: LockKind;
+  /**
+   * ISO timestamp the checkout hold lapses — the moment this hour may
+   * become bookable again. Only ever set alongside lockKind
+   * "checkout"; a verification lock has no knowable end.
+   *
+   * Clients tick a countdown against this and refetch when it passes.
+   * Availability is CDN-cached for 30s, so treat the value as the
+   * earliest the slot could free, not the instant it will.
+   */
+  lockedUntil?: string;
   /**
    * Canonical storage coordinates this displayed slot maps to. Set
    * only by `getDisplayShiftedAvailability` for the late-night
@@ -122,6 +152,8 @@ export async function getSlotAvailability(
 
   // Build set of occupied hours
   const occupiedHours = new Map<number, SlotStatus>();
+  /** Hours held by a booking awaiting manual payment verification. */
+  const verifyingHours = new Set<number>();
   for (const booking of conflictingBookings) {
     for (const slot of booking.slots) {
       // Only PENDING is provisional ("locked"); a CONFIRMED or closed-out
@@ -130,6 +162,7 @@ export async function getSlotAvailability(
         slot.startHour,
         booking.status === "PENDING" ? "locked" : "booked"
       );
+      if (booking.status === "PENDING") verifyingHours.add(slot.startHour);
     }
   }
 
@@ -146,13 +179,40 @@ export async function getSlotAvailability(
     },
     include: { courtConfig: true },
   });
+  /** Hour → when the LAST hold covering it lapses (epoch ms). */
+  const holdExpiryByHour = new Map<number, number>();
   for (const hold of activeHolds) {
     for (const hour of hold.hours) {
       // Holds shouldn't override "booked" (stricter) status
       if (!occupiedHours.has(hour)) {
         occupiedHours.set(hour, "locked");
       }
+      // Latest expiry wins: with two customers holding overlapping
+      // halves of the same hour, it isn't free again until both are
+      // gone. Counting down to the first would flip the tile back to
+      // "available" while the other is still paying.
+      const prev = holdExpiryByHour.get(hour) ?? 0;
+      holdExpiryByHour.set(hour, Math.max(prev, hold.expiresAt.getTime()));
     }
+  }
+
+  /**
+   * The two lock fields for an hour, or nothing when it isn't locked.
+   *
+   * A booking awaiting verification outranks a hold on the same hour:
+   * it is the longer and less predictable wait, and a 5-minute
+   * countdown laid over it would send the customer back to a slot
+   * that is still gone.
+   */
+  function lockFieldsFor(
+    hour: number,
+    status: SlotStatus,
+  ): { lockKind?: LockKind; lockedUntil?: string } {
+    if (status !== "locked") return {};
+    if (verifyingHours.has(hour)) return { lockKind: "verification" };
+    const until = holdExpiryByHour.get(hour);
+    if (until === undefined) return {};
+    return { lockKind: "checkout", lockedUntil: new Date(until).toISOString() };
   }
 
   // Check admin slot blocks
@@ -376,6 +436,7 @@ export async function getSlotAvailability(
       status,
       price: prices.get(hour) ?? 0,
       blockedReason,
+      ...lockFieldsFor(hour, status),
     };
   });
 
@@ -414,6 +475,7 @@ export async function getSlotAvailability(
       status,
       price: prices.get(hour) ?? 0,
       blockedReason,
+      ...lockFieldsFor(hour, status),
     });
   }
 
@@ -558,8 +620,43 @@ export async function getMergedMediumAvailability(
         // Prices are equal between halves; fall back to whichever
         // side has a non-zero figure.
         price: l?.price || r?.price || 0,
+        ...mergedLockFields(status, l, r),
       };
     });
+}
+
+/**
+ * Lock fields for a merged half-court hour.
+ *
+ * Either half will do here, so the customer is waiting on whichever
+ * frees FIRST — the earliest hold expiry, not the latest (the opposite
+ * of the single-config rule, where every hold on the hour has to
+ * lapse). And a checkout lock on either side beats a verification lock
+ * on the other: it is the half that can actually come back, and it can
+ * say when.
+ */
+function mergedLockFields(
+  status: SlotStatus,
+  l: SlotAvailability | undefined,
+  r: SlotAvailability | undefined,
+): { lockKind?: LockKind; lockedUntil?: string } {
+  if (status !== "locked") return {};
+  const sides = [l, r].filter(
+    (s): s is SlotAvailability => s?.status === "locked",
+  );
+  const expiries = sides
+    .filter((s) => s.lockKind === "checkout" && s.lockedUntil)
+    .map((s) => Date.parse(s.lockedUntil!))
+    .filter((t) => Number.isFinite(t));
+  if (expiries.length > 0) {
+    return {
+      lockKind: "checkout",
+      lockedUntil: new Date(Math.min(...expiries)).toISOString(),
+    };
+  }
+  return sides.some((s) => s.lockKind === "verification")
+    ? { lockKind: "verification" }
+    : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -683,10 +780,20 @@ export async function getDisplayShiftedAvailability(
     if (!other || other.status === "available") return;
     const cur = byHour.get(h);
     if (!cur) return;
+    const status = worseStatus(cur.status, other.status);
+    // The lock fields describe one specific lock, so they have to
+    // travel with the status that won. Carrying `cur`'s countdown onto
+    // a status sourced from `other` would tick down a hold belonging to
+    // a storage form this cell isn't showing — and clearing them when
+    // the winner isn't "locked" stops a stale expiry riding along on a
+    // tile that now reads "Booked".
+    const src = status === cur.status ? cur : other;
     byHour.set(h, {
       ...cur,
-      status: worseStatus(cur.status, other.status),
+      status,
       blockedReason: other.blockedReason ?? cur.blockedReason,
+      lockKind: status === "locked" ? src.lockKind : undefined,
+      lockedUntil: status === "locked" ? src.lockedUntil : undefined,
     });
   };
 
@@ -743,10 +850,20 @@ export async function getDisplayShiftedMediumAvailability(
     if (!other || other.status === "available") return;
     const cur = byHour.get(h);
     if (!cur) return;
+    const status = worseStatus(cur.status, other.status);
+    // The lock fields describe one specific lock, so they have to
+    // travel with the status that won. Carrying `cur`'s countdown onto
+    // a status sourced from `other` would tick down a hold belonging to
+    // a storage form this cell isn't showing — and clearing them when
+    // the winner isn't "locked" stops a stale expiry riding along on a
+    // tile that now reads "Booked".
+    const src = status === cur.status ? cur : other;
     byHour.set(h, {
       ...cur,
-      status: worseStatus(cur.status, other.status),
+      status,
       blockedReason: other.blockedReason ?? cur.blockedReason,
+      lockKind: status === "locked" ? src.lockKind : undefined,
+      lockedUntil: status === "locked" ? src.lockedUntil : undefined,
     });
   };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatHourRangeCompact,
   formatHoursAsRanges,
@@ -13,7 +13,13 @@ import {
   type ActiveSportPromo,
   computeAutoApplyDiscount,
 } from "@/lib/auto-apply-promo";
-import { Bell, Clock, Check, ArrowRightLeft } from "lucide-react";
+import { Bell, Clock, Check, ArrowRightLeft, Hourglass } from "lucide-react";
+
+/** "4:07" / "0:09" — mm:ss, floored, never negative. */
+function mmss(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 interface SlotGridProps {
   slots: SlotAvailability[];
@@ -59,6 +65,15 @@ interface SlotGridProps {
    * displayed total = the amount the user pays at checkout.
    */
   promo?: ActiveSportPromo | null;
+  /**
+   * Fired once when the soonest checkout hold on the grid lapses.
+   * The parent should refetch availability: the tile has just counted
+   * down to zero, and leaving it there — or worse, letting it sit at
+   * "frees in 0:00" — is exactly the dead end this whole treatment
+   * exists to remove. Without it the customer would have to guess when
+   * to reload, which is what we told them they wouldn't have to do.
+   */
+  onLockExpired?: () => void;
 }
 
 export function SlotGrid({
@@ -69,7 +84,42 @@ export function SlotGrid({
   onShowAlternatives,
   pastHourCutoff,
   promo,
+  onLockExpired,
 }: SlotGridProps) {
+  // ── Live countdown on slots someone else is paying for ───────────
+  // One clock for the whole grid rather than an interval per tile;
+  // each tile derives its own remaining time from it.
+  const [now, setNow] = useState(() => Date.now());
+
+  // The earliest hold to lapse. Null when nothing on this grid is
+  // mid-checkout, which is the common case — and when it's null we
+  // never start an interval at all, so a fully-booked or fully-free
+  // grid costs nothing.
+  const soonestExpiry = useMemo(() => {
+    const times = slots
+      .filter((s) => s.status === "locked" && s.lockKind === "checkout" && s.lockedUntil)
+      .map((s) => Date.parse(s.lockedUntil!))
+      .filter((t) => Number.isFinite(t));
+    return times.length > 0 ? Math.min(...times) : null;
+  }, [slots]);
+
+  useEffect(() => {
+    if (soonestExpiry == null) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [soonestExpiry]);
+
+  // Ask for fresh availability the moment the first hold lapses.
+  // Keyed on the expiry timestamp so a grid that keeps re-rendering
+  // fires exactly one refetch per hold, not one per tick.
+  const refetchedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (soonestExpiry == null || !onLockExpired) return;
+    if (now < soonestExpiry || refetchedFor.current === soonestExpiry) return;
+    refetchedFor.current = soonestExpiry;
+    onLockExpired();
+  }, [now, soonestExpiry, onLockExpired]);
+
   const toggleSlot = useCallback(
     (hour: number) => {
       if (selectedHours.includes(hour)) {
@@ -146,6 +196,39 @@ export function SlotGrid({
             !softBlockInteractive &&
             Boolean(onUnavailableClick);
 
+          // Someone is on the payment screen for this slot right now.
+          // Distinct from booked, and worth saying so: the hold dies by
+          // itself, usually within a couple of minutes, and a customer
+          // told "Booked" walks away from a slot that is about to come
+          // back. Once the countdown passes zero we stop claiming a
+          // time and fall back to the plain treatment until the
+          // refetch above lands.
+          const isCheckoutLock =
+            slot.status === "locked" &&
+            slot.lockKind === "checkout" &&
+            Boolean(slot.lockedUntil);
+          const lockMsLeft = isCheckoutLock
+            ? Date.parse(slot.lockedUntil!) - now
+            : NaN;
+          const payingNow = Number.isFinite(lockMsLeft) && lockMsLeft > 0 && !isPast;
+          // The countdown has run out but the refetch hasn't landed
+          // yet. Falling through to the "Booked · Notify me" branch
+          // here would put the exact wrong message back on screen for
+          // the couple of seconds that matter most — the moment the
+          // customer is watching to see whether they got the slot.
+          const lockSettling =
+            isCheckoutLock && !payingNow && !isPast && Number.isFinite(lockMsLeft);
+          // Paid by static QR / UPI, waiting on an admin to match the
+          // UTR. No countdown — that wait has no knowable end, and
+          // inventing one would be worse than saying nothing.
+          const verifying =
+            slot.status === "locked" && slot.lockKind === "verification" && !isPast;
+
+          // The pivot still outranks both: booking a free half NOW
+          // beats waiting out someone else's checkout.
+          const payingTile = (payingNow || lockSettling) && !softBlockInteractive;
+          const verifyingTile = verifying && !softBlockInteractive && !payingTile;
+
           // Amber tile (soft block) tag — positive framing, derived
           // from what's STILL bookable. Customer reads "Half
           // Available" whether a half-court or the bowling machine
@@ -184,9 +267,15 @@ export function SlotGrid({
                     ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30"
                     : softBlockInteractive
                       ? "bg-amber-500/10 border-amber-500/40 hover:bg-amber-500/15 hover:border-amber-500/60 cursor-pointer"
-                      : bookedFutureInteractive
-                        ? "bg-red-500/10 border-red-500/40 hover:bg-red-500/15 hover:border-red-500/60 cursor-pointer"
-                        : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
+                      : payingTile
+                        ? // Sky, not amber: amber already means "there's
+                          // another court you can pivot to" on this same
+                          // grid. Two ambers meaning different things is
+                          // how a colour code stops being read at all.
+                          "bg-sky-500/10 border-sky-500/40 hover:bg-sky-500/15 hover:border-sky-500/60 cursor-pointer"
+                        : bookedFutureInteractive
+                          ? "bg-red-500/10 border-red-500/40 hover:bg-red-500/15 hover:border-red-500/60 cursor-pointer"
+                          : "bg-zinc-800/50 border-zinc-700 cursor-not-allowed opacity-50"
               }`}
             >
               <div className="flex items-center justify-between">
@@ -206,9 +295,11 @@ export function SlotGrid({
                 {softBlockInteractive && (
                   <ArrowRightLeft className="h-3.5 w-3.5 text-amber-400" />
                 )}
-                {bookedFutureInteractive && (
+                {payingTile ? (
+                  <Hourglass className="h-3.5 w-3.5 text-sky-400" />
+                ) : bookedFutureInteractive ? (
                   <Bell className="h-3.5 w-3.5 text-red-400" />
-                )}
+                ) : null}
               </div>
               <div
                 className={`mt-1 text-xs ${
@@ -216,9 +307,11 @@ export function SlotGrid({
                     ? "text-zinc-400"
                     : softBlockInteractive
                       ? "text-amber-300/90"
-                      : bookedFutureInteractive
-                        ? "text-red-300/90"
-                        : "text-zinc-500"
+                      : payingTile
+                        ? "text-sky-300/90"
+                        : bookedFutureInteractive
+                          ? "text-red-300/90"
+                          : "text-zinc-500"
                 }`}
               >
                 {isAvailable ? (
@@ -244,6 +337,29 @@ export function SlotGrid({
                     <span className="block text-[10px] text-amber-400/80">
                       Tap to see options
                     </span>
+                  </span>
+                ) : payingTile ? (
+                  // Someone else's checkout, with the minute it lapses.
+                  // The countdown is the point: it turns "gone" into a
+                  // short, specific wait, and the grid refetches itself
+                  // when it runs out so nobody has to sit and reload.
+                  <span className="block">
+                    {payingNow ? "Being paid for" : "Checking…"}
+                    <span className="block text-[10px] font-semibold text-sky-400">
+                      {payingNow ? `Frees in ${mmss(lockMsLeft)}` : "Just a moment"}
+                    </span>
+                  </span>
+                ) : verifyingTile ? (
+                  // No countdown here on purpose — an admin has to match
+                  // the UTR by hand and that can take hours, so the only
+                  // honest thing to offer is the bell.
+                  <span className="block">
+                    Payment being verified
+                    {bookedFutureInteractive && (
+                      <span className="block text-[10px] text-red-400/80">
+                        Notify me
+                      </span>
+                    )}
                   </span>
                 ) : bookedFutureInteractive ? (
                   // Hard block — render the reason where we have one

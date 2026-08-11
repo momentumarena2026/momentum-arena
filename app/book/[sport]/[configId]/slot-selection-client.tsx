@@ -178,25 +178,44 @@ export function SlotSelectionClient({
     };
   }, []);
 
-  useEffect(() => {
-    async function fetchSlots() {
-      setLoading(true);
+  const fetchSlots = useCallback(
+    async (opts?: { fresh?: boolean; quiet?: boolean }) => {
+      if (!opts?.quiet) setLoading(true);
       try {
-        const url = mediumMode
+        const base = mediumMode
           ? `/api/availability?mode=medium&sport=${sport.toUpperCase()}&date=${selectedDate}`
           : `/api/availability?configId=${configId}&date=${selectedDate}`;
-        const res = await fetch(url);
+        // The response carries `Cache-Control: public, s-maxage=30`,
+        // which is right for the first paint and wrong when we're
+        // re-fetching precisely because a hold just lapsed — a cached
+        // copy hands back the same locked tile and the countdown looks
+        // broken. `cache: "no-store"` only bypasses the BROWSER cache;
+        // the shared CDN never sees it, so the URL has to differ.
+        const url = opts?.fresh ? `${base}&_=${Date.now()}` : base;
+        const res = await fetch(url, opts?.fresh ? { cache: "no-store" } : undefined);
         const data = await res.json();
         setSlots(data.slots || []);
       } catch {
-        setSlots([]);
+        if (!opts?.quiet) setSlots([]);
       } finally {
-        setLoading(false);
+        if (!opts?.quiet) setLoading(false);
       }
-    }
-    fetchSlots();
+    },
+    [configId, selectedDate, mediumMode, sport],
+  );
+
+  useEffect(() => {
+    void fetchSlots();
     // Only clear selection when date actually changes, not on re-render
-  }, [configId, selectedDate, mediumMode, sport]);
+  }, [fetchSlots]);
+
+  // A slot someone else was paying for just came free (or didn't).
+  // Refetch quietly — no skeleton, since the rest of the grid is still
+  // valid and flashing the whole thing for one tile is worse than the
+  // stale second it replaces.
+  const handleLockExpired = useCallback(() => {
+    void fetchSlots({ fresh: true, quiet: true });
+  }, [fetchSlots]);
 
   // After auth completes and session is available, auto-proceed to lock
   useEffect(() => {
@@ -529,6 +548,7 @@ export function SlotSelectionClient({
           <SlotGrid
             slots={slots}
             promo={promo}
+            onLockExpired={handleLockExpired}
             selectedHours={selectedHours}
             onSelectionChange={(hours) => {
               const added = hours.filter((h) => !selectedHours.includes(h));

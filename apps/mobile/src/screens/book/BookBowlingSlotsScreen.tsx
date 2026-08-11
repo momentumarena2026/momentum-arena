@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -57,6 +57,15 @@ type Nav = NativeStackNavigationProp<BookStackParamList, "BookBowlingSlots">;
 type Rt = RouteProp<BookStackParamList, "BookBowlingSlots">;
 
 const DATE_WINDOW_DAYS = 30;
+
+/** Sky accent for the "someone else is paying" tile — see BookSlotsScreen. */
+const SKY_300 = "#7dd3fc";
+
+/** "4:07" / "0:09" — mm:ss, floored, never negative. */
+function mmss(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 // Encode hour+minute as a comparable integer for adjacency + sort.
 function slotIndex(hour: number, minute: number) {
@@ -146,6 +155,33 @@ export function BookBowlingSlotsScreen() {
   });
 
   const slots: BowlingSlotAvailability[] = data?.slots ?? [];
+
+  // ── Live countdown on slots someone else is paying for ───────────
+  // One clock for the grid, and a single refetch when the earliest
+  // hold lapses so the tile frees itself instead of sitting at zero.
+  // No interval at all when nothing is mid-checkout.
+  const [now, setNow] = useState(() => Date.now());
+  const soonestExpiry = useMemo(() => {
+    const times = slots
+      .filter((s) => s.status === "locked" && s.lockKind === "checkout" && s.lockedUntil)
+      .map((s) => Date.parse(s.lockedUntil!))
+      .filter((t) => Number.isFinite(t));
+    return times.length > 0 ? Math.min(...times) : null;
+  }, [slots]);
+
+  useEffect(() => {
+    if (soonestExpiry == null) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [soonestExpiry]);
+
+  const refetchedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (soonestExpiry == null) return;
+    if (now < soonestExpiry || refetchedFor.current === soonestExpiry) return;
+    refetchedFor.current = soonestExpiry;
+    void refetch();
+  }, [now, soonestExpiry, refetch]);
 
   const sortedSelected = useMemo(() => {
     return Array.from(selectedKeys)
@@ -358,6 +394,21 @@ export function BookBowlingSlotsScreen() {
                 const isBooked =
                   slot.status === "booked" || slot.status === "locked";
                 const isPast = slot.status === "closed";
+                // Someone else is mid-checkout on this half-hour. The
+                // hold lapses on its own, so naming the minute beats
+                // "Booked" — the same dead end the hourly grid had.
+                const lockMsLeft =
+                  slot.lockKind === "checkout" && slot.lockedUntil
+                    ? Date.parse(slot.lockedUntil) - now
+                    : NaN;
+                const counting =
+                  Number.isFinite(lockMsLeft) && lockMsLeft > 0 && !isPast;
+                // Countdown spent, refetch not back yet — hold the tile
+                // rather than flashing "Booked" back on.
+                const settling =
+                  Number.isFinite(lockMsLeft) && lockMsLeft <= 0 && !isPast;
+                const payingNow = counting || settling;
+                const verifying = slot.lockKind === "verification" && !isPast;
                 return (
                   <Pressable
                     key={k}
@@ -369,9 +420,11 @@ export function BookBowlingSlotsScreen() {
                         ? styles.slotSelected
                         : isAvail
                           ? styles.slotAvailable
-                          : isBooked
-                            ? styles.slotBookedFuture
-                            : styles.slotUnavailable,
+                          : payingNow
+                            ? styles.slotBeingPaid
+                            : isBooked
+                              ? styles.slotBookedFuture
+                              : styles.slotUnavailable,
                       pressed && isAvail && { opacity: 0.85 },
                     ]}
                   >
@@ -407,19 +460,27 @@ export function BookBowlingSlotsScreen() {
                       color={
                         isAvail
                           ? colors.zinc400
-                          : isBooked
-                            ? colors.destructive_300
-                            : colors.zinc500
+                          : payingNow
+                            ? SKY_300
+                            : isBooked
+                              ? colors.destructive_300
+                              : colors.zinc500
                       }
                       style={styles.slotFooter}
                     >
                       {isAvail
                         ? formatRupees(slot.price)
-                        : isBooked
-                          ? "Booked"
-                          : isPast
-                            ? "Past"
-                            : "Unavailable"}
+                        : counting
+                          ? `Being paid for · ${mmss(lockMsLeft)}`
+                          : settling
+                            ? "Checking…"
+                            : verifying
+                              ? "Payment being verified"
+                              : isBooked
+                                ? "Booked"
+                                : isPast
+                                  ? "Past"
+                                  : "Unavailable"}
                     </Text>
                   </Pressable>
                 );
@@ -680,6 +741,12 @@ const styles = StyleSheet.create({
   slotBookedFuture: {
     backgroundColor: colors.destructive_10,
     borderColor: colors.destructive_30,
+  },
+  // "Being paid for" — sky, matching the hourly grid. Distinct from
+  // the amber pivot state there, which means something else entirely.
+  slotBeingPaid: {
+    backgroundColor: "rgba(14, 165, 233, 0.10)",
+    borderColor: "rgba(14, 165, 233, 0.40)",
   },
   slotSelected: {
     backgroundColor: colors.emerald500_20,
