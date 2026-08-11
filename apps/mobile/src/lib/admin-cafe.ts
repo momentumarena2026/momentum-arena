@@ -232,7 +232,11 @@ export const adminCafeApi = {
     customerName?: string;
     discountAmount?: number;
     paymentMethod: "CASH" | "UPI_QR";
+    /** What was actually taken now. May be less than the total — the
+     *  shortfall becomes a balance, collected from the order screen. */
     split?: { cashAmount: number; upiAmount: number };
+    /** Nothing collected at the counter; the whole bill is due. */
+    collectLater?: boolean;
     note?: string;
   }): Promise<{ ok: true; orderId: string; orderNumber: string }> {
     return request("/api/mobile/admin/cafe/orders/create", {

@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
     discountAmount: body.discountAmount,
     paymentMethod: (body.paymentMethod ?? "CASH") as PaymentMethod,
     split: body.split,
+    collectLater: body.collectLater === true,
     note: body.note,
   });
 

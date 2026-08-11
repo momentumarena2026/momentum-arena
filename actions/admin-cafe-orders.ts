@@ -347,6 +347,19 @@ export async function adminCreateCafeOrder(data: {
   // Constraint: cashAmount + upiAmount must equal the order total
   // (post-discount), and at least one of them must be > 0.
   split?: { cashAmount: number; upiAmount: number };
+  // "Take the food now, pay later" — nothing is collected at the
+  // counter and the WHOLE total becomes a balance. Wins over
+  // `split` when both are sent, because it is the more specific
+  // statement about what changed hands (nothing).
+  //
+  // Lands as PARTIAL with amount 0 rather than PENDING: PENDING is
+  // the abandoned-checkout state (a customer order whose gateway
+  // never came back) and is deliberately excluded from the
+  // who-owes-us list, so a genuine counter due filed under it would
+  // never be chased. PARTIAL/0 is literally true — some of it is
+  // paid, and that some is nothing — and puts the order in front of
+  // the admin everywhere a part-paid one already appears.
+  collectLater?: boolean;
   note?: string;
 }) {
   // Resolves the acting admin from the web session or the mobile bearer
@@ -428,7 +441,9 @@ export async function adminCreateCafeOrder(data: {
     // extra click that always immediately got resolved by
     // "Mark collected at counter". Skip it: every method
     // resolves to COMPLETED here, with confirmedAt / confirmedBy
-    // stamped to the creating admin.
+    // stamped to the creating admin — unless the admin says
+    // otherwise, by under-paying a split (PARTIAL) or choosing
+    // pay-later (PARTIAL, nothing collected).
     //
     // Validation (split path): both slices ≥ 0, at least one > 0,
     // sum equals the post-discount total within a 1-paise
@@ -443,13 +458,33 @@ export async function adminCreateCafeOrder(data: {
     let splitCashAmount: number | null = null;
     let splitUpiAmount: number | null = null;
 
-    if (data.split) {
+    // Nothing collected: the entire total is owed. A free order
+    // (100% discount, or a ₹0 cart) has nothing to owe, so it falls
+    // through to the normal COMPLETED path — "pay later" on a bill
+    // of ₹0 would otherwise create a due that can never be settled.
+    const collectLater = !!data.collectLater && totalAmount > 0.01;
+
+    if (collectLater) {
+      resolvedPaymentStatus = "PARTIAL";
+      // Slices stay null. Zeroes here would read as a genuine mixed
+      // tender to the order page's "is mixed?" check (any non-null
+      // slice) and print a "₹0 cash + ₹0 UPI" breakdown for a
+      // payment that never happened.
+      splitCashAmount = null;
+      splitUpiAmount = null;
+      // Keep the caller's method rather than deriving one: with no
+      // money in hand there is no dominant slice, and the method is
+      // only a guess at how the balance will arrive. Whatever is
+      // actually collected later carries its own method on the
+      // settlement row.
+    } else if (data.split) {
       const cash = Math.max(0, data.split.cashAmount ?? 0);
       const upi = Math.max(0, data.split.upiAmount ?? 0);
       if (cash + upi <= 0) {
         return {
           success: false,
-          error: "Split must have at least one of cash or UPI > 0",
+          error:
+            "Enter a cash or UPI amount — or choose Pay Later to record the whole bill as due",
         };
       }
       // Overpayment is still a mistake; UNDERpayment is now legitimate —
@@ -585,10 +620,13 @@ export async function adminCreateCafeOrder(data: {
               splitUpiAmount,
               // PARTIAL is confirmed money too — the cash is in the till
               // today even though the order isn't square. Revenue is
-              // cash-basis on this date, so it must be stamped.
+              // cash-basis on this date, so it must be stamped. The one
+              // PARTIAL that isn't: a pay-later order, where nothing was
+              // handed over. Stamping it would date a receipt for ₹0.
               confirmedAt:
-                resolvedPaymentStatus === "COMPLETED" ||
-                resolvedPaymentStatus === "PARTIAL"
+                !collectLater &&
+                (resolvedPaymentStatus === "COMPLETED" ||
+                  resolvedPaymentStatus === "PARTIAL")
                   ? new Date()
                   : null,
               confirmedBy: resolvedPaymentStatus === "COMPLETED" ? admin.id : null,
@@ -608,9 +646,11 @@ export async function adminCreateCafeOrder(data: {
                 discountAmount > 0
                   ? `discount ₹${discountAmount} applied`
                   : null,
-                data.split
-                  ? `split payment Cash ₹${data.split.cashAmount} + UPI ₹${data.split.upiAmount}`
-                  : null,
+                collectLater
+                  ? `nothing collected at the counter — ₹${totalAmount} due`
+                  : data.split
+                    ? `split payment Cash ₹${data.split.cashAmount} + UPI ₹${data.split.upiAmount}`
+                    : null,
               ]
                 .filter(Boolean)
                 .join(" — "),

@@ -103,11 +103,17 @@ export function CreateCafeOrderForm({
 
   const [discountAmount, setDiscountAmount] = useState("");
 
-  // Payment-method picker. The "SPLIT" value is a UI-only psuedo-
-  // method that doesn't correspond to a PaymentMethod enum row —
-  // when selected, two amount inputs (Cash + UPI) appear and the
-  // action receives a `split` spec instead of a single method.
-  type PaymentChoice = PaymentMethod | "SPLIT";
+  // Payment-method picker. "SPLIT" and "DUE" are UI-only pseudo-
+  // methods that don't correspond to a PaymentMethod enum row —
+  // SPLIT reveals two amount inputs (Cash + UPI) and sends a
+  // `split` spec, DUE sends `collectLater` and collects nothing.
+  //
+  // DUE exists because the counter's way of asking for it was to
+  // pick Split and leave both boxes at 0, which the action rejects
+  // — correctly, since an empty split is far more often a slip than
+  // an intention. Saying "collect nothing" out loud separates the
+  // two.
+  type PaymentChoice = PaymentMethod | "SPLIT" | "DUE";
   const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>("CASH");
   const [splitCash, setSplitCash] = useState("");
   const [splitUpi, setSplitUpi] = useState("");
@@ -233,7 +239,9 @@ export function CreateCafeOrderForm({
       const cash = Number(splitCash) || 0;
       const upi = Number(splitUpi) || 0;
       if (cash + upi <= 0) {
-        setError("Split must have at least one of cash or UPI > 0");
+        setError(
+          "Enter a cash or UPI amount — or choose Pay Later to record the whole bill as due",
+        );
         return;
       }
       // Paying LESS than the total is now allowed — the shortfall becomes a
@@ -266,10 +274,15 @@ export function CreateCafeOrderForm({
       // For SPLIT the action ignores `paymentMethod` and resolves
       // the dominant slice itself — but we still need a valid
       // PaymentMethod here for the type. CASH is fine; the action
-      // will overwrite with whichever slice is larger.
+      // will overwrite with whichever slice is larger. For DUE it
+      // is only the expected method; whatever is actually collected
+      // later carries its own.
       paymentMethod:
-        paymentChoice === "SPLIT" ? "CASH" : (paymentChoice as PaymentMethod),
+        paymentChoice === "SPLIT" || paymentChoice === "DUE"
+          ? "CASH"
+          : (paymentChoice as PaymentMethod),
       split: splitPayload,
+      collectLater: paymentChoice === "DUE" || undefined,
       note: note || undefined,
     });
 
@@ -693,6 +706,16 @@ export function CreateCafeOrderForm({
               >
                 Split (Cash + UPI)
               </button>
+              <button
+                onClick={() => setPaymentChoice("DUE")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  paymentChoice === "DUE"
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
+                }`}
+              >
+                Pay Later (full due)
+              </button>
             </div>
 
             {paymentChoice === "SPLIT" ? (
@@ -766,6 +789,20 @@ export function CreateCafeOrderForm({
                   </div>
                 );
               })()
+            ) : paymentChoice === "DUE" ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <p className="text-sm font-semibold text-amber-300">
+                  Nothing collected now — {formatPrice(totalAmount)} due
+                </p>
+                {/* Naming where it turns up matters: an admin who can't
+                    find the balance again will just take cash off-book. */}
+                <p className="mt-1 text-[11px] text-amber-200/80">
+                  The order still goes through and the food is handed over. It
+                  shows as {formatPrice(totalAmount)} due in the orders list, and
+                  the order page has a Collect button for cash, UPI or both —
+                  on whatever date it actually arrives.
+                </p>
+              </div>
             ) : null}
           </div>
 
