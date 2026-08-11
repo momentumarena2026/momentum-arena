@@ -4,6 +4,7 @@ import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight, Calendar
 import { getMyTournamentTeam, getPublicTournamentBySlug } from "@/lib/tournaments";
 import { onlinePayable, parsePrizes, STATUS_LABELS } from "@/lib/tournament-config";
 import { auth } from "@/lib/auth";
+import { looksLikeRichText } from "@/lib/rich-text";
 import { SlotPreferences } from "./slot-preferences";
 import { SquadManager } from "./squad-manager";
 
@@ -311,7 +312,23 @@ export default async function TournamentPublicPage({
       {t.rules && (
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <h2 className="font-semibold text-white">Rules</h2>
-          <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">{t.rules}</div>
+          {/* Two shapes live in this column. Anything written since the
+              rich-text editor landed is HTML, already sanitised on save
+              (lib/rich-text.server.ts) — the tag set is the small one in
+              lib/rich-text.ts, so there is nothing here to escape at
+              render time. Older rows are plain text with real newlines,
+              and running those through a HTML renderer would collapse
+              every line break, so they keep the pre-wrap treatment. */}
+          {looksLikeRichText(t.rules) ? (
+            <div
+              className="rich-text mt-2 text-zinc-400"
+              dangerouslySetInnerHTML={{ __html: t.rules }}
+            />
+          ) : (
+            <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
+              {t.rules}
+            </div>
+          )}
         </div>
       )}
     </div>

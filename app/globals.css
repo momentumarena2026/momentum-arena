@@ -207,3 +207,94 @@ summary {
   }
 }
 
+
+/* ---------------------------------------------------------------------
+   Rich text — admin editor surface and the public read-only render.
+   One block of rules for both so what an admin types in the tournament
+   Settings tab is what the public page shows; a separate stylesheet for
+   the reader is how the two drift apart.
+
+   Tailwind's typography plugin isn't installed, and this vocabulary is
+   about a dozen tags (see lib/rich-text.ts), so it's spelled out.
+   --------------------------------------------------------------------- */
+.tiptap-admin,
+.rich-text {
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+.tiptap-admin > :first-child,
+.rich-text > :first-child {
+  margin-top: 0;
+}
+.tiptap-admin > :last-child,
+.rich-text > :last-child {
+  margin-bottom: 0;
+}
+.tiptap-admin p,
+.rich-text p {
+  margin: 0.5em 0;
+}
+.tiptap-admin h3,
+.rich-text h3 {
+  margin: 1em 0 0.4em;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fafafa;
+}
+.tiptap-admin h4,
+.rich-text h4 {
+  margin: 0.9em 0 0.35em;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e4e4e7;
+}
+.tiptap-admin ul,
+.rich-text ul,
+.tiptap-admin ol,
+.rich-text ol {
+  margin: 0.5em 0;
+  padding-left: 1.35em;
+}
+.tiptap-admin ul,
+.rich-text ul {
+  list-style: disc;
+}
+.tiptap-admin ol,
+.rich-text ol {
+  list-style: decimal;
+}
+.tiptap-admin li,
+.rich-text li {
+  margin: 0.2em 0;
+}
+/* TipTap wraps list-item content in <p>; without this each bullet gains
+   a paragraph's vertical margin and the list falls apart visually. */
+.tiptap-admin li > p,
+.rich-text li > p {
+  margin: 0;
+}
+.tiptap-admin blockquote,
+.rich-text blockquote {
+  margin: 0.6em 0;
+  border-left: 2px solid #3f3f46;
+  padding-left: 0.85em;
+  color: #a1a1aa;
+}
+.tiptap-admin code,
+.rich-text code {
+  border-radius: 0.25rem;
+  background: #27272a;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+}
+.tiptap-admin a,
+.rich-text a {
+  color: #34d399;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tiptap-admin strong,
+.rich-text strong {
+  color: #f4f4f5;
+  font-weight: 600;
+}

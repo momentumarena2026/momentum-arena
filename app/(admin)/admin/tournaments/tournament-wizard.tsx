@@ -9,6 +9,7 @@ import {
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
 import { listCourtsForSport } from "@/actions/admin-tournament-fixtures";
+import { RichTextEditor } from "@/components/admin/rich-text-editor";
 import {
   DEFAULT_STAT_FIELDS,
   structureWarnings,
@@ -253,9 +254,19 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
             <label className={labelCls}>Description (public page)</label>
             <textarea className={inputCls} rows={2} value={form.description || ""} onChange={(e) => set("description", e.target.value)} />
           </div>
+          {/* Rules were a textarea labelled "markdown" — a promise
+              nothing kept, since both the public page and the app
+              printed the text verbatim. Now it's a real editor and
+              the formatting actually reaches the reader. Existing
+              plain-text rules are converted to paragraphs and bullets
+              on first open; see toInitialHtml. */}
           <div className="sm:col-span-2">
-            <label className={labelCls}>Rules (markdown, public page)</label>
-            <textarea className={inputCls} rows={4} placeholder={"- 6 overs per innings\n- Umpire's decision is final"} value={form.rules || ""} onChange={(e) => set("rules", e.target.value)} />
+            <label className={labelCls}>Rules (public page)</label>
+            <RichTextEditor
+              value={form.rules || ""}
+              onChange={(html) => set("rules", html)}
+              placeholder="6 overs per innings · Umpire's decision is final"
+            />
           </div>
         </div>
       </div>
