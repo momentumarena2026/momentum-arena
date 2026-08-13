@@ -11,6 +11,10 @@ import { completePassTopup } from "@/lib/pass-topup";
 import { qrStatus } from "@/lib/phonepe-dqr";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import {
+  recomputePartialPaymentAmounts,
+  venueCollected,
+} from "@/lib/payment-split";
+import {
   restorePassForBooking,
   passMinutesValue,
   getPassOfferForHold,
@@ -1161,20 +1165,25 @@ export async function adminEditPayment(
     }
     newAdvance = Math.trunc(candidate);
   }
-  const newRemaining = newIsPartial && newAdvance !== null ? newTotal - newAdvance : null;
-
   // Payment.amount semantics:
   //   - Non-partial: equals total (the full charge captured).
-  //   - Partial PARTIAL: equals advance (only what's been collected).
+  //   - Partial PARTIAL: advance + whatever the venue has already taken.
   //   - Partial COMPLETED: equals total (advance + remainder both in).
-  // Admin can still override via the explicit status; we recompute
-  // amount from the (status, advance, total) trio so Payment.amount
-  // never lies about how much actually flowed in.
-  const newAmount = (() => {
-    if (!newIsPartial) return newTotal;
-    if (newStatus === "COMPLETED") return newTotal;
-    return newAdvance ?? 0;
-  })();
+  //
+  // Both figures come from the shared helper, which nets off the venue
+  // legs. Deriving them from (total, advance, status) alone — as this
+  // did — asserts that the advance is the only money in, and that stops
+  // being true the moment the counter collects a remainder: a status
+  // correction then wiped the collected cash out of Payment.amount and
+  // re-opened a balance that was already settled.
+  const { amount: newAmount, remainingAmount: newRemaining } =
+    recomputePartialPaymentAmounts({
+      total: newTotal,
+      advance: newAdvance,
+      status: newStatus,
+      isPartial: newIsPartial,
+      alreadyCollected: venueCollected(prior),
+    });
 
   // Gateway-id fields — only meaningful for the matching method.
   // Setting an explicit empty string clears the field; null clears;

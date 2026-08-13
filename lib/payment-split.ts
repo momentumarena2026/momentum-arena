@@ -98,6 +98,60 @@ export function splitCafePayment(p: CafePaymentForSplit) {
  * Discount legs are deliberately NOT subtracted: applying a discount
  * already reduces Booking.totalAmount, so it is inside `totalAmount`.
  */
+/** Money physically taken at the venue against the remainder. */
+export function venueCollected(payment: {
+  remainderCashAmount?: number | null;
+  remainderUpiAmount?: number | null;
+}): number {
+  return (
+    (payment.remainderCashAmount ?? 0) + (payment.remainderUpiAmount ?? 0)
+  );
+}
+
+/**
+ * Recompute Payment.amount + Payment.remainingAmount after an admin
+ * edits the payment by hand.
+ *
+ * Extracted and pure because the arithmetic here is the whole bug it
+ * was written to fix. The old inline version derived both figures from
+ * (total, advance, status) alone, which quietly asserts that the only
+ * money in is the advance. That is false the moment the venue collects
+ * a remainder: flipping a settled booking's status — COMPLETED →
+ * PENDING → PARTIAL, exactly what an admin does when correcting a
+ * mistake — recomputed `amount` back down to the advance and
+ * `remainingAmount` back up to the full balance. The counter's ₹2,000
+ * vanished from Payment.amount (which is what revenue sums read) and
+ * the booking started asking to be collected all over again.
+ *
+ * Money already in the till is not a function of the status field.
+ * `alreadyCollected` is threaded through both figures so a status
+ * correction stays a status correction.
+ */
+export function recomputePartialPaymentAmounts(input: {
+  total: number;
+  advance: number | null;
+  status: string;
+  isPartial: boolean;
+  /** venueCollected(prior) — cash + UPI taken against the remainder. */
+  alreadyCollected: number;
+}): { amount: number; remainingAmount: number | null } {
+  const { total, advance, status, isPartial, alreadyCollected } = input;
+
+  if (!isPartial) return { amount: total, remainingAmount: null };
+
+  // Marking it COMPLETED by hand means "everything is in", whatever the
+  // legs say — the admin is asserting the final state.
+  if (status === "COMPLETED") return { amount: total, remainingAmount: 0 };
+
+  const adv = advance ?? 0;
+  return {
+    amount: adv + alreadyCollected,
+    // Discount legs aren't subtracted: taking one already reduced
+    // Booking.totalAmount, so it is inside `total`.
+    remainingAmount: Math.max(0, total - adv - alreadyCollected),
+  };
+}
+
 export function venueAmountStillDue(
   totalAmount: number,
   // Optional-tolerant: some callers project a narrower Payment shape.

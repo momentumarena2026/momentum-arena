@@ -16,6 +16,7 @@ import {
   listEquipmentForAdmin,
 } from "@/actions/admin-equipment-rental";
 import { suggestExtendPrice } from "@/actions/admin-booking";
+import { venueAmountStillDue, venueCollected } from "@/lib/payment-split";
 
 export default async function AdminBookingDetailPage({
   params,
@@ -562,19 +563,22 @@ export default async function AdminBookingDetailPage({
               // the "collected?" flag (it flips to 0 when markRemainderCollected
               // runs), but the amount shown and charged to the customer is
               // derived so the UI stays correct regardless of stored drift.
-              const storedRemaining = booking.payment.remainingAmount ?? 0;
-              const collected = storedRemaining <= 0;
-              // Net off venue money already taken. Remainders can now be
-              // collected in instalments, so total - advance alone would
-              // keep offering the FULL amount after a part payment.
-              // Discount legs aren't subtracted: applying one already
-              // reduced Booking.totalAmount, so they're in `total`.
-              const collectedAtVenue =
-                (booking.payment.remainderCashAmount ?? 0) +
-                (booking.payment.remainderUpiAmount ?? 0);
-              const remaining = collected
-                ? 0
-                : Math.max(total - advance - collectedAtVenue, 0);
+              const collectedAtVenue = venueCollected(booking.payment);
+              // Both figures come from the shared helper, which nets the
+              // venue legs off the balance.
+              //
+              // `collected` is DERIVED rather than read straight off
+              // Payment.remainingAmount, and that difference is load-
+              // bearing for rows this codebase already damaged: an admin
+              // flipping a settled booking's status used to re-open the
+              // full balance in that column while the collected legs
+              // stayed put. Trusting the column left the card claiming a
+              // ₹0 balance under an "advance booking" header, with the
+              // edit-split control hidden because it gates on this flag.
+              // Asking "is anything actually still owed?" gets those
+              // bookings right today, with no backfill.
+              const remaining = venueAmountStillDue(total, booking.payment);
+              const collected = remaining <= 0;
               const percentPaid =
                 total > 0 ? Math.round((advance / total) * 100) : 0;
               const borderClass = collected
