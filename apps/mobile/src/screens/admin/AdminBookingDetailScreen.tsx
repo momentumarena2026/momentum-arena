@@ -457,8 +457,11 @@ export function AdminBookingDetailScreen() {
   // Edit-split is only meaningful AFTER the venue remainder has been
   // collected (the partial block flips to "Paid in Full") and there's
   // an actual venue-side total to redistribute.
-  const partialCollected =
-    !!payment?.isPartialPayment && (payment?.remainingAmount ?? 0) <= 0;
+  // Derived from what is actually still owed, not from
+  // Payment.remainingAmount. A status correction on a settled booking
+  // used to re-open that column while the collected legs stayed put,
+  // which hid this control on exactly the bookings that needed it.
+  const partialCollected = !!payment?.isPartialPayment && venueDue <= 0;
   const venueTotal = payment
     ? Math.max(booking.totalAmount - (payment.advanceAmount ?? 0), 0)
     : 0;
@@ -720,7 +723,7 @@ export function AdminBookingDetailScreen() {
                 <PartialBlock
                   advance={payment.advanceAmount ?? 0}
                   total={booking.totalAmount}
-                  collected={(payment.remainingAmount ?? 0) <= 0}
+                  collected={venueDue <= 0}
                   remainderCash={payment.remainderCashAmount}
                   remainderUpi={payment.remainderUpiAmount}
                   remainderDiscount={payment.remainderDiscountAmount}
