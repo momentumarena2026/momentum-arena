@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import {
   transitionTournament,
+  updateTournament,
   setTeamStatus,
   recordTeamPayment,
   adminRegisterTeam,
@@ -13,11 +14,26 @@ import {
 } from "@/actions/admin-tournaments";
 import {
   autoAssignPools,
+  createEmptyPools,
+  clearPools,
+  moveTeamToPool,
   generateFixtures,
   scheduleMatch,
   unscheduleMatch,
 } from "@/actions/admin-tournament-fixtures";
-import { enterMatchResult } from "@/actions/admin-tournament-scores";
+import { enterMatchResult, reopenMatch } from "@/actions/admin-tournament-scores";
+import {
+  addTournamentSlot,
+  deleteTournamentSlot,
+  setMatchDuration,
+  generateScheduleCandidates,
+  approveSchedule,
+} from "@/actions/admin-tournament-slots";
+import {
+  listCampaignItems,
+  updateCampaignItem,
+  sendCampaignItemNow,
+} from "@/actions/admin-tournament-campaign";
 import {
   createManualMatch,
   deleteManualMatch,
@@ -128,6 +144,54 @@ export async function POST(request: NextRequest) {
     );
   else if (op === "organizerPayDelete")
     result = await deleteOrganizerPayment(String(body.paymentId || ""));
+  // ── Pools & Draw ──
+  else if (op === "createEmptyPools") result = await createEmptyPools(String(body.tournamentId || ""));
+  else if (op === "clearPools") result = await clearPools(String(body.tournamentId || ""));
+  else if (op === "moveTeamToPool")
+    result = await moveTeamToPool(
+      String(body.teamId || ""),
+      // null is meaningful — it unassigns the team — so an absent poolId
+      // must not be coerced into the empty-string "no such pool".
+      body.poolId == null ? null : String(body.poolId),
+    );
+  // ── Slots & Draw ──
+  else if (op === "addSlot")
+    result = await addTournamentSlot({
+      tournamentId: String(body.tournamentId || ""),
+      date: String(body.date || ""),
+      startHour: Number(body.startHour) || 0,
+      endHour: Number(body.endHour) || 0,
+      courtConfigId: body.courtConfigId || undefined,
+      label: body.label || undefined,
+    });
+  else if (op === "deleteSlot") result = await deleteTournamentSlot(String(body.slotId || ""));
+  else if (op === "setMatchDuration")
+    result = await setMatchDuration(String(body.tournamentId || ""), Number(body.minutes) || 0);
+  // Both of these are READS that return plans, not a {success} shape, so
+  // they answer here rather than fall through to the shared handling that
+  // replies {success:true} and throws the payload away.
+  else if (op === "scheduleCandidates") {
+    const res = await generateScheduleCandidates(String(body.tournamentId || ""));
+    if (!res.success) return NextResponse.json({ error: res.error || "Failed" }, { status: 400 });
+    return NextResponse.json({ success: true, plans: res.plans });
+  } else if (op === "approveSchedule")
+    result = await approveSchedule(
+      String(body.tournamentId || ""),
+      Number(body.planIndex) || 0,
+    );
+  // ── Campaign ──
+  else if (op === "campaignList") {
+    const items = await listCampaignItems(String(body.tournamentId || ""));
+    return NextResponse.json({ success: true, items });
+  } else if (op === "campaignUpdate")
+    result = await updateCampaignItem(String(body.itemId || ""), body.patch ?? {});
+  else if (op === "campaignSend") result = await sendCampaignItemNow(String(body.itemId || ""));
+  // ── Scores ──
+  else if (op === "reopenMatch") result = await reopenMatch(String(body.matchId || ""));
+  // ── Settings ── the same wizard payload the web Settings tab submits, so
+  // validation lives in one place and the two can't diverge.
+  else if (op === "updateTournament")
+    result = await updateTournament(String(body.tournamentId || ""), body.input ?? {});
   else return NextResponse.json({ error: "Unknown op" }, { status: 400 });
 
   if (result && result.success === false) {

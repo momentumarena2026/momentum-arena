@@ -47,6 +47,66 @@ export interface AdminMatchRow {
   homeScore: number | null;
   awayScore: number | null;
   scheduledAt: string | null;
+  /** Bracket needs to know who advanced, and Scores needs to know a
+   *  finished match can be reopened. */
+  isDraw?: boolean;
+  winnerTeamId?: string | null;
+  poolId?: string | null;
+}
+
+/** One pool's ordered table. Computed on the SERVER from the same helper
+ *  the web tab uses, so the phone can never rank teams differently. */
+export interface AdminStandingsGroup {
+  id: string | null;
+  name: string | null;
+  rows: {
+    teamId: string;
+    played: number;
+    won: number;
+    drawn: number;
+    lost: number;
+    points: number;
+    scoreFor: number;
+    scoreAgainst: number;
+    scoreDiff: number;
+    nrr: number | null;
+    nrrMatches: number;
+  }[];
+}
+
+export interface AdminLeaderboard {
+  key: string;
+  label: string;
+  rows: { name: string; teamName: string | null; value: number }[];
+}
+
+/** One scheduled campaign message (push / banner) for the event. */
+export interface AdminCampaignItem {
+  id: string;
+  milestone: string;
+  kind: string;
+  status: string;
+  enabled: boolean;
+  title: string | null;
+  body: string | null;
+  scheduledAt: string | null;
+  sentAt: string | null;
+}
+
+/** A draw the generator proposed; approving one schedules every fixture. */
+export interface AdminSchedulePlan {
+  label: string;
+  scheduled: number;
+  unscheduled: number;
+  compromises: number;
+  assignments: {
+    matchId: string;
+    label: string;
+    date: string;
+    startHour: number;
+    courtLabel: string | null;
+    compromised?: boolean;
+  }[];
 }
 
 export interface AdminTournamentDetail {
@@ -72,6 +132,18 @@ export interface AdminTournamentDetail {
   teams: AdminTeamRow[];
   matches: AdminMatchRow[];
   pools: { id: string; name: string }[];
+  /** Settings tab — the wizard fields the app can edit. */
+  advancePerPool: number;
+  teamsPerPool: number;
+  matchDurationMinutes: number;
+  oversPerInnings: number | null;
+  wicketsPerInnings: number | null;
+  pointsWin: number;
+  pointsDraw: number;
+  pointsLoss: number;
+  revealAt: string | null;
+  rules: string | null;
+  bracketSeeding: string | null;
 }
 
 /** Courts a fixture can be scheduled on. Sent with the detail payload so
@@ -103,6 +175,8 @@ export const adminTournamentsApi = {
       tournament: AdminTournamentDetail;
       courts: AdminCourt[];
       windows: AdminSlotWindow[];
+      leaderboards: AdminLeaderboard[];
+      standings: AdminStandingsGroup[];
     }>(
       `/api/mobile/admin/tournaments?id=${id}`,
       { method: "GET" }
@@ -118,6 +192,20 @@ export const adminTournamentsApi = {
     request<{ success: boolean; ledger: OrganizerLedger }>(
       "/api/mobile/admin/tournaments/action",
       { method: "POST", body: { op: "organizerLedger", tournamentId } },
+    ),
+  /** Campaign items. Loaded on demand, as on the web — most tournaments
+   *  never open this tab. */
+  campaignList: (tournamentId: string) =>
+    request<{ success: boolean; items: AdminCampaignItem[] }>(
+      "/api/mobile/admin/tournaments/action",
+      { method: "POST", body: { op: "campaignList", tournamentId } },
+    ),
+  /** Candidate draws. Expensive to compute, so it is never part of the
+   *  detail payload — the organiser asks for it. */
+  scheduleCandidates: (tournamentId: string) =>
+    request<{ success: boolean; plans: AdminSchedulePlan[] }>(
+      "/api/mobile/admin/tournaments/action",
+      { method: "POST", body: { op: "scheduleCandidates", tournamentId } },
     ),
 };
 
