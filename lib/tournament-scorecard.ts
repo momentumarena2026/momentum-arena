@@ -215,6 +215,8 @@ function resultText(args: {
   isDraw: boolean;
   winnerTeamId: string | null;
   liveState: unknown;
+  /** Wickets a side has in THIS tournament — 8 in a short-format cup. */
+  wicketsPerInnings: number;
 }): string {
   const { status, home, away, isDraw, winnerTeamId } = args;
   if (status === "COMPLETED" || status === "WALKOVER") {
@@ -222,7 +224,23 @@ function resultText(args: {
     const winner = winnerTeamId === home?.id ? home : winnerTeamId === away?.id ? away : null;
     if (!winner) return "Result recorded";
     const margin = Math.abs((args.homeScore ?? 0) - (args.awayScore ?? 0));
-    if (args.sport === "CRICKET") return `${winner.name} won by ${margin} run${margin === 1 ? "" : "s"}`;
+    if (args.sport === "CRICKET") {
+      // Cricket states a margin in the currency the winner had left over.
+      // Defend a total and you win by the RUNS the chase fell short by;
+      // chase one down and you win by the WICKETS still standing, because
+      // the runs margin is meaningless — the innings stopped the moment
+      // the target was passed. Saying "won by 6 runs" for a successful
+      // chase, as this did, is the one way to get the sentence wrong.
+      const st = args.liveState as {
+        innings?: { teamId: string; wickets: number }[];
+      } | null;
+      const chase = st?.innings?.[1];
+      if (chase && chase.teamId === winner.id) {
+        const inHand = Math.max(0, args.wicketsPerInnings - (chase.wickets ?? 0));
+        return `${winner.name} won by ${inHand} wicket${inHand === 1 ? "" : "s"}`;
+      }
+      return `${winner.name} won by ${margin} run${margin === 1 ? "" : "s"}`;
+    }
     if (args.sport === "FOOTBALL") return `${winner.name} won ${args.homeScore}–${args.awayScore}`;
     return `${winner.name} won`;
   }
@@ -291,7 +309,10 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         },
       },
       tournament: {
-        select: { id: true, slug: true, name: true, sport: true, status: true, statFields: true },
+        select: {
+          id: true, slug: true, name: true, sport: true, status: true,
+          statFields: true, wicketsPerInnings: true,
+        },
       },
     },
   });
@@ -511,6 +532,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         isDraw: match.isDraw,
         winnerTeamId: match.winnerTeamId,
         liveState: match.liveState,
+        wicketsPerInnings: match.tournament.wicketsPerInnings,
       }),
       clockSeconds:
         match.tournament.sport === "FOOTBALL" ? footballClockSeconds(match) : null,

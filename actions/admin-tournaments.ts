@@ -77,6 +77,8 @@ const wizardSchema = z.object({
   /** Cricket over quota per bowler. 0 = unlimited. */
   maxOversPerBowler: z.number().int().min(0).max(50).optional(),
   oversPerInnings: z.number().int().min(0).max(90).optional(),
+  // 1..10. Zero would mean a side is all out before facing a ball.
+  wicketsPerInnings: z.number().int().min(1).max(10).optional(),
   bracketSeeding: z.enum(["POOL_ORDER", "OVERALL_RANK"]).optional(),
 
   host: z.enum(["VENUE", "THIRD_PARTY"]).optional(),
@@ -153,6 +155,7 @@ function wizardData(d: TournamentWizardInput) {
     membersPerTeamMax: d.membersPerTeamMax,
     maxOversPerBowler: d.sport === "CRICKET" ? (d.maxOversPerBowler ?? 0) : 0,
     oversPerInnings: d.sport === "CRICKET" ? (d.oversPerInnings ?? 0) : 0,
+    wicketsPerInnings: d.sport === "CRICKET" ? (d.wicketsPerInnings ?? 10) : 10,
     bracketSeeding: d.format === "POOLS_KNOCKOUT" ? (d.bracketSeeding ?? "POOL_ORDER") : "POOL_ORDER",
     host: d.host ?? "VENUE",
     organizerName: thirdParty ? d.organizerName || null : null,

@@ -57,6 +57,8 @@ export type PointsConfig = {
   tiebreakers: string[]; // H2H | SCORE_DIFF | SCORE_FOR | NRR | NAME
   /** Cricket: overs per side, 0 = unlimited. Drives the all-out rule. */
   oversPerInnings?: number;
+  /** Cricket: wickets per side. Omitted = the standard ten. */
+  wicketsPerInnings?: number;
 };
 
 /**
@@ -80,6 +82,7 @@ export function standingsConfig(t: {
   pointsLoss: number;
   tiebreakers: string[];
   oversPerInnings?: number | null;
+  wicketsPerInnings?: number | null;
 }): PointsConfig {
   const cricket = t.sport === "CRICKET";
   return {
@@ -91,11 +94,12 @@ export function standingsConfig(t: {
         ? ["NRR", ...t.tiebreakers]
         : t.tiebreakers,
     oversPerInnings: t.oversPerInnings ?? 0,
+    wicketsPerInnings: t.wicketsPerInnings ?? DEFAULT_WICKETS_PER_INNINGS,
   };
 }
 
-/** Matches the live scoring engine's all-out threshold. */
-const MAX_WICKETS_PER_INNINGS = 10;
+/** Matches the live scoring engine's default all-out threshold. */
+const DEFAULT_WICKETS_PER_INNINGS = 10;
 
 /**
  * Overs a side is charged with for NRR.
@@ -109,8 +113,12 @@ const MAX_WICKETS_PER_INNINGS = 10;
  * With no over limit configured (oversPerInnings 0) there is no quota to
  * charge, so actual balls are all we can use.
  */
-function chargedBalls(line: InningsLine, quotaBalls: number): number {
-  if (quotaBalls > 0 && line.wickets >= MAX_WICKETS_PER_INNINGS) return quotaBalls;
+function chargedBalls(
+  line: InningsLine,
+  quotaBalls: number,
+  maxWickets: number,
+): number {
+  if (quotaBalls > 0 && line.wickets >= maxWickets) return quotaBalls;
   return line.balls;
 }
 
@@ -153,6 +161,10 @@ export function computeStandings(
   teamNames?: Map<string, string>
 ): StandingRow[] {
   const quotaBalls = (cfg.oversPerInnings ?? 0) * 6;
+  // A short-format cup is all out well before ten down. Reading this off
+  // the tournament rather than a constant is what makes the full-quota
+  // charge fire at all — at ten it simply never did for an 8-wicket game.
+  const maxWickets = cfg.wicketsPerInnings || DEFAULT_WICKETS_PER_INNINGS;
   const rows = new Map<string, StandingRow>();
   for (const id of teamIds) {
     rows.set(id, {
@@ -209,7 +221,7 @@ export function computeStandings(
     const sides = [m.homeTeamId, m.awayTeamId];
     if (!lines.every((l) => sides.includes(l.teamId))) continue;
     if (lines[0].teamId === lines[1].teamId) continue;
-    const charged = lines.map((l) => chargedBalls(l, quotaBalls));
+    const charged = lines.map((l) => chargedBalls(l, quotaBalls, maxWickets));
     if (charged.some((b) => b <= 0)) continue;
 
     lines.forEach((line, i) => {

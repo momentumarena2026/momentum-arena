@@ -82,6 +82,7 @@ export async function resolvePlacements(tournamentId: string): Promise<Placement
       // prize order matches the table the teams were looking at.
       sport: true,
       oversPerInnings: true,
+      wicketsPerInnings: true,
       pointsWin: true,
       pointsDraw: true,
       pointsLoss: true,
