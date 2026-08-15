@@ -304,3 +304,83 @@ export function computeStandings(
   }
   return out;
 }
+
+/** One pool's (or the league's) ordered table. */
+export type StandingsGroup = {
+  id: string | null;
+  name: string | null;
+  rows: StandingRow[];
+};
+
+/**
+ * The admin/public points table, grouped by pool.
+ *
+ * Lives here rather than in either UI because three surfaces render it —
+ * the web admin tab, the app admin tab and the public page — and a table
+ * that ranked teams even slightly differently on one of them would be
+ * worse than not having it. The grouping rules (which matches count for a
+ * pool, which teams are eligible) are as much a part of the answer as
+ * computeStandings itself, so they travel together.
+ */
+export function standingsGroups(args: {
+  tournament: {
+    sport: string;
+    format: string;
+    pointsWin: number;
+    pointsDraw: number;
+    pointsLoss: number;
+    tiebreakers: string[];
+    oversPerInnings?: number | null;
+    wicketsPerInnings?: number | null;
+  };
+  matches: {
+    poolId?: string | null;
+    stage: string;
+    status: string;
+    homeTeam?: { id: string } | null;
+    awayTeam?: { id: string } | null;
+    homeScore?: number | null;
+    awayScore?: number | null;
+    isDraw: boolean;
+    winnerTeamId: string | null;
+    liveState?: unknown;
+  }[];
+  teams: { id: string; name: string; poolId?: string | null; status: string }[];
+  pools: { id: string; name: string }[];
+}): StandingsGroup[] {
+  const { tournament, matches, teams, pools } = args;
+  const isCricket = tournament.sport === "CRICKET";
+  const confirmed = teams.filter((t) => t.status === "CONFIRMED");
+  const cfg = standingsConfig(tournament);
+  const names = new Map(teams.map((t) => [t.id, t.name]));
+
+  const rowsFor = (poolId: string | null) => {
+    const rr = matches
+      .filter(
+        (m) =>
+          (poolId ? m.poolId === poolId : m.stage === "LEAGUE") &&
+          (m.status === "COMPLETED" || m.status === "WALKOVER") &&
+          m.homeTeam &&
+          m.awayTeam &&
+          m.homeScore != null &&
+          m.awayScore != null,
+      )
+      .map((m) => ({
+        homeTeamId: m.homeTeam!.id,
+        awayTeamId: m.awayTeam!.id,
+        homeScore: m.homeScore!,
+        awayScore: m.awayScore!,
+        isDraw: m.isDraw,
+        winnerTeamId: m.winnerTeamId,
+        innings: isCricket ? inningsFromLiveState(m.liveState) : undefined,
+      }));
+    const ids = confirmed
+      .filter((t) => (poolId ? t.poolId === poolId : true))
+      .map((t) => t.id);
+    return computeStandings(ids, rr, cfg, names);
+  };
+
+  return tournament.format === "LEAGUE"
+    ? [{ id: null, name: null, rows: rowsFor(null) }]
+    : pools.map((p) => ({ id: p.id, name: p.name, rows: rowsFor(p.id) }));
+}

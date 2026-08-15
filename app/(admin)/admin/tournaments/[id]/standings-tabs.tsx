@@ -3,9 +3,7 @@
 import { useMemo } from "react";
 import { Medal } from "lucide-react";
 import {
-  computeStandings,
-  inningsFromLiveState,
-  standingsConfig,
+  standingsGroups,
   type StandingRow,
 } from "@/lib/tournament-points";
 import type { Leaderboard } from "@/lib/tournament-leaderboards";
@@ -144,41 +142,10 @@ export function PointsTableTab({
   const lookup = useMemo(() => teamMap(teams), [teams]);
   const isCricket = tournament.sport === "CRICKET";
 
-  const groups = useMemo(() => {
-    const confirmed = teams.filter((t) => t.status === "CONFIRMED");
-    const cfg = standingsConfig(tournament);
-    const names = new Map(teams.map((t) => [t.id, t.name]));
-
-    const rowsFor = (poolId: string | null) => {
-      const rr = matches
-        .filter(
-          (m) =>
-            (poolId ? m.poolId === poolId : m.stage === "LEAGUE") &&
-            (m.status === "COMPLETED" || m.status === "WALKOVER") &&
-            m.homeTeam &&
-            m.awayTeam &&
-            m.homeScore != null &&
-            m.awayScore != null,
-        )
-        .map((m) => ({
-          homeTeamId: m.homeTeam!.id,
-          awayTeamId: m.awayTeam!.id,
-          homeScore: m.homeScore!,
-          awayScore: m.awayScore!,
-          isDraw: m.isDraw,
-          winnerTeamId: m.winnerTeamId,
-          innings: isCricket ? inningsFromLiveState(m.liveState) : undefined,
-        }));
-      const ids = confirmed
-        .filter((t) => (poolId ? t.poolId === poolId : true))
-        .map((t) => t.id);
-      return computeStandings(ids, rr, cfg, names);
-    };
-
-    return tournament.format === "LEAGUE"
-      ? [{ id: null as string | null, name: null as string | null, rows: rowsFor(null) }]
-      : pools.map((p) => ({ id: p.id, name: p.name, rows: rowsFor(p.id) }));
-  }, [tournament, matches, teams, pools, isCricket]);
+  const groups = useMemo(
+    () => standingsGroups({ tournament, matches, teams, pools }),
+    [tournament, matches, teams, pools],
+  );
 
   if (groups.length === 0 || groups.every((g) => g.rows.length === 0)) {
     return (

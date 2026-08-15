@@ -18,6 +18,7 @@ import {
   GitBranch,
   Medal,
   Archive,
+  Trash2,
 } from "lucide-react";
 import {
   transitionTournament,
@@ -27,6 +28,7 @@ import {
   adminEditTeam,
   rotateScorerCode,
   setTournamentArchived,
+  deleteTournamentTeam,
   type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
 import {
@@ -304,6 +306,28 @@ export function TournamentManage({
     setError(null);
     try {
       const res = await setTeamStatus(teamId, status);
+      if (!res.success) setError(res.error || "Failed");
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Remove a team that never completed payment.
+   *
+   * The server refuses any team carrying money (paid or points) and tells
+   * us to archive instead — that guard is the point, so it is surfaced
+   * verbatim rather than swallowed. What this button is for is the other
+   * case: a half-finished registration that never paid and would otherwise
+   * sit in the list forever.
+   */
+  const doDeleteTeam = async (teamId: string, teamName: string) => {
+    if (!confirm(`Delete "${teamName}"? This can't be undone.`)) return;
+    setBusy(`team-${teamId}`);
+    setError(null);
+    try {
+      const res = await deleteTournamentTeam(teamId);
       if (!res.success) setError(res.error || "Failed");
       else router.refresh();
     } finally {
@@ -699,6 +723,20 @@ export function TournamentManage({
                   )}
                   {team.status !== "WITHDRAWN" && team.status !== "REJECTED" && (
                     <button onClick={() => doTeamStatus(team.id, "REJECTED")} disabled={busy === `team-${team.id}`} className="rounded-lg border border-red-500/30 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-600/10 disabled:opacity-50">Reject</button>
+                  )}
+                  {/* Only offered where it can actually succeed. A team that
+                      has paid is refused by the server so its money stays on
+                      the books; showing Delete there would just be a button
+                      that always errors. Archive covers that case. */}
+                  {team.paidAmount === 0 && team.pointsUsed === 0 && (
+                    <button
+                      onClick={() => doDeleteTeam(team.id, team.name)}
+                      disabled={busy === `team-${team.id}`}
+                      title="Delete this unpaid registration"
+                      className="rounded-lg border border-red-500/30 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-600/20 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   )}
                 </div>
               </div>

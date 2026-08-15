@@ -17,48 +17,31 @@ import { colors, radius } from "../../theme";
 import { ReorderableRows } from "../../components/admin/ReorderableRows";
 import {
   adminTournamentsApi,
+  type AdminCampaignItem,
   type AdminMatchRow,
+  type AdminSchedulePlan,
   type AdminSlotWindow,
   type AdminTournamentDetail,
   type OrganizerLedger,
 } from "../../lib/admin-tournaments";
+import {
+  BracketTab,
+  LeadersTab,
+  OverviewTab,
+  PointsTableTab,
+} from "./tournament-detail/ReadOnlyTabs";
+import { tabsFor, type TabKey } from "./tournament-detail/tabs";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { AdminMoreStackParamList } from "../../navigation/types";
 import { usePullToRefresh } from "../../hooks/usePullToRefresh";
 
-// Lifecycle transitions mirrored from lib/tournament-config STATUS_FLOW.
-const FLOW: Record<string, string[]> = {
-  DRAFT: ["PUBLISHED", "CANCELLED"],
-  PUBLISHED: ["REG_OPEN", "CANCELLED"],
-  REG_OPEN: ["REG_CLOSED", "CANCELLED"],
-  REG_CLOSED: ["REG_OPEN", "POOLS_REVEALED", "LIVE", "CANCELLED"],
-  POOLS_REVEALED: ["LIVE", "CANCELLED"],
-  LIVE: ["COMPLETED", "CANCELLED"],
-};
-/** Fixture groups, in the order a tournament is played. Reordering is
- *  scoped to one of these — a pool match and a final are not
- *  interchangeable positions. */
-const FIXTURE_STAGES = ["POOL", "LEAGUE", "R16", "QF", "SF", "THIRD_PLACE", "FINAL"];
-const FIXTURE_STAGE_LABEL: Record<string, string> = {
-  POOL: "Pool stage",
-  LEAGUE: "League",
-  R16: "Round of 16",
-  QF: "Quarter finals",
-  SF: "Semi finals",
-  THIRD_PLACE: "Third place",
-  FINAL: "Final",
-};
-
-const LABEL: Record<string, string> = {
-  PUBLISHED: "Publish",
-  REG_OPEN: "Open Registrations",
-  REG_CLOSED: "Close Registrations",
-  POOLS_REVEALED: "Reveal Pools",
-  LIVE: "Go Live",
-  COMPLETED: "Complete",
-  CANCELLED: "Cancel",
-};
+import {
+  FIXTURE_STAGES,
+  FIXTURE_STAGE_LABEL,
+  FLOW,
+  TRANSITION_LABEL as LABEL,
+} from "./tournament-detail/tabs";
 
 const input: object = {
   borderRadius: radius.lg,
@@ -159,6 +142,17 @@ export function AdminTournamentsScreen() {
   // admins can build/fix any roster from here.
   const [squadFor, setSquadFor] = useState<string | null>(null);
   const [squadText, setSquadText] = useState("");
+  /** Which tab is showing. Mirrors the web manage screen exactly. */
+  const [tab, setTab] = useState<TabKey>("overview");
+  // Slots & Draw
+  const [slotForm, setSlotForm] = useState({ date: "", startHour: "", endHour: "", courtConfigId: "", label: "" });
+  const [duration, setDuration] = useState("");
+  const [plans, setPlans] = useState<AdminSchedulePlan[] | null>(null);
+  const [planning, setPlanning] = useState(false);
+  // Campaign — loaded on demand, as on the web.
+  const [campaign, setCampaign] = useState<AdminCampaignItem[] | null>(null);
+  // Settings — the wizard fields the phone can edit.
+  const [settings, setSettings] = useState<Record<string, string> | null>(null);
 
   // Archived events stay out of the way until asked for, as on the web.
   const [showArchived, setShowArchived] = useState(false);
@@ -200,6 +194,52 @@ export function AdminTournamentsScreen() {
   useEffect(() => {
     void loadLedger();
   }, [loadLedger]);
+
+  /** Resolve a team id for the read-only tabs, which are given ids only. */
+  const teamName = useCallback(
+    (id: string) => t?.teams.find((x) => x.id === id)?.name ?? "Unknown",
+    [t],
+  );
+
+  // Pools stop being editable once they are public — the same rule the web
+  // tab enforces, so a phone can't quietly reshuffle a revealed draw.
+  const poolsLocked = !["REG_OPEN", "REG_CLOSED"].includes(t?.status ?? "");
+
+  const loadCampaign = useCallback(async () => {
+    if (!t) return;
+    try {
+      const res = await adminTournamentsApi.campaignList(t.id);
+      setCampaign(res.items);
+    } catch {
+      // An empty list is a truthful "nothing to show" and keeps the tab
+      // usable; a thrown error would strand it on "Loading…" forever.
+      setCampaign([]);
+    }
+  }, [t]);
+
+  // Only when the tab is actually open — most tournaments never show it.
+  useEffect(() => {
+    if (tab === "campaign" && campaign === null) void loadCampaign();
+  }, [tab, campaign, loadCampaign]);
+
+  // Seed the settings form from the server once per tournament, and never
+  // again: re-seeding on the 12s poll would wipe what is being typed.
+  useEffect(() => {
+    if (!t) return;
+    setSettings({
+      name: t.name,
+      totalTeams: String(t.totalTeams),
+      entryFee: String(t.entryFee),
+      teamsPerPool: String(t.teamsPerPool ?? 0),
+      advancePerPool: String(t.advancePerPool ?? 0),
+      pointsWin: String(t.pointsWin ?? 3),
+      pointsDraw: String(t.pointsDraw ?? 1),
+      pointsLoss: String(t.pointsLoss ?? 0),
+      oversPerInnings: String(t.oversPerInnings ?? 0),
+      wicketsPerInnings: String(t.wicketsPerInnings ?? 10),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t?.id]);
 
   const act = async (body: Record<string, unknown>, confirmMsg?: string) => {
     const run = async () => {
@@ -370,7 +410,51 @@ export function AdminTournamentsScreen() {
             </Pressable>
           </View>
 
+          {/* ══ Tabs — the same set, order and conditions as the web
+              manage screen, so an organiser who learned them on a laptop
+              finds them where they expect at the venue. The strip scrolls
+              because twelve tabs never fit a phone. ══ */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 4, paddingBottom: 2 }}
+            style={styles.tabStrip}
+          >
+            {tabsFor(t).map((tb) => (
+              <Pressable
+                key={tb.key}
+                onPress={() => setTab(tb.key)}
+                style={[styles.tabBtn, tab === tb.key && styles.tabBtnOn]}
+              >
+                <Text
+                  style={{
+                    color: tab === tb.key ? colors.foreground : colors.zinc400,
+                    fontSize: 13,
+                    fontWeight: tab === tb.key ? "700" : "400",
+                  }}
+                >
+                  {tb.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {tab === "overview" && <OverviewTab t={t} />}
+
+          {tab === "table" && (
+            <PointsTableTab
+              groups={detailData?.standings ?? []}
+              teamName={teamName}
+              isCricket={t.sport === "CRICKET"}
+            />
+          )}
+
+          {tab === "bracket" && <BracketTab matches={t.matches} teamName={teamName} />}
+
+          {tab === "leaders" && <LeadersTab boards={detailData?.leaderboards ?? []} />}
+
           {/* Structure ops */}
+          {(tab === "pools" || tab === "fixtures") && (
           <View style={styles.rowWrap}>
             {t.format === "POOLS_KNOCKOUT" && ["REG_OPEN", "REG_CLOSED"].includes(t.status) && (
               <Pressable disabled={busy} onPress={() => act({ op: "dealPools", tournamentId: t.id }, "Randomly (re-)deal the pools?")} style={styles.chipBtn}>
@@ -384,12 +468,13 @@ export function AdminTournamentsScreen() {
               <Text style={{ color: colors.emerald400, fontSize: 12 }}>+ Add match by hand</Text>
             </Pressable>
           </View>
+          )}
 
           {/* Hand-entered fixture. Needed whenever the organiser's schedule
               is something generateFixtures cannot derive — a second leg, an
               odd number of semi-finals. Either side may be a real team or a
               placeholder ("Winner SF1") when it is not decided yet. */}
-          {fxOpen && (
+          {fxOpen && tab === "fixtures" && (
             <View style={styles.card}>
               <Text style={{ color: colors.zinc500, fontSize: 11 }}>Stage</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
@@ -453,7 +538,7 @@ export function AdminTournamentsScreen() {
           {/* Organiser & payments — third-party events only. Our own
               tournaments take money from teams instead, which the Teams
               section below already covers. */}
-          {t.host === "THIRD_PARTY" && (
+          {t.host === "THIRD_PARTY" && tab === "organizer" && (
             <>
               <Text style={styles.section}>Organiser &amp; payments</Text>
               <View style={styles.card}>
@@ -554,6 +639,7 @@ export function AdminTournamentsScreen() {
           )}
 
           {/* Teams */}
+          {tab === "teams" && (<>
           <Text style={styles.section}>Teams</Text>
           <Pressable onPress={() => setVenueOpen((x) => !x)} style={styles.chipBtn}>
             <Text style={{ color: colors.emerald400, fontSize: 12 }}>+ Register team (venue)</Text>
@@ -723,10 +809,12 @@ export function AdminTournamentsScreen() {
               </View>
             </View>
           ))}
+          </>)}
 
           {/* Fixtures — every match, with the date/court control and delete.
               Both were web-only, so the app could create a fixture it then
               could not place on the calendar or remove. */}
+          {tab === "fixtures" && (<>
           <Text style={styles.section}>Fixtures ({t.matches.length})</Text>
           {t.matches.length > 0 && (
             <Text style={{ color: colors.zinc500, fontSize: 11, marginBottom: 6 }}>
@@ -885,8 +973,380 @@ export function AdminTournamentsScreen() {
               </View>
             );
           })}
+          </>)}
+
+          {/* ══ Pools & Draw ══ Assigning by hand matters when the random
+              deal separates two clubs who travelled together. */}
+          {tab === "pools" && (
+            <>
+              <View style={styles.rowWrap}>
+                <Pressable
+                  disabled={busy || poolsLocked}
+                  onPress={() => act({ op: "createEmptyPools", tournamentId: t.id }, "Replace the current pools with empty ones? Every team becomes unassigned.")}
+                  style={styles.chipBtn}
+                >
+                  <Text style={{ color: colors.zinc300, fontSize: 12 }}>Create empty pools</Text>
+                </Pressable>
+                {t.pools.length > 0 && (
+                  <Pressable
+                    disabled={busy || poolsLocked}
+                    onPress={() => act({ op: "clearPools", tournamentId: t.id }, "Delete all pools? Every team becomes unassigned.")}
+                    style={styles.chipBtn}
+                  >
+                    <Text style={{ color: "#f87171", fontSize: 12 }}>Clear pools</Text>
+                  </Pressable>
+                )}
+              </View>
+              {poolsLocked && (
+                <Text style={{ color: colors.zinc500, fontSize: 11 }}>
+                  Pools are locked after the reveal.
+                </Text>
+              )}
+              {t.pools.length === 0 ? (
+                <View style={styles.card}>
+                  <Text style={{ color: colors.zinc500, fontSize: 13 }}>
+                    No pools dealt yet. {t.teams.filter((x) => x.status === "CONFIRMED").length} confirmed teams ready.
+                  </Text>
+                </View>
+              ) : (
+                t.pools.map((pool) => (
+                  <View key={pool.id} style={styles.card}>
+                    <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>
+                      {pool.name}
+                    </Text>
+                    {t.teams
+                      .filter((tm) => tm.status === "CONFIRMED" && tm.pool?.name === pool.name)
+                      .map((tm) => (
+                        <View key={tm.id} style={[styles.rowBetween, { marginTop: 6 }]}>
+                          <Text style={{ color: colors.zinc300, fontSize: 13, flex: 1 }} numberOfLines={1}>
+                            {tm.name}
+                          </Text>
+                          <Pressable
+                            disabled={busy || poolsLocked}
+                            onPress={() => act({ op: "moveTeamToPool", teamId: tm.id, poolId: null })}
+                            style={styles.chipBtn}
+                          >
+                            <Text style={{ color: colors.zinc400, fontSize: 11 }}>Remove</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                  </View>
+                ))
+              )}
+              {/* Unassigned teams, each with a chip per pool. A drag board
+                  is the web affordance; on a phone, tapping the destination
+                  is both faster and doesn't fight the scroll view. */}
+              {t.pools.length > 0 && (
+                <View style={styles.card}>
+                  <Text style={{ color: colors.zinc500, fontSize: 11, letterSpacing: 0.6 }}>
+                    UNASSIGNED
+                  </Text>
+                  {t.teams.filter((tm) => tm.status === "CONFIRMED" && !tm.pool).length === 0 ? (
+                    <Text style={{ color: colors.zinc600, fontSize: 12, marginTop: 6 }}>
+                      Every confirmed team is in a pool.
+                    </Text>
+                  ) : (
+                    t.teams
+                      .filter((tm) => tm.status === "CONFIRMED" && !tm.pool)
+                      .map((tm) => (
+                        <View key={tm.id} style={{ marginTop: 8 }}>
+                          <Text style={{ color: colors.zinc300, fontSize: 13 }}>{tm.name}</Text>
+                          <View style={[styles.rowWrap, { marginTop: 4 }]}>
+                            {t.pools.map((pl) => (
+                              <Pressable
+                                key={pl.id}
+                                disabled={busy || poolsLocked}
+                                onPress={() => act({ op: "moveTeamToPool", teamId: tm.id, poolId: pl.id })}
+                                style={styles.chipBtn}
+                              >
+                                <Text style={{ color: "#a78bfa", fontSize: 11 }}>→ {pl.name}</Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                        </View>
+                      ))
+                  )}
+                </View>
+              )}
+            </>
+          )}
+
+          {/* ══ Slots & Draw ══ The windows that hold hours off the customer
+              booking grid, plus the generator that fills them. */}
+          {tab === "slots" && (
+            <>
+              <View style={styles.card}>
+                <Text style={{ color: colors.zinc500, fontSize: 11 }}>Match length (minutes)</Text>
+                <View style={[styles.rowWrap, { marginTop: 6, alignItems: "center" }]}>
+                  <TextInput
+                    style={[input as never, { width: 90 }]}
+                    keyboardType="numeric"
+                    placeholder={String(t.matchDurationMinutes || 60)}
+                    placeholderTextColor={colors.zinc600}
+                    value={duration}
+                    onChangeText={setDuration}
+                  />
+                  <Pressable
+                    disabled={busy || !duration.trim()}
+                    onPress={() =>
+                      act({ op: "setMatchDuration", tournamentId: t.id, minutes: Number(duration) || 0 })
+                        .then(() => setDuration(""))
+                    }
+                    style={styles.chipBtn}
+                  >
+                    <Text style={{ color: colors.emerald400, fontSize: 12 }}>Save</Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              <Text style={styles.section}>Match windows ({windows.length})</Text>
+              {windows.map((w) => (
+                <View key={w.id} style={styles.card}>
+                  <View style={styles.rowBetween}>
+                    <Text style={{ color: colors.zinc300, fontSize: 13, flex: 1 }} numberOfLines={1}>
+                      {windowLabel(w)}
+                    </Text>
+                    <Pressable
+                      disabled={busy}
+                      onPress={() =>
+                        act(
+                          { op: "deleteSlot", slotId: w.id },
+                          "Remove this window? Its hours go back on sale in the customer booking grid.",
+                        )
+                      }
+                      style={styles.chipBtn}
+                    >
+                      <Text style={{ color: "#f87171", fontSize: 11 }}>Delete</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+
+              <View style={styles.card}>
+                <Text style={{ color: colors.zinc500, fontSize: 11 }}>Add a window</Text>
+                <TextInput style={[input as never, { marginTop: 6 }]} placeholder="Date YYYY-MM-DD" placeholderTextColor={colors.zinc600} value={slotForm.date} onChangeText={(v) => setSlotForm((f) => ({ ...f, date: v }))} />
+                <View style={[styles.rowWrap, { marginTop: 8 }]}>
+                  <TextInput style={[input as never, { width: 100 }]} placeholder="Start 0-23" keyboardType="numeric" placeholderTextColor={colors.zinc600} value={slotForm.startHour} onChangeText={(v) => setSlotForm((f) => ({ ...f, startHour: v }))} />
+                  <TextInput style={[input as never, { width: 100 }]} placeholder="End 0-24" keyboardType="numeric" placeholderTextColor={colors.zinc600} value={slotForm.endHour} onChangeText={(v) => setSlotForm((f) => ({ ...f, endHour: v }))} />
+                </View>
+                <View style={[styles.rowWrap, { marginTop: 8 }]}>
+                  {courts.map((c) => (
+                    <Pressable key={c.id} onPress={() => setSlotForm((f) => ({ ...f, courtConfigId: f.courtConfigId === c.id ? "" : c.id }))} style={[styles.chipBtn, slotForm.courtConfigId === c.id && { borderColor: colors.emerald400 }]}>
+                      <Text style={{ color: slotForm.courtConfigId === c.id ? colors.emerald400 : colors.zinc400, fontSize: 11 }}>{c.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={{ color: colors.zinc500, fontSize: 11, marginTop: 8 }}>
+                  These hours stop being sellable the moment the window is saved.
+                </Text>
+                <Pressable
+                  disabled={busy || !slotForm.date.trim()}
+                  onPress={() =>
+                    act({
+                      op: "addSlot",
+                      tournamentId: t.id,
+                      date: slotForm.date.trim(),
+                      startHour: Number(slotForm.startHour) || 0,
+                      endHour: Number(slotForm.endHour) || 0,
+                      courtConfigId: slotForm.courtConfigId || undefined,
+                    }).then(() => setSlotForm({ date: "", startHour: "", endHour: "", courtConfigId: "", label: "" }))
+                  }
+                  style={[styles.chipBtn, { marginTop: 10, alignSelf: "flex-start" }]}
+                >
+                  <Text style={{ color: colors.emerald400, fontSize: 12 }}>Add window</Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.section}>Draw</Text>
+              <Pressable
+                disabled={busy || planning}
+                onPress={async () => {
+                  setPlanning(true);
+                  try {
+                    const res = await adminTournamentsApi.scheduleCandidates(t.id);
+                    setPlans(res.plans);
+                  } catch (e) {
+                    Alert.alert("Couldn't build a draw", e instanceof Error ? e.message : "Try again.");
+                  } finally {
+                    setPlanning(false);
+                  }
+                }}
+                style={[styles.chipBtn, { alignSelf: "flex-start" }]}
+              >
+                <Text style={{ color: "#7dd3fc", fontSize: 12 }}>
+                  {planning ? "Working…" : "Suggest a draw"}
+                </Text>
+              </Pressable>
+              {plans?.length === 0 && (
+                <Text style={{ color: colors.zinc500, fontSize: 12 }}>
+                  No workable draw yet — add windows, or confirm more teams.
+                </Text>
+              )}
+              {plans?.map((plan, i) => (
+                <View key={plan.label} style={styles.card}>
+                  <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>
+                    {plan.label}
+                  </Text>
+                  <Text style={{ color: colors.zinc400, fontSize: 12, marginTop: 2 }}>
+                    {plan.scheduled} scheduled
+                    {plan.unscheduled > 0 ? ` · ${plan.unscheduled} left out` : ""}
+                    {/* A compromise means a team is playing an hour it did
+                        not tick. Worth naming, because that team will ask. */}
+                    {plan.compromises > 0 ? ` · ${plan.compromises} outside a team's picks` : ""}
+                  </Text>
+                  <Pressable
+                    disabled={busy}
+                    onPress={() =>
+                      act(
+                        { op: "approveSchedule", tournamentId: t.id, planIndex: i },
+                        `Approve "${plan.label}"? Every fixture gets its date and court, and those hours leave the booking grid.`,
+                      ).then(() => setPlans(null))
+                    }
+                    style={[styles.chipBtn, { marginTop: 8, alignSelf: "flex-start" }]}
+                  >
+                    <Text style={{ color: colors.emerald400, fontSize: 12 }}>Approve this draw</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* ══ Campaign ══ the autopilot messages for this event. */}
+          {tab === "campaign" && (
+            <>
+              {campaign === null ? (
+                <Text style={{ color: colors.zinc500, fontSize: 13 }}>Loading…</Text>
+              ) : campaign.length === 0 ? (
+                <View style={styles.card}>
+                  <Text style={{ color: colors.zinc500, fontSize: 13 }}>
+                    No campaign messages for this tournament.
+                  </Text>
+                </View>
+              ) : (
+                campaign.map((item) => (
+                  <View key={item.id} style={styles.card}>
+                    <View style={styles.rowBetween}>
+                      <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>
+                        {item.milestone.replace(/_/g, " ")}
+                      </Text>
+                      <Text
+                        style={{
+                          color: item.status === "SENT" ? colors.emerald400 : colors.zinc500,
+                          fontSize: 11,
+                        }}
+                      >
+                        {item.kind} · {item.status}
+                      </Text>
+                    </View>
+                    {!!item.title && (
+                      <Text style={{ color: colors.zinc300, fontSize: 12, marginTop: 4 }}>
+                        {item.title}
+                      </Text>
+                    )}
+                    {!!item.body && (
+                      <Text style={{ color: colors.zinc500, fontSize: 12, marginTop: 2 }}>
+                        {item.body}
+                      </Text>
+                    )}
+                    <View style={[styles.rowWrap, { marginTop: 8 }]}>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() =>
+                          act({
+                            op: "campaignUpdate",
+                            itemId: item.id,
+                            patch: { enabled: !item.enabled },
+                          }).then(loadCampaign)
+                        }
+                        style={styles.chipBtn}
+                      >
+                        <Text style={{ color: item.enabled ? colors.emerald400 : colors.zinc400, fontSize: 12 }}>
+                          {item.enabled ? "Enabled" : "Disabled"}
+                        </Text>
+                      </Pressable>
+                      {item.status !== "SENT" && (
+                        <Pressable
+                          disabled={busy}
+                          onPress={() =>
+                            act(
+                              { op: "campaignSend", itemId: item.id },
+                              "Send this message now? It goes to everyone it targets immediately.",
+                            ).then(loadCampaign)
+                          }
+                          style={styles.chipBtn}
+                        >
+                          <Text style={{ color: "#7dd3fc", fontSize: 12 }}>Send now</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </View>
+                ))
+              )}
+            </>
+          )}
+
+          {/* ══ Settings ══ the wizard fields worth changing mid-event. The
+              full wizard stays on the web; what is here is what an organiser
+              actually needs to fix from the venue. */}
+          {tab === "settings" && settings && (
+            <View style={styles.card}>
+              {([
+                ["name", "Name"],
+                ["totalTeams", "Total teams"],
+                ["entryFee", "Entry fee ₹"],
+                ["teamsPerPool", "Teams per pool"],
+                ["advancePerPool", "Advance per pool"],
+                ["pointsWin", "Points for a win"],
+                ["pointsDraw", "Points for a draw"],
+                ["pointsLoss", "Points for a loss"],
+                ...(t.sport === "CRICKET"
+                  ? ([
+                      ["oversPerInnings", "Overs / innings"],
+                      ["wicketsPerInnings", "Wickets / innings"],
+                    ] as const)
+                  : []),
+              ] as [string, string][]).map(([key, label]) => (
+                <View key={key} style={{ marginBottom: 10 }}>
+                  <Text style={{ color: colors.zinc500, fontSize: 11 }}>{label}</Text>
+                  <TextInput
+                    style={[input as never, { marginTop: 4 }]}
+                    placeholderTextColor={colors.zinc600}
+                    keyboardType={key === "name" ? "default" : "numeric"}
+                    value={settings[key] ?? ""}
+                    onChangeText={(v) => setSettings((f) => ({ ...(f ?? {}), [key]: v }))}
+                  />
+                </View>
+              ))}
+              <Text style={{ color: colors.zinc500, fontSize: 11, marginBottom: 8 }}>
+                Saved through the same validation the web wizard uses, so a
+                value it would reject is rejected here too.
+              </Text>
+              <Pressable
+                disabled={busy}
+                onPress={() =>
+                  act({
+                    op: "updateTournament",
+                    tournamentId: t.id,
+                    input: {
+                      ...t,
+                      ...Object.fromEntries(
+                        Object.entries(settings).map(([k, v]) => [
+                          k,
+                          k === "name" ? v : Number(v) || 0,
+                        ]),
+                      ),
+                    },
+                  })
+                }
+                style={styles.primaryBtn}
+              >
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save settings</Text>
+              </Pressable>
+            </View>
+          )}
 
           {/* Scores */}
+          {tab === "scores" && (<>
           <Text style={styles.section}>Scores</Text>
           {t.matches
             .filter((m) => m.homeTeam && m.awayTeam && (m.status === "SCHEDULED" || m.status === "LIVE"))
@@ -926,11 +1386,33 @@ export function AdminTournamentsScreen() {
                 )}
               </View>
             ))}
-          {t.matches.filter((m) => m.status === "COMPLETED").length > 0 && (
-            <Text style={{ color: colors.zinc500, fontSize: 12 }}>
-              {t.matches.filter((m) => m.status === "COMPLETED").length} completed — full stats entry on the web admin.
-            </Text>
-          )}
+          {/* Finished matches, with the reopen that used to be web-only.
+              A wrong result entered at the venue had to wait for a laptop,
+              by which time the points table had already been seen. */}
+          {t.matches
+            .filter((m) => m.status === "COMPLETED" || m.status === "WALKOVER")
+            .map((m) => (
+              <View key={m.id} style={styles.card}>
+                <Text style={{ color: colors.zinc500, fontSize: 11 }}>{m.roundLabel}</Text>
+                <Text style={{ color: colors.foreground, fontSize: 13, marginTop: 2 }}>
+                  {m.homeTeam?.name ?? "TBD"} {m.homeScore ?? "-"} — {m.awayScore ?? "-"}{" "}
+                  {m.awayTeam?.name ?? "TBD"}
+                </Text>
+                <Pressable
+                  disabled={busy}
+                  onPress={() =>
+                    act(
+                      { op: "reopenMatch", matchId: m.id },
+                      "Reopen this match? The result is cleared and the points table recomputes.",
+                    )
+                  }
+                  style={[styles.chipBtn, { marginTop: 8, alignSelf: "flex-start" }]}
+                >
+                  <Text style={{ color: "#fbbf24", fontSize: 12 }}>Reopen</Text>
+                </Pressable>
+              </View>
+            ))}
+          </>)}
         </ScrollView>
       </Screen>
     );
@@ -1006,6 +1488,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
+  tabStrip: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginTop: 4,
+    // A horizontal ScrollView inside a vertical one needs an explicit
+    // height, or it claims the rest of the screen and pushes the tab body
+    // off the bottom.
+    flexGrow: 0,
+  },
+  tabBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  tabBtnOn: { borderBottomColor: colors.emerald500 },
   primaryBtn: {
     backgroundColor: colors.emerald500,
     borderRadius: radius.lg,

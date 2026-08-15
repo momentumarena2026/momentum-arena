@@ -420,6 +420,14 @@ its templates here, or it ships with no push voice at all.
 - `lib/payment-split.ts` — `venueAmountStillDue(totalAmount, payment)`. Nets off
   `remainderCashAmount + remainderUpiAmount` but **not** discount legs (those already reduce
   `Booking.totalAmount`). Mirrored in `apps/mobile/src/lib/admin-bookings.ts`.
+- `lib/tournament-points.ts` — `computeStandings` + `standingsGroups`. THREE surfaces
+  render the points table (web admin tab, app admin tab, public page); all three call
+  `standingsGroups` so they cannot rank teams differently. Never re-derive it in a UI.
+- The admin tournament tab strip is defined twice by necessity —
+  `app/(admin)/admin/tournaments/[id]/tournament-manage.tsx` and
+  `apps/mobile/src/screens/admin/tournament-detail/tabs.ts`. **Keep the keys, order and
+  conditions identical**: they are the same job on two screen sizes, and a tab that exists
+  on only one surface is a feature someone can't find when it matters.
 - `lib/cricket-dismissal.ts` — pure: `creditsBowler()`, `needsFielder()`,
   `dismissalLine()`. The one authority on whether a wicket is the bowler's and how
   the scorecard reads. Both consoles mirror `needsFielder`'s intent when deciding
