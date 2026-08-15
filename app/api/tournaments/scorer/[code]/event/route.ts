@@ -44,7 +44,7 @@ export async function POST(
   }
 
   const body = await request.json().catch(() => ({}));
-  const { matchId, action, event, winnerTeamId } = body || {};
+  const { matchId, action, event, winnerTeamId, oversPerInnings } = body || {};
   if (!matchId || !action) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
@@ -59,8 +59,16 @@ export async function POST(
 
   const actor = `scorer:${code.toUpperCase()}`;
   let result: { ok: boolean; error?: string; needsWinner?: boolean };
-  if (action === "start") result = await startLiveMatch(matchId);
-  else if (action === "undo") result = await undoLastEvent(matchId);
+  if (action === "start") {
+    result = await startLiveMatch(matchId, {
+      oversPerInnings:
+        typeof oversPerInnings === "number"
+          ? oversPerInnings
+          : oversPerInnings != null && oversPerInnings !== ""
+            ? Number(oversPerInnings)
+            : null,
+    });
+  } else if (action === "undo") result = await undoLastEvent(matchId);
   else if (action === "end") result = await endLiveMatch(matchId, winnerTeamId || null);
   else if (action === "event" && event?.kind) {
     result = await applyLiveEvent(

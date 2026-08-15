@@ -173,6 +173,13 @@ export function ScorerConsoleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [, setTick] = useState(0); // re-render for the football clock
   const [picker, setPicker] = useState<PickerKind | null>(null);
+  // Run-out / retired-hurt: always who left → who comes in.
+  const [outFlow, setOutFlow] = useState<{
+    kind: "runOut" | "retireHurt";
+    step: "whoOut" | "whoIn";
+    outBatterId?: string;
+  } | null>(null);
+  const [pendingIncoming, setPendingIncoming] = useState<string | null>(null);
 
   // Who's out there is owned by the SERVER (folded from the event log), so
   // it survives a reload and two scorers see the same thing. These locals
@@ -185,6 +192,9 @@ export function ScorerConsoleScreen() {
   // use to a volunteer at the boundary with the batter waiting.
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
+  // Cricket: confirmed at Start Match and written to the tournament so the
+  // innings cap + NRR all-out rule have a real quota (wizard default is 0).
+  const [oversInput, setOversInput] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -213,29 +223,45 @@ export function ScorerConsoleScreen() {
 
   const match = useMemo(() => boot?.matches.find((m) => m.id === matchId) || null, [boot, matchId]);
 
-  const liveCur = (match?.liveState as CricketState | null)?.current;
-  const strikerId = liveCur?.strikerId || pickStriker;
-  const nonStrikerId = liveCur?.nonStrikerId || pickNonStriker;
-  const bowlerId = liveCur?.bowlerId || pickBowler;
-  const needsBatter = !!liveCur?.needsBatter && !pickStriker;
-  const needsBowler = !!liveCur?.needsBowler && !pickBowler;
+  useEffect(() => {
+    if (!boot || boot.tournament.sport !== "CRICKET") return;
+    if (!match || match.status !== "SCHEDULED") return;
+    const existing = boot.tournament.oversPerInnings || 0;
+    setOversInput(existing > 0 ? String(existing) : "6");
+  }, [boot, match?.id, match?.status]);
 
-  // What the next delivery is still missing. needsBatter/needsBowler only
-  // fire AFTER a wicket or a completed over — at the start of an innings
-  // both ends are simply empty, which is how runs used to get logged with
-  // nobody on strike and nobody bowling.
+  const liveCur = (match?.liveState as CricketState | null)?.current;
+  // Local picks fill gaps (new batter / bowler) or a manual swap; after each
+  // ball the fold is authoritative and picks are cleared.
+  const strikerId = pickStriker || liveCur?.strikerId || "";
+  const nonStrikerId = pickNonStriker || liveCur?.nonStrikerId || "";
+  // After an over the fold clears bowlerId and sets needsBowler. Ignore a
+  // stale pick of the bowler who just finished — they can't bowl again, and
+  // keeping them selected would hide the "pick next bowler" sheet.
+  const bowlerId =
+    liveCur?.needsBowler
+      ? pickBowler && pickBowler !== liveCur.lastOverBowlerId
+        ? pickBowler
+        : ""
+      : pickBowler || liveCur?.bowlerId || "";
+  const needsBatter = !!liveCur?.needsBatter && !(pickStriker || pickNonStriker);
+  const needsBowler = !!liveCur?.needsBowler && !bowlerId;
+
+  // Ask for whoever the next delivery still needs — both ends at innings
+  // start, a new batter after a wicket, a new bowler after an over.
   const cricketStarted = ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
-  // Innings closed by the overs limit — the server refuses further balls.
   const oversCap = boot?.tournament.oversPerInnings || 0;
   const liveInn = (match?.liveState as CricketState | null)?.innings?.slice(-1)[0];
   const inningsDone = oversCap > 0 && !!liveInn && liveInn.balls >= oversCap * 6;
-  const missing: "striker" | "bowler" | null =
+  const missing: "striker" | "nonStriker" | "bowler" | null =
     boot?.tournament.sport === "CRICKET" && cricketStarted && !inningsDone
       ? !strikerId
         ? "striker"
-        : !bowlerId
-          ? "bowler"
-          : null
+        : !nonStrikerId
+          ? "nonStriker"
+          : !bowlerId
+            ? "bowler"
+            : null
       : null;
 
   // The pad asks for what it needs, the moment it needs it — no hunting
@@ -245,11 +271,26 @@ export function ScorerConsoleScreen() {
   const padLocked = busy || !!missing || inningsDone;
 
   useEffect(() => {
-    if (missing) setPicker(missing);
-  }, [missing]);
+    if (missing && !outFlow) setPicker(missing);
+  }, [missing, outFlow]);
 
-  const send = async (payload: Record<string, unknown>) => {
-    if (!matchId || busy) return;
+  useEffect(() => {
+    if (!pendingIncoming || !liveCur?.needsBatter) return;
+    if (!liveCur.strikerId && !pickStriker) {
+      setPickStriker(pendingIncoming);
+      setPendingIncoming(null);
+      setPicker(null);
+      return;
+    }
+    if (!liveCur.nonStrikerId && !pickNonStriker) {
+      setPickNonStriker(pendingIncoming);
+      setPendingIncoming(null);
+      setPicker(null);
+    }
+  }, [pendingIncoming, liveCur, pickStriker, pickNonStriker]);
+
+  const send = async (payload: Record<string, unknown>): Promise<boolean> => {
+    if (!matchId || busy) return false;
     setBusy(true);
     setError(null);
     try {
@@ -257,13 +298,15 @@ export function ScorerConsoleScreen() {
       if (res?.error) {
         if (res.needsWinner) askWinner();
         else setError(res.error);
-        return;
+        return false;
       }
       await refresh();
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed";
       if (/tied|winner/i.test(msg)) askWinner();
       else setError(msg);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -295,10 +338,15 @@ export function ScorerConsoleScreen() {
     setPickNonStriker(strikerId);
   };
 
-  /** One delivery, attributed to the striker + bowler. Rotation and the
-   *  over/wicket bookkeeping live in the fold; the pad just reports. */
-  const ball = async (data: { runs: number; extra?: string; wicket?: boolean }) => {
-    await send({
+  /** One delivery. Strike/over/wicket rotation lives in the fold. */
+  const ball = async (data: {
+    runs: number;
+    extra?: string;
+    wicket?: boolean;
+    wicketKind?: string;
+    outBatterId?: string;
+  }): Promise<boolean> => {
+    const ok = await send({
       action: "event",
       event: {
         kind: "BALL",
@@ -306,19 +354,62 @@ export function ScorerConsoleScreen() {
         data: {
           ...data,
           ...(strikerId ? { batterId: strikerId } : {}),
+          ...(nonStrikerId ? { nonStrikerId } : {}),
           ...(bowlerId ? { bowlerId } : {}),
         },
       },
     });
-    // Odd runs change ends — the server only sees who faced, so the pad
-    // nominates the new striker for the next delivery.
-    if (!data.extra && data.runs % 2 === 1 && nonStrikerId) {
-      setPickStriker(nonStrikerId);
-      setPickNonStriker(strikerId);
-    } else {
+    if (ok) {
       setPickStriker("");
       setPickNonStriker("");
+      setPickBowler("");
     }
+    return ok;
+  };
+
+  const retireHurt = async (batterId: string): Promise<boolean> => {
+    const ok = await send({
+      action: "event",
+      event: {
+        kind: "RETIRE",
+        memberId: batterId,
+        data: { batterId },
+      },
+    });
+    if (ok) {
+      setPickStriker("");
+      setPickNonStriker("");
+      setPickBowler("");
+    }
+    return ok;
+  };
+
+  /** Always: who left → who comes in → commit. */
+  const beginOut = (kind: "runOut" | "retireHurt") => {
+    if (!strikerId && !nonStrikerId) return;
+    setOutFlow({ kind, step: "whoOut" });
+  };
+
+  const pickOutBatter = (outBatterId: string) => {
+    if (!outFlow) return;
+    setOutFlow({ kind: outFlow.kind, step: "whoIn", outBatterId });
+  };
+
+  const finishOutFlow = async (newBatterId: string | null) => {
+    if (!outFlow?.outBatterId) return;
+    const { kind, outBatterId } = outFlow;
+    setOutFlow(null);
+    if (newBatterId) setPendingIncoming(newBatterId);
+    const ok =
+      kind === "retireHurt"
+        ? await retireHurt(outBatterId)
+        : await ball({
+            runs: 0,
+            wicket: true,
+            wicketKind: "RUN_OUT",
+            outBatterId,
+          });
+    if (!ok) setPendingIncoming(null);
   };
 
   // ── Non-match states ──
@@ -575,10 +666,40 @@ export function ScorerConsoleScreen() {
           showsVerticalScrollIndicator={false}
         >
           {match.status === "SCHEDULED" && (
-            <Pressable onPress={() => send({ action: "start" })} disabled={busy} style={[s.wideBtn, s.greenBtn]}>
-              <Play size={18} color={colors.emerald400} />
-              <Text style={s.greenText}>Start Match</Text>
-            </Pressable>
+            <View style={{ gap: 10 }}>
+              {sport === "CRICKET" && (
+                <View>
+                  <Text style={s.scorerLabel}>Overs per innings</Text>
+                  <TextInput
+                    style={s.oversInput}
+                    keyboardType="number-pad"
+                    value={oversInput}
+                    onChangeText={setOversInput}
+                    placeholder="e.g. 6"
+                    placeholderTextColor={colors.zinc600}
+                    maxLength={2}
+                  />
+                </View>
+              )}
+              <Pressable
+                onPress={() => {
+                  const overs = Math.floor(Number(oversInput));
+                  if (sport === "CRICKET" && (!Number.isFinite(overs) || overs < 1 || overs > 90)) {
+                    setError("Enter overs per innings (1–90) before starting");
+                    return;
+                  }
+                  void send({
+                    action: "start",
+                    ...(sport === "CRICKET" ? { oversPerInnings: overs } : {}),
+                  });
+                }}
+                disabled={busy || (sport === "CRICKET" && !oversInput.trim())}
+                style={[s.wideBtn, s.greenBtn, (busy || (sport === "CRICKET" && !oversInput.trim())) && { opacity: 0.4 }]}
+              >
+                <Play size={18} color={colors.emerald400} />
+                <Text style={s.greenText}>Start Match</Text>
+              </Pressable>
+            </View>
           )}
 
           {match.status === "LIVE" && sport === "CRICKET" && (
@@ -615,8 +736,14 @@ export function ScorerConsoleScreen() {
                     <Pressable onPress={() => setPicker(missing)} style={s.needBanner}>
                       <Text style={s.needBannerText}>
                         {missing === "striker"
-                          ? "Pick the batter on strike to start scoring"
-                          : "Pick the bowler to start scoring"}
+                          ? needsBatter
+                            ? "Pick the new batter"
+                            : "Pick the batter on strike"
+                          : missing === "nonStriker"
+                            ? needsBatter
+                              ? "Pick the new batter"
+                              : "Pick the non-striker"
+                            : "Pick the bowler to continue"}
                       </Text>
                     </Pressable>
                   )}
@@ -637,6 +764,11 @@ export function ScorerConsoleScreen() {
                   <View style={s.padRow}>
                     <PadKey glyph="Nb" caption="NO BALL" tone="extra" busy={padLocked} onPress={() => ball({ runs: 1, extra: "nb" })} />
                     <PadKey glyph="B" caption="BYE" busy={padLocked} onPress={() => ball({ runs: 1, extra: "b" })} />
+                    <PadKey glyph="RO" caption="RUN OUT" tone="wicket" busy={padLocked} onPress={() => beginOut("runOut")} />
+                    <PadKey glyph="RH" caption="RET HURT" tone="info" busy={padLocked} onPress={() => beginOut("retireHurt")} />
+                  </View>
+
+                  <View style={s.padRow}>
                     {cs.inning === 1 ? (
                       <PadKey
                         glyph="⤁"
@@ -650,9 +782,10 @@ export function ScorerConsoleScreen() {
                         }}
                       />
                     ) : (
-                      // Keep the row four keys wide so the grid never reflows.
                       <View style={s.padSpacer} />
                     )}
+                    <View style={s.padSpacer} />
+                    <View style={s.padSpacer} />
                     <View style={s.padSpacer} />
                   </View>
                 </>
@@ -770,10 +903,12 @@ export function ScorerConsoleScreen() {
               <Text style={s.sheetTitle}>
                 {picker === "striker"
                   ? needsBatter
-                    ? "Wicket — who's in?"
+                    ? "Who's in next?"
                     : "Striker"
                   : picker === "nonStriker"
-                    ? "Non-striker"
+                    ? needsBatter
+                      ? "Who's in next?"
+                      : "Non-striker"
                     : picker === "bowler"
                       ? needsBowler
                         ? "Over complete — next bowler"
@@ -793,11 +928,15 @@ export function ScorerConsoleScreen() {
                 // nor bowl two overs in a row.
                 const spellBalls = liveCur?.spells.find((sp) => sp.id === p.id)?.balls ?? 0;
                 const startingOver = (liveCur?.thisOver.length ?? 0) === 0;
+                const otherEnd =
+                  picker === "striker" ? nonStrikerId : picker === "nonStriker" ? strikerId : "";
                 const blocked =
                   picker === "striker" || picker === "nonStriker"
                     ? liveCur?.dismissed.includes(p.id)
                       ? "out"
-                      : null
+                      : otherEnd && p.id === otherEnd
+                        ? "at other end"
+                        : null
                     : picker === "bowler"
                       ? startingOver && liveCur?.lastOverBowlerId === p.id
                         ? "bowled last over"
@@ -867,6 +1006,102 @@ export function ScorerConsoleScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ══ Run out / retired hurt: who left → who comes in ══ */}
+      <Modal visible={!!outFlow} transparent animationType="slide" onRequestClose={() => setOutFlow(null)}>
+        <Pressable style={s.sheetBackdrop} onPress={() => setOutFlow(null)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>
+                {outFlow?.step === "whoOut"
+                  ? outFlow.kind === "runOut"
+                    ? "Who was run out?"
+                    : "Who is retiring hurt?"
+                  : "Who comes in next?"}
+              </Text>
+              <Pressable onPress={() => setOutFlow(null)} hitSlop={10}>
+                <X size={20} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            <ScrollView style={{ maxHeight: 380 }}>
+              {outFlow?.step === "whoOut"
+                ? (
+                    [
+                      { id: strikerId, label: "On strike" },
+                      { id: nonStrikerId, label: "Non-striker" },
+                    ] as const
+                  )
+                    .filter((row): row is { id: string; label: string } => !!row.id)
+                    .map((row) => {
+                      const f = figs(row.id);
+                      return (
+                        <Pressable
+                          key={row.id}
+                          onPress={() => pickOutBatter(row.id)}
+                          disabled={busy}
+                          style={[s.sheetRow, busy && { opacity: 0.4 }]}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.sheetName}>{nameOf(row.id)}</Text>
+                            <Text style={[s.dim, { marginTop: 2 }]}>{row.label}</Text>
+                          </View>
+                          {f ? (
+                            <Text style={s.creaseFigs}>
+                              {f.runs} ({f.balls})
+                            </Text>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })
+                : (() => {
+                    const batting =
+                      cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+                    const outId = outFlow?.outBatterId;
+                    const survivor =
+                      outId === strikerId ? nonStrikerId : outId === nonStrikerId ? strikerId : "";
+                    const candidates = batting.members.filter(
+                      (m) =>
+                        m.id !== outId &&
+                        m.id !== survivor &&
+                        !liveCur?.dismissed.includes(m.id),
+                    );
+                    if (candidates.length === 0) {
+                      return (
+                        <View style={{ padding: 16, gap: 12 }}>
+                          <Text style={s.dim}>No batters left to come in — continue without a replacement.</Text>
+                          <Pressable
+                            onPress={() => void finishOutFlow(null)}
+                            disabled={busy}
+                            style={[s.wideBtn, s.greenBtn, busy && { opacity: 0.4 }]}
+                          >
+                            <Text style={s.greenText}>Confirm</Text>
+                          </Pressable>
+                        </View>
+                      );
+                    }
+                    return candidates.map((p) => {
+                      const f = figs(p.id);
+                      return (
+                        <Pressable
+                          key={p.id}
+                          onPress={() => void finishOutFlow(p.id)}
+                          disabled={busy}
+                          style={[s.sheetRow, busy && { opacity: 0.4 }]}
+                        >
+                          <Text style={s.sheetName}>{p.name}</Text>
+                          {f ? (
+                            <Text style={s.creaseFigs}>
+                              {f.runs} ({f.balls})
+                            </Text>
+                          ) : null}
+                        </Pressable>
+                      );
+                    });
+                  })()}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -891,6 +1126,17 @@ const s = StyleSheet.create({
     paddingVertical: 9,
     color: colors.foreground,
     fontSize: 14,
+  },
+  oversInput: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: colors.foreground,
+    fontSize: 18,
+    fontWeight: "600",
   },
   addBtn: {
     borderWidth: 1,

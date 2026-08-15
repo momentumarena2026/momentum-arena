@@ -7,7 +7,9 @@ import { db } from "@/lib/db";
 //     plus the recent events for the timeline
 // Sport engines:
 //   CRICKET   : INNINGS_START {battingTeamId} · BALL {runs, extra?, wicket?,
-//               batterId?, bowlerId?}   (wd/nb don't count the ball)
+//               wicketKind?, outBatterId?, batterId?, nonStrikerId?, bowlerId?}
+//               (wd/nb don't count the ball; RUN_OUT doesn't credit the bowler)
+//             · RETIRE {batterId}  — retired hurt: leaves the crease, not a wicket
 //   FOOTBALL  : CLOCK_START · CLOCK_STOP · GOAL {teamId, memberId?, assistId?}
 //               · CARD {teamId, memberId?, card}
 //   PICKLEBALL: POINT {teamId} · GAME_END
@@ -29,7 +31,26 @@ export type LiveEventInput = {
 const MAX_RUNS_PER_BALL = 12; // 6 off the bat + generous extras
 const MAX_WICKETS_PER_INNINGS = 10;
 /** Fields inside event.data that name a player and must be on this match. */
-const MEMBER_REF_KEYS = ["batterId", "bowlerId", "assistId", "fielderId"] as const;
+const MEMBER_REF_KEYS = [
+  "batterId",
+  "nonStrikerId",
+  "bowlerId",
+  "assistId",
+  "fielderId",
+  "outBatterId",
+] as const;
+
+/** Dismissal kinds the scorer may tag on a BALL. RETIRED_HURT is a
+ *  separate RETIRE event — it is not a delivery and not a wicket. */
+const CRICKET_WICKET_KINDS = new Set([
+  "BOWLED",
+  "CAUGHT",
+  "LBW",
+  "RUN_OUT",
+  "STUMPED",
+  "HIT_WICKET",
+  "OTHER",
+]);
 
 type EventRow = {
   seq: number;
@@ -93,6 +114,23 @@ const emptyCurrent = (): CricketCurrent => ({
   lastOverBowlerId: null,
 });
 
+/**
+ * Do the batters change ends for the *next* delivery?
+ * Odd completed runs swap; the lone wide/no-ball penalty does not, but
+ * extra runs taken off those deliveries do.
+ */
+function endsChange(runs: number, extra: string | null): boolean {
+  if (extra === "wd" || extra === "nb") return Math.max(0, runs - 1) % 2 === 1;
+  return runs % 2 === 1;
+}
+
+function swapEnds(cur: CricketCurrent) {
+  if (!cur.strikerId || !cur.nonStrikerId) return;
+  const s = cur.strikerId;
+  cur.strikerId = cur.nonStrikerId;
+  cur.nonStrikerId = s;
+}
+
 /** Short label for one delivery, as it reads on a scoreboard over-strip. */
 function ballLabel(d: { runs: number; extra?: string | null; wicket?: boolean }): string {
   if (d.wicket) return "W";
@@ -132,33 +170,42 @@ export function foldCricket(events: EventRow[]): CricketState {
         runs?: number;
         extra?: string | null;
         wicket?: boolean;
+        wicketKind?: string;
         batterId?: string;
+        nonStrikerId?: string;
         bowlerId?: string;
+        outBatterId?: string;
       };
       const runs = Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(raw.runs) || 0));
       const extra = raw.extra || null;
       const wicket = !!raw.wicket;
+      const wicketKind = typeof raw.wicketKind === "string" ? raw.wicketKind : null;
+      const isRunOut = wicket && wicketKind === "RUN_OUT";
       const legal = extra !== "wd" && extra !== "nb"; // wides/no-balls are re-bowled
       const batterId = raw.batterId || e.memberId || null;
       const bowlerId = raw.bowlerId || null;
+      const otherEnd = typeof raw.nonStrikerId === "string" ? raw.nonStrikerId : null;
+      // Run-out can dismiss either end; everything else falls on the striker.
+      const outBatterId = wicket
+        ? (typeof raw.outBatterId === "string" ? raw.outBatterId : null) || batterId
+        : null;
 
       inn.runs += runs;
       if (wicket) inn.wickets = Math.min(MAX_WICKETS_PER_INNINGS, inn.wickets + 1);
       if (legal) inn.balls += 1;
 
       const cur = st.current;
-      // ── Who's on strike. The scorer sends the batter with each ball, so
-      // the striker is simply whoever just faced; the previous striker
-      // becomes the non-striker when they change.
+
+      // Crease at the moment of delivery: pad sends both ends so the fold
+      // (not local UI state) owns who faces next after runs / overs / wickets.
       if (batterId) {
-        if (cur.strikerId && cur.strikerId !== batterId) {
-          cur.nonStrikerId = cur.strikerId;
-        }
         cur.strikerId = batterId;
+        if (otherEnd && otherEnd !== batterId) cur.nonStrikerId = otherEnd;
+        else if (cur.nonStrikerId === batterId) cur.nonStrikerId = null;
+
         const f = batFigures.get(batterId) || { runs: 0, balls: 0, out: false };
         if (extra !== "wd") f.balls += 1; // a wide isn't a ball faced
         if (!extra) f.runs += runs;
-        if (wicket) f.out = true;
         batFigures.set(batterId, f);
       }
       if (bowlerId) {
@@ -166,7 +213,8 @@ export function foldCricket(events: EventRow[]): CricketState {
         const f = bowlFigures.get(bowlerId) || { balls: 0, runs: 0, wickets: 0 };
         if (legal) f.balls += 1;
         f.runs += runs;
-        if (wicket) f.wickets += 1;
+        // A run-out isn't the bowler's wicket.
+        if (wicket && !isRunOut) f.wickets += 1;
         bowlFigures.set(bowlerId, f);
       }
 
@@ -176,31 +224,49 @@ export function foldCricket(events: EventRow[]): CricketState {
       cur.partnership.runs += runs;
       if (legal) cur.partnership.balls += 1;
 
-      if (wicket) {
-        // The dismissed batter walks off — and is out of this innings for
-        // good, so the console can stop offering them.
-        if (cur.strikerId) {
-          const f = batFigures.get(cur.strikerId);
-          if (f) f.out = true;
-          if (!cur.dismissed.includes(cur.strikerId)) cur.dismissed.push(cur.strikerId);
-        }
-        cur.strikerId = null;
+      const overDone = cur.ballsThisOver >= 6;
+
+      if (wicket && outBatterId) {
+        // Dismissed batter leaves; incoming batter is picked in the console.
+        const f = batFigures.get(outBatterId) || { runs: 0, balls: 0, out: false };
+        f.out = true;
+        batFigures.set(outBatterId, f);
+        if (!cur.dismissed.includes(outBatterId)) cur.dismissed.push(outBatterId);
         cur.partnership = { runs: 0, balls: 0 };
         cur.needsBatter = true;
+
+        const outWasStriker = cur.strikerId === outBatterId;
+        const outWasNonStriker = cur.nonStrikerId === outBatterId;
+        if (outWasStriker) {
+          if (overDone && cur.nonStrikerId) {
+            // Last-ball wicket: the survivor faces the new over; the new
+            // batter walks in at the other end (non-striker).
+            cur.strikerId = cur.nonStrikerId;
+            cur.nonStrikerId = null;
+          } else {
+            // Mid-over: new batter takes the dismissed batter's end (strike).
+            cur.strikerId = null;
+          }
+        } else if (outWasNonStriker) {
+          // Run-out at the non-striker's end — strike stays put.
+          cur.nonStrikerId = null;
+          if (overDone) {
+            // Over ends with the surviving striker; they swap for the new
+            // over so the new batter walks in at the non-striker's end.
+            // (Survivor faces → becomes non-striker after the swap below
+            // would be wrong; leave survivor on strike for the new over.)
+          }
+        }
       } else {
         cur.needsBatter = false;
+        // Odd runs (and odd bye/lb / runs off wide|nb) change ends.
+        if (endsChange(runs, extra)) swapEnds(cur);
+        // End of over changes ends again — after a single on the last ball
+        // the original non-striker faces the new over.
+        if (overDone) swapEnds(cur);
       }
 
-      if (cur.ballsThisOver >= 6) {
-        // Over complete: strike rotates, and a different bowler must come on.
-        // Only swap when there IS someone at the other end — otherwise the
-        // rotation would move the striker into an empty slot and the same
-        // player would end up listed at both ends.
-        if (cur.nonStrikerId) {
-          const s = cur.strikerId;
-          cur.strikerId = cur.nonStrikerId;
-          cur.nonStrikerId = s;
-        }
+      if (overDone) {
         cur.thisOver = [];
         cur.ballsThisOver = 0;
         cur.lastOverBowlerId = cur.bowlerId;
@@ -210,6 +276,20 @@ export function foldCricket(events: EventRow[]): CricketState {
         cur.needsBowler = false;
       }
 
+      // One player can never occupy both ends.
+      if (cur.nonStrikerId && cur.nonStrikerId === cur.strikerId) cur.nonStrikerId = null;
+    } else if (e.kind === "RETIRE" && st.innings.length > 0) {
+      // Retired hurt: batter leaves, partnership resets, new batter needed.
+      // Not a wicket, not a ball, and they may return later (not dismissed).
+      const cur = st.current;
+      const raw = (e.data || {}) as { batterId?: string };
+      const who = raw.batterId || e.memberId || cur.strikerId;
+      if (!who) continue;
+      if (who === cur.strikerId) cur.strikerId = null;
+      else if (who === cur.nonStrikerId) cur.nonStrikerId = null;
+      else continue;
+      cur.partnership = { runs: 0, balls: 0 };
+      cur.needsBatter = true;
       // One player can never occupy both ends.
       if (cur.nonStrikerId && cur.nonStrikerId === cur.strikerId) cur.nonStrikerId = null;
     }
@@ -335,7 +415,8 @@ function deriveStats(
         "runs",
         Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(d.runs) || 0))
       );
-      if (d.wicket) bump(d.bowlerId as string, "wickets", 1);
+      // Run-outs aren't credited to the bowler.
+      if (d.wicket && d.wicketKind !== "RUN_OUT") bump(d.bowlerId as string, "wickets", 1);
     } else if (sport === "FOOTBALL" && e.kind === "GOAL") {
       bump(e.memberId, "goals", 1);
       bump(d.assistId as string, "assists", 1);
@@ -426,7 +507,7 @@ async function refoldMatch(matchId: string): Promise<void> {
 
 // ── Public engine API ───────────────────────────────────────────────
 const ALLOWED_KINDS: Record<string, string[]> = {
-  CRICKET: ["INNINGS_START", "BALL"],
+  CRICKET: ["INNINGS_START", "BALL", "RETIRE"],
   FOOTBALL: ["CLOCK_START", "CLOCK_STOP", "GOAL", "CARD"],
   PICKLEBALL: ["POINT", "GAME_END"],
 };
@@ -452,11 +533,14 @@ function sanitiseEventData(
     const extra = str(raw.extra);
     if (extra && CRICKET_EXTRAS.has(extra)) out.extra = extra;
     const wicketKind = str(raw.wicketKind);
-    if (wicketKind) out.wicketKind = wicketKind.slice(0, 24);
+    if (wicketKind && CRICKET_WICKET_KINDS.has(wicketKind)) out.wicketKind = wicketKind;
     for (const key of MEMBER_REF_KEYS) {
       const ref = str(raw[key]);
       if (ref) out[key] = ref;
     }
+  } else if (sport === "CRICKET" && kind === "RETIRE") {
+    const batter = str(raw.batterId);
+    if (batter) out.batterId = batter;
   } else if (sport === "FOOTBALL" && kind === "GOAL") {
     const assist = str(raw.assistId);
     if (assist) out.assistId = assist;
@@ -515,6 +599,7 @@ export function validateLiveEvent(
       const inn = st.innings[st.innings.length - 1];
       const batterId = (typeof d.batterId === "string" ? d.batterId : null) || input.memberId || null;
       const bowlerId = typeof d.bowlerId === "string" ? d.bowlerId : null;
+      const nonStrikerId = typeof d.nonStrikerId === "string" ? d.nonStrikerId : null;
 
       // The two that started this whole thread: a delivery with nobody on
       // strike and nobody bowling is not a delivery, it's a typo.
@@ -525,6 +610,11 @@ export function validateLiveEvent(
       if (teamOf(batterId) !== st.battingTeamId) return "That batter isn't in the batting side";
       if (teamOf(bowlerId) !== bowlingTeamId) return "That bowler isn't in the fielding side";
       if (cur.dismissed.includes(batterId)) return "That batter is already out";
+      if (nonStrikerId) {
+        if (nonStrikerId === batterId) return "Striker and non-striker can't be the same player";
+        if (teamOf(nonStrikerId) !== st.battingTeamId) return "That non-striker isn't in the batting side";
+        if (cur.dismissed.includes(nonStrikerId)) return "That non-striker is already out";
+      }
       if (inn && inn.wickets >= MAX_WICKETS_PER_INNINGS) return "All out — end the innings";
       // The innings is only as long as the tournament says it is.
       if (ctx.oversPerInnings > 0 && inn && inn.balls >= ctx.oversPerInnings * 6) {
@@ -543,6 +633,28 @@ export function validateLiveEvent(
           return `That bowler has already bowled their ${ctx.maxOversPerBowler} overs`;
         }
       }
+      // Run-out can dismiss either end; the out batter must be on the crease.
+      if (d.wicket && d.wicketKind === "RUN_OUT") {
+        const outId =
+          (typeof d.outBatterId === "string" ? d.outBatterId : null) || batterId;
+        if (outId && outId !== batterId && outId !== nonStrikerId) {
+          return "The run-out batter must be on strike or at the other end";
+        }
+        if (outId && cur.dismissed.includes(outId)) return "That batter is already out";
+      }
+      return null;
+    }
+    if (input.kind === "RETIRE") {
+      if (st.inning === 0 || !st.battingTeamId) return "Start an innings before retiring a batter";
+      const cur = st.current;
+      const batterId =
+        (typeof d.batterId === "string" ? d.batterId : null) || input.memberId || null;
+      if (!batterId) return "Pick which batter is retiring hurt";
+      if (teamOf(batterId) !== st.battingTeamId) return "That batter isn't in the batting side";
+      if (batterId !== cur.strikerId && batterId !== cur.nonStrikerId) {
+        return "Only a batter currently at the crease can retire hurt";
+      }
+      if (cur.dismissed.includes(batterId)) return "That batter is already out";
       return null;
     }
     return null;
@@ -764,21 +876,50 @@ export async function undoLastEvent(matchId: string): Promise<{ ok: boolean; err
   return { ok: true };
 }
 
-export async function startLiveMatch(matchId: string): Promise<{ ok: boolean; error?: string }> {
+export async function startLiveMatch(
+  matchId: string,
+  opts?: { oversPerInnings?: number | null }
+): Promise<{ ok: boolean; error?: string }> {
   const match = await db.tournamentMatch.findUnique({
     where: { id: matchId },
     select: {
       status: true,
       homeTeamId: true,
       awayTeamId: true,
-      tournament: { select: { liveScoringEnabled: true } },
+      tournamentId: true,
+      tournament: { select: { liveScoringEnabled: true, sport: true, oversPerInnings: true } },
     },
   });
   if (!match) return { ok: false, error: "Match not found" };
   if (!match.tournament.liveScoringEnabled) return { ok: false, error: "Live scoring is off" };
   if (match.status !== "SCHEDULED") return { ok: false, error: "Match already started or done" };
   if (!match.homeTeamId || !match.awayTeamId) return { ok: false, error: "Teams not decided yet" };
-  await db.tournamentMatch.update({ where: { id: matchId }, data: { status: "LIVE" } });
+
+  // Cricket needs a fixed overs quota before the first ball — NRR's all-out
+  // rule and the innings cap both read it. The scorer confirms (or sets) it
+  // at start so a tournament left at the wizard default of 0 can't be scored
+  // into an unbounded mess.
+  let oversPatch: { oversPerInnings: number } | undefined;
+  if (match.tournament.sport === "CRICKET") {
+    const raw = opts?.oversPerInnings;
+    const overs = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : 0;
+    if (overs < 1 || overs > 90) {
+      return { ok: false, error: "Enter overs per innings (1–90) before starting" };
+    }
+    oversPatch = { oversPerInnings: overs };
+  }
+
+  await db.$transaction([
+    ...(oversPatch
+      ? [
+          db.tournament.update({
+            where: { id: match.tournamentId },
+            data: oversPatch,
+          }),
+        ]
+      : []),
+    db.tournamentMatch.update({ where: { id: matchId }, data: { status: "LIVE" } }),
+  ]);
   return { ok: true };
 }
 

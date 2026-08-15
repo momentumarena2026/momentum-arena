@@ -279,20 +279,73 @@ export function MatchScoreScreen() {
 
   const confirmWicket = () => {
     setWicketOpen(false);
-    // A wicket needs a replacement or the crease is left empty — ask
-    // straight away, unless there's nobody left to come in.
-    if (availableBatters.length > 0) {
+    const crease = [s.striker, s.nonStriker].filter((n): n is string => !!n);
+    const afterWhoOut = (batter: string | undefined) => {
+      const remaining = availableBatters.filter((n) => n !== batter);
+      if (remaining.length > 0) {
+        setPick({
+          title: "Next batter in",
+          names: remaining,
+          onPick: (newBatter) => {
+            push({
+              t: "WICKET",
+              kind: wicketKind,
+              ...(batter ? { batter } : {}),
+              newBatter,
+            });
+            setPick(null);
+          },
+        });
+        return;
+      }
+      push({ t: "WICKET", kind: wicketKind, ...(batter ? { batter } : {}) });
+    };
+
+    // Run-out can be either end — ask who, then who comes in.
+    if (wicketKind === "RUN_OUT" && crease.length > 1) {
       setPick({
-        title: "Next batter in",
-        names: availableBatters,
-        onPick: (newBatter) => {
-          push({ t: "WICKET", kind: wicketKind, newBatter });
+        title: "Who was run out?",
+        names: crease,
+        onPick: (batter) => {
           setPick(null);
+          afterWhoOut(batter);
         },
       });
       return;
     }
-    push({ t: "WICKET", kind: wicketKind });
+    afterWhoOut(crease.length === 1 ? crease[0] : undefined);
+  };
+
+  const beginRetireHurt = () => {
+    const crease = [s.striker, s.nonStriker].filter((n): n is string => !!n);
+    const afterWhoOut = (batter: string | undefined) => {
+      const remaining = availableBatters.filter((n) => n !== batter);
+      if (remaining.length > 0) {
+        setPick({
+          title: "Who comes in?",
+          names: remaining,
+          onPick: (newBatter) => {
+            push({ t: "RETIRE", ...(batter ? { batter } : {}), newBatter });
+            setPick(null);
+          },
+        });
+        return;
+      }
+      push({ t: "RETIRE", ...(batter ? { batter } : {}) });
+    };
+
+    if (crease.length > 1) {
+      setPick({
+        title: "Who is retiring hurt?",
+        names: crease,
+        onPick: (batter) => {
+          setPick(null);
+          afterWhoOut(batter);
+        },
+      });
+      return;
+    }
+    afterWhoOut(crease[0]);
   };
 
   /** +1 for football / pickleball, tagging the scorer when we know the XI. */
@@ -606,22 +659,9 @@ export function MatchScoreScreen() {
                   />
                   <Pad label="Swap ends" span={2} onPress={() => push({ t: "SWAP" })} />
                   <Pad
-                    label="Retire batter"
+                    label="Retired hurt"
                     span={2}
-                    onPress={() => {
-                      if (availableBatters.length === 0) {
-                        push({ t: "RETIRE" });
-                        return;
-                      }
-                      setPick({
-                        title: "Who comes in?",
-                        names: availableBatters,
-                        onPick: (newBatter) => {
-                          push({ t: "RETIRE", newBatter });
-                          setPick(null);
-                        },
-                      });
-                    }}
+                    onPress={beginRetireHurt}
                   />
                   <Pad
                     label={s.innings === 0 ? "End innings" : "End of play"}

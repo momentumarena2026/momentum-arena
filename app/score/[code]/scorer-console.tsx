@@ -100,11 +100,22 @@ export function ScorerConsole({ code }: { code: string }) {
   // over) — it belongs in a sheet that opens on demand, not in a permanent
   // wall of chips that pushes the run pad off the screen.
   const [picker, setPicker] = useState<"striker" | "nonStriker" | "bowler" | "goal" | null>(null);
+  // Run-out / retired-hurt: always who left → who comes in.
+  const [outFlow, setOutFlow] = useState<{
+    kind: "runOut" | "retireHurt";
+    step: "whoOut" | "whoIn";
+    outBatterId?: string;
+  } | null>(null);
+  // After the event lands, drop this id into whichever crease end the fold vacated.
+  const [pendingIncoming, setPendingIncoming] = useState<string | null>(null);
   // Add-a-player, inline in the picker. A team that registered without
   // a squad used to dead-end here with "add them from the admin
   // console" — no use to whoever is scoring at the boundary.
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
+  // Cricket: confirmed at Start Match and written to the tournament so the
+  // innings cap + NRR all-out rule have a real quota (wizard default is 0).
+  const [oversInput, setOversInput] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -138,8 +149,16 @@ export function ScorerConsole({ code }: { code: string }) {
     [boot, matchId]
   );
 
-  const send = async (payload: Record<string, unknown>) => {
-    if (!matchId || busy) return;
+  // Prefill overs from the tournament whenever we land on a scheduled cricket match.
+  useEffect(() => {
+    if (!boot || boot.tournament.sport !== "CRICKET") return;
+    if (!match || match.status !== "SCHEDULED") return;
+    const existing = boot.tournament.oversPerInnings || 0;
+    setOversInput(existing > 0 ? String(existing) : "6");
+  }, [boot, match?.id, match?.status]);
+
+  const send = async (payload: Record<string, unknown>): Promise<boolean> => {
+    if (!matchId || busy) return false;
     setBusy(true);
     setError(null);
     try {
@@ -152,10 +171,11 @@ export function ScorerConsole({ code }: { code: string }) {
       if (!res.ok) {
         if (data.needsWinner) setNeedsWinner(true);
         setError(data.error || "Failed");
-        return;
+        return false;
       }
       setNeedsWinner(false);
       await refresh();
+      return true;
     } finally {
       setBusy(false);
     }
@@ -165,51 +185,78 @@ export function ScorerConsole({ code }: { code: string }) {
     send({ action: "event", event: { kind, ...extra } });
 
   // ── The crease, server-first ──
-  // The fold already knows who faced the last ball, who's at the other
-  // end, who's bowling and whether a wicket/over just ended. Local picks
-  // are only consulted when the server has a gap to fill.
+  // The fold owns who faces next after every ball (runs, over, wicket).
+  // Local picks only fill gaps (new batter / new bowler) or a manual swap
+  // before the next delivery is logged.
   const liveCur = (match?.liveState as CricketState | null)?.current;
-  const strikerId = liveCur?.strikerId || pickStriker;
-  const nonStrikerId = liveCur?.nonStrikerId || pickNonStriker;
-  const bowlerId = liveCur?.bowlerId || pickBowler;
-  const needsBatter = !!liveCur?.needsBatter && !pickStriker;
-  const needsBowler = !!liveCur?.needsBowler && !pickBowler;
+  const strikerId = pickStriker || liveCur?.strikerId || "";
+  const nonStrikerId = pickNonStriker || liveCur?.nonStrikerId || "";
+  // After an over the fold clears bowlerId and sets needsBowler. Ignore a
+  // stale pick of the bowler who just finished — they can't bowl again, and
+  // keeping them selected would hide the "pick next bowler" sheet.
+  const bowlerId =
+    liveCur?.needsBowler
+      ? pickBowler && pickBowler !== liveCur.lastOverBowlerId
+        ? pickBowler
+        : ""
+      : pickBowler || liveCur?.bowlerId || "";
+  const needsBatter = !!liveCur?.needsBatter && !(pickStriker || pickNonStriker);
+  const needsBowler = !!liveCur?.needsBowler && !bowlerId;
   const allPlayers = match ? [...match.homeTeam.members, ...match.awayTeam.members] : [];
   const nameOfPlayer = (id: string | null) => allPlayers.find((p) => p.id === id)?.name || null;
   const creaseFigs = (id: string | null) => liveCur?.batters.find((b) => b.id === id) || null;
 
-  // What the next delivery is still missing. needsBatter/needsBowler only
-  // fire AFTER a wicket or a completed over — at the start of an innings
-  // both ends are simply empty, which is how runs used to get logged with
-  // nobody on strike and nobody bowling. This covers every case.
+  // Ask for whoever the next delivery still needs — both ends at innings
+  // start, a new batter after a wicket, a new bowler after an over.
   const inningsUnderway =
     ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
-  // Innings closed by the overs limit — the server refuses further balls,
-  // so the pad shows that rather than letting the tap fail.
   const oversCap = boot?.tournament.oversPerInnings || 0;
   const liveInn = (match?.liveState as CricketState | null)?.innings?.slice(-1)[0];
   const inningsDone = oversCap > 0 && !!liveInn && liveInn.balls >= oversCap * 6;
-  const missing: "striker" | "bowler" | null =
+  const missing: "striker" | "nonStriker" | "bowler" | null =
     boot?.tournament.sport === "CRICKET" && inningsUnderway && !inningsDone
       ? !strikerId
         ? "striker"
-        : !bowlerId
-          ? "bowler"
-          : null
+        : !nonStrikerId
+          ? "nonStriker"
+          : !bowlerId
+            ? "bowler"
+            : null
       : null;
 
-  // Ask for what's needed the moment it's needed, rather than making the
-  // scorer hunt for it. Keyed on `missing`, so closing the sheet doesn't
-  // immediately reopen it — the pad stays disabled with a hint instead.
+  // Open the sheet as soon as someone is needed (new bowler after an over,
+  // new batter after a wicket). Closing without picking leaves the pad
+  // locked behind the banner rather than fighting the scorer.
   useEffect(() => {
-    if (missing) setPicker(missing);
-  }, [missing]);
+    if (missing && !outFlow) setPicker(missing);
+  }, [missing, outFlow]);
 
-  /** A cricket delivery, attributed to the striker + bowler. Strike
-   *  rotation and the over/wicket bookkeeping happen in the fold, so the
-   *  pad just reports who did what. */
-  const ball = async (data: { runs: number; extra?: string; wicket?: boolean }) => {
-    await send({
+  // RO / RH already asked for the incoming batter — seat them on the end
+  // the fold just cleared so the pad unlocks without a second hunt.
+  useEffect(() => {
+    if (!pendingIncoming || !liveCur?.needsBatter) return;
+    if (!liveCur.strikerId && !pickStriker) {
+      setPickStriker(pendingIncoming);
+      setPendingIncoming(null);
+      setPicker(null);
+      return;
+    }
+    if (!liveCur.nonStrikerId && !pickNonStriker) {
+      setPickNonStriker(pendingIncoming);
+      setPendingIncoming(null);
+      setPicker(null);
+    }
+  }, [pendingIncoming, liveCur, pickStriker, pickNonStriker]);
+
+  /** A cricket delivery. Strike/over/wicket rotation happens in the fold. */
+  const ball = async (data: {
+    runs: number;
+    extra?: string;
+    wicket?: boolean;
+    wicketKind?: string;
+    outBatterId?: string;
+  }): Promise<boolean> => {
+    const ok = await send({
       action: "event",
       event: {
         kind: "BALL",
@@ -217,19 +264,64 @@ export function ScorerConsole({ code }: { code: string }) {
         data: {
           ...data,
           ...(strikerId ? { batterId: strikerId } : {}),
+          ...(nonStrikerId ? { nonStrikerId } : {}),
           ...(bowlerId ? { bowlerId } : {}),
         },
       },
     });
-    // Odd runs swap the ends. The server can't infer this (it only sees
-    // who faced), so the pad nominates the new striker for the next ball.
-    if (!data.extra && data.runs % 2 === 1 && nonStrikerId) {
-      setPickStriker(nonStrikerId);
-      setPickNonStriker(strikerId);
-    } else {
+    // Server crease is authoritative after the fold — drop local overrides.
+    if (ok) {
       setPickStriker("");
       setPickNonStriker("");
+      setPickBowler("");
     }
+    return ok;
+  };
+
+  /** Retired hurt — not a ball, not a wicket; crease still needs a replacement. */
+  const retireHurt = async (batterId: string): Promise<boolean> => {
+    const ok = await send({
+      action: "event",
+      event: {
+        kind: "RETIRE",
+        memberId: batterId,
+        data: { batterId },
+      },
+    });
+    if (ok) {
+      setPickStriker("");
+      setPickNonStriker("");
+      setPickBowler("");
+    }
+    return ok;
+  };
+
+  /** Always: who left → who comes in → commit. */
+  const beginOut = (kind: "runOut" | "retireHurt") => {
+    if (!strikerId && !nonStrikerId) return;
+    setOutFlow({ kind, step: "whoOut" });
+  };
+
+  const pickOutBatter = (outBatterId: string) => {
+    if (!outFlow) return;
+    setOutFlow({ kind: outFlow.kind, step: "whoIn", outBatterId });
+  };
+
+  const finishOutFlow = async (newBatterId: string | null) => {
+    if (!outFlow?.outBatterId) return;
+    const { kind, outBatterId } = outFlow;
+    setOutFlow(null);
+    if (newBatterId) setPendingIncoming(newBatterId);
+    const ok =
+      kind === "retireHurt"
+        ? await retireHurt(outBatterId)
+        : await ball({
+            runs: 0,
+            wicket: true,
+            wicketKind: "RUN_OUT",
+            outBatterId,
+          });
+    if (!ok) setPendingIncoming(null);
   };
 
   const resetPlayers = () => {
@@ -450,13 +542,42 @@ export function ScorerConsole({ code }: { code: string }) {
 
         {/* Controls */}
         {match.status === "SCHEDULED" && (
-          <button
-            onClick={() => send({ action: "start" })}
-            disabled={busy}
-            className={`${bigBtn} mt-4 h-16 w-full gap-2 border-emerald-500/40 bg-emerald-600/15 text-emerald-300`}
-          >
-            <Play className="h-5 w-5" /> Start Match
-          </button>
+          <div className="mt-4 space-y-3">
+            {sport === "CRICKET" && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Overs per innings
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={90}
+                  value={oversInput}
+                  onChange={(e) => setOversInput(e.target.value)}
+                  placeholder="e.g. 6"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-lg text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+                />
+              </label>
+            )}
+            <button
+              onClick={() => {
+                const overs = Math.floor(Number(oversInput));
+                if (sport === "CRICKET" && (!Number.isFinite(overs) || overs < 1 || overs > 90)) {
+                  setError("Enter overs per innings (1–90) before starting");
+                  return;
+                }
+                void send({
+                  action: "start",
+                  ...(sport === "CRICKET" ? { oversPerInnings: overs } : {}),
+                });
+              }}
+              disabled={busy || (sport === "CRICKET" && !oversInput.trim())}
+              className={`${bigBtn} h-16 w-full gap-2 border-emerald-500/40 bg-emerald-600/15 text-emerald-300 disabled:opacity-40`}
+            >
+              <Play className="h-5 w-5" /> Start Match
+            </button>
+          </div>
         )}
 
         {match.status === "LIVE" && (
@@ -494,8 +615,14 @@ export function ScorerConsole({ code }: { code: string }) {
                         className="w-full rounded-xl border border-amber-500/40 bg-amber-600/10 px-4 py-3 text-sm text-amber-300"
                       >
                         {missing === "striker"
-                          ? "Pick the batter on strike to start scoring"
-                          : "Pick the bowler to start scoring"}
+                          ? needsBatter
+                            ? "Pick the new batter"
+                            : "Pick the batter on strike"
+                          : missing === "nonStriker"
+                            ? needsBatter
+                              ? "Pick the new batter"
+                              : "Pick the non-striker"
+                            : "Pick the bowler to continue"}
                       </button>
                     )}
                     <div className="grid grid-cols-4 gap-2">
@@ -524,13 +651,29 @@ export function ScorerConsole({ code }: { code: string }) {
                         Wd
                       </button>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
+                      <button
+                        onClick={() => beginOut("runOut")}
+                        disabled={busy || !!missing || inningsDone}
+                        className={`${bigBtn} h-12 border-red-500/40 bg-red-600/10 text-sm text-red-300 disabled:opacity-40`}
+                      >
+                        Run out
+                      </button>
+                      <button
+                        onClick={() => beginOut("retireHurt")}
+                        disabled={busy || !!missing || inningsDone}
+                        className={`${bigBtn} h-12 border-orange-500/40 bg-orange-600/10 text-sm text-orange-300 disabled:opacity-40`}
+                      >
+                        Ret. hurt
+                      </button>
                       <button onClick={() => ball({ runs: 1, extra: "nb" })} disabled={busy || !!missing || inningsDone} className={`${bigBtn} h-12 border-amber-500/40 bg-amber-600/10 text-sm text-amber-300 disabled:opacity-40`}>
                         No Ball +1
                       </button>
                       <button onClick={() => ball({ runs: 1, extra: "b" })} disabled={busy || !!missing || inningsDone} className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300 disabled:opacity-40`}>
                         Bye +1
                       </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
                       {cs && cs.inning === 1 && (
                         <button
                           onClick={() => {
@@ -715,10 +858,12 @@ export function ScorerConsole({ code }: { code: string }) {
               <h3 className="font-semibold text-white">
                 {picker === "striker"
                   ? needsBatter
-                    ? "Wicket — who's in?"
+                    ? "Who's in next?"
                     : "Striker"
                   : picker === "nonStriker"
-                    ? "Non-striker"
+                    ? needsBatter
+                      ? "Who's in next?"
+                      : "Non-striker"
                     : picker === "bowler"
                       ? needsBowler
                         ? "Over complete — next bowler"
@@ -764,9 +909,13 @@ export function ScorerConsole({ code }: { code: string }) {
                 // neither exceed the quota nor bowl two overs in a row.
                 const maxOvers = boot.tournament.maxOversPerBowler || 0;
                 const startingOver = (liveCur?.thisOver.length ?? 0) === 0;
+                const otherEnd =
+                  picker === "striker" ? nonStrikerId : picker === "nonStriker" ? strikerId : "";
                 const blockedFor = (id: string): string | null => {
                   if (picker === "striker" || picker === "nonStriker") {
-                    return liveCur?.dismissed.includes(id) ? "out" : null;
+                    if (liveCur?.dismissed.includes(id)) return "out";
+                    if (otherEnd && id === otherEnd) return "at other end";
+                    return null;
                   }
                   if (picker === "bowler") {
                     if (startingOver && liveCur?.lastOverBowlerId === id) return "bowled last over";
@@ -873,6 +1022,104 @@ export function ScorerConsole({ code }: { code: string }) {
                   </button>
                 </form>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Run out / retired hurt: who left → who comes in ══ */}
+      {outFlow && match && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60"
+          onClick={() => setOutFlow(null)}
+        >
+          <div
+            className="max-h-[75vh] w-full max-w-md overflow-hidden rounded-t-3xl border-t border-zinc-800 bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+              <h3 className="font-semibold text-white">
+                {outFlow.step === "whoOut"
+                  ? outFlow.kind === "runOut"
+                    ? "Who was run out?"
+                    : "Who is retiring hurt?"
+                  : "Who comes in next?"}
+              </h3>
+              <button onClick={() => setOutFlow(null)} className="text-zinc-400 hover:text-white">
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {outFlow.step === "whoOut"
+                ? [
+                    { id: strikerId, label: "On strike", figs: creaseFigs(strikerId) },
+                    { id: nonStrikerId, label: "Non-striker", figs: creaseFigs(nonStrikerId) },
+                  ]
+                    .filter((row): row is { id: string; label: string; figs: { runs: number; balls: number } | null } =>
+                      !!row.id
+                    )
+                    .map((row) => (
+                      <button
+                        key={row.id}
+                        onClick={() => pickOutBatter(row.id)}
+                        disabled={busy}
+                        className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left hover:bg-zinc-800/60 disabled:opacity-40"
+                      >
+                        <div>
+                          <div className="font-semibold text-zinc-100">{nameOfPlayer(row.id)}</div>
+                          <div className="text-[11px] text-zinc-500">{row.label}</div>
+                        </div>
+                        {row.figs && (
+                          <span className="font-mono text-xs text-zinc-400">
+                            {row.figs.runs} ({row.figs.balls})
+                          </span>
+                        )}
+                      </button>
+                    ))
+                : (() => {
+                    const batting =
+                      cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+                    const outId = outFlow.outBatterId;
+                    const survivor =
+                      outId === strikerId ? nonStrikerId : outId === nonStrikerId ? strikerId : "";
+                    const candidates = batting.members.filter(
+                      (m) =>
+                        m.id !== outId &&
+                        m.id !== survivor &&
+                        !liveCur?.dismissed.includes(m.id)
+                    );
+                    if (candidates.length === 0) {
+                      return (
+                        <div className="space-y-3 p-5">
+                          <p className="text-sm text-zinc-500">
+                            No batters left to come in — continue without a replacement.
+                          </p>
+                          <button
+                            onClick={() => void finishOutFlow(null)}
+                            disabled={busy}
+                            className={`${bigBtn} h-12 w-full border-emerald-500/40 bg-emerald-600/15 text-sm text-emerald-300 disabled:opacity-40`}
+                          >
+                            Confirm
+                          </button>
+                        </div>
+                      );
+                    }
+                    return candidates.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => void finishOutFlow(m.id)}
+                        disabled={busy}
+                        className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left hover:bg-zinc-800/60 disabled:opacity-40"
+                      >
+                        <span className="text-zinc-200">{m.name}</span>
+                        {creaseFigs(m.id) && (
+                          <span className="font-mono text-xs text-zinc-400">
+                            {creaseFigs(m.id)!.runs} ({creaseFigs(m.id)!.balls})
+                          </span>
+                        )}
+                      </button>
+                    ));
+                  })()}
             </div>
           </div>
         </div>

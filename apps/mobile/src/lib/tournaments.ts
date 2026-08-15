@@ -357,7 +357,7 @@ export type ScorerBoot = {
 };
 
 export type ScorerAction =
-  | { action: "start"; matchId: string }
+  | { action: "start"; matchId: string; oversPerInnings?: number }
   | { action: "undo"; matchId: string }
   | { action: "end"; matchId: string; winnerTeamId?: string | null }
   | {
