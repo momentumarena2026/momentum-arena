@@ -194,6 +194,12 @@ export function ScorerConsoleScreen() {
   const [fielderFor, setFielderFor] = useState<
     { dismissal: string; outBatterId?: string } | null
   >(null);
+  /** Run out only: which batter was out. A run-out is the one dismissal
+   *  that can take either end, so it can't be inferred — and it must be
+   *  asked from a row that is visible without scrolling, which is why
+   *  "Run out" now sits with the other kinds rather than in a section
+   *  below them that a phone screen cuts off. */
+  const [outBatterFor, setOutBatterFor] = useState<string | null>(null);
   // Add-a-player, inline in the picker. A squad that was never entered
   // used to dead-end here with "add them from the admin console" — no
   // use to a volunteer at the boundary with the batter waiting.
@@ -886,6 +892,7 @@ export function ScorerConsoleScreen() {
                   ["lbw", "LBW"],
                   ["stumped", "Stumped"],
                   ["hitwicket", "Hit wicket"],
+                  ["runout", "Run out"],
                 ] as const
               ).map(([kind, label]) => (
                 <Pressable
@@ -893,9 +900,10 @@ export function ScorerConsoleScreen() {
                   style={s.sheetRow}
                   onPress={() => {
                     setWicketSheet(false);
-                    // A catch or a stumping belongs to someone. Ask now,
-                    // while the scorer still remembers.
-                    if (kind === "caught" || kind === "stumped") {
+                    // A run-out can take either batter; a catch or stumping
+                    // belongs to a fielder. Both ask, in that order.
+                    if (kind === "runout") setOutBatterFor(kind);
+                    else if (kind === "caught" || kind === "stumped") {
                       setFielderFor({ dismissal: kind });
                     } else {
                       void ball({ runs: 0, wicket: true, dismissal: kind });
@@ -903,10 +911,34 @@ export function ScorerConsoleScreen() {
                   }}
                 >
                   <Text style={s.sheetRowText}>{label}</Text>
-                  <Text style={s.sheetRowMeta}>{nameOf(strikerId) || "striker"}</Text>
+                  <Text style={s.sheetRowMeta}>
+                    {kind === "runout" ? "either batter" : nameOf(strikerId) || "striker"}
+                  </Text>
                 </Pressable>
               ))}
-              <Text style={s.sheetSection}>Run out — who was out?</Text>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Run out: which batter went? ─────────────────────────────
+          Only a run-out can take the batter at the other end, so this is
+          the one dismissal that has to ask. */}
+      <Modal
+        visible={!!outBatterFor}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setOutBatterFor(null)}
+      >
+        <Pressable style={s.sheetBackdrop} onPress={() => setOutBatterFor(null)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>Who was run out?</Text>
+              <Pressable onPress={() => setOutBatterFor(null)} hitSlop={10}>
+                <X size={20} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            <ScrollView>
               {[strikerId, nonStrikerId]
                 .filter((id): id is string => !!id)
                 .map((id) => (
@@ -914,7 +946,7 @@ export function ScorerConsoleScreen() {
                     key={id}
                     style={s.sheetRow}
                     onPress={() => {
-                      setWicketSheet(false);
+                      setOutBatterFor(null);
                       setFielderFor({ dismissal: "runout", outBatterId: id });
                     }}
                   >
@@ -1403,6 +1435,10 @@ const s = StyleSheet.create({
   // Player sheet
   sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   sheet: {
+    // A ScrollView only scrolls inside a bounded parent. Unbounded, a long
+    // sheet simply runs off the bottom of the screen and the rows below
+    // are unreachable -- which is exactly how the run-out options got lost.
+    maxHeight: "80%",
     backgroundColor: colors.cardElevated,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,

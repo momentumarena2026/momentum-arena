@@ -116,6 +116,12 @@ export function ScorerConsole({ code }: { code: string }) {
   const [fielderFor, setFielderFor] = useState<
     { dismissal: string; outBatterId?: string } | null
   >(null);
+  /** Run out only: which batter was out. It can take either end, so it
+   *  can't be inferred — and it has to be asked from a row that is
+   *  visible without scrolling, which is why "Run out" sits with the
+   *  other kinds rather than in a section below them that a phone screen
+   *  pushes off the bottom. */
+  const [outBatterFor, setOutBatterFor] = useState<string | null>(null);
   /** Open when the scorer taps Retire — which batter is walking off. */
   const [retireSheet, setRetireSheet] = useState(false);
   // Add-a-player, inline in the picker. A team that registered without
@@ -842,32 +848,54 @@ export function ScorerConsole({ code }: { code: string }) {
                 ["lbw", "LBW"],
                 ["stumped", "Stumped"],
                 ["hitwicket", "Hit wicket"],
+                ["runout", "Run out"],
               ] as const
             ).map(([kind, label]) => (
               <button
                 key={kind}
                 onClick={() => {
                   setWicketSheet(false);
-                  // A catch or a stumping belongs to someone. Ask now,
-                  // while the scorer still remembers — the card can't
-                  // reconstruct it later.
-                  if (needsFielder(kind)) setFielderFor({ dismissal: kind });
+                  // A run-out can take either batter; a catch or stumping
+                  // belongs to a fielder. Both ask, in that order.
+                  if (kind === "runout") setOutBatterFor(kind);
+                  else if (needsFielder(kind)) setFielderFor({ dismissal: kind });
                   else void ball({ runs: 0, wicket: true, dismissal: kind });
                 }}
                 className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
               >
                 {label}
-                <span className="text-xs text-zinc-500">{nameOfPlayer(strikerId) || "striker"}</span>
+                <span className="text-xs text-zinc-500">
+                  {kind === "runout" ? "either batter" : nameOfPlayer(strikerId) || "striker"}
+                </span>
               </button>
             ))}
-            <p className="px-5 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Run out — who was out?
-            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Run out: which batter went? ─────────────────────────────
+          Only a run-out can take the batter at the other end, so this is
+          the one dismissal that has to ask. */}
+      {outBatterFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={() => setOutBatterFor(null)}
+        >
+          <div
+            className="max-h-[80vh] w-full overflow-y-auto rounded-t-3xl border-t border-zinc-800 bg-zinc-950 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-4">
+              <h3 className="font-semibold text-white">Who was run out?</h3>
+              <button onClick={() => setOutBatterFor(null)} className="text-zinc-400 hover:text-white">
+                Close
+              </button>
+            </div>
             {[strikerId, nonStrikerId].filter((id): id is string => !!id).map((id) => (
               <button
                 key={id}
                 onClick={() => {
-                  setWicketSheet(false);
+                  setOutBatterFor(null);
                   setFielderFor({ dismissal: "runout", outBatterId: id });
                 }}
                 className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
