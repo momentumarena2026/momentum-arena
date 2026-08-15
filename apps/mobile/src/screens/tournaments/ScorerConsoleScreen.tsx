@@ -186,6 +186,14 @@ export function ScorerConsoleScreen() {
   const [wicketSheet, setWicketSheet] = useState(false);
   /** Open when the scorer taps Retire — which batter walks off. */
   const [retireSheet, setRetireSheet] = useState(false);
+  /** Step two of a wicket. A catch, stumping or run-out belongs to a
+   *  fielder, and "c — b Khan" on the scorecard is worth nothing, so the
+   *  half-built wicket waits here until the scorer names them (or says
+   *  they didn't see it) and the whole thing is logged as one delivery.
+   *  Mirrors needsFielder() in lib/cricket-dismissal.ts on the server. */
+  const [fielderFor, setFielderFor] = useState<
+    { dismissal: string; outBatterId?: string } | null
+  >(null);
   // Add-a-player, inline in the picker. A squad that was never entered
   // used to dead-end here with "add them from the admin console" — no
   // use to a volunteer at the boundary with the batter waiting.
@@ -328,6 +336,8 @@ export function ScorerConsoleScreen() {
     dismissal?: string;
     /** Who went. Omitted means the striker, right for all but a run-out. */
     outBatterId?: string;
+    /** Who caught / stumped / ran them out, so the card can say so. */
+    fielderId?: string;
   }) => {
     await send({
       action: "event",
@@ -418,6 +428,15 @@ export function ScorerConsoleScreen() {
   const cs = (match.liveState || null) as CricketState | null;
   const ps = (match.liveState || null) as PickleState | null;
   const batting = cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+  // Whoever isn't batting is in the field — catchers, keeper and run-out
+  // throwers all come from this side.
+  const fielding = batting.id === match.homeTeam.id ? match.awayTeam : match.homeTeam;
+  // Cricket can't start without an over limit: 0 reads as "unlimited"
+  // downstream and quietly disables both the innings close and the NRR
+  // all-out quota. The server refuses it too — this just stops the scorer
+  // from finding out by tapping.
+  const oversOk =
+    sport !== "CRICKET" || (Number(startOvers) >= 1 && Number(startOvers) <= 90);
   const bowling = batting.id === match.homeTeam.id ? match.awayTeam : match.homeTeam;
   const inn = cs?.innings?.[cs.innings.length - 1];
   const allPlayers = [...match.homeTeam.members, ...match.awayTeam.members];
@@ -623,14 +642,14 @@ export function ScorerConsoleScreen() {
                     value={startOvers}
                     onChangeText={(t) => setStartOvers(t.replace(/[^\d]/g, ""))}
                     keyboardType="number-pad"
-                    placeholder="0 = unlimited"
+                    placeholder="e.g. 10"
                     placeholderTextColor={colors.zinc500}
                     style={s.oversInput}
                   />
                   <Text style={s.oversHint}>
-                    Starts from the tournament&apos;s{" "}
-                    {boot?.tournament.oversPerInnings || 0} — change it if this
-                    match is shorter.
+                    {oversOk
+                      ? `Starts from the tournament's ${boot?.tournament.oversPerInnings || 0} — change it if this match is shorter.`
+                      : "Required, 1–90. The innings close and the net run rate both read this number."}
                   </Text>
                 </View>
               )}
@@ -643,8 +662,8 @@ export function ScorerConsoleScreen() {
                       : {}),
                   })
                 }
-                disabled={busy}
-                style={[s.wideBtn, s.greenBtn]}
+                disabled={busy || !oversOk}
+                style={[s.wideBtn, s.greenBtn, !oversOk && { opacity: 0.4 }]}
               >
                 <Play size={18} color={colors.emerald400} />
                 <Text style={s.greenText}>Start Match</Text>
@@ -874,7 +893,13 @@ export function ScorerConsoleScreen() {
                   style={s.sheetRow}
                   onPress={() => {
                     setWicketSheet(false);
-                    void ball({ runs: 0, wicket: true, dismissal: kind });
+                    // A catch or a stumping belongs to someone. Ask now,
+                    // while the scorer still remembers.
+                    if (kind === "caught" || kind === "stumped") {
+                      setFielderFor({ dismissal: kind });
+                    } else {
+                      void ball({ runs: 0, wicket: true, dismissal: kind });
+                    }
                   }}
                 >
                   <Text style={s.sheetRowText}>{label}</Text>
@@ -890,12 +915,7 @@ export function ScorerConsoleScreen() {
                     style={s.sheetRow}
                     onPress={() => {
                       setWicketSheet(false);
-                      void ball({
-                        runs: 0,
-                        wicket: true,
-                        dismissal: "runout",
-                        outBatterId: id,
-                      });
+                      setFielderFor({ dismissal: "runout", outBatterId: id });
                     }}
                   >
                     <Text style={s.sheetRowText}>{nameOf(id)}</Text>
@@ -904,6 +924,75 @@ export function ScorerConsoleScreen() {
                     </Text>
                   </Pressable>
                 ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Who did it? ──────────────────────────────────────────────
+          Step two of a catch, stumping or run-out. Skippable on purpose: a
+          scorer who genuinely didn't see it must still be able to log the
+          wicket, and the card then reads "caught" rather than naming the
+          wrong player. */}
+      <Modal
+        visible={!!fielderFor}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFielderFor(null)}
+      >
+        <Pressable style={s.sheetBackdrop} onPress={() => setFielderFor(null)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.sheetTitle}>
+                  {fielderFor?.dismissal === "caught"
+                    ? "Who took the catch?"
+                    : fielderFor?.dismissal === "stumped"
+                      ? "Who stumped them?"
+                      : "Who ran them out?"}
+                </Text>
+                <Text style={s.sheetRowMeta}>
+                  {nameOf(fielderFor?.outBatterId || strikerId) || "Batter"} is out
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  const draft = fielderFor;
+                  setFielderFor(null);
+                  if (draft) void ball({ runs: 0, wicket: true, ...draft });
+                }}
+                hitSlop={10}
+              >
+                <Text style={s.sheetSkip}>Skip</Text>
+              </Pressable>
+            </View>
+            <ScrollView>
+              {fielding.members.map((p) => (
+                <Pressable
+                  key={p.id}
+                  style={s.sheetRow}
+                  onPress={() => {
+                    const draft = fielderFor;
+                    setFielderFor(null);
+                    if (draft) {
+                      void ball({ runs: 0, wicket: true, ...draft, fielderId: p.id });
+                    }
+                  }}
+                >
+                  <Text style={s.sheetRowText}>{p.name}</Text>
+                  {p.id === bowlerId && (
+                    <Text style={s.sheetRowMeta}>
+                      {fielderFor?.dismissal === "caught" ? "c & b" : "bowler"}
+                    </Text>
+                  )}
+                </Pressable>
+              ))}
+              {fielding.members.length === 0 && (
+                <Text style={s.sheetEmpty}>
+                  No players listed for {fielding.name}. Tap Skip to log the
+                  wicket without a fielder.
+                </Text>
+              )}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -1126,6 +1215,8 @@ const s = StyleSheet.create({
   scoreLine: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginTop: 6 },
   scoreLineTwo: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
   battingTeam: { color: colors.zinc300, fontSize: 15, fontWeight: "600", flexShrink: 1 },
+  sheetSkip: { color: colors.zinc400, fontSize: 14, fontWeight: "600" },
+  sheetEmpty: { color: colors.zinc500, fontSize: 13, paddingHorizontal: 20, paddingVertical: 24 },
   teamSmall: { color: colors.zinc400, fontSize: 12 },
   // lineHeight matters: without it RN clips tall digits at these sizes.
   scoreBig: { color: colors.emerald400, fontSize: 30, lineHeight: 38, fontWeight: "800" },

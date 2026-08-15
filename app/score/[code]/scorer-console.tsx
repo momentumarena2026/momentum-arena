@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { needsFielder } from "@/lib/cricket-dismissal";
 import { Loader2, Undo2, Play, Square, ChevronLeft, Radio } from "lucide-react";
 
 type Member = { id: string; name: string };
@@ -108,6 +109,13 @@ export function ScorerConsole({ code }: { code: string }) {
   const [startOvers, setStartOvers] = useState("");
   /** Open when the scorer taps W — how did they get out, and who went. */
   const [wicketSheet, setWicketSheet] = useState(false);
+  /** Step two of a wicket: a catch, stumping or run-out belongs to a
+   *  fielder, and "c — b Khan" on the scorecard is worth nothing. Holds the
+   *  half-built wicket until the scorer names them (or says they didn't
+   *  see it), then the whole thing is logged as one delivery. */
+  const [fielderFor, setFielderFor] = useState<
+    { dismissal: string; outBatterId?: string } | null
+  >(null);
   /** Open when the scorer taps Retire — which batter is walking off. */
   const [retireSheet, setRetireSheet] = useState(false);
   // Add-a-player, inline in the picker. A team that registered without
@@ -256,6 +264,8 @@ export function ScorerConsole({ code }: { code: string }) {
     dismissal?: string;
     /** Who went. Omitted means the striker, which is right for all but a run-out. */
     outBatterId?: string;
+    /** Who caught / stumped / ran them out, so the card can say so. */
+    fielderId?: string;
   }) => {
     await send({
       action: "event",
@@ -358,7 +368,17 @@ export function ScorerConsole({ code }: { code: string }) {
   const ps = (match.liveState || null) as PickleState | null;
 
   const battingTeam = cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
+  // Whoever isn't batting is in the field — the catchers, keeper and
+  // run-out throwers all come from this side.
+  const fieldingTeam = battingTeam.id === match.homeTeam.id ? match.awayTeam : match.homeTeam;
   const currentInn = cs?.innings?.[cs.innings.length - 1];
+  // Cricket can't start without an over limit: 0 reads as "unlimited"
+  // downstream and quietly disables both the innings close and the NRR
+  // all-out quota. The server refuses it too — this just stops the scorer
+  // from finding out by tapping.
+  const oversOk =
+    boot.tournament.sport !== "CRICKET" ||
+    (Number(startOvers) >= 1 && Number(startOvers) <= 90);
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-24">
@@ -515,13 +535,13 @@ export function ScorerConsole({ code }: { code: string }) {
                   onChange={(e) =>
                     setStartOvers(e.target.value.replace(/[^\d]/g, ""))
                   }
-                  placeholder="0 = unlimited"
+                  placeholder="e.g. 10"
                   className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 p-3 text-center text-2xl font-bold text-white"
                 />
                 <span className="mt-1 block text-[11px] text-zinc-500">
-                  Starts from the tournament&apos;s{" "}
-                  {boot.tournament.oversPerInnings || 0} — change it if this
-                  match is shorter.
+                  {oversOk
+                    ? `Starts from the tournament's ${boot.tournament.oversPerInnings || 0} — change it if this match is shorter.`
+                    : "Required, 1–90. The innings close and the net run rate both read this number."}
                 </span>
               </label>
             )}
@@ -534,8 +554,8 @@ export function ScorerConsole({ code }: { code: string }) {
                     : {}),
                 })
               }
-              disabled={busy}
-              className={`${bigBtn} h-16 w-full gap-2 border-emerald-500/40 bg-emerald-600/15 text-emerald-300`}
+              disabled={busy || !oversOk}
+              className={`${bigBtn} h-16 w-full gap-2 border-emerald-500/40 bg-emerald-600/15 text-emerald-300 disabled:opacity-40`}
             >
               <Play className="h-5 w-5" /> Start Match
             </button>
@@ -828,7 +848,11 @@ export function ScorerConsole({ code }: { code: string }) {
                 key={kind}
                 onClick={() => {
                   setWicketSheet(false);
-                  void ball({ runs: 0, wicket: true, dismissal: kind });
+                  // A catch or a stumping belongs to someone. Ask now,
+                  // while the scorer still remembers — the card can't
+                  // reconstruct it later.
+                  if (needsFielder(kind)) setFielderFor({ dismissal: kind });
+                  else void ball({ runs: 0, wicket: true, dismissal: kind });
                 }}
                 className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
               >
@@ -844,7 +868,7 @@ export function ScorerConsole({ code }: { code: string }) {
                 key={id}
                 onClick={() => {
                   setWicketSheet(false);
-                  void ball({ runs: 0, wicket: true, dismissal: "runout", outBatterId: id });
+                  setFielderFor({ dismissal: "runout", outBatterId: id });
                 }}
                 className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
               >
@@ -854,6 +878,72 @@ export function ScorerConsole({ code }: { code: string }) {
                 </span>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Who did it? ──────────────────────────────────────────────
+          Step two of a catch, stumping or run-out. Skippable on purpose:
+          a scorer who genuinely didn't see the fielder must still be able
+          to log the wicket, and the card degrades to "caught" rather than
+          naming the wrong player. */}
+      {fielderFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={() => setFielderFor(null)}
+        >
+          <div
+            className="max-h-[80vh] w-full overflow-y-auto rounded-t-3xl border-t border-zinc-800 bg-zinc-950 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-4">
+              <div>
+                <h3 className="font-semibold text-white">
+                  {fielderFor.dismissal === "caught"
+                    ? "Who took the catch?"
+                    : fielderFor.dismissal === "stumped"
+                      ? "Who stumped them?"
+                      : "Who ran them out?"}
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  {nameOfPlayer(fielderFor.outBatterId || strikerId) || "Batter"} is out
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const draft = fielderFor;
+                  setFielderFor(null);
+                  void ball({ runs: 0, wicket: true, ...draft });
+                }}
+                className="text-sm text-zinc-400 hover:text-white"
+              >
+                Skip
+              </button>
+            </div>
+            {fieldingTeam.members.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => {
+                  const draft = fielderFor;
+                  setFielderFor(null);
+                  void ball({ runs: 0, wicket: true, ...draft, fielderId: p.id });
+                }}
+                className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
+              >
+                {p.name}
+                {p.id === bowlerId && (
+                  <span className="text-xs text-zinc-500">
+                    {fielderFor.dismissal === "caught" ? "c & b" : "bowler"}
+                  </span>
+                )}
+              </button>
+            ))}
+            {fieldingTeam.members.length === 0 && (
+              <p className="px-5 py-6 text-sm text-zinc-500">
+                No players listed for {fieldingTeam.name}. Tap Skip to log the
+                wicket without a fielder.
+              </p>
+            )}
           </div>
         </div>
       )}

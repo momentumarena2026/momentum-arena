@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { creditsBowler, isDismissal } from "@/lib/cricket-dismissal";
 
 // Live scoring engine. One append-only event log per match; the live
 // scoreboard state is a FOLD of the events in seq order, so:
@@ -49,15 +50,7 @@ const MEMBER_REF_KEYS = [
   "outBatterId",
 ] as const;
 
-/** Ways a batter can be out. Anything else is refused, not stored. */
-const DISMISSALS = new Set([
-  "bowled",
-  "caught",
-  "lbw",
-  "stumped",
-  "runout",
-  "hitwicket",
-]);
+
 
 type EventRow = {
   seq: number;
@@ -261,7 +254,10 @@ export function foldCricket(
         const f = bowlFigures.get(bowlerId) || { balls: 0, runs: 0, wickets: 0 };
         if (legal) f.balls += 1;
         f.runs += runs;
-        if (wicket) f.wickets += 1;
+        // A run-out is the fielding side's wicket, not the bowler's —
+        // crediting it inflated both the analysis and the Most Wickets
+        // trophy the tournament awards.
+        if (wicket && creditsBowler(raw.dismissal)) f.wickets += 1;
         bowlFigures.set(bowlerId, f);
       }
 
@@ -564,10 +560,8 @@ function sanitiseEventData(
     if (raw.wicket) out.wicket = true;
     const extra = str(raw.extra);
     if (extra && CRICKET_EXTRAS.has(extra)) out.extra = extra;
-    const wicketKind = str(raw.wicketKind);
-    if (wicketKind) out.wicketKind = wicketKind.slice(0, 24);
     const dismissal = str(raw.dismissal);
-    if (dismissal && DISMISSALS.has(dismissal)) out.dismissal = dismissal;
+    if (isDismissal(dismissal)) out.dismissal = dismissal;
     for (const key of MEMBER_REF_KEYS) {
       const ref = str(raw[key]);
       if (ref) out[key] = ref;
@@ -932,11 +926,11 @@ export async function startLiveMatch(
   matchId: string,
   /**
    * Cricket overs per side for THIS match, agreed at the toss. Omitted
-   * keeps the tournament's figure. Captured here rather than assumed
-   * because it is the one number the whole innings hangs on — the ball
-   * cap AND the Net Run Rate quota both read it, and a cup that shortens
-   * a match for rain or a late start would otherwise be scored against
-   * overs nobody played.
+   * falls back to the tournament's figure. Captured here rather than
+   * assumed because it is the one number the whole innings hangs on — the
+   * ball cap AND the Net Run Rate quota both read it, and a cup that
+   * shortens a match for rain or a late start would otherwise be scored
+   * against overs nobody played.
    */
   oversPerInnings?: number | null,
 ): Promise<{ ok: boolean; error?: string }> {
@@ -946,7 +940,9 @@ export async function startLiveMatch(
       status: true,
       homeTeamId: true,
       awayTeamId: true,
-      tournament: { select: { liveScoringEnabled: true, sport: true } },
+      tournament: {
+        select: { liveScoringEnabled: true, sport: true, oversPerInnings: true },
+      },
     },
   });
   if (!match) return { ok: false, error: "Match not found" };
@@ -955,10 +951,16 @@ export async function startLiveMatch(
   if (!match.homeTeamId || !match.awayTeamId) return { ok: false, error: "Teams not decided yet" };
 
   let overs: number | undefined;
-  if (match.tournament.sport === "CRICKET" && oversPerInnings != null) {
-    const n = Math.trunc(oversPerInnings);
-    if (!Number.isFinite(n) || n < 0 || n > 90) {
-      return { ok: false, error: "Overs must be between 0 and 90" };
+  if (match.tournament.sport === "CRICKET") {
+    // A cricket match cannot start without an over limit. Zero means
+    // "unlimited" everywhere downstream, which silently switches off both
+    // the innings close AND the NRR full-quota charge for a side bowled
+    // out — the exact hole that left three wrong net run rates in a live
+    // pool. Refusing at the toss is the only point where it's cheap to
+    // fix; by the first ball the innings is already being scored wrong.
+    const n = Math.trunc(oversPerInnings ?? match.tournament.oversPerInnings ?? 0);
+    if (!Number.isFinite(n) || n < 1 || n > 90) {
+      return { ok: false, error: "Set overs per side (1–90) before starting" };
     }
     overs = n;
   }

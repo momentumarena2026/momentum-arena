@@ -301,7 +301,9 @@ export function MatchCentreClient({ initial }: { initial: MatchCentre }) {
                               <td className="px-4 py-2">
                                 <span className="text-zinc-100">{b.name}</span>
                                 <span className="ml-2 text-xs text-zinc-500">
-                                  {b.out ? b.dismissal || "out" : "not out"}
+                                  {/* A retired-hurt batter isn't out but still has a line to
+                                      show, so the recorded text wins over both defaults. */}
+                                  {b.dismissal || (b.out ? "out" : "not out")}
                                 </span>
                               </td>
                               <td className="px-2 py-2 text-right font-semibold text-white">{b.runs}</td>

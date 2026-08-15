@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-08-06 · accurate as of `main` = `6a96eeb` (app 1.0.5).
+**Last substantive update:** 2026-08-15 · accurate as of `main` = `01213d4` (app 1.0.5).
 
 > ### Maintaining this file
 > Update it as part of the work, not as an afterthought — a stale context doc is worse than
@@ -161,6 +161,21 @@ Anything else means main has drifted — stop and investigate, do not push.
     `SharedValues::SIGH_NAME` rather than a constant.
 12. `next/image` needs an explicit `remotePatterns` entry — Vercel Blob URLs
     (`**.blob.vercel-storage.com`) had to be added to `next.config.ts`.
+13. **Cricket scoring has three rules that look like details and aren't.**
+    (a) *Zero overs is not "unlimited", it is broken.* It switches off both the
+    innings close and the NRR rule that charges a bowled-out side its full
+    quota — which is how three matches in a live pool ended up with wrong net
+    run rates. `startLiveMatch` now refuses a cricket match without 1–90 overs.
+    (b) *Wickets per side is a tournament setting, not ten.* Momentum's cup
+    plays 8; hardcoding 10 silently disabled the same all-out rule.
+    (c) *A run-out is not the bowler's wicket.* It must not reach their figures
+    or the Most Wickets leaderboard, and it can take the batter at the **other**
+    end, so the scorer names who went. `lib/cricket-dismissal.ts` is the single
+    place both questions are answered — the fold credits figures and the match
+    centre renders the line, and if they disagree the scorer can see it.
+    Dismissal labels degrade to the shortest *true* statement (`caught`, not
+    `c — b —`) because matches scored before fielder capture have no fielder
+    and never will.
 
 ---
 
@@ -405,6 +420,10 @@ its templates here, or it ships with no push voice at all.
 - `lib/payment-split.ts` — `venueAmountStillDue(totalAmount, payment)`. Nets off
   `remainderCashAmount + remainderUpiAmount` but **not** discount legs (those already reduce
   `Booking.totalAmount`). Mirrored in `apps/mobile/src/lib/admin-bookings.ts`.
+- `lib/cricket-dismissal.ts` — pure: `creditsBowler()`, `needsFielder()`,
+  `dismissalLine()`. The one authority on whether a wicket is the bowler's and how
+  the scorecard reads. Both consoles mirror `needsFielder`'s intent when deciding
+  whether to ask for a fielder — keep them agreeing.
 - `lib/tournament-scheduling.ts` — draw generator; hour-granular via
   `slotHourKey(slotId, startHour)`. Clusters teams by availability signature *before* dealing
   pools, which took forced compromises from 3 → 0.
