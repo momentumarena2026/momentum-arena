@@ -204,6 +204,9 @@ function buildLiveNow(args: {
   };
 }
 
+/** Matches the live scoring engine — 10 down ends a standard innings. */
+const MAX_WICKETS_PER_INNINGS = 10;
+
 /** "Chasing 142 · need 23 off 18" / "Won by 5 wickets" etc. */
 function resultText(args: {
   status: string;
@@ -221,8 +224,30 @@ function resultText(args: {
     if (isDraw) return "Match drawn";
     const winner = winnerTeamId === home?.id ? home : winnerTeamId === away?.id ? away : null;
     if (!winner) return "Result recorded";
-    const margin = Math.abs((args.homeScore ?? 0) - (args.awayScore ?? 0));
-    if (args.sport === "CRICKET") return `${winner.name} won by ${margin} run${margin === 1 ? "" : "s"}`;
+    if (args.sport === "CRICKET") {
+      // Chase win = wickets in hand; defend win = runs ahead. Without
+      // innings order we cannot tell who batted second, so fall back to
+      // the run gap (hand-entered results have no liveState fold).
+      const innings = (
+        args.liveState as {
+          innings?: { teamId: string; runs: number; wickets: number }[];
+        } | null
+      )?.innings;
+      if (innings && innings.length >= 2 && winnerTeamId) {
+        const first = innings[0]!;
+        const second = innings[1]!;
+        if (winnerTeamId === second.teamId) {
+          const wickets = Math.max(0, MAX_WICKETS_PER_INNINGS - (second.wickets || 0));
+          return `${winner.name} won by ${wickets} wicket${wickets === 1 ? "" : "s"}`;
+        }
+        if (winnerTeamId === first.teamId) {
+          const margin = Math.max(0, first.runs - second.runs);
+          return `${winner.name} won by ${margin} run${margin === 1 ? "" : "s"}`;
+        }
+      }
+      const margin = Math.abs((args.homeScore ?? 0) - (args.awayScore ?? 0));
+      return `${winner.name} won by ${margin} run${margin === 1 ? "" : "s"}`;
+    }
     if (args.sport === "FOOTBALL") return `${winner.name} won ${args.homeScore}–${args.awayScore}`;
     return `${winner.name} won`;
   }
@@ -244,17 +269,47 @@ function ballText(d: {
   runs: number;
   extra?: string | null;
   wicket?: boolean;
+  wicketKind?: string | null;
   batter?: string | null;
   bowler?: string | null;
 }): string {
   const who = d.bowler && d.batter ? `${d.bowler} to ${d.batter}, ` : "";
-  if (d.wicket) return `${who}OUT!`;
+  if (d.wicket) {
+    if (d.wicketKind === "RUN_OUT") return `${who}OUT! run out`;
+    return `${who}OUT!`;
+  }
   if (d.extra === "wd") return `${who}wide${d.runs > 1 ? ` + ${d.runs - 1}` : ""}`;
   if (d.extra === "nb") return `${who}no ball${d.runs > 1 ? ` + ${d.runs - 1}` : ""}`;
   if (d.runs === 0) return `${who}no run`;
   if (d.runs === 4) return `${who}FOUR`;
   if (d.runs === 6) return `${who}SIX`;
   return `${who}${d.runs} run${d.runs === 1 ? "" : "s"}`;
+}
+
+function dismissalLabel(args: {
+  wicketKind?: string | null;
+  bowlerId?: string | null;
+  outBatterId?: string | null;
+  nameOf: Map<string, string>;
+}): string {
+  const { wicketKind, bowlerId, nameOf } = args;
+  if (wicketKind === "RUN_OUT") return "run out";
+  if (wicketKind === "STUMPED") {
+    return bowlerId ? `st † b ${nameOf.get(bowlerId) || "—"}` : "stumped";
+  }
+  if (wicketKind === "CAUGHT") {
+    return bowlerId ? `c & b ${nameOf.get(bowlerId) || "—"}` : "caught";
+  }
+  if (wicketKind === "LBW") {
+    return bowlerId ? `lbw b ${nameOf.get(bowlerId) || "—"}` : "lbw";
+  }
+  if (wicketKind === "HIT_WICKET") {
+    return bowlerId ? `hit wicket b ${nameOf.get(bowlerId) || "—"}` : "hit wicket";
+  }
+  if (wicketKind === "BOWLED" || !wicketKind) {
+    return bowlerId ? `b ${nameOf.get(bowlerId) || "—"}` : "out";
+  }
+  return wicketKind.toLowerCase().replace(/_/g, " ");
 }
 
 /** Full match-centre payload: header, innings scorecards, commentary. */
@@ -335,14 +390,41 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         accs.push(cur);
         continue;
       }
+      if (e.kind === "RETIRE" && cur) {
+        const batterId = (d.batterId as string) || e.memberId || null;
+        if (batterId) {
+          const row = cur.bat.get(batterId) || {
+            memberId: batterId, name: nameOf.get(batterId) || "Unknown",
+            runs: 0, balls: 0, fours: 0, sixes: 0, strikeRate: 0, out: false, dismissal: null,
+          };
+          row.out = true;
+          row.dismissal = "retired hurt";
+          cur.bat.set(batterId, row);
+        }
+        commentary.push({
+          seq: e.seq,
+          over: oversOf(cur.balls),
+          text: `${batterId ? nameOf.get(batterId) || "Batter" : "Batter"} retired hurt`,
+          runs: 0,
+          wicket: false,
+          boundary: 0,
+          createdAt: e.createdAt.toISOString(),
+        });
+        continue;
+      }
       if (e.kind !== "BALL" || !cur) continue;
 
       const runs = Math.max(0, Number(d.runs) || 0);
       const extra = (d.extra as string) || null;
       const isWicket = !!d.wicket;
+      const wicketKind = (d.wicketKind as string) || null;
+      const isRunOut = isWicket && wicketKind === "RUN_OUT";
       const legal = extra !== "wd" && extra !== "nb";
       const batterId = (d.batterId as string) || e.memberId || null;
       const bowlerId = (d.bowlerId as string) || null;
+      const outBatterId = isWicket
+        ? ((d.outBatterId as string) || batterId)
+        : null;
 
       cur.runs += runs;
       if (isWicket) cur.wickets += 1;
@@ -361,12 +443,19 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
           if (runs === 4) row.fours += 1;
           if (runs === 6) row.sixes += 1;
         }
-        if (isWicket) {
-          row.out = true;
-          row.dismissal = bowlerId ? `b ${nameOf.get(bowlerId) || "—"}` : (d.wicketKind as string) || "out";
-        }
         row.strikeRate = row.balls > 0 ? Number(((row.runs / row.balls) * 100).toFixed(2)) : 0;
         cur.bat.set(batterId, row);
+      }
+
+      if (isWicket && outBatterId) {
+        const row = cur.bat.get(outBatterId) || {
+          memberId: outBatterId, name: nameOf.get(outBatterId) || "Unknown",
+          runs: 0, balls: 0, fours: 0, sixes: 0, strikeRate: 0, out: false, dismissal: null,
+        };
+        row.out = true;
+        row.dismissal = dismissalLabel({ wicketKind, bowlerId, outBatterId, nameOf });
+        row.strikeRate = row.balls > 0 ? Number(((row.runs / row.balls) * 100).toFixed(2)) : 0;
+        cur.bat.set(outBatterId, row);
       }
 
       if (bowlerId) {
@@ -376,7 +465,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         };
         if (legal) row.balls += 1;
         row.runs += runs;
-        if (isWicket) row.wickets += 1;
+        if (isWicket && !isRunOut) row.wickets += 1;
         row.overs = oversOf(row.balls);
         row.economy = rate(row.runs, row.balls);
         cur.bowl.set(bowlerId, row);
@@ -387,7 +476,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
           wicket: cur.wickets,
           runs: cur.runs,
           over: oversOf(cur.balls),
-          batter: batterId ? nameOf.get(batterId) || null : null,
+          batter: outBatterId ? nameOf.get(outBatterId) || null : null,
         });
       }
 
@@ -395,7 +484,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         seq: e.seq,
         over: oversOf(cur.balls),
         text: ballText({
-          runs, extra, wicket: isWicket,
+          runs, extra, wicket: isWicket, wicketKind,
           batter: batterId ? nameOf.get(batterId) || null : null,
           bowler: bowlerId ? nameOf.get(bowlerId) || null : null,
         }),

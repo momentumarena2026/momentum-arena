@@ -68,7 +68,7 @@ export interface BatterCard {
   fours: number;
   sixes: number;
   /** null while not out; otherwise how they went. */
-  out: WicketKind | "RETIRED" | null;
+  out: WicketKind | "RETIRED" | "RETIRED_HURT" | null;
   outBy: string | null;
 }
 
@@ -336,7 +336,7 @@ export function replay(
       case "RETIRE": {
         const who = e.batter ?? s.striker;
         const card = bat(who);
-        if (card) card.out = "RETIRED";
+        if (card) card.out = "RETIRED_HURT";
         if (e.newBatter) {
           bat(e.newBatter);
           if (s.nonStriker === who) s.nonStriker = e.newBatter;
