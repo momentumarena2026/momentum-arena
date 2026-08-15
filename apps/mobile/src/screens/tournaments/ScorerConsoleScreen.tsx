@@ -220,6 +220,21 @@ export function ScorerConsoleScreen() {
   const needsBatter = !!liveCur?.needsBatter && !pickStriker;
   const needsBowler = !!liveCur?.needsBowler && !pickBowler;
 
+  // These locals are only an optimistic echo of the fold. At the end of
+  // an over the server clears the bowler, but `bowlerId` falls back to
+  // the local pick — which still held LAST over's bowler, so the console
+  // thought someone was bowling and never opened the picker. Drop the
+  // echo the moment the server says the seat is empty.
+  useEffect(() => {
+    if (liveCur?.needsBowler) setPickBowler("");
+  }, [liveCur?.needsBowler]);
+  useEffect(() => {
+    if (liveCur?.needsBatter) {
+      setPickStriker("");
+      setPickNonStriker("");
+    }
+  }, [liveCur?.needsBatter]);
+
   // What the next delivery is still missing. needsBatter/needsBowler only
   // fire AFTER a wicket or a completed over — at the start of an innings
   // both ends are simply empty, which is how runs used to get logged with
@@ -310,15 +325,12 @@ export function ScorerConsoleScreen() {
         },
       },
     });
-    // Odd runs change ends — the server only sees who faced, so the pad
-    // nominates the new striker for the next delivery.
-    if (!data.extra && data.runs % 2 === 1 && nonStrikerId) {
-      setPickStriker(nonStrikerId);
-      setPickNonStriker(strikerId);
-    } else {
-      setPickStriker("");
-      setPickNonStriker("");
-    }
+    // Rotation used to be faked here, because the server only knew who
+    // faced. It now owns the crease and crosses the batsmen itself — on
+    // byes and off odd runs from a wide too, which this never did — so
+    // the pad just drops its echo and re-reads the fold.
+    setPickStriker("");
+    setPickNonStriker("");
   };
 
   // ── Non-match states ──
@@ -453,6 +465,14 @@ export function ScorerConsoleScreen() {
     else if (picker === "nonStriker") setPickNonStriker(id);
     else if (picker === "bowler") setPickBowler(id);
     else if (picker === "goal") setPickStriker(id);
+    // Lock the pair on the server. Without this the crease would live
+    // only in this screen and the fold could never rotate it — the
+    // bowler needs no event, it rides along on each BALL.
+    if (picker === "striker" || picker === "nonStriker") {
+      void ev("CREASE", {
+        data: picker === "striker" ? { strikerId: id } : { nonStrikerId: id },
+      });
+    }
     setPicker(null);
   };
 

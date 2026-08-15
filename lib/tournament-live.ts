@@ -93,6 +93,33 @@ const emptyCurrent = (): CricketCurrent => ({
   lastOverBowlerId: null,
 });
 
+/**
+ * Exchange the two ends. A plain swap, nulls included: when one batter
+ * is out and the over then ends, the survivor should come on strike and
+ * the empty slot move to the far end, which is exactly what swapping a
+ * null gives you.
+ */
+function swapEnds(cur: CricketCurrent): void {
+  const s = cur.strikerId;
+  cur.strikerId = cur.nonStrikerId;
+  cur.nonStrikerId = s;
+}
+
+/**
+ * How many runs the BATSMEN physically ran — which is what decides
+ * whether they cross and swap ends.
+ *
+ * Not the same as the runs added to the total. A wide or no-ball carries
+ * a one-run penalty that nobody ran, so five off a no-ball is four run
+ * (even → no swap) while two off a wide is one run (odd → swap). Byes
+ * and leg-byes aren't credited to the batter but ARE run, so they rotate
+ * strike like any other single.
+ */
+function runsRunByBatsmen(d: { runs: number; extra?: string | null }): number {
+  if (d.extra === "wd" || d.extra === "nb") return Math.max(0, d.runs - 1);
+  return d.runs;
+}
+
 /** Short label for one delivery, as it reads on a scoreboard over-strip. */
 function ballLabel(d: { runs: number; extra?: string | null; wicket?: boolean }): string {
   if (d.wicket) return "W";
@@ -126,6 +153,33 @@ export function foldCricket(events: EventRow[]): CricketState {
       st.current = emptyCurrent();
       batFigures = new Map();
       bowlFigures = new Map();
+    } else if (e.kind === "CREASE" && st.innings.length > 0) {
+      // The scorer naming who is standing where. This is what "locking"
+      // the pair means: from here the fold knows who is on strike without
+      // being told again on every delivery, so it can rotate them itself.
+      // Sent for the opening pair, and again whenever someone new walks
+      // in — carrying which end they take.
+      const d = (e.data || {}) as { strikerId?: string; nonStrikerId?: string };
+      const cur = st.current;
+      if (typeof d.strikerId === "string") cur.strikerId = d.strikerId || null;
+      if (typeof d.nonStrikerId === "string") {
+        cur.nonStrikerId = d.nonStrikerId || null;
+      }
+      if (cur.nonStrikerId && cur.nonStrikerId === cur.strikerId) {
+        cur.nonStrikerId = null;
+      }
+    } else if (e.kind === "RETIRE" && st.innings.length > 0) {
+      // Retired hurt: the batter leaves but is NOT out. They stay off the
+      // dismissed list so they can come back later in the innings, and no
+      // wicket is recorded — the whole difference from a dismissal.
+      const d = (e.data || {}) as { batterId?: string };
+      const cur = st.current;
+      const id = d.batterId || e.memberId || null;
+      if (id) {
+        if (cur.strikerId === id) cur.strikerId = null;
+        else if (cur.nonStrikerId === id) cur.nonStrikerId = null;
+        cur.partnership = { runs: 0, balls: 0 };
+      }
     } else if (e.kind === "BALL" && st.innings.length > 0) {
       const inn = st.innings[st.innings.length - 1];
       const raw = (e.data || {}) as {
@@ -134,6 +188,10 @@ export function foldCricket(events: EventRow[]): CricketState {
         wicket?: boolean;
         batterId?: string;
         bowlerId?: string;
+        /** Run-outs can take either batter, so the scorer names who went. */
+        outBatterId?: string;
+        /** "bowled" | "caught" | "lbw" | "runout" | "stumped" | "hitwicket" */
+        dismissal?: string;
       };
       const runs = Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(raw.runs) || 0));
       const extra = raw.extra || null;
@@ -147,19 +205,22 @@ export function foldCricket(events: EventRow[]): CricketState {
       if (legal) inn.balls += 1;
 
       const cur = st.current;
-      // ── Who's on strike. The scorer sends the batter with each ball, so
-      // the striker is simply whoever just faced; the previous striker
-      // becomes the non-striker when they change.
-      if (batterId) {
-        if (cur.strikerId && cur.strikerId !== batterId) {
-          cur.nonStrikerId = cur.strikerId;
-        }
-        cur.strikerId = batterId;
-        const f = batFigures.get(batterId) || { runs: 0, balls: 0, out: false };
+      // ── Who faced it. The crease pair is LOCKED by CREASE events, so the
+      // striker is whoever is standing there — not, as this used to do,
+      // "whoever the scorer happened to tag on this ball". Inferring it
+      // per-ball meant nothing ever rotated on its own: the same batter
+      // stayed on strike through a single, and the non-striker only
+      // existed as a side effect of the scorer tagging the other player.
+      //
+      // raw.batterId is still honoured as a fallback so events logged
+      // before the crease was locked keep folding the way they did.
+      const onStrike = cur.strikerId || batterId;
+      if (onStrike) {
+        cur.strikerId = onStrike;
+        const f = batFigures.get(onStrike) || { runs: 0, balls: 0, out: false };
         if (extra !== "wd") f.balls += 1; // a wide isn't a ball faced
         if (!extra) f.runs += runs;
-        if (wicket) f.out = true;
-        batFigures.set(batterId, f);
+        batFigures.set(onStrike, f);
       }
       if (bowlerId) {
         cur.bowlerId = bowlerId;
@@ -176,31 +237,37 @@ export function foldCricket(events: EventRow[]): CricketState {
       cur.partnership.runs += runs;
       if (legal) cur.partnership.balls += 1;
 
+      // ── Strike rotation. Odd runs cross the batsmen over. This is the
+      // half the old model left to the scorer: it never rotated, so a
+      // single left the same player facing until someone re-tagged by
+      // hand. Runs off the bat, byes and leg-byes all rotate; the penalty
+      // run on a wide/no-ball does not, because nobody ran it.
+      if (runsRunByBatsmen({ runs, extra }) % 2 === 1) swapEnds(cur);
+
       if (wicket) {
-        // The dismissed batter walks off — and is out of this innings for
-        // good, so the console can stop offering them.
-        if (cur.strikerId) {
-          const f = batFigures.get(cur.strikerId);
+        // Who actually went. Defaults to whoever is now at the striker's
+        // end, which is right for bowled / caught / lbw / stumped — those
+        // carry no runs, so nothing rotated above. A run-out can take
+        // either batter and often follows an odd run that already crossed
+        // them, so there the scorer names the victim and we believe it
+        // rather than guessing from an end.
+        const outId =
+          (typeof raw.outBatterId === "string" && raw.outBatterId) ||
+          cur.strikerId;
+        if (outId) {
+          const f = batFigures.get(outId);
           if (f) f.out = true;
-          if (!cur.dismissed.includes(cur.strikerId)) cur.dismissed.push(cur.strikerId);
+          if (!cur.dismissed.includes(outId)) cur.dismissed.push(outId);
+          if (cur.nonStrikerId === outId) cur.nonStrikerId = null;
+          else cur.strikerId = null;
         }
-        cur.strikerId = null;
         cur.partnership = { runs: 0, balls: 0 };
-        cur.needsBatter = true;
-      } else {
-        cur.needsBatter = false;
       }
 
       if (cur.ballsThisOver >= 6) {
-        // Over complete: strike rotates, and a different bowler must come on.
-        // Only swap when there IS someone at the other end — otherwise the
-        // rotation would move the striker into an empty slot and the same
-        // player would end up listed at both ends.
-        if (cur.nonStrikerId) {
-          const s = cur.strikerId;
-          cur.strikerId = cur.nonStrikerId;
-          cur.nonStrikerId = s;
-        }
+        // Over complete: the batsmen keep their ends but change which one
+        // faces, and a different bowler must come on.
+        swapEnds(cur);
         cur.thisOver = [];
         cur.ballsThisOver = 0;
         cur.lastOverBowlerId = cur.bowlerId;
@@ -217,6 +284,15 @@ export function foldCricket(events: EventRow[]): CricketState {
 
   // Publish the crease figures for whoever is still out there.
   const cur = st.current;
+  // A batter is needed whenever an end is empty and the innings is live —
+  // which covers the opening pair (both ends empty) and a fallen wicket
+  // (one end empty) with the same rule, rather than only firing after a
+  // dismissal the way the old flag did. That gap is how deliveries used
+  // to get logged with nobody locked in at the start of an innings.
+  cur.needsBatter =
+    st.inning > 0 &&
+    (!cur.strikerId || !cur.nonStrikerId) &&
+    (st.innings[st.innings.length - 1]?.wickets ?? 0) < MAX_WICKETS_PER_INNINGS;
   cur.batters = [cur.strikerId, cur.nonStrikerId]
     .filter((id): id is string => !!id)
     .map((id) => {
@@ -426,7 +502,10 @@ async function refoldMatch(matchId: string): Promise<void> {
 
 // ── Public engine API ───────────────────────────────────────────────
 const ALLOWED_KINDS: Record<string, string[]> = {
-  CRICKET: ["INNINGS_START", "BALL"],
+  // CREASE locks who is standing where; RETIRE takes a batter off without
+  // a dismissal. Both are cricket-only and, like every other kind here,
+  // are rejected outright for the wrong sport.
+  CRICKET: ["INNINGS_START", "BALL", "CREASE", "RETIRE"],
   FOOTBALL: ["CLOCK_START", "CLOCK_STOP", "GOAL", "CARD"],
   PICKLEBALL: ["POINT", "GAME_END"],
 };
@@ -507,6 +586,39 @@ export function validateLiveEvent(
       if (!input.teamId) return "Pick which team is batting";
       if (st.inning >= 2) return "Both innings have already been played";
       if (st.innings.some((i) => i.teamId === input.teamId)) return "That team has already batted";
+      return null;
+    }
+    if (input.kind === "CREASE") {
+      if (st.inning === 0 || !st.battingTeamId) return "Start an innings first";
+      const strikerId = typeof d.strikerId === "string" ? d.strikerId : null;
+      const nonStrikerId = typeof d.nonStrikerId === "string" ? d.nonStrikerId : null;
+      const cur = st.current;
+      for (const id of [strikerId, nonStrikerId]) {
+        if (!id) continue;
+        if (teamOf(id) !== st.battingTeamId) return "That player isn't in the batting side";
+        if (cur.dismissed.includes(id)) return "That batter is already out";
+      }
+      // The two ends are two different people — a pair that folds to one
+      // player at both ends is how the crease silently empties.
+      if (strikerId && strikerId === cur.nonStrikerId && !nonStrikerId) {
+        return "That batter is already at the other end";
+      }
+      if (nonStrikerId && nonStrikerId === cur.strikerId && !strikerId) {
+        return "That batter is already on strike";
+      }
+      if (strikerId && nonStrikerId && strikerId === nonStrikerId) {
+        return "Pick two different batters";
+      }
+      return null;
+    }
+    if (input.kind === "RETIRE") {
+      if (st.inning === 0) return "Start an innings first";
+      const id = (typeof d.batterId === "string" ? d.batterId : null) || input.memberId;
+      if (!id) return "Pick which batter is retiring";
+      const cur = st.current;
+      if (cur.strikerId !== id && cur.nonStrikerId !== id) {
+        return "That batter isn't at the crease";
+      }
       return null;
     }
     if (input.kind === "BALL") {

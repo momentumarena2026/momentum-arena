@@ -174,6 +174,23 @@ export function ScorerConsole({ code }: { code: string }) {
   const bowlerId = liveCur?.bowlerId || pickBowler;
   const needsBatter = !!liveCur?.needsBatter && !pickStriker;
   const needsBowler = !!liveCur?.needsBowler && !pickBowler;
+
+  // The fold is the authority on who is out there; these locals are only
+  // an optimistic echo. When the over ends, the fold clears the bowler —
+  // but `bowlerId` above falls back to the local pick, which still held
+  // LAST over's bowler. The console therefore believed someone was still
+  // bowling, so the prompt never fired and the scorer had to go and tap
+  // "change bowler" by hand. Drop the stale echo the moment the server
+  // says the seat is empty.
+  useEffect(() => {
+    if (liveCur?.needsBowler) setPickBowler("");
+  }, [liveCur?.needsBowler]);
+  useEffect(() => {
+    if (liveCur?.needsBatter) {
+      setPickStriker("");
+      setPickNonStriker("");
+    }
+  }, [liveCur?.needsBatter]);
   const allPlayers = match ? [...match.homeTeam.members, ...match.awayTeam.members] : [];
   const nameOfPlayer = (id: string | null) => allPlayers.find((p) => p.id === id)?.name || null;
   const creaseFigs = (id: string | null) => liveCur?.batters.find((b) => b.id === id) || null;
@@ -749,6 +766,19 @@ export function ScorerConsole({ code }: { code: string }) {
                   else if (picker === "nonStriker") setPickNonStriker(id);
                   else if (picker === "bowler") setPickBowler(id);
                   else setPickStriker(id);
+                  // Tell the server who is standing where. Without this the
+                  // pair would live only in this component and the fold
+                  // could never rotate them on its own — which is exactly
+                  // why strike used to stay put through a single. The
+                  // bowler needs no event: it rides along on each BALL.
+                  if (picker === "striker" || picker === "nonStriker") {
+                    void ev("CREASE", {
+                      data:
+                        picker === "striker"
+                          ? { strikerId: id }
+                          : { nonStrikerId: id },
+                    });
+                  }
                   setPicker(null);
                 };
                 if (list.length === 0) {
