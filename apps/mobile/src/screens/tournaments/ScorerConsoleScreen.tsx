@@ -180,6 +180,12 @@ export function ScorerConsoleScreen() {
   const [pickStriker, setPickStriker] = useState("");
   const [pickNonStriker, setPickNonStriker] = useState("");
   const [pickBowler, setPickBowler] = useState("");
+  /** Overs for this match, typed at the toss. Seeded from the tournament. */
+  const [startOvers, setStartOvers] = useState("");
+  /** Open when the scorer taps OUT — how, and (for a run-out) who. */
+  const [wicketSheet, setWicketSheet] = useState(false);
+  /** Open when the scorer taps Retire — which batter walks off. */
+  const [retireSheet, setRetireSheet] = useState(false);
   // Add-a-player, inline in the picker. A squad that was never entered
   // used to dead-end here with "add them from the admin console" — no
   // use to a volunteer at the boundary with the batter waiting.
@@ -241,7 +247,9 @@ export function ScorerConsoleScreen() {
   // nobody on strike and nobody bowling.
   const cricketStarted = ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
   // Innings closed by the overs limit — the server refuses further balls.
-  const oversCap = boot?.tournament.oversPerInnings || 0;
+  // The cap the match is actually being played to — its own overs when
+  // the scorer set them at the toss, otherwise the tournament's.
+  const oversCap = match?.oversPerInnings ?? boot?.tournament.oversPerInnings ?? 0;
   const liveInn = (match?.liveState as CricketState | null)?.innings?.slice(-1)[0];
   const inningsDone = oversCap > 0 && !!liveInn && liveInn.balls >= oversCap * 6;
   const missing: "striker" | "bowler" | null =
@@ -312,7 +320,15 @@ export function ScorerConsoleScreen() {
 
   /** One delivery, attributed to the striker + bowler. Rotation and the
    *  over/wicket bookkeeping live in the fold; the pad just reports. */
-  const ball = async (data: { runs: number; extra?: string; wicket?: boolean }) => {
+  const ball = async (data: {
+    runs: number;
+    extra?: string;
+    wicket?: boolean;
+    /** How they got out — run-outs are the ones that need naming. */
+    dismissal?: string;
+    /** Who went. Omitted means the striker, right for all but a run-out. */
+    outBatterId?: string;
+  }) => {
     await send({
       action: "event",
       event: {
@@ -595,10 +611,45 @@ export function ScorerConsoleScreen() {
           showsVerticalScrollIndicator={false}
         >
           {match.status === "SCHEDULED" && (
-            <Pressable onPress={() => send({ action: "start" })} disabled={busy} style={[s.wideBtn, s.greenBtn]}>
-              <Play size={18} color={colors.emerald400} />
-              <Text style={s.greenText}>Start Match</Text>
-            </Pressable>
+            <>
+              {/* Overs are agreed at the toss, so they're captured here
+                  rather than assumed: the innings cap and the Net Run
+                  Rate quota both read this number, and a match cut short
+                  would otherwise be scored against overs nobody played. */}
+              {sport === "CRICKET" && (
+                <View style={s.oversBox}>
+                  <Text style={s.oversLabel}>Overs per side</Text>
+                  <TextInput
+                    value={startOvers}
+                    onChangeText={(t) => setStartOvers(t.replace(/[^\d]/g, ""))}
+                    keyboardType="number-pad"
+                    placeholder="0 = unlimited"
+                    placeholderTextColor={colors.zinc500}
+                    style={s.oversInput}
+                  />
+                  <Text style={s.oversHint}>
+                    Starts from the tournament&apos;s{" "}
+                    {boot?.tournament.oversPerInnings || 0} — change it if this
+                    match is shorter.
+                  </Text>
+                </View>
+              )}
+              <Pressable
+                onPress={() =>
+                  send({
+                    action: "start",
+                    ...(sport === "CRICKET"
+                      ? { oversPerInnings: Number(startOvers) || 0 }
+                      : {}),
+                  })
+                }
+                disabled={busy}
+                style={[s.wideBtn, s.greenBtn]}
+              >
+                <Play size={18} color={colors.emerald400} />
+                <Text style={s.greenText}>Start Match</Text>
+              </Pressable>
+            </>
           )}
 
           {match.status === "LIVE" && sport === "CRICKET" && (
@@ -650,13 +701,20 @@ export function ScorerConsoleScreen() {
                   <View style={s.padRow}>
                     <PadKey glyph="4" caption="FOUR" tone="boundary" busy={padLocked} onPress={() => ball({ runs: 4 })} />
                     <PadKey glyph="6" caption="SIX" tone="boundary" busy={padLocked} onPress={() => ball({ runs: 6 })} />
-                    <PadKey glyph="W" caption="OUT" tone="wicket" busy={padLocked} onPress={() => ball({ runs: 0, wicket: true })} />
+                    <PadKey glyph="W" caption="OUT" tone="wicket" busy={padLocked} onPress={() => setWicketSheet(true)} />
                     <PadKey glyph="Wd" caption="WIDE" tone="extra" busy={padLocked} onPress={() => ball({ runs: 1, extra: "wd" })} />
                   </View>
 
                   <View style={s.padRow}>
                     <PadKey glyph="Nb" caption="NO BALL" tone="extra" busy={padLocked} onPress={() => ball({ runs: 1, extra: "nb" })} />
                     <PadKey glyph="B" caption="BYE" busy={padLocked} onPress={() => ball({ runs: 1, extra: "b" })} />
+                    {/* Retired hurt is neither a delivery nor a wicket. */}
+                    <PadKey
+                      glyph="⏻"
+                      caption="RETIRE"
+                      busy={busy || (!strikerId && !nonStrikerId)}
+                      onPress={() => setRetireSheet(true)}
+                    />
                     {cs.inning === 1 ? (
                       <PadKey
                         glyph="⤁"
@@ -783,6 +841,114 @@ export function ScorerConsoleScreen() {
       </View>
 
       {/* ══ Player sheet — opens itself when a batter/bowler is needed ══ */}
+      {/* ── How did they get out? ────────────────────────────────────
+          Bowled/caught/lbw/stumped always take the striker. A run-out can
+          take either batter and often follows a run that already crossed
+          them, so that one asks rather than guessing from an end. */}
+      <Modal
+        visible={wicketSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setWicketSheet(false)}
+      >
+        <Pressable style={s.sheetBackdrop} onPress={() => setWicketSheet(false)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>How was the wicket?</Text>
+              <Pressable onPress={() => setWicketSheet(false)} hitSlop={10}>
+                <X size={20} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            <ScrollView>
+              {(
+                [
+                  ["bowled", "Bowled"],
+                  ["caught", "Caught"],
+                  ["lbw", "LBW"],
+                  ["stumped", "Stumped"],
+                  ["hitwicket", "Hit wicket"],
+                ] as const
+              ).map(([kind, label]) => (
+                <Pressable
+                  key={kind}
+                  style={s.sheetRow}
+                  onPress={() => {
+                    setWicketSheet(false);
+                    void ball({ runs: 0, wicket: true, dismissal: kind });
+                  }}
+                >
+                  <Text style={s.sheetRowText}>{label}</Text>
+                  <Text style={s.sheetRowMeta}>{nameOf(strikerId) || "striker"}</Text>
+                </Pressable>
+              ))}
+              <Text style={s.sheetSection}>Run out — who was out?</Text>
+              {[strikerId, nonStrikerId]
+                .filter((id): id is string => !!id)
+                .map((id) => (
+                  <Pressable
+                    key={id}
+                    style={s.sheetRow}
+                    onPress={() => {
+                      setWicketSheet(false);
+                      void ball({
+                        runs: 0,
+                        wicket: true,
+                        dismissal: "runout",
+                        outBatterId: id,
+                      });
+                    }}
+                  >
+                    <Text style={s.sheetRowText}>{nameOf(id)}</Text>
+                    <Text style={s.sheetRowMeta}>
+                      {id === strikerId ? "on strike" : "non-striker"}
+                    </Text>
+                  </Pressable>
+                ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Retired hurt ─────────────────────────────────────────────
+          No ball logged, no wicket, and they stay eligible to return. */}
+      <Modal
+        visible={retireSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRetireSheet(false)}
+      >
+        <Pressable style={s.sheetBackdrop} onPress={() => setRetireSheet(false)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>Who is retiring hurt?</Text>
+              <Pressable onPress={() => setRetireSheet(false)} hitSlop={10}>
+                <X size={20} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            {[strikerId, nonStrikerId]
+              .filter((id): id is string => !!id)
+              .map((id) => (
+                <Pressable
+                  key={id}
+                  style={s.sheetRow}
+                  onPress={() => {
+                    setRetireSheet(false);
+                    void ev("RETIRE", { memberId: id, data: { batterId: id } });
+                  }}
+                >
+                  <Text style={s.sheetRowText}>{nameOf(id)}</Text>
+                  <Text style={s.sheetRowMeta}>
+                    {id === strikerId ? "on strike" : "non-striker"}
+                  </Text>
+                </Pressable>
+              ))}
+            <Text style={s.sheetHint}>
+              No wicket is recorded and they can bat again later in the innings.
+            </Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={!!picker} transparent animationType="slide" onRequestClose={() => setPicker(null)}>
         <Pressable style={s.sheetBackdrop} onPress={() => setPicker(null)}>
           <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
@@ -1173,4 +1339,44 @@ const s = StyleSheet.create({
   },
   sheetRowOn: { backgroundColor: colors.emerald500_10 },
   sheetName: { color: colors.zinc300, fontSize: 15 },
+  sheetRowText: { color: colors.zinc300, fontSize: 15 },
+  sheetRowMeta: { color: colors.zinc500, fontSize: 12 },
+  sheetSection: {
+    color: colors.zinc500,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
+  sheetHint: {
+    color: colors.zinc500,
+    fontSize: 11,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+  },
+  // Toss-time overs, above Start Match.
+  oversBox: {
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: radius.lg,
+    padding: 14,
+    marginBottom: 10,
+  },
+  oversLabel: { color: colors.zinc400, fontSize: 12, fontWeight: "600" },
+  oversInput: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: radius.md,
+    backgroundColor: colors.zinc800_50,
+    color: colors.foreground,
+    fontSize: 24,
+    fontWeight: "700",
+    textAlign: "center",
+    paddingVertical: 10,
+  },
+  oversHint: { color: colors.zinc500, fontSize: 11, marginTop: 6 },
 });

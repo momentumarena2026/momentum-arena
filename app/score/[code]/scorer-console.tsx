@@ -15,6 +15,8 @@ type Match = {
   awayScore: number | null;
   homeTeam: Team;
   awayTeam: Team;
+  /** This match's own overs cap; null falls back to the tournament. */
+  oversPerInnings: number | null;
   liveState: unknown;
   clockStartedAt: string | null;
   clockElapsedSec: number;
@@ -27,8 +29,10 @@ type Boot = {
     status: string;
     /** Overs one bowler may bowl in a match; 0 = no limit. */
     maxOversPerBowler?: number;
-    /** Overs per side; 0 = unlimited. */
+    /** Overs per side; 0 = unlimited. A match may override it. */
     oversPerInnings?: number;
+    /** Wickets per side; when a team is all out. */
+    wicketsPerInnings?: number;
   };
   matches: Match[];
 };
@@ -100,6 +104,12 @@ export function ScorerConsole({ code }: { code: string }) {
   // over) — it belongs in a sheet that opens on demand, not in a permanent
   // wall of chips that pushes the run pad off the screen.
   const [picker, setPicker] = useState<"striker" | "nonStriker" | "bowler" | "goal" | null>(null);
+  /** Overs for this match, typed at the toss. Seeded from the tournament. */
+  const [startOvers, setStartOvers] = useState("");
+  /** Open when the scorer taps W — how did they get out, and who went. */
+  const [wicketSheet, setWicketSheet] = useState(false);
+  /** Open when the scorer taps Retire — which batter is walking off. */
+  const [retireSheet, setRetireSheet] = useState(false);
   // Add-a-player, inline in the picker. A team that registered without
   // a squad used to dead-end here with "add them from the admin
   // console" — no use to whoever is scoring at the boundary.
@@ -203,7 +213,20 @@ export function ScorerConsole({ code }: { code: string }) {
     ((match?.liveState as CricketState | null)?.inning ?? 0) > 0;
   // Innings closed by the overs limit — the server refuses further balls,
   // so the pad shows that rather than letting the tap fail.
-  const oversCap = boot?.tournament.oversPerInnings || 0;
+  // Seed the start-of-match overs box from the tournament, once. The
+  // scorer usually just confirms it; typing over it is the shortened-match
+  // case. Only while SCHEDULED, so a reload mid-match can't reseed it.
+  useEffect(() => {
+    if (boot && match?.status === "SCHEDULED" && startOvers === "") {
+      setStartOvers(String(boot.tournament.oversPerInnings || ""));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot, match?.status]);
+
+  // The cap the match is actually being played to — its own overs when the
+  // scorer set them, otherwise the tournament's.
+  const oversCap =
+    match?.oversPerInnings ?? boot?.tournament.oversPerInnings ?? 0;
   const liveInn = (match?.liveState as CricketState | null)?.innings?.slice(-1)[0];
   const inningsDone = oversCap > 0 && !!liveInn && liveInn.balls >= oversCap * 6;
   const missing: "striker" | "bowler" | null =
@@ -225,7 +248,15 @@ export function ScorerConsole({ code }: { code: string }) {
   /** A cricket delivery, attributed to the striker + bowler. Strike
    *  rotation and the over/wicket bookkeeping happen in the fold, so the
    *  pad just reports who did what. */
-  const ball = async (data: { runs: number; extra?: string; wicket?: boolean }) => {
+  const ball = async (data: {
+    runs: number;
+    extra?: string;
+    wicket?: boolean;
+    /** How they got out — run-outs are the ones that need naming. */
+    dismissal?: string;
+    /** Who went. Omitted means the striker, which is right for all but a run-out. */
+    outBatterId?: string;
+  }) => {
     await send({
       action: "event",
       event: {
@@ -467,13 +498,48 @@ export function ScorerConsole({ code }: { code: string }) {
 
         {/* Controls */}
         {match.status === "SCHEDULED" && (
-          <button
-            onClick={() => send({ action: "start" })}
-            disabled={busy}
-            className={`${bigBtn} mt-4 h-16 w-full gap-2 border-emerald-500/40 bg-emerald-600/15 text-emerald-300`}
-          >
-            <Play className="h-5 w-5" /> Start Match
-          </button>
+          <div className="mt-4 space-y-3">
+            {/* Overs are agreed at the toss, so they're captured here
+                rather than assumed from the tournament: the innings cap
+                and the Net Run Rate quota both read this number, and a
+                match cut short for rain would otherwise be scored
+                against overs nobody played. */}
+            {boot.tournament.sport === "CRICKET" && (
+              <label className="block rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                <span className="text-xs font-medium text-zinc-400">
+                  Overs per side
+                </span>
+                <input
+                  inputMode="numeric"
+                  value={startOvers}
+                  onChange={(e) =>
+                    setStartOvers(e.target.value.replace(/[^\d]/g, ""))
+                  }
+                  placeholder="0 = unlimited"
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 p-3 text-center text-2xl font-bold text-white"
+                />
+                <span className="mt-1 block text-[11px] text-zinc-500">
+                  Starts from the tournament&apos;s{" "}
+                  {boot.tournament.oversPerInnings || 0} — change it if this
+                  match is shorter.
+                </span>
+              </label>
+            )}
+            <button
+              onClick={() =>
+                send({
+                  action: "start",
+                  ...(boot.tournament.sport === "CRICKET"
+                    ? { oversPerInnings: Number(startOvers) || 0 }
+                    : {}),
+                })
+              }
+              disabled={busy}
+              className={`${bigBtn} h-16 w-full gap-2 border-emerald-500/40 bg-emerald-600/15 text-emerald-300`}
+            >
+              <Play className="h-5 w-5" /> Start Match
+            </button>
+          </div>
         )}
 
         {match.status === "LIVE" && (
@@ -527,7 +593,7 @@ export function ScorerConsole({ code }: { code: string }) {
                         </button>
                       ))}
                       <button
-                        onClick={() => ball({ runs: 0, wicket: true })}
+                        onClick={() => setWicketSheet(true)}
                         disabled={busy || !!missing || inningsDone}
                         className={`${bigBtn} h-16 border-red-500/40 bg-red-600/15 text-red-300 disabled:opacity-40`}
                       >
@@ -547,6 +613,16 @@ export function ScorerConsole({ code }: { code: string }) {
                       </button>
                       <button onClick={() => ball({ runs: 1, extra: "b" })} disabled={busy || !!missing || inningsDone} className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300 disabled:opacity-40`}>
                         Bye +1
+                      </button>
+                      {/* Retired hurt isn't a delivery and isn't a wicket —
+                          it costs the side nothing but the batter. Kept out
+                          of the run pad so it can't be hit by accident. */}
+                      <button
+                        onClick={() => setRetireSheet(true)}
+                        disabled={busy || inningsDone || (!strikerId && !nonStrikerId)}
+                        className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300 disabled:opacity-40`}
+                      >
+                        Retire
                       </button>
                       {cs && cs.inning === 1 && (
                         <button
@@ -719,6 +795,109 @@ export function ScorerConsole({ code }: { code: string }) {
       </div>
 
       {/* ══ Player sheet — opens itself when a batter/bowler is needed ══ */}
+      {/* ── How did they get out? ──────────────────────────────────
+          Bowled/caught/lbw/stumped always take the striker. A run-out
+          can take either batter and often follows a completed run that
+          already crossed them, so that one asks — guessing from an end
+          would name the wrong player about half the time. */}
+      {wicketSheet && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={() => setWicketSheet(false)}
+        >
+          <div
+            className="max-h-[80vh] w-full overflow-y-auto rounded-t-3xl border-t border-zinc-800 bg-zinc-950 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-4">
+              <h3 className="font-semibold text-white">How was the wicket?</h3>
+              <button onClick={() => setWicketSheet(false)} className="text-zinc-400 hover:text-white">
+                Close
+              </button>
+            </div>
+            {(
+              [
+                ["bowled", "Bowled"],
+                ["caught", "Caught"],
+                ["lbw", "LBW"],
+                ["stumped", "Stumped"],
+                ["hitwicket", "Hit wicket"],
+              ] as const
+            ).map(([kind, label]) => (
+              <button
+                key={kind}
+                onClick={() => {
+                  setWicketSheet(false);
+                  void ball({ runs: 0, wicket: true, dismissal: kind });
+                }}
+                className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
+              >
+                {label}
+                <span className="text-xs text-zinc-500">{nameOfPlayer(strikerId) || "striker"}</span>
+              </button>
+            ))}
+            <p className="px-5 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Run out — who was out?
+            </p>
+            {[strikerId, nonStrikerId].filter((id): id is string => !!id).map((id) => (
+              <button
+                key={id}
+                onClick={() => {
+                  setWicketSheet(false);
+                  void ball({ runs: 0, wicket: true, dismissal: "runout", outBatterId: id });
+                }}
+                className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
+              >
+                {nameOfPlayer(id)}
+                <span className="text-xs text-zinc-500">
+                  {id === strikerId ? "on strike" : "non-striker"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Retired hurt ─────────────────────────────────────────────
+          Not a delivery and not a dismissal: no ball is logged, no
+          wicket falls, and the batter stays eligible to come back. */}
+      {retireSheet && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={() => setRetireSheet(false)}
+        >
+          <div
+            className="w-full rounded-t-3xl border-t border-zinc-800 bg-zinc-950 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+              <h3 className="font-semibold text-white">Who is retiring hurt?</h3>
+              <button onClick={() => setRetireSheet(false)} className="text-zinc-400 hover:text-white">
+                Close
+              </button>
+            </div>
+            {[strikerId, nonStrikerId].filter((id): id is string => !!id).map((id) => (
+              <button
+                key={id}
+                onClick={() => {
+                  setRetireSheet(false);
+                  void ev("RETIRE", { memberId: id, data: { batterId: id } });
+                }}
+                className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
+              >
+                {nameOfPlayer(id)}
+                <span className="text-xs text-zinc-500">
+                  {id === strikerId ? "on strike" : "non-striker"}
+                </span>
+              </button>
+            ))}
+            <p className="px-5 pt-3 text-[11px] text-zinc-500">
+              No wicket is recorded and they can bat again later in the innings.
+            </p>
+          </div>
+        </div>
+      )}
+
       {picker && (
         <div
           className="fixed inset-0 z-40 flex items-end justify-center bg-black/60"

@@ -39,7 +39,25 @@ const MAX_RUNS_PER_BALL = 12; // 6 off the bat + generous extras
  */
 const DEFAULT_WICKETS_PER_INNINGS = 10;
 /** Fields inside event.data that name a player and must be on this match. */
-const MEMBER_REF_KEYS = ["batterId", "bowlerId", "assistId", "fielderId"] as const;
+const MEMBER_REF_KEYS = [
+  "batterId",
+  "bowlerId",
+  "assistId",
+  "fielderId",
+  // Who actually went on a run-out — either batter, so it can't be
+  // inferred from an end.
+  "outBatterId",
+] as const;
+
+/** Ways a batter can be out. Anything else is refused, not stored. */
+const DISMISSALS = new Set([
+  "bowled",
+  "caught",
+  "lbw",
+  "stumped",
+  "runout",
+  "hitwicket",
+]);
 
 type EventRow = {
   seq: number;
@@ -548,7 +566,15 @@ function sanitiseEventData(
     if (extra && CRICKET_EXTRAS.has(extra)) out.extra = extra;
     const wicketKind = str(raw.wicketKind);
     if (wicketKind) out.wicketKind = wicketKind.slice(0, 24);
+    const dismissal = str(raw.dismissal);
+    if (dismissal && DISMISSALS.has(dismissal)) out.dismissal = dismissal;
     for (const key of MEMBER_REF_KEYS) {
+      const ref = str(raw[key]);
+      if (ref) out[key] = ref;
+    }
+  } else if (sport === "CRICKET" && (kind === "CREASE" || kind === "RETIRE")) {
+    // Player ids only — these events carry nothing else.
+    for (const key of ["strikerId", "nonStrikerId", "batterId"] as const) {
       const ref = str(raw[key]);
       if (ref) out[key] = ref;
     }
@@ -902,21 +928,45 @@ export async function undoLastEvent(matchId: string): Promise<{ ok: boolean; err
   return { ok: true };
 }
 
-export async function startLiveMatch(matchId: string): Promise<{ ok: boolean; error?: string }> {
+export async function startLiveMatch(
+  matchId: string,
+  /**
+   * Cricket overs per side for THIS match, agreed at the toss. Omitted
+   * keeps the tournament's figure. Captured here rather than assumed
+   * because it is the one number the whole innings hangs on — the ball
+   * cap AND the Net Run Rate quota both read it, and a cup that shortens
+   * a match for rain or a late start would otherwise be scored against
+   * overs nobody played.
+   */
+  oversPerInnings?: number | null,
+): Promise<{ ok: boolean; error?: string }> {
   const match = await db.tournamentMatch.findUnique({
     where: { id: matchId },
     select: {
       status: true,
       homeTeamId: true,
       awayTeamId: true,
-      tournament: { select: { liveScoringEnabled: true } },
+      tournament: { select: { liveScoringEnabled: true, sport: true } },
     },
   });
   if (!match) return { ok: false, error: "Match not found" };
   if (!match.tournament.liveScoringEnabled) return { ok: false, error: "Live scoring is off" };
   if (match.status !== "SCHEDULED") return { ok: false, error: "Match already started or done" };
   if (!match.homeTeamId || !match.awayTeamId) return { ok: false, error: "Teams not decided yet" };
-  await db.tournamentMatch.update({ where: { id: matchId }, data: { status: "LIVE" } });
+
+  let overs: number | undefined;
+  if (match.tournament.sport === "CRICKET" && oversPerInnings != null) {
+    const n = Math.trunc(oversPerInnings);
+    if (!Number.isFinite(n) || n < 0 || n > 90) {
+      return { ok: false, error: "Overs must be between 0 and 90" };
+    }
+    overs = n;
+  }
+
+  await db.tournamentMatch.update({
+    where: { id: matchId },
+    data: { status: "LIVE", ...(overs !== undefined ? { oversPerInnings: overs } : {}) },
+  });
   return { ok: true };
 }
 

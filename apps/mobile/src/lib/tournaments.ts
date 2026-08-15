@@ -338,6 +338,8 @@ export type ScorerMatch = {
   awayScore: number | null;
   homeTeam: ScorerTeam;
   awayTeam: ScorerTeam;
+  /** This match's own overs cap; null falls back to the tournament. */
+  oversPerInnings: number | null;
   liveState: unknown;
   clockStartedAt: string | null;
   clockElapsedSec: number;
@@ -350,14 +352,17 @@ export type ScorerBoot = {
     status: string;
     /** Overs one bowler may bowl in a match; 0 = no limit. */
     maxOversPerBowler?: number;
-    /** Overs per side; 0 = unlimited. */
+    /** Overs per side; 0 = unlimited. A match may override it. */
     oversPerInnings?: number;
+    /** Wickets per side — when a team is all out. */
+    wicketsPerInnings?: number;
   };
   matches: ScorerMatch[];
 };
 
 export type ScorerAction =
-  | { action: "start"; matchId: string }
+  // Overs are agreed at the toss, so cricket sends them with the start.
+  | { action: "start"; matchId: string; oversPerInnings?: number }
   | { action: "undo"; matchId: string }
   | { action: "end"; matchId: string; winnerTeamId?: string | null }
   | {

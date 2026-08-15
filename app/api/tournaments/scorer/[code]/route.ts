@@ -51,6 +51,7 @@ export async function GET(
           awayTeam: {
             select: { id: true, name: true, color: true, members: { orderBy: { order: "asc" }, select: { id: true, name: true } } },
           },
+          oversPerInnings: true,
           liveState: true,
           clockStartedAt: true,
           clockElapsedSec: true,
@@ -85,6 +86,7 @@ export async function GET(
       status: t.status,
       maxOversPerBowler: t.maxOversPerBowler,
       oversPerInnings: t.oversPerInnings,
+      wicketsPerInnings: t.wicketsPerInnings,
     },
     matches: t.matches,
   });
