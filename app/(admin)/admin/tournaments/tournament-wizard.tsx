@@ -50,6 +50,22 @@ type Tiebreaker = TournamentWizardInput["tiebreakers"][number];
 const BASE_TIEBREAKERS: Tiebreaker[] = ["H2H", "SCORE_DIFF", "SCORE_FOR"];
 
 /**
+ * What a Momentum cricket tournament looks like unless the organiser
+ * says otherwise: ten overs a side, eight wickets.
+ *
+ * These are defaults for NEW tournaments, not a migration — an existing
+ * tournament keeps whatever it was saved with.
+ *
+ * Zero overs used to be the default, and zero means "unlimited", which
+ * reads as a harmless blank until you notice what depends on it: with no
+ * over quota there is nothing to charge a side that gets bowled out, so
+ * the Net Run Rate rule that separates teams level on points silently
+ * cannot apply. A field nobody thinks to fill in shouldn't be able to
+ * quietly disable a tiebreaker.
+ */
+const CRICKET_DEFAULTS = { oversPerInnings: 10, wicketsPerInnings: 8 } as const;
+
+/**
  * Keep the visible chain honest.
  *
  * The standings engine ranks cricket on net run rate before anything else
@@ -81,8 +97,7 @@ export function defaultWizardState(): TournamentWizardInput {
     membersPerTeamMin: 1,
     membersPerTeamMax: 11,
     maxOversPerBowler: 0,
-    oversPerInnings: 0,
-    wicketsPerInnings: 10,
+    ...CRICKET_DEFAULTS,
     bracketSeeding: "POOL_ORDER",
     host: "VENUE",
     organizerName: "",
@@ -216,6 +231,13 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
                 sport,
                 statFields: DEFAULT_STAT_FIELDS[sport] || [],
                 tiebreakers: tiebreakersForSport(sport, f.tiebreakers),
+                // Switching into cricket brings the cricket defaults with
+                // it. Without this a draft started as football would
+                // arrive carrying 0 overs, and 0 means unlimited — which
+                // is exactly the state that disables the NRR all-out rule.
+                ...(sport === "CRICKET" && !f.oversPerInnings
+                  ? CRICKET_DEFAULTS
+                  : {}),
               }));
             }}>
               {SPORTS.map((s) => (
