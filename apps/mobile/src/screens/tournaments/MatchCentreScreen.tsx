@@ -51,7 +51,7 @@ function InningsBlock({ inn }: { inn: InningsCard }) {
             <View key={b.memberId} style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.playerName}>{b.name}</Text>
-                <Text style={styles.dismissal}>{b.out ? b.dismissal || "out" : "not out"}</Text>
+                <Text style={styles.dismissal}>{b.dismissal || (b.out ? "out" : "not out")}</Text>
               </View>
               <Text style={[styles.cell, styles.strong]}>{b.runs}</Text>
               <Text style={styles.cell}>{b.balls}</Text>

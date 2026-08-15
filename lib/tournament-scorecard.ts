@@ -1,5 +1,10 @@
 import { db } from "@/lib/db";
 import { footballClockSeconds } from "@/lib/tournament-live";
+import {
+  creditsBowler,
+  dismissalCommentary,
+  dismissalLine,
+} from "@/lib/cricket-dismissal";
 
 // ESPNcricinfo-style match centre data.
 //
@@ -264,9 +269,22 @@ function ballText(d: {
   wicket?: boolean;
   batter?: string | null;
   bowler?: string | null;
+  dismissal?: string | null;
+  /** Who went — differs from `batter` on a run-out at the other end. */
+  outBatter?: string | null;
+  fielder?: string | null;
 }): string {
   const who = d.bowler && d.batter ? `${d.bowler} to ${d.batter}, ` : "";
-  if (d.wicket) return `${who}OUT!`;
+  if (d.wicket) {
+    return `${who}${dismissalCommentary({
+      dismissal: d.dismissal,
+      bowlerName: creditsBowler(d.dismissal) ? d.bowler : null,
+      fielderName: d.fielder,
+      // Name the batter only when it wasn't the one facing — "X to Y,
+      // OUT! Y run out" repeats itself for the ordinary case.
+      batterName: d.outBatter && d.outBatter !== d.batter ? d.outBatter : null,
+    })}`;
+  }
   if (d.extra === "wd") return `${who}wide${d.runs > 1 ? ` + ${d.runs - 1}` : ""}`;
   if (d.extra === "nb") return `${who}no ball${d.runs > 1 ? ` + ${d.runs - 1}` : ""}`;
   if (d.runs === 0) return `${who}no run`;
@@ -356,7 +374,28 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         accs.push(cur);
         continue;
       }
-      if (e.kind !== "BALL" || !cur) continue;
+      if (!cur) continue;
+
+      // A batting row that may not exist yet. A non-striker run out on a
+      // ball they never faced still needs a line on the card, otherwise
+      // the wicket falls against nobody.
+      const battingRow = (id: string): BattingRow => {
+        const row = cur!.bat.get(id) || {
+          memberId: id, name: nameOf.get(id) || "Unknown",
+          runs: 0, balls: 0, fours: 0, sixes: 0, strikeRate: 0, out: false, dismissal: null,
+        };
+        cur!.bat.set(id, row);
+        return row;
+      };
+
+      if (e.kind === "RETIRE") {
+        // Not a dismissal: no wicket, no bowler credit. It belongs on the
+        // card only so the batter's line explains why it stopped.
+        const id = (d.batterId as string) || e.memberId || null;
+        if (id) battingRow(id).dismissal = "retired hurt";
+        continue;
+      }
+      if (e.kind !== "BALL") continue;
 
       const runs = Math.max(0, Number(d.runs) || 0);
       const extra = (d.extra as string) || null;
@@ -364,6 +403,11 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
       const legal = extra !== "wd" && extra !== "nb";
       const batterId = (d.batterId as string) || e.memberId || null;
       const bowlerId = (d.bowlerId as string) || null;
+      const dismissal = (d.dismissal as string) || null;
+      const fielderId = (d.fielderId as string) || null;
+      // Whose wicket it was. Only a run-out can take the batter who wasn't
+      // facing, so the scorer names them; everything else is the striker.
+      const outId = isWicket ? (d.outBatterId as string) || batterId : null;
 
       cur.runs += runs;
       if (isWicket) cur.wickets += 1;
@@ -371,10 +415,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
       if (extra) cur.extras += extra === "wd" || extra === "nb" ? Math.max(1, runs) : runs;
 
       if (batterId) {
-        const row = cur.bat.get(batterId) || {
-          memberId: batterId, name: nameOf.get(batterId) || "Unknown",
-          runs: 0, balls: 0, fours: 0, sixes: 0, strikeRate: 0, out: false, dismissal: null,
-        };
+        const row = battingRow(batterId);
         // Wides aren't charged to the batter; everything else is a ball faced.
         if (extra !== "wd") row.balls += 1;
         if (!extra) {
@@ -382,12 +423,21 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
           if (runs === 4) row.fours += 1;
           if (runs === 6) row.sixes += 1;
         }
-        if (isWicket) {
-          row.out = true;
-          row.dismissal = bowlerId ? `b ${nameOf.get(bowlerId) || "—"}` : (d.wicketKind as string) || "out";
-        }
         row.strikeRate = row.balls > 0 ? Number(((row.runs / row.balls) * 100).toFixed(2)) : 0;
-        cur.bat.set(batterId, row);
+      }
+
+      // Written against the batter who actually went, which on a run-out is
+      // often the one at the other end.
+      if (outId) {
+        const row = battingRow(outId);
+        row.out = true;
+        row.dismissal = dismissalLine({
+          dismissal,
+          // A run-out is nobody's delivery to claim, so the bowler is left
+          // out of the line as well as out of the figures.
+          bowlerName: creditsBowler(dismissal) && bowlerId ? nameOf.get(bowlerId) : null,
+          fielderName: fielderId ? nameOf.get(fielderId) : null,
+        });
       }
 
       if (bowlerId) {
@@ -397,7 +447,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         };
         if (legal) row.balls += 1;
         row.runs += runs;
-        if (isWicket) row.wickets += 1;
+        if (isWicket && creditsBowler(dismissal)) row.wickets += 1;
         row.overs = oversOf(row.balls);
         row.economy = rate(row.runs, row.balls);
         cur.bowl.set(bowlerId, row);
@@ -408,7 +458,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
           wicket: cur.wickets,
           runs: cur.runs,
           over: oversOf(cur.balls),
-          batter: batterId ? nameOf.get(batterId) || null : null,
+          batter: outId ? nameOf.get(outId) || null : null,
         });
       }
 
@@ -419,6 +469,9 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
           runs, extra, wicket: isWicket,
           batter: batterId ? nameOf.get(batterId) || null : null,
           bowler: bowlerId ? nameOf.get(bowlerId) || null : null,
+          dismissal,
+          outBatter: outId ? nameOf.get(outId) || null : null,
+          fielder: fielderId ? nameOf.get(fielderId) || null : null,
         }),
         runs,
         wicket: isWicket,
