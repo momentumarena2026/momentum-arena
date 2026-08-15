@@ -27,7 +27,17 @@ export type LiveEventInput = {
 // without these, one fat-fingered (or forged) value dominates every
 // score-difference tiebreaker in the tournament.
 const MAX_RUNS_PER_BALL = 12; // 6 off the bat + generous extras
-const MAX_WICKETS_PER_INNINGS = 10;
+/**
+ * Wickets a side has when the tournament hasn't said otherwise.
+ *
+ * Ten is the standard game, but a short-format cup with 8–10 players a
+ * side plays fewer, and treating that as a constant is not cosmetic: it
+ * decides when a side is ALL OUT, and "all out" is what triggers the
+ * Net Run Rate rule that charges a side its full over quota. Momentum's
+ * own cup plays 8, so a team bowled out for 55 in 8.5 overs was divided
+ * by 8.5 instead of 10 and every NRR in the pool came out wrong.
+ */
+const DEFAULT_WICKETS_PER_INNINGS = 10;
 /** Fields inside event.data that name a player and must be on this match. */
 const MEMBER_REF_KEYS = ["batterId", "bowlerId", "assistId", "fielderId"] as const;
 
@@ -130,7 +140,13 @@ function ballLabel(d: { runs: number; extra?: string | null; wicket?: boolean })
   return String(d.runs);
 }
 
-export function foldCricket(events: EventRow[]): CricketState {
+export function foldCricket(
+  events: EventRow[],
+  /** Tournament.wicketsPerInnings. Omitted = the standard ten. */
+  wicketsPerInnings: number = DEFAULT_WICKETS_PER_INNINGS,
+): CricketState {
+  const maxWickets =
+    wicketsPerInnings > 0 ? wicketsPerInnings : DEFAULT_WICKETS_PER_INNINGS;
   const st: CricketState = {
     sport: "CRICKET",
     inning: 0,
@@ -201,7 +217,7 @@ export function foldCricket(events: EventRow[]): CricketState {
       const bowlerId = raw.bowlerId || null;
 
       inn.runs += runs;
-      if (wicket) inn.wickets = Math.min(MAX_WICKETS_PER_INNINGS, inn.wickets + 1);
+      if (wicket) inn.wickets = Math.min(maxWickets, inn.wickets + 1);
       if (legal) inn.balls += 1;
 
       const cur = st.current;
@@ -292,7 +308,7 @@ export function foldCricket(events: EventRow[]): CricketState {
   cur.needsBatter =
     st.inning > 0 &&
     (!cur.strikerId || !cur.nonStrikerId) &&
-    (st.innings[st.innings.length - 1]?.wickets ?? 0) < MAX_WICKETS_PER_INNINGS;
+    (st.innings[st.innings.length - 1]?.wickets ?? 0) < maxWickets;
   cur.batters = [cur.strikerId, cur.nonStrikerId]
     .filter((id): id is string => !!id)
     .map((id) => {
@@ -556,8 +572,10 @@ export type LiveGuardContext = {
   memberTeam: Map<string, string>;
   /** Cricket over quota per bowler; 0 = no limit. */
   maxOversPerBowler: number;
-  /** Cricket overs per side; 0 = unlimited. */
+  /** Cricket overs per side; 0 = unlimited. Match override wins. */
   oversPerInnings: number;
+  /** Cricket wickets per side. Omitted = the standard ten. */
+  wicketsPerInnings?: number;
 };
 
 /**
@@ -581,7 +599,8 @@ export function validateLiveEvent(
   const d = (input.data || {}) as Record<string, unknown>;
 
   if (ctx.sport === "CRICKET") {
-    const st = foldCricket(events);
+    const maxWickets = ctx.wicketsPerInnings || DEFAULT_WICKETS_PER_INNINGS;
+    const st = foldCricket(events, maxWickets);
     if (input.kind === "INNINGS_START") {
       if (!input.teamId) return "Pick which team is batting";
       if (st.inning >= 2) return "Both innings have already been played";
@@ -637,7 +656,7 @@ export function validateLiveEvent(
       if (teamOf(batterId) !== st.battingTeamId) return "That batter isn't in the batting side";
       if (teamOf(bowlerId) !== bowlingTeamId) return "That bowler isn't in the fielding side";
       if (cur.dismissed.includes(batterId)) return "That batter is already out";
-      if (inn && inn.wickets >= MAX_WICKETS_PER_INNINGS) return "All out — end the innings";
+      if (inn && inn.wickets >= maxWickets) return "All out — end the innings";
       // The innings is only as long as the tournament says it is.
       if (ctx.oversPerInnings > 0 && inn && inn.balls >= ctx.oversPerInnings * 6) {
         return `Innings complete — ${ctx.oversPerInnings} overs bowled. End the innings.`;
@@ -736,6 +755,7 @@ export async function applyLiveEvent(
       status: true,
       homeTeamId: true,
       awayTeamId: true,
+      oversPerInnings: true,
       clockStartedAt: true,
       clockElapsedSec: true,
       tournament: {
@@ -744,6 +764,7 @@ export async function applyLiveEvent(
           liveScoringEnabled: true,
           maxOversPerBowler: true,
           oversPerInnings: true,
+          wicketsPerInnings: true,
         },
       },
       homeTeam: { select: { members: { select: { id: true } } } },
@@ -794,7 +815,12 @@ export async function applyLiveEvent(
         awayTeamId: match.awayTeamId,
         memberTeam,
         maxOversPerBowler: match.tournament.maxOversPerBowler ?? 0,
-        oversPerInnings: match.tournament.oversPerInnings ?? 0,
+        // A match may be shortened (rain, a late start), and the innings
+        // cap has to follow the overs actually being played rather than
+        // the ones originally scheduled.
+        oversPerInnings:
+          match.oversPerInnings ?? match.tournament.oversPerInnings ?? 0,
+        wicketsPerInnings: match.tournament.wicketsPerInnings ?? undefined,
       },
       prior,
       input

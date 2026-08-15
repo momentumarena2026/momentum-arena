@@ -82,6 +82,7 @@ export function defaultWizardState(): TournamentWizardInput {
     membersPerTeamMax: 11,
     maxOversPerBowler: 0,
     oversPerInnings: 0,
+    wicketsPerInnings: 10,
     bracketSeeding: "POOL_ORDER",
     host: "VENUE",
     organizerName: "",
@@ -368,6 +369,26 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
               />
               <p className="mt-1 text-[11px] text-zinc-500">
                 Overs per side. The innings closes on the last legal ball.
+                Needed for Net Run Rate — an all-out side is charged this
+                many overs.
+              </p>
+            </div>
+          )}
+          {form.sport === "CRICKET" && (
+            <div>
+              <label className={labelCls}>Wickets / Innings</label>
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                placeholder="10"
+                value={form.wicketsPerInnings || ""}
+                onChange={(e) => set("wicketsPerInnings", num(e.target.value))}
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                When a side is all out. Ten in a full game, fewer in a
+                short-format cup — 8 for a 9-a-side. This decides the
+                &ldquo;won by N wickets&rdquo; margin and, with the overs
+                above, the Net Run Rate of any side bowled out.
               </p>
             </div>
           )}

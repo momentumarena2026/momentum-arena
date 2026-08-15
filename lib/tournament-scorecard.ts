@@ -1,9 +1,6 @@
 import { db } from "@/lib/db";
 import { footballClockSeconds } from "@/lib/tournament-live";
 
-/** A side is all out at ten down. */
-const MAX_WICKETS_PER_INNINGS = 10;
-
 // ESPNcricinfo-style match centre data.
 //
 // The event log is already the source of truth for the score; this module
@@ -218,6 +215,8 @@ function resultText(args: {
   isDraw: boolean;
   winnerTeamId: string | null;
   liveState: unknown;
+  /** Wickets a side has in THIS tournament — 8 in a short-format cup. */
+  wicketsPerInnings: number;
 }): string {
   const { status, home, away, isDraw, winnerTeamId } = args;
   if (status === "COMPLETED" || status === "WALKOVER") {
@@ -237,7 +236,7 @@ function resultText(args: {
       } | null;
       const chase = st?.innings?.[1];
       if (chase && chase.teamId === winner.id) {
-        const inHand = Math.max(0, MAX_WICKETS_PER_INNINGS - (chase.wickets ?? 0));
+        const inHand = Math.max(0, args.wicketsPerInnings - (chase.wickets ?? 0));
         return `${winner.name} won by ${inHand} wicket${inHand === 1 ? "" : "s"}`;
       }
       return `${winner.name} won by ${margin} run${margin === 1 ? "" : "s"}`;
@@ -310,7 +309,10 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         },
       },
       tournament: {
-        select: { id: true, slug: true, name: true, sport: true, status: true, statFields: true },
+        select: {
+          id: true, slug: true, name: true, sport: true, status: true,
+          statFields: true, wicketsPerInnings: true,
+        },
       },
     },
   });
@@ -530,6 +532,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         isDraw: match.isDraw,
         winnerTeamId: match.winnerTeamId,
         liveState: match.liveState,
+        wicketsPerInnings: match.tournament.wicketsPerInnings,
       }),
       clockSeconds:
         match.tournament.sport === "FOOTBALL" ? footballClockSeconds(match) : null,

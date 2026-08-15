@@ -30,6 +30,7 @@ export async function GET(
       liveScoringEnabled: true,
       maxOversPerBowler: true,
       oversPerInnings: true,
+      wicketsPerInnings: true,
       matches: {
         where: {
           status: { in: ["LIVE", "SCHEDULED"] },

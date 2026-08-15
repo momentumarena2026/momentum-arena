@@ -104,6 +104,7 @@ export type AdminTournament = {
   membersPerTeamMax: number;
   maxOversPerBowler: number;
   oversPerInnings: number;
+  wicketsPerInnings: number;
   bracketSeeding: "POOL_ORDER" | "OVERALL_RANK";
   entryFee: number;
   feeMode: "FULL" | "ADVANCE" | "FREE";
@@ -351,6 +352,7 @@ export function TournamentManage({
     organizerNote: t.organizerNote || "",
     maxOversPerBowler: t.maxOversPerBowler,
     oversPerInnings: t.oversPerInnings,
+    wicketsPerInnings: t.wicketsPerInnings,
     bracketSeeding: t.bracketSeeding,
     entryFee: t.entryFee,
     feeMode: t.feeMode,

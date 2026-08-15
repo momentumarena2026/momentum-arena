@@ -3216,8 +3216,16 @@ model Tournament {
   /// scorer console greys out a bowler once they've bowled their quota.
   maxOversPerBowler Int            @default(0)
   /// Cricket: overs per side. 0 = unlimited. The innings closes on the
-  /// last legal ball, and the scorer can't bowl past it.
+  /// last legal ball, and the scorer can't bowl past it. A match may
+  /// override this at start time (Match.oversPerInnings).
   oversPerInnings   Int            @default(0)
+  /// Cricket: wickets a side has per innings. Ten is standard, but a
+  /// short-format tournament with 8–10 a side plays fewer — Momentum's
+  /// own cup is 8. This is NOT cosmetic: it decides when a side is all
+  /// out, which drives the "won by N wickets" margin and the ICC rule
+  /// that charges an all-out side its FULL over quota for Net Run Rate.
+  /// Hardcoding ten silently skipped that rule and mis-stated NRR.
+  wicketsPerInnings Int            @default(10)
 
   /// VENUE (default) or THIRD_PARTY. On THIRD_PARTY the public page
   /// drops registration entirely and entryFee is pinned to 0 — the
@@ -3499,6 +3507,13 @@ model TournamentMatch {
 
   playerOfMatchId String?
   playerOfMatch   TournamentTeamMember? @relation("playerOfMatch", fields: [playerOfMatchId], references: [id], onDelete: SetNull)
+
+  /// Cricket: overs per side for THIS match, captured when the scorer
+  /// starts it. Null falls back to the tournament's figure — rain, a
+  /// late start or a knockout played long are per-match facts, and the
+  /// innings cap plus the Net Run Rate quota both have to follow the
+  /// overs actually played, not the ones originally scheduled.
+  oversPerInnings Int?
 
   // Live scoring state
   // liveState: sport-specific snapshot folded from events, e.g. cricket
