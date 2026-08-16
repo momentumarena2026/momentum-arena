@@ -161,7 +161,19 @@ Anything else means main has drifted — stop and investigate, do not push.
     `SharedValues::SIGH_NAME` rather than a constant.
 12. `next/image` needs an explicit `remotePatterns` entry — Vercel Blob URLs
     (`**.blob.vercel-storage.com`) had to be added to `next.config.ts`.
-13. **Cricket scoring has three rules that look like details and aren't.**
+13. **Three surfaces report "sports earnings" and they are SUPPOSED to differ.**
+    `/admin/bookings` counts bookings only, money booked, lifetime. The
+    Analytics KPI counts every sports stream (bookings + passes + tournaments
+    + venue hire + camps), money **received**. The Year View counts the same
+    streams but money **booked**, keyed on play date. Each now states this on
+    screen; do not "fix" one to match another. `scripts/reconcile-sports-earnings.ts`
+    (read-only workflow_dispatch) prints the gap component by component.
+    *The one real bug it found:* every cash-basis figure filters on
+    `Payment.confirmedAt`, so a COMPLETED payment with a null timestamp is
+    money collected that no cash report can see. Six such rows existed
+    (counter CASH/UPI_QR); backfilled 2026-08-16. If a new gap appears, run
+    the reconciliation first — it names the cause.
+14. **Cricket scoring has three rules that look like details and aren't.**
     (a) *Zero overs is not "unlimited", it is broken.* It switches off both the
     innings close and the NRR rule that charges a bowled-out side its full
     quota — which is how three matches in a live pool ended up with wrong net
