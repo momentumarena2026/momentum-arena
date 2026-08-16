@@ -1,5 +1,9 @@
 import { db } from "@/lib/db";
-import { footballClockSeconds } from "@/lib/tournament-live";
+import {
+  batterRunsOf,
+  bowlerRunsOf,
+  footballClockSeconds,
+} from "@/lib/tournament-live";
 import {
   creditsBowler,
   dismissalCommentary,
@@ -418,11 +422,12 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         const row = battingRow(batterId);
         // Wides aren't charged to the batter; everything else is a ball faced.
         if (extra !== "wd") row.balls += 1;
-        if (!extra) {
-          row.runs += runs;
-          if (runs === 4) row.fours += 1;
-          if (runs === 6) row.sixes += 1;
-        }
+        // Boundaries count off what the BATTER made, so a no-ball hit for
+        // four is a four — and four byes are not.
+        const batterRuns = batterRunsOf(runs, extra);
+        row.runs += batterRuns;
+        if (batterRuns === 4) row.fours += 1;
+        if (batterRuns === 6) row.sixes += 1;
         row.strikeRate = row.balls > 0 ? Number(((row.runs / row.balls) * 100).toFixed(2)) : 0;
       }
 
@@ -446,7 +451,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
           balls: 0, overs: "0.0", runs: 0, wickets: 0, economy: 0,
         };
         if (legal) row.balls += 1;
-        row.runs += runs;
+        row.runs += bowlerRunsOf(runs, extra);
         if (isWicket && creditsBowler(dismissal)) row.wickets += 1;
         row.overs = oversOf(row.balls);
         row.economy = rate(row.runs, row.balls);

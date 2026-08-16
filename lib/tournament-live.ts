@@ -141,6 +141,30 @@ function runsRunByBatsmen(d: { runs: number; extra?: string | null }): number {
   return d.runs;
 }
 
+/**
+ * How a delivery's runs are split between the batter, the bowler and
+ * nobody. `runs` is always the TOTAL added to the team, penalty included.
+ *
+ * Three surfaces derive figures from the same events — the live fold, the
+ * scorecard and the leaderboards — so the rules live here rather than
+ * being restated in each. They are ordinary cricket:
+ *
+ *  - A batter is credited only for what they hit. Byes and leg byes are
+ *    not theirs, and neither is a no-ball's one-run penalty — but what
+ *    they hit off that no-ball is.
+ *  - A bowler is charged for wides and no-balls, which are their own
+ *    fault, and NOT for byes or leg byes, which are the keeper's. Charging
+ *    those was inflating every economy rate on a bye.
+ */
+export function batterRunsOf(runs: number, extra?: string | null): number {
+  if (extra === "nb") return Math.max(0, runs - 1);
+  return extra ? 0 : runs;
+}
+
+export function bowlerRunsOf(runs: number, extra?: string | null): number {
+  return extra === "b" || extra === "lb" ? 0 : runs;
+}
+
 /** Short label for one delivery, as it reads on a scoreboard over-strip. */
 function ballLabel(d: { runs: number; extra?: string | null; wicket?: boolean }): string {
   if (d.wicket) return "W";
@@ -246,14 +270,14 @@ export function foldCricket(
         cur.strikerId = onStrike;
         const f = batFigures.get(onStrike) || { runs: 0, balls: 0, out: false };
         if (extra !== "wd") f.balls += 1; // a wide isn't a ball faced
-        if (!extra) f.runs += runs;
+        f.runs += batterRunsOf(runs, extra);
         batFigures.set(onStrike, f);
       }
       if (bowlerId) {
         cur.bowlerId = bowlerId;
         const f = bowlFigures.get(bowlerId) || { balls: 0, runs: 0, wickets: 0 };
         if (legal) f.balls += 1;
-        f.runs += runs;
+        f.runs += bowlerRunsOf(runs, extra);
         // A run-out is the fielding side's wicket, not the bowler's —
         // crediting it inflated both the analysis and the Most Wickets
         // trophy the tournament awards.

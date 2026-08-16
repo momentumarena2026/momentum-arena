@@ -608,7 +608,7 @@ export function ScorerConsole({ code }: { code: string }) {
                       </button>
                     )}
                     <div className="grid grid-cols-4 gap-2">
-                      {[0, 1, 2, 3, 4, 6].map((r) => (
+                      {[0, 1, 2, 3, 4, 5, 6].map((r) => (
                         <button
                           key={r}
                           onClick={() => ball({ runs: r })}
@@ -633,13 +633,46 @@ export function ScorerConsole({ code }: { code: string }) {
                         Wd
                       </button>
                     </div>
+
+                    {/* ── Extras, with the runs that came with them ──────
+                        `runs` is always the TOTAL the delivery adds, penalty
+                        included: a wide that they run one off is 2. One tap
+                        each — a scorer has a ball every twenty seconds and
+                        should not be navigating a menu. Leg byes were never
+                        on the pad at all, though the engine has always
+                        accepted them. */}
+                    {(
+                      [
+                        ["wd", "Wide", "text-amber-300 border-amber-500/40 bg-amber-600/10",
+                          [["wd", 1], ["wd+1", 2], ["wd+2", 3], ["wd+3", 4], ["wd+4", 5]]],
+                        ["nb", "No ball", "text-amber-300 border-amber-500/40 bg-amber-600/10",
+                          [["nb", 1], ["nb+1", 2], ["nb+2", 3], ["nb+4", 5], ["nb+6", 7]]],
+                        ["b", "Byes", "text-zinc-300 border-zinc-700 bg-zinc-900",
+                          [["1", 1], ["2", 2], ["3", 3], ["4", 4]]],
+                        ["lb", "Leg byes", "text-zinc-300 border-zinc-700 bg-zinc-900",
+                          [["1", 1], ["2", 2], ["3", 3], ["4", 4]]],
+                      ] as [string, string, string, [string, number][]][]
+                    ).map(([kind, label, tone, opts]) => (
+                      <div key={kind} className="flex items-center gap-2">
+                        <span className="w-16 shrink-0 text-[11px] uppercase tracking-wide text-zinc-500">
+                          {label}
+                        </span>
+                        <div className="flex flex-1 flex-wrap gap-1.5">
+                          {opts.map(([text, runs]) => (
+                            <button
+                              key={text}
+                              onClick={() => ball({ runs, extra: kind })}
+                              disabled={busy || !!missing || inningsDone}
+                              className={`rounded-lg border px-2.5 py-1.5 text-xs ${tone} disabled:opacity-40`}
+                            >
+                              {text}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+
                     <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => ball({ runs: 1, extra: "nb" })} disabled={busy || !!missing || inningsDone} className={`${bigBtn} h-12 border-amber-500/40 bg-amber-600/10 text-sm text-amber-300 disabled:opacity-40`}>
-                        No Ball +1
-                      </button>
-                      <button onClick={() => ball({ runs: 1, extra: "b" })} disabled={busy || !!missing || inningsDone} className={`${bigBtn} h-12 border-zinc-700 bg-zinc-900 text-sm text-zinc-300 disabled:opacity-40`}>
-                        Bye +1
-                      </button>
                       {/* Retired hurt isn't a delivery and isn't a wicket —
                           it costs the side nothing but the batter. Kept out
                           of the run pad so it can't be hit by accident. */}

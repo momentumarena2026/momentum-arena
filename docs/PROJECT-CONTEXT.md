@@ -180,7 +180,13 @@ Anything else means main has drifted — stop and investigate, do not push.
     run rates. `startLiveMatch` now refuses a cricket match without 1–90 overs.
     (b) *Wickets per side is a tournament setting, not ten.* Momentum's cup
     plays 8; hardcoding 10 silently disabled the same all-out rule.
-    (c) *A run-out is not the bowler's wicket.* It must not reach their figures
+    (c) *Runs belong to different people.* `batterRunsOf` / `bowlerRunsOf` in
+    lib/tournament-live.ts are the only place that decides. Byes and leg byes
+    are the keeper's, never charged to the bowler — charging them inflated
+    every economy rate on a bye. A no-ball's penalty is nobody's, but what the
+    batter hits off it is theirs. Figures are derived on every read, so fixing
+    a rule restates past matches correctly rather than needing a backfill.
+    (d) *A run-out is not the bowler's wicket.* It must not reach their figures
     or the Most Wickets leaderboard, and it can take the batter at the **other**
     end, so the scorer names who went. `lib/cricket-dismissal.ts` is the single
     place both questions are answered — the fold credits figures and the match
