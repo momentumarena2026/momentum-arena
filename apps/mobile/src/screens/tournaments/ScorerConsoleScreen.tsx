@@ -725,10 +725,50 @@ export function ScorerConsoleScreen() {
                   </View>
                   <View style={s.padRow}>
                     <PadKey glyph="4" caption="FOUR" tone="boundary" busy={padLocked} onPress={() => ball({ runs: 4 })} />
+                    <PadKey glyph="5" caption="RUNS" busy={padLocked} onPress={() => ball({ runs: 5 })} />
                     <PadKey glyph="6" caption="SIX" tone="boundary" busy={padLocked} onPress={() => ball({ runs: 6 })} />
                     <PadKey glyph="W" caption="OUT" tone="wicket" busy={padLocked} onPress={() => setWicketSheet(true)} />
                     <PadKey glyph="Wd" caption="WIDE" tone="extra" busy={padLocked} onPress={() => ball({ runs: 1, extra: "wd" })} />
                   </View>
+
+                  {/* ── Extras, with the runs that came with them ────────
+                      `runs` is always the TOTAL the delivery adds, penalty
+                      included: a wide they run one off is 2. One tap each —
+                      a scorer has a ball every twenty seconds and shouldn't
+                      be inside a menu. Leg byes were never on the pad,
+                      though the engine has always accepted them. */}
+                  {(
+                    [
+                      ["wd", "Wide", [["wd", 1], ["+1", 2], ["+2", 3], ["+3", 4], ["+4", 5]]],
+                      ["nb", "No ball", [["nb", 1], ["+1", 2], ["+2", 3], ["+4", 5], ["+6", 7]]],
+                      ["b", "Byes", [["1", 1], ["2", 2], ["3", 3], ["4", 4]]],
+                      ["lb", "Leg byes", [["1", 1], ["2", 2], ["3", 3], ["4", 4]]],
+                    ] as [string, string, [string, number][]][]
+                  ).map(([kind, label, opts]) => (
+                    <View key={kind} style={s.extraRow}>
+                      <Text style={s.extraLabel}>{label}</Text>
+                      <View style={s.extraOpts}>
+                        {opts.map(([text, runs]) => (
+                          <Pressable
+                            key={text}
+                            disabled={padLocked}
+                            onPress={() => ball({ runs, extra: kind })}
+                            style={[s.extraChip, padLocked && { opacity: 0.4 }]}
+                          >
+                            <Text
+                              style={{
+                                color: kind === "wd" || kind === "nb" ? "#fbbf24" : colors.zinc300,
+                                fontSize: 13,
+                                fontWeight: "600",
+                              }}
+                            >
+                              {text}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
 
                   <View style={s.padRow}>
                     <PadKey glyph="Nb" caption="NO BALL" tone="extra" busy={padLocked} onPress={() => ball({ runs: 1, extra: "nb" })} />
@@ -1247,6 +1287,22 @@ const s = StyleSheet.create({
   scoreLine: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginTop: 6 },
   scoreLineTwo: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
   battingTeam: { color: colors.zinc300, fontSize: 15, fontWeight: "600", flexShrink: 1 },
+  extraRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
+  extraLabel: {
+    color: colors.zinc500,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    width: 62,
+  },
+  extraOpts: { flexDirection: "row", flexWrap: "wrap", gap: 6, flex: 1 },
+  extraChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
   sheetSkip: { color: colors.zinc400, fontSize: 14, fontWeight: "600" },
   sheetEmpty: { color: colors.zinc500, fontSize: 13, paddingHorizontal: 20, paddingVertical: 24 },
   teamSmall: { color: colors.zinc400, fontSize: 12 },
