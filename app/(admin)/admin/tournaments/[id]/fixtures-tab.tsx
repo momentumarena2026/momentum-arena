@@ -9,7 +9,7 @@ import {
   scheduleMatch,
   unscheduleMatch,
 } from "@/actions/admin-tournament-fixtures";
-import { deleteManualMatch } from "@/actions/admin-tournament-manual-fixtures";
+import { deleteManualMatch, assignMatchTeam } from "@/actions/admin-tournament-manual-fixtures";
 import { getSlotPlanning } from "@/actions/admin-tournament-slots";
 
 export type MatchRow = {
@@ -71,10 +71,13 @@ export function FixturesTab({
   tournamentId,
   matches,
   courts,
+  teams = [],
 }: {
   tournamentId: string;
   matches: MatchRow[];
   courts: Court[];
+  /** Confirmed teams, for filling a side the bracket couldn't resolve. */
+  teams?: { id: string; name: string; status: string }[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -232,11 +235,50 @@ export function FixturesTab({
     }
   };
 
+  const assign = async (matchId: string, side: "home" | "away", teamId: string) => {
+    setBusy(`assign-${matchId}-${side}`);
+    setError(null);
+    try {
+      const res = await assignMatchTeam(matchId, side, teamId || null);
+      if (!res.success) setError(res.error);
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const confirmedTeams = teams.filter((t) => t.status === "CONFIRMED");
+
   const sideName = (m: MatchRow, side: "home" | "away") => {
     const team = side === "home" ? m.homeTeam : m.awayTeam;
     const label = side === "home" ? m.homeSourceLabel : m.awaySourceLabel;
     if (team) return <span className="text-zinc-100">{team.name}</span>;
-    return <span className="italic text-zinc-500">{label || "TBD"}</span>;
+    // Unresolved. Normally that's fine — the label fills itself in once the
+    // pool or the feeding match is decided. But a bracket can get stuck
+    // (a deleted source match, a withdrawal), and then nothing can start
+    // this fixture. Offer the manual way out, only before kick-off.
+    const stuck = m.status === "SCHEDULED" && confirmedTeams.length > 0;
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="italic text-zinc-500">{label || "TBD"}</span>
+        {stuck && (
+          <select
+            aria-label={`Set the ${side} team for ${m.roundLabel || "this match"}`}
+            value=""
+            disabled={busy === `assign-${m.id}-${side}`}
+            onChange={(e) => e.target.value && void assign(m.id, side, e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[11px] text-zinc-300 disabled:opacity-50"
+          >
+            <option value="">Set team…</option>
+            {confirmedTeams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </span>
+    );
   };
 
   return (

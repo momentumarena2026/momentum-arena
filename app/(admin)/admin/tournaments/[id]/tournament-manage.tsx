@@ -886,7 +886,7 @@ export function TournamentManage({
               onAdded={() => router.refresh()}
             />
           </div>
-          <FixturesTab tournamentId={t.id} matches={t.matches} courts={courts} />
+          <FixturesTab tournamentId={t.id} matches={t.matches} courts={courts} teams={t.teams} />
         </div>
       )}
 
