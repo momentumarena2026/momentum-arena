@@ -144,6 +144,53 @@ async function main() {
       AND (p.id IS NULL OR p.status <> 'COMPLETED')
   `);
 
+  // ── Money that IS collected but never reaches the cash-basis reports ──
+  //
+  // The KPI (and "Today's Earning", and anything else keyed on
+  // Payment.confirmedAt) counts a booking only when its payment is
+  // COMPLETED *and* carries a confirmedAt inside the window. A completed
+  // payment with a null timestamp is money in the till that no cash report
+  // can see, so it is worth naming separately from genuinely-unpaid money.
+  const invisible = await db.$queryRaw<
+    { reason: string; cnt: bigint; amt: bigint | null }[]
+  >(Prisma.sql`
+    SELECT
+      CASE
+        WHEN p."confirmedAt" IS NULL THEN 'COMPLETED payment, confirmedAt is NULL'
+        WHEN p."confirmedAt" < ${from} THEN 'confirmedAt before window'
+        ELSE 'confirmedAt after window'
+      END AS reason,
+      COUNT(*)::bigint AS cnt,
+      SUM(b."totalAmount" - COALESCE(pr.covered, 0))::bigint AS amt
+    FROM "Booking" b
+    INNER JOIN "Payment" p ON p."bookingId" = b.id
+    LEFT JOIN (
+      SELECT "bookingId", SUM("coveredAmount") AS covered
+      FROM "PassRedemption" WHERE "restoredAt" IS NULL GROUP BY "bookingId"
+    ) pr ON pr."bookingId" = b.id
+    WHERE b.status::text IN (${EARNING})
+      AND b.date >= ${yearStart} AND b.date < ${yearNext}
+      AND p.status = 'COMPLETED'
+      AND (p."confirmedAt" IS NULL OR p."confirmedAt" < ${from} OR p."confirmedAt" > ${to})
+    GROUP BY reason
+    ORDER BY reason
+  `);
+
+  const invisibleRows = await db.$queryRaw<
+    { id: string; date: Date; amount: number; created: Date; method: string | null }[]
+  >(Prisma.sql`
+    SELECT b.id, b.date, b."totalAmount" AS amount, p."createdAt" AS created,
+           p."method"::text AS method
+    FROM "Booking" b
+    INNER JOIN "Payment" p ON p."bookingId" = b.id
+    WHERE b.status::text IN (${EARNING})
+      AND b.date >= ${yearStart} AND b.date < ${yearNext}
+      AND p.status = 'COMPLETED'
+      AND (p."confirmedAt" IS NULL OR p."confirmedAt" < ${from} OR p."confirmedAt" > ${to})
+    ORDER BY b.date
+    LIMIT 40
+  `);
+
   console.log("THE THREE NUMBERS");
   console.log(`  ${pad("/admin/bookings  Total Sports Earnings")}${inr(tile)}`);
   console.log(`  ${pad("/admin/analytics Sports Earnings (KPI)")}${inr(kpi)}`);
@@ -163,6 +210,24 @@ async function main() {
 
   console.log("WHAT THE KPI LEAVES OUT (booked but not received)");
   console.log(`  ${pad(`Bookings with no COMPLETED payment (${num(uncollected.cnt)} rows)`)}${inr(num(uncollected.amt))}\n`);
+
+  console.log("COLLECTED BUT INVISIBLE TO CASH REPORTS");
+  if (invisible.length === 0) {
+    console.log("  (none — every completed payment carries a usable timestamp)\n");
+  } else {
+    for (const r of invisible) {
+      console.log(`  ${pad(`${r.reason} (${num(r.cnt)} rows)`)}${inr(num(r.amt))}`);
+    }
+    console.log("");
+    console.log("  Affected bookings (up to 40):");
+    for (const r of invisibleRows) {
+      console.log(
+        `    ${r.id}  ${new Date(r.date).toISOString().slice(0, 10)}  ${inr(r.amount).padStart(10)}  ` +
+        `payment created ${new Date(r.created).toISOString().slice(0, 10)}  ${r.method ?? "-"}`,
+      );
+    }
+    console.log("");
+  }
 
   console.log("GAPS");
   console.log(`  ${pad("KPI − tile")}${inr(kpi - tile)}`);
