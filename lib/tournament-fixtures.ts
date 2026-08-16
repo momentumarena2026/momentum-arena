@@ -91,70 +91,119 @@ export function buildKnockoutSkeleton(
   );
 
   const matches: SkeletonMatch[] = [];
-  // First round from the seeded slots.
-  let currentRound: { home: BracketSlot; away: BracketSlot; index: number }[] = [];
+
+  /**
+   * What feeds the next round, one entry per bracket position.
+   *
+   * A bye does NOT produce a match. It used to: the generator wrote a real
+   * "Team vs BYE" fixture and the round after it pointed at that fixture's
+   * winner. Nobody plays such a match, so an organiser looking at the
+   * fixture list deletes it — and the round after is then permanently
+   * unresolvable, because its source match no longer exists. That is
+   * exactly how a live cup ended up with a Final reading "Winner Semi
+   * Final 1" against a semi-final that wasn't there, and no way to start
+   * scoring it.
+   *
+   * So a bye carries its opponent's slot straight through. With three
+   * qualifiers the Final's home side becomes "Winner Pool A" — a label
+   * that resolves off the pool table the moment the pools finish, with no
+   * phantom fixture in between and nothing to delete.
+   */
+  let feeders: BracketSlot[] = [];
+  // Indices of the matches this round emitted, so the round that leaves two
+  // sides standing can be identified as the semi-finals wherever it occurs.
+  let roundIndices: number[] = [];
   const firstStage = stageForSize(size);
   for (let i = 0; i < size / 2; i++) {
     const home = slots[i * 2];
     const away = slots[i * 2 + 1];
+    if (home.kind === "bye" && away.kind === "bye") {
+      feeders.push({ kind: "bye" });
+      continue;
+    }
+    if (home.kind === "bye") {
+      feeders.push(away);
+      continue;
+    }
+    if (away.kind === "bye") {
+      feeders.push(home);
+      continue;
+    }
+    // Numbered by the matches actually played, not by bracket position —
+    // a skipped bye must not leave a gap ("Semi Final 2" with no 1").
+    const played = matches.length + 1;
+    const roundLabel =
+      size === 2 ? STAGE_MATCH_NAMES.FINAL : `${STAGE_MATCH_NAMES[firstStage]} ${played}`;
     const index = matches.length;
     matches.push({
       stage: firstStage,
-      roundLabel: size === 2 ? STAGE_MATCH_NAMES.FINAL : `${STAGE_MATCH_NAMES[firstStage]} ${i + 1}`,
-      sequence: i + 1,
+      roundLabel,
+      sequence: played,
       home,
       away,
     });
-    currentRound.push({ home, away, index });
+    roundIndices.push(index);
+    feeders.push({ kind: "winner", matchIndex: index, label: `Winner ${roundLabel}` });
   }
 
-  // Subsequent rounds chained by winner-of links.
-  let roundSize = size / 2;
-  while (roundSize >= 2) {
-    const stage = stageForSize(roundSize);
-    if (roundSize === 1) break;
-    const nextRound: { home: BracketSlot; away: BracketSlot; index: number }[] = [];
-    if (currentRound.length === 1) break; // final already emitted
-    for (let i = 0; i < currentRound.length / 2; i++) {
-      const a = currentRound[i * 2];
-      const b = currentRound[i * 2 + 1];
+  // Later rounds: pair the feeders, carrying byes forward the same way.
+  // `semiIndices` remembers the round that produced the Final's two sides,
+  // so a third-place play-off can be built from their losers. A four-team
+  // bracket reaches that state in the FIRST round, which is why this is
+  // seeded here and not only inside the loop below.
+  let semiIndices: number[] = feeders.length === 2 ? roundIndices : [];
+  while (feeders.length > 1) {
+    const stage = stageForSize(feeders.length);
+    const isFinal = feeders.length === 2;
+    const next: BracketSlot[] = [];
+    roundIndices = [];
+    for (let i = 0; i < feeders.length; i += 2) {
+      const a = feeders[i];
+      const b = feeders[i + 1];
+      // Odd count, or a bye on either side: carry the real side forward.
+      if (!b) { next.push(a); continue; }
+      if (a.kind === "bye") { next.push(b); continue; }
+      if (b.kind === "bye") { next.push(a); continue; }
       const index = matches.length;
-      const isFinal = currentRound.length === 2;
-      const home: BracketSlot = {
-        kind: "winner",
-        matchIndex: a.index,
-        label: `Winner ${matches[a.index].roundLabel}`,
-      };
-      const away: BracketSlot = {
-        kind: "winner",
-        matchIndex: b.index,
-        label: `Winner ${matches[b.index].roundLabel}`,
-      };
+      const roundLabel = isFinal
+        ? STAGE_MATCH_NAMES.FINAL
+        : `${STAGE_MATCH_NAMES[stage]} ${roundIndices.length + 1}`;
       matches.push({
         stage: isFinal ? "FINAL" : stage,
-        roundLabel: isFinal ? STAGE_MATCH_NAMES.FINAL : `${STAGE_MATCH_NAMES[stage]} ${i + 1}`,
-        sequence: i + 1,
-        home,
-        away,
+        roundLabel,
+        sequence: roundIndices.length + 1,
+        home: a,
+        away: b,
       });
-      nextRound.push({ home, away, index });
+      roundIndices.push(index);
+      next.push({ kind: "winner", matchIndex: index, label: `Winner ${roundLabel}` });
     }
-    if (nextRound.length === 1 && thirdPlaceMatch) {
-      // 3rd place: losers of the two semi-final-level matches.
-      const finalMatch = nextRound[0];
-      const semiA = currentRound[0];
-      const semiB = currentRound[1];
-      matches.push({
-        stage: "THIRD_PLACE",
-        roundLabel: STAGE_MATCH_NAMES.THIRD_PLACE,
-        sequence: 1,
-        home: { kind: "loser", matchIndex: semiA.index, label: `Loser ${matches[semiA.index].roundLabel}` },
-        away: { kind: "loser", matchIndex: semiB.index, label: `Loser ${matches[semiB.index].roundLabel}` },
-      });
-      void finalMatch;
-    }
-    currentRound = nextRound;
-    roundSize = roundSize / 2;
+    // The round that leaves exactly two sides standing is the semi-final
+    // round, whatever it happens to be called in an uneven bracket.
+    if (next.length === 2) semiIndices = roundIndices;
+    if (next.length === feeders.length) break; // nothing paired; avoid looping
+    feeders = next;
+  }
+
+  // Third place: the two beaten semi-finalists. Only when both semi-finals
+  // were really played — with a bye there may be just one, and a play-off
+  // needs two losers to exist.
+  if (thirdPlaceMatch && semiIndices.length === 2) {
+    matches.push({
+      stage: "THIRD_PLACE",
+      roundLabel: STAGE_MATCH_NAMES.THIRD_PLACE,
+      sequence: 1,
+      home: {
+        kind: "loser",
+        matchIndex: semiIndices[0],
+        label: `Loser ${matches[semiIndices[0]].roundLabel}`,
+      },
+      away: {
+        kind: "loser",
+        matchIndex: semiIndices[1],
+        label: `Loser ${matches[semiIndices[1]].roundLabel}`,
+      },
+    });
   }
 
   return matches;

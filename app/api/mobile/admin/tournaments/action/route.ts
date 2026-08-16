@@ -35,6 +35,7 @@ import {
   sendCampaignItemNow,
 } from "@/actions/admin-tournament-campaign";
 import {
+  assignMatchTeam,
   createManualMatch,
   deleteManualMatch,
   reorderStageFixtures,
@@ -187,6 +188,14 @@ export async function POST(request: NextRequest) {
     result = await updateCampaignItem(String(body.itemId || ""), body.patch ?? {});
   else if (op === "campaignSend") result = await sendCampaignItemNow(String(body.itemId || ""));
   // ── Scores ──
+  // Fill a bracket side the generator couldn't resolve — a deleted source
+  // match, a withdrawal. Without it a stuck fixture can never be started.
+  else if (op === "assignMatchTeam")
+    result = await assignMatchTeam(
+      String(body.matchId || ""),
+      body.side === "away" ? "away" : "home",
+      body.teamId ? String(body.teamId) : null,
+    );
   else if (op === "reopenMatch") result = await reopenMatch(String(body.matchId || ""));
   // ── Settings ── the same wizard payload the web Settings tab submits, so
   // validation lives in one place and the two can't diverge.

@@ -135,6 +135,24 @@ export async function deleteManualMatch(
   if (m.homeScore != null || m.awayScore != null) {
     return { success: false, error: "This match has a score — clear it first" };
   }
+  // A later round may take its side from this match's winner or loser.
+  // Deleting it leaves that round permanently unresolvable — the Final
+  // reading "Winner Semi Final 1" against a semi-final that no longer
+  // exists, with no way to start scoring it. Refuse, and say which.
+  const dependents = await db.tournamentMatch.findMany({
+    where: {
+      tournamentId: m.tournamentId,
+      OR: [{ homeSourceMatchId: m.id }, { awaySourceMatchId: m.id }],
+    },
+    select: { roundLabel: true },
+  });
+  if (dependents.length > 0) {
+    const names = dependents.map((d) => d.roundLabel || "a later match").join(", ");
+    return {
+      success: false,
+      error: `${names} take${dependents.length === 1 ? "s" : ""} a team from this match. Delete that first, or assign its teams by hand.`,
+    };
+  }
 
   await db.$transaction(async (tx) => {
     // Hand back any court hours this fixture was holding, or the booking
@@ -191,5 +209,74 @@ export async function reorderStageFixtures(
   );
 
   revalidatePath(`/admin/tournaments/${tournamentId}`);
+  return { success: true };
+}
+
+/**
+ * Put a team into one side of a fixture by hand.
+ *
+ * The bracket normally fills itself: a side carries a source label
+ * ("Winner Pool A", "Winner Semi Final 1") and resolves the moment the
+ * thing it points at is decided. This is the escape hatch for when it
+ * can't — a source match that was deleted, a walkover after a withdrawal,
+ * a bracket an organiser built by hand.
+ *
+ * Only on a fixture that hasn't started. Once a match is LIVE or has a
+ * result, changing who played it would rewrite the points table and the
+ * scorecard underneath a scorer who is mid-over.
+ */
+export async function assignMatchTeam(
+  matchId: string,
+  side: "home" | "away",
+  teamId: string | null,
+): Promise<{ success: true } | { success: false; error: string }> {
+  await gate();
+  const m = await db.tournamentMatch.findUnique({
+    where: { id: matchId },
+    select: {
+      id: true,
+      tournamentId: true,
+      status: true,
+      homeTeamId: true,
+      awayTeamId: true,
+    },
+  });
+  if (!m) return { success: false, error: "Match not found" };
+  if (m.status !== "SCHEDULED") {
+    return {
+      success: false,
+      error: `Can't change the teams of a ${m.status.toLowerCase()} match`,
+    };
+  }
+
+  if (teamId) {
+    const team = await db.tournamentTeam.findUnique({
+      where: { id: teamId },
+      select: { tournamentId: true, status: true, archivedAt: true },
+    });
+    if (!team || team.tournamentId !== m.tournamentId) {
+      return { success: false, error: "That team isn't in this tournament" };
+    }
+    if (team.status !== "CONFIRMED" || team.archivedAt) {
+      return { success: false, error: "Only a confirmed team can be put in a fixture" };
+    }
+    const other = side === "home" ? m.awayTeamId : m.homeTeamId;
+    if (other && other === teamId) {
+      return { success: false, error: "A team can't play itself" };
+    }
+  }
+
+  // Clear the source link along with the team. Leaving it would let the
+  // next progression pass overwrite the manual choice with whatever the
+  // (possibly dangling) label resolves to.
+  await db.tournamentMatch.update({
+    where: { id: m.id },
+    data:
+      side === "home"
+        ? { homeTeamId: teamId, homeSourceLabel: null, homeSourceMatchId: null }
+        : { awayTeamId: teamId, awaySourceLabel: null, awaySourceMatchId: null },
+  });
+
+  revalidatePath(`/admin/tournaments/${m.tournamentId}`);
   return { success: true };
 }
