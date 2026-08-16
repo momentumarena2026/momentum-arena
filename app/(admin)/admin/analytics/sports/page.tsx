@@ -12,9 +12,13 @@ export default async function SportsAnalyticsPage() {
   const now = new Date();
   const dateTo = now.toISOString().split("T")[0];
 
-  // Default range = "earliest confirmed payment" → today, so the KPI
-  // totals match the lifetime "Total Sports Earnings" on /admin/bookings out
-  // of the box. Admins can narrow the window via the filter.
+  // Default range = "earliest confirmed payment" → today, i.e. everything.
+  //
+  // This deliberately does NOT match the /admin/bookings tile, and used to
+  // claim it did. Two reasons it cannot: this KPI adds pass sales,
+  // tournament entries, venue hire and camp fees, which that tile has never
+  // counted; and this one is cash (payment confirmed) where that one is
+  // accrual (booked, collected or not). Both figures now say so on screen.
   const earliestPayment = await db.payment.findFirst({
     where: { status: "COMPLETED", confirmedAt: { not: null } },
     orderBy: { confirmedAt: "asc" },
