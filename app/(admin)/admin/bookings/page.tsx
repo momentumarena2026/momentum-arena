@@ -181,8 +181,9 @@ export default async function AdminBookingsPage({
     ...(stats.totalRevenue !== null
       ? [
           {
-            label: "Total Sports Earnings",
+            label: "Booking Earnings (lifetime)",
             value: formatPrice(stats.totalRevenue),
+            note: "Court bookings only — excludes passes, tournaments and camps. Counts money booked, including amounts still to collect.",
             icon: IndianRupee,
             color: "text-emerald-300",
             bg: "bg-emerald-500/10",
@@ -193,6 +194,7 @@ export default async function AdminBookingsPage({
     {
       label: "Cash Due at Venue",
       value: formatPrice(stats.venueDueTotal),
+      note: "Part of Booking Earnings above that has not been collected yet.",
       icon: Banknote,
       color: "text-amber-300",
       bg: "bg-amber-500/10",
@@ -292,6 +294,14 @@ export default async function AdminBookingsPage({
                 </div>
               </div>
               <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>
+              {/* Three admin surfaces report a "sports earnings" figure and
+                  they legitimately differ — different streams, and booked
+                  vs received. Saying what THIS one counts, on the tile, is
+                  what stops the next person reconciling two numbers that
+                  were never meant to match. */}
+              {"note" in stat && stat.note ? (
+                <p className="text-[11px] leading-snug text-zinc-500">{stat.note}</p>
+              ) : null}
             </div>
           );
         })}

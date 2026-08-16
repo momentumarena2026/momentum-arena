@@ -221,9 +221,15 @@ export function AnalyticsDashboard({
   const kpiCards = kpi
     ? [
         {
-          label: "Sports Earnings",
+          label: "Sports Earnings — received",
           value: formatINR(kpi.sportsRevenue),
           color: "text-emerald-400",
+          // This is the CASH figure: bookings whose payment confirmed
+          // inside the range, plus passes, tournaments and camps on the
+          // date their money arrived. It is deliberately smaller than the
+          // charts below, which count what was booked whether or not it
+          // has been collected. Neither is wrong; say which is which.
+          note: "Money actually received in this range — bookings, passes, tournaments and camps. Excludes amounts still to collect.",
         },
         {
           label: "Total Bookings",
@@ -323,6 +329,11 @@ export function AnalyticsDashboard({
               <p className={`mt-1 text-xl font-bold ${card.color}`}>
                 {card.value}
               </p>
+              {"note" in card && card.note ? (
+                <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+                  {card.note}
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

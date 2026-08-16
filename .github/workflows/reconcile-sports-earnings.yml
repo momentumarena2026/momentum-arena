@@ -1,0 +1,72 @@
+name: Reconcile sports earnings (production)
+
+# Three admin surfaces report three different "sports earnings" totals.
+# They answer different questions on purpose — bookings-only vs every
+# sports stream, money booked vs money received — and this job prints the
+# gap broken into named components so nobody has to infer it again.
+#
+# READ ONLY. Issues no writes of any kind. Manual dispatch only.
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Year for the Year-View figure (e.g. 2026)"
+        type: string
+        default: "2026"
+      from:
+        description: "KPI window start YYYY-MM-DD. Blank = earliest confirmed payment, as the page does."
+        type: string
+        default: ""
+      to:
+        description: "KPI window end YYYY-MM-DD. Blank = today."
+        type: string
+        default: ""
+
+jobs:
+  reconcile:
+    name: Reconcile
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty! Add PRODUCTION_DB_URL to repository secrets."
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Reconcile
+        run: |
+          ARGS="--year ${{ inputs.year }}"
+          if [ -n "${{ inputs.from }}" ]; then ARGS="$ARGS --from ${{ inputs.from }}"; fi
+          if [ -n "${{ inputs.to }}" ]; then ARGS="$ARGS --to ${{ inputs.to }}"; fi
+          npx tsx scripts/reconcile-sports-earnings.ts $ARGS 2>&1 | tee reconcile.log
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Sports earnings reconciliation (read-only)"
+            echo ""
+            echo '```'
+            cat reconcile.log 2>/dev/null || echo "(no output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

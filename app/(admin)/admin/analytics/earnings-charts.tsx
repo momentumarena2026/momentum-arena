@@ -433,8 +433,11 @@ export function MonthlyEarningsChart() {
             Monthly Earnings — Year View
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Earnings keyed to booking date (post-discount). Pass sales count
-            on their purchase date; pass-paid bookings at ₹0. Year total:{" "}
+            Money <strong>booked</strong>, keyed to the booking date
+            (post-discount) — including amounts still to collect, which is why
+            this runs higher than the received figure in the tiles above. Pass
+            sales count on their purchase date; pass-paid bookings at ₹0. Year
+            total:{" "}
             <span className="font-medium text-emerald-400">
               {formatINR(primaryTotal)}
             </span>
