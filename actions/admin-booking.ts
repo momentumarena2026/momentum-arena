@@ -442,6 +442,18 @@ export async function markRemainderCollected(
         // stays PARTIAL so the booking keeps showing up under "Cash Due
         // at Venue" for the balance.
         status: stillOwed > 0 ? "PARTIAL" : "COMPLETED",
+        // Every cash-basis figure — the Sports Earnings KPI, "Today's
+        // Earning", the CA report — filters on confirmedAt. A payment
+        // that reaches COMPLETED without one is money in the till that
+        // none of them can see; six such rows had to be backfilled on
+        // production. Stamp it the moment the money lands.
+        //
+        // Only when it isn't already set. A partial carries the ADVANCE's
+        // timestamp, and overwriting that with today would move the
+        // advance into a later accounting month.
+        ...(stillOwed <= 0 && !booking.payment!.confirmedAt
+          ? { confirmedAt: new Date(), confirmedBy: adminId }
+          : {}),
       },
     });
     await tx.bookingEditHistory.create({
@@ -1215,6 +1227,14 @@ export async function adminEditPayment(
         remainingAmount: newRemaining,
         razorpayPaymentId: newRazorpayId,
         utrNumber: newUtr,
+        // Correcting a payment INTO completed is a collection like any
+        // other, and cash reporting keys on confirmedAt. Without this a
+        // status correction produced money no cash-basis figure counted.
+        // Never overwrite an existing stamp: that would silently move the
+        // money into a different accounting month.
+        ...(newStatus === "COMPLETED" && !prior.confirmedAt
+          ? { confirmedAt: new Date() }
+          : {}),
       },
     });
 
@@ -5100,6 +5120,23 @@ async function closeOutBooking(
           where: { id: booking.payment.id },
           data: {
             status: "COMPLETED",
+            // Cash reporting keys on confirmedAt, so a closeout that
+            // settles a payment without one hides that money from the
+            // Sports Earnings KPI, "Today's Earning" and the CA report.
+            // This is the bulk path — past dates get closed out in
+            // batches — so it leaked the most.
+            //
+            // Dated to the SESSION, not to now. A payment still PENDING
+            // at closeout was collected at the counter when the session
+            // was played; stamping the moment an admin happens to press
+            // the button would book last month's cash into this month.
+            // An existing stamp (a partial's advance) is never touched.
+            ...(booking.payment.confirmedAt
+              ? {}
+              : {
+                  confirmedAt:
+                    booking.date < new Date() ? booking.date : new Date(),
+                }),
             // Advance becomes the final paid amount. For non-partial
             // bookings advanceAmount is null, so amount is already the
             // full paid value — leave it alone.
