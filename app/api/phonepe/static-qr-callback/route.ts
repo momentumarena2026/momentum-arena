@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
+import { AnalyticsCategory, logServerAction } from "@/lib/server-log";
 import {
   verifyStaticQrCallback,
   type StaticQrCallbackData,
@@ -50,6 +51,22 @@ export async function POST(request: NextRequest) {
 
     // Verify checksum (V1)
     const xVerify = request.headers.get("X-VERIFY") || "";
+    const audit = (
+      outcome: "success" | "error",
+      metadata: Record<string, unknown>,
+      error?: string,
+    ) =>
+      logServerAction({
+        action: "payment.static_qr.callback",
+        category: AnalyticsCategory.PAYMENT,
+        outcome,
+        path: request.nextUrl.pathname,
+        method: "POST",
+        platform: "web",
+        metadata,
+        error,
+      });
+
     const isValid = verifyStaticQrCallback(
       xVerify,
       data.merchantId,
@@ -59,6 +76,9 @@ export async function POST(request: NextRequest) {
 
     if (!isValid) {
       console.error("Static QR callback: checksum verification failed");
+      // Always answers 200 so PhonePe stops retrying, which means a
+      // rejected callback is otherwise completely invisible.
+      audit("error", { transactionId: data.transactionId }, "checksum verification failed");
       return NextResponse.json({ success: true });
     }
 
@@ -67,6 +87,11 @@ export async function POST(request: NextRequest) {
       console.log(
         `Static QR callback: non-success status — code=${decoded.code}, state=${data.paymentState}`
       );
+      audit("error", {
+        transactionId: data.transactionId,
+        code: decoded.code,
+        paymentState: data.paymentState,
+      }, "non-success payment state");
       return NextResponse.json({ success: true });
     }
 
@@ -78,6 +103,9 @@ export async function POST(request: NextRequest) {
       console.warn(
         `Static QR callback: no UTR in payment modes for txn ${data.transactionId}`
       );
+      // No UTR means we cannot match this money to a booking — the exact
+      // shape of a payment that arrives and strands.
+      audit("error", { transactionId: data.transactionId, amount: data.amount }, "no UTR in payment modes");
       return NextResponse.json({ success: true });
     }
 
@@ -103,7 +131,15 @@ export async function POST(request: NextRequest) {
         console.warn(
           `Static QR callback: amount mismatch for booking payment ${bookingPayment.id}. Expected ${expectedAmount}, got ${data.amount}`
         );
-        // Still proceed — admin can review, but log warning
+        // Still proceed — admin can review, but log warning. Recorded as
+        // its own outcome: money that settles for the wrong figure is the
+        // sort of thing that is only ever noticed months later.
+        audit("error", {
+          transactionId: data.transactionId,
+          bookingId: bookingPayment.bookingId,
+          expectedAmount,
+          receivedAmount: data.amount,
+        }, "amount mismatch");
       }
 
       await db.$transaction([
@@ -132,6 +168,13 @@ export async function POST(request: NextRequest) {
       // every static-QR auto-verified booking missed the rewards
       // ledger. Idempotent + self-gated on
       // booking.status === "CONFIRMED".
+      audit("success", {
+        transactionId: data.transactionId,
+        bookingId: bookingPayment.bookingId,
+        amount: data.amount,
+        utr,
+        settledBy: "static_qr_callback",
+      });
       const confirmedBookingId = bookingPayment.bookingId;
       after(async () => {
         await Promise.allSettled([
