@@ -132,7 +132,7 @@ export function MarkCollectedButton({
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-60"
         >
           <SplitSquareHorizontal className="h-3.5 w-3.5" />
-          Split (Cash + UPI QR)
+          Collect part, or split cash + UPI
         </button>
         {!isPending && (
           <button

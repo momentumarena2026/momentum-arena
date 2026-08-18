@@ -504,10 +504,16 @@ export function AdminBookingDetailScreen() {
       Alert.alert("Invalid", "Amounts cannot be negative.");
       return;
     }
-    if (cash + upi + discount !== venueDue) {
+    // Less than the full amount is a PART payment, not an error: the
+    // customer settles most of it now and promises the rest in a few
+    // days. The balance stays owed at the venue and the booking keeps
+    // showing under Cash Due, which is exactly what the server does with
+    // it. Only MORE than is owed is wrong — that is an overpayment, and
+    // there is nothing sensible to do with the excess.
+    if (cash + upi + discount > venueDue) {
       Alert.alert(
-        "Amounts don't match",
-        `Cash + UPI + Discount must equal ₹${venueDue}. Currently ₹${cash + upi + discount}.`,
+        "More than is owed",
+        `Cash + UPI + Discount can't exceed ₹${venueDue}. Currently ₹${cash + upi + discount}.`,
       );
       return;
     }
@@ -515,6 +521,22 @@ export function AdminBookingDetailScreen() {
       Alert.alert(
         "Collection required",
         "Enter at least one of Cash or UPI. A 100% discount is a refund, not a collection.",
+      );
+      return;
+    }
+    const stillDue = venueDue - (cash + upi + discount);
+    if (stillDue > 0) {
+      Alert.alert(
+        "Collect part now?",
+        `Taking ${formatRupees(cash + upi + discount)} now. ` +
+          `${formatRupees(stillDue)} stays due at the venue.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Collect",
+            onPress: () => markCollected.mutate({ cash, upi, discount }),
+          },
+        ],
       );
       return;
     }
@@ -1058,6 +1080,37 @@ export function AdminBookingDetailScreen() {
                 />
               </View>
             </View>
+            {/* What the three boxes add up to, live. Without it the only
+                way to learn you have under-collected is the confirm
+                dialog, which is too late to be reassuring. */}
+            {(() => {
+              const entered =
+                Math.trunc(parseFloat(collectModal.cash) || 0) +
+                Math.trunc(parseFloat(collectModal.upi) || 0) +
+                Math.trunc(parseFloat(collectModal.discount) || 0);
+              if (entered <= 0) return null;
+              const left = venueDue - entered;
+              return (
+                <Text
+                  variant="small"
+                  color={
+                    left === 0
+                      ? colors.emerald400
+                      : left < 0
+                        ? "#f87171"
+                        : "#fbbf24"
+                  }
+                  style={{ marginTop: 10 }}
+                >
+                  {formatRupees(entered)} of {formatRupees(venueDue)}
+                  {left > 0
+                    ? ` · ${formatRupees(left)} stays due at venue`
+                    : left < 0
+                      ? " · more than is owed"
+                      : " · settles the booking"}
+                </Text>
+              );
+            })()}
             <View style={styles.collectActions}>
               <Pressable
                 onPress={() => setEditSplitOpen(false)}
@@ -1393,8 +1446,8 @@ export function AdminBookingDetailScreen() {
             </Text>
             <Text variant="small" color={colors.zinc500}>
               Split across cash, UPI QR, and any goodwill discount the
-              venue absorbs. Cash + UPI + Discount must equal{" "}
-              {formatRupees(venueDue)}.
+              venue absorbs. Enter less than {formatRupees(venueDue)} to
+              collect part now — the rest stays due at the venue.
             </Text>
             {/* The overwhelmingly common case at the counter is "they paid
                 the whole thing, one way". Typing the figure into the right
