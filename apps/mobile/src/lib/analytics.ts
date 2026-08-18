@@ -274,11 +274,92 @@ export function trackNewUserDiscountApplied(discountAmount: number) {
 
 // ─── UPI QR flow ─────────────────────────────────────────────────
 
-export function trackUpiQrShown(amount: number) {
-  trackEvent("upi_qr_shown", { amount }, "PAYMENT");
+/**
+ * The UPI payment journey, end to end. Names and property shapes mirror
+ * lib/analytics.ts on web EXACTLY — a funnel that reads differently per
+ * platform is worse than no funnel, because you cannot tell a real
+ * platform difference from an instrumentation one.
+ *
+ * The one that was missing everywhere is `upi_app_selected`: which app
+ * the customer chose. Everything after it is only interpretable grouped
+ * by app, because the failure modes are per-app.
+ */
+export type UpiSurface = "booking" | "cafe" | "pass" | "tournament" | "camp";
+
+export function trackUpiCheckoutOpened(p: {
+  surface: UpiSurface;
+  amount: number;
+  mode: "qr" | "intent";
+}) {
+  trackEvent("upi_checkout_opened", p, "PAYMENT");
 }
-export function trackUpiPaymentConfirmed(amount: number) {
-  trackEvent("upi_payment_confirmed", { amount }, "PAYMENT");
+
+export function trackUpiQrShown(p: {
+  surface: UpiSurface;
+  amount: number;
+  mode: "qr" | "intent";
+}) {
+  trackEvent("upi_qr_shown", p, "PAYMENT");
+}
+
+export function trackUpiAppSelected(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string;
+  appName: string;
+  mode: "qr" | "intent";
+  /** App only: whether the device actually had it installed. A tap on an
+   *  app we could not detect is a different story from a normal launch. */
+  installed?: boolean;
+}) {
+  trackEvent("upi_app_selected", p, "PAYMENT");
+}
+
+export function trackUpiReturned(p: {
+  surface: UpiSurface;
+  app: string | null;
+  secondsAway: number;
+}) {
+  trackEvent("upi_returned", p, "PAYMENT");
+}
+
+export function trackUpiPaymentConfirmed(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+  mode: "qr" | "intent";
+  secondsWaited: number;
+}) {
+  trackEvent("upi_payment_confirmed", p, "PAYMENT");
+}
+
+export function trackUpiPaymentExpired(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+  mode: "qr" | "intent";
+  secondsWaited: number;
+}) {
+  trackEvent("upi_payment_expired", p, "PAYMENT");
+}
+
+export function trackUpiPaymentAbandoned(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+  mode: "qr" | "intent";
+  phase: string;
+  secondsWaited: number;
+}) {
+  trackEvent("upi_payment_abandoned", p, "PAYMENT");
+}
+
+export function trackUpiClaimedPaid(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+}) {
+  trackEvent("upi_claimed_paid", p, "PAYMENT");
 }
 export function trackUpiWhatsappClick(bookingId?: string) {
   trackEvent("upi_whatsapp_screenshot_click", { booking_id: bookingId }, "PAYMENT");

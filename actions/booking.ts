@@ -1136,7 +1136,21 @@ export async function createBookingFromHold(
   holdId: string,
   payment: PaymentRecord,
   bookingStatus: "PENDING" | "CONFIRMED",
-  platform: BookingPlatform = "web"
+  /**
+   * Omit this. It defaults to the platform stamped on the HOLD, which is
+   * the only place the answer is known.
+   *
+   * It used to default to "web", and nine of the ten call sites omitted
+   * it — so every DQR payment, every Razorpay confirmation from the app,
+   * every pass redemption and everything created by a webhook was
+   * recorded as a web booking whatever app made it. Those paths cannot
+   * pass it: a PhonePe S2S callback and a Razorpay webhook come from
+   * their servers, not the customer's device, and by then the request
+   * carries no platform at all.
+   *
+   * Pass it explicitly only to override the hold — nothing does today.
+   */
+  platform?: BookingPlatform
 ): Promise<string | null> {
   // Idempotency: if a prior attempt already consumed this hold and created a
   // Booking, find the matching booking by gateway reference and return it.
@@ -1158,6 +1172,13 @@ export async function createBookingFromHold(
     include: { courtConfig: { select: { category: true, slotDurationMinutes: true } } },
   });
   if (!hold) return null;
+
+  // The hold knows where this started; an explicit argument may override
+  // it, but nothing does today. Falling back to the hold is what keeps a
+  // PhonePe callback or a Razorpay webhook — neither of which sees the
+  // customer's device — from recording an app booking as a web one.
+  const originPlatform: BookingPlatform =
+    platform ?? ((hold.platform as BookingPlatform) || "web");
 
   // slotPrices is a Json blob; the bowling-machine flow stores an
   // extra `minute` key on each entry. Older holds don't have it —
@@ -1337,7 +1358,7 @@ export async function createBookingFromHold(
         // analytics / reports can filter by category without a join.
         category: hold.courtConfig.category,
         equipmentTotalAmount: equipmentTotalRupees,
-        platform,
+        platform: originPlatform,
         // Preserve the unified "Half Court" context from the hold so
         // customer-facing views can render a neutral label instead of the
         // concrete LEFT/RIGHT courtConfig label. Admin views keep the

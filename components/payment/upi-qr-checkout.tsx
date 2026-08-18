@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { AlertCircle, CircleCheck, Loader2, Smartphone, X } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import Image from "next/image";
@@ -8,6 +8,7 @@ import { formatPrice } from "@/lib/pricing";
 import {
   trackUpiQrShown,
   trackUpiPaymentConfirmed,
+  trackUpiClaimedPaid,
   trackUpiWhatsappClick,
   trackUpiAppLaunched,
 } from "@/lib/analytics";
@@ -161,8 +162,12 @@ export function UpiQrCheckout({
   );
   const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappMessage}`;
 
-  // Track QR shown on mount
-  useState(() => { trackUpiQrShown(displayAmount); });
+  // Track QR shown on mount. This is the STATIC printed QR, so there is
+  // no intent link and no app handoff — mode is always "qr".
+  const shownAtRef = useRef(Date.now());
+  useState(() => {
+    trackUpiQrShown({ surface: "booking", amount: displayAmount, mode: "qr" });
+  });
 
   const handlePaymentDone = async () => {
     if (committing) return;
@@ -177,7 +182,21 @@ export function UpiQrCheckout({
       if (result && result.bookingId) {
         setCommittedBookingId(result.bookingId);
       }
-      trackUpiPaymentConfirmed(displayAmount);
+      // Static QR has no gateway confirmation — this is the customer
+      // asserting they paid, which is a different (weaker) signal than a
+      // DQR confirmation and is recorded as such.
+      trackUpiClaimedPaid({
+        surface: "booking",
+        amount: displayAmount,
+        app: null,
+      });
+      trackUpiPaymentConfirmed({
+        surface: "booking",
+        amount: displayAmount,
+        app: null,
+        mode: "qr",
+        secondsWaited: Math.round((Date.now() - shownAtRef.current) / 1000),
+      });
       setStep("paid");
     } catch (e) {
       setCommitError(e instanceof Error ? e.message : "Something went wrong");

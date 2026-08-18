@@ -29,6 +29,7 @@ import {
   trackUpiAppLaunched,
   trackUpiPaymentConfirmed,
   trackUpiQrShown,
+  trackUpiClaimedPaid,
   trackUpiWhatsappClick,
 } from "../../lib/analytics";
 
@@ -119,10 +120,18 @@ export function UpiQrCheckout({
   const [bookingId, setBookingId] = useState<string | null>(null);
 
   const qrShownTrackedRef = useRef(false);
+  // Static printed QR: no intent link, no app handoff, so mode is always
+  // "qr" and there is never an app to attribute.
+  const shownAtRef = useRef<number | null>(null);
   useEffect(() => {
     if (qrShownTrackedRef.current) return;
     qrShownTrackedRef.current = true;
-    trackUpiQrShown(isAdvance && advanceAmount ? advanceAmount : amount);
+    shownAtRef.current = Date.now();
+    trackUpiQrShown({
+      surface: "booking",
+      amount: isAdvance && advanceAmount ? advanceAmount : amount,
+      mode: "qr",
+    });
   }, [isAdvance, advanceAmount, amount]);
 
   // Success-animation drivers (built-in Animated — no extra deps). Same
@@ -204,7 +213,23 @@ export function UpiQrCheckout({
       if (result && "bookingId" in result && result.bookingId) {
         setBookingId(result.bookingId);
       }
-      trackUpiPaymentConfirmed(displayAmount);
+      // The customer asserting they paid — a weaker signal than a
+      // gateway confirmation, and recorded separately so the two are not
+      // read as the same thing.
+      trackUpiClaimedPaid({
+        surface: "booking",
+        amount: displayAmount,
+        app: null,
+      });
+      trackUpiPaymentConfirmed({
+        surface: "booking",
+        amount: displayAmount,
+        app: null,
+        mode: "qr",
+        secondsWaited: shownAtRef.current
+          ? Math.round((Date.now() - shownAtRef.current) / 1000)
+          : 0,
+      });
       setStep("paid");
     } catch (e) {
       setCommitError(

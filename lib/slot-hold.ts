@@ -1,3 +1,4 @@
+import type { BookingPlatform } from "@/actions/booking";
 import { db } from "./db";
 import { zonesOverlap, LOCK_TTL_MINUTES } from "./court-config";
 import { CourtZone, Prisma, Sport } from "@prisma/client";
@@ -65,7 +66,8 @@ export async function createSlotHold(
   courtConfigId: string,
   date: Date,
   hours: number[],
-  slotPrices: SlotPrice[]
+  slotPrices: SlotPrice[],
+  platform: BookingPlatform = "web"
 ): Promise<HoldResult> {
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const dateStr = date.toISOString().split("T")[0];
@@ -184,6 +186,7 @@ export async function createSlotHold(
         // 9. Create the SlotHold
         const hold = await tx.slotHold.create({
           data: {
+            platform,
             userId,
             courtConfigId,
             date: dateOnly,
@@ -244,7 +247,8 @@ export async function createMediumHalfCourtHold(
   sport: Sport,
   date: Date,
   hours: number[],
-  slotPrices: SlotPrice[]
+  slotPrices: SlotPrice[],
+  platform: BookingPlatform = "web"
 ): Promise<HoldResult> {
   const { leftId, rightId } = await getMediumConfigs(sport);
   const dateOnly = new Date(date.toISOString().split("T")[0]);
@@ -362,6 +366,7 @@ export async function createMediumHalfCourtHold(
 
         const hold = await tx.slotHold.create({
           data: {
+            platform,
             userId,
             courtConfigId: chosenId,
             date: dateOnly,
@@ -419,6 +424,7 @@ export async function createBowlingMachineHold(
   courtConfigId: string,
   date: Date,
   slots: BowlingSlotPrice[],
+  platform: BookingPlatform = "web"
 ): Promise<HoldResult> {
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const dateStr = date.toISOString().split("T")[0];
@@ -560,6 +566,7 @@ export async function createBowlingMachineHold(
 
         const hold = await tx.slotHold.create({
           data: {
+            platform,
             userId,
             courtConfigId,
             date: dateOnly,

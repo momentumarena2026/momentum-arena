@@ -38,6 +38,7 @@ import {
   trackUpiAppLaunched,
   trackUpiPaymentConfirmed,
   trackUpiQrShown,
+  trackUpiAppSelected,
 } from "../../lib/analytics";
 
 /** Normalized DQR flow contract — lets non-booking purchases (e.g. pass
@@ -323,10 +324,26 @@ export function DqrCheckout({
   }, [awaitingPayment, checkStatus, stopPolling]);
 
   const qrShownTrackedRef = useRef(false);
+  // When the QR first appeared, and which app they left for. Every
+  // terminal outcome is measured from here so confirmed / expired /
+  // abandoned are directly comparable, and grouped by app so a per-app
+  // failure (one that never returns, one whose intent is rejected) is
+  // visible instead of averaged away.
+  const journeyStartRef = useRef<number | null>(null);
+  const chosenAppRef = useRef<string | null>(null);
+  const secondsWaited = () =>
+    journeyStartRef.current
+      ? Math.round((Date.now() - journeyStartRef.current) / 1000)
+      : 0;
   useEffect(() => {
     if (phase !== "qr" || qrShownTrackedRef.current) return;
     qrShownTrackedRef.current = true;
-    trackUpiQrShown(displayAmount);
+    journeyStartRef.current = Date.now();
+    trackUpiQrShown({
+      surface: claimSurface,
+      amount: displayAmount,
+      mode: "qr",
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- displayAmount is stable per mount
   }, [phase]);
 
@@ -493,7 +510,13 @@ export function DqrCheckout({
   const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
-    trackUpiPaymentConfirmed(displayAmount);
+    trackUpiPaymentConfirmed({
+      surface: claimSurface,
+      amount: displayAmount,
+      app: chosenAppRef.current,
+      mode: chosenAppRef.current ? "intent" : "qr",
+      secondsWaited: secondsWaited(),
+    });
     Animated.spring(circleScale, {
       toValue: 1,
       friction: 5,
@@ -524,8 +547,20 @@ export function DqrCheckout({
   // reliably; the error is a safety net for the rare race where the app was
   // uninstalled between probe and tap.
   const openUpiApp = useCallback(
-    async (name: string, url: string) => {
+    async (key: string, name: string, url: string) => {
       setAppOpenError(null);
+      // Recorded BEFORE the handoff, so an app that fails to open is
+      // still attributable — otherwise the apps that break are exactly
+      // the ones missing from the data.
+      chosenAppRef.current = key;
+      trackUpiAppSelected({
+        surface: claimSurface,
+        amount: displayAmount,
+        app: key,
+        appName: name,
+        mode: "intent",
+        installed: true,
+      });
       try {
         if (await Linking.canOpenURL(url)) {
           await Linking.openURL(url);
@@ -675,7 +710,7 @@ export function DqrCheckout({
                         <AppTile
                           key={app.key}
                           name={app.name}
-                          onPress={() => openUpiApp(app.name, `${app.prefix}?${q}`)}
+                          onPress={() => openUpiApp(app.key, app.name, `${app.prefix}?${q}`)}
                           tile={<AppIconTile source={app.icon} />}
                         />
                       ))}
