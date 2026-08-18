@@ -268,7 +268,11 @@ export async function POST(request: NextRequest) {
     courtConfigId,
     bookingDate,
     hours,
-    slotPrices
+    slotPrices,
+    // Stamp the app on the hold. This request is the last point in the
+    // journey that knows: the payment callback arrives from PhonePe's
+    // servers and the Razorpay webhook from theirs.
+    resolveRequestPlatform(request),
   );
 
   if (result.success && result.holdId) {

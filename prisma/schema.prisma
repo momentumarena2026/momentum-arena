@@ -450,6 +450,12 @@ model OperatingWindow {
 // If user abandons checkout, the hold just expires — no Booking is ever created.
 model SlotHold {
   id               String      @id @default(cuid())
+  // Where this booking journey STARTED. Stamped when the hold is created,
+  // because that is the only moment a device is talking to us: the S2S
+  // payment callback comes from PhonePe's servers and the webhook from
+  // Razorpay's, so neither can know. Without it every DQR, Razorpay and
+  // pass booking was recorded as "web" whatever app made it.
+  platform         String      @default("web")
   userId           String
   user             User        @relation(fields: [userId], references: [id])
   courtConfigId    String

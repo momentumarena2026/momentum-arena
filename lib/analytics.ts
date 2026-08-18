@@ -188,14 +188,9 @@ export function trackNewUserDiscountApplied(discountAmount: number) {
 }
 
 // ─── UPI QR Flow ─────────────────────────────────────────────────
-
-export function trackUpiQrShown(amount: number) {
-  trackEvent("upi_qr_shown", { amount });
-}
-
-export function trackUpiPaymentConfirmed(amount: number) {
-  trackEvent("upi_payment_confirmed", { amount });
-}
+// (trackUpiQrShown / trackUpiPaymentConfirmed now live with the rest of
+//  the UPI journey below, and carry the surface + app + timing that make
+//  them answerable questions rather than bare counters.)
 
 export function trackUpiWhatsappClick(bookingId?: string) {
   trackEvent("upi_whatsapp_screenshot_click", { booking_id: bookingId || "" });
@@ -208,6 +203,117 @@ export function trackUpiWhatsappClick(bookingId?: string) {
  */
 export function trackUpiAppLaunched(amount: number) {
   trackEvent("upi_app_launched", { amount });
+}
+
+/**
+ * The UPI payment journey, end to end.
+ *
+ * `upi_app_selected` is the one that was missing and the one most worth
+ * having: it names WHICH app the customer chose. Everything downstream —
+ * whether they came back, whether it confirmed, how long it took — is
+ * only interpretable once you can group by app, because the failure modes
+ * are per-app (an app that never returns, an app whose intent link is
+ * rejected, an app people pick and then abandon).
+ *
+ * `surface` distinguishes booking / cafe / pass / tournament / camp, so a
+ * funnel can be read per product rather than as one blended number.
+ * Keep these names identical to apps/mobile/src/lib/analytics.ts.
+ */
+export type UpiSurface =
+  | "booking"
+  | "cafe"
+  | "pass"
+  | "tournament"
+  | "camp";
+
+/** gtag rejects null; "unknown" keeps the field present and groupable
+ *  rather than silently dropping the row out of an app breakdown. */
+function upiParams(p: Record<string, unknown>): GtagParams {
+  return Object.fromEntries(
+    Object.entries(p).map(([k, v]) => [k, v === null ? "unknown" : v]),
+  ) as GtagParams;
+}
+
+export function trackUpiCheckoutOpened(p: {
+  surface: UpiSurface;
+  amount: number;
+  mode: "qr" | "intent";
+}) {
+  trackEvent("upi_checkout_opened", upiParams(p), "PAYMENT");
+}
+
+export function trackUpiQrShown(p: {
+  surface: UpiSurface;
+  amount: number;
+  mode: "qr" | "intent";
+}) {
+  trackEvent("upi_qr_shown", upiParams(p), "PAYMENT");
+}
+
+/** Which app the customer tapped, before the handoff. */
+export function trackUpiAppSelected(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string;
+  appName: string;
+  mode: "qr" | "intent";
+}) {
+  trackEvent("upi_app_selected", upiParams(p), "PAYMENT");
+}
+
+/** They came back to us. `secondsAway` is how long the UPI app had them —
+ *  a very short return usually means the app bounced them straight out. */
+export function trackUpiReturned(p: {
+  surface: UpiSurface;
+  app: string | null;
+  secondsAway: number;
+}) {
+  trackEvent("upi_returned", upiParams(p), "PAYMENT");
+}
+
+/** Terminal outcomes. `secondsWaited` is measured from the QR/intent
+ *  being shown, so the three are directly comparable. */
+export function trackUpiPaymentConfirmed(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+  mode: "qr" | "intent";
+  secondsWaited: number;
+}) {
+  trackEvent("upi_payment_confirmed", upiParams(p), "PAYMENT");
+}
+
+export function trackUpiPaymentExpired(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+  mode: "qr" | "intent";
+  secondsWaited: number;
+}) {
+  trackEvent("upi_payment_expired", upiParams(p), "PAYMENT");
+}
+
+/** Closed the sheet without a result. `phase` says how far they got, so
+ *  "gave up staring at the QR" is separable from "left for an app and
+ *  never came back" — different problems with different fixes. */
+export function trackUpiPaymentAbandoned(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+  mode: "qr" | "intent";
+  phase: string;
+  secondsWaited: number;
+}) {
+  trackEvent("upi_payment_abandoned", upiParams(p), "PAYMENT");
+}
+
+/** "I've already paid" — the customer asserting the money left. */
+export function trackUpiClaimedPaid(p: {
+  surface: UpiSurface;
+  amount: number;
+  app: string | null;
+}) {
+  trackEvent("upi_claimed_paid", upiParams(p), "PAYMENT");
 }
 
 // ─── Login Funnel ────────────────────────────────────────────────
