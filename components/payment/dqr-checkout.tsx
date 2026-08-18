@@ -18,7 +18,14 @@ import {
   X,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
-import { trackUpiAppLaunched } from "@/lib/analytics";
+import {
+  trackUpiAppLaunched,
+  trackUpiAppSelected,
+  trackUpiCheckoutOpened,
+  trackUpiPaymentConfirmed,
+  trackUpiPaymentExpired,
+  trackUpiPaymentAbandoned,
+} from "@/lib/analytics";
 
 interface DqrCheckoutProps {
   holdId: string;
@@ -668,6 +675,65 @@ export function DqrCheckout({
   // timeout — if the parent re-renders faster than CONFIRM_HOLD_MS (e.g. a
   // ticking countdown), the handoff NEVER fires and the sheet hangs on the
   // success screen. That exact hang shipped on mobile; guard both surfaces.
+  // The journey clock and the app they left for. Every terminal outcome
+  // is measured from the moment the QR/app grid appeared, so confirmed,
+  // expired and abandoned are directly comparable, and each is grouped by
+  // app because the failure modes are per-app.
+  const journeyStartRef = useRef<number | null>(null);
+  const chosenAppRef = useRef<string | null>(null);
+  const outcomeFiredRef = useRef(false);
+  const secondsWaited = () =>
+    journeyStartRef.current
+      ? Math.round((Date.now() - journeyStartRef.current) / 1000)
+      : 0;
+
+  // One outcome per checkout, whichever happens first.
+  const emitOutcome = useCallback(
+    (kind: "confirmed" | "expired" | "abandoned", phaseAtExit?: string) => {
+      if (outcomeFiredRef.current || !journeyStartRef.current) return;
+      outcomeFiredRef.current = true;
+      const base = {
+        surface,
+        amount: displayAmount,
+        app: chosenAppRef.current,
+        mode: (chosenAppRef.current ? "intent" : "qr") as "intent" | "qr",
+        secondsWaited: secondsWaited(),
+      };
+      if (kind === "confirmed") trackUpiPaymentConfirmed(base);
+      else if (kind === "expired") trackUpiPaymentExpired(base);
+      else trackUpiPaymentAbandoned({ ...base, phase: phaseAtExit ?? "unknown" });
+    },
+    [surface, displayAmount],
+  );
+
+  // Start the clock when the sheet first shows something payable, and
+  // close the journey out when it ends — including the case nobody
+  // instruments: the customer simply closing the tab.
+  useEffect(() => {
+    if (!LIVE_PHASES.includes(phase) || journeyStartRef.current) return;
+    journeyStartRef.current = Date.now();
+    trackUpiCheckoutOpened({ surface, amount: displayAmount, mode: "qr" });
+  }, [phase, surface, displayAmount]);
+
+  useEffect(() => {
+    if (phase === "confirmed") emitOutcome("confirmed");
+    if (phase === "error") emitOutcome("expired");
+  }, [phase, emitOutcome]);
+
+  useEffect(() => {
+    const onLeave = () => emitOutcome("abandoned", phaseRef.current);
+    window.addEventListener("pagehide", onLeave);
+    return () => {
+      window.removeEventListener("pagehide", onLeave);
+      emitOutcome("abandoned", phaseRef.current);
+    };
+  }, [emitOutcome]);
+
+  const phaseRef = useRef(phase);
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
   const firedRef = useRef(false);
   useEffect(() => {
     if (phase !== "confirmed") return;
@@ -681,7 +747,18 @@ export function DqrCheckout({
   }, [phase]);
 
   const launchApp = useCallback(
-    (name: string, link: string) => {
+    (key: string, name: string, link: string) => {
+      // Recorded BEFORE navigating away — once window.location changes we
+      // may never run again, and an app that fails to open would then be
+      // missing from exactly the data meant to find it.
+      chosenAppRef.current = key;
+      trackUpiAppSelected({
+        surface,
+        amount: displayAmount,
+        app: key,
+        appName: name,
+        mode: "intent",
+      });
       trackUpiAppLaunched(displayAmount);
       // They're leaving for a UPI app — from here a payment may exist
       // even if PhonePe never reports it.
@@ -690,7 +767,7 @@ export function DqrCheckout({
       setPhase("waiting");
       window.location.href = link;
     },
-    [displayAmount],
+    [displayAmount, surface],
   );
 
   const countdown =
@@ -807,7 +884,7 @@ export function DqrCheckout({
               {suggestedApps.map((app) => (
                 <button
                   key={app.key}
-                  onClick={() => launchApp(app.name, app.link)}
+                  onClick={() => launchApp(app.key, app.name, app.link)}
                   className={tileBtnClass}
                 >
                   {appTile(`/upi/${app.key}.png`, app.name)}

@@ -1,0 +1,52 @@
+name: Backfill booking platform (production)
+
+# Bookings recorded as "web" by the default-arg bug. Recovers the real
+# platform from the audit trail: exactly, where the DQR initiate log ties
+# a transactionId to a payment; and by the user's own booking.lock row
+# otherwise, applied only when the evidence is unambiguous.
+#
+# Manual only. DRY RUN unless `apply` is ticked.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually write (unticked = dry run)"
+        type: boolean
+        default: false
+      exact_only:
+        description: "Only the exact DQR join — skip the inferred tier"
+        type: boolean
+        default: false
+
+jobs:
+  backfill:
+    name: Backfill platform
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty!"; exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Run backfill
+        run: |
+          ARGS=""
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="$ARGS --apply"; fi
+          if [ "${{ inputs.exact_only }}" = "true" ]; then ARGS="$ARGS --exact-only"; fi
+          npx tsx scripts/backfill-booking-platform.ts $ARGS 2>&1 | tee backfill.log
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Booking platform backfill — ${{ inputs.apply == true && 'APPLIED' || 'DRY RUN' }}"
+            echo ""; echo '```'; cat backfill.log 2>/dev/null; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
