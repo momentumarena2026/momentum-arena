@@ -29,7 +29,9 @@ import {
   getCafeTopCustomers,
   getCafeDayOfWeekBreakdown,
   getCafeItemInventoryTable,
+  getCafeMonthlyEarningsForYear,
   type CafeKPI,
+  type CafeMonthlyRow,
   type CafeTimeBucket,
   type CafeCategoryRow,
   type CafeTopItem,
@@ -45,6 +47,163 @@ import {
 } from "@/actions/admin-cafe-analytics";
 
 // ─────────── Helpers ───────────
+
+const CAFE_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** Years worth offering: this year back to 2026, when the cafe opened. */
+function cafeYearOptions(): number[] {
+  const now = new Date().getFullYear();
+  const out: number[] = [];
+  for (let y = now; y >= 2026; y--) out.push(y);
+  return out;
+}
+
+/**
+ * Sales and profit per month, one calendar year at a time — the cafe
+ * counterpart to the sports Monthly Earnings year view.
+ *
+ * Two bars per month rather than a stacked one: the question this answers
+ * is "how much did we make, and how much of it did we keep", and stacking
+ * would make the profit bar's height depend on the cost beneath it, so the
+ * months could not be compared by eye.
+ *
+ * Its own year selector, independent of the dashboard's date range, so
+ * this reads as "the year" no matter what window is set above — the same
+ * decision the sports chart makes.
+ */
+function CafeMonthlyChart() {
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [rows, setRows] = useState<CafeMonthlyRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const years = cafeYearOptions();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getCafeMonthlyEarningsForYear(year);
+      setRows(res.success && res.data ? res.data : []);
+    } finally {
+      setLoading(false);
+    }
+  }, [year]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const data = rows.map((r) => ({
+    ...r,
+    monthLabel: CAFE_MONTHS[r.month - 1].slice(0, 3),
+  }));
+  const salesTotal = rows.reduce((n, r) => n + r.revenue, 0);
+  const profitTotal = rows.reduce((n, r) => n + r.profit, 0);
+  const costTotal = rows.reduce((n, r) => n + r.cost, 0);
+  const hasAnything = rows.some((r) => r.orders > 0);
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-white">
+            Monthly Sales &amp; Profit — Year View
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Keyed to the order date, counting every order that wasn&apos;t
+            cancelled. Year total:{" "}
+            <span className="font-medium text-emerald-400">
+              {formatINR(salesTotal)}
+            </span>{" "}
+            sales ·{" "}
+            <span className="font-medium text-sky-400">
+              {formatINR(profitTotal)}
+            </span>{" "}
+            profit
+            {/* Profit joins each item's CURRENT cost price, and items with
+                no cost price contribute nothing — so a year with little
+                cost recorded shows profit that is really just revenue.
+                Say so rather than let the bar imply a margin. */}
+            {salesTotal > 0 && costTotal === 0 && (
+              <span className="ml-1 text-amber-400">
+                — no cost prices recorded, so profit here is just sales
+              </span>
+            )}
+          </p>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+            Year
+          </span>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="h-[38px] rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-xs text-white"
+          >
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {loading && rows.length === 0 ? (
+        <div className="h-72 animate-pulse rounded-lg bg-zinc-800" />
+      ) : !hasAnything ? (
+        <p className="py-12 text-center text-zinc-500">No cafe orders in {year}</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={data} barCategoryGap="20%">
+            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+            <XAxis dataKey="monthLabel" tick={{ fill: "#a1a1aa", fontSize: 11 }} />
+            <YAxis
+              tick={{ fill: "#a1a1aa", fontSize: 11 }}
+              tickFormatter={(v: number) => formatINR(v)}
+            />
+            <Tooltip
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0].payload as CafeMonthlyRow;
+                const margin =
+                  row.revenue > 0
+                    ? Math.round((row.profit / row.revenue) * 1000) / 10
+                    : 0;
+                return (
+                  <div className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 shadow-lg">
+                    <p className="mb-1 text-xs text-zinc-400">
+                      {label} · {row.orders} order{row.orders === 1 ? "" : "s"}
+                    </p>
+                    <p className="text-sm font-medium text-emerald-400">
+                      Sales: {formatINR(row.revenue)}
+                    </p>
+                    <p className="text-sm font-medium text-sky-400">
+                      Profit: {formatINR(row.profit)}
+                      {row.cost > 0 && (
+                        <span className="ml-1 text-xs text-zinc-500">
+                          ({margin}%)
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Cost: {formatINR(row.cost)}
+                    </p>
+                  </div>
+                );
+              }}
+            />
+            <Legend wrapperStyle={{ color: "#a1a1aa", fontSize: 12 }} />
+            <Bar dataKey="revenue" name="Sales" fill="#10b981" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="profit" name="Profit" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 
 function formatINR(rupees: number): string {
   return `₹${Math.round(rupees).toLocaleString("en-IN")}`;
@@ -472,6 +631,11 @@ export function CafeAnalyticsDashboard({
           )}
         </div>
       )}
+
+      {/* Sales + profit by month. Sits under the range-driven series and
+          runs on its own year selector, so "how did the year go" survives
+          whatever window is set above. */}
+      <CafeMonthlyChart />
 
       {/* Category + Payment + Veg + Fulfilment Pies */}
       {loading ? (

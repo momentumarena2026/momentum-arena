@@ -885,3 +885,95 @@ export async function getCafeItemInventoryTable(
     return { success: false, error: "Failed to load inventory table" };
   }
 }
+
+// ─────────── Monthly year view ───────────
+
+export interface CafeMonthlyRow {
+  month: number; // 1–12
+  revenue: number;
+  cost: number;
+  profit: number;
+  orders: number;
+}
+
+/**
+ * Sales and profit per month for one calendar year — the cafe counterpart
+ * to the sports Monthly Earnings year view.
+ *
+ * Deliberately reuses getCafeRevenueOverTime's exact rules: the same order
+ * statuses, the same createdAt bucketing and the same cost join. A second
+ * definition of "cafe revenue" is how the sports side ended up with three
+ * different lifetime totals, and one of those turned out to be hiding real
+ * money.
+ *
+ * The cost caveat is worth knowing when reading the chart: CafeOrderItem
+ * snapshots the PRICE it sold at but not the cost, so profit joins the
+ * item's CURRENT costPrice. Re-pricing what an item costs to source
+ * therefore moves historical profit. Lines whose item has no costPrice
+ * contribute zero cost, so profit for those reads as pure revenue — which
+ * is why the response carries `cost` too, and the chart says how much of
+ * the month is uncosted.
+ */
+export async function getCafeMonthlyEarningsForYear(
+  year: number,
+): Promise<{ success: boolean; data?: CafeMonthlyRow[]; error?: string }> {
+  try {
+    await requireAdmin("VIEW_ANALYTICS");
+    if (!Number.isInteger(year)) {
+      return { success: false, error: "Invalid year" };
+    }
+    // Local-time year bounds, matching bucketKey's use of getFullYear()/
+    // getMonth() — mixing UTC bounds with local bucketing would drop the
+    // first and last few hours of the year into the wrong month.
+    const from = new Date(year, 0, 1, 0, 0, 0, 0);
+    const to = new Date(year, 11, 31, 23, 59, 59, 999);
+
+    const orders = await db.cafeOrder.findMany({
+      where: {
+        createdAt: { gte: from, lte: to },
+        status: { in: [...VALID_STATUSES] },
+      },
+      select: {
+        createdAt: true,
+        totalAmount: true,
+        items: {
+          select: {
+            quantity: true,
+            cafeItem: { select: { costPrice: true } },
+          },
+        },
+      },
+    });
+
+    // Every month present, so a quiet month reads as a zero bar rather
+    // than a gap the eye skips over.
+    const rows: CafeMonthlyRow[] = Array.from({ length: 12 }, (_, i) => ({
+      month: i + 1,
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+      orders: 0,
+    }));
+
+    for (const o of orders) {
+      const row = rows[o.createdAt.getMonth()];
+      row.revenue += o.totalAmount;
+      for (const line of o.items) {
+        if (line.cafeItem.costPrice != null) {
+          row.cost += line.cafeItem.costPrice * line.quantity;
+        }
+      }
+      row.orders += 1;
+    }
+    for (const row of rows) {
+      row.revenue = Math.round(row.revenue);
+      row.cost = Math.round(row.cost);
+      row.profit = row.revenue - row.cost;
+    }
+
+    return { success: true, data: rows };
+  } catch (err) {
+    console.error("[cafe-analytics] getCafeMonthlyEarningsForYear failed", err);
+    return { success: false, error: "Failed to load monthly series" };
+  }
+}
