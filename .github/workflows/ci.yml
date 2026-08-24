@@ -1,0 +1,66 @@
+name: CI
+
+# Verification gate. Until now every workflow in this repo was deploy/seed/cron —
+# nothing ever ran a typecheck or a test, so a broken build was discovered by
+# Vercel (or by a customer) rather than here.
+#
+# Deliberately NOT path-filtered: unlike the seed workflows, which only care
+# about prisma/**, a typecheck regression can come from any file. Runs on both
+# protected branches and on PRs into them.
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web — typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # postinstall runs `prisma generate`, but be explicit: a stale client is
+      # the single most common cause of phantom typecheck errors in this repo.
+      - run: npx prisma generate
+      - name: Typecheck (baseline: 0 errors)
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+
+  mobile:
+    name: Mobile — typecheck (baseline 15)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - run: npm ci
+        working-directory: apps/mobile
+      # The mobile tree carries 15 known, pre-existing errors (see
+      # docs/PROJECT-CONTEXT.md §4.2). Treat 15 as clean; anything above it is
+      # new and fails the build. Ratchet this number DOWN as they get fixed,
+      # never up.
+      - name: Typecheck against the 15-error baseline
+        working-directory: apps/mobile
+        run: |
+          set -o pipefail
+          count=$(npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS" || true)
+          echo "mobile typescript errors: $count (baseline 15)"
+          if [ "$count" -gt 15 ]; then
+            echo "::error::Mobile typecheck regressed: $count errors, baseline is 15."
+            npx tsc --noEmit -p tsconfig.json 2>&1 | grep "error TS" || true
+            exit 1
+          fi

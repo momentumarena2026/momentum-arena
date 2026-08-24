@@ -1,66 +1,22 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import bcrypt from "bcryptjs";
-import { signMobileToken, mobileUserResponse } from "@/lib/mobile-auth";
 
-export async function POST(request: Request) {
-  try {
-    const { email, password } = await request.json();
-
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: "Email and password are required" },
-        { status: 400 }
-      );
-    }
-
-    const user = await db.user.findUnique({
-      where: { email: email.toLowerCase() },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "No account found with this email" },
-        { status: 404 }
-      );
-    }
-
-    if (!user.passwordHash) {
-      return NextResponse.json(
-        {
-          error:
-            "No password set for this account. Please login with OTP and set a password.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const isValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isValid) {
-      return NextResponse.json(
-        { error: "Invalid password" },
-        { status: 401 }
-      );
-    }
-
-    const token = signMobileToken(user.id, user.email!);
-
-    return NextResponse.json({
-      user: mobileUserResponse({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        emailVerified: !!user.emailVerified,
-        hasPassword: !!user.passwordHash,
-        image: user.image,
-      }),
-      tokens: { accessToken: token },
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Login failed" },
-      { status: 500 }
-    );
-  }
+/**
+ * Tombstone. Email+password login was removed on 2026-04-11 (390e061) when the
+ * product moved to phone OTP everywhere — but this route was missed and stayed
+ * live and unauthenticated for months. Its siblings under forgot-password/ were
+ * tombstoned in that commit; this one now matches them.
+ *
+ * No shipped client ever called it: `git log -S "api/mobile/login" -- apps/mobile/`
+ * is empty across all history, and the store launch (2026-07-24) postdates the
+ * removal by three months. Web sign-in is the NextAuth "otp" provider in
+ * lib/auth.ts; the app uses /api/mobile/send-otp + /api/mobile/verify-otp.
+ *
+ * Kept as a 410 rather than deleted so any stray caller gets a purposeful answer
+ * instead of Next's 404, matching how the forgot-password pair was retired.
+ */
+export async function POST() {
+  return NextResponse.json(
+    { error: "Password login has been removed. Please use phone OTP login." },
+    { status: 410 }
+  );
 }

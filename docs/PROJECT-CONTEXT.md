@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-08-24 · accurate as of `main` = `5887e7d` (app 1.0.5).
+**Last substantive update:** 2026-08-24 · accurate as of `main` = `8204a2c` (app 1.0.5).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -87,11 +87,18 @@ apps/mobile/version.json
 ```
 Anything else means main has drifted — stop and investigate, do not push.
 
-> **Note on a doc discrepancy.** `CLAUDE.md` §"Branch discipline" describes the gate as
-> printing *nothing*. In practice it prints the three files above, because CI writes
-> fingerprint/version commits directly onto `main` that `development` never receives. Three
-> CI-owned files = clean. Anything else = stop. (Verified on the 2026-08-06 promotions
-> `eeb834f` and `af1b75b`.)
+> **Note on the gate.** `CLAUDE.md` §"Branch discipline" says the gate prints *nothing*; this
+> file used to say it legitimately prints the three CI-owned files. Both are right at
+> different times, and the difference matters:
+> - It prints **nothing** when no native build has run since the last promotion — the two
+>   trees are byte-identical. This was the case on 2026-08-24 (`8204a2c`).
+> - It prints **exactly those three files** when CI has written a fingerprint/version commit
+>   straight onto `main` in between (verified on the 2026-08-06 promotions `eeb834f`,
+>   `af1b75b`).
+>
+> So: empty = clean. Those three files, **and you can confirm from `git log` that CI authored
+> them** = clean. Anything else = drift, stop and investigate. Never wave through a non-empty
+> gate on the assumption that it is "just the fingerprints".
 
 ### Other git notes
 - A pre-push guard restricts pushes to `main` and `development` only.
@@ -182,6 +189,21 @@ Anything else means main has drifted — stop and investigate, do not push.
     money collected that no cash report can see. Six such rows existed
     (counter CASH/UPI_QR); backfilled 2026-08-16. If a new gap appears, run
     the reconciliation first — it names the cause.
+15. **A stale `node_modules` or Prisma client fakes hundreds of typecheck errors.**
+    The generated client is not in git, so after any pull that touched
+    `prisma/schema.prisma` — or after a long gap between sessions — `tsc` reports
+    errors that describe the *old* schema (`Property 'passRedemption' does not
+    exist`, `'platform' does not exist in SlotHoldCreateInput`). On 2026-08-24 a
+    cold checkout reported **908** web errors that were entirely phantom: 901
+    from a stale client, 7 from packages in `package.json` but missing from disk.
+    The real count was 0. Before believing any typecheck result, run:
+    ```bash
+    npm install && npx prisma generate      # root
+    cd apps/mobile && npm install           # and again for the app
+    ```
+    Regenerate **after** pulling, not before — a `prisma generate` that predates
+    the pull is just as stale.
+
 14. **Cricket scoring has three rules that look like details and aren't.**
     (a) *Zero overs is not "unlimited", it is broken.* It switches off both the
     innings close and the NRR rule that charges a bowled-out side its full
@@ -413,15 +435,18 @@ its templates here, or it ships with no push voice at all.
 
 ## 7. Current state
 
-- **`main` = `af1b75b`.** `development` is level with it apart from the three CI-owned files.
+- **`main` = `8204a2c`** (2026-08-24). `development` is level with it — the promotion gate
+  prints nothing, the two trees are byte-identical. (`development` had drifted 52 commits
+  *behind* `main` while staying content-identical, because every promotion is a `--no-ff`
+  merge of dev into main and nothing ever fast-forwarded dev back. Realigned 2026-08-24.)
+- **A verification gate now exists.** `.github/workflows/ci.yml` runs the web typecheck, the
+  test suite, and the mobile typecheck against its 15-error baseline on every push and PR to
+  `main`/`development`. Before this, *every* workflow in the repo was deploy/seed/cron and
+  nothing ever typechecked — a broken build was found by Vercel or by a customer. Run the
+  same checks locally with `npm run typecheck && npm test`.
 - **Web/API changes are live** once Vercel finishes deploying. The edge caching and route
   parallelisation benefit the app immediately too, since the app calls the same endpoints —
   no app update needed for that half.
-- **App-side changes are NOT yet on phones.** The query-cache persistence, the match-scoring
-  rebuild, the camps UPI picker and the admin coupon picker all sit in the bundle until an
-  **OTA rollout is cut**. This is the main outstanding action.
-- No `prisma/**` changes in either promotion, so **no db push was triggered** and none is
-  needed.
 - First request to each newly-cached endpoint after deploy is still a MISS; the edge fills on
   first use. Confirm with (run twice — second should say `HIT`):
   ```bash
@@ -429,6 +454,11 @@ its templates here, or it ships with no push voice at all.
   ```
 
 ### Known open items
+- **OTA rollout status is UNVERIFIED.** The 2026-08-06 entry here said the query-cache
+  persistence, match-scoring rebuild, camps UPI picker and admin coupon picker were sitting
+  in the bundle awaiting an OTA rollout. Whether that rollout was ever cut was not confirmed
+  when this line was rewritten (2026-08-24) — check the admin rollout dashboard before
+  assuming either way, and delete this bullet once you know.
 - **Task #68** — UPI *intent* (tap-to-pay) end-to-end test. The admin toggle exists. The user
   has said it is working fine, but it was never formally closed out. Related history: a
   Paytm-intent stuck-payment incident means the **intent toggle** has been handled cautiously.
@@ -440,25 +470,27 @@ its templates here, or it ships with no push voice at all.
 
 **Server / shared**
 - `lib/public-match.ts` — scratch-match event log + `replay()`. **Source of truth**; mirrored
-  at `apps/mobile/src/lib/match-engine.ts` — keep the two in sync.
+  at `apps/mobile/src/lib/match-engine.ts` — keep the two in sync. **This is now enforced:**
+  `tests/match-engine.parity.test.ts` drives both `replay()`s with identical logs (including a
+  2000-log deterministic fuzz) and fails CI on any divergence. The mirror exists because the
+  phone replays locally for instant taps while the server replays on write — "the log is the
+  wire format" — so a drift silently forks the phone from the scoreboard mid-match.
 - `lib/api-cache.ts` — `CACHE.catalog` / `CACHE.promo` edge-cache headers. Read the doc
   comment before applying to a new route.
 - `lib/admin-coupon-options.ts` — shared coupon prefilter for web + app create-booking.
 - `lib/payment-split.ts` — `venueAmountStillDue(totalAmount, payment)`. Nets off
   `remainderCashAmount + remainderUpiAmount` but **not** discount legs (those already reduce
-  `Booking.totalAmount`). Mirrored in `apps/mobile/src/lib/admin-bookings.ts`.
-- `lib/tournament-points.ts` — `computeStandings` + `standingsGroups`. THREE surfaces
-  render the points table (web admin tab, app admin tab, public page); all three call
-  `standingsGroups` so they cannot rank teams differently. Never re-derive it in a UI.
-- The admin tournament tab strip is defined twice by necessity —
-  `app/(admin)/admin/tournaments/[id]/tournament-manage.tsx` and
-  `apps/mobile/src/screens/admin/tournament-detail/tabs.ts`. **Keep the keys, order and
-  conditions identical**: they are the same job on two screen sizes, and a tab that exists
-  on only one surface is a feature someone can't find when it matters.
-- `lib/cricket-dismissal.ts` — pure: `creditsBowler()`, `needsFielder()`,
-  `dismissalLine()`. The one authority on whether a wicket is the bowler's and how
-  the scorecard reads. Both consoles mirror `needsFielder`'s intent when deciding
-  whether to ask for a fielder — keep them agreeing.
+  `Booking.totalAmount`). Mirrored at **`apps/mobile/src/lib/payment-split.ts`** — extracted
+  2026-08-24 out of `apps/mobile/src/lib/admin-bookings.ts` (which imports `react-native` and
+  so could never be loaded by a test runner); `admin-bookings.ts` re-exports it, so every
+  import site is unchanged. `tests/payment-split.parity.test.ts` pins the two together.
+  **Known non-identical branch:** the mobile copy short-circuits on `isPartialPayment` and the
+  server copy does not. It is unreachable rather than harmless — every writer that sets
+  `remainingAmount > 0` also sets `isPartialPayment: true`, and
+  `recomputePartialPaymentAmounts` nulls `remainingAmount` when a payment stops being partial.
+  The test documents the divergent input explicitly so that if a migration ever makes it
+  reachable, the failure names it. Do not "tidy" either copy to match the other without
+  re-checking that invariant — it is a money path.
 - `lib/tournament-scheduling.ts` — draw generator; hour-granular via
   `slotHourKey(slotId, startHour)`. Clusters teams by availability signature *before* dealing
   pools, which took forced compromises from 3 → 0.
@@ -472,6 +504,13 @@ its templates here, or it ships with no push voice at all.
 - `actions/admin-tournament-slots.ts` — slot CRUD, `setMatchDuration`, `getSlotPlanning`,
   `generateScheduleCandidates`, `approveSchedule`. Locking windows blocks those hours
   immediately.
+
+**Tests** (`npm test` — Node's built-in runner via `tsx`, no test framework dependency)
+- `tests/match-engine.parity.test.ts`, `tests/payment-split.parity.test.ts` — the two
+  must-stay-in-sync pairs above. Both suites were mutation-checked when written: breaking a
+  mirror on purpose fails them, so they are known to be capable of failing.
+- Adding a new mirrored pair? Add its parity test in the same commit, or the rule is a
+  convention again.
 
 **Mobile**
 - `apps/mobile/src/lib/queryClient.ts` — QueryClient + hydrate/persist wiring.
@@ -532,11 +571,17 @@ The user keeps memory files at
 # 1. Where am I?
 git log --oneline -3 && git status --short
 
-# 2. Typecheck baselines: web must be 0, mobile must be 15
-npx tsc --noEmit -p tsconfig.json | head
+# 2. Refresh generated code FIRST — a stale Prisma client or an old node_modules
+#    invents hundreds of phantom typecheck errors (§4.15).
+npm install && npx prisma generate
+(cd apps/mobile && npm install)
+
+# 3. Baselines: web must be 0, mobile must be 15, tests must be green.
+npm run typecheck
+npm test
 cd apps/mobile && npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS"
 ```
 
-Then: work on `development`, keep web at 0 / mobile at 15, don't touch `main` unless asked,
-and don't add a native (or ideally any) dependency to `apps/mobile` if the change is meant
-to ship over OTA.
+Then: work on `development`, keep web at 0 / mobile at 15 / tests green, don't touch `main`
+unless asked, and don't add a native (or ideally any) dependency to `apps/mobile` if the
+change is meant to ship over OTA.
