@@ -79,6 +79,27 @@ and silently skips workflows). The pipeline is path-filtered; tokens are
 unnecessary. The one legitimate use is machine-generated fingerprint-baseline
 commits created by CI itself.
 
+## Verification (installed 2026-08-24)
+
+Before pushing, and before believing any typecheck result:
+
+```bash
+npm install && npx prisma generate   # stale generated code invents phantom errors
+npm run typecheck                    # web baseline: 0 errors
+npm test                             # parity + money suites
+```
+
+`.github/workflows/ci.yml` runs the same three on every push and PR to `main` and
+`development`, plus the mobile typecheck against its **15-error baseline** (ratchet
+that number down as errors get fixed, never up).
+
+The suites in `tests/` exist to enforce the "these two files must stay in sync"
+pairs that this repo relies on — `lib/public-match.ts` ↔
+`apps/mobile/src/lib/match-engine.ts`, and `lib/payment-split.ts` ↔
+`apps/mobile/src/lib/payment-split.ts`. **If you add another mirrored pair, add its
+parity test in the same commit**, or the rule goes back to being a convention that
+nothing checks.
+
 ## Module docs
 
 - `docs/HANDOVER.md` — read first when you have no conversation history.
