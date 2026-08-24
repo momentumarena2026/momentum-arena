@@ -9,7 +9,11 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-08-15 · accurate as of `main` = `01213d4` (app 1.0.5).
+**Last substantive update:** 2026-08-24 · accurate as of `main` = `5887e7d` (app 1.0.5).
+
+**New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
+session inheriting this project with no conversation history, and points at
+`docs/history/` for the reasoning behind older decisions.
 
 > ### Maintaining this file
 > Update it as part of the work, not as an afterthought — a stale context doc is worse than
@@ -50,10 +54,15 @@ at the venue. Most purchase funnels lead with UPI and keep the gateway as the al
 
 ## 2. Repo, branches, worktree
 
-- Primary working dir in the last session: a git worktree at
-  `/Users/nakulvarshney/Workspace/momentum-arena/.claude/worktrees/_tf`
-- That worktree sits on a **detached HEAD**. Push with an explicit refspec:
+- Work happens in **git worktrees** under `.claude/worktrees/<name>`, which
+  come and go — do not expect any particular one to exist. (`_tf` is named
+  in older notes and was removed.)
+- A worktree sits on a **detached HEAD**. Push with an explicit refspec:
   `git push origin HEAD:development`
+- A worktree can be reset out from under you by another clone or agent
+  sharing the checkout. Nothing is lost if every commit was pushed — that
+  is the reason to push each unit rather than batching. Recover with
+  `git fetch origin && git checkout --detach origin/development`.
 - Branches that matter: **`development`** (default target) and **`main`** (production).
 
 ### ⚠️ Standing rule — do not promote to main unless explicitly asked
