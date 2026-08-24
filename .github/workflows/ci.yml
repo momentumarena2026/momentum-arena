@@ -32,7 +32,7 @@ jobs:
       # postinstall runs `prisma generate`, but be explicit: a stale client is
       # the single most common cause of phantom typecheck errors in this repo.
       - run: npx prisma generate
-      - name: Typecheck (baseline: 0 errors)
+      - name: "Typecheck (baseline: 0 errors)"
         run: npm run typecheck
       - name: Tests
         run: npm test
