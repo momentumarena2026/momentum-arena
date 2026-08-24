@@ -7,6 +7,13 @@ Re-read this file at the start of every session.
 
 ## START HERE — project context
 
+**Inheriting this project with no conversation history?** Read
+`docs/HANDOVER.md` first. It is the entry point written for exactly that
+case: the non-negotiable rules, how work is done here, what has been
+verified vs merely typechecked, and the open threads. It points at
+`docs/history/` for the reasoning behind older decisions, which is the part
+that does not survive in a diff.
+
 **Read `docs/PROJECT-CONTEXT.md` at the start of every session, before planning or
 editing.** It is the living orientation document: what the product is, the deployment
 model, the environment facts, the traps that are expensive to rediscover, and the
@@ -74,7 +81,10 @@ commits created by CI itself.
 
 ## Module docs
 
+- `docs/HANDOVER.md` — read first when you have no conversation history.
 - `docs/PROJECT-CONTEXT.md` — **start here**; whole-codebase orientation (see top of file).
+- `docs/history/` — archived session notes. Point-in-time and often
+  overtaken; read for *why*, and trust PROJECT-CONTEXT over them on *what*.
 - `docs/PASSES.md` — Monthly Passes: schema, pricing bands, court groups,
   purchase/redemption/sharing flows, cash-basis money story, admin ops.
 - `docs/TRUSTED-DEVICES.md` — the 5-tap hidden admin entry allowlist
