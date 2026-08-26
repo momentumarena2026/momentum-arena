@@ -1,3 +1,4 @@
+import { remainderAfterAdvance } from "@/lib/booking-amounts";
 import { NextRequest, NextResponse, after } from "next/server";
 import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import { db } from "@/lib/db";
@@ -181,7 +182,9 @@ export async function POST(request: NextRequest) {
     pointsRedeemRupees +
     (hold.equipmentTotalAmount ?? 0);
   const advanceAmount = isAdvance ? paymentAmount : undefined;
-  const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
+  const remainingAmount = isAdvance
+    ? remainderAfterAdvance(fullAmount, paymentAmount)
+    : undefined;
 
   const bookingId = await createBookingFromHold(
     holdId,

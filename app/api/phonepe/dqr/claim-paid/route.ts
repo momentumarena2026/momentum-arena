@@ -1,3 +1,4 @@
+import { remainderAfterAdvance } from "@/lib/booking-amounts";
 import { NextRequest, NextResponse, after } from "next/server";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { getValidHold } from "@/lib/slot-hold";
@@ -280,7 +281,7 @@ export async function POST(request: NextRequest) {
         ? {
             isPartialPayment: true,
             advanceAmount: amount,
-            remainingAmount: Math.max(fullAmount - amount, 0),
+            remainingAmount: remainderAfterAdvance(fullAmount, amount),
           }
         : {}),
     },

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { SPORT_INFO, SIZE_INFO, formatSlotsAsRanges } from "@/lib/court-config";
 import { formatPrice, formatBookingDate } from "@/lib/pricing";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, User, Receipt, MapPin, Repeat, Banknote, CheckCircle2, Pencil } from "lucide-react";
 import { MarkCollectedButton } from "./mark-collected-button";
 import { EditSplitButton } from "./edit-split-button";
 import { AdminBookingActions } from "./admin-actions";
@@ -581,6 +581,30 @@ export default async function AdminBookingDetailPage({
               const collected = remaining <= 0;
               const percentPaid =
                 total > 0 ? Math.round((advance / total) * 100) : 0;
+              // An advance is always 50% of what the customer was quoted
+              // (splitAdvancePayment). So any other percentage means the
+              // booking's total MOVED after the money came in — an admin
+              // changed the slot, date or price. Without saying so, the
+              // header reads like the customer chose to underpay: a 1pm
+              // off-peak slot paid at 50% of ₹500, later moved to a 6pm
+              // peak slot, renders as "36% Advance Booking".
+              // The oldest edit records what the booking cost before anyone
+              // touched it. Read it rather than inferring the original from
+              // the advance — an admin-created booking can carry any advance
+              // the desk typed, so "50% of X" would be a guess there.
+              const oldestEdit = booking.editHistory.reduce<
+                (typeof booking.editHistory)[number] | null
+              >(
+                (oldest, h) =>
+                  !oldest || h.createdAt < oldest.createdAt ? h : oldest,
+                null,
+              );
+              const originalTotal = oldestEdit?.previousAmount ?? null;
+              const repricedAfterPayment =
+                advance > 0 &&
+                total > 0 &&
+                originalTotal !== null &&
+                originalTotal !== total;
               const borderClass = collected
                 ? "border-emerald-500/30 bg-emerald-500/10"
                 : "border-amber-500/30 bg-amber-500/10";
@@ -646,6 +670,17 @@ export default async function AdminBookingDetailPage({
                     ? `Paid in Full \u00B7 ${percentPaid}% Was Advance`
                     : `${percentPaid}% Advance Booking`}
                 </p>
+                {repricedAfterPayment && (
+                  <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-zinc-400">
+                    <Pencil className="mt-0.5 h-3 w-3 shrink-0 text-zinc-500" />
+                    <span>
+                      Edited after payment — this booking was{" "}
+                      {formatPrice(originalTotal ?? 0)} when {formatPrice(advance)}{" "}
+                      was paid, and is now {formatPrice(total)}. See the edit
+                      history below.
+                    </span>
+                  </p>
+                )}
                 <div className="flex justify-between text-xs">
                   <span className="text-zinc-400">
                     Advance paid <span className="text-zinc-500">· {advanceMethodLabel}</span>

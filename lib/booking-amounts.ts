@@ -159,6 +159,29 @@ export function splitAdvancePayment(payableAmount: number): {
   return { advanceAmount, remainingAmount: payableAmount - advanceAmount };
 }
 
+/**
+ * What is still owed at the venue after an advance, floored at zero.
+ *
+ * Every confirm path derives this the same way — the freshly recomputed full
+ * payable, minus whatever the QR/order was actually minted for — but only
+ * dqr/claim-paid was clamping it. The others could store a NEGATIVE
+ * `Payment.remainingAmount` whenever the hold's payable came out lower at
+ * confirm time than when the payment was started (a coupon or points applied
+ * after the QR was minted, say). A negative balance is not a refund
+ * instruction anywhere in this codebase: it flows into `venueAmountStillDue`
+ * and the admin collect screens, which are written assuming a non-negative
+ * figure.
+ *
+ * Zero is the honest floor. Over-collection is a refund conversation, not a
+ * negative number quietly parked on the Payment row.
+ */
+export function remainderAfterAdvance(
+  fullAmount: number,
+  advancePaid: number,
+): number {
+  return Math.max(0, fullAmount - advancePaid);
+}
+
 export async function deriveHoldCharge(
   hold: HoldAmountFields,
   opts: DeriveHoldChargeOptions = {},

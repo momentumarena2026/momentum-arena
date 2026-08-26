@@ -1,3 +1,4 @@
+import { remainderAfterAdvance } from "@/lib/booking-amounts";
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { materializeUserPass } from "@/lib/passes";
@@ -402,7 +403,7 @@ export async function POST(request: NextRequest) {
   const isAdvance = paymentAmountRupees < fullAmount;
   const advanceAmount = isAdvance ? paymentAmountRupees : undefined;
   const remainingAmount = isAdvance
-    ? fullAmount - paymentAmountRupees
+    ? remainderAfterAdvance(fullAmount, paymentAmountRupees)
     : undefined;
 
   let bookingId: string | null = null;

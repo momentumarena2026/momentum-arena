@@ -751,6 +751,7 @@ export function AdminBookingDetailScreen() {
                   remainderDiscount={payment.remainderDiscountAmount}
                   remainderMethod={payment.remainderMethod}
                   advanceMethod={payment.method}
+                  originalTotal={originalBookingTotal(booking.editHistory)}
                   onCollect={() =>
                     openCollectModal({
                       cash: String(venueDue),
@@ -1691,6 +1692,22 @@ function KV({
   );
 }
 
+/**
+ * What the booking cost before any admin touched it: the oldest edit's
+ * `previousAmount`.
+ *
+ * Read rather than inferred. Deriving the original from the advance (advance
+ * x 2, since a customer advance is always 50%) is wrong for admin-created
+ * bookings, where the desk can type any advance it likes.
+ */
+function originalBookingTotal(
+  history: Array<{ createdAt: string; previousAmount: number | null }> | undefined,
+): number | null {
+  if (!history?.length) return null;
+  const oldest = history.reduce((a, b) => (a.createdAt <= b.createdAt ? a : b));
+  return oldest.previousAmount;
+}
+
 function PartialBlock({
   advance,
   total,
@@ -1700,6 +1717,7 @@ function PartialBlock({
   remainderDiscount,
   remainderMethod,
   advanceMethod,
+  originalTotal,
   onCollect,
 }: {
   advance: number;
@@ -1710,11 +1728,18 @@ function PartialBlock({
   remainderDiscount: number | null;
   remainderMethod: string | null;
   advanceMethod: string;
+  originalTotal: number | null;
   onCollect: () => void;
 }) {
   const venueTotal = Math.max(total - advance, 0);
   const remaining = collected ? 0 : venueTotal;
   const percentPaid = total > 0 ? Math.round((advance / total) * 100) : 0;
+  // An advance is always 50% of what the customer was quoted, so any other
+  // percentage means the total MOVED after the money arrived — an admin
+  // changed the slot, date or price. Saying so stops the header reading as
+  // if the customer chose to underpay. Mirrors the web booking detail.
+  const repricedAfterPayment =
+    advance > 0 && total > 0 && originalTotal !== null && originalTotal !== total;
   const cash = remainderCash ?? (remainderMethod === "CASH" ? venueTotal : 0);
   const upi = remainderUpi ?? (remainderMethod === "UPI_QR" ? venueTotal : 0);
   const discount = remainderDiscount ?? 0;
@@ -1770,6 +1795,13 @@ function PartialBlock({
             : `${percentPaid}% ADVANCE BOOKING`}
         </Text>
       </View>
+      {repricedAfterPayment ? (
+        <Text variant="tiny" color={colors.zinc400} style={styles.repricedNote}>
+          Edited after payment — this booking was{" "}
+          {formatRupees(originalTotal ?? 0)} when {formatRupees(advance)} was
+          paid, and is now {formatRupees(total)}. See Audit below.
+        </Text>
+      ) : null}
       <View style={styles.kv}>
         <Text variant="tiny" color={colors.zinc400}>
           Advance paid · {methodLabel(advanceMethod)}
@@ -1991,6 +2023,7 @@ const styles = StyleSheet.create({
     gap: spacing["1.5"],
   },
   partialHeadText: { letterSpacing: 1, fontWeight: "700" },
+  repricedNote: { marginTop: 6, lineHeight: 16 },
   partialCta: {
     flexDirection: "row",
     alignItems: "center",
