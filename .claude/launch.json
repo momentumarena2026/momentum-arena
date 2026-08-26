@@ -4,8 +4,24 @@
     {
       "name": "gridrepro",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "4790", "--directory", "/private/tmp/claude-501/-Users-nakulvarshney-Workspace-momentum-arena--claude-worktrees-bold-germain-0a1959/5ab2a2c4-5e6a-4f62-9239-19e35bd79d9b/scratchpad/gridrepro"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4790",
+        "--directory",
+        "/private/tmp/claude-501/-Users-nakulvarshney-Workspace-momentum-arena--claude-worktrees-bold-germain-0a1959/5ab2a2c4-5e6a-4f62-9239-19e35bd79d9b/scratchpad/gridrepro"
+      ],
       "port": 4790
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 3010,
+      "autoPort": true
     }
   ]
 }

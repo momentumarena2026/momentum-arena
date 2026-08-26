@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -18,6 +19,7 @@ import {
   GitBranch,
   Medal,
   Archive,
+  Copy,
   Trash2,
 } from "lucide-react";
 import {
@@ -512,6 +514,20 @@ export function TournamentManage({
             )}
             {t.archivedAt ? "Unarchive" : "Archive"}
           </button>
+          {/* Duplicate is a create action, not a state change, so it links
+              into the wizard rather than mutating anything here. Nothing is
+              written until that form is submitted, which is why it is safe
+              to offer at any status — including on a live or archived event,
+              where "run this again next season" is exactly the moment the
+              organiser wants it. */}
+          <Link
+            href={`/admin/tournaments/new?from=${t.id}`}
+            title="Create a new tournament using these settings"
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+          >
+            <Copy className="h-3 w-3" />
+            Duplicate
+          </Link>
           {t.status === "REG_CLOSED" && t.regCloseAt && (
             <span className="w-full text-xs text-zinc-500">
               Reopening clears the closing time ({" "}

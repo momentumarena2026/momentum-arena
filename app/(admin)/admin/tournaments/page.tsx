@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Archive, BookOpen, Plus, Trophy } from "lucide-react";
+import { Archive, BookOpen, Copy, Plus, Trophy } from "lucide-react";
 import { listTournamentsAdmin, getTournamentsEnabled } from "@/actions/admin-tournaments";
 import { STATUS_LABELS } from "@/lib/tournament-config";
 import { ModuleToggle } from "./module-toggle";
@@ -76,38 +76,58 @@ export default async function AdminTournamentsPage({
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {tournaments.map((t) => (
-            <Link
+            <div
               key={t.id}
-              href={`/admin/tournaments/${t.id}`}
-              className={`rounded-xl border bg-zinc-900 p-5 transition hover:border-zinc-700 ${
+              className={`relative rounded-xl border bg-zinc-900 p-5 transition hover:border-zinc-700 ${
                 t.archivedAt ? "border-zinc-800/60 opacity-60" : "border-zinc-800"
               }`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-medium text-white">{t.name}</h3>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format === "LEAGUE" ? "League" : "Knockout"} · {t.totalTeams} teams
-                  </p>
-                </div>
-                <span className="flex shrink-0 items-center gap-1.5">
-                  {t.archivedAt && (
-                    <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-500">
-                      Archived
+              {/* Stretched overlay rather than wrapping the card, so the
+                  Duplicate link below can be a real anchor — nesting one <a>
+                  inside another is invalid and React will not render it. */}
+              <Link
+                href={`/admin/tournaments/${t.id}`}
+                className="absolute inset-0 rounded-xl"
+                aria-label={`Open ${t.name}`}
+              />
+              <div className="pointer-events-none relative">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-medium text-white">{t.name}</h3>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format === "LEAGUE" ? "League" : "Knockout"} · {t.totalTeams} teams
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {t.archivedAt && (
+                      <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-500">
+                        Archived
+                      </span>
+                    )}
+                    <span className={`rounded-full border px-2.5 py-1 text-xs ${STATUS_COLORS[t.status] || ""}`}>
+                      {STATUS_LABELS[t.status] || t.status}
                     </span>
-                  )}
-                  <span className={`rounded-full border px-2.5 py-1 text-xs ${STATUS_COLORS[t.status] || ""}`}>
-                    {STATUS_LABELS[t.status] || t.status}
                   </span>
-                </span>
+                </div>
               </div>
-              <div className="mt-3 flex gap-4 text-xs text-zinc-400">
-                <span>{t._count.teams} registered</span>
-                <span>{t._count.matches} matches</span>
-                {t.entryFee > 0 && <span>₹{t.entryFee.toLocaleString("en-IN")}/team</span>}
-                {t.liveScoringEnabled && <span className="text-red-400">● Live scoring</span>}
+              <div className="relative mt-3 flex items-center justify-between gap-3">
+                <div className="pointer-events-none flex flex-wrap gap-4 text-xs text-zinc-400">
+                  <span>{t._count.teams} registered</span>
+                  <span>{t._count.matches} matches</span>
+                  {t.entryFee > 0 && <span>₹{t.entryFee.toLocaleString("en-IN")}/team</span>}
+                  {t.liveScoringEnabled && <span className="text-red-400">● Live scoring</span>}
+                </div>
+                {/* Running the same cup again is the common case; this saves
+                    retyping the whole wizard to change the dates. */}
+                <Link
+                  href={`/admin/tournaments/new?from=${t.id}`}
+                  title={`Create a new tournament using ${t.name}'s settings`}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs font-medium text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Duplicate
+                </Link>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
