@@ -12,7 +12,20 @@ import { uploadImage } from "@/lib/blob";
  * crop predictably, and so nothing user-supplied is served as-is.
  */
 export async function POST(request: NextRequest) {
-  await requireAdmin("MANAGE_CAMPS");
+  // Wrapped, unlike the bare call this used to make. requireAdmin THROWS on
+  // a missing session or permission, and an unhandled throw in a route
+  // handler is a 500 with an HTML body — so an admin whose session had
+  // lapsed, or who lacks MANAGE_CAMPS, got "Upload failed (500)" instead of
+  // being told they were signed out. Every sibling upload route already
+  // wraps it; this one was the outlier.
+  try {
+    await requireAdmin("MANAGE_CAMPS");
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unauthorized" },
+      { status: 401 },
+    );
+  }
 
   const formData = await request.formData().catch(() => null);
   const file = formData?.get("file");
