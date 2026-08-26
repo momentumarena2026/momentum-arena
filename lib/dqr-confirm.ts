@@ -1,3 +1,4 @@
+import { remainderAfterAdvance } from "@/lib/booking-amounts";
 import { after } from "next/server";
 import { db } from "@/lib/db";
 import { createBookingFromHold } from "@/actions/booking";
@@ -122,7 +123,9 @@ export async function confirmDqrBooking(
     pointsRedeemRupees +
     (hold.equipmentTotalAmount ?? 0);
   const advanceAmount = isAdvance ? paymentAmount : undefined;
-  const remainingAmount = isAdvance ? fullAmount - paymentAmount : undefined;
+  const remainingAmount = isAdvance
+    ? remainderAfterAdvance(fullAmount, paymentAmount)
+    : undefined;
 
   const bookingId = await createBookingFromHold(
     hold.id,

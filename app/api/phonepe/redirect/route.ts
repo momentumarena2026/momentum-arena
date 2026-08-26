@@ -1,3 +1,4 @@
+import { remainderAfterAdvance } from "@/lib/booking-amounts";
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { checkPhonePeStatus } from "@/lib/phonepe";
@@ -112,7 +113,7 @@ export async function GET(request: NextRequest) {
         (hold.equipmentTotalAmount ?? 0);
       const advanceAmount = isAdvance ? paymentAmount : undefined;
       const remainingAmount = isAdvance
-        ? fullAmount - paymentAmount
+        ? remainderAfterAdvance(fullAmount, paymentAmount)
         : undefined;
 
       const bookingId = await createBookingFromHold(

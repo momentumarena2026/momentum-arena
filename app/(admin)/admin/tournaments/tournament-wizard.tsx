@@ -14,6 +14,7 @@ import {
   structureWarnings,
   onlinePayable,
 } from "@/lib/tournament-config";
+import { uploadAdminImage } from "@/lib/client-image";
 
 const inputCls =
   "w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none";
@@ -142,6 +143,10 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
   );
   const [saving, setSaving] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  // Separate from the form-level `error`, which renders ~550 lines below at
+  // the submit button. A banner failure shown down there is off-screen, which
+  // is why a failed upload read as "the spinner stopped and nothing happened".
+  const [bannerError, setBannerError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Courts for the prize-pass picker — reloaded when the sport changes.
   const [courts, setCourts] = useState<{ id: string; label: string }[]>([]);
@@ -160,16 +165,14 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
 
   const uploadBanner = async (file: File) => {
     setUploadingBanner(true);
-    setError(null);
+    setBannerError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/admin/tournaments/banner-upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      set("bannerImageUrl", data.url);
+      set(
+        "bannerImageUrl",
+        await uploadAdminImage("/api/admin/tournaments/banner-upload", file),
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      setBannerError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploadingBanner(false);
     }
@@ -255,22 +258,49 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
                   none
                 </div>
               )}
-              <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800">
+              <label
+                className={`flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 ${
+                  uploadingBanner ? "cursor-wait opacity-60" : "cursor-pointer hover:bg-zinc-800"
+                }`}
+              >
                 {uploadingBanner ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                {form.bannerImageUrl ? "Change" : "Upload"}
+                {uploadingBanner ? "Uploading…" : form.bannerImageUrl ? "Change" : "Upload"}
                 <input
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={(e) => e.target.files?.[0] && uploadBanner(e.target.files[0])}
+                  disabled={uploadingBanner}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    // Clear immediately so re-picking the SAME file refires
+                    // onChange. Without this a retry after a failure looks
+                    // dead, because the input's value never changed.
+                    e.target.value = "";
+                    if (file) uploadBanner(file);
+                  }}
                 />
               </label>
-              {form.bannerImageUrl && (
-                <button onClick={() => set("bannerImageUrl", "")} className="text-xs text-zinc-500 hover:text-red-400">
+              {form.bannerImageUrl && !uploadingBanner && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    set("bannerImageUrl", "");
+                    setBannerError(null);
+                  }}
+                  className="text-xs text-zinc-500 hover:text-red-400"
+                >
                   Remove
                 </button>
               )}
             </div>
+            {bannerError ? (
+              <p className="mt-1.5 text-xs text-red-400">{bannerError}</p>
+            ) : (
+              <p className="mt-1.5 text-[11px] text-zinc-500">
+                Large photos are shrunk automatically before upload. Stored as
+                webp, 1920px wide.
+              </p>
+            )}
           </div>
           <div className="sm:col-span-2">
             <label className={labelCls}>Description (public page)</label>

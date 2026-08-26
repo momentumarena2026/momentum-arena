@@ -1,5 +1,6 @@
 "use client";
 
+import { uploadAdminImage } from "@/lib/client-image";
 import { useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import {
@@ -478,15 +479,8 @@ function ProductForm({
     setUploadError(null);
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/admin/shop/upload-image", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Upload failed");
-      onChange({ ...form, imageUrl: data.url });
+      const url = await uploadAdminImage("/api/admin/shop/upload-image", file);
+      onChange({ ...form, imageUrl: url });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {

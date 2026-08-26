@@ -131,3 +131,20 @@ test("discount legs are not subtracted twice", () => {
   assert.equal(server(1900, p), 1400);
   assert.equal(mobile(1900, p), 1400);
 });
+
+test("the venue remainder never goes negative", async () => {
+  const { remainderAfterAdvance } = await import("../lib/booking-amounts");
+
+  // Normal case: half now, half at the venue.
+  assert.equal(remainderAfterAdvance(700, 350), 350);
+
+  // The booking got CHEAPER after the QR was minted — a coupon or points
+  // applied between initiate and confirm. Six confirm paths used to store
+  // the raw subtraction here, parking a negative balance on the Payment row
+  // that venueAmountStillDue and the admin collect screens then read.
+  assert.equal(remainderAfterAdvance(500, 700), 0);
+  assert.equal(remainderAfterAdvance(0, 250), 0);
+
+  // Fully settled.
+  assert.equal(remainderAfterAdvance(700, 700), 0);
+});

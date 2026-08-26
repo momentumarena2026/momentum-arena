@@ -1,5 +1,6 @@
 "use client";
 
+import { postAdminImage } from "@/lib/client-image";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -123,14 +124,11 @@ export function PromoBannersManager({
     setUploading(true);
     setError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/admin/promo-banners/upload", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      const data = await postAdminImage<{
+        imageUrl: string;
+        appImageUrl: string | null;
+        aspectRatio: number;
+      }>("/api/admin/promo-banners/upload", file);
       setForm((p) => ({
         ...p,
         imageUrl: data.imageUrl,
