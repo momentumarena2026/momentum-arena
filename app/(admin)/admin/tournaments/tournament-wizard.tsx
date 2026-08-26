@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, Trash2, Trophy, AlertTriangle, Upload } from "lucide-react";
-import {
-  createTournament,
-  updateTournament,
-  type TournamentWizardInput,
-} from "@/actions/admin-tournaments";
+import { createTournament, updateTournament } from "@/actions/admin-tournaments";
+// Type comes from the schema module, not the action: a "use server" file
+// cannot re-export a type (see the note in actions/admin-tournaments.ts).
+import type { TournamentWizardInput } from "@/lib/tournament-wizard-schema";
 import { listCourtsForSport } from "@/actions/admin-tournament-fixtures";
 import { RichTextEditor } from "@/components/admin/rich-text-editor";
 import {

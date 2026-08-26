@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -18,6 +19,7 @@ import {
   GitBranch,
   Medal,
   Archive,
+  Copy,
   Trash2,
 } from "lucide-react";
 import {
@@ -29,8 +31,10 @@ import {
   rotateScorerCode,
   setTournamentArchived,
   deleteTournamentTeam,
-  type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
+// Type comes from the schema module, not the action: a "use server" file
+// cannot re-export a type (see the note in actions/admin-tournaments.ts).
+import type { TournamentWizardInput } from "@/lib/tournament-wizard-schema";
 import {
   STATUS_FLOW,
   STATUS_LABELS,
@@ -471,13 +475,19 @@ export function TournamentManage({
           </div>
         )}
 
-      {/* Lifecycle actions */}
-      {(STATUS_FLOW[t.status] || []).length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-zinc-500">
-            {t.status === "CANCELLED" ? "Restore to:" : "Move to:"}
-          </span>
-          {(STATUS_FLOW[t.status] || []).map((to) => (
+      {/* Lifecycle actions.
+          The row itself is unconditional. Only the "Move to:" transitions
+          inside it depend on STATUS_FLOW — gating the whole row on that
+          hid Archive and Duplicate on any status with no onward transition,
+          i.e. exactly on COMPLETED and CANCELLED events, which are the ones
+          an admin most wants to file away or run again. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(STATUS_FLOW[t.status] || []).length > 0 && (
+          <>
+            <span className="text-xs text-zinc-500">
+              {t.status === "CANCELLED" ? "Restore to:" : "Move to:"}
+            </span>
+            {(STATUS_FLOW[t.status] || []).map((to) => (
             <button
               key={to}
               onClick={() => doTransition(to)}
@@ -496,7 +506,9 @@ export function TournamentManage({
                 ? "Reopen Registrations"
                 : STATUS_LABELS[to] || to}
             </button>
-          ))}
+            ))}
+          </>
+        )}
           {/* Filing away is about the list, not the tournament, so it sits
               apart from the status transitions and stays available at any
               status — the server still refuses while it is live or open. */}
@@ -512,6 +524,20 @@ export function TournamentManage({
             )}
             {t.archivedAt ? "Unarchive" : "Archive"}
           </button>
+          {/* Duplicate is a create action, not a state change, so it links
+              into the wizard rather than mutating anything here. Nothing is
+              written until that form is submitted, which is why it is safe
+              to offer at any status — including on a live or archived event,
+              where "run this again next season" is exactly the moment the
+              organiser wants it. */}
+          <Link
+            href={`/admin/tournaments/new?from=${t.id}`}
+            title="Create a new tournament using these settings"
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+          >
+            <Copy className="h-3 w-3" />
+            Duplicate
+          </Link>
           {t.status === "REG_CLOSED" && t.regCloseAt && (
             <span className="w-full text-xs text-zinc-500">
               Reopening clears the closing time ({" "}
@@ -523,8 +549,7 @@ export function TournamentManage({
               one in Settings, or close it by hand when you have enough teams.
             </span>
           )}
-        </div>
-      )}
+      </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
