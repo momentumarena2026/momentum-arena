@@ -1,5 +1,15 @@
 import type { NextConfig } from "next";
 
+/**
+ * The two packages sharp needs on Vercel's linux-x64 runtime: the native
+ * addon, and the libvips shared object the addon dlopen()s. See the
+ * outputFileTracingIncludes note below for why these must be listed by hand.
+ */
+const SHARP_NATIVE = [
+  "./node_modules/@img/sharp-linux-x64/**",
+  "./node_modules/@img/sharp-libvips-linux-x64/**",
+];
+
 const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
@@ -9,9 +19,32 @@ const nextConfig: NextConfig = {
   // /public on purpose — a signature/stamp must never be publicly
   // downloadable — so they aren't auto-bundled into the serverless
   // functions. Trace them in explicitly.
+  //
+  // sharp's native addon (@img/sharp-linux-x64/lib/*.node) dlopen()s libvips
+  // (@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.3) at RUNTIME.
+  // File tracing follows static requires, so it ships the addon and leaves
+  // the shared object behind, and every route importing sharp then dies at
+  // module load with:
+  //
+  //   Could not load the "sharp" module using the linux-x64 runtime
+  //   ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open shared object file
+  //
+  // That happens BEFORE any handler code, so the route cannot report it —
+  // Next returns its own HTML 500 and the caller gets a non-JSON body. It
+  // was broken from the day sharp arrived (2026-07-17, promo banners) and
+  // stayed invisible for six weeks because the upload clients called
+  // res.json() on that HTML and surfaced a parse error instead.
+  //
+  // The globs only resolve on Linux, so they match nothing on a local macOS
+  // build and everything on Vercel. Add a route here whenever it imports sharp.
   outputFileTracingIncludes: {
     "/api/admin/nda/generate": ["./assets/letter-assets/**"],
     "/api/admin/offer-letter/generate": ["./assets/letter-assets/**"],
+    "/api/admin/tournaments/banner-upload": SHARP_NATIVE,
+    "/api/admin/camps/banner-upload": SHARP_NATIVE,
+    "/api/admin/promo-banners/upload": SHARP_NATIVE,
+    "/api/tournaments/logo-upload": SHARP_NATIVE,
+    "/api/cafe-menu-pdf": SHARP_NATIVE,
   },
   images: {
     remotePatterns: [
@@ -43,6 +76,10 @@ const nextConfig: NextConfig = {
     "@prisma/client",
     "@prisma/adapter-neon",
     "@neondatabase/serverless",
+    // Keep sharp out of the bundle too. Turbopack already externalises it,
+    // so this is belt-and-braces rather than the fix — see the tracing
+    // block above for the actual cause.
+    "sharp",
   ],
   // Disable HTTP/3 (QUIC) advertisement. Indian mobile carriers (Jio, Airtel,
   // VI) intermittently mangle UDP/443, which causes Chrome/Safari to fail
