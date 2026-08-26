@@ -4,13 +4,17 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
+// NOTE: do not re-export TournamentWizardInput from here. Every export of a
+// "use server" module is compiled into a server-action reference, and the
+// transform emits one for a bare `export type { ... }` too — producing a
+// runtime export that does not exist ("Export TournamentWizardInput doesn't
+// exist in target module"). TypeScript erases the re-export, so this fails
+// only at build/render, never at `tsc`. Consumers import the type from
+// @/lib/tournament-wizard-schema directly.
 import {
   wizardSchema,
   type TournamentWizardInput,
 } from "@/lib/tournament-wizard-schema";
-// Re-exported so the wizard and manage screens keep importing the type from
-// the action they call, rather than reaching past it into lib.
-export type { TournamentWizardInput };
 import {
   STATUS_FLOW,
   slugify,

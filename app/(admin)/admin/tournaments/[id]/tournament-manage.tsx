@@ -31,8 +31,10 @@ import {
   rotateScorerCode,
   setTournamentArchived,
   deleteTournamentTeam,
-  type TournamentWizardInput,
 } from "@/actions/admin-tournaments";
+// Type comes from the schema module, not the action: a "use server" file
+// cannot re-export a type (see the note in actions/admin-tournaments.ts).
+import type { TournamentWizardInput } from "@/lib/tournament-wizard-schema";
 import {
   STATUS_FLOW,
   STATUS_LABELS,
@@ -473,13 +475,19 @@ export function TournamentManage({
           </div>
         )}
 
-      {/* Lifecycle actions */}
-      {(STATUS_FLOW[t.status] || []).length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-zinc-500">
-            {t.status === "CANCELLED" ? "Restore to:" : "Move to:"}
-          </span>
-          {(STATUS_FLOW[t.status] || []).map((to) => (
+      {/* Lifecycle actions.
+          The row itself is unconditional. Only the "Move to:" transitions
+          inside it depend on STATUS_FLOW — gating the whole row on that
+          hid Archive and Duplicate on any status with no onward transition,
+          i.e. exactly on COMPLETED and CANCELLED events, which are the ones
+          an admin most wants to file away or run again. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(STATUS_FLOW[t.status] || []).length > 0 && (
+          <>
+            <span className="text-xs text-zinc-500">
+              {t.status === "CANCELLED" ? "Restore to:" : "Move to:"}
+            </span>
+            {(STATUS_FLOW[t.status] || []).map((to) => (
             <button
               key={to}
               onClick={() => doTransition(to)}
@@ -498,7 +506,9 @@ export function TournamentManage({
                 ? "Reopen Registrations"
                 : STATUS_LABELS[to] || to}
             </button>
-          ))}
+            ))}
+          </>
+        )}
           {/* Filing away is about the list, not the tournament, so it sits
               apart from the status transitions and stays available at any
               status — the server still refuses while it is live or open. */}
@@ -539,8 +549,7 @@ export function TournamentManage({
               one in Settings, or close it by hand when you have enough teams.
             </span>
           )}
-        </div>
-      )}
+      </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
