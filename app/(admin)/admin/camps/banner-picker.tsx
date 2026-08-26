@@ -1,5 +1,6 @@
 "use client";
 
+import { uploadAdminImage } from "@/lib/client-image";
 import { useState } from "react";
 
 /**
@@ -54,15 +55,9 @@ export function CampBannerPicker({
                 setBusy(true);
                 setError(null);
                 try {
-                  const fd = new FormData();
-                  fd.append("file", file);
-                  const res = await fetch("/api/admin/camps/banner-upload", {
-                    method: "POST",
-                    body: fd,
-                  });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data.error || "Upload failed");
-                  onChange(data.url);
+                  onChange(
+                    await uploadAdminImage("/api/admin/camps/banner-upload", file),
+                  );
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "Upload failed");
                 } finally {

@@ -1,5 +1,6 @@
 "use client";
 
+import { uploadAdminImage } from "@/lib/client-image";
 import { useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -110,15 +111,8 @@ export function CafeMenuClient({ items }: { items: CafeItemRow[] }) {
     setUploadError(null);
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/admin/cafe/upload-image", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Upload failed");
-      setForm((p) => ({ ...p, image: data.url }));
+      const url = await uploadAdminImage("/api/admin/cafe/upload-image", file);
+      setForm((p) => ({ ...p, image: url }));
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {

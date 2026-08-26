@@ -83,3 +83,60 @@ function replaceExt(name: string): string {
   const base = name.replace(/\.[^.]+$/, "") || "banner";
   return `${base}.jpg`;
 }
+
+/**
+ * Shrink an image, POST it, and return the parsed JSON body.
+ *
+ * The one place admin image uploads should go through. Every module had
+ * hand-rolled this and every copy shared the same two faults: it called
+ * `res.json()` before checking `res.ok`, so a non-JSON error body (a platform
+ * 413, an HTML 500, an auth redirect) surfaced as "Unexpected token '<'"
+ * instead of the real problem; and nothing shrank the file, so a phone photo
+ * was rejected at the edge before the route ever ran.
+ *
+ * Generic in the response shape because the routes do not agree on one:
+ * most return `{ url }`, promo-banners returns `{ imageUrl, appImageUrl,
+ * aspectRatio }`.
+ *
+ * Throws an Error whose message is safe to show the admin.
+ */
+export async function postAdminImage<T>(endpoint: string, file: File): Promise<T> {
+  const toSend = await shrinkImageForUpload(file);
+  if (toSend.size > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `That image is ${formatBytes(toSend.size)} and couldn't be shrunk below ` +
+        `${formatBytes(MAX_UPLOAD_BYTES)}. Try a smaller one, or export it as JPEG.`,
+    );
+  }
+
+  const fd = new FormData();
+  fd.append("file", toSend);
+  const res = await fetch(endpoint, { method: "POST", body: fd });
+
+  const raw = await res.text();
+  let data: unknown = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    if (!res.ok) {
+      throw new Error(
+        res.status === 413
+          ? "That image is too large for the server to accept."
+          : `Upload failed (${res.status}). Please try again.`,
+      );
+    }
+    throw new Error("The server sent an unexpected response.");
+  }
+  if (!res.ok) {
+    const msg = (data as { error?: string })?.error;
+    throw new Error(msg || `Upload failed (${res.status})`);
+  }
+  return data as T;
+}
+
+/** `postAdminImage` for the common `{ url }` routes. */
+export async function uploadAdminImage(endpoint: string, file: File): Promise<string> {
+  const data = await postAdminImage<{ url?: string }>(endpoint, file);
+  if (!data.url) throw new Error("Upload succeeded but no image URL came back.");
+  return data.url;
+}

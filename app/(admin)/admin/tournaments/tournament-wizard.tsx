@@ -14,11 +14,7 @@ import {
   structureWarnings,
   onlinePayable,
 } from "@/lib/tournament-config";
-import {
-  shrinkImageForUpload,
-  formatBytes,
-  MAX_UPLOAD_BYTES,
-} from "@/lib/client-image";
+import { uploadAdminImage } from "@/lib/client-image";
 
 const inputCls =
   "w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none";
@@ -171,46 +167,10 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
     setUploadingBanner(true);
     setBannerError(null);
     try {
-      // Shrink before sending. Vercel rejects a request body over ~4.5MB at
-      // the edge, before the route runs, and a phone photo clears that
-      // easily — so this removes the failure rather than reporting it.
-      const toSend = await shrinkImageForUpload(file);
-      if (toSend.size > MAX_UPLOAD_BYTES) {
-        throw new Error(
-          `That image is ${formatBytes(toSend.size)} and couldn't be shrunk below ` +
-            `${formatBytes(MAX_UPLOAD_BYTES)}. Try a smaller one, or export it as JPEG.`,
-        );
-      }
-
-      const fd = new FormData();
-      fd.append("file", toSend);
-      const res = await fetch("/api/admin/tournaments/banner-upload", {
-        method: "POST",
-        body: fd,
-      });
-
-      // Parse defensively and only after checking status. The old order
-      // called res.json() first, so any non-JSON response — a platform 413,
-      // an HTML 500, an auth redirect — threw "Unexpected token '<'" instead
-      // of saying what went wrong.
-      const raw = await res.text();
-      let data: { url?: string; error?: string } = {};
-      try {
-        data = raw ? JSON.parse(raw) : {};
-      } catch {
-        if (!res.ok) {
-          throw new Error(
-            res.status === 413
-              ? "That image is too large for the server to accept."
-              : `Upload failed (${res.status}). Please try again.`,
-          );
-        }
-        throw new Error("The server sent an unexpected response.");
-      }
-      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
-      if (!data.url) throw new Error("Upload succeeded but no image URL came back.");
-
-      set("bannerImageUrl", data.url);
+      set(
+        "bannerImageUrl",
+        await uploadAdminImage("/api/admin/tournaments/banner-upload", file),
+      );
     } catch (e) {
       setBannerError(e instanceof Error ? e.message : "Upload failed");
     } finally {
