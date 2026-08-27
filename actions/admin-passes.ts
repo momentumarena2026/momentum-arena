@@ -758,6 +758,107 @@ export async function adjustPassMinutes(
   return { ok: true };
 }
 
+/** Widest window an admin may move a start date into, either direction. */
+const START_EDIT_WINDOW_DAYS = 365;
+
+/**
+ * Move a sold pass's start date.
+ *
+ * Corrects the case the other actions can't: a pass issued against the
+ * wrong activation day. Extend only pushes the expiry out, Adjust only
+ * moves the balance — neither can say "this one actually starts on the
+ * 30th".
+ *
+ * **The expiry travels with it.** `expiresAt` shifts by the same delta
+ * rather than being recomputed as `start + validityDays`, so the customer
+ * keeps exactly the window they bought AND any extra days an admin already
+ * granted with Extend. Recomputing would silently revoke that extension.
+ *
+ * Deliberately NOT reusing lib/passes `parseStartDate`: that clamps to
+ * "today or later", which is right when a customer schedules a purchase and
+ * wrong here. An admin fixing a data-entry error needs to move a start
+ * backwards, and a silent clamp would snap their chosen date to today with
+ * no explanation. This parses the same way (IST midnight, because validity
+ * is judged against a booking's calendar date) but validates instead of
+ * clamping.
+ */
+export async function setPassStartDate(
+  id: string,
+  startDate: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await gate();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate ?? "")) {
+    return { ok: false, error: "Pick a valid date." };
+  }
+  const newStart = new Date(`${startDate}T00:00:00+05:30`);
+  if (Number.isNaN(newStart.getTime())) {
+    return { ok: false, error: "Pick a valid date." };
+  }
+
+  const pass = await db.userPass.findUnique({
+    where: { id },
+    include: {
+      redemptions: {
+        where: { restoredAt: null },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+        select: { createdAt: true },
+      },
+    },
+  });
+  if (!pass) return { ok: false, error: "Pass not found." };
+  // Cancellation is terminal — same rule as Extend and Adjust.
+  if (pass.status === "CANCELLED") {
+    return { ok: false, error: "This pass is cancelled — no further changes." };
+  }
+
+  const now = Date.now();
+  const limit = START_EDIT_WINDOW_DAYS * 86_400_000;
+  if (Math.abs(newStart.getTime() - now) > limit) {
+    return {
+      ok: false,
+      error: `Start date must be within ${START_EDIT_WINDOW_DAYS} days of today.`,
+    };
+  }
+
+  const delta = newStart.getTime() - pass.startsAt.getTime();
+  if (delta === 0) return { ok: true };
+  const newExpires = new Date(pass.expiresAt.getTime() + delta);
+
+  // A pass cannot have been redeemed before it started. Moving the start
+  // past an existing redemption would leave the books claiming hours were
+  // drawn from a pass that had not yet begun.
+  const firstRedemption = pass.redemptions[0]?.createdAt;
+  if (firstRedemption && newStart.getTime() > firstRedemption.getTime()) {
+    return {
+      ok: false,
+      error: `This pass was already redeemed on ${firstRedemption.toLocaleDateString(
+        "en-IN",
+        { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" },
+      )}. Pick a start on or before that date.`,
+    };
+  }
+
+  await db.userPass.update({
+    where: { id },
+    data: {
+      startsAt: newStart,
+      expiresAt: newExpires,
+      // Re-arm a pass whose stored status went EXPIRED but whose new window
+      // covers today. Mirrors extendPassValidity. Live status (UPCOMING /
+      // EXPIRED) is derived by passLiveStatus, so nothing else needs setting.
+      ...(pass.status === "EXPIRED" &&
+      newExpires.getTime() > now &&
+      pass.remainingMinutes > 0
+        ? { status: "ACTIVE" as const }
+        : {}),
+    },
+  });
+  revalidatePath("/admin/passes");
+  return { ok: true };
+}
+
 export async function cancelUserPass(
   id: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
