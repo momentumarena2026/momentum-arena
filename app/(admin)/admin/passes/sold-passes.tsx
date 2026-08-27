@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Users, X, Loader2, UserPlus, Trash2, MessageCircle } from "lucide-react";
+import { Users, X, Loader2, UserPlus, Trash2, MessageCircle, CalendarCog } from "lucide-react";
 import {
   adjustPassMinutes,
   cancelUserPass,
@@ -10,6 +10,7 @@ import {
   adminGetPassMembers,
   adminAddPassMember,
   adminRemovePassMember,
+  setPassStartDate,
 } from "@/actions/admin-passes";
 import { PhoneInput } from "@/components/ui/phone-input";
 
@@ -47,6 +48,7 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [membersFor, setMembersFor] = useState<Sold | null>(null);
+  const [editFor, setEditFor] = useState<Sold | null>(null);
 
   const filtered = passes.filter(
     (p) =>
@@ -155,6 +157,14 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
                         </button>
                         <button
                           disabled={pending}
+                          onClick={() => setEditFor(p)}
+                          title="Change when this pass starts"
+                          className="inline-flex items-center gap-1 rounded-md border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
+                        >
+                          <CalendarCog className="h-3.5 w-3.5" /> Edit
+                        </button>
+                        <button
+                          disabled={pending}
                           onClick={() => {
                             const d = window.prompt("Extend validity by how many days?", "7");
                             if (!d) return;
@@ -201,6 +211,138 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
       {membersFor && (
         <MembersModal pass={membersFor} onClose={() => setMembersFor(null)} />
       )}
+
+      {editFor && (
+        <EditStartModal pass={editFor} onClose={() => setEditFor(null)} />
+      )}
+    </div>
+  );
+}
+
+/** ISO date (YYYY-MM-DD) for an instant, read in IST — the zone pass
+ *  activation is judged in, so the input shows the day the venue means. */
+const istDay = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+/**
+ * Change when a pass starts.
+ *
+ * A date input rather than the window.prompt the sibling actions use: a
+ * date typed blind into a prompt is easy to get wrong, and this one moves
+ * the expiry with it, so the admin should see the resulting window before
+ * committing. The preview below is the same arithmetic the server applies
+ * (shift both ends by the same delta), so what is shown is what is saved.
+ */
+function EditStartModal({ pass, onClose }: { pass: Sold; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [date, setDate] = useState(() => istDay(pass.startsAt));
+  const [error, setError] = useState<string | null>(null);
+
+  const currentStart = istDay(pass.startsAt);
+  const changed = date !== currentStart;
+
+  // Preview the shifted expiry. Whole IST days apart, so day arithmetic on
+  // the two midnights is exact.
+  const deltaDays = changed
+    ? Math.round(
+        (new Date(`${date}T00:00:00+05:30`).getTime() -
+          new Date(`${currentStart}T00:00:00+05:30`).getTime()) /
+          86_400_000,
+      )
+    : 0;
+  const newExpiry = new Date(
+    new Date(pass.expiresAt).getTime() + deltaDays * 86_400_000,
+  ).toISOString();
+
+  function save() {
+    if (!changed) return onClose();
+    setError(null);
+    start(async () => {
+      const res = await setPassStartDate(pass.id, date);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      router.refresh();
+      onClose();
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-white">Edit start date</h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {pass.customer} · {pass.name}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <label className="mt-4 block text-xs font-medium text-zinc-400">
+          Starts on
+        </label>
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
+        />
+
+        <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs">
+          <div className="flex justify-between text-zinc-400">
+            <span>Expires</span>
+            <span className={changed ? "text-amber-300" : "text-zinc-300"}>
+              {dt(changed ? newExpiry : pass.expiresAt)}
+              {changed && (
+                <span className="ml-1.5 text-zinc-500 line-through">
+                  {dt(pass.expiresAt)}
+                </span>
+              )}
+            </span>
+          </div>
+          <p className="mt-2 leading-relaxed text-zinc-500">
+            The expiry moves with the start, so the customer keeps the same
+            length of validity — including any days already added with Extend.
+            The balance is untouched.
+          </p>
+        </div>
+
+        {pass.redemptionCount > 0 && (
+          <p className="mt-2 text-[11px] leading-relaxed text-amber-400/90">
+            This pass has {pass.redemptionCount} redemption(s). It can&apos;t be
+            moved to start after hours were already drawn from it.
+          </p>
+        )}
+
+        {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={pending}
+            className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={pending || !changed}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-600/10 px-3 py-2 text-xs font-medium text-emerald-400 hover:bg-emerald-600/20 disabled:opacity-50"
+          >
+            {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Save start date
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
