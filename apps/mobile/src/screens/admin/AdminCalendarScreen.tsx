@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -128,15 +129,44 @@ export function AdminCalendarScreen() {
     query.data,
   ]);
 
+  // Functional update rather than reading `date` from the closure: the swipe
+  // responder below is created once, so a captured `date` would make every
+  // swipe step off the same day. It also makes two quick chevron taps land
+  // two days apart instead of one.
   function shiftDay(offset: number) {
-    // UTC arithmetic — `new Date("YYYY-MM-DDT00:00:00")` is local
-    // time, so toISOString() shifts the date by the local TZ offset
-    // (IST = +5:30) and the resulting YYYY-MM-DD lands a day off.
-    // Anchoring at UTC midnight + setUTCDate keeps the string stable.
-    const d = new Date(date + "T00:00:00Z");
-    d.setUTCDate(d.getUTCDate() + offset);
-    setDate(d.toISOString().split("T")[0]);
+    setDate((prev) => addDays(prev, offset));
   }
+
+  /**
+   * Swipe the grid sideways to change day.
+   *
+   * PanResponder rather than react-native-gesture-handler: this is core
+   * React Native, so it adds no dependency and the change stays shippable
+   * over OTA — a new native module would change the fingerprint and force a
+   * store build.
+   *
+   * Created once. `setDate` is stable across renders and the shift is a
+   * functional update, so the responder needs nothing from this render and
+   * an empty dependency list is correct.
+   */
+  const daySwipe = useMemo(
+    () =>
+      PanResponder.create({
+        // Claim the gesture only once it is clearly a sideways drag. The grid
+        // scrolls vertically inside this region, so anything ambiguous has to
+        // be left to the ScrollView or the grid stops scrolling.
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          Math.abs(g.dx) > SWIPE_MIN_DX &&
+          Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_AXIS_RATIO,
+        onPanResponderRelease: (_evt, g) => {
+          if (Math.abs(g.dx) < SWIPE_MIN_DX) return;
+          setDate((prev) =>
+            addDays(prev, g.dx < 0 ? SWIPE_LEFT_OFFSET : SWIPE_RIGHT_OFFSET),
+          );
+        },
+      }),
+    [],
+  );
 
   return (
     <Screen padded={false}>
@@ -182,59 +212,64 @@ export function AdminCalendarScreen() {
         </ScrollView>
 
         {/* Body */}
-        {query.isLoading ? (
-          <CalendarSkeleton />
-        ) : query.isError ? (
-          <Pressable
-            onPress={() => void query.refetch()}
-            style={styles.errorBlock}
-          >
-            <Text variant="body" color={colors.destructive}>
-              Couldn't load the calendar. Tap to retry.
-            </Text>
-            <Text variant="tiny" color={colors.zinc500}>
-              {query.error instanceof Error
-                ? query.error.message
-                : "Unknown error"}
-            </Text>
-          </Pressable>
-        ) : !query.data || query.data.hours.length === 0 ? (
-          <View style={styles.empty}>
-            <Text variant="bodyStrong" color={colors.zinc300}>
-              Nothing to show
-            </Text>
-            <Text variant="tiny" color={colors.zinc500} align="center">
-              Try a different date or sport filter.
-            </Text>
-          </View>
-        ) : (
-          <HourGrid
-            hours={query.data.hours}
-            hourMap={hourMap}
-            onPressBooking={(bookingId) =>
-              navigation.navigate("AdminBookings", {
-                screen: "AdminBookingDetail",
-                params: { bookingId },
-              })
-            }
-            onAddBooking={(hour) =>
-              // Mirrors web's "+ Add" link inside empty calendar
-              // cells (app/(admin)/admin/calendar/calendar-view.tsx:362).
-              // Cross-tabs into AdminBookings → AdminCreateBooking
-              // with the cell's date / hour / current sport
-              // pre-selected so the staffer skips three picks.
-              navigation.navigate("AdminBookings", {
-                screen: "AdminCreateBooking",
-                params: {
-                  prefillDate: date,
-                  prefillHour: hour,
-                  prefillSport:
-                    sport === "" ? undefined : sport,
-                },
-              })
-            }
-          />
-        )}
+        {/* Central region — swipe sideways here to change day. Deliberately
+            starts below the sport chips, whose own horizontal ScrollView
+            would otherwise fight the responder. */}
+        <View {...daySwipe.panHandlers}>
+          {query.isLoading ? (
+            <CalendarSkeleton />
+          ) : query.isError ? (
+            <Pressable
+              onPress={() => void query.refetch()}
+              style={styles.errorBlock}
+            >
+              <Text variant="body" color={colors.destructive}>
+                Couldn't load the calendar. Tap to retry.
+              </Text>
+              <Text variant="tiny" color={colors.zinc500}>
+                {query.error instanceof Error
+                  ? query.error.message
+                  : "Unknown error"}
+              </Text>
+            </Pressable>
+          ) : !query.data || query.data.hours.length === 0 ? (
+            <View style={styles.empty}>
+              <Text variant="bodyStrong" color={colors.zinc300}>
+                Nothing to show
+              </Text>
+              <Text variant="tiny" color={colors.zinc500} align="center">
+                Try a different date or sport filter.
+              </Text>
+            </View>
+          ) : (
+            <HourGrid
+              hours={query.data.hours}
+              hourMap={hourMap}
+              onPressBooking={(bookingId) =>
+                navigation.navigate("AdminBookings", {
+                  screen: "AdminBookingDetail",
+                  params: { bookingId },
+                })
+              }
+              onAddBooking={(hour) =>
+                // Mirrors web's "+ Add" link inside empty calendar
+                // cells (app/(admin)/admin/calendar/calendar-view.tsx:362).
+                // Cross-tabs into AdminBookings → AdminCreateBooking
+                // with the cell's date / hour / current sport
+                // pre-selected so the staffer skips three picks.
+                navigation.navigate("AdminBookings", {
+                  screen: "AdminCreateBooking",
+                  params: {
+                    prefillDate: date,
+                    prefillHour: hour,
+                    prefillSport:
+                      sport === "" ? undefined : sport,
+                  },
+                })
+              }
+            />
+          )}
+        </View>
       </ScrollView>
 
       {/* Sticky day switcher — pinned at the bottom, above the bottom
@@ -294,6 +329,49 @@ interface HourEntry {
     userName: string | null;
   }>;
   blocks: Array<{ courtLabel: string; reason?: string }>;
+}
+
+/**
+ * Horizontal travel before a swipe counts as a day change. Deliberately
+ * larger than a stray finger wobble: the grid scrolls vertically under this
+ * gesture, so a low threshold would change the date while someone was
+ * scrolling through the day's hours.
+ */
+const SWIPE_MIN_DX = 48;
+
+/**
+ * How much more horizontal than vertical a drag must be before it is treated
+ * as a day swipe rather than a scroll. Without this ratio the responder
+ * steals diagonal drags from the ScrollView and the grid feels stuck.
+ */
+const SWIPE_AXIS_RATIO = 2;
+
+/**
+ * Direction mapping, as requested: swiping LEFT goes back a day, swiping
+ * RIGHT goes forward — which matches the ◀ / ▶ chevrons in the day bar
+ * directly below the grid.
+ *
+ * Worth knowing this is the inverse of the "filmstrip" convention that iOS
+ * and Google Calendar use, where dragging left pulls the next day in from
+ * the right. Swap these two values to flip it; nothing else depends on the
+ * sign.
+ */
+const SWIPE_LEFT_OFFSET = -1;
+const SWIPE_RIGHT_OFFSET = 1;
+
+/**
+ * Shift a YYYY-MM-DD string by whole days.
+ *
+ * UTC arithmetic — `new Date("YYYY-MM-DDT00:00:00")` is LOCAL time, so
+ * toISOString() shifts by the device's offset (IST = +5:30) and the
+ * resulting date lands a day off. Anchoring at UTC midnight and using
+ * setUTCDate keeps the string stable, and rolls month/year/leap-day
+ * boundaries correctly.
+ */
+function addDays(iso: string, offset: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().split("T")[0];
 }
 
 function buildHourMap(data: CalendarData | null): Map<number, HourEntry> {
