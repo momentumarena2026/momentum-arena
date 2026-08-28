@@ -20,6 +20,7 @@ import {
   Medal,
   Archive,
   Copy,
+  Info,
   Trash2,
 } from "lucide-react";
 import {
@@ -201,6 +202,8 @@ export function TournamentManage({
   // Which match a bracket click asked the Scores tab to open.
   const [focusMatchId, setFocusMatchId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Non-error outcome of a transition — e.g. how many hours a cancel freed.
+  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
   const [collectAmt, setCollectAmt] = useState("");
@@ -296,10 +299,17 @@ export function TournamentManage({
   const doTransition = async (to: string) => {
     setBusy(`tr-${to}`);
     setError(null);
+    setNote(null);
     try {
       const res = await transitionTournament(t.id, to);
       if (!res.success) setError(res.error || "Failed");
-      else router.refresh();
+      else {
+        // Cancelling frees venue hours and pulls banners; restoring puts
+        // them back. Both are invisible on this screen, so say what happened
+        // rather than leaving the admin to go and check the booking grid.
+        if (res.note) setNote(res.note);
+        router.refresh();
+      }
     } finally {
       setBusy(null);
     }
@@ -552,6 +562,12 @@ export function TournamentManage({
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
+      {note && (
+        <div className="flex items-start gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs leading-relaxed text-sky-200">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" />
+          <span>{note}</span>
+        </div>
+      )}
 
       {/* Tabs */}
       {/* Seven tabs can't fit a phone. Without a scroller the row forced
