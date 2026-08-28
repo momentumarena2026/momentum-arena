@@ -184,7 +184,7 @@ export async function updateTournament(
 export async function transitionTournament(
   id: string,
   toStatus: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; note?: string }> {
   const admin = await gate();
   const t = await db.tournament.findUnique({
     where: { id },
@@ -215,6 +215,53 @@ export async function transitionTournament(
       ...(reopening ? { regCloseAt: null } : {}),
     },
   });
+  // ── Venue hours + site banners follow the status ──────────────────
+  // Cancelling used to leave both behind: every blocked hour stayed dark
+  // until an admin deleted the windows one by one, and the campaign banners
+  // kept advertising a tournament that was no longer running. Restoring a
+  // mis-clicked cancel puts both back, which is why release/restore are
+  // paired rather than a one-way cleanup.
+  const notes: string[] = [];
+  if (toStatus === "CANCELLED") {
+    const { releaseTournamentBlocks } = await import("@/lib/tournament-blocks");
+    const { hideTournamentBanners } = await import("@/lib/tournament-campaign");
+    const freed = await releaseTournamentBlocks(id).catch(() => null);
+    const hidden = await hideTournamentBanners(id).catch(() => null);
+    if (freed?.released) {
+      notes.push(
+        `${freed.released} blocked hour${freed.released === 1 ? "" : "s"} released back to the booking grid.`,
+      );
+    }
+    if (hidden?.hidden) {
+      notes.push(
+        `${hidden.hidden} promo banner${hidden.hidden === 1 ? "" : "s"} hidden.`,
+      );
+    }
+  } else if (t.status === "CANCELLED") {
+    const { restoreTournamentBlocks } = await import("@/lib/tournament-blocks");
+    const { showTournamentBanners } = await import("@/lib/tournament-campaign");
+    const back = await restoreTournamentBlocks(id, admin.id).catch(() => null);
+    const shown = await showTournamentBanners(id).catch(() => null);
+    if (back?.raised) {
+      notes.push(
+        `${back.raised} hour${back.raised === 1 ? "" : "s"} blocked again.`,
+      );
+    }
+    // Bookings taken while the tournament was cancelled are kept, not
+    // bulldozed — same rule addTournamentSlot follows. The admin needs to
+    // know they exist so they can be moved by hand.
+    if (back?.clashes) {
+      notes.push(
+        `${back.clashes} booking${back.clashes === 1 ? " was" : "s were"} taken on those hours while it was cancelled — move ${back.clashes === 1 ? "it" : "them"} by hand.`,
+      );
+    }
+    if (shown?.shown) {
+      notes.push(
+        `${shown.shown} promo banner${shown.shown === 1 ? "" : "s"} restored.`,
+      );
+    }
+  }
+
   // Prize passes are minted on completion, to the captain of whichever team
   // finished in the configured position. Idempotent, and deliberately
   // non-fatal: a pass that can't be issued (captain never linked an
@@ -230,7 +277,10 @@ export async function transitionTournament(
   if (milestone) await fireMilestone(id, milestone).catch(() => {});
   revalidatePath(`/admin/tournaments/${id}`);
   revalidatePath("/admin/tournaments");
-  return { success: true };
+  // The booking grid and the public tournament list both change shape here.
+  revalidatePath("/admin/slots");
+  revalidatePath("/tournaments");
+  return { success: true, ...(notes.length ? { note: notes.join(" ") } : {}) };
 }
 
 // ── Module master switch (mirrors passes) ───────────────────────────

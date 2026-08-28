@@ -186,3 +186,62 @@ export async function fireMilestone(
   }
   return { fired, skipped };
 }
+
+/**
+ * Hide every promo banner this tournament put on the site.
+ *
+ * `fireMilestone` publishes a PromoBanner per BANNER milestone (using the
+ * tournament's hero image) and records the id on the campaign item. Nothing
+ * ever took them down: a cancelled tournament kept advertising itself on the
+ * home screen and in the app, linking to a page that no longer sells
+ * anything.
+ *
+ * Deactivated rather than deleted, for the same reason the cancel itself is
+ * reversible — `showTournamentBanners` puts them back if the cancel was a
+ * mis-click. Deleting would also lose the campaign item's `bannerId` link.
+ */
+export async function hideTournamentBanners(
+  tournamentId: string,
+): Promise<{ hidden: number }> {
+  const items = await db.tournamentCampaignItem.findMany({
+    where: { tournamentId, bannerId: { not: null } },
+    select: { bannerId: true },
+  });
+  const ids = items.map((i) => i.bannerId as string);
+  if (ids.length === 0) return { hidden: 0 };
+  const res = await db.promoBanner.updateMany({
+    where: { id: { in: ids }, isActive: true },
+    data: { isActive: false },
+  });
+  return { hidden: res.count };
+}
+
+/**
+ * Re-show the banners hidden by a cancel, when the tournament is restored.
+ *
+ * Scoped to campaign items that are still `enabled` and were actually SENT,
+ * so an item an admin switched off, or one that never fired, doesn't get a
+ * banner resurrected behind it. A banner whose own start/end window has since
+ * passed simply won't render — that scheduling is honoured downstream, so it
+ * doesn't need re-checking here.
+ */
+export async function showTournamentBanners(
+  tournamentId: string,
+): Promise<{ shown: number }> {
+  const items = await db.tournamentCampaignItem.findMany({
+    where: {
+      tournamentId,
+      bannerId: { not: null },
+      enabled: true,
+      status: "SENT",
+    },
+    select: { bannerId: true },
+  });
+  const ids = items.map((i) => i.bannerId as string);
+  if (ids.length === 0) return { shown: 0 };
+  const res = await db.promoBanner.updateMany({
+    where: { id: { in: ids }, isActive: false },
+    data: { isActive: true },
+  });
+  return { shown: res.count };
+}
