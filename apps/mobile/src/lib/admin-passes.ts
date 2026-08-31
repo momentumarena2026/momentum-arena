@@ -88,6 +88,53 @@ export interface PassMembersData {
   }[];
 }
 
+/** One sold pass in full — mirrors getSoldPassDetail on the server. */
+export interface AdminPassDetail {
+  id: string;
+  name: string;
+  sport: string;
+  courtLabel: string;
+  bandsSummary: string;
+  totalMinutes: number;
+  remainingMinutes: number;
+  consumedMinutes: number;
+  price: number;
+  validityDays: number;
+  purchasedAt: string;
+  startsAt: string;
+  expiresAt: string;
+  status: string;
+  methodLabel: string;
+  issuedByUsername: string | null;
+  maxMembers: number;
+  owner: { name: string | null; phone: string | null };
+  members: Array<{
+    userId: string;
+    name: string | null;
+    phone: string | null;
+    addedAt: string;
+  }>;
+  bookings: Array<{
+    bookingId: string;
+    date: string | null;
+    timeLabel: string;
+    bookingStatus: string;
+    bookedBy: string | null;
+    minutes: number;
+    value: number;
+    coveredAmount: number;
+    restored: boolean;
+    redeemedAt: string;
+  }>;
+  admin: {
+    planId: string | null;
+    paymentMethod: string | null;
+    offlineRef: string | null;
+    razorpayPaymentId: string | null;
+    phonePeMerchantTxnId: string | null;
+  };
+}
+
 type OkResult = { ok: boolean; error?: string };
 
 const BASE = "/api/mobile/admin/passes";
@@ -98,6 +145,9 @@ function action<T = OkResult>(body: Record<string, unknown>) {
 
 export const adminPassesApi = {
   data: () => request<AdminPassesData>(BASE, { method: "GET" }),
+
+  detail: (id: string) =>
+    request<AdminPassDetail>(`${BASE}/${id}`, { method: "GET" }),
 
   setEnabled: (enabled: boolean) => action({ action: "set-enabled", enabled }),
 

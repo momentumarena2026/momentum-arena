@@ -677,6 +677,45 @@ export async function getSoldPasses() {
   }));
 }
 
+/**
+ * Full detail for one sold pass — the admin's version of the customer's
+ * pass page, plus how it was paid for.
+ *
+ * Reuses buildPassDetail via getPassDetailForAdmin rather than assembling
+ * its own query, so the balance, consumed hours and redemption history an
+ * admin sees can never disagree with what the customer is looking at on
+ * their own screen. That divergence is the whole reason this is shared.
+ */
+export async function getSoldPassDetail(id: string) {
+  await gate();
+  const { getPassDetailForAdmin } = await import("@/lib/passes");
+  const detail = await getPassDetailForAdmin(id);
+  if (!detail) return null;
+
+  // Who issued an at-venue pass. Resolved here rather than in the shared
+  // core because only the admin view has any use for it.
+  const issuedBy = detail.admin.issuedByAdminId
+    ? await db.adminUser
+        .findUnique({
+          where: { id: detail.admin.issuedByAdminId },
+          select: { username: true },
+        })
+        .catch(() => null)
+    : null;
+
+  return {
+    ...detail,
+    consumedMinutes: Math.max(0, detail.totalMinutes - detail.remainingMinutes),
+    methodLabel: passMethodLabel({
+      planId: detail.admin.planId,
+      paymentMethod: detail.admin.paymentMethod,
+      razorpayOrderId: detail.admin.razorpayOrderId,
+      phonePeMerchantTxnId: detail.admin.phonePeMerchantTxnId,
+    }),
+    issuedByUsername: issuedBy?.username ?? null,
+  };
+}
+
 export async function extendPassValidity(
   id: string,
   extraDays: number,
