@@ -26,6 +26,7 @@
     "expo": "~56.0.0",
     "expo-application": "~56.0.3",
     "expo-file-system": "~56.0.8",
+    "expo-image-picker": "~56.0.25",
     "expo-sharing": "~56.0.18",
     "expo-updates": "~56.0.19",
     "lucide-react-native": "^1.9.0",

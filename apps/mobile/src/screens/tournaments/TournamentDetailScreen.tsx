@@ -5,9 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Animated, { FadeInDown } from "react-native-reanimated";
+import * as ImagePicker from "expo-image-picker";
 import { PoolRevealCeremony } from "../../components/tournaments/PoolRevealCeremony";
 import { PoolRevealCountdown } from "../../components/tournaments/PoolRevealCountdown";
-import { Trophy, Radio, Users, Plus, Trash2, Lock, CalendarDays, ScrollText } from "lucide-react-native";
+import { Trophy, Radio, Users, Plus, Trash2, Lock, CalendarDays, ScrollText, Image as ImageIcon } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { RichText, looksLikeRichText } from "../../components/ui/RichText";
@@ -20,6 +21,8 @@ import {
   getTournament,
   getMyTeam,
   updateSquad,
+  uploadTeamLogo,
+  setTeamLogo,
   type MatchLite,
   type TeamLite,
   type StandRow,
@@ -197,8 +200,64 @@ function MySquadCard({ slug }: { slug: string }) {
   >([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
 
   if (!team) return null;
+
+  /**
+   * Pick an image and set it as the team logo.
+   *
+   * Permission is requested lazily, on tap, rather than at screen mount —
+   * a captain who never touches the logo is never asked. A denial is
+   * reported inline instead of silently doing nothing, which is how a
+   * blocked picker otherwise appears.
+   */
+  const pickLogo = async () => {
+    if (logoBusy) return;
+    setError(null);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      setError("Photo access is needed to choose a logo.");
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      // Square, because every surface renders the logo in a circle.
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (picked.canceled || !picked.assets?.[0]) return;
+
+    const asset = picked.assets[0];
+    setLogoBusy(true);
+    try {
+      await uploadTeamLogo(team.id, {
+        uri: asset.uri,
+        name: asset.fileName ?? "team-logo.jpg",
+        type: asset.mimeType ?? "image/jpeg",
+      });
+      queryClient.invalidateQueries({ queryKey: ["myTeam", slug] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't upload the logo");
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+
+  const removeLogo = async () => {
+    if (logoBusy) return;
+    setError(null);
+    setLogoBusy(true);
+    try {
+      await setTeamLogo(team.id, null);
+      queryClient.invalidateQueries({ queryKey: ["myTeam", slug] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't remove the logo");
+    } finally {
+      setLogoBusy(false);
+    }
+  };
 
   const windows = team.matchSlots ?? [];
   const locked = !!team.slotsLocked;
@@ -247,6 +306,48 @@ function MySquadCard({ slug }: { slug: string }) {
         <Text style={{ color: team.status === "CONFIRMED" ? colors.emerald400 : "#fbbf24", fontSize: 11, fontWeight: "700" }}>
           {team.status.replace("_", " ")}
         </Text>
+      </View>
+
+      {/* Team logo — editable for the same window as the squad. Shows on the
+          tournament page, points table, bracket and match centre. */}
+      <View style={sqStyles.logoRow}>
+        {team.logoUrl ? (
+          <Image
+            source={{ uri: team.logoUrl }}
+            alt={`${team.name} logo`}
+            style={sqStyles.logo}
+          />
+        ) : (
+          <View style={[sqStyles.logo, sqStyles.logoEmpty]}>
+            <Text style={sqStyles.logoInitials}>
+              {team.name.slice(0, 2).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        {team.canEditSquad ? (
+          <View style={sqStyles.logoActions}>
+            <Pressable
+              onPress={pickLogo}
+              disabled={logoBusy}
+              style={({ pressed }) => [
+                sqStyles.logoBtn,
+                (pressed || logoBusy) && { opacity: 0.6 },
+              ]}
+            >
+              <ImageIcon size={13} color={colors.zinc300} />
+              <Text style={sqStyles.logoBtnText}>
+                {logoBusy ? "Saving…" : team.logoUrl ? "Change logo" : "Add logo"}
+              </Text>
+            </Pressable>
+            {team.logoUrl && !logoBusy ? (
+              <Pressable onPress={removeLogo} hitSlop={8}>
+                <Text style={sqStyles.logoRemove}>Remove</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : (
+          <Text style={sqStyles.logoLocked}>Tournament ended — logo locked.</Text>
+        )}
       </View>
 
       {!editing ? (
@@ -359,6 +460,30 @@ function MySquadCard({ slug }: { slug: string }) {
 }
 
 const sqStyles = StyleSheet.create({
+  logoRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12 },
+  logo: { width: 52, height: 52, borderRadius: 26 },
+  logoEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderStyle: "dashed",
+  },
+  logoInitials: { color: colors.zinc500, fontSize: 15, fontWeight: "700" },
+  logoActions: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
+  logoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderWidth: 1,
+    borderColor: colors.zinc700,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  logoBtnText: { color: colors.zinc300, fontSize: 12 },
+  logoRemove: { color: colors.zinc500, fontSize: 12 },
+  logoLocked: { color: colors.zinc500, fontSize: 11, flexShrink: 1 },
   card: {
     borderRadius: radius.xl,
     borderWidth: 1,

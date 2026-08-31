@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { api } from "./api";
+import { api, type UploadFile } from "./api";
 
 // Tournament client — consumes the SAME routes as web (unified auth):
 //   GET  /api/tournaments/[slug]/public   (no auth, full payload)
@@ -206,6 +206,38 @@ export async function getMyTeam(slug: string): Promise<MyTeam | null> {
     `/api/tournaments/my-team?slug=${encodeURIComponent(slug)}`
   );
   return res.team;
+}
+
+/**
+ * Upload a picked image as this team's logo, then save it.
+ *
+ * Two calls on purpose, matching the web control: the file goes to
+ * /api/tournaments/logo-upload (which normalises it to a square webp in our
+ * own blob store) and the returned URL is then saved through
+ * /api/tournaments/logo, which independently re-checks the URL is one of
+ * ours. Neither endpoint trusts the other.
+ *
+ * Returns the stored URL so the caller can render it without a refetch.
+ */
+export async function uploadTeamLogo(
+  teamId: string,
+  file: UploadFile,
+): Promise<string> {
+  const { url } = await api.upload<{ url?: string }>(
+    "/api/tournaments/logo-upload",
+    file,
+  );
+  if (!url) throw new Error("Upload succeeded but no image came back.");
+  await setTeamLogo(teamId, url);
+  return url;
+}
+
+/** Set or clear the team logo. null removes it. Captain only, server-side. */
+export async function setTeamLogo(
+  teamId: string,
+  logoUrl: string | null,
+): Promise<{ success: boolean }> {
+  return api.post("/api/tournaments/logo", { teamId, logoUrl });
 }
 
 /** Replace the squad with the full desired player list (server reconciles
