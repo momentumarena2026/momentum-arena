@@ -204,6 +204,11 @@ export function TournamentManage({
   const [busy, setBusy] = useState<string | null>(null);
   // Non-error outcome of a transition — e.g. how many hours a cancel freed.
   const [note, setNote] = useState<string | null>(null);
+  // Abandoned checkouts leave WITHDRAWN rows behind. They are hidden by
+  // default so a ₹0 team with slot preferences stops reading like a
+  // registration that skipped payment; they are deleted outright once the
+  // late-payment window closes (purgeAbandonedTeams).
+  const [showWithdrawn, setShowWithdrawn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
   const [collectAmt, setCollectAmt] = useState("");
@@ -366,6 +371,11 @@ export function TournamentManage({
       setBusy(null);
     }
   };
+
+  const withdrawnCount = t.teams.filter((x) => x.status === "WITHDRAWN").length;
+  const visibleTeams = showWithdrawn
+    ? t.teams
+    : t.teams.filter((x) => x.status !== "WITHDRAWN");
 
   const wizardInitial: TournamentWizardInput & { id: string } = {
     id: t.id,
@@ -706,13 +716,32 @@ export function TournamentManage({
               </button>
             </div>
           )}
-          {t.teams.length === 0 && (
+          {withdrawnCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowWithdrawn((v) => !v)}
+              className="flex items-center gap-1.5 self-start rounded-lg border border-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300"
+            >
+              {showWithdrawn ? "Hide" : "Show"} {withdrawnCount} abandoned
+              registration{withdrawnCount === 1 ? "" : "s"}
+            </button>
+          )}
+          {visibleTeams.length === 0 && (
             <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-sm text-zinc-500">
-              No registrations yet. Teams appear here as captains register.
+              {t.teams.length === 0
+                ? "No registrations yet. Teams appear here as captains register."
+                : "No active registrations — only abandoned checkouts, hidden above."}
             </p>
           )}
-          {t.teams.map((team) => (
-            <div key={team.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+          {visibleTeams.map((team) => (
+            <div
+              key={team.id}
+              className={`rounded-xl border bg-zinc-900 p-4 ${
+                team.status === "WITHDRAWN"
+                  ? "border-zinc-800/60 opacity-60"
+                  : "border-zinc-800"
+              }`}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div
@@ -745,6 +774,14 @@ export function TournamentManage({
                     </div>
                     <div className="text-xs text-zinc-500">
                       Paid ₹{team.paidAmount.toLocaleString("en-IN")}
+                      {/* Without this a ₹0 withdrawn team reads as a free
+                          entry rather than a checkout that was never
+                          completed — the exact confusion this screen caused. */}
+                      {team.status === "WITHDRAWN" && team.paidAmount === 0 && (
+                        <span className="text-zinc-600">
+                          {" "}· payment never completed, registration released
+                        </span>
+                      )}
                       {team.dueAmount > 0 && <span className="text-amber-400"> · Due ₹{team.dueAmount.toLocaleString("en-IN")}</span>}
                       {team.paymentMethod && <> · {team.paymentMethod}</>}
                     </div>

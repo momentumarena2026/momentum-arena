@@ -146,6 +146,62 @@ export async function getPublicTournamentBySlug(slug: string) {
 }
 
 // ── Abandoned-checkout sweep ────────────────────────────────────────
+/**
+ * How long a withdrawn, never-paid registration is kept before deletion.
+ *
+ * Matched to the booking side's PAYMENT_GRACE_HOURS for the same reason: a
+ * PhonePe DQR can settle well after our own window closes, and
+ * confirmDqrTournament resolves that late payment by finding the team —
+ * first by paymentRef, then by the team id embedded in the txn string
+ * (DQRT_<last12 of teamId>_<ms>). Delete the row inside that window and BOTH
+ * lookups miss, so the payment lands in recordOrphanPayment: money captured,
+ * nothing to attach it to. That is the orphaned-payment leak already fixed
+ * once on bookings, and it is why this is 24 hours rather than immediate.
+ */
+const ABANDONED_TEAM_RETENTION_HOURS = 24;
+
+/**
+ * Delete abandoned registrations once no late payment can arrive for them.
+ *
+ * An abandoned checkout leaves a WITHDRAWN row behind (sweepStalePendingTeams
+ * withdraws rather than deletes, deliberately). Those rows are already hidden
+ * from every customer-facing read, but they accumulate in the admin list
+ * where a ₹0 team with slot preferences reads like a registration that
+ * skipped payment — which is exactly the confusion this removes.
+ *
+ * The safety rules mirror deleteTournamentTeam's, because the same things
+ * make a row undeletable however the delete is triggered:
+ * - anything paid, in money or points, is a receipt and is kept forever
+ * - anything with fixtures or recorded stats is history and is kept
+ *
+ * Lazy, like the sweep above: no cron, runs on registration and on admin
+ * reads. Returns the number deleted so callers can log it.
+ */
+export async function purgeAbandonedTeams(tournamentId: string): Promise<number> {
+  const cutoff = new Date(
+    Date.now() - ABANDONED_TEAM_RETENTION_HOURS * 60 * 60 * 1000,
+  );
+  const { count } = await db.tournamentTeam.deleteMany({
+    where: {
+      tournamentId,
+      status: "WITHDRAWN",
+      // Never touch money. paidAt is checked as well as paidAmount because a
+      // ₹0 entry (free tournament, full coupon) that was genuinely confirmed
+      // still has a settlement timestamp worth keeping.
+      paidAmount: 0,
+      pointsUsed: 0,
+      paidAt: null,
+      // Past the window in which a late gateway confirmation could arrive.
+      updatedAt: { lt: cutoff },
+      // Never delete anything that actually played or was scored.
+      homeMatches: { none: {} },
+      awayMatches: { none: {} },
+      playerStats: { none: {} },
+    },
+  });
+  return count;
+}
+
 /** How long a PENDING_PAYMENT team keeps its slot before it's released. */
 // 10, not 30: this only exists to stop an abandoned checkout holding a
 // slot forever, and 30 minutes locked a captain out of their own
@@ -278,8 +334,10 @@ export async function registerTournamentTeam(input: RegisterInput): Promise<Regi
   const squad = members.length > 0 ? members : [captainName];
 
   // Release any abandoned checkouts first — they hold both the captain's
-  // one-team-per-tournament slot and a capacity slot.
+  // one-team-per-tournament slot and a capacity slot. Then clear out ones
+  // old enough that no late payment can still arrive for them.
   await sweepStalePendingTeams(t.id);
+  await purgeAbandonedTeams(t.id).catch(() => 0);
 
   // One live team per user per tournament.
   const existing = await db.tournamentTeam.findFirst({

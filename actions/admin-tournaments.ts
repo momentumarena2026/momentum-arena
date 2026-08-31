@@ -388,6 +388,11 @@ export async function getTournamentForDuplicate(
 
 export async function getTournamentAdmin(id: string) {
   await gate();
+  // Self-clean on read: abandoned registrations past the late-payment window
+  // are deleted here rather than by a cron, matching how the pending-payment
+  // sweep works. Non-fatal — a failure must never block the manage screen.
+  const { purgeAbandonedTeams } = await import("@/lib/tournaments");
+  await purgeAbandonedTeams(id).catch(() => 0);
   return db.tournament.findUnique({
     where: { id },
     include: {
