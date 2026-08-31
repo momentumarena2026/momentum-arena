@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth";
 import { looksLikeRichText } from "@/lib/rich-text";
 import { SlotPreferences } from "./slot-preferences";
 import { SquadManager } from "./squad-manager";
+import { TeamLogoManager } from "./team-logo-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -156,6 +157,15 @@ export default async function TournamentPublicPage({
           }))}
           initial={myTeam?.preferredSlotIds ?? []}
           locked={!!t.scheduleApprovedAt}
+        />
+      )}
+
+      {mySquad && (
+        <TeamLogoManager
+          teamId={mySquad.id}
+          teamName={mySquad.name}
+          logoUrl={mySquad.logoUrl}
+          canEdit={mySquad.canEditSquad}
         />
       )}
 

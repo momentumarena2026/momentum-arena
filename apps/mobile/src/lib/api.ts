@@ -131,7 +131,71 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   return payload as T;
 }
 
+/** A picked file, in the shape React Native's FormData understands. */
+export interface UploadFile {
+  uri: string;
+  name: string;
+  type: string;
+}
+
+/**
+ * Multipart upload — the only non-JSON request the app makes.
+ *
+ * Kept beside `request` rather than folded into it because the two differ in
+ * one way that matters: Content-Type must be left UNSET so fetch can add the
+ * multipart boundary itself. Setting it by hand produces a body the server
+ * cannot parse, and the failure looks like a corrupt file rather than a bad
+ * header.
+ *
+ * Everything else — bearer token, connectivity signal, 401 sign-out, error
+ * shape — matches `request`, so an upload failure surfaces like any other.
+ */
+async function upload<T>(path: string, file: UploadFile): Promise<T> {
+  const url = `${env.apiUrl}${path}`;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "X-Platform": Platform.OS === "ios" ? "ios" : "android",
+  };
+  const token = await tokenStorage.read();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const form = new FormData();
+  // RN's FormData takes a {uri,name,type} object here; the DOM types this
+  // as Blob, hence the cast.
+  form.append("file", file as unknown as Blob);
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers, body: form });
+  } catch (err) {
+    setOnline(false);
+    throw new ApiError(
+      `Network error reaching ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      0,
+      null,
+    );
+  }
+  setOnline(true);
+
+  const isJson = res.headers.get("content-type")?.includes("application/json");
+  const payload = isJson ? await res.json().catch(() => null) : await res.text();
+
+  if (!res.ok) {
+    const errMsg =
+      (typeof payload === "object" && payload && "error" in payload
+        ? String((payload as { error: unknown }).error)
+        : null) ||
+      (res.status === 413
+        ? "That image is too large."
+        : `Upload failed with ${res.status}`);
+    if (res.status === 401 && headers.Authorization) onUnauthorized?.();
+    throw new ApiError(errMsg, res.status, payload);
+  }
+  return payload as T;
+}
+
 export const api = {
+  upload,
   get: <T>(path: string, opts?: Omit<RequestOptions, "method" | "body">) =>
     request<T>(path, { ...opts, method: "GET" }),
   post: <T>(path: string, body?: Json, opts?: Omit<RequestOptions, "method" | "body">) =>
