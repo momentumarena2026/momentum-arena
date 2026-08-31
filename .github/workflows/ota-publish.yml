@@ -99,13 +99,19 @@ jobs:
             if [ "$CUR" != "$BASE" ]; then
               echo "::warning::NATIVE change detected for $CHANNEL/$PLATFORM (fingerprint differs) — a new store build is required; not publishing OTA."
               BLOCKED="$BLOCKED $PLATFORM(drift)"
-              # Auto-trigger a native store build on development (test tracks only —
-              # production store builds stay a deliberate manual dispatch).
-              if [ "$CHANNEL" = "development" ]; then
-                if [ "$PLATFORM" = "ios" ]; then WF=native-ios.yml; TRACK=testflight; else WF=native-android.yml; TRACK=internal; fi
-                echo "↻ Auto-dispatching $WF (track=$TRACK) for the native change…"
-                gh workflow run "$WF" --ref development -f track="$TRACK" || echo "::warning::could not auto-dispatch $WF"
-              fi
+              # Auto-trigger a native store build on BOTH branches, dispatched
+              # against the branch that was pushed so main builds main's code.
+              #
+              # Always to the TEST tracks (TestFlight / Play internal), never
+              # straight to the public store. A native change on main should
+              # produce a build automatically — waiting for someone to remember
+              # to dispatch it is how a fingerprint drift sat unshipped — but
+              # releasing to customers stays a deliberate human act, the same
+              # way an OTA canary is promoted by hand.
+              if [ "$PLATFORM" = "ios" ]; then WF=native-ios.yml; TRACK=testflight; else WF=native-android.yml; TRACK=internal; fi
+              echo "↻ Auto-dispatching $WF (track=$TRACK, ref=$GITHUB_REF_NAME) for the native change…"
+              gh workflow run "$WF" --ref "$GITHUB_REF_NAME" -f track="$TRACK" \
+                || echo "::warning::could not auto-dispatch $WF"
               continue
             fi
 
@@ -140,6 +146,6 @@ jobs:
           # a skip there stays a warning. Production has no such escape hatch — fail
           # the run so a blocked platform can't rot behind a green checkmark.
           if [ "$CHANNEL" = "production" ] && [ -n "$BLOCKED" ]; then
-            echo "::error::Production OTA did not publish for:$BLOCKED — see the job summary."
+            echo "::error::Production OTA did not publish for:$BLOCKED — a native build has been dispatched to the test track; production users get this change only once that build ships. See the job summary."
             exit 1
           fi
