@@ -1,3 +1,6 @@
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { AdminMoreStackParamList } from "../../navigation/types";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -226,6 +229,8 @@ export function AdminPassesScreen() {
     queryFn: () => adminPassesApi.data(),
   });
 
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AdminMoreStackParamList>>();
   const [tab, setTab] = useState<"plans" | "sold" | "issue" | "sharing">("plans");
   const [busy, setBusy] = useState(false);
 
@@ -555,6 +560,15 @@ export function AdminPassesScreen() {
               const cancelled = p.status === "CANCELLED";
               return (
                 <View key={p.id} style={styles.card}>
+                  {/* Only the info block is tappable — the action buttons
+                      below stay independent, so opening the detail screen
+                      can never fire an Extend/Cancel by accident. */}
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate("AdminPassDetail", { passId: p.id })
+                    }
+                    style={({ pressed }) => (pressed ? { opacity: 0.6 } : null)}
+                  >
                   <View style={styles.cardHeader}>
                     <Text style={styles.cardTitle} numberOfLines={2}>
                       {p.name}
@@ -585,6 +599,7 @@ export function AdminPassesScreen() {
                       ? ` · ${p.memberCount} member${p.memberCount === 1 ? "" : "s"}`
                       : ""}
                   </Text>
+                  </Pressable>
                   {!cancelled && (
                     <View style={styles.cardActions}>
                       <Button

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Users, X, Loader2, UserPlus, Trash2, MessageCircle, CalendarCog } from "lucide-react";
@@ -100,15 +101,24 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
             <tbody>
               {filtered.map((p) => (
                 <tr key={p.id} className="border-b border-zinc-800/60 last:border-0">
+                  {/* Linked per-cell rather than wrapping the row: the actions
+                      cell holds buttons, and a row-level link would swallow
+                      them. */}
                   <td className="px-4 py-3">
-                    <p className="font-medium text-white">{p.customer}</p>
-                    <p className="text-xs text-zinc-500">{p.phone}</p>
+                    <Link href={`/admin/passes/${p.id}`} className="group block">
+                      <p className="font-medium text-white group-hover:text-emerald-400">
+                        {p.customer}
+                      </p>
+                      <p className="text-xs text-zinc-500">{p.phone}</p>
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-zinc-300">
-                    {p.name}
-                    <p className="text-xs text-zinc-500">
-                      bought {dt(p.purchasedAt)} · {p.redemptionCount} redemption(s)
-                    </p>
+                    <Link href={`/admin/passes/${p.id}`} className="group block">
+                      <span className="group-hover:text-emerald-400">{p.name}</span>
+                      <span className="block text-xs text-zinc-500">
+                        bought {dt(p.purchasedAt)} · {p.redemptionCount} redemption(s)
+                      </span>
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-zinc-300">
                     {hrs(p.remainingMinutes)} / {hrs(p.totalMinutes)}

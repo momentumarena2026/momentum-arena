@@ -826,7 +826,16 @@ function slotWindowLabel(
 }
 
 /** Full pass detail for the viewer (owner or member); null otherwise. */
-export async function getPassDetailForUser(passId: string, viewerId: string) {
+/**
+ * Everything known about one pass, with no access check.
+ *
+ * Shared by the customer view (which then checks the viewer owns or is a
+ * member of it) and the admin view (which does not). Kept as one query so
+ * the two surfaces can never drift on what a pass's balance or history
+ * says — a customer and an admin looking at the same pass must see the
+ * same numbers.
+ */
+async function buildPassDetail(passId: string) {
   const pass = await db.userPass.findUnique({
     where: { id: passId },
     include: {
@@ -848,6 +857,7 @@ export async function getPassDetailForUser(passId: string, viewerId: string) {
         select: {
           minutes: true,
           value: true,
+          coveredAmount: true,
           createdAt: true,
           restoredAt: true,
           bookingId: true,
@@ -856,10 +866,6 @@ export async function getPassDetailForUser(passId: string, viewerId: string) {
     },
   });
   if (!pass) return null;
-
-  const isOwner = pass.userId === viewerId;
-  const isMember = pass.members.some((m) => m.userId === viewerId);
-  if (!isOwner && !isMember) return null;
 
   const bookings = await db.booking.findMany({
     where: { id: { in: pass.redemptions.map((r) => r.bookingId) } },
@@ -896,7 +902,20 @@ export async function getPassDetailForUser(passId: string, viewerId: string) {
     startsAt: pass.startsAt.toISOString(),
     expiresAt: pass.expiresAt.toISOString(),
     status: passLiveStatus(pass),
-    role: isOwner ? ("owner" as const) : ("member" as const),
+    ownerUserId: pass.userId,
+    memberUserIds: pass.members.map((m) => m.userId),
+    // Admin-only fields. The customer wrapper strips them before they can
+    // reach a customer's browser.
+    admin: {
+      planId: pass.planId,
+      paymentMethod: pass.paymentMethod ? String(pass.paymentMethod) : null,
+      issuedByAdminId: pass.issuedByAdminId,
+      offlineRef: pass.offlineRef,
+      razorpayOrderId: pass.razorpayOrderId,
+      razorpayPaymentId: pass.razorpayPaymentId,
+      phonePeMerchantTxnId: pass.phonePeMerchantTxnId,
+      anchorPrice: pass.anchorPrice,
+    },
     maxMembers: pass.courtConfig.maxPassMembers,
     owner: { name: pass.user.name, phone: pass.user.phone },
     members: pass.members.map((m) => ({
@@ -915,11 +934,64 @@ export async function getPassDetailForUser(passId: string, viewerId: string) {
         bookedBy: b?.user?.name ?? null,
         minutes: r.minutes,
         value: r.value,
+        coveredAmount: r.coveredAmount,
         restored: !!r.restoredAt,
         redeemedAt: r.createdAt.toISOString(),
       };
     }),
   };
+}
+
+/**
+ * Customer view of a pass. Owner or shared member only.
+ *
+ * Returns null rather than an error for a pass the viewer has no relation
+ * to, so a pass id can't be probed by trying ids and reading the failure.
+ * Strips the `admin` block — payment references and the issuing admin's id
+ * are not a customer's business and would otherwise ship in the page's
+ * client bundle.
+ */
+export async function getPassDetailForUser(passId: string, viewerId: string) {
+  const detail = await buildPassDetail(passId);
+  if (!detail) return null;
+  const isOwner = detail.ownerUserId === viewerId;
+  const isMember = detail.memberUserIds.includes(viewerId);
+  if (!isOwner && !isMember) return null;
+  // Rebuilt explicitly rather than spread-minus-keys: a field added to the
+  // shared core later must be opted IN to the customer payload, not opted
+  // out. Anything payment-related stays server-side by default.
+  return {
+    id: detail.id,
+    name: detail.name,
+    sport: detail.sport,
+    courtLabel: detail.courtLabel,
+    bandsSummary: detail.bandsSummary,
+    totalMinutes: detail.totalMinutes,
+    remainingMinutes: detail.remainingMinutes,
+    price: detail.price,
+    validityDays: detail.validityDays,
+    purchasedAt: detail.purchasedAt,
+    startsAt: detail.startsAt,
+    expiresAt: detail.expiresAt,
+    status: detail.status,
+    maxMembers: detail.maxMembers,
+    owner: detail.owner,
+    members: detail.members,
+    bookings: detail.bookings,
+    role: isOwner ? ("owner" as const) : ("member" as const),
+  };
+}
+
+/**
+ * Admin view of a pass — the same figures the customer sees, plus how it
+ * was paid for and who issued it.
+ *
+ * No access check here: the caller is responsible for the permission gate
+ * (actions/admin-passes gates on MANAGE_PASSES), matching how every other
+ * lib-level admin read in this codebase works.
+ */
+export async function getPassDetailForAdmin(passId: string) {
+  return buildPassDetail(passId);
 }
 
 /** Owner adds a member by registered phone (core; caller authenticates). */

@@ -264,6 +264,7 @@ export type AdminMoreStackParamList = {
   AdminCoupons: undefined;
   // Monthly passes hub — plans wizard, sold passes, issue/gift, sharing caps.
   AdminPasses: undefined;
+  AdminPassDetail: { passId: string };
   AdminProducts: undefined;
   AdminProductOrders: undefined;
   AdminPos: undefined;
