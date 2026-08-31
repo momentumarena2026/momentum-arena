@@ -16,6 +16,19 @@
         android:name="com.google.android.gms.permission.AD_ID"
         tools:node="remove" />
 
+    <!-- expo-image-picker's OWN library manifest declares CAMERA. Play then
+         implies <uses-feature android.hardware.camera required="true"> and
+         drops every camera-less device — 427 of them (66 phones, 273 tablets)
+         on the 1.0.6 bundle, versionCode 29803385. We only ever open the photo
+         library (launchImageLibraryAsync), never the camera, so strip it from
+         the merged manifest. app.json's "cameraPermission": false does NOT do
+         this: config plugins only run under `expo prebuild`, and android/ is
+         committed here, so CI goes straight to Gradle and the plugin is never
+         executed. Same tools:node="remove" trick as AD_ID above. -->
+    <uses-permission
+        android:name="android.permission.CAMERA"
+        tools:node="remove" />
+
     <!-- Android 11+ package-visibility: without this, Linking.canOpenURL()
          can't see other apps and UPI intent launches fail. Declare the UPI
          deep-link scheme so the OS resolves installed UPI apps. -->

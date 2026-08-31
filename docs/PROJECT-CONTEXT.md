@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-08-24 · accurate as of `main` = `8204a2c` (app 1.0.5).
+**Last substantive update:** 2026-09-01 · accurate as of `main` = `5e08ca1` (app 1.0.6).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -138,6 +138,18 @@ Anything else means main has drifted — stop and investigate, do not push.
   what's already installed. (See §6, query-cache persistence, for a worked example.)
 - Both iOS and Android are live on the stores (v1.0.x). iOS ships via an App Store Connect
   API-key upload pipeline.
+- **`development` auto-dispatches native builds; `main` is manual.** See gotcha 16 and
+  `docs/DEPLOYMENT.md` §8/§8c — the two paths differ in track, fastlane lane, OTA endpoint
+  and store destination, and that is deliberate.
+- **TestFlight upload ≠ App Store draft.** Only the `release` lane calls
+  `upload_to_app_store`; `beta` calls `upload_to_testflight` and stops there. A build that
+  appears in TestFlight has created no App Store version at all.
+- **`expo-image-picker` ships its own `CAMERA` permission** in the library manifest, which
+  makes Play imply `uses-feature android.hardware.camera required="true"` and drop every
+  camera-less device (427 of them on 1.0.6). `app.json`'s `"cameraPermission": false` does
+  NOT prevent this — config plugins only run under `expo prebuild`, and `android/` is
+  committed here, so CI goes straight to Gradle. Stripped with `tools:node="remove"` in the
+  app manifest, the same way `AD_ID` is.
 
 ---
 
@@ -203,6 +215,25 @@ Anything else means main has drifted — stop and investigate, do not push.
     ```
     Regenerate **after** pulling, not before — a `prisma generate` that predates
     the pull is just as stale.
+
+16. **`development` and `main` native builds are DIFFERENT paths on purpose —
+    do not merge them.** `docs/DEPLOYMENT.md` §0/§7/§8 is the spec:
+    `development` auto-dispatches on fingerprint drift to the TEST tracks
+    (`testflight` / `internal`, fastlane `beta` lane, OTA endpoint
+    `development.momentumarena.com`); `main` is a **manual** dispatch to the
+    STORE tracks (`appstore` / `production`, fastlane `release` lane, OTA
+    endpoint `www.momentumarena.com`), and only the `release` lane calls
+    `upload_to_app_store` / `upload_to_play_store(track: production)` — which
+    is the only thing that creates a reviewable draft. The `if [ "$CHANNEL" =
+    "development" ]` gate in `ota-publish.yml` is what carries that
+    distinction; it looks like a mere branch check and is not. Removing it
+    while leaving `TRACK=testflight` hardcoded (771b187, 2026-08-31) made main
+    run the `beta` lane: both platforms built green, iOS landed in TestFlight
+    with no App Store draft, Android in Play internal with no production
+    draft, and both binaries were compiled against the development OTA
+    endpoint. Reverted 2026-09-01. **A green native build proves nothing about
+    which store it reached** — check the log for `Driving the lane 'ios beta'`
+    vs `'ios release'`.
 
 14. **Cricket scoring has three rules that look like details and aren't.**
     (a) *Zero overs is not "unlimited", it is broken.* It switches off both the
