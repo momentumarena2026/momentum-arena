@@ -1,3 +1,4 @@
+import { isTrustedAssetUrl } from "@/lib/blob";
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
@@ -1000,6 +1001,53 @@ export async function updateMyTeamSquad(
     return { ok: false, error: "The tournament has ended — the squad is locked" };
   }
   return reconcileTeamSquad(teamId, names, team.tournament.membersPerTeamMax);
+}
+
+/**
+ * Captain sets or clears their team's logo, any time after registering.
+ *
+ * The logo was previously write-once at registration, which meant a captain
+ * who skipped it — or uploaded the wrong image — had to ask the venue to fix
+ * it from the admin Teams tab. Editable for the same window the squad is:
+ * up until the tournament ends.
+ *
+ * `isTrustedAssetUrl` is the load-bearing check, not a formality. This value
+ * is rendered on the public tournament page, the bracket, the match centre
+ * and inside the app, so an arbitrary origin here would turn all of those
+ * into a beacon reporting every viewer's IP and User-Agent to whoever
+ * supplied the URL — and an unmoderated image channel on arena-branded
+ * surfaces. Only our own blob store and same-origin paths pass. Same guard
+ * the registration route applies; this is the second door into the field.
+ */
+export async function setMyTeamLogo(args: {
+  teamId: string;
+  userId: string;
+  logoUrl: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: args.teamId },
+    select: {
+      id: true,
+      captainUserId: true,
+      tournament: { select: { status: true } },
+    },
+  });
+  if (!team) return { ok: false, error: "Team not found" };
+  if (team.captainUserId !== args.userId) {
+    return { ok: false, error: "Only the team captain can change the logo" };
+  }
+  if (["COMPLETED", "CANCELLED"].includes(team.tournament.status)) {
+    return { ok: false, error: "The tournament has ended — the team is locked" };
+  }
+  const next = args.logoUrl?.trim() ? args.logoUrl.trim() : null;
+  if (next && !isTrustedAssetUrl(next)) {
+    return { ok: false, error: "That image isn't from an allowed source" };
+  }
+  await db.tournamentTeam.update({
+    where: { id: team.id },
+    data: { logoUrl: next },
+  });
+  return { ok: true };
 }
 
 /**
