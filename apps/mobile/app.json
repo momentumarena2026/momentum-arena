@@ -26,7 +26,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Momentum Arena uses your photos so you can set a logo for your tournament team."
+          "photosPermission": "Momentum Arena uses your photos so you can set a logo for your tournament team.",
+          "cameraPermission": false
         }
       ]
     ]
