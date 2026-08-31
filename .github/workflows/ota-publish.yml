@@ -102,13 +102,35 @@ jobs:
               # Auto-trigger a native store build on BOTH branches, dispatched
               # against the branch that was pushed so main builds main's code.
               #
-              # Always to the TEST tracks (TestFlight / Play internal), never
-              # straight to the public store. A native change on main should
-              # produce a build automatically — waiting for someone to remember
-              # to dispatch it is how a fingerprint drift sat unshipped — but
-              # releasing to customers stays a deliberate human act, the same
-              # way an OTA canary is promoted by hand.
-              if [ "$PLATFORM" = "ios" ]; then WF=native-ios.yml; TRACK=testflight; else WF=native-android.yml; TRACK=internal; fi
+              # The track follows the CHANNEL, and it has to: the store track is
+              # what decides which OTA endpoint gets baked into the binary
+              # (fastlane's beta lane runs configure_ota development, release
+              # runs production) and which fingerprint baseline post_release
+              # then writes.
+              #
+              #   development -> TestFlight / Play internal   (OTA=development)
+              #   main        -> App Store  / Play production (OTA=production)
+              #
+              # Dispatching main to a TEST track — which this did until
+              # 2026-09-01 — is a trap that looks harmless and is not. It
+              # produces a main binary wired to the DEVELOPMENT OTA channel, and
+              # it refreshes development.<platform>.fingerprint while leaving
+              # production.<platform>.fingerprint stale. Production OTA is then
+              # blocked forever: every later push to main fails this job, fires
+              # another test-track build, and moves the wrong baseline again.
+              # Three consecutive red main runs on 2026-08-31 were exactly that.
+              #
+              # Nothing reaches a customer without a human. Neither production
+              # lane publishes: ios release is submit_for_review false (an App
+              # Store draft awaiting Submit), android release is
+              # release_status draft (an unpublished Play release). The build
+              # is automatic; shipping it stays a deliberate act, the same way
+              # an OTA canary is promoted by hand.
+              if [ "$CHANNEL" = "production" ]; then
+                if [ "$PLATFORM" = "ios" ]; then WF=native-ios.yml; TRACK=appstore; else WF=native-android.yml; TRACK=production; fi
+              else
+                if [ "$PLATFORM" = "ios" ]; then WF=native-ios.yml; TRACK=testflight; else WF=native-android.yml; TRACK=internal; fi
+              fi
               echo "↻ Auto-dispatching $WF (track=$TRACK, ref=$GITHUB_REF_NAME) for the native change…"
               gh workflow run "$WF" --ref "$GITHUB_REF_NAME" -f track="$TRACK" \
                 || echo "::warning::could not auto-dispatch $WF"
@@ -146,6 +168,6 @@ jobs:
           # a skip there stays a warning. Production has no such escape hatch — fail
           # the run so a blocked platform can't rot behind a green checkmark.
           if [ "$CHANNEL" = "production" ] && [ -n "$BLOCKED" ]; then
-            echo "::error::Production OTA did not publish for:$BLOCKED — a native build has been dispatched to the test track; production users get this change only once that build ships. See the job summary."
+            echo "::error::Production OTA did not publish for:$BLOCKED — a store build has been dispatched (App Store draft / Play draft); production users get this change only once you submit and it ships. See the job summary."
             exit 1
           fi

@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-08-24 · accurate as of `main` = `8204a2c` (app 1.0.5).
+**Last substantive update:** 2026-09-01 · accurate as of `main` = `5e08ca1` (app 1.0.6).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -138,6 +138,19 @@ Anything else means main has drifted — stop and investigate, do not push.
   what's already installed. (See §6, query-cache persistence, for a worked example.)
 - Both iOS and Android are live on the stores (v1.0.x). iOS ships via an App Store Connect
   API-key upload pipeline.
+- **Native builds auto-dispatch on a fingerprint drift**, on both branches, and the store
+  track follows the branch — `development` → TestFlight / Play internal, `main` → App Store
+  / Play production. The track is not cosmetic: it decides which OTA endpoint fastlane bakes
+  into the binary (`beta` lane = development, `release` lane = production) and which
+  `fingerprints/<channel>.<platform>.fingerprint` baseline `post-native-release` then
+  rewrites. Neither production lane publishes anything — iOS lands as an App Store draft
+  (`submit_for_review: false`), Android as an unpublished Play release
+  (`release_status: "draft"`) — so a human still submits.
+- **TestFlight upload ≠ App Store draft.** Only the `release` lane calls
+  `upload_to_app_store`; `beta` calls `upload_to_testflight` and stops there. A build that
+  appears in TestFlight has created no App Store version, and the App Store version for a
+  new marketing number may still need to be created by hand in ASC before the binary can be
+  attached.
 
 ---
 
@@ -203,6 +216,22 @@ Anything else means main has drifted — stop and investigate, do not push.
     ```
     Regenerate **after** pulling, not before — a `prisma generate` that predates
     the pull is just as stale.
+
+16. **A green native build proves nothing about which store it reached.** The
+    build workflow's `track` input silently controls three coupled things:
+    which fastlane lane runs, which OTA endpoint gets compiled into the binary,
+    and which fingerprint baseline `post-native-release` rewrites afterwards.
+    Dispatching `main` to a *test* track (`testflight` / `internal`) therefore
+    produces a green run that (a) creates no App Store or Play draft at all,
+    (b) ships a `main` binary wired to the **development** OTA channel, and
+    (c) refreshes `development.<platform>.fingerprint` while leaving
+    `production.<platform>.fingerprint` stale — so production OTA stays blocked
+    and *every* subsequent push to main fails the same way, dispatches another
+    test build, and moves the wrong baseline again. Three consecutive red
+    `ota-publish` runs on main (2026-08-31) were this loop, not three separate
+    faults. Fixed 2026-09-01 by making the auto-dispatch track follow the
+    channel. If you ever dispatch a native build by hand from `main`, the track
+    is `appstore` / `production` — never the test track.
 
 14. **Cricket scoring has three rules that look like details and aren't.**
     (a) *Zero overs is not "unlimited", it is broken.* It switches off both the
