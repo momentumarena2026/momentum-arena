@@ -1,0 +1,55 @@
+name: Seed Capital Structure
+
+# Manually-triggered one-shot that records how the build-out was funded
+# (founder equity + the founder loan) so the Overall P&L can charge
+# interest and show payback. Idempotent — safe to re-run, and re-running
+# after a late capex row lands re-derives the loan principal.
+#
+# Trigger from the GitHub UI (Actions tab → "Run workflow") or via
+# `gh workflow run seed-capital-structure.yml -f environment=production`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which DB to write to"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  seed-capital:
+    name: Seed capital structure
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ inputs.environment == 'production' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty for environment=${{ inputs.environment }}"
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars) for ${{ inputs.environment }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Seed capital structure
+        run: npx tsx scripts/seed-capital-structure.ts
