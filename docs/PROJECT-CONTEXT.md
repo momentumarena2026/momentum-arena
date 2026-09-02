@@ -216,6 +216,26 @@ Anything else means main has drifted — stop and investigate, do not push.
     Regenerate **after** pulling, not before — a `prisma generate` that predates
     the pull is just as stale.
 
+18. **JS date getters read the HOST timezone — never use them on money.**
+    `getMonth()`, `getHours()`, `getDay()`, and `new Date("2026-09-01T00:00:00")`
+    all resolve against the host: **UTC on Vercel, IST on a dev Mac**. So the
+    same analytics function returned different months in production and in
+    development, and nothing said so. `actions/admin-cafe-analytics.ts` did this
+    everywhere until 2026-09-02. Consequences on real production data (148
+    orders): monthly revenue unaffected by luck, but **30% of orders were booked
+    to the wrong calendar day and weekday, and 100% to the wrong hour** — the
+    peak-hour chart was off by 5½ hours for its whole life, showing a 6pm peak
+    when the true peak is **00:00–01:00 IST** (₹7,160, the single best hour;
+    45% of all cafe revenue is taken between midnight and 5:30am, because the
+    arena runs to 1am). It also meant the Cafe tab and the Overall P&L would
+    have reported the same sale in different months the first time a late-night
+    order landed on the 1st — the four-surface trap (gotcha 1) in a new guise.
+    **Use `lib/ist.ts`** (`istMonthKey`, `istHour`, `istRangeBounds`, …), which
+    shifts by +5:30 and reads UTC getters — the same thing the SQL side does
+    with `+ interval '330 minutes'`, so TS and SQL agree by construction.
+    `tests/ist.test.ts` passes identically under `TZ=UTC`, `TZ=Asia/Kolkata` and
+    `TZ=America/Los_Angeles`; that invariance is the actual assertion.
+
 17. **Never export a TYPE from a `"use server"` module.** The build strips a
     server-action file down to its async exports, so a `export type { X }`
     re-export becomes a runtime import of nothing and every page importing it
@@ -510,6 +530,10 @@ its templates here, or it ships with no push voice at all.
 ## 8. File map — where things live
 
 **Server / shared**
+- `lib/ist.ts` — IST calendar arithmetic that does not read the host timezone.
+  **Any date bucketing on money must go through this**, never through JS local
+  getters — see gotcha 18 for what that cost. Mirrors the SQL side's
+  `+ interval '330 minutes'`.
 - `lib/pnl-math.ts` + `actions/admin-pnl.ts` — the Overall P&L (`/admin/analytics/overall`,
   superadmin-only). The maths lives in the lib so it can be tested without a DB
   (`tests/pnl-math.test.ts`) and so the `"use server"` file exports only its action —
