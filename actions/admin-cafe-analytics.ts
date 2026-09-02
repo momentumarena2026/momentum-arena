@@ -18,13 +18,18 @@ import { requireAdmin } from "@/lib/admin-auth";
  * needs them by definition.
  */
 
-const VALID_STATUSES = ["PENDING", "PREPARING", "READY", "COMPLETED"] as const;
+// IST calendar arithmetic. Read the note in lib/ist.ts before touching
+// any date maths here — every getter in this file used to read the HOST
+// timezone, which is UTC on Vercel and IST on a dev machine.
+import {
+  istHour,
+  istRangeBounds,
+  istWeekday,
+  istYearBounds,
+  toIst,
+} from "@/lib/ist";
 
-function rangeBounds(dateFrom: string, dateTo: string) {
-  const from = new Date(`${dateFrom}T00:00:00`);
-  const to = new Date(`${dateTo}T23:59:59.999`);
-  return { from, to };
-}
+const VALID_STATUSES = ["PENDING", "PREPARING", "READY", "COMPLETED"] as const;
 
 // ─────────── KPIs ───────────
 
@@ -48,7 +53,7 @@ export async function getCafeKPIStats(
 ): Promise<{ success: boolean; data?: CafeKPI; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     // Pull live items so we can join their costPrice for profit.
     // Snapshot unitPrice on CafeOrderItem is the source of truth
@@ -167,20 +172,21 @@ export interface CafeTimeBucket {
 }
 
 function bucketKey(d: Date, groupBy: CafeGroupBy): string {
+  // IST fields throughout — see the note on toIst.
+  const ist = toIst(d);
   if (groupBy === "month") {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}`;
   }
   if (groupBy === "week") {
     // Week starts Monday — ISO-ish, simple. Anchor on the Monday
     // date so the period is a real calendar day, not a week number.
-    const monday = new Date(d);
-    const day = monday.getDay();
+    const monday = new Date(ist);
+    const day = monday.getUTCDay();
     const diff = day === 0 ? -6 : 1 - day;
-    monday.setDate(monday.getDate() + diff);
-    monday.setHours(0, 0, 0, 0);
+    monday.setUTCDate(monday.getUTCDate() + diff);
     return monday.toISOString().split("T")[0];
   }
-  return d.toISOString().split("T")[0];
+  return ist.toISOString().split("T")[0];
 }
 
 export async function getCafeRevenueOverTime(
@@ -190,7 +196,7 @@ export async function getCafeRevenueOverTime(
 ): Promise<{ success: boolean; data?: CafeTimeBucket[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -256,7 +262,7 @@ export async function getCafeCategoryBreakdown(
 ): Promise<{ success: boolean; data?: CafeCategoryRow[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -336,7 +342,7 @@ export async function getCafeTopItems(
 ): Promise<{ success: boolean; data?: CafeTopItem[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const lines = await db.cafeOrderItem.findMany({
       where: {
@@ -403,7 +409,7 @@ export async function getCafePaymentMethodBreakdown(
 }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const payments = await db.cafePayment.findMany({
       where: {
@@ -448,7 +454,7 @@ export async function getCafePeakHours(
 ): Promise<{ success: boolean; data?: CafeHourBucket[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -463,7 +469,7 @@ export async function getCafePeakHours(
       buckets.set(h, { hour: h, orderCount: 0, revenue: 0 });
     }
     for (const o of orders) {
-      const hour = o.createdAt.getHours();
+      const hour = istHour(o.createdAt);
       const b = buckets.get(hour)!;
       b.orderCount += 1;
       b.revenue += o.totalAmount;
@@ -490,7 +496,7 @@ export async function getCafeStatusBreakdown(
 ): Promise<{ success: boolean; data?: CafeStatusRow[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -535,7 +541,7 @@ export async function getCafeVegBreakdown(
 ): Promise<{ success: boolean; data?: VegRow[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const lines = await db.cafeOrderItem.findMany({
       where: {
@@ -585,7 +591,7 @@ export async function getCafeFulfilmentBreakdown(
 }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const lines = await db.cafeOrderItem.findMany({
       where: {
@@ -634,7 +640,7 @@ export async function getCafeTopCustomers(
 ): Promise<{ success: boolean; data?: CafeTopCustomer[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -699,7 +705,7 @@ export async function getCafeDayOfWeekBreakdown(
 ): Promise<{ success: boolean; data?: DayOfWeekRow[]; error?: string }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -716,7 +722,7 @@ export async function getCafeDayOfWeekBreakdown(
       revenue: 0,
     }));
     for (const o of orders) {
-      const idx = o.createdAt.getDay();
+      const idx = istWeekday(o.createdAt);
       buckets[idx].orderCount += 1;
       buckets[idx].revenue += o.totalAmount;
     }
@@ -786,7 +792,7 @@ export async function getCafeItemInventoryTable(
 }> {
   try {
     await requireAdmin("VIEW_ANALYTICS");
-    const { from, to } = rangeBounds(dateFrom, dateTo);
+    const { from, to } = istRangeBounds(dateFrom, dateTo);
     const safePage = Math.max(1, Math.trunc(page));
     const safeSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
 
@@ -922,11 +928,10 @@ export async function getCafeMonthlyEarningsForYear(
     if (!Number.isInteger(year)) {
       return { success: false, error: "Invalid year" };
     }
-    // Local-time year bounds, matching bucketKey's use of getFullYear()/
-    // getMonth() — mixing UTC bounds with local bucketing would drop the
-    // first and last few hours of the year into the wrong month.
-    const from = new Date(year, 0, 1, 0, 0, 0, 0);
-    const to = new Date(year, 11, 31, 23, 59, 59, 999);
+    // IST year bounds, matching bucketKey's IST fields — mixing UTC
+    // bounds with IST bucketing would drop the first and last few hours
+    // of the year into the wrong month.
+    const { from, to } = istYearBounds(year);
 
     const orders = await db.cafeOrder.findMany({
       where: {
@@ -956,7 +961,7 @@ export async function getCafeMonthlyEarningsForYear(
     }));
 
     for (const o of orders) {
-      const row = rows[o.createdAt.getMonth()];
+      const row = rows[toIst(o.createdAt).getUTCMonth()];
       row.revenue += o.totalAmount;
       for (const line of o.items) {
         if (line.cafeItem.costPrice != null) {

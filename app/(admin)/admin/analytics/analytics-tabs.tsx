@@ -21,6 +21,14 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
+  // Overall sits first because it is the only tab that subtracts costs
+  // from income — Sports and Cafe each report their own revenue and
+  // neither knows what the month cost to run. Superadmin-only; the gate
+  // lives in getProfitAndLoss, so a non-superadmin who follows the link
+  // gets an error page rather than a blank statement. The tab itself is
+  // left visible deliberately: hiding it here would need the role in a
+  // client component, and the server gate is the one that matters.
+  { href: "/admin/analytics/overall", label: "Overall", Icon: IndianRupee },
   // Revenue is now split across Sports and Cafe — both live under
   // /admin/analytics/* with their own dashboards. The bare
   // /admin/analytics URL redirects to /admin/analytics/sports.
@@ -66,7 +74,3 @@ export function AnalyticsTabs() {
     </div>
   );
 }
-
-// Suppress unused-import warning while the IndianRupee icon may
-// still be referenced from a future revenue tab.
-void IndianRupee;

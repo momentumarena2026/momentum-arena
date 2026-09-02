@@ -2252,6 +2252,49 @@ enum ExpenseOptionField {
   TO_NAME
 }
 
+// ===========================
+// CAPITAL STRUCTURE (P&L)
+// ===========================
+// How the build-out was funded. This exists so the Overall P&L can show
+// an Interest line and a payback figure without hardcoding anyone's
+// money into the source.
+//
+// It is NOT derived from the Expense table on purpose. Expense(GENERAL)
+// records where the capex WENT (turf, paint, rent deposits); these rows
+// record where it CAME FROM. The two totals should agree, and the P&L
+// page says so when they don't — a mismatch means either a missing
+// capex row or a contribution nobody recorded.
+enum CapitalKind {
+  EQUITY
+  LOAN
+}
+
+model CapitalContribution {
+  id     String      @id @default(cuid())
+  name   String // "Nakul" / "Anand" / "Utkarsh"
+  kind   CapitalKind
+  amount Int // rupees
+
+  /// LOAN only: annual simple-interest rate in percent (12 = 12% p.a.).
+  /// Simple, not compounding: this is a founder loan tracked on a cash
+  /// basis like the rest of the money story, not a bank amortisation.
+  ratePct Float @default(0)
+
+  /// Month from which interest accrues, and from which the contribution
+  /// counts as deployed. Defaults to the first operating month rather
+  /// than the capex months — the build-out ran Jan-Jun 2026 with no
+  /// revenue to charge interest against, and charging it there would
+  /// bury six months of P&L under a cost the business could not yet pay.
+  /// Editable, because the real draw schedule is the owner's to state.
+  startDate DateTime @db.Date
+
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind])
+}
+
 model ExpenseOption {
   id        String             @id @default(cuid())
   module    ExpenseModule      @default(GENERAL)
@@ -3294,7 +3337,7 @@ model Tournament {
   liveScreenPlatform LiveScreenPlatform @default(BOTH)
   scorerCode         String?            @unique // field-scorer console access
 
-  createdBy String? // admin id
+  createdBy  String? // admin id
   /// Set when an admin files the tournament away. It keeps every record —
   /// teams, fixtures, scores, money — but drops out of the admin list and
   /// the public tournaments list, so a finished season stops crowding the

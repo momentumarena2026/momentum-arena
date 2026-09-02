@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-01 · accurate as of `main` = `5e08ca1` (app 1.0.6).
+**Last substantive update:** 2026-09-02 · accurate as of `main` = `8baf264` (app 1.0.7).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -215,6 +215,36 @@ Anything else means main has drifted — stop and investigate, do not push.
     ```
     Regenerate **after** pulling, not before — a `prisma generate` that predates
     the pull is just as stale.
+
+18. **JS date getters read the HOST timezone — never use them on money.**
+    `getMonth()`, `getHours()`, `getDay()`, and `new Date("2026-09-01T00:00:00")`
+    all resolve against the host: **UTC on Vercel, IST on a dev Mac**. So the
+    same analytics function returned different months in production and in
+    development, and nothing said so. `actions/admin-cafe-analytics.ts` did this
+    everywhere until 2026-09-02. Consequences on real production data (148
+    orders): monthly revenue unaffected by luck, but **30% of orders were booked
+    to the wrong calendar day and weekday, and 100% to the wrong hour** — the
+    peak-hour chart was off by 5½ hours for its whole life, showing a 6pm peak
+    when the true peak is **00:00–01:00 IST** (₹7,160, the single best hour;
+    45% of all cafe revenue is taken between midnight and 5:30am, because the
+    arena runs to 1am). It also meant the Cafe tab and the Overall P&L would
+    have reported the same sale in different months the first time a late-night
+    order landed on the 1st — the four-surface trap (gotcha 1) in a new guise.
+    **Use `lib/ist.ts`** (`istMonthKey`, `istHour`, `istRangeBounds`, …), which
+    shifts by +5:30 and reads UTC getters — the same thing the SQL side does
+    with `+ interval '330 minutes'`, so TS and SQL agree by construction.
+    `tests/ist.test.ts` passes identically under `TZ=UTC`, `TZ=Asia/Kolkata` and
+    `TZ=America/Los_Angeles`; that invariance is the actual assertion.
+
+17. **Never export a TYPE from a `"use server"` module.** The build strips a
+    server-action file down to its async exports, so a `export type { X }`
+    re-export becomes a runtime import of nothing and every page importing it
+    500s — while `tsc` reports zero errors, so the usual gate misses it
+    entirely. This took down all the admin tournaments pages once already
+    (`export type { TournamentWizardInput }`). Put shared types in a plain
+    module and import them from both sides: `lib/pnl-math.ts` holds the P&L
+    shapes for exactly this reason, and `actions/admin-pnl.ts` exports one
+    thing — the async function. `next build` catches it; a typecheck does not.
 
 16. **`development` and `main` native builds are DIFFERENT paths on purpose —
     do not merge them.** `docs/DEPLOYMENT.md` §0/§7/§8 is the spec:
@@ -500,6 +530,26 @@ its templates here, or it ships with no push voice at all.
 ## 8. File map — where things live
 
 **Server / shared**
+- `lib/ist.ts` — IST calendar arithmetic that does not read the host timezone.
+  **Any date bucketing on money must go through this**, never through JS local
+  getters — see gotcha 18 for what that cost. Mirrors the SQL side's
+  `+ interval '330 minutes'`.
+- `lib/pnl-math.ts` + `actions/admin-pnl.ts` — the Overall P&L (`/admin/analytics/overall`,
+  superadmin-only). The maths lives in the lib so it can be tested without a DB
+  (`tests/pnl-math.test.ts`) and so the `"use server"` file exports only its action —
+  see gotcha 17. **The accounting model is written at the top of `admin-pnl.ts`; read it
+  before changing a row.** Two things it deliberately does NOT do: subtract
+  `CafeItem.costPrice` (cafe stock is already a RUNNING "Inventory" expense — subtracting
+  both double-counts it, and `costPrice` rewrites history when an item is re-priced), and
+  include `Expense(module=GENERAL)` (that is the ₹50L build-out capex; it belongs in the
+  funding/payback block, not in operating profit). Income mirrors
+  `getMonthlyEarningsForYear`'s bucketing exactly — bookings by play date, everything else
+  by paid time — because reconciling with the Sports tab matters more than internal purity.
+  **Pre-July-2026 months carry no expense line and that is correct**, not a data gap: the
+  arena was still being built and every cost was capitalised into GENERAL, so revenue earned
+  then is operating profit in full (owner's ruling, 2026-09-02). `isExpenseGap()` therefore
+  only flags an expense-free month at or after the first RUNNING expense — where it means
+  somebody stopped entering, and an unflagged 100% margin would be believed.
 - `lib/public-match.ts` — scratch-match event log + `replay()`. **Source of truth**; mirrored
   at `apps/mobile/src/lib/match-engine.ts` — keep the two in sync. **This is now enforced:**
   `tests/match-engine.parity.test.ts` drives both `replay()`s with identical logs (including a
