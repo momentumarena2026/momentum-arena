@@ -460,10 +460,17 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
     // Only worth reporting when something is actually missing. A message
     // the parser fully understood does not need "I didn't know what
     // 'lets' meant" appended to it.
-    // Reported when something is missing, and also when a named day went
-    // unread — that is exactly when the customer needs to know which word
-    // defeated the parser.
-    unknown: missing.length > 0 || unresolvedDay ? checked.unknown : [],
+    // ALWAYS populated. An earlier version emptied this whenever nothing
+    // was missing, on the grounds that a fully-understood message needs
+    // no "I didn't know what 'lets' meant" appended to it. That is true
+    // of the MESSAGE and false of the field: the route also uses this to
+    // decide whether a sentence needs a second opinion, and suppressing
+    // it made that check circular. "Minh's all sham 6 bake cricket"
+    // completed itself from carried context, reported no unknown words
+    // because nothing was missing, and so was never escalated — it came
+    // back as a confident ₹1,600 proposal. Deciding what to SAY is the
+    // route's job; this field just reports what happened.
+    unknown: checked.unknown,
     ambiguous: checked.ambiguous,
     unresolvedDay,
   };
@@ -528,7 +535,7 @@ export function mergeParsed(
     // Corrections describe the message just typed, like the other flags —
     // re-announcing a correction from three turns ago would be noise.
     corrections: fresh.corrections,
-    unknown: missing.length > 0 || fresh.unresolvedDay ? fresh.unknown : [],
+    unknown: fresh.unknown,
     ambiguous: fresh.ambiguous,
     // A day carried from an earlier turn settles it — the unread word in
     // THIS message no longer matters.

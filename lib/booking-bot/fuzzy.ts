@@ -133,6 +133,12 @@ const FILLER = new Set([
   "court", "ground", "pitch", "field", "turf", "slot", "slots", "game",
   "play", "playing", "match", "session", "from", "till", "until", "upto",
   "chahiye", "karna", "karo", "hai", "ka", "ki", "ke",
+  // Chat noise. Not correcting these matters less than not ESCALATING on
+  // them — the route treats an unrecognised word as a reason to ask for a
+  // second opinion, and "yaar" is not a reason to spend a model call.
+  "lets", "let", "yaar", "yar", "bhai", "bro", "dude", "sir", "maam",
+  "thanks", "thank", "okay", "cool", "nice", "good", "sure", "yes", "no",
+  "actually", "instead", "make", "change", "also", "just", "only", "still",
 ]);
 
 export type Correction = { from: string; to: string };

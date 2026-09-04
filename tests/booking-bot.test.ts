@@ -577,10 +577,23 @@ test("a word matching nothing is named back to the customer", () => {
   assert.deepEqual(p.unknown, ["bskteball"]);
 });
 
-test("a fully-understood message carries no unknown-word noise", () => {
+test("ordinary chat filler is not treated as an unrecognised word", () => {
+  // `unknown` drives escalation to the comprehension layer, so filler
+  // landing in it would spend a model call on "yaar".
   const p = parseBookingText("lets book cricket tomorrow 7 pm yaar", NOW);
   assert.deepEqual(p.missing, []);
-  assert.deepEqual(p.unknown, [], "nothing to report when nothing is missing");
+  assert.deepEqual(p.unknown, []);
+});
+
+test("unrecognised words are reported even when nothing is missing", () => {
+  // The circular gate that let a gibberish message through: `unknown`
+  // used to be emptied whenever `missing` was empty, and the route used
+  // `unknown` to decide whether to escalate. A sentence that completed
+  // itself from carried context therefore never got a second opinion.
+  const carried = parseBookingText("cricket tomorrow 7 pm", NOW);
+  const merged = mergeParsed(carried, parseBookingText("minh sham bake", NOW));
+  assert.deepEqual(merged.missing, [], "context filled every field");
+  assert.ok(merged.unknown.length > 0, "and the gibberish is still reported");
 });
 
 /**
