@@ -4,6 +4,10 @@ import { NotificationsScreen } from "../screens/account/NotificationsScreen";
 import { BookingBotScreen } from "../screens/book/BookingBotScreen";
 import { CheckoutScreen } from "../screens/book/CheckoutScreen";
 import { BookingConfirmedScreen } from "../screens/book/BookingConfirmedScreen";
+import { BookingsListScreen } from "../screens/bookings/BookingsListScreen";
+import { BookingDetailScreen } from "../screens/bookings/BookingDetailScreen";
+import { RewardsScreen } from "../screens/account/RewardsScreen";
+import { RewardsHowItWorksScreen } from "../screens/account/RewardsHowItWorksScreen";
 import { TournamentsListScreen } from "../screens/tournaments/TournamentsListScreen";
 import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailScreen";
 import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
@@ -56,6 +60,26 @@ export function HomeStack() {
         name="BookingConfirmed"
         component={BookingConfirmedScreen}
         options={{ headerShown: false, gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="BookingsList"
+        component={BookingsListScreen}
+        options={{ title: "My bookings" }}
+      />
+      <Stack.Screen
+        name="BookingDetail"
+        component={BookingDetailScreen}
+        options={{ title: "Booking" }}
+      />
+      <Stack.Screen
+        name="Rewards"
+        component={RewardsScreen}
+        options={{ title: "Momentum Points" }}
+      />
+      <Stack.Screen
+        name="RewardsHowItWorks"
+        component={RewardsHowItWorksScreen}
+        options={{ title: "How it works" }}
       />
       <Stack.Screen
         name="Notifications"

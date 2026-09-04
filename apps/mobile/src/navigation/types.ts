@@ -32,6 +32,15 @@ export type HomeStackParamList = {
   BookingBot: undefined;
   Checkout: { holdId: string };
   BookingConfirmed: { bookingId: string };
+  // Destinations Home links to. Registered here as well as in AccountStack
+  // so tapping them from Home pushes IN the Home stack — a cross-tab
+  // navigate() puts AccountHome underneath and Back drops the customer on
+  // a screen they never opened. RewardsHowItWorks comes along because
+  // Rewards links to it and would otherwise dead-end.
+  BookingsList: undefined;
+  BookingDetail: { bookingId: string };
+  Rewards: undefined;
+  RewardsHowItWorks: undefined;
 };
 
 export type AccountStackParamList = {

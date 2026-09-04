@@ -431,7 +431,9 @@ export function HomeScreen() {
                 variant="ghost"
                 size="sm"
                 onPress={() =>
-                  navigation.navigate("Account", { screen: "BookingsList" })
+                  // In-stack: a cross-tab jump left Back pointing at
+                  // AccountHome, a screen the customer never opened.
+                  homeNav.navigate("BookingsList")
                 }
               />
             </View>
@@ -441,14 +443,7 @@ export function HomeScreen() {
                   key={b.id}
                   booking={b}
                   onPress={() =>
-                    navigation.navigate("Account", {
-                      // initial:false keeps AccountHome in the stack so the
-                      // native-stack header renders a back chevron. Without
-                      // it, BookingDetail becomes the root of Account.
-                      screen: "BookingDetail",
-                      params: { bookingId: b.id },
-                      initial: false,
-                    })
+homeNav.navigate("BookingDetail", { bookingId: b.id })
                   }
                 />
               ))}
