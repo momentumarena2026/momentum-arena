@@ -168,7 +168,19 @@ export async function readWithLlm(
         // Deterministic: the same sentence must not price differently on
         // two tries, and there is nothing creative to do here.
         temperature: 0,
-        max_tokens: 400,
+        // gpt-oss is a REASONING model: it spends tokens thinking before
+        // it emits anything. At the default effort with a 400-token cap
+        // the whole budget went on reasoning and Groq returned
+        // json_validate_failed with an empty generation — a failure that
+        // looks like a JSON bug and is actually a budget one.
+        //
+        // Effort "low" because there is nothing to reason about: this is
+        // extraction from one short sentence, and lower effort is also
+        // the lower latency the venue asked for.
+        reasoning_effort: "low",
+        // The OpenAI-compatible name. `max_tokens` is the legacy spelling
+        // and is not what bounds a reasoning model's completion.
+        max_completion_tokens: 1500,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt(opts.todayIst, opts.weekdayIst) },
