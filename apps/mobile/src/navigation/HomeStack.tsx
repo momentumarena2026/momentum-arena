@@ -1,6 +1,9 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { HomeScreen } from "../screens/home/HomeScreen";
 import { NotificationsScreen } from "../screens/account/NotificationsScreen";
+import { BookingBotScreen } from "../screens/book/BookingBotScreen";
+import { CheckoutScreen } from "../screens/book/CheckoutScreen";
+import { BookingConfirmedScreen } from "../screens/book/BookingConfirmedScreen";
 import { TournamentsListScreen } from "../screens/tournaments/TournamentsListScreen";
 import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailScreen";
 import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
@@ -38,6 +41,21 @@ export function HomeStack() {
         name="HomeMain"
         component={HomeScreen}
         options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="BookingBot"
+        component={BookingBotScreen}
+        options={{ title: "Quick book" }}
+      />
+      <Stack.Screen
+        name="Checkout"
+        component={CheckoutScreen}
+        options={{ title: "Checkout" }}
+      />
+      <Stack.Screen
+        name="BookingConfirmed"
+        component={BookingConfirmedScreen}
+        options={{ headerShown: false, gestureEnabled: false }}
       />
       <Stack.Screen
         name="Notifications"

@@ -23,6 +23,15 @@ export type HomeStackParamList = {
   TournamentRegister: { slug: string };
   TournamentLive: { matchId: string; slug: string };
   TournamentMatch: { matchId: string; slug: string };
+  // Quick book and the booking tail it hands to. Registered here as well
+  // as in BookStack so a customer who starts on Home stays in the Home
+  // stack the whole way — Back then walks back to Home instead of
+  // stranding them on the Sports tab's root, which is what a cross-tab
+  // navigate() does. Same route names, so the shared screens resolve in
+  // whichever stack they are mounted in.
+  BookingBot: undefined;
+  Checkout: { holdId: string };
+  BookingConfirmed: { bookingId: string };
 };
 
 export type AccountStackParamList = {

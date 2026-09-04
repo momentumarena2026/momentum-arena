@@ -319,9 +319,11 @@ export function HomeScreen() {
                 style — and the tile grid below is untouched, so the
                 familiar path stays exactly where regulars expect it. */}
             <Pressable
-              onPress={() =>
-                navigation.navigate("Sports", { screen: "BookingBot" })
-              }
+              // In-stack, not across to the Sports tab. A cross-tab
+              // navigate() puts BookStack's root (the sport picker)
+              // underneath, so Back stranded the customer on a screen
+              // they never chose. Same fault as the Home bell had.
+              onPress={() => homeNav.navigate("BookingBot")}
               style={({ pressed }) => [styles.quickBook, pressed && styles.pressed]}
             >
               <View style={styles.quickBookIcon}>
