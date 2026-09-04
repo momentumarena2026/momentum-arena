@@ -477,3 +477,38 @@ test("switching the preference back to full works too", () => {
   assert.equal(full.courtSize, "FULL");
   assert.equal(full.startHour, 19);
 });
+
+/**
+ * Digit ranges are ambiguous between a time and a day-month. Reported
+ * from the app: "next thursday 8-10 pm" answered "I can only book 30 days
+ * ahead", because "8-10" was read as the 8th of October.
+ */
+test("'8-10 pm' is a time, not the 8th of October", () => {
+  const p = parseBookingText("book cricket for next thursday 8-10 pm", NOW);
+  assert.equal(p.startHour, 20);
+  assert.equal(p.endHour, 22);
+  assert.equal(p.date, "2026-09-10", "next Thursday, not October");
+});
+
+test("the typo'd weekday still gets a sensible answer", () => {
+  // The reported message had "turhsday". The weekday is unreadable, so the
+  // date falls back to today — but the TIME must still be a time, and the
+  // request must not be rejected as out of range.
+  const p = parseBookingText("book cricket for next turhsday 8-10 pm", NOW);
+  assert.equal(p.startHour, 20);
+  assert.equal(p.endHour, 22);
+  assert.equal(p.date, "2026-09-04", "today, not 8 October");
+  assert.equal(p.assumedToday, true);
+});
+
+test("a real date beside a time still parses, both intact", () => {
+  const p = parseBookingText("cricket 12/9 8-10 pm", NOW);
+  assert.equal(p.date, "2026-09-12");
+  assert.equal(p.startHour, 20);
+  assert.equal(p.endHour, 22);
+});
+
+test("a bare hyphen date with no time is still a date", () => {
+  const p = parseBookingText("cricket 12-09", NOW);
+  assert.equal(p.date, "2026-09-12");
+});

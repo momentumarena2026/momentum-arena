@@ -199,7 +199,13 @@ function parseDate(text: string, now: Date): { date: string | null; assumedToday
  */
 const MAX_BOOKABLE_HOURS = 12;
 
-type TimeParse = { startHour: number; endHour: number; assumedPm: boolean } | null;
+type TimeParse = {
+  startHour: number;
+  endHour: number;
+  assumedPm: boolean;
+  /** [start, end) of the matched text, so parseDate can skip it. */
+  span: [number, number];
+} | null;
 
 function parseTime(text: string): TimeParse {
   const t = text.toLowerCase();
@@ -209,6 +215,22 @@ function parseTime(text: string): TimeParse {
     /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|—|to|till|until)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/,
   );
   if (range) {
+    // "12-09" is the 12th of September, not noon-to-9pm — and it slots
+    // inside MAX_BOOKABLE_HOURS, so nothing downstream would object. The
+    // tell is the zero-padded second operand with no am/pm anywhere:
+    // people write "12-09" for a date and "12-9 pm" for a time, never the
+    // other way round. Blank it and look for a time elsewhere in the
+    // sentence, so "cricket 12-09 at 7 pm" still finds the 7 pm.
+    if (range[3] == null && range[6] == null && /^0\d$/.test(range[4])) {
+      const masked =
+        t.slice(0, range.index!) +
+        " ".repeat(range[0].length) +
+        t.slice(range.index! + range[0].length);
+      // Indices are preserved by the blanking, so any span found in the
+      // masked text still points at the original string.
+      return parseTime(masked);
+    }
+
     const endMer = (range[6] as "am" | "pm" | undefined) ?? null;
     // "7 to 8pm" — the meridiem on the end applies to the start too.
     const startMer = (range[3] as "am" | "pm" | undefined) ?? endMer ?? null;
@@ -230,7 +252,12 @@ function parseTime(text: string): TimeParse {
       endHour += 24;
     }
     if (endHour - s.hour > 0 && endHour - s.hour <= MAX_BOOKABLE_HOURS) {
-      return { startHour: s.hour, endHour, assumedPm: s.assumed || e.assumed };
+      return {
+        startHour: s.hour,
+        endHour,
+        assumedPm: s.assumed || e.assumed,
+        span: [range.index!, range.index! + range[0].length],
+      };
     }
     // An explicit range we cannot honour must not fall through to the
     // single-time branch and quietly become something else.
@@ -243,7 +270,12 @@ function parseTime(text: string): TimeParse {
     const s = resolveMeridiem(Number(dur[1]), (dur[3] as "am" | "pm" | undefined) ?? null);
     const hours = Number(dur[4]);
     if (hours >= 1 && hours <= MAX_BOOKABLE_HOURS) {
-      return { startHour: s.hour, endHour: s.hour + hours, assumedPm: s.assumed };
+      return {
+        startHour: s.hour,
+        endHour: s.hour + hours,
+        assumedPm: s.assumed,
+        span: [dur.index!, dur.index! + dur[0].length],
+      };
     }
     // An explicit duration we cannot honour must NOT fall through to the
     // single-hour branch below. "6am for 20 hours" silently became a
@@ -259,7 +291,12 @@ function parseTime(text: string): TimeParse {
     ?? t.match(/\b(?:at|from)\s+(\d{1,2})\b/);
   if (single) {
     const s = resolveMeridiem(Number(single[1]), (single[3] as "am" | "pm" | undefined) ?? null);
-    return { startHour: s.hour, endHour: s.hour + 1, assumedPm: s.assumed };
+    return {
+      startHour: s.hour,
+      endHour: s.hour + 1,
+      assumedPm: s.assumed,
+      span: [single.index!, single.index! + single[0].length],
+    };
   }
 
   return null;
@@ -275,8 +312,22 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
   const clean = (text ?? "").trim();
   const sport = parseSport(clean);
   const courtSize = parseCourtSize(clean);
-  const { date } = parseDate(clean, now);
+
+  // TIME FIRST, then blank out the text it consumed before looking for a
+  // date. Digit ranges are ambiguous between the two — "8-10 pm" is a
+  // time, but the day-month pattern reads it as the 8th of October, and
+  // "next thursday 8-10 pm" was answered with "I can only book 30 days
+  // ahead" because October is 33 days out. An earlier attempt required a
+  // zero-padded month, which "8-10" satisfies, so it slipped through.
+  //
+  // Removing the matched span is the general fix rather than another
+  // guess at which shapes are dates: whatever the time pattern claimed
+  // cannot also be a date, whichever way it happens to be written.
   const time = parseTime(clean);
+  const forDate = time
+    ? clean.slice(0, time.span[0]) + " ".repeat(time.span[1] - time.span[0]) + clean.slice(time.span[1])
+    : clean;
+  const { date } = parseDate(forDate, now);
 
   // No date but a time given → they mean today. Whether that hour has
   // already passed is the caller's problem: it needs availability to

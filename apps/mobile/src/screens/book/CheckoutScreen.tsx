@@ -1140,9 +1140,17 @@ export function CheckoutScreen() {
           <View style={styles.newUserPill}>
             <Sparkles size={16} color={colors.emerald400} />
             <Text variant="small" color={colors.emerald400} style={styles.newUserPillText}>
-              {discountLabel} — New total:{" "}
+              {/* Says what was SAVED, not a total. This read "New total:
+                  {effectiveAmount}", which is the price after the coupon
+                  but before reward points and equipment — so a customer
+                  redeeming points saw ₹700 here and ₹560 to pay, the
+                  banner quoting the HIGHER number. Two totals on one
+                  screen is a bug whichever one is right, and the real one
+                  is already in the summary directly above. The saving
+                  can't contradict it. */}
+              {discountLabel} — you saved{" "}
               <Text variant="small" weight="700" color={colors.emerald400}>
-                {formatRupees(effectiveAmount)}
+                {formatRupees(appliedAmount)}
               </Text>
             </Text>
           </View>
