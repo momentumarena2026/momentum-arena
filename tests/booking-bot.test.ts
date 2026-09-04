@@ -11,7 +11,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseBookingText, mergeParsed, formatHourRange } from "../lib/booking-bot/parse";
+import {
+  parseBookingText,
+  mergeParsed,
+  formatHourRange,
+  VOCABULARY,
+} from "../lib/booking-bot/parse";
+import { spellcheck, editDistance } from "../lib/booking-bot/fuzzy";
 import {
   isWindowFree,
   windowPrice,
@@ -511,4 +517,154 @@ test("a real date beside a time still parses, both intact", () => {
 test("a bare hyphen date with no time is still a date", () => {
   const p = parseBookingText("cricket 12-09", NOW);
   assert.equal(p.date, "2026-09-12");
+});
+
+// ── spelling tolerance ─────────────────────────────────────────────
+//
+// The reported failure was "book cricket for next turhsday 8-10 pm".
+// Two separate defects met in it: "8-10" parsed as a date (above), and
+// "turhsday" matched no weekday. These cover the second.
+
+test("ordinary misspellings are corrected and reported", () => {
+  const p = parseBookingText("book footbal tomorow 7 to 8 pm", NOW);
+  assert.equal(p.sport, "FOOTBALL");
+  assert.equal(p.date, "2026-09-05");
+  assert.equal(p.startHour, 19);
+  assert.deepEqual(p.corrections, [
+    { from: "footbal", to: "football" },
+    { from: "tomorow", to: "tomorrow" },
+  ]);
+});
+
+test("a correction is never silent — the bot has to be able to say it", () => {
+  // The whole safety argument for tolerant matching is that a wrong
+  // correction costs one tap because it is shown. If corrections ever
+  // stop being reported, that argument is gone.
+  const p = parseBookingText("criket saturdy 7 pm", NOW);
+  assert.equal(p.sport, "CRICKET");
+  assert.ok(p.corrections.some((c) => c.from === "saturdy" && c.to === "saturday"));
+});
+
+test("an equidistant word is ASKED about, never guessed", () => {
+  // "turhsday" is exactly 2 edits from thursday AND from tuesday. This is
+  // the case where picking one is the worst option: the customer gets a
+  // confident proposal on a day they never asked for.
+  const p = parseBookingText("book cricket for next turhsday 8-10 pm", NOW);
+  assert.equal(p.corrections.length, 0, "must not silently correct a tie");
+  assert.equal(p.ambiguous.length, 1);
+  assert.equal(p.ambiguous[0].word, "turhsday");
+  assert.deepEqual(p.ambiguous[0].options.slice().sort(), ["thursday", "tuesday"]);
+});
+
+test("two spellings of ONE day are not an ambiguity", () => {
+  // "sat" and "saturday" are two vocabulary entries and one meaning.
+  // Judging ties on spelling rather than meaning would ask the customer
+  // to choose between Saturday and Saturday.
+  for (const word of ["saturdy", "saterday", "satuday"]) {
+    const p = parseBookingText(`cricket ${word} 7 pm`, NOW);
+    assert.equal(p.ambiguous.length, 0, word);
+    assert.equal(p.date, "2026-09-05", word);
+  }
+});
+
+test("a word matching nothing is named back to the customer", () => {
+  // "Tell me which sport" is a useless reply to a message that already
+  // named one. The unknown word is what the bot needs in order to say
+  // something the customer can act on.
+  const p = parseBookingText("book bskteball tomorrow 7 pm", NOW);
+  assert.equal(p.sport, null);
+  assert.deepEqual(p.missing, ["sport"]);
+  assert.deepEqual(p.unknown, ["bskteball"]);
+});
+
+test("a fully-understood message carries no unknown-word noise", () => {
+  const p = parseBookingText("lets book cricket tomorrow 7 pm yaar", NOW);
+  assert.deepEqual(p.missing, []);
+  assert.deepEqual(p.unknown, [], "nothing to report when nothing is missing");
+});
+
+/**
+ * The guard that keeps the corrector from doing harm.
+ *
+ * Fuzzy matching is only safe while it leaves correct input alone. "day"
+ * sits ONE edit from "may", and an early version rewrote "day after
+ * tomorrow" to "may after tomorrow" — the phrase stopped matching and the
+ * bot booked tomorrow instead, a whole day wrong. Any future widening of
+ * the vocabulary or the edit budget has to keep this list untouched.
+ */
+test("correct sentences pass through the corrector unchanged", () => {
+  const corpus = [
+    "book a cricket court tomorrow 7 to 8 pm",
+    "football day after tomorrow 6-7 pm",
+    "i want the full field on saturday night 9 pm",
+    "pickleball today 6 am for 2 hours",
+    "half court cricket next friday 8 to 10 pm",
+    "book me a slot at 7pm tomorrow for football",
+    "cricket 12/9 7 pm please",
+    "футбол" .normalize(), // non-latin passes through untouched
+  ];
+  for (const line of corpus) {
+    const r = spellcheck(line, VOCABULARY);
+    assert.equal(r.text, line, `corrupted: ${line}`);
+    assert.deepEqual(r.corrections, [], `spurious correction in: ${line}`);
+  }
+});
+
+test("edit distance abandons work once the budget is blown", () => {
+  assert.equal(editDistance("thursday", "thursday", 3), 0);
+  assert.equal(editDistance("turhsday", "thursday", 3), 2, "insert an h, delete the stray one");
+  assert.equal(editDistance("cricket", "football", 2), 3, "over budget → max+1");
+});
+
+/**
+ * VOCABULARY mirrors the parser's own tables and regexes. A canonical
+ * form the parsers no longer recognise would mean corrections rewrite
+ * words INTO something unparseable — the corrector would quietly make
+ * messages worse. This is the parity test CLAUDE.md requires for any
+ * pair of files that must stay in sync.
+ */
+test("every canonical vocabulary form is still parseable", () => {
+  const canonical = [...new Set(VOCABULARY.map((v) => v.canonical))];
+  for (const word of canonical) {
+    // Size words are deliberately only meaningful with their noun —
+    // parseCourtSize wants "half court", not a bare "half", so that a
+    // stray adjective can't silently downgrade a booking. Give them one.
+    const phrase = ["half", "full"].includes(word) ? `${word} court` : word;
+    // Month names need a day number to mean anything, which is the
+    // parser's rule, not this test's.
+    const withDay = /^(january|february|march|april|may|june|july|august|september|october|november|december)$/.test(word)
+      ? `12 ${phrase}`
+      : phrase;
+    const p = parseBookingText(`${withDay} 7 pm`, NOW);
+    const recognised =
+      p.sport != null ||
+      p.courtSize != null ||
+      // A day or month name resolves to a date other than the "no date
+      // given, assume today" fallback.
+      !p.assumedToday;
+    assert.ok(recognised, `"${word}" is in VOCABULARY but nothing parses it`);
+  }
+});
+
+// ── separator tolerance ────────────────────────────────────────────
+
+test("the same window written five ways parses identically", () => {
+  // None of these is more correct than the others, and every one the
+  // parser refuses is a customer who thinks the feature is broken.
+  for (const w of ["7-8 pm", "7 to 8 pm", "7/8 pm", "7~8 pm", "7 till 8 pm"]) {
+    const p = parseBookingText(`football tomorrow ${w}`, NOW);
+    assert.equal(p.startHour, 19, w);
+    assert.equal(p.endHour, 20, w);
+    assert.equal(p.date, "2026-09-05", w);
+  }
+});
+
+test("a slash between bare numbers is still a date, not a time", () => {
+  // The cost of accepting "/" as a range separator: "12/9" would read as
+  // noon-to-9pm, which fits inside the bookable window, so nothing
+  // downstream would have caught it.
+  const p = parseBookingText("football 12/9 7 pm", NOW);
+  assert.equal(p.date, "2026-09-12");
+  assert.equal(p.startHour, 19);
+  assert.equal(p.endHour, 20);
 });

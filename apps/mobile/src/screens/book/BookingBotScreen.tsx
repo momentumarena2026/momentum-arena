@@ -60,7 +60,15 @@ type ParsedContext = {
 };
 
 type BotReply =
-  | { kind: "needs"; missing: string[]; message: string; parsed?: ParsedContext }
+  | {
+      kind: "needs";
+      missing: string[];
+      message: string;
+      parsed?: ParsedContext;
+      /** Server-chosen chips, when the question is specific to the
+       *  message (e.g. "Thursday or Tuesday?"). Beats QUICK below. */
+      chips?: string[];
+    }
   | {
       kind: "proposal";
       message: string;
@@ -275,21 +283,30 @@ export function BookingBotScreen() {
           <View style={styles.bot}>
             <Text style={styles.botText}>{r.message}</Text>
 
-            {r.kind === "needs" && r.missing.length > 0 && (
-              <View style={styles.chips}>
-                {r.missing.flatMap((m) =>
-                  (QUICK[m] ?? []).map((label) => (
-                    <Pressable
-                      key={`${m}-${label}`}
-                      onPress={() => void send(label)}
-                      style={({ pressed }) => [styles.chip, pressed && { opacity: 0.75 }]}
-                    >
-                      <Text style={styles.chipText}>{label}</Text>
-                    </Pressable>
-                  )),
-                )}
-              </View>
-            )}
+            {/* Server chips win when present: a disambiguation question
+                has answers that no fixed list could hold. Otherwise fall
+                back to the canned ones per missing field. */}
+            {r.kind === "needs" &&
+              (() => {
+                const labels =
+                  r.chips && r.chips.length > 0
+                    ? r.chips
+                    : r.missing.flatMap((m) => QUICK[m] ?? []);
+                if (labels.length === 0) return null;
+                return (
+                  <View style={styles.chips}>
+                    {labels.map((label) => (
+                      <Pressable
+                        key={label}
+                        onPress={() => void send(label)}
+                        style={({ pressed }) => [styles.chip, pressed && { opacity: 0.75 }]}
+                      >
+                        <Text style={styles.chipText}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                );
+              })()}
 
             {r.kind === "proposal" && (
               <>

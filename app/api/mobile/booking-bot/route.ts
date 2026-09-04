@@ -37,7 +37,19 @@ export const dynamic = "force-dynamic";
  */
 
 type Ok =
-  | { kind: "needs"; missing: string[]; message: string; parsed: unknown }
+  | {
+      kind: "needs";
+      missing: string[];
+      message: string;
+      parsed: unknown;
+      /**
+       * Chips the SERVER chose, overriding the client's canned ones.
+       * Used when the question is specific to this message — "did you
+       * mean Thursday or Tuesday?" has two right answers and neither is
+       * in a fixed list.
+       */
+      chips?: string[];
+    }
   | {
       kind: "proposal";
       message: string;
@@ -79,6 +91,10 @@ type Ok =
  *  not offer dates the slot picker refuses to show. */
 const BOOKING_HORIZON_DAYS = 30;
 
+function titleCase(w: string): string {
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
 const MISSING_COPY: Record<string, string> = {
   sport: "which sport",
   date: "which day",
@@ -114,12 +130,41 @@ export async function POST(request: NextRequest) {
   // incomplete reading; the server stays stateless.
   const parsed = mergeParsed(body.context ?? null, parseBookingText(text, now));
 
+  // ── Ambiguity beats everything else ────────────────────────────────
+  //
+  // A word that matched two vocabulary entries equally well is the one
+  // case where guessing is worse than asking: "turhsday" is exactly three
+  // edits from both Thursday and Tuesday, and a confident answer on the
+  // wrong day is far more expensive than one extra tap. Checked BEFORE
+  // `missing`, because the parser will have quietly defaulted the field
+  // that word was supposed to fill — the reported message came back as a
+  // proposal for today.
+  if (parsed.ambiguous.length > 0) {
+    const a = parsed.ambiguous[0];
+    const options = a.options.map(titleCase);
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: [],
+      message: `I couldn't tell whether "${a.word}" meant ${options.join(" or ")}.`,
+      chips: options,
+      parsed,
+    });
+  }
+
   if (parsed.missing.length > 0) {
     const wanted = parsed.missing.map((m) => MISSING_COPY[m]).join(" and ");
+    // Name the word that defeated it. "Tell me which sport" is a useless
+    // reply to a message that already named one — the customer retypes
+    // the same thing and gets the same answer. Saying "I didn't
+    // understand 'bskteball'" tells them exactly which word to change,
+    // and incidentally tells them the sport isn't offered.
+    const lost = parsed.unknown[0];
     return NextResponse.json<Ok>({
       kind: "needs",
       missing: parsed.missing,
-      message: `Got it — just tell me ${wanted}.`,
+      message: lost
+        ? `I didn't understand "${lost}" — tell me ${wanted}.`
+        : `Got it — just tell me ${wanted}.`,
       parsed,
     });
   }
@@ -240,6 +285,12 @@ export async function POST(request: NextRequest) {
     // sees "7:00 PM" and one tap fixes it — which is the entire reason
     // defaulting is acceptable at all.
     const notes: string[] = [];
+    // Spelling corrections first — they changed what was asked for, which
+    // matters more than how a bare hour was read. A correction the
+    // customer cannot see is the one failure mode of tolerant matching.
+    for (const c of parsed.corrections) {
+      notes.push(`I read "${c.from}" as ${titleCase(c.to)}`);
+    }
     if (parsed.assumedPm) notes.push("I've read that as PM");
     if (parsed.assumedToday) notes.push("assuming today");
 

@@ -29,6 +29,12 @@
 
 import { Sport } from "@prisma/client";
 import { istDateKey, toIst } from "@/lib/ist";
+import {
+  spellcheck,
+  type Ambiguity,
+  type Correction,
+  type VocabEntry,
+} from "@/lib/booking-bot/fuzzy";
 
 export type ParsedBooking = {
   sport: Sport | null;
@@ -56,6 +62,25 @@ export type ParsedBooking = {
   courtSize: "HALF" | "FULL" | null;
   /** What still has to be asked for. Empty = ready to price. */
   missing: ("sport" | "date" | "time")[];
+  /**
+   * Misspellings that were corrected before parsing, so the bot can say
+   * which reading it took. Never applied silently — see lib/booking-bot/
+   * fuzzy.ts for why a visible correction is the whole safety argument.
+   */
+  corrections: Correction[];
+  /**
+   * Content words that matched nothing. Lets the bot say "I didn't
+   * understand 'X'" instead of a generic "tell me which day", which
+   * leaves the customer guessing at which word to change.
+   */
+  unknown: string[];
+  /**
+   * Words that matched several vocabulary entries equally well, with the
+   * candidates. The bot asks instead of guessing — this is the "I'm not
+   * sure what you meant" path, and it is reached by real messages:
+   * "turhsday" is equidistant from Thursday and Tuesday.
+   */
+  ambiguous: Ambiguity[];
 };
 
 const SPORT_WORDS: [RegExp, Sport][] = [
@@ -81,6 +106,51 @@ const MONTHS: Record<string, number> = {
   aug: 7, august: 7, sep: 8, sept: 8, september: 8,
   oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11,
 };
+
+/**
+ * Every word worth spell-correcting, derived from the tables above rather
+ * than listed again — a second copy would drift the moment a sport or an
+ * alias is added, and drift here means a word silently stops being
+ * correctable with nothing failing.
+ *
+ * Only the sport and keyword spellings are literal, because those live in
+ * regexes rather than in a keyed table. The parity test in
+ * tests/booking-bot.test.ts asserts each one is still recognised by the
+ * regex it mirrors.
+ */
+export const VOCABULARY: VocabEntry[] = (() => {
+  // Each alias carries the canonical spelling it MEANS, so a tie between
+  // two spellings of one day ("sat" / "saturday") is not mistaken for a
+  // real ambiguity — and so a correction always rewrites to a form the
+  // parsers below actually recognise.
+  const dayName = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const monthName = ["january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december"];
+
+  const entries: VocabEntry[] = [
+    ...Object.entries(WEEKDAYS).map(([word, dow]) => ({ word, canonical: dayName[dow] })),
+    ...Object.entries(MONTHS).map(([word, m]) => ({ word, canonical: monthName[m] })),
+  ];
+
+  // Sports, relative days and size words live in regexes rather than in a
+  // keyed table, so their aliases are listed here. The parity test in
+  // tests/booking-bot.test.ts asserts every canonical form below is still
+  // recognised by the parser it feeds.
+  const aliasGroups: string[][] = [
+    ["cricket", "kricket"],
+    ["football", "soccer", "footy", "futsal"],
+    ["pickleball", "pickle"],
+    ["today", "tonight", "aaj"],
+    ["tomorrow", "tmrw", "kal"],
+    ["yesterday"],
+    ["half", "aadha"],
+    ["full", "whole", "poora"],
+  ];
+  for (const group of aliasGroups) {
+    for (const word of group) entries.push({ word, canonical: group[0] });
+  }
+  return entries;
+})();
 
 /** "2026-09-05" from an IST-day offset relative to `now`. */
 function dayKeyFromOffset(now: Date, days: number): string {
@@ -211,17 +281,27 @@ function parseTime(text: string): TimeParse {
   const t = text.toLowerCase();
 
   // 1. Explicit range: "7-8pm", "7 to 8 pm", "7pm to 8pm", "19:00-20:00"
+  //
+  // Separator-agnostic on purpose. The same window gets written as
+  // "7-8 pm", "7 to 8 pm", "7/8 pm", "7~8 pm" and "7 till 8", and none
+  // of those is more correct than the others. Every separator the
+  // parser refuses is a customer who concludes the feature is broken.
   const range = t.match(
-    /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|—|to|till|until)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/,
+    /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(-|–|—|\/|~|\.\.|to|till|until|se)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/,
   );
   if (range) {
-    // "12-09" is the 12th of September, not noon-to-9pm — and it slots
-    // inside MAX_BOOKABLE_HOURS, so nothing downstream would object. The
-    // tell is the zero-padded second operand with no am/pm anywhere:
-    // people write "12-09" for a date and "12-9 pm" for a time, never the
-    // other way round. Blank it and look for a time elsewhere in the
-    // sentence, so "cricket 12-09 at 7 pm" still finds the 7 pm.
-    if (range[3] == null && range[6] == null && /^0\d$/.test(range[4])) {
+    // The price of accepting more separators is that two of them are also
+    // DATE separators, so a date can now look like a time. The numbers
+    // alone cannot settle it — "12/9" and "12-09" both sit inside
+    // MAX_BOOKABLE_HOURS as noon-to-9pm, so nothing downstream would
+    // object. The tell is how people actually write: a slash between bare
+    // numbers is a date ("12/9"), and a hyphen with a zero-padded second
+    // operand is a date ("12-09"), while both take an am/pm when they are
+    // meant as times. Blank the span and look for a time elsewhere in the
+    // sentence, so "cricket 12-09 at 7 pm" still finds both.
+    const sep = range[4];
+    const noMeridiem = range[3] == null && range[7] == null;
+    if (noMeridiem && (sep === "/" || (sep === "-" && /^0\d$/.test(range[5])))) {
       const masked =
         t.slice(0, range.index!) +
         " ".repeat(range[0].length) +
@@ -231,11 +311,11 @@ function parseTime(text: string): TimeParse {
       return parseTime(masked);
     }
 
-    const endMer = (range[6] as "am" | "pm" | undefined) ?? null;
+    const endMer = (range[7] as "am" | "pm" | undefined) ?? null;
     // "7 to 8pm" — the meridiem on the end applies to the start too.
     const startMer = (range[3] as "am" | "pm" | undefined) ?? endMer ?? null;
     const s = resolveMeridiem(Number(range[1]), startMer);
-    const e = resolveMeridiem(Number(range[4]), endMer ?? startMer);
+    const e = resolveMeridiem(Number(range[5]), endMer ?? startMer);
     let endHour = e.hour;
     // "11pm to 1am" wraps past midnight; the venue models that as 24/25.
     // But only when the END has its own am/pm, or neither side does — an
@@ -309,7 +389,16 @@ function parseTime(text: string): TimeParse {
  * testable and so the caller decides the reference instant.
  */
 export function parseBookingText(text: string, now: Date = new Date()): ParsedBooking {
-  const clean = (text ?? "").trim();
+  const raw = (text ?? "").trim();
+
+  // Spell-correct FIRST, against a sixty-word closed vocabulary. The
+  // reported failure was "turhsday", and the general shape of it is that
+  // every word this parser matches on comes from a short fixed list, so
+  // an exact-match requirement was doing all the damage. Corrections are
+  // carried out of here and said out loud rather than applied quietly.
+  const checked = spellcheck(raw, VOCABULARY);
+  const clean = checked.text;
+
   const sport = parseSport(clean);
   const courtSize = parseCourtSize(clean);
 
@@ -351,6 +440,12 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
     // Deliberately NOT in `missing`: a size preference is optional. Most
     // people never state one and should not be asked for it.
     missing,
+    corrections: checked.corrections,
+    // Only worth reporting when something is actually missing. A message
+    // the parser fully understood does not need "I didn't know what
+    // 'lets' meant" appended to it.
+    unknown: missing.length > 0 ? checked.unknown : [],
+    ambiguous: checked.ambiguous,
   };
 }
 
@@ -410,6 +505,11 @@ export function mergeParsed(
     // Only "today" by assumption if nothing better was carried.
     assumedToday: freshDateIsReal ? false : (carried.date ? false : fresh.assumedToday),
     missing,
+    // Corrections describe the message just typed, like the other flags —
+    // re-announcing a correction from three turns ago would be noise.
+    corrections: fresh.corrections,
+    unknown: missing.length > 0 ? fresh.unknown : [],
+    ambiguous: fresh.ambiguous,
   };
 }
 
