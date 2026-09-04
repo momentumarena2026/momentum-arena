@@ -18,7 +18,7 @@ function compact(n: number): string {
   return `${sign}${inr(abs)}`;
 }
 
-type RowKind = "income" | "expense" | "total" | "profit" | "pct";
+type RowKind = "income" | "expense" | "total" | "profit" | "pct" | "memo";
 
 function cellClass(kind: RowKind, value: number | null): string {
   if (kind === "profit") {
@@ -26,6 +26,9 @@ function cellClass(kind: RowKind, value: number | null): string {
     return value < 0 ? "text-red-400" : "text-emerald-400";
   }
   if (kind === "total") return "text-white";
+  // Memo rows sit outside the profit maths — muted so they never read as
+  // a cost that was subtracted.
+  if (kind === "memo") return "text-zinc-500";
   return "text-zinc-300";
 }
 
@@ -249,9 +252,28 @@ export function PnlTable({ initial }: { initial: PnlResult }) {
                 values={columns.map((c) => c.netProfit)}
                 flags={columns.map((c) => c.expensesUntracked)}
               />
+              {/* Memo, below the line and outside the profit maths. */}
+              {columns.some((c) => c.refunds > 0) && (
+                <Row
+                  name="Refunds (not an expense)"
+                  kind="memo"
+                  values={columns.map((c) => c.refunds)}
+                />
+              )}
             </tbody>
           </table>
         </div>
+
+        {columns.some((c) => c.refunds > 0) && (
+          <p className="mt-3 text-xs text-zinc-500">
+            <strong className="text-zinc-400">Refunds</strong> are shown for
+            reconciliation only and are <em>not</em> subtracted. Cancelling a
+            booking already removes its revenue from Income, so charging the
+            refund as an expense too would count the same reversal twice. A
+            no-show is different — an <strong className="text-zinc-400">absent</strong>{" "}
+            booking keeps the money, so it stays in Income.
+          </p>
+        )}
 
         {columns.some((c) => c.expensesUntracked) && (
           <p className="mt-3 text-xs text-zinc-500">
