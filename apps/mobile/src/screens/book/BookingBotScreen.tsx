@@ -114,6 +114,20 @@ export function BookingBotScreen() {
    * request starts clean rather than inheriting a finished booking.
    */
   const [context, setContext] = useState<ParsedContext | null>(null);
+  /**
+   * Mirrors of the mutable state that `send` reads.
+   *
+   * FlatList does NOT re-render a row just because renderItem's closure
+   * changed — only when `data` or `extraData` does. So chip rows kept the
+   * `send` captured when they mounted, complete with the in-flight guard
+   * still true from the request that produced them, and every chip tap
+   * after the first turn hit `if (sending) return` and silently did
+   * nothing. Reading these through refs keeps `send` and `renderBubble`
+   * stable, so no row can hold a stale one.
+   */
+  const sendingRef = useRef(false);
+  const contextRef = useRef<ParsedContext | null>(null);
+  const lockingRef = useRef(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [locking, setLocking] = useState(false);
@@ -127,7 +141,7 @@ export function BookingBotScreen() {
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim();
-      if (!text || sending) return;
+      if (!text || sendingRef.current) return;
 
       if (!state || state.status !== "signedIn") {
         navigation
@@ -140,24 +154,28 @@ export function BookingBotScreen() {
       setDraft("");
       setBubbles((b) => [...b, { id: nextId(), from: "me", text }]);
       scrollDown();
+      sendingRef.current = true;
       setSending(true);
       try {
         const reply = await api.post<BotReply>("/api/mobile/booking-bot", {
           text,
-          context,
+          context: contextRef.current,
         });
         setBubbles((b) => [...b, { id: nextId(), from: "bot", reply }]);
         // Carry a partial reading forward; drop it the moment the booking
         // is fully specified so a later message starts fresh.
-        setContext(reply.kind === "needs" ? (reply.parsed ?? null) : null);
+        const next = reply.kind === "needs" ? (reply.parsed ?? null) : null;
+        contextRef.current = next;
+        setContext(next);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Couldn't reach the assistant");
       } finally {
+        sendingRef.current = false;
         setSending(false);
         scrollDown();
       }
     },
-    [context, navigation, scrollDown, sending, state],
+    [navigation, scrollDown, state],
   );
 
   /**
@@ -167,7 +185,8 @@ export function BookingBotScreen() {
    */
   const confirm = useCallback(
     async (p: Proposal) => {
-      if (locking) return;
+      if (lockingRef.current) return;
+      lockingRef.current = true;
       setLocking(true);
       setError(null);
       try {
@@ -183,10 +202,11 @@ export function BookingBotScreen() {
           e instanceof Error ? e.message : "Couldn't hold that slot — it may have gone.",
         );
       } finally {
+        lockingRef.current = false;
         setLocking(false);
       }
     },
-    [locking, navigation],
+    [navigation],
   );
 
   const renderBubble = useCallback(
@@ -272,6 +292,8 @@ export function BookingBotScreen() {
     },
     [confirm, locking, send],
   );
+  // Belt and braces: even with stable callbacks, tell FlatList when the
+  // things a row RENDERS (the confirm spinner) have changed.
 
   return (
     <Screen padded={false}>
@@ -285,6 +307,7 @@ export function BookingBotScreen() {
           data={bubbles}
           keyExtractor={(b) => b.id}
           renderItem={renderBubble}
+          extraData={locking}
           contentContainerStyle={styles.list}
           onContentSizeChange={scrollDown}
           keyboardShouldPersistTaps="handled"

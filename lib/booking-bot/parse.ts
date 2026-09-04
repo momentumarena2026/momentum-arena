@@ -170,6 +170,14 @@ function parseDate(text: string, now: Date): { date: string | null; assumedToday
   return { date: null, assumedToday: false };
 }
 
+/**
+ * The longest single booking the bot will quote. The venue's own window is
+ * 5am-1am (20 hours), but a request longer than this is far more likely a
+ * typo than a genuine all-day hire, and an all-day hire is a conversation
+ * with the venue rather than a chat message.
+ */
+const MAX_BOOKABLE_HOURS = 12;
+
 type TimeParse = { startHour: number; endHour: number; assumedPm: boolean } | null;
 
 function parseTime(text: string): TimeParse {
@@ -198,9 +206,15 @@ function parseTime(text: string): TimeParse {
   if (dur) {
     const s = resolveMeridiem(Number(dur[1]), (dur[3] as "am" | "pm" | undefined) ?? null);
     const hours = Number(dur[4]);
-    if (hours >= 1 && hours <= 12) {
+    if (hours >= 1 && hours <= MAX_BOOKABLE_HOURS) {
       return { startHour: s.hour, endHour: s.hour + hours, assumedPm: s.assumed };
     }
+    // An explicit duration we cannot honour must NOT fall through to the
+    // single-hour branch below. "6am for 20 hours" silently became a
+    // one-hour booking at a plausible price — the customer asked for
+    // twenty and would have paid for one. Refusing to read a time here
+    // makes the bot ask instead of quietly selling the wrong thing.
+    return null;
   }
 
   // 3. Bare single time → one hour. "7pm", "19:00", "at 7"

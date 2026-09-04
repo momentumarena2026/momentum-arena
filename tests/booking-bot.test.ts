@@ -363,3 +363,22 @@ test("but an EXPLICIT new date does override the carried one", () => {
   const merged = mergeParsed(first, parseBookingText("make it saturday", NOW));
   assert.equal(merged.date, "2026-09-05");
 });
+
+test("an impossible duration asks, it does not quietly shrink", () => {
+  // "6am for 20 hours" fell through the duration branch into the
+  // single-hour branch and came back as 6-7 AM: the customer asked for
+  // twenty hours, would have been quoted one, and the price looked
+  // plausible enough to pay. Found by running the scenario matrix.
+  const p = parseBookingText("football tomorrow 6am for 20 hours", NOW);
+  assert.equal(p.startHour, null);
+  assert.equal(p.endHour, null);
+  assert.ok(p.missing.includes("time"), "must ask rather than assume 1 hour");
+});
+
+test("durations inside the limit still work", () => {
+  for (const [h, end] of [[1, 20], [2, 21], [12, 31]] as const) {
+    const p = parseBookingText(`football tomorrow 7pm for ${h} hours`, NOW);
+    assert.equal(p.startHour, 19, `${h}h`);
+    assert.equal(p.endHour, end, `${h}h`);
+  }
+});

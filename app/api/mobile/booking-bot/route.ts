@@ -71,6 +71,10 @@ type Ok =
       }[];
     };
 
+/** Mirrors DATE_WINDOW_DAYS in apps/mobile BookSlotsScreen — the bot must
+ *  not offer dates the slot picker refuses to show. */
+const BOOKING_HORIZON_DAYS = 30;
+
 const MISSING_COPY: Record<string, string> = {
   sport: "which sport",
   date: "which day",
@@ -125,11 +129,27 @@ export async function POST(request: NextRequest) {
 
   // A date in the past is a typo, not a request. Say so plainly instead
   // of returning an empty availability grid the bot would read as "taken".
-  if (date < istDateKey(now)) {
+  const today = istDateKey(now);
+  if (date < today) {
     return NextResponse.json<Ok>({
       kind: "needs",
       missing: ["date"],
       message: `${date} has already passed — which day did you mean?`,
+      parsed,
+    });
+  }
+
+  // Same horizon the slot picker offers (DATE_WINDOW_DAYS = 30 in
+  // BookSlotsScreen). Without this the bot would quote and hold dates no
+  // other surface will show — it quoted three months out in testing —
+  // which quietly routes around whatever the 30-day window is there to
+  // protect (pricing changes, seasonal closures, staffing).
+  const horizon = new Date(now.getTime() + BOOKING_HORIZON_DAYS * 86400000);
+  if (date > istDateKey(horizon)) {
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: ["date"],
+      message: `I can only book ${BOOKING_HORIZON_DAYS} days ahead — pick a nearer date and I'll check.`,
       parsed,
     });
   }
