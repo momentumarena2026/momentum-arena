@@ -134,6 +134,14 @@ function systemPrompt(todayIst: string, weekdayIst: string, missing: string[]): 
     '    sport → "Cricket" / "Football" / "Pickleball"',
     '    date  → "today" / "tomorrow" / a weekday name',
     '    time  → "6-7 pm" / "7-8 pm" / "8-9 pm"',
+    // The time examples above are one hour long, and the model copied
+    // that length over the customer's own words: "2 ghante cricket"
+    // (two hours) was answered with one-hour options, the customer
+    // tapped one, and a two-hour request became a one-hour booking.
+    // An example is an instruction unless it is fenced.
+    "- If the message states a DURATION, every time option must be that long:",
+    '    "2 hours" → "6-8 pm" / "7-9 pm" / "8-10 pm", never "7-8 pm".',
+    "- Time options must also respect any part of day mentioned (evening ≈ 6-9 pm).",
     '- NEVER offer "any", "not sure", "I don\'t know" or similar. They answer nothing.',
     "- clarify.options: 2 to 4 entries.",
     "- learned: any non-obvious word you resolved, mapped to a plain English equivalent. Else [].",
