@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-02 · accurate as of `main` = `8baf264` (app 1.0.7).
+**Last substantive update:** 2026-09-05 · accurate as of `main` = `8baf264` (app 1.0.7).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -586,10 +586,36 @@ its templates here, or it ships with no push voice at all.
   `generateScheduleCandidates`, `approveSchedule`. Locking windows blocks those hours
   immediately.
 
+**Quick book / booking bot** (`lib/booking-bot/`, `app/api/mobile/booking-bot/route.ts`,
+`apps/mobile/src/screens/book/BookingBotScreen.tsx`)
+- Deliberately a hand-written parser, not a model. The domain is three sports, a date and
+  an hour range, and it sits in front of a price quote — so it is small enough to
+  enumerate and test exhaustively, and it must not be free to invent a reading. It also
+  runs server-side, so it improves over a Vercel deploy rather than a store release.
+- `lib/booking-bot/fuzzy.ts` adds spelling tolerance by edit distance against a **closed**
+  ~60-word vocabulary. Safe precisely because the list is closed; the worst case is the
+  wrong weekday out of seven, and every correction is shown on the card.
+- **Trap, learned the expensive way:** fuzzy matching harms correct input if left
+  unguarded. `"day"` is ONE edit from `"may"`, and an early version rewrote
+  `"day after tomorrow"` → `"may after tomorrow"` and booked a day early. The structural
+  stop-list in `fuzzy.ts` and the "correct sentences pass through unchanged" corpus test
+  are what keep that caught. Widen the vocabulary or the edit budget only with that test
+  green.
+- **Trap:** digit ranges are ambiguous between times and dates, and both readings usually
+  survive every downstream check — `"12/9"` and `"12-09"` are valid as noon-to-9pm. Two
+  narrow patches failed here before the general fix: parse the TIME first and blank the
+  span it consumed before looking for a date, with a per-separator rule for the two
+  separators that are also date separators.
+
 **Tests** (`npm test` — Node's built-in runner via `tsx`, no test framework dependency)
 - `tests/match-engine.parity.test.ts`, `tests/payment-split.parity.test.ts` — the two
   must-stay-in-sync pairs above. Both suites were mutation-checked when written: breaking a
   mirror on purpose fails them, so they are known to be capable of failing.
+- `tests/booking-bot.test.ts` — includes a third sync guard: `VOCABULARY` in
+  `lib/booking-bot/parse.ts` mirrors that file's own weekday/month tables and its sport
+  and keyword regexes. It asserts every canonical form is still parseable, because a
+  correction that rewrites a word INTO something unparseable makes messages worse rather
+  than failing loudly.
 - Adding a new mirrored pair? Add its parity test in the same commit, or the rule is a
   convention again.
 
