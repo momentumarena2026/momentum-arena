@@ -154,11 +154,24 @@ export function HomeScreen() {
   // the three never disagree about what the home screen offers. Same
   // 5-minute staleness: a venue turning it off mid-incident is rare, and
   // the API refuses regardless of what this cache says.
-  const { data: quickBook, isLoading: quickBookLoading } = useQuery({
+  const { data: quickBook } = useQuery({
     queryKey: ["quick-book-config"],
     queryFn: fetchQuickBookConfig,
     staleTime: 5 * 60 * 1000,
   });
+  // Fail OPEN, and only on a definite "off".
+  //
+  // The first version hid the card whenever the config had not loaded
+  // successfully — so a slow network, an offline launch or one failed
+  // request removed a working booking route entirely, and the feature
+  // vanished for reasons that had nothing to do with the venue's
+  // intention. Hiding the button is a courtesy; the API is the real
+  // gate, and it refuses on its own when the feature is off. The worst
+  // case of showing it wrongly is one tap and a clear message. The worst
+  // case of hiding it wrongly is silence.
+  const quickBookEnabled = quickBook?.enabled ?? true;
+  const showNewBadge = quickBook?.newBadge ?? true;
+  const showBetaBadge = quickBook?.betaBadge ?? true;
   const tournamentsEnabled = !!tournamentHub?.enabled;
   const campsEnabled = !!campsHub?.enabled;
   // The module switches decide whether the SECOND CTA row exists at all.
@@ -332,7 +345,7 @@ export function HomeScreen() {
                 off, and while we do not yet know — showing the entry and
                 then pulling it away is worse than a beat of nothing, and
                 the API refuses either way. */}
-            {!quickBookLoading && quickBook?.enabled ? (
+            {quickBookEnabled ? (
             <Pressable
               // In-stack, not across to the Sports tab. A cross-tab
               // navigate() puts BookStack's root (the sport picker)
@@ -349,7 +362,7 @@ export function HomeScreen() {
                   <Text variant="bodyStrong" color={colors.foreground}>
                     Quick book
                   </Text>
-                  {quickBook?.newBadge ? (
+                  {showNewBadge ? (
                     <View style={styles.newPill}>
                       <Text variant="tiny" weight="700" color="#032016">
                         NEW
@@ -362,7 +375,7 @@ export function HomeScreen() {
                       be checked before paying. Outlined rather than solid
                       so it reads as a caution beside the invitation
                       instead of competing with it. */}
-                  {quickBook?.betaBadge ? (
+                  {showBetaBadge ? (
                     <View style={styles.betaPill}>
                       <Text variant="tiny" weight="700" color={colors.yellow400}>
                         BETA
