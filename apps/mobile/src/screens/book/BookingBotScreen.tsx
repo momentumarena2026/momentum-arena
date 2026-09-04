@@ -436,6 +436,16 @@ export function BookingBotScreen() {
             <Send size={18} color="#04140e" />
           </Pressable>
         </View>
+
+        {/* Under the input, not above the first message: it needs to be
+            in view at the moment somebody is about to trust an answer,
+            and the top of a chat scrolls away after two turns. Says what
+            to DO about it — check the card — because a warning with no
+            action attached is just a disclaimer. */}
+        <Text style={styles.disclaimer}>
+          Quick book is in beta and can get things wrong. Check the day, time
+          and court on the card before you pay.
+        </Text>
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -559,13 +569,23 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
 
+  disclaimer: {
+    color: colors.zinc600,
+    fontSize: 11,
+    lineHeight: 15,
+    textAlign: "center",
+    paddingHorizontal: spacing["6"],
+    paddingBottom: 12,
+  },
   composer: {
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
     paddingHorizontal: spacing["4"],
     paddingTop: 10,
-    paddingBottom: 14,
+    // Reduced from 14: the disclaimer now sits underneath and provides
+    // the breathing room the composer used to need on its own.
+    paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.background,

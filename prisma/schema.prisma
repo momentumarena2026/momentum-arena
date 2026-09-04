@@ -1856,6 +1856,20 @@ model ArenaSettings {
   /// and the footer download section. Off by default — the prompts only
   /// make sense once the store listings are live and worth pointing at.
   downloadAppBannerEnabled Boolean  @default(false)
+  /// Master switch for Quick book (the conversational booking screen).
+  /// OFF hides its home-screen entry and makes its API refuse, so the
+  /// feature can be pulled in seconds without a store release or an OTA
+  /// — which matters more than usual here, because a comprehension layer
+  /// can start reading messages wrong for reasons outside this codebase
+  /// (a provider outage, a model retirement, a prompt regression).
+  quickBookEnabled         Boolean  @default(true)
+  /// The two badges on the home-screen entry, separately switchable.
+  /// NEW invites a tap and should be retired once the feature stops
+  /// being new; BETA warns that a reply is a READING of a sentence and
+  /// should be checked before paying, and should stay until that stops
+  /// being true. They retire on different days, so they are two flags.
+  quickBookNewBadge        Boolean  @default(true)
+  quickBookBetaBadge       Boolean  @default(true)
   updatedAt                DateTime @updatedAt
 }
 

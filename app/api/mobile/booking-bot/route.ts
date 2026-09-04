@@ -17,6 +17,7 @@ import {
   type CourtDay,
 } from "@/lib/booking-bot/suggest";
 import { istDateKey, toIst } from "@/lib/ist";
+import { getQuickBookSettings } from "@/lib/booking-bot/settings";
 import { readWithLlm } from "@/lib/booking-bot/llm";
 import { validateLlmReading, usefulTerms } from "@/lib/booking-bot/validate";
 import {
@@ -24,6 +25,7 @@ import {
   cachedReading,
   logMessage,
   rememberTerms,
+  approvedTerms,
 } from "@/lib/booking-bot/learn";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +125,18 @@ export async function POST(request: NextRequest) {
   // Signed-in only: the proposal quotes a price, and price depends on the
   // customer (passes, coupons, reward points are applied at hold time).
   // Quoting anonymously would show a number the checkout then contradicts.
+  // The master switch, checked before anything else. An app that still
+  // has the entry point cached must not be able to reach a feature the
+  // venue has turned off — hiding the button is a courtesy, this is the
+  // actual gate.
+  const settings = await getQuickBookSettings();
+  if (!settings.enabled) {
+    return NextResponse.json(
+      { error: "Quick book is unavailable right now — please use Book a Court." },
+      { status: 503 },
+    );
+  }
+
   const userId = await getAuthUserId(request).catch(() => null);
   if (!userId) {
     return NextResponse.json({ error: "Sign in to use the booking assistant" }, { status: 401 });
@@ -146,7 +160,14 @@ export async function POST(request: NextRequest) {
   // time, and answering "7-8 pm" then asks for a sport, because each
   // message is parsed in isolation. The client hands back the last
   // incomplete reading; the server stays stateless.
-  const ruleParsed = mergeParsed(body.context ?? null, parseBookingText(text, now));
+  // Vocabulary the venue has approved out of the model's own answers.
+  // Every word here is one the rules now resolve for free — this read is
+  // cached in-process for a minute, so it costs nothing on the hot path.
+  const learned = await approvedTerms();
+  const ruleParsed = mergeParsed(
+    body.context ?? null,
+    parseBookingText(text, now, learned),
+  );
 
   // ── Rules first, model only on what rules could not settle ────────
   //

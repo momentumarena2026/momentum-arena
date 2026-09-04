@@ -399,7 +399,18 @@ function parseTime(text: string): TimeParse {
  * `now` is injected rather than read from the clock so "tomorrow" is
  * testable and so the caller decides the reference instant.
  */
-export function parseBookingText(text: string, now: Date = new Date()): ParsedBooking {
+export function parseBookingText(
+  text: string,
+  now: Date = new Date(),
+  /**
+   * Vocabulary LEARNED from the comprehension layer and approved by a
+   * human (BookingBotTerm). This is the whole point of the learning
+   * loop: once a word is here the rules resolve it with no model call,
+   * for free, forever. Passed in rather than fetched so this file stays
+   * pure and testable — the caller owns the database.
+   */
+  extraVocab: VocabEntry[] = [],
+): ParsedBooking {
   const raw = (text ?? "").trim();
 
   // Spell-correct FIRST, against a sixty-word closed vocabulary. The
@@ -407,7 +418,7 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
   // every word this parser matches on comes from a short fixed list, so
   // an exact-match requirement was doing all the damage. Corrections are
   // carried out of here and said out loud rather than applied quietly.
-  const checked = spellcheck(raw, VOCABULARY);
+  const checked = spellcheck(raw, extraVocab.length ? [...VOCABULARY, ...extraVocab] : VOCABULARY);
   const clean = checked.text;
 
   const sport = parseSport(clean);
@@ -541,6 +552,29 @@ export function mergeParsed(
     // THIS message no longer matters.
     unresolvedDay: date == null ? fresh.unresolvedDay : false,
   };
+}
+
+/**
+ * Would approving this term actually change anything?
+ *
+ * A learned term rewrites a word INTO its canonical form, so it only
+ * helps if the parser understands the canonical. "criket" → "cricket"
+ * pays off immediately; "shaam" → "evening" does not, because nothing
+ * here resolves "evening" to an hour — the rules would still have to
+ * ask, and the model would still be called.
+ *
+ * Surfaced in the admin review screen so a reviewer approves terms that
+ * do something rather than terms that merely look correct.
+ */
+export function isParseableTerm(canonical: string): boolean {
+  const word = canonical.toLowerCase().trim();
+  if (!word) return false;
+  // Size words are only meaningful with their noun, and month names need
+  // a day — the same shapes the parity test allows for.
+  const phrase = word === "half" || word === "full" ? `${word} court` : word;
+  const probe = MONTHS[phrase] != null ? `12 ${phrase}` : phrase;
+  const p = parseBookingText(`${probe} 7 pm`, new Date());
+  return p.sport != null || p.courtSize != null || !p.assumedToday;
 }
 
 /**

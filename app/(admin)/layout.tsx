@@ -46,6 +46,9 @@ const allNavItems = [
   { href: "/admin/release-flow", label: "Release Flow", group: "Mobile Apps", permission: "MANAGE_APP_RELEASES" },
   { href: "/admin/ota", label: "App Updates (OTA)", group: "Mobile Apps", permission: "MANAGE_APP_RELEASES" },
   { href: "/admin/push", label: "Push Notifications", group: "Mobile Apps", permission: "MANAGE_PUSH" },
+  // Quick book's learning loop. Grouped with Mobile Apps because that is
+  // the only surface the feature exists on today.
+  { href: "/admin/booking-bot", label: "Quick Book (learned words)", group: "Mobile Apps", permission: "MANAGE_BOOKING_BOT" },
   { href: "/admin/push/templates", label: "Auto Push Messages", group: "Mobile Apps", permission: "MANAGE_PUSH" },
   { href: "/admin/employees", label: "Employees", group: "HR / Legal", permission: "MANAGE_HR" },
   { href: "/admin/nda", label: "NDA Generator", group: "HR / Legal", permission: "MANAGE_HR" },

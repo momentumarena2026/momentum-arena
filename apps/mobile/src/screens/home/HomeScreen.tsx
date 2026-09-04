@@ -26,6 +26,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import { fetchTournamentHub } from "../../lib/tournaments";
 import { fetchCampsHub } from "../../lib/camps";
+import { fetchQuickBookConfig } from "../../lib/quick-book";
 import { Bell, Camera, ChevronRight, Clock, Mail, MapPin, MessageCircle, Phone as PhoneIcon, Sparkles, Video } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -147,6 +148,15 @@ export function HomeScreen() {
   const { data: campsHub, isLoading: campsLoading } = useQuery({
     queryKey: ["camps-hub"],
     queryFn: fetchCampsHub,
+    staleTime: 5 * 60 * 1000,
+  });
+  // Quick book's own switch, fetched like the other module switches so
+  // the three never disagree about what the home screen offers. Same
+  // 5-minute staleness: a venue turning it off mid-incident is rare, and
+  // the API refuses regardless of what this cache says.
+  const { data: quickBook, isLoading: quickBookLoading } = useQuery({
+    queryKey: ["quick-book-config"],
+    queryFn: fetchQuickBookConfig,
     staleTime: 5 * 60 * 1000,
   });
   const tournamentsEnabled = !!tournamentHub?.enabled;
@@ -318,6 +328,11 @@ export function HomeScreen() {
                 badge is deliberately temporary — see the note on the
                 style — and the tile grid below is untouched, so the
                 familiar path stays exactly where regulars expect it. */}
+            {/* Hidden entirely when the venue has switched Quick book
+                off, and while we do not yet know — showing the entry and
+                then pulling it away is worse than a beat of nothing, and
+                the API refuses either way. */}
+            {!quickBookLoading && quickBook?.enabled ? (
             <Pressable
               // In-stack, not across to the Sports tab. A cross-tab
               // navigate() puts BookStack's root (the sport picker)
@@ -334,11 +349,26 @@ export function HomeScreen() {
                   <Text variant="bodyStrong" color={colors.foreground}>
                     Quick book
                   </Text>
-                  <View style={styles.newPill}>
-                    <Text variant="tiny" weight="700" color="#032016">
-                      NEW
-                    </Text>
-                  </View>
+                  {quickBook?.newBadge ? (
+                    <View style={styles.newPill}>
+                      <Text variant="tiny" weight="700" color="#032016">
+                        NEW
+                      </Text>
+                    </View>
+                  ) : null}
+                  {/* BETA earns its place next to NEW because the two say
+                      different things. NEW invites a tap; BETA warns that
+                      what comes back is a reading of a sentence and should
+                      be checked before paying. Outlined rather than solid
+                      so it reads as a caution beside the invitation
+                      instead of competing with it. */}
+                  {quickBook?.betaBadge ? (
+                    <View style={styles.betaPill}>
+                      <Text variant="tiny" weight="700" color={colors.yellow400}>
+                        BETA
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 <Text variant="tiny" color={colors.zinc400}>
                   Just type “football tomorrow 7 to 8 pm”
@@ -346,6 +376,7 @@ export function HomeScreen() {
               </View>
               <ChevronRight size={18} color={colors.zinc500} />
             </Pressable>
+            ) : null}
 
             <View style={styles.heroRow}>
               <Pressable
@@ -1147,6 +1178,15 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 7,
     paddingVertical: 1,
+  },
+  // Outlined, not filled: a second solid badge would read as a second
+  // call to action. This one is a caution.
+  betaPill: {
+    borderWidth: 1,
+    borderColor: colors.yellow400,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 0,
   },
   scroll: {
     paddingBottom: spacing["12"],

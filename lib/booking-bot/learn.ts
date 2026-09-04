@@ -26,6 +26,7 @@
  */
 
 import { db } from "@/lib/db";
+import type { VocabEntry } from "@/lib/booking-bot/fuzzy";
 
 /**
  * Cache key for a message.
@@ -147,10 +148,10 @@ export async function rememberTerms(
  * minute costs nothing; a query per message costs a round trip on the
  * path we are trying to keep free.
  */
-let cache: { at: number; terms: { term: string; canonical: string }[] } | null = null;
+let cache: { at: number; terms: VocabEntry[] } | null = null;
 const TTL_MS = 60_000;
 
-export async function approvedTerms(): Promise<{ term: string; canonical: string }[]> {
+export async function approvedTerms(): Promise<VocabEntry[]> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.terms;
   try {
     const rows = await db.bookingBotTerm.findMany({
@@ -158,8 +159,15 @@ export async function approvedTerms(): Promise<{ term: string; canonical: string
       select: { term: true, canonical: true },
       take: 500,
     });
-    cache = { at: Date.now(), terms: rows };
-    return rows;
+    // Mapped rather than passed through: VocabEntry is the parser's
+    // shape, and letting a Prisma row satisfy it by accident would break
+    // silently the day either side gains a field.
+    const terms: VocabEntry[] = rows.map((r) => ({
+      word: r.term,
+      canonical: r.canonical,
+    }));
+    cache = { at: Date.now(), terms };
+    return terms;
   } catch {
     return cache?.terms ?? [];
   }
