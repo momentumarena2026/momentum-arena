@@ -151,6 +151,25 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // ── A named day that didn't resolve ───────────────────────────────
+  //
+  // "Book cricket next San 1-2" proposed today at ₹1,600 with a mild
+  // "assuming today" note. "San" is three letters, so it was below the
+  // correction floor and passed through unremarked, and "assuming today"
+  // reads as harmless when in fact the customer had named a day. Assume
+  // today only when NOTHING was said about a day.
+  if (parsed.unresolvedDay) {
+    const lost = parsed.unknown[0];
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: ["date"],
+      message: lost
+        ? `I didn't understand "${lost}" — which day did you mean?`
+        : "Which day did you mean?",
+      parsed,
+    });
+  }
+
   if (parsed.missing.length > 0) {
     const wanted = parsed.missing.map((m) => MISSING_COPY[m]).join(" and ");
     // Name the word that defeated it. "Tell me which sport" is a useless
@@ -298,7 +317,12 @@ export async function POST(request: NextRequest) {
       kind: "proposal",
       parsed,
       message: `${hit.court.courtLabel} is free.`,
-      note: notes.length ? `${notes.join(", ")} — tap Change if not.` : null,
+      // NOT "tap Change if not": there is no Change control on the card,
+      // and pointing at a button that doesn't exist is worse than saying
+      // nothing — it reads as though the assumption has been handled.
+      // Retyping is the actual correction path, and the conversation
+      // carries context, so "cricket" + "thursday" is enough.
+      note: notes.length ? `${notes.join(", ")} — just say the day or time to change it.` : null,
       proposal: {
         sport,
         courtConfigId: hit.court.courtConfigId,

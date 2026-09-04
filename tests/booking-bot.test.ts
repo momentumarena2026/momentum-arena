@@ -668,3 +668,42 @@ test("a slash between bare numbers is still a date, not a time", () => {
   assert.equal(p.startHour, 19);
   assert.equal(p.endHour, 20);
 });
+
+/**
+ * "Book cricket next San 1-2" came back as a confident proposal for
+ * TODAY at 1 PM. Three failures stacked: "San" was below the correction
+ * floor so it vanished without a word, no date resolved, and the parser
+ * fell back to today with only a mild "assuming today" note — one tap
+ * from a booking on the wrong day.
+ */
+test("a named day that didn't resolve is asked about, not assumed away", () => {
+  const p = parseBookingText("book cricket next San 1-2", NOW);
+  assert.equal(p.unresolvedDay, true, '"next" means a day was named');
+  assert.deepEqual(p.unknown, ["San"], "the word that defeated it is reported");
+});
+
+test("saying nothing about a day still defaults to today", () => {
+  // The distinction that makes the rule safe: today is a fair assumption
+  // when no day was mentioned at all, and only then.
+  const p = parseBookingText("book cricket 7 to 8 pm", NOW);
+  assert.equal(p.unresolvedDay, false);
+  assert.equal(p.assumedToday, true);
+  assert.equal(p.date, "2026-09-04");
+});
+
+test("a day that DID resolve is never treated as unresolved", () => {
+  for (const line of ["cricket next friday 7 pm", "cricket next week friday 7 pm"]) {
+    const p = parseBookingText(line, NOW);
+    assert.equal(p.unresolvedDay, false, line);
+    assert.equal(p.date, "2026-09-11", line);
+  }
+});
+
+test("an answer from an earlier turn settles an unresolved day", () => {
+  const first = parseBookingText("book cricket next San 1-2", NOW);
+  assert.equal(first.unresolvedDay, true);
+  const merged = mergeParsed(first, parseBookingText("sunday", NOW));
+  assert.equal(merged.unresolvedDay, false, "the question has been answered");
+  assert.equal(merged.date, "2026-09-06");
+  assert.equal(merged.startHour, 13, "the time survives the correction");
+});

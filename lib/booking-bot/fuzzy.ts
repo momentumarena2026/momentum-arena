@@ -184,11 +184,20 @@ export function spellcheck(text: string, vocabulary: VocabEntry[]): SpellcheckRe
   const fixed = text.replace(/[a-z]+/gi, (token) => {
     const lower = token.toLowerCase();
     if (vocab.has(lower) || FILLER.has(lower)) return token;
-    // Below FOUR letters there is not enough signal to correct safely.
+    // Below FOUR letters there is not enough signal to CORRECT safely.
     // Three-letter words are one edit from half the vocabulary — "day"
-    // reaches "may", "sat" reaches "sat"/"sep" — and the words that
-    // short in these messages are almost always structural anyway.
-    if (lower.length < 4) return token;
+    // reaches "may", "not" reaches "nov" — and rewriting those does more
+    // damage than leaving them alone.
+    //
+    // But not correcting is different from not noticing. "Book cricket
+    // next San 1-2" proposed TODAY: "San" was three letters, so it was
+    // skipped without a word, and the bot went on to say "assuming
+    // today" as though no day had been named at all. Short unreadable
+    // words are reported even though they are never rewritten.
+    if (lower.length < 4) {
+      if (lower.length === 3) unknown.push(token);
+      return token;
+    }
 
     const matches = closestMatches(lower, vocabulary);
     if (matches.length === 1) {

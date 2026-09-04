@@ -81,6 +81,17 @@ export type ParsedBooking = {
    * "turhsday" is equidistant from Thursday and Tuesday.
    */
   ambiguous: Ambiguity[];
+  /**
+   * The customer signalled a day ("next ...", "coming ...") but nothing
+   * in the message resolved to one.
+   *
+   * Distinct from a plain missing date. Saying nothing about a day means
+   * today is a fair assumption; naming a day the parser could not read
+   * means the assumption is a guess stacked on a failure. "Book cricket
+   * next San 1-2" came back as a confident proposal for today, with only
+   * a mild "assuming today" note — one tap from the wrong booking.
+   */
+  unresolvedDay: boolean;
 };
 
 const SPORT_WORDS: [RegExp, Sport][] = [
@@ -424,6 +435,11 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
   const resolvedDate = date ?? (time ? istDateKey(now) : null);
   const assumedToday = !date && !!time;
 
+  // "next"/"coming" are the words people use when they are about to name
+  // a day. If one is present and no date came out, the day they named is
+  // the thing that failed — ask, rather than quietly defaulting to today.
+  const unresolvedDay = !date && /\b(next|coming|upcoming)\b/i.test(clean);
+
   const missing: ParsedBooking["missing"] = [];
   if (!sport) missing.push("sport");
   if (!resolvedDate) missing.push("date");
@@ -444,8 +460,12 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
     // Only worth reporting when something is actually missing. A message
     // the parser fully understood does not need "I didn't know what
     // 'lets' meant" appended to it.
-    unknown: missing.length > 0 ? checked.unknown : [],
+    // Reported when something is missing, and also when a named day went
+    // unread — that is exactly when the customer needs to know which word
+    // defeated the parser.
+    unknown: missing.length > 0 || unresolvedDay ? checked.unknown : [],
     ambiguous: checked.ambiguous,
+    unresolvedDay,
   };
 }
 
@@ -508,8 +528,11 @@ export function mergeParsed(
     // Corrections describe the message just typed, like the other flags —
     // re-announcing a correction from three turns ago would be noise.
     corrections: fresh.corrections,
-    unknown: missing.length > 0 ? fresh.unknown : [],
+    unknown: missing.length > 0 || fresh.unresolvedDay ? fresh.unknown : [],
     ambiguous: fresh.ambiguous,
+    // A day carried from an earlier turn settles it — the unread word in
+    // THIS message no longer matters.
+    unresolvedDay: date == null ? fresh.unresolvedDay : false,
   };
 }
 
