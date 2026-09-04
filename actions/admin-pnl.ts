@@ -51,6 +51,24 @@ import {
  *    only in the funding/payback block, where it belongs. Putting it in
  *    the table would drown six months of margin under a one-off.
  *
+ * 3. spentType = "Refund" is excluded from expenses, because a cancellation
+ *    is a full REVERSAL and the two halves must cancel to zero.
+ *
+ *    A booking cancelled for rain has its revenue removed already — the
+ *    income query filters to CONFIRMED/COMPLETED/ABSENT, so a CANCELLED
+ *    booking contributes nothing. Counting the refund as an expense would
+ *    then charge the business for money it never booked as income:
+ *    ₹0 in, ₹500 out, a ₹500 "loss" on a transaction that netted zero.
+ *
+ *    Note the deliberate contrast with ABSENT. A no-show KEEPS the money,
+ *    so ABSENT stays in the earning statuses and its revenue is real. Only
+ *    a cancellation reverses, and only a reversal is netted here.
+ *
+ *    Owner's ruling, 2026-09-02. The refunds are still surfaced as a memo
+ *    row so this statement can be reconciled against /admin/running-expenses,
+ *    which counts them — otherwise the two totals differ with no
+ *    explanation on screen.
+ *
  * Bookings are bucketed by PLAY DATE (Booking.date) while passes,
  * tournaments and camps bucket by PAID time, because that is exactly what
  * getMonthlyEarningsForYear does. The reconciliation with the Sports tab
@@ -72,6 +90,13 @@ const CAFE_STATUSES_SQL = Prisma.join([
   "READY",
   "COMPLETED",
 ]);
+
+/**
+ * The spentType label that marks a customer refund. Lower-case; matched
+ * case-insensitively. Rename the ExpenseOption in admin and this must
+ * change with it, or refunds quietly re-enter operating expenses.
+ */
+const REFUND_SPENT_TYPE = "refund";
 
 /** IST is UTC+5:30; Postgres timestamps are UTC. */
 const IST_SHIFT = Prisma.sql`interval '330 minutes'`;
@@ -112,6 +137,7 @@ export async function getProfitAndLoss(
       campRows,
       cafeRows,
       expenseRows,
+      refundRows,
       contributions,
       capexAgg,
     ] = await Promise.all([
@@ -177,8 +203,13 @@ export async function getProfitAndLoss(
         WHERE co.status IN (${CAFE_STATUSES_SQL})
         GROUP BY key
       `),
-      // RUNNING only. Expense.date is a DATE — already the calendar day
-      // that was typed in, so no timezone shift applies.
+      // RUNNING only, refunds excluded — see trap 3 in the header. The
+      // label is matched case-insensitively because spentType is a free
+      // ExpenseOption string an admin can rename; if the option is ever
+      // renamed away from "Refund", refunds silently become expenses
+      // again, so REFUND_SPENT_TYPE is the single place to update.
+      // Expense.date is a DATE — already the calendar day that was typed
+      // in, so no timezone shift applies.
       db.$queryRaw<{ key: string; category: string; amount: bigint }[]>(
         Prisma.sql`
           SELECT to_char(e.date, 'YYYY-MM') AS key,
@@ -186,9 +217,19 @@ export async function getProfitAndLoss(
                  SUM(e.amount)::bigint AS amount
           FROM "Expense" e
           WHERE e.module = 'RUNNING'
+            AND lower(e."spentType") <> ${REFUND_SPENT_TYPE}
           GROUP BY key, category
         `,
       ),
+      // Refunds, kept apart: excluded from profit, shown as a memo row.
+      db.$queryRaw<Bucket[]>(Prisma.sql`
+        SELECT to_char(e.date, 'YYYY-MM') AS key,
+               SUM(e.amount)::bigint AS amount
+        FROM "Expense" e
+        WHERE e.module = 'RUNNING'
+          AND lower(e."spentType") = ${REFUND_SPENT_TYPE}
+        GROUP BY key
+      `),
       db.capitalContribution.findMany({ orderBy: [{ kind: "asc" }, { name: "asc" }] }),
       db.expense.aggregate({
         where: { module: "GENERAL" },
@@ -258,6 +299,7 @@ export async function getProfitAndLoss(
       opmPct: null,
       interest: 0,
       netProfit: 0,
+      refunds: 0,
       expensesUntracked: false,
     });
 
@@ -277,6 +319,8 @@ export async function getProfitAndLoss(
     addStream(tournamentRows, "tournaments");
     addStream(campRows, "camps");
     addStream(cafeRows, "cafe");
+    // Memo only — never added to totalExpenses or the profit lines.
+    addStream(refundRows, "refunds");
 
     const categoryTotals = new Map<string, number>();
     for (const r of expenseRows) {

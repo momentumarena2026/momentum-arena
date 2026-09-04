@@ -139,6 +139,21 @@ export type PnlColumn = {
   interest: number;
   netProfit: number;
   /**
+   * Customer refunds paid out in the period. A MEMO figure — deliberately
+   * NOT part of totalExpenses, operatingProfit or netProfit.
+   *
+   * A cancellation is a full reversal: the booking drops out of income
+   * (the query filters to CONFIRMED/COMPLETED/ABSENT), so charging the
+   * refund as an expense would bill the business for money it never
+   * booked — ₹0 in, ₹500 out, a ₹500 "loss" on a transaction that netted
+   * zero. Owner's ruling, 2026-09-02.
+   *
+   * It is still shown, because /admin/running-expenses counts refunds in
+   * its total. Without this row the two screens disagree by exactly this
+   * amount and nothing on either says why.
+   */
+  refunds: number;
+  /**
    * Income in this period, no RUNNING expense recorded, AND the period
    * falls on or after operating-expense tracking began.
    *
