@@ -16,6 +16,7 @@ import {
   mergeParsed,
   formatHourRange,
   fillGaps,
+  mentionsBowlingMachine,
   VOCABULARY,
 } from "../lib/booking-bot/parse";
 import { spellcheck, editDistance } from "../lib/booking-bot/fuzzy";
@@ -781,4 +782,137 @@ test("a half window from the model is refused, not spliced in", () => {
   const out = fillGaps(rules, { ...rules, startHour: 19, endHour: null });
   assert.equal(out.startHour, null, "half a window invents the other half");
   assert.ok(out.missing.includes("time"));
+});
+
+// ── time of day ────────────────────────────────────────────────────
+
+/**
+ * "boling machine kal subja 7 se 8" was proposed as 7 PM. The parser had
+ * no concept of time-of-day at all, and "morning"/"evening" were on the
+ * do-not-correct list — so they were neither parsed NOR reported as
+ * unrecognised. The message resolved fully, escalated to nobody, and
+ * came back twelve hours from what was asked for.
+ */
+test("a stated part of day beats the PM default", () => {
+  const morning = parseBookingText("cricket tomorrow morning 7 to 8", NOW);
+  assert.equal(morning.startHour, 7);
+  assert.equal(morning.endHour, 8);
+  assert.equal(morning.assumedPm, false, "they said which half of the day");
+
+  for (const word of ["subah", "subja", "savere"]) {
+    const p = parseBookingText(`cricket kal ${word} 7 se 8`, NOW);
+    assert.equal(p.startHour, 7, word);
+    assert.equal(p.assumedPm, false, word);
+  }
+});
+
+test("evening and night still resolve to the evening", () => {
+  for (const [word, hour] of [["evening", 19], ["shaam", 19], ["raat", 19]] as const) {
+    const p = parseBookingText(`cricket tomorrow ${word} 7 to 8`, NOW);
+    assert.equal(p.startHour, hour, word);
+    assert.equal(p.assumedPm, false, word);
+  }
+});
+
+test("an explicit am/pm still beats a part of day", () => {
+  // "morning ... 7 to 8 pm" is contradictory; the explicit meridiem is
+  // the customer being unambiguous and must win.
+  const p = parseBookingText("cricket tomorrow morning 7 to 8 pm", NOW);
+  assert.equal(p.startHour, 19);
+});
+
+test("a part of day the rules resolved is not also reported as unknown", () => {
+  // Otherwise every "tomorrow evening" message spends a model call on a
+  // word the rules just handled.
+  const p = parseBookingText("cricket tomorrow evening 7 to 8", NOW);
+  assert.deepEqual(p.unknown, []);
+});
+
+// ── the late window ────────────────────────────────────────────────
+
+test("11 to 12 is the last sellable hour, not a typo", () => {
+  // Every spelling of it returned null: resolveMeridiem makes a pm-12
+  // into 12:00, and the backwards-window guard then ate it. The venue
+  // closes at 01:00 and was silently refusing to sell 11 PM to midnight.
+  for (const w of ["11 to 12", "11 to 12 pm", "11pm to 12", "11-12 pm"]) {
+    const p = parseBookingText(`cricket tomorrow ${w}`, NOW);
+    assert.equal(p.startHour, 23, w);
+    assert.equal(p.endHour, 24, w);
+  }
+});
+
+// ── vague days ─────────────────────────────────────────────────────
+
+test("a day promised but not named is asked about, not defaulted to today", () => {
+  for (const w of ["day after", "this weekend", "next week"]) {
+    const p = parseBookingText(`cricket ${w} 7 to 8`, NOW);
+    assert.equal(p.unresolvedDay, true, w);
+  }
+});
+
+// ── negation / a turn that says nothing ────────────────────────────
+
+/**
+ * "nahi bowling machine" parsed to all-nulls, inherited the previous
+ * proposal wholesale, and came back as the identical offer the customer
+ * had just refused. The bot could not tell a rejection from silence.
+ */
+test("a turn that changes nothing is flagged as such", () => {
+  const first = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+  const merged = mergeParsed(first, parseBookingText("nahi bowling machine", NOW));
+  assert.equal(merged.contributed, false, "nothing new was said");
+  assert.deepEqual(merged.missing, [], "but the old reading is still complete");
+  assert.ok(merged.unknown.length > 0, "and the words are reported");
+});
+
+test("plain-English rejections are content, not filler", () => {
+  // These were all on the stop-list and so were invisible: a message of
+  // pure negation did not even reach the comprehension layer.
+  for (const w of ["no", "wrong", "change it", "actually no", "not this"]) {
+    const first = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+    const merged = mergeParsed(first, parseBookingText(w, NOW));
+    assert.equal(merged.contributed, false, w);
+    assert.ok(merged.unknown.length > 0, `${w} must be visible to the router`);
+  }
+});
+
+test("a turn that DOES say something is not flagged as empty", () => {
+  const first = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+  for (const w of ["friday", "9 to 10 pm", "football", "half court"]) {
+    const merged = mergeParsed(first, parseBookingText(w, NOW));
+    assert.equal(merged.contributed, true, w);
+  }
+});
+
+// ── the bowling machine ────────────────────────────────────────────
+
+test("the bowling machine is recognised so the bot can redirect", () => {
+  for (const t of [
+    "boling machine kal subja 7 se 8",
+    "bowling machine tomorrow",
+    "nahi bowling machine",
+    "cricket bowling machine",
+  ]) {
+    assert.equal(mentionsBowlingMachine(t), true, t);
+  }
+});
+
+test("an ordinary cricket message is not mistaken for the machine", () => {
+  for (const t of ["cricket tomorrow 7 pm", "football bowling", "book a cricket court"]) {
+    assert.equal(mentionsBowlingMachine(t), false, t);
+  }
+});
+
+// ── the model may correct an assumed PM ────────────────────────────
+
+test("an ASSUMED pm yields to the model; an explicit one does not", () => {
+  const assumed = parseBookingText("cricket tomorrow 7 to 8", NOW);
+  assert.equal(assumed.assumedPm, true, "precondition");
+  const corrected = fillGaps(assumed, { ...assumed, startHour: 7, endHour: 8, assumedPm: false });
+  assert.equal(corrected.startHour, 7, "the rules only guessed; the model read it");
+
+  const explicit = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+  assert.equal(explicit.assumedPm, false, "precondition");
+  const kept = fillGaps(explicit, { ...explicit, startHour: 7, endHour: 8 });
+  assert.equal(kept.startHour, 19, "they said pm — that is not a guess to overrule");
 });

@@ -200,7 +200,6 @@ export function orderCourtsByPreference<T extends { size: string; label: string 
 }
 
 /**
- * The first court that can take the whole window, or null./**
  * The first court that can take the whole window, or null.
  *
  * Used when the customer named a sport but not a court — which is almost

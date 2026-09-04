@@ -106,23 +106,32 @@ export function closestMatches(word: string, vocabulary: VocabEntry[]): string[]
 }
 
 /**
- * Words that must never be "corrected", in two groups.
+ * Two lists, because there are two different jobs here and one list did
+ * them badly.
  *
- * STRUCTURAL words are the dangerous ones. They are load-bearing inside
- * the parser's own multi-word phrases, and they sit close to vocabulary
- * words: "day" is ONE edit from "may". Without this list, "day after
- * tomorrow" was rewritten to "may after tomorrow", the
- * day-after-tomorrow branch stopped matching, and the bot quietly booked
- * tomorrow instead — a whole day wrong, from a spell-checker that was
- * supposed to help. The existing IST test caught it; the guard below is
- * what keeps it caught.
+ * NEVER_CORRECT stops a word being REWRITTEN. It exists because fuzzy
+ * matching harms correct input: "day" is one edit from "may", and an
+ * early version turned "day after tomorrow" into "may after tomorrow"
+ * and booked a day early.
  *
- * FILLER is the ordinary case: "book" sits 1 edit from "box", "for" is 2
- * from "four". Filler is the most common thing in these messages, so it
- * is also the most likely thing to be mangled into a false reading.
+ * NOT_CONTENT stops a word being treated as UNRECOGNISED — which is a
+ * separate question, because an unrecognised word is the route's signal
+ * to ask the comprehension layer for a second opinion.
+ *
+ * Collapsing the two was a real bug. Every word added to stop a bad
+ * correction also silently removed a reason to escalate, so "morning",
+ * "evening", "no", "instead" and "change" became invisible: a message
+ * containing them was neither parsed nor questioned. "cricket tomorrow
+ * morning 7 to 8" resolved to 7 PM and reached nobody, and a customer
+ * typing "no" at a proposal got the identical proposal back.
+ *
+ * The rule now: a word may be protected from correction and still count
+ * as content. Only genuine filler — the scaffolding of a sentence —
+ * belongs in NOT_CONTENT.
  */
-const FILLER = new Set([
-  // Structural — parts of phrases parse.ts matches on directly.
+const NEVER_CORRECT = new Set([
+  // Structural — parts of phrases parse.ts matches on directly, and all
+  // dangerously close to vocabulary words.
   "day", "days", "after", "before", "night", "week", "weekend",
   "morning", "evening", "afternoon", "noon", "late", "early",
   "book", "booking", "want", "need", "get", "give", "please", "pls", "plz",
@@ -132,13 +141,33 @@ const FILLER = new Set([
   "am", "pm", "hr", "hrs", "hour", "hours", "min", "mins", "minutes",
   "court", "ground", "pitch", "field", "turf", "slot", "slots", "game",
   "play", "playing", "match", "session", "from", "till", "until", "upto",
-  "chahiye", "karna", "karo", "hai", "ka", "ki", "ke",
-  // Chat noise. Not correcting these matters less than not ESCALATING on
-  // them — the route treats an unrecognised word as a reason to ask for a
-  // second opinion, and "yaar" is not a reason to spend a model call.
+  "chahiye", "karna", "karo", "kardo", "hai", "ka", "ki", "ke", "ko",
   "lets", "let", "yaar", "yar", "bhai", "bro", "dude", "sir", "maam",
   "thanks", "thank", "okay", "cool", "nice", "good", "sure", "yes", "no",
   "actually", "instead", "make", "change", "also", "just", "only", "still",
+  "nahi", "nahin", "mat", "wrong", "galat", "cancel", "different", "other",
+]);
+
+/**
+ * Scaffolding. Present in almost every message and carrying no booking
+ * meaning, so its absence from the parser's vocabulary says nothing.
+ *
+ * Deliberately much shorter than NEVER_CORRECT. Anything omitted here
+ * merely costs a model call it might not have needed; anything wrongly
+ * added here goes unnoticed forever, which is the expensive direction.
+ */
+const NOT_CONTENT = new Set([
+  "book", "booking", "want", "need", "get", "give", "please", "pls", "plz",
+  "the", "a", "an", "for", "at", "on", "in", "of", "and", "or", "to", "with",
+  "me", "my", "i", "we", "us", "our", "you", "can", "could", "would", "will",
+  "is", "are", "do", "does", "some", "one", "next", "this", "that",
+  "am", "pm", "hr", "hrs", "hour", "hours", "min", "mins", "minutes",
+  "court", "ground", "pitch", "field", "turf", "slot", "slots",
+  "play", "playing", "session", "from", "till", "until", "upto",
+  "chahiye", "karna", "karo", "kardo", "hai", "ka", "ki", "ke", "ko",
+  "lets", "let", "yaar", "yar", "bhai", "bro", "dude", "sir", "maam",
+  "thanks", "thank", "okay", "cool", "nice", "good", "sure",
+  "also", "just", "day", "days",
 ]);
 
 export type Correction = { from: string; to: string };
@@ -189,7 +218,14 @@ export function spellcheck(text: string, vocabulary: VocabEntry[]): SpellcheckRe
 
   const fixed = text.replace(/[a-z]+/gi, (token) => {
     const lower = token.toLowerCase();
-    if (vocab.has(lower) || FILLER.has(lower)) return token;
+    // Known already: nothing to correct, nothing to report.
+    if (vocab.has(lower)) return token;
+    // Protected from rewriting, but STILL content — a word like "no" or
+    // "morning" must reach `unknown` so the route knows to ask about it.
+    if (NEVER_CORRECT.has(lower)) {
+      if (!NOT_CONTENT.has(lower) && lower.length >= 2) unknown.push(token);
+      return token;
+    }
     // Below FOUR letters there is not enough signal to CORRECT safely.
     // Three-letter words are one edit from half the vocabulary — "day"
     // reaches "may", "not" reaches "nov" — and rewriting those does more
@@ -201,7 +237,7 @@ export function spellcheck(text: string, vocabulary: VocabEntry[]): SpellcheckRe
     // today" as though no day had been named at all. Short unreadable
     // words are reported even though they are never rewritten.
     if (lower.length < 4) {
-      if (lower.length === 3) unknown.push(token);
+      if (lower.length >= 3 && !NOT_CONTENT.has(lower)) unknown.push(token);
       return token;
     }
 
@@ -216,7 +252,7 @@ export function spellcheck(text: string, vocabulary: VocabEntry[]): SpellcheckRe
       ambiguous.push({ word: token, options: matches });
       return token;
     }
-    unknown.push(token);
+    if (!NOT_CONTENT.has(lower)) unknown.push(token);
     return token;
   });
 

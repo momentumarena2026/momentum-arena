@@ -57,6 +57,16 @@ type ParsedContext = {
   assumedPm: boolean;
   assumedToday: boolean;
   missing: string[];
+  // The server round-trips the whole reading; these survived only
+  // because it is passed through as raw JSON. Named here so a refactor
+  // that maps fields explicitly cannot silently drop a stated half-court
+  // preference (a real price difference) or the rules' own doubts.
+  courtSize?: "HALF" | "FULL" | null;
+  corrections?: { from: string; to: string }[];
+  unknown?: string[];
+  ambiguous?: { word: string; options: string[] }[];
+  unresolvedDay?: boolean;
+  contributed?: boolean;
 };
 
 type BotReply =
@@ -69,6 +79,7 @@ type BotReply =
        *  message (e.g. "Thursday or Tuesday?"). Beats QUICK below. */
       chips?: string[];
       logId?: string | null;
+      note?: string | null;
     }
   | {
       kind: "proposal";
@@ -88,6 +99,7 @@ type BotReply =
       requested: { date: string; timeLabel: string };
       suggestions: Suggestion[];
       logId?: string | null;
+      note?: string | null;
     };
 
 type Bubble =
@@ -262,7 +274,7 @@ export function BookingBotScreen() {
    * same way they would any other — the server already priced this exact
    * window, so no round trip is needed to restate it.
    */
-  const choose = useCallback((s: Suggestion) => {
+  const choose = useCallback((s: Suggestion, from?: { logId?: string | null; note?: string | null }) => {
     setBubbles((b) => [
       ...b,
       { id: nextId(), from: "me", text: `${dayLabel(s.date)}, ${s.timeLabel}` },
@@ -272,7 +284,19 @@ export function BookingBotScreen() {
         reply: {
           kind: "proposal",
           message: `${s.courtLabel} is free then.`,
-          note: null,
+          // Both inherited from the reply that offered this alternative.
+          //
+          // The note, because "taken → tap an alternative → Confirm &
+          // pay" is a path that ends in a payment, and it was the ONLY
+          // proposal card that never showed an assumption — the warning
+          // was suppressed exactly where it mattered.
+          //
+          // The logId, because without it a booking made this way is
+          // invisible to the learning loop. The cache only replays
+          // confirmed readings, so the loop was systematically blind to
+          // the messages the bot found hardest.
+          note: from?.note ?? null,
+          logId: from?.logId ?? null,
           proposal: s,
         },
       },
@@ -301,6 +325,10 @@ export function BookingBotScreen() {
             {/* Server chips win when present: a disambiguation question
                 has answers that no fixed list could hold. Otherwise fall
                 back to the canned ones per missing field. */}
+            {r.kind !== "proposal" && r.note ? (
+              <Text style={styles.note}>{r.note}</Text>
+            ) : null}
+
             {r.kind === "needs" &&
               (() => {
                 const labels =
@@ -360,7 +388,7 @@ export function BookingBotScreen() {
                     // with no confirm step, unlike the main flow. An
                     // independent tester flagged it as the riskiest thing
                     // on the screen and they were right.
-                    onPress={() => void choose(s)}
+                    onPress={() => void choose(s, { logId: r.logId, note: r.note })}
                     style={({ pressed }) => [styles.sug, pressed && { opacity: 0.8 }]}
                   >
                     <View style={styles.sugMain}>

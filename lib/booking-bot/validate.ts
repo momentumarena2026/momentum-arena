@@ -135,6 +135,10 @@ export function validateLlmReading(
       unknown: [],
       ambiguous: [],
       unresolvedDay: false,
+      // Overwritten by fillGaps from the rules' reading — whether a turn
+      // contributed is a fact about the customer's message, not about
+      // where the reading came from.
+      contributed: true,
     },
   };
 }

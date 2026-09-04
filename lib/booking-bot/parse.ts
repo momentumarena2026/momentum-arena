@@ -92,6 +92,18 @@ export type ParsedBooking = {
    * a mild "assuming today" note — one tap from the wrong booking.
    */
   unresolvedDay: boolean;
+  /**
+   * Did THIS message add or change anything?
+   *
+   * False means the parser could take nothing from what was typed, and
+   * the reading is entirely inherited from earlier turns. Without this
+   * the bot cannot tell a rejection from silence: "nahi bowling machine"
+   * parsed to all-nulls, inherited the previous proposal wholesale, and
+   * came back as the identical offer the customer had just refused.
+   *
+   * Always true for a first message — there is nothing to contribute to.
+   */
+  contributed: boolean;
 };
 
 const SPORT_WORDS: [RegExp, Sport][] = [
@@ -186,10 +198,52 @@ function pad(n: number): string {
  * The guess is always surfaced (`assumedPm`) rather than hidden, which is
  * what makes defaulting acceptable at all.
  */
+/**
+ * Which half of the day the customer named, if they named one.
+ *
+ * The parser had no concept of this at all, and it cost a real booking:
+ * "boling machine kal subja 7 se 8" — subah, morning — was proposed as
+ * 7 PM, because a bare hour defaults to PM and nothing looked at the
+ * word that said otherwise. Worse, "morning" and "evening" were on the
+ * do-not-correct list, so they were neither parsed NOR reported as
+ * unrecognised: the message resolved fully and was never questioned.
+ *
+ * A closed list of about a dozen words, in both languages the venue's
+ * customers actually use.
+ */
+type PartOfDay = "morning" | "afternoon" | "evening" | "night" | null;
+
+/** Every spelling the resolver below understands, for un-flagging. */
+const PART_OF_DAY_WORDS =
+  /^(morning|subah|subha|subja|savere|sawere|afternoon|dopahar|dopeher|evening|shaam|sham|shyam|night|raat|tonight)$/i;
+
+function parsePartOfDay(text: string): PartOfDay {
+  if (/\b(morning|subah|subha|subja|savere|sawere)\b/i.test(text)) return "morning";
+  if (/\b(afternoon|dopahar|dopeher)\b/i.test(text)) return "afternoon";
+  if (/\b(evening|shaam|sham|shyam)\b/i.test(text)) return "evening";
+  if (/\b(night|raat|raat\s*ko|tonight)\b/i.test(text)) return "night";
+  return null;
+}
+
 function resolveMeridiem(
   hour: number,
   meridiem: "am" | "pm" | null,
+  /**
+   * A stated part of day OVERRIDES the PM default — that is the whole
+   * point of reading it. An explicit "am"/"pm" still wins over both,
+   * because that is the customer being unambiguous.
+   */
+  partOfDay: PartOfDay = null,
 ): { hour: number; assumed: boolean } {
+  if (meridiem == null && partOfDay != null && hour >= 1 && hour <= 12) {
+    // Morning keeps 1-11 as-is and reads 12 as noon; the rest are PM
+    // shapes. Not an assumption: they said which half of the day.
+    if (partOfDay === "morning") return { hour: hour === 12 ? 12 : hour, assumed: false };
+    if (partOfDay === "afternoon") return { hour: hour === 12 ? 12 : hour + 12, assumed: false };
+    if (partOfDay === "evening" || partOfDay === "night") {
+      return { hour: hour === 12 ? 0 : hour + 12, assumed: false };
+    }
+  }
   if (meridiem === "am") return { hour: hour === 12 ? 0 : hour, assumed: false };
   if (meridiem === "pm") return { hour: hour === 12 ? 12 : hour + 12, assumed: false };
   if (hour >= 13) return { hour, assumed: false };
@@ -203,6 +257,31 @@ function parseCourtSize(text: string): "HALF" | "FULL" | null {
   if (/\b(half\s*(court|field|pitch)?|medium|aadha)\b/i.test(text)) return "HALF";
   if (/\b(full\s*(court|field|ground|pitch)|whole\s*(court|field)|poora)\b/i.test(text)) return "FULL";
   return null;
+}
+
+/**
+ * The bowling machine is a real thing the venue sells and the one thing
+ * this surface cannot book.
+ *
+ * It is a 30-minute product on a zone-blocking strip with its own screen,
+ * so the bot's court query deliberately filters it out. But filtering it
+ * out of the RESULTS is not the same as understanding the request: a
+ * customer asked for it twice and was twice offered a ₹2,000 cricket
+ * turf they had explicitly refused, because nothing here could even tell
+ * that the machine had been named.
+ *
+ * Recognising it lets the bot say where to go instead, which is the only
+ * useful answer.
+ */
+const BOWL_WORD = /\b(bowling|bowlin|boling|bolling|bowl)\b/i;
+const MACHINE_WORD = /\b(machine|machin|m\/c)\b/i;
+
+export function mentionsBowlingMachine(text: string): boolean {
+  // Named outright.
+  if (BOWL_WORD.test(text) && MACHINE_WORD.test(text)) return true;
+  // "bowling" on its own means the machine here — but only when no sport
+  // is named, so "football bowling" is not hijacked into a redirect.
+  return BOWL_WORD.test(text) && parseSport(text) == null;
 }
 
 function parseSport(text: string): Sport | null {
@@ -288,7 +367,7 @@ type TimeParse = {
   span: [number, number];
 } | null;
 
-function parseTime(text: string): TimeParse {
+function parseTime(text: string, partOfDay: PartOfDay = null): TimeParse {
   const t = text.toLowerCase();
 
   // 1. Explicit range: "7-8pm", "7 to 8 pm", "7pm to 8pm", "19:00-20:00"
@@ -319,18 +398,25 @@ function parseTime(text: string): TimeParse {
         t.slice(range.index! + range[0].length);
       // Indices are preserved by the blanking, so any span found in the
       // masked text still points at the original string.
-      return parseTime(masked);
+      return parseTime(masked, partOfDay);
     }
 
     const endMer = (range[7] as "am" | "pm" | undefined) ?? null;
     // "7 to 8pm" — the meridiem on the end applies to the start too.
     const startMer = (range[3] as "am" | "pm" | undefined) ?? endMer ?? null;
-    const s = resolveMeridiem(Number(range[1]), startMer);
-    const e = resolveMeridiem(Number(range[5]), endMer ?? startMer);
+    const s = resolveMeridiem(Number(range[1]), startMer, partOfDay);
+    const e = resolveMeridiem(Number(range[5]), endMer ?? startMer, partOfDay);
     let endHour = e.hour;
     // "11pm to 1am" wraps past midnight; the venue models that as 24/25.
     // But only when the END has its own am/pm, or neither side does — an
     // explicit "8 to 7 pm" is a typo, not a booking until 7am tomorrow.
+    // 12 after a late start is MIDNIGHT, not noon. Every spelling of the
+    // last sellable hour was unparseable — "11 to 12", "11 to 12 pm",
+    // "11pm to 12" all returned null, because resolveMeridiem makes a
+    // pm-12 into 12:00 and the backwards-typo guard below then ate it.
+    // The venue closes at 01:00 and 11 PM to midnight is a real hour it
+    // was silently refusing to sell.
+    if (e.hour === 12 && s.hour >= 13) endHour = 24;
     const bothPm = startMer != null && endMer != null && startMer === endMer;
     if (endHour <= s.hour) {
       if (bothPm) {
@@ -358,7 +444,7 @@ function parseTime(text: string): TimeParse {
   // 2. Single time + explicit duration: "7pm for 2 hours"
   const dur = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:for\s+)?(\d{1,2})\s*(?:hours?|hrs?|hr)\b/);
   if (dur) {
-    const s = resolveMeridiem(Number(dur[1]), (dur[3] as "am" | "pm" | undefined) ?? null);
+    const s = resolveMeridiem(Number(dur[1]), (dur[3] as "am" | "pm" | undefined) ?? null, partOfDay);
     const hours = Number(dur[4]);
     if (hours >= 1 && hours <= MAX_BOOKABLE_HOURS) {
       return {
@@ -381,7 +467,7 @@ function parseTime(text: string): TimeParse {
     ?? t.match(/\b(\d{1,2}):(\d{2})\b/)
     ?? t.match(/\b(?:at|from)\s+(\d{1,2})\b/);
   if (single) {
-    const s = resolveMeridiem(Number(single[1]), (single[3] as "am" | "pm" | undefined) ?? null);
+    const s = resolveMeridiem(Number(single[1]), (single[3] as "am" | "pm" | undefined) ?? null, partOfDay);
     return {
       startHour: s.hour,
       endHour: s.hour + 1,
@@ -434,7 +520,8 @@ export function parseBookingText(
   // Removing the matched span is the general fix rather than another
   // guess at which shapes are dates: whatever the time pattern claimed
   // cannot also be a date, whichever way it happens to be written.
-  const time = parseTime(clean);
+  const partOfDay = parsePartOfDay(clean);
+  const time = parseTime(clean, partOfDay);
   const forDate = time
     ? clean.slice(0, time.span[0]) + " ".repeat(time.span[1] - time.span[0]) + clean.slice(time.span[1])
     : clean;
@@ -449,7 +536,12 @@ export function parseBookingText(
   // "next"/"coming" are the words people use when they are about to name
   // a day. If one is present and no date came out, the day they named is
   // the thing that failed — ask, rather than quietly defaulting to today.
-  const unresolvedDay = !date && /\b(next|coming|upcoming)\b/i.test(clean);
+  // Words that promise a day without naming one. "next"/"coming" were
+  // already here; "weekend" and a bare "day after" are the same shape and
+  // were quietly resolving to TODAY — someone asking for "day after 7 to
+  // 8" means the day after tomorrow and was being offered this evening.
+  const unresolvedDay =
+    !date && /\b(next|coming|upcoming|weekend|weekday|day\s*after|iss\s*week)\b/i.test(clean);
 
   const missing: ParsedBooking["missing"] = [];
   if (!sport) missing.push("sport");
@@ -481,9 +573,17 @@ export function parseBookingText(
     // because nothing was missing, and so was never escalated — it came
     // back as a confident ₹1,600 proposal. Deciding what to SAY is the
     // route's job; this field just reports what happened.
-    unknown: checked.unknown,
+    // A part-of-day word we RESOLVED is understood, not unrecognised.
+    // Leaving it in would send "cricket tomorrow evening 7 to 8" to the
+    // comprehension layer every time for a word the rules just handled.
+    unknown: partOfDay
+      ? checked.unknown.filter((w) => !PART_OF_DAY_WORDS.test(w))
+      : checked.unknown,
     ambiguous: checked.ambiguous,
     unresolvedDay,
+    // A lone parse has nothing to contribute TO. mergeParsed decides
+    // this properly once there is a previous reading to compare against.
+    contributed: true,
   };
 }
 
@@ -531,6 +631,17 @@ export function mergeParsed(
   if (!date) missing.push("date");
   if (startHour == null || endHour == null) missing.push("time");
 
+  // Did the new message actually say anything? Every field it filled is
+  // one it introduced or changed; if it filled none, the reading above is
+  // purely inherited, and answering with it repeats ourselves at a
+  // customer who may have just told us we were wrong.
+  const contributed =
+    fresh.sport != null ||
+    freshDateIsReal ||
+    hasFreshTime ||
+    fresh.courtSize != null ||
+    fresh.ambiguous.length > 0;
+
   return {
     sport,
     date,
@@ -551,6 +662,7 @@ export function mergeParsed(
     // A day carried from an earlier turn settles it — the unread word in
     // THIS message no longer matters.
     unresolvedDay: date == null ? fresh.unresolvedDay : false,
+    contributed,
   };
 }
 
@@ -612,9 +724,19 @@ export function fillGaps(rules: ParsedBooking, model: ParsedBooking): ParsedBook
 
   // Time moves as a unit. Half from each source would invent a window
   // nobody asked for.
+  //
+  // `assumedPm` counts as the rules ADMITTING a guess, exactly like
+  // assumedToday, and an earlier version left it out of that set. That
+  // omission cost a real booking: "kal subja 7 se 8" (tomorrow morning)
+  // was read by the model as 07:00-08:00 and thrown away in favour of
+  // the rules' PM *default* of 19:00-20:00 — twelve hours from what was
+  // asked for, on a card that said "I've read that as PM" and was
+  // confirmed anyway. An explicit "7 to 8 am" is not an assumption and
+  // still wins.
   const rulesHasTime = rules.startHour != null && rules.endHour != null;
+  const rulesTimeIsFirm = rulesHasTime && !rules.assumedPm;
   const modelHasTime = model.startHour != null && model.endHour != null;
-  const useModelTime = !rulesHasTime && modelHasTime;
+  const useModelTime = !rulesTimeIsFirm && modelHasTime;
   const startHour = useModelTime ? model.startHour : rules.startHour;
   const endHour = useModelTime ? model.endHour : rules.endHour;
 
@@ -643,6 +765,9 @@ export function fillGaps(rules: ParsedBooking, model: ParsedBooking): ParsedBook
     // Answered only if the model actually produced the day that was
     // missing. Otherwise the question still stands.
     unresolvedDay: dateFromModel ? false : rules.unresolvedDay,
+    // A model reading is not the customer saying something new — whether
+    // this TURN contributed is a fact about the message, not the source.
+    contributed: rules.contributed,
   };
 }
 

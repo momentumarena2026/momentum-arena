@@ -122,6 +122,20 @@ function BadgeRow({
   );
 }
 
+/**
+ * A switch whose geometry is written in inline styles, not utility
+ * classes.
+ *
+ * The first version positioned the knob with an arbitrary Tailwind
+ * translate and the knob rendered half outside its track — an arbitrary
+ * value that does not survive to the stylesheet fails silently and
+ * leaves a control that looks broken on a page whose entire job is to
+ * be trusted during an incident. Track and knob sizes are stated here so
+ * the travel distance is arithmetic rather than a guess.
+ *
+ * The state is also written out in words. On an admin screen "is this
+ * on?" must be readable, not inferred from which side a dot is on.
+ */
 function Toggle({
   checked,
   disabled,
@@ -133,23 +147,45 @@ function Toggle({
   onChange: (v: boolean) => void;
   label: string;
 }) {
+  const TRACK_W = 48;
+  const TRACK_H = 28;
+  const KNOB = 20;
+  const PAD = 4;
+
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
-        checked ? "bg-emerald-500" : "bg-zinc-700"
-      }`}
-    >
+    <div className="flex shrink-0 items-center gap-2.5">
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-          checked ? "translate-x-[22px]" : "translate-x-0.5"
+        className={`w-7 text-right text-xs font-semibold uppercase tracking-wide ${
+          checked ? "text-emerald-400" : "text-zinc-500"
         }`}
-      />
-    </button>
+      >
+        {checked ? "On" : "Off"}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        style={{ width: TRACK_W, height: TRACK_H }}
+        className={`relative shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          checked
+            ? "border-emerald-400 bg-emerald-500"
+            : "border-zinc-600 bg-zinc-700"
+        }`}
+      >
+        <span
+          style={{
+            width: KNOB,
+            height: KNOB,
+            top: (TRACK_H - KNOB) / 2 - 1,
+            left: PAD - 1,
+            transform: `translateX(${checked ? TRACK_W - KNOB - PAD * 2 : 0}px)`,
+          }}
+          className="absolute rounded-full bg-white shadow transition-transform duration-150"
+        />
+      </button>
+    </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   mergeParsed,
   formatHourRange,
   fillGaps,
+  mentionsBowlingMachine,
   VOCABULARY,
   type ParsedBooking,
 } from "@/lib/booking-bot/parse";
@@ -64,6 +65,9 @@ type Ok =
       /** BookingBotLog row, echoed back so a confirmed booking can be
        *  attributed to the reading that produced it. */
       logId?: string | null;
+      /** Assumptions made on THIS turn. Present on every reply shape, not
+       *  just proposals — see buildNote. */
+      note?: string | null;
     }
   | {
       kind: "proposal";
@@ -93,6 +97,7 @@ type Ok =
       /** Carried forward so the next turn keeps the sport and date. */
       parsed: unknown;
       logId?: string | null;
+      note?: string | null;
       requested: { date: string; timeLabel: string };
       suggestions: {
         courtConfigId: string;
@@ -113,6 +118,47 @@ const BOOKING_HORIZON_DAYS = 30;
 
 function titleCase(w: string): string {
   return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
+/**
+ * Everything the parser guessed on this turn, in one line, or null.
+ *
+ * Attached to EVERY reply shape. It used to be built inline in the
+ * proposal branch only, which meant a customer who went
+ * "that's taken" → tap a suggested alternative → Confirm & pay never saw
+ * a single assumption — the warning was suppressed on the one path that
+ * ends in a payment, which is precisely the path it exists for.
+ */
+/** "Cricket, Sun 6 Sep, 7:00 PM - 8:00 PM" — what we are still holding. */
+function describeHeld(p: {
+  sport: unknown;
+  date: string | null;
+  startHour: number | null;
+  endHour: number | null;
+}): string {
+  const bits: string[] = [];
+  if (p.sport) bits.push(titleCase(String(p.sport).toLowerCase()));
+  if (p.date) bits.push(p.date);
+  if (p.startHour != null && p.endHour != null) {
+    bits.push(formatHourRange(p.startHour, p.endHour));
+  }
+  return bits.join(", ") || "nothing yet";
+}
+
+function buildNote(p: {
+  corrections: { from: string; to: string }[];
+  assumedPm: boolean;
+  assumedToday: boolean;
+}): string | null {
+  const notes: string[] = [];
+  // Spelling first: it changed what was asked for, which matters more
+  // than how a bare hour was read.
+  for (const c of p.corrections) notes.push(`I read "${c.from}" as ${titleCase(c.to)}`);
+  if (p.assumedPm) notes.push("I've read that as PM");
+  if (p.assumedToday) notes.push("assuming today");
+  return notes.length
+    ? `${notes.join(", ")} — just say the day or time to change it.`
+    : null;
 }
 
 const MISSING_COPY: Record<string, string> = {
@@ -193,7 +239,11 @@ export async function POST(request: NextRequest) {
     ruleParsed.ambiguous.length === 0 &&
     (ruleParsed.missing.length > 0 ||
       ruleParsed.unresolvedDay ||
-      ruleParsed.unknown.length > 0);
+      ruleParsed.unknown.length > 0 ||
+      // A turn that changed nothing is the shape a rejection takes. The
+      // rules cannot read "no, not that" — the model can, and this is
+      // the only chance to ask it.
+      !ruleParsed.contributed);
 
   let parsed = ruleParsed;
   let route = "";
@@ -278,9 +328,14 @@ export async function POST(request: NextRequest) {
   // answering it completes the booking, so a clarify with nothing
   // required outstanding is discarded and the proposal path runs — the
   // model asking "which court size?" must not stall a bookable request.
+  // Relaxed from "something is missing" to also cover a turn that
+  // contributed nothing or carried words we could not read. The stricter
+  // form closed the model's only channel for "this message contradicts
+  // what you have" at exactly the moment a proposal was on the table —
+  // so a rejection was swallowed and the same offer came back.
   if (
     clarify &&
-    parsed.missing.length > 0 &&
+    (parsed.missing.length > 0 || !parsed.contributed || parsed.unknown.length > 0) &&
     Array.isArray(clarify.options) &&
     clarify.options.length > 0
   ) {
@@ -291,6 +346,50 @@ export async function POST(request: NextRequest) {
       chips: clarify.options.slice(0, 4).map((o) => String(o).slice(0, 24)),
       parsed,
       logId,
+    });
+  }
+
+  // ── A product this surface cannot book ────────────────────────────
+  //
+  // The bowling machine is real, sells well, and is deliberately filtered
+  // out of the court query below (it is a 30-minute product on a
+  // zone-blocking strip with its own screen). Filtering it out of the
+  // RESULTS is not the same as understanding the request: a customer
+  // asked for it twice and was twice offered a cricket turf they had
+  // explicitly refused, because nothing here could tell it had been
+  // named. Say where to go instead — the only useful answer.
+  if (mentionsBowlingMachine(text)) {
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: [],
+      message:
+        "The bowling machine is booked from its own screen — Book a Court → Bowling Machine. I can take cricket, football and pickleball here.",
+      chips: ["Cricket", "Football", "Pickleball"],
+      parsed,
+      logId,
+      note: null,
+    });
+  }
+
+  // ── The customer said something we could take nothing from ────────
+  //
+  // "nahi bowling machine" parsed to all-nulls, inherited the previous
+  // proposal wholesale, and came back as the identical offer that had
+  // just been refused. A message that contributes nothing must not be
+  // answered with the reading it failed to change — that is the bot
+  // talking over the customer.
+  if (!parsed.contributed && parsed.missing.length === 0) {
+    const lost = parsed.unknown.slice(0, 2).map((w) => `"${w}"`).join(" or ");
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: [],
+      message: lost
+        ? `I didn't understand ${lost}. I still have ${describeHeld(parsed)} — tell me what to change.`
+        : `I still have ${describeHeld(parsed)} — tell me what to change.`,
+      chips: ["Another day", "Another time", "Another sport"],
+      parsed,
+      logId,
+      note: null,
     });
   }
 
@@ -312,6 +411,7 @@ export async function POST(request: NextRequest) {
       message: `I couldn't tell whether "${a.word}" meant ${options.join(" or ")}.`,
       chips: options,
       parsed,
+      note: buildNote(parsed),
     });
   }
 
@@ -465,27 +565,12 @@ export async function POST(request: NextRequest) {
     // Surface every assumption the parser made. A customer who meant 7am
     // sees "7:00 PM" and one tap fixes it — which is the entire reason
     // defaulting is acceptable at all.
-    const notes: string[] = [];
-    // Spelling corrections first — they changed what was asked for, which
-    // matters more than how a bare hour was read. A correction the
-    // customer cannot see is the one failure mode of tolerant matching.
-    for (const c of parsed.corrections) {
-      notes.push(`I read "${c.from}" as ${titleCase(c.to)}`);
-    }
-    if (parsed.assumedPm) notes.push("I've read that as PM");
-    if (parsed.assumedToday) notes.push("assuming today");
-
     return NextResponse.json<Ok>({
       kind: "proposal",
       parsed,
       logId,
       message: `${hit.court.courtLabel} is free.`,
-      // NOT "tap Change if not": there is no Change control on the card,
-      // and pointing at a button that doesn't exist is worse than saying
-      // nothing — it reads as though the assumption has been handled.
-      // Retyping is the actual correction path, and the conversation
-      // carries context, so "cricket" + "thursday" is enough.
-      note: notes.length ? `${notes.join(", ")} — just say the day or time to change it.` : null,
+      note: buildNote(parsed),
       proposal: {
         sport,
         courtConfigId: hit.court.courtConfigId,
@@ -510,6 +595,7 @@ export async function POST(request: NextRequest) {
     kind: "taken",
     parsed,
     logId,
+    note: buildNote(parsed),
     message:
       suggestions.length > 0
         ? `${timeLabel} is booked. Closest I have:`
