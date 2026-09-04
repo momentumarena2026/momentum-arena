@@ -43,8 +43,18 @@
 
 import { Sport } from "@prisma/client";
 
-/** Free tier, and the lowest-latency model Groq serves (~50-150ms). */
-const GROQ_MODEL = "llama-3.1-8b-instant";
+/**
+ * Free tier, low latency, and CONFIGURABLE on purpose.
+ *
+ * The first value tried here was llama-3.1-8b-instant, which Groq shut
+ * down on 16 August 2026 — every call returned HTTP 404 and the feature
+ * silently ran on rules alone. Providers retire models on their own
+ * schedule, so the id lives in the environment: the next deprecation is
+ * a Vercel setting change, not a code deploy and a wait for CI.
+ *
+ * Default is Groq's own named replacement for the 8B model.
+ */
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 /**
@@ -168,7 +178,19 @@ export async function readWithLlm(
     });
 
     const latencyMs = Date.now() - started;
-    if (!res.ok) return { reading: null, latencyMs, raw: `HTTP ${res.status}` };
+    if (!res.ok) {
+      // The BODY, not just the status. "HTTP 404" alone said nothing
+      // about whether the url, the key or the model id was wrong; the
+      // body says "model does not exist" and names it. This string lands
+      // in BookingBotLog.llmResult, which is where a failure gets
+      // diagnosed.
+      const detail = await res.text().catch(() => "");
+      return {
+        reading: null,
+        latencyMs,
+        raw: `HTTP ${res.status} ${GROQ_MODEL} ${detail.slice(0, 300)}`,
+      };
+    }
 
     const body = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
