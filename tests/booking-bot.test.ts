@@ -916,3 +916,11 @@ test("an ASSUMED pm yields to the model; an explicit one does not", () => {
   const kept = fillGaps(explicit, { ...explicit, startHour: 7, endHour: 8 });
   assert.equal(kept.startHour, 19, "they said pm — that is not a guess to overrule");
 });
+
+test("the word named back is the one that carried the meaning", () => {
+  // "mujhe singing seekhni hai" reported "mujhe" — the pronoun — which
+  // tells the customer nothing about why we failed. Scaffolding in any
+  // language is still scaffolding.
+  const p = parseBookingText("mujhe singing seekhni hai", NOW);
+  assert.equal(p.unknown[0], "singing");
+});

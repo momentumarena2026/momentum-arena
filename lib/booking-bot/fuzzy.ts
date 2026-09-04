@@ -142,6 +142,12 @@ const NEVER_CORRECT = new Set([
   "court", "ground", "pitch", "field", "turf", "slot", "slots", "game",
   "play", "playing", "match", "session", "from", "till", "until", "upto",
   "chahiye", "karna", "karo", "kardo", "hai", "ka", "ki", "ke", "ko",
+  // Hindi function words. Without these the word NAMED back to the
+  // customer is the pronoun rather than the thing they asked for:
+  // "mujhe singing seekhni hai" reported "mujhe", which tells them
+  // nothing. Scaffolding in any language is still scaffolding.
+  "mujhe", "mujhko", "hume", "humein", "main", "mai", "mera", "meri",
+  "apna", "apne", "aap", "tum", "hum", "koi", "kuch", "wala", "wali",
   "lets", "let", "yaar", "yar", "bhai", "bro", "dude", "sir", "maam",
   "thanks", "thank", "okay", "cool", "nice", "good", "sure", "yes", "no",
   "actually", "instead", "make", "change", "also", "just", "only", "still",
@@ -165,6 +171,12 @@ const NOT_CONTENT = new Set([
   "court", "ground", "pitch", "field", "turf", "slot", "slots",
   "play", "playing", "session", "from", "till", "until", "upto",
   "chahiye", "karna", "karo", "kardo", "hai", "ka", "ki", "ke", "ko",
+  // Hindi function words. Without these the word NAMED back to the
+  // customer is the pronoun rather than the thing they asked for:
+  // "mujhe singing seekhni hai" reported "mujhe", which tells them
+  // nothing. Scaffolding in any language is still scaffolding.
+  "mujhe", "mujhko", "hume", "humein", "main", "mai", "mera", "meri",
+  "apna", "apne", "aap", "tum", "hum", "koi", "kuch", "wala", "wali",
   "lets", "let", "yaar", "yar", "bhai", "bro", "dude", "sir", "maam",
   "thanks", "thank", "okay", "cool", "nice", "good", "sure",
   "also", "just", "day", "days",

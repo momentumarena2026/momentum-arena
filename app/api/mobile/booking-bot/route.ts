@@ -230,6 +230,37 @@ export async function POST(request: NextRequest) {
   const horizon = istDateKey(new Date(now.getTime() + BOOKING_HORIZON_DAYS * 86400000));
   const normalized = normalizeMessage(text);
 
+  // ── A product this surface cannot book ────────────────────────────
+  //
+  // Checked before the model, because whether the machine was named is a
+  // fact about the text, not a judgement. Placed after the model, it
+  // never ran: the model's own clarifying question is returned first, so
+  // "bowling machine" came back as a generic "which sport?" three times
+  // in a row. Deciding this here also saves the call.
+  if (mentionsBowlingMachine(text)) {
+    const bowlingLog = await logMessage({
+      userId,
+      text,
+      normalized,
+      parserResult: ruleParsed,
+      llmResult: null,
+      route: "bowling-redirect",
+      rejected: null,
+      finalResult: ruleParsed,
+      latencyMs: null,
+    }).catch(() => null);
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: [],
+      message:
+        "The bowling machine is booked from its own screen — Book a Court → Bowling Machine. Here I can take cricket, football and pickleball.",
+      chips: ["Cricket", "Football", "Pickleball"],
+      parsed: ruleParsed,
+      logId: bowlingLog,
+      note: null,
+    });
+  }
+
   // An ambiguity the rules found is NOT a job for the model. Two
   // vocabulary words equally close ("mundy" — Monday or Sunday?) is
   // knowledge, not a gap: we know for a fact that two readings fit. The
@@ -319,6 +350,28 @@ export async function POST(request: NextRequest) {
     latencyMs,
   }).catch(() => null);
 
+  // ── The customer said something we could take nothing from ────────
+  //
+  // "nahi bowling machine" parsed to all-nulls, inherited the previous
+  // proposal wholesale, and came back as the identical offer that had
+  // just been refused. A message that contributes nothing must not be
+  // answered with the reading it failed to change — that is the bot
+  // talking over the customer.
+  if (!parsed.contributed && parsed.missing.length === 0) {
+    const lost = parsed.unknown.slice(0, 2).map((w) => `"${w}"`).join(" or ");
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: [],
+      message: lost
+        ? `I didn't understand ${lost}. I still have ${describeHeld(parsed)} — tell me what to change.`
+        : `I still have ${describeHeld(parsed)} — tell me what to change.`,
+      chips: ["Another day", "Another time", "Another sport"],
+      parsed,
+      logId,
+      note: null,
+    });
+  }
+
   // ── The model said it wasn't sure ─────────────────────────────────
   //
   // Its own clarifying question, offered before any proposal. This is
@@ -339,57 +392,22 @@ export async function POST(request: NextRequest) {
     Array.isArray(clarify.options) &&
     clarify.options.length > 0
   ) {
+    // Name the word that defeated us in front of the model's question.
+    // On its own the model asks "Which sport would you like to book?",
+    // which is a fair question and a useless reply to "mujhe singing
+    // seekhni hai" — the customer learns nothing about why, and retypes
+    // the same thing. Saying which word failed also, incidentally, tells
+    // them the venue does not do it.
+    const lostWord = parsed.unknown[0];
     return NextResponse.json<Ok>({
       kind: "needs",
       missing: [],
-      message: String(clarify.question).slice(0, 200),
+      message: lostWord
+        ? `I didn't understand "${lostWord}". ${String(clarify.question).slice(0, 160)}`
+        : String(clarify.question).slice(0, 200),
       chips: clarify.options.slice(0, 4).map((o) => String(o).slice(0, 24)),
       parsed,
       logId,
-    });
-  }
-
-  // ── A product this surface cannot book ────────────────────────────
-  //
-  // The bowling machine is real, sells well, and is deliberately filtered
-  // out of the court query below (it is a 30-minute product on a
-  // zone-blocking strip with its own screen). Filtering it out of the
-  // RESULTS is not the same as understanding the request: a customer
-  // asked for it twice and was twice offered a cricket turf they had
-  // explicitly refused, because nothing here could tell it had been
-  // named. Say where to go instead — the only useful answer.
-  if (mentionsBowlingMachine(text)) {
-    return NextResponse.json<Ok>({
-      kind: "needs",
-      missing: [],
-      message:
-        "The bowling machine is booked from its own screen — Book a Court → Bowling Machine. I can take cricket, football and pickleball here.",
-      chips: ["Cricket", "Football", "Pickleball"],
-      parsed,
-      logId,
-      note: null,
-    });
-  }
-
-  // ── The customer said something we could take nothing from ────────
-  //
-  // "nahi bowling machine" parsed to all-nulls, inherited the previous
-  // proposal wholesale, and came back as the identical offer that had
-  // just been refused. A message that contributes nothing must not be
-  // answered with the reading it failed to change — that is the bot
-  // talking over the customer.
-  if (!parsed.contributed && parsed.missing.length === 0) {
-    const lost = parsed.unknown.slice(0, 2).map((w) => `"${w}"`).join(" or ");
-    return NextResponse.json<Ok>({
-      kind: "needs",
-      missing: [],
-      message: lost
-        ? `I didn't understand ${lost}. I still have ${describeHeld(parsed)} — tell me what to change.`
-        : `I still have ${describeHeld(parsed)} — tell me what to change.`,
-      chips: ["Another day", "Another time", "Another sport"],
-      parsed,
-      logId,
-      note: null,
     });
   }
 
