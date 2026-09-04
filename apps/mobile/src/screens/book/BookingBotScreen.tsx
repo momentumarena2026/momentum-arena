@@ -61,7 +61,13 @@ type ParsedContext = {
 
 type BotReply =
   | { kind: "needs"; missing: string[]; message: string; parsed?: ParsedContext }
-  | { kind: "proposal"; message: string; note: string | null; proposal: Proposal }
+  | {
+      kind: "proposal";
+      message: string;
+      note: string | null;
+      parsed?: ParsedContext;
+      proposal: Proposal;
+    }
   | {
       kind: "taken";
       message: string;
@@ -170,16 +176,18 @@ export function BookingBotScreen() {
         setBubbles((b) => [...b, { id: nextId(), from: "bot", reply }]);
         // Carry a partial reading forward; drop it the moment the booking
         // is fully specified so a later message starts fresh.
-        // Keep the reading on BOTH "needs" and "taken". A slot being
-        // unavailable does not un-say the sport and the day — clearing it
-        // there meant "cricket tomorrow 4am" -> alternatives -> "6am"
-        // asked for the sport and date all over again. Cleared only on a
-        // proposal, where the intent is complete and the next message
-        // should start fresh rather than inherit a finished booking.
-        const next =
-          reply.kind === "needs" || reply.kind === "taken"
-            ? (reply.parsed ?? null)
-            : null;
+        // Keep the reading on EVERY reply, including a proposal.
+        //
+        // Clearing it on a proposal treated the offer as the end of the
+        // conversation, and it is not — a customer shown a full field
+        // replies "no, only half court", and that message alone carries no
+        // sport, no day and no time. Wiping the context there threw the
+        // whole exchange away and asked them to start again.
+        //
+        // Nothing needs clearing afterwards: confirming navigates to
+        // Checkout and the chat unmounts, so the next visit starts fresh
+        // on its own.
+        const next = reply.parsed ?? null;
         contextRef.current = next;
         setContext(next);
       } catch (e) {

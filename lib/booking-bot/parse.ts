@@ -45,6 +45,15 @@ export type ParsedBooking = {
   assumedPm: boolean;
   /** The date wasn't stated; today was assumed. */
   assumedToday: boolean;
+  /**
+   * A court-size preference, when one was stated.
+   *
+   * Cricket runs a full turf and two half-courts at different prices, so
+   * "half court" is a real instruction. Before this the words were simply
+   * dropped and the bot answered "no, only half court" with the full
+   * field again, as though nothing had been said — worse than asking.
+   */
+  courtSize: "HALF" | "FULL" | null;
   /** What still has to be asked for. Empty = ready to price. */
   missing: ("sport" | "date" | "time")[];
 };
@@ -106,6 +115,13 @@ function resolveMeridiem(
   if (hour === 12) return { hour: 12, assumed: false };
   if (hour >= 1 && hour <= 11) return { hour: hour + 12, assumed: true };
   return { hour, assumed: false }; // 0 = midnight, already explicit
+}
+
+/** "half court", "full field", "medium" — a size, not a sport. */
+function parseCourtSize(text: string): "HALF" | "FULL" | null {
+  if (/\b(half\s*(court|field|pitch)?|medium|aadha)\b/i.test(text)) return "HALF";
+  if (/\b(full\s*(court|field|ground|pitch)|whole\s*(court|field)|poora)\b/i.test(text)) return "FULL";
+  return null;
 }
 
 function parseSport(text: string): Sport | null {
@@ -258,6 +274,7 @@ function parseTime(text: string): TimeParse {
 export function parseBookingText(text: string, now: Date = new Date()): ParsedBooking {
   const clean = (text ?? "").trim();
   const sport = parseSport(clean);
+  const courtSize = parseCourtSize(clean);
   const { date } = parseDate(clean, now);
   const time = parseTime(clean);
 
@@ -279,6 +296,9 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
     endHour: time?.endHour ?? null,
     assumedPm: time?.assumedPm ?? false,
     assumedToday,
+    courtSize,
+    // Deliberately NOT in `missing`: a size preference is optional. Most
+    // people never state one and should not be asked for it.
     missing,
   };
 }
@@ -335,6 +355,7 @@ export function mergeParsed(
     // Flags describe THIS reading; a carried assumption was already shown
     // on the message that made it, and repeating it every turn is noise.
     assumedPm: hasFreshTime ? fresh.assumedPm : (carried.assumedPm ?? false),
+    courtSize: fresh.courtSize ?? carried.courtSize ?? null,
     // Only "today" by assumption if nothing better was carried.
     assumedToday: freshDateIsReal ? false : (carried.date ? false : fresh.assumedToday),
     missing,

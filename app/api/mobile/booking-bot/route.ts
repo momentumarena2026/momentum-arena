@@ -42,6 +42,8 @@ type Ok =
       kind: "proposal";
       message: string;
       note: string | null;
+      /** Carried forward so a refinement like "no, only half court" works. */
+      parsed: unknown;
       proposal: {
         sport: string;
         courtConfigId: string;
@@ -177,7 +179,7 @@ export async function POST(request: NextRequest) {
   // The bowling machine is a CRICKET config but it is a machine, not a
   // court — it has its own availability endpoint and its own flow. Left
   // in, "book cricket tomorrow" could propose the bowling machine.
-  const configs = orderCourtsByPreference(
+  const allConfigs = orderCourtsByPreference(
     await db.courtConfig.findMany({
       where: {
         sport,
@@ -193,6 +195,19 @@ export async function POST(request: NextRequest) {
       select: { id: true, label: true, size: true },
     }),
   );
+  // Honour a stated size preference. Cricket has a full turf and two
+  // half-courts at different prices, so "half court" is an instruction,
+  // not decoration — ignoring it answered "no, only half court" with the
+  // full field again. If the preference matches nothing bookable we fall
+  // back to everything rather than claiming the sport is unavailable.
+  const sized =
+    parsed.courtSize === "HALF"
+      ? allConfigs.filter((c) => c.size === "MEDIUM" || c.size === "SMALL")
+      : parsed.courtSize === "FULL"
+        ? allConfigs.filter((c) => c.size === "FULL" || c.size === "XL")
+        : allConfigs;
+  const configs = sized.length > 0 ? sized : allConfigs;
+
   if (configs.length === 0) {
     return NextResponse.json<Ok>({
       kind: "needs",
@@ -230,6 +245,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json<Ok>({
       kind: "proposal",
+      parsed,
       message: `${hit.court.courtLabel} is free.`,
       note: notes.length ? `${notes.join(", ")} — tap Change if not.` : null,
       proposal: {

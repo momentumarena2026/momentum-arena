@@ -444,3 +444,36 @@ test("an unavailable slot does not erase the sport and day", () => {
   assert.equal(second.startHour, 6);
   assert.deepEqual(second.missing, []);
 });
+
+/**
+ * Refining a proposal. Reported from use: shown a full field and
+ * answering "no only half court" threw the entire conversation away.
+ */
+test("a refinement after a proposal keeps everything already said", () => {
+  const offered = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+  assert.deepEqual(offered.missing, []);
+
+  // The reply carries no sport, no day, no time — only a preference.
+  const refined = mergeParsed(offered, parseBookingText("no only half court", NOW));
+  assert.equal(refined.sport, "CRICKET", "sport must survive");
+  assert.equal(refined.date, "2026-09-05", "day must survive");
+  assert.equal(refined.startHour, 19, "time must survive");
+  assert.equal(refined.courtSize, "HALF", "and the preference registers");
+  assert.deepEqual(refined.missing, [], "not back to square one");
+});
+
+test("court size is understood, and is optional", () => {
+  assert.equal(parseBookingText("cricket tomorrow 7pm half court", NOW).courtSize, "HALF");
+  assert.equal(parseBookingText("cricket tomorrow 7pm full field", NOW).courtSize, "FULL");
+  // Most people never say one, and must never be asked for it.
+  const plain = parseBookingText("cricket tomorrow 7pm", NOW);
+  assert.equal(plain.courtSize, null);
+  assert.deepEqual(plain.missing, []);
+});
+
+test("switching the preference back to full works too", () => {
+  const half = parseBookingText("cricket tomorrow 7pm half court", NOW);
+  const full = mergeParsed(half, parseBookingText("actually full field", NOW));
+  assert.equal(full.courtSize, "FULL");
+  assert.equal(full.startHour, 19);
+});
