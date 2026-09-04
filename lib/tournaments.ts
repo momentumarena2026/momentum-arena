@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { isTrustedAssetUrl } from "@/lib/blob";
 import { db } from "@/lib/db";
 import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
@@ -105,6 +106,167 @@ export async function listPublicTournaments() {
     }
   }
   return rows;
+}
+
+/**
+ * The three buckets the app's filter chips offer.
+ *
+ * They partition every publicly-visible status, so selecting all three
+ * shows exactly what the unfiltered list shows — no tournament can fall
+ * between the chips and become unreachable.
+ *
+ *   UPCOMING   PUBLISHED, REG_OPEN, REG_CLOSED, POOLS_REVEALED
+ *   ONGOING    LIVE
+ *   COMPLETED  COMPLETED
+ *
+ * UPCOMING is deliberately wider than "registration is open". A
+ * tournament whose registration has closed but which has not started is
+ * still ahead of you, and giving REG_CLOSED / POOLS_REVEALED no home
+ * would hide them even with every chip selected.
+ */
+export const TOURNAMENT_GROUPS = {
+  UPCOMING: ["PUBLISHED", "REG_OPEN", "REG_CLOSED", "POOLS_REVEALED"],
+  ONGOING: ["LIVE"],
+  COMPLETED: ["COMPLETED"],
+} as const;
+
+export type TournamentGroup = keyof typeof TOURNAMENT_GROUPS;
+
+const GROUP_RANK: Record<TournamentGroup, number> = {
+  UPCOMING: 0,
+  ONGOING: 1,
+  COMPLETED: 2,
+};
+
+export type PublicTournamentRow = {
+  id: string;
+  slug: string;
+  name: string;
+  sport: string;
+  status: string;
+  format: string;
+  bannerImageUrl: string | null;
+  totalTeams: number;
+  entryFee: number;
+  feeMode: string;
+  prizePool: number | null;
+  startDate: Date | null;
+  regOpenAt: Date | null;
+  regCloseAt: Date | null;
+  liveScoringEnabled: boolean;
+  confirmedTeams: number;
+  group: TournamentGroup;
+};
+
+/**
+ * One page of the public tournament list, filtered by group and ordered
+ * the way the app wants to read it.
+ *
+ * Ordering, in the owner's stated priority: UPCOMING first, then ONGOING,
+ * then COMPLETED. Within upcoming and ongoing the soonest start leads —
+ * the next thing you can enter or watch. Within completed the order flips
+ * to newest-first, because the interesting finished tournament is the one
+ * that just ended, not the first you ever ran.
+ *
+ * Paginating here is SAFE despite applyScheduledTransitions running only
+ * over the returned page: every transition it performs
+ * (PUBLISHED → REG_OPEN → REG_CLOSED) stays inside UPCOMING, so a status
+ * that is stale in the database can never belong to a different chip than
+ * the one it is filed under. If a future transition ever crosses a group
+ * boundary, that assumption breaks and this must move to a cron.
+ *
+ * Offset paging rather than a keyset cursor: the sort key is a computed
+ * group rank whose direction flips per group, which a keyset cannot
+ * express cleanly, and the list is tens of rows. Rows shifting mid-scroll
+ * could duplicate one card, which is a far smaller cost than the
+ * complexity of encoding (rank, date, id) triples.
+ */
+export async function listPublicTournamentsPage(opts: {
+  groups: TournamentGroup[];
+  limit: number;
+  offset: number;
+}): Promise<{ rows: PublicTournamentRow[]; hasMore: boolean }> {
+  const groups = opts.groups.length > 0 ? opts.groups : (["UPCOMING", "ONGOING", "COMPLETED"] as TournamentGroup[]);
+  const statuses = groups.flatMap((g) => [...TOURNAMENT_GROUPS[g]]);
+  if (statuses.length === 0) return { rows: [], hasMore: false };
+
+  const limit = Math.min(Math.max(opts.limit, 1), 50);
+  const offset = Math.max(opts.offset, 0);
+
+  // limit + 1 so "is there another page" needs no second COUNT query.
+  const raw = await db.$queryRaw<
+    (Omit<PublicTournamentRow, "group" | "confirmedTeams"> & {
+      grp: number;
+      confirmedTeams: bigint;
+    })[]
+  >(Prisma.sql`
+    WITH grouped AS (
+      SELECT t.*,
+             CASE
+               WHEN t.status IN ('PUBLISHED','REG_OPEN','REG_CLOSED','POOLS_REVEALED') THEN 0
+               WHEN t.status = 'LIVE' THEN 1
+               ELSE 2
+             END AS grp
+      FROM "Tournament" t
+      WHERE t.status NOT IN ('DRAFT','CANCELLED')
+        AND t."archivedAt" IS NULL
+        AND t.status::text IN (${Prisma.join(statuses)})
+    )
+    SELECT g.id, g.slug, g.name,
+           g.sport::text   AS "sport",
+           g.status::text  AS "status",
+           g.format::text  AS "format",
+           g."bannerImageUrl", g."totalTeams", g."entryFee",
+           g."feeMode"::text AS "feeMode",
+           g."prizePool", g."startDate", g."regOpenAt", g."regCloseAt",
+           g."liveScoringEnabled", g.grp,
+           (SELECT COUNT(*) FROM "TournamentTeam" tt
+             WHERE tt."tournamentId" = g.id
+               AND tt.status = 'CONFIRMED'
+               AND tt."archivedAt" IS NULL) AS "confirmedTeams"
+    FROM grouped g
+    ORDER BY g.grp ASC,
+             -- Upcoming/ongoing: soonest first. Completed: newest first.
+             -- The CASE nulls one key out per group so the other decides.
+             CASE WHEN g.grp = 2 THEN NULL ELSE g."startDate" END ASC NULLS LAST,
+             CASE WHEN g.grp = 2 THEN g."startDate" END DESC NULLS LAST,
+             g."createdAt" DESC
+    LIMIT ${limit + 1} OFFSET ${offset}
+  `);
+
+  const hasMore = raw.length > limit;
+  const page = hasMore ? raw.slice(0, limit) : raw;
+
+  const rankToGroup = (Object.keys(GROUP_RANK) as TournamentGroup[]).reduce(
+    (acc, g) => ({ ...acc, [GROUP_RANK[g]]: g }),
+    {} as Record<number, TournamentGroup>,
+  );
+
+  // Same lazy window transitions the unpaginated list does, over this
+  // page only — see the note above on why that is safe.
+  const rows: PublicTournamentRow[] = [];
+  for (const r of page) {
+    let status = r.status;
+    if (
+      (status === "PUBLISHED" && r.regOpenAt && r.regOpenAt <= new Date()) ||
+      (status === "REG_OPEN" && r.regCloseAt && r.regCloseAt < new Date())
+    ) {
+      status = await applyScheduledTransitions({
+        id: r.id,
+        status,
+        regOpenAt: r.regOpenAt,
+        regCloseAt: r.regCloseAt,
+      });
+    }
+    rows.push({
+      ...r,
+      status,
+      confirmedTeams: Number(r.confirmedTeams),
+      group: rankToGroup[r.grp] ?? "UPCOMING",
+    });
+  }
+
+  return { rows, hasMore };
 }
 
 export async function getPublicTournamentBySlug(slug: string) {
