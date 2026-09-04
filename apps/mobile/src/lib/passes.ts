@@ -96,7 +96,11 @@ export const passesApi = {
       { remove: userId },
     ),
   plans: () =>
-    api.get<{ plans: PassPlanCard[] }>("/api/mobile/passes/plans"),
+    // No auth header: the catalogue is public so a signed-out customer
+    // can browse and be sold to, exactly like the website.
+    api.get<{ plans: PassPlanCard[] }>("/api/mobile/passes/plans", {
+      auth: false,
+    }),
 
   // ── Purchase (shared web routes; unified auth accepts the bearer) ──
   /** UPI (PhonePe DQR) — money-first; the UserPass materialises on the

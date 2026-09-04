@@ -52,7 +52,7 @@ import {
   trackPassPurchaseCompleted,
   trackPassPurchaseStarted,
 } from "../../lib/analytics";
-import type { AccountStackParamList } from "../../navigation/types";
+import type { AccountStackParamList, RootStackParamList } from "../../navigation/types";
 import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
 
 /**
@@ -378,6 +378,17 @@ export function PassesStoreScreen() {
   const startDays = useMemo(() => buildStartDays(31), []);
 
   function openSheet(plan: PassPlanCard) {
+    // The catalogue is public so signed-out customers can browse it, but
+    // buying needs an account: the purchase sheet prefills name, email and
+    // phone from the session and the pass has to belong to somebody. Send
+    // them to sign in at the moment they commit, rather than letting them
+    // fill the sheet and fail at payment.
+    if (!signedInUser) {
+      navigation
+        .getParent<NativeStackNavigationProp<RootStackParamList>>()
+        ?.navigate("Phone");
+      return;
+    }
     setBuying(plan);
     setMethod(dqrEnabled ? "upi" : "razorpay");
     setStartDate(startDays[0].value);
