@@ -48,8 +48,19 @@ type Proposal = {
 
 type Suggestion = Proposal & { differentCourt: boolean };
 
+/** The partial reading the server hands back so the next turn can build on it. */
+type ParsedContext = {
+  sport: string | null;
+  date: string | null;
+  startHour: number | null;
+  endHour: number | null;
+  assumedPm: boolean;
+  assumedToday: boolean;
+  missing: string[];
+};
+
 type BotReply =
-  | { kind: "needs"; missing: string[]; message: string }
+  | { kind: "needs"; missing: string[]; message: string; parsed?: ParsedContext }
   | { kind: "proposal"; message: string; note: string | null; proposal: Proposal }
   | { kind: "taken"; message: string; requested: { date: string; timeLabel: string }; suggestions: Suggestion[] };
 
@@ -94,6 +105,15 @@ export function BookingBotScreen() {
       },
     },
   ]);
+  /**
+   * What the conversation already knows, carried between turns.
+   *
+   * The server parses each message in isolation, so without this the chip
+   * path loops: "football tomorrow" asks for a time, and tapping "7-8 pm"
+   * asks for a sport again. Cleared once a proposal lands, so the next
+   * request starts clean rather than inheriting a finished booking.
+   */
+  const [context, setContext] = useState<ParsedContext | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [locking, setLocking] = useState(false);
@@ -122,8 +142,14 @@ export function BookingBotScreen() {
       scrollDown();
       setSending(true);
       try {
-        const reply = await api.post<BotReply>("/api/mobile/booking-bot", { text });
+        const reply = await api.post<BotReply>("/api/mobile/booking-bot", {
+          text,
+          context,
+        });
         setBubbles((b) => [...b, { id: nextId(), from: "bot", reply }]);
+        // Carry a partial reading forward; drop it the moment the booking
+        // is fully specified so a later message starts fresh.
+        setContext(reply.kind === "needs" ? (reply.parsed ?? null) : null);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Couldn't reach the assistant");
       } finally {
@@ -131,7 +157,7 @@ export function BookingBotScreen() {
         scrollDown();
       }
     },
-    [navigation, scrollDown, sending, state],
+    [context, navigation, scrollDown, sending, state],
   );
 
   /**

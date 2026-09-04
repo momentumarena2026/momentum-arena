@@ -11,7 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseBookingText, formatHourRange } from "../lib/booking-bot/parse";
+import { parseBookingText, mergeParsed, formatHourRange } from "../lib/booking-bot/parse";
 import {
   isWindowFree,
   windowPrice,
@@ -269,4 +269,97 @@ test("an inverted window is rejected, not silently accepted", () => {
   const c = day("t2", "Turf 2");
   assert.equal(isWindowFree(c.slots, 20, 19), false);
   assert.equal(suggestAlternatives([c], { courtConfigId: null, startHour: 20, endHour: 19 }).length, 0);
+});
+
+/**
+ * Conversation memory.
+ *
+ * Found by driving the real app, not by any unit test: the parser is
+ * stateless and correct, but the CONVERSATION was not. "football tomorrow"
+ * asked for a time; tapping the "7-8 pm" chip then asked for a sport,
+ * because the second message knows nothing about the first. The chip path
+ * could never complete a booking — it ping-ponged forever.
+ */
+test("answering the bot's question keeps what it already knew", () => {
+  const first = parseBookingText("football tomorrow", NOW);
+  assert.deepEqual(first.missing, ["time"]);
+
+  const second = mergeParsed(first, parseBookingText("7-8 pm", NOW));
+  assert.equal(second.sport, "FOOTBALL", "sport must survive the second turn");
+  assert.equal(second.date, "2026-09-05", "date must survive the second turn");
+  assert.equal(second.startHour, 19);
+  assert.equal(second.endHour, 20);
+  assert.deepEqual(second.missing, [], "now complete — this is the bug that looped");
+});
+
+test("the other order works too — time first, then sport", () => {
+  const first = parseBookingText("tomorrow 7-8 pm", NOW);
+  assert.deepEqual(first.missing, ["sport"]);
+  const second = mergeParsed(first, parseBookingText("Cricket", NOW));
+  assert.equal(second.sport, "CRICKET");
+  assert.equal(second.startHour, 19);
+  assert.deepEqual(second.missing, []);
+});
+
+test("a correction overrides what was carried", () => {
+  // "actually make it cricket" must win over the earlier football.
+  const first = parseBookingText("football tomorrow 7-8 pm", NOW);
+  const second = mergeParsed(first, parseBookingText("actually cricket", NOW));
+  assert.equal(second.sport, "CRICKET");
+  assert.equal(second.startHour, 19, "the rest is untouched");
+});
+
+test("a half-stated time is never assembled from two messages", () => {
+  // Carrying a start from one turn and an end from another would invent a
+  // window nobody asked for. Time moves as one unit or not at all.
+  const carried = { ...parseBookingText("football tomorrow 7-8 pm", NOW) };
+  const merged = mergeParsed(carried, parseBookingText("cricket", NOW));
+  assert.equal(merged.startHour, 19);
+  assert.equal(merged.endHour, 20, "both carried together, or neither");
+});
+
+test("no carried context behaves exactly like a fresh parse", () => {
+  const fresh = parseBookingText("football tomorrow 7-8 pm", NOW);
+  assert.deepEqual(mergeParsed(null, fresh), fresh);
+});
+
+test("a hyphenated TIME is never read as a date", () => {
+  // "7-8 pm" matched the day-month pattern and became the 7th of August:
+  // "football 7-8 pm" proposed a booking in 2027. The earlier separator
+  // test only checked the hours, so it passed while the date was wrong.
+  const p = parseBookingText("football 7-8 pm", NOW);
+  assert.equal(p.startHour, 19);
+  assert.equal(p.endHour, 20);
+  assert.equal(p.date, "2026-09-04", "today, NOT 7 August");
+  assert.equal(p.assumedToday, true);
+});
+
+test("real slash dates still parse, and zero-padded hyphen dates too", () => {
+  assert.equal(parseBookingText("cricket 12/9 7pm", NOW).date, "2026-09-12");
+  assert.equal(parseBookingText("cricket 12-09 7pm", NOW).date, "2026-09-12");
+});
+
+test("every separator style agrees on BOTH the hours and the date", () => {
+  for (const sep of ["7-8pm", "7 - 8 pm", "7 to 8 pm", "7 till 8 pm"]) {
+    const p = parseBookingText(`football tomorrow ${sep}`, NOW);
+    assert.equal(p.startHour, 19, sep);
+    assert.equal(p.endHour, 20, sep);
+    assert.equal(p.date, "2026-09-05", `${sep} must not invent a date`);
+  }
+});
+
+test("an assumed date never overrides one the customer stated", () => {
+  // "7-8 pm" alone defaults to today. As an answer to "what time?" after
+  // "football tomorrow", that default silently moved the booking a day
+  // earlier — the customer would have paid for the wrong date.
+  const first = parseBookingText("football tomorrow", NOW);
+  const merged = mergeParsed(first, parseBookingText("7-8 pm", NOW));
+  assert.equal(merged.date, "2026-09-05", "tomorrow, not today");
+  assert.equal(merged.assumedToday, false, "nothing is being assumed any more");
+});
+
+test("but an EXPLICIT new date does override the carried one", () => {
+  const first = parseBookingText("football tomorrow 7-8 pm", NOW);
+  const merged = mergeParsed(first, parseBookingText("make it saturday", NOW));
+  assert.equal(merged.date, "2026-09-05");
 });

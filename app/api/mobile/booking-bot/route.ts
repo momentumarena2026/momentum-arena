@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUserId } from "@/lib/auth-unified";
 import { getDisplayShiftedAvailability } from "@/lib/availability";
-import { parseBookingText, formatHourRange } from "@/lib/booking-bot/parse";
+import {
+  parseBookingText,
+  mergeParsed,
+  formatHourRange,
+  type ParsedBooking,
+} from "@/lib/booking-bot/parse";
 import {
   firstCourtWithWindow,
   orderCourtsByPreference,
@@ -81,7 +86,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sign in to use the booking assistant" }, { status: 401 });
   }
 
-  let body: { text?: string };
+  let body: { text?: string; context?: Partial<ParsedBooking> | null };
   try {
     body = await request.json();
   } catch {
@@ -94,7 +99,12 @@ export async function POST(request: NextRequest) {
   }
 
   const now = new Date();
-  const parsed = parseBookingText(text, now);
+  // Merge over whatever the conversation already established. Without
+  // this the chip path loops forever: "football tomorrow" asks for a
+  // time, and answering "7-8 pm" then asks for a sport, because each
+  // message is parsed in isolation. The client hands back the last
+  // incomplete reading; the server stays stateless.
+  const parsed = mergeParsed(body.context ?? null, parseBookingText(text, now));
 
   if (parsed.missing.length > 0) {
     const wanted = parsed.missing.map((m) => MISSING_COPY[m]).join(" and ");

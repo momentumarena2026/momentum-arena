@@ -147,7 +147,14 @@ function parseDate(text: string, now: Date): { date: string | null; assumedToday
   }
 
   // "12/9" or "12-09" — day first, Indian convention.
-  const slash = text.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
+  //
+  // A hyphen only counts when the month is zero-padded ("12-09"), because
+  // "7-8 pm" is a TIME and the naive pattern read it as the 7th of August:
+  // "football 7-8 pm" proposed a booking in August 2027. Caught on device.
+  // A slash is unambiguous, so "12/9" still works either way.
+  const slash =
+    text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/) ??
+    text.match(/\b(\d{1,2})-(\d{2})(?:-(\d{2,4}))?\b/);
   if (slash) {
     const day = Number(slash[1]);
     const mon = Number(slash[2]) - 1;
@@ -242,7 +249,65 @@ export function parseBookingText(text: string, now: Date = new Date()): ParsedBo
   };
 }
 
-/** "7:00–8:00 PM" for the confirmation card. Handles the 24/25 late window. */
+/**
+ * Merge a fresh parse over what the conversation already knew.
+ *
+ * The parser is stateless by design — one sentence in, one reading out.
+ * That is right for the parser and WRONG for the conversation: on device,
+ * "football tomorrow" asked for a time, and tapping the "7-8 pm" chip
+ * then asked for a sport, because the second message knows nothing about
+ * the first. The chip path could never complete a booking; it ping-ponged
+ * forever. Unit tests all passed, because each parse in isolation was
+ * correct.
+ *
+ * So the CLIENT carries the last incomplete reading and sends it back,
+ * and this merges the two. New values always win — "actually make it
+ * cricket" must override an earlier football — and anything the new
+ * sentence is silent about is inherited.
+ *
+ * Server stays stateless: no session, no store, nothing to expire. The
+ * context is just the previous answer handed back.
+ */
+export function mergeParsed(
+  carried: Partial<ParsedBooking> | null | undefined,
+  fresh: ParsedBooking,
+): ParsedBooking {
+  if (!carried) return fresh;
+
+  const sport = fresh.sport ?? carried.sport ?? null;
+
+  // An ASSUMPTION never overrides something the customer actually said.
+  // A bare "7-8 pm" defaults its date to today, which is right on its own
+  // but wrong as an answer to "what time?" after "football tomorrow" — it
+  // silently moved the booking a day earlier. Only an explicit date wins.
+  const freshDateIsReal = fresh.date != null && !fresh.assumedToday;
+  const date = freshDateIsReal ? fresh.date : (carried.date ?? fresh.date ?? null);
+  // Time is one unit: a half-carried window (start from one message, end
+  // from another) would silently invent a booking nobody asked for.
+  const hasFreshTime = fresh.startHour != null && fresh.endHour != null;
+  const startHour = hasFreshTime ? fresh.startHour : (carried.startHour ?? null);
+  const endHour = hasFreshTime ? fresh.endHour : (carried.endHour ?? null);
+
+  const missing: ParsedBooking["missing"] = [];
+  if (!sport) missing.push("sport");
+  if (!date) missing.push("date");
+  if (startHour == null || endHour == null) missing.push("time");
+
+  return {
+    sport,
+    date,
+    startHour,
+    endHour,
+    // Flags describe THIS reading; a carried assumption was already shown
+    // on the message that made it, and repeating it every turn is noise.
+    assumedPm: hasFreshTime ? fresh.assumedPm : (carried.assumedPm ?? false),
+    // Only "today" by assumption if nothing better was carried.
+    assumedToday: freshDateIsReal ? false : (carried.date ? false : fresh.assumedToday),
+    missing,
+  };
+}
+
+/** "7:00–8:00 PM" for the confirmation card. Handles the 24/25 late window. *//** "7:00–8:00 PM" for the confirmation card. Handles the 24/25 late window. */
 export function formatHourRange(startHour: number, endHour: number): string {
   const label = (h: number) => {
     const wall = h % 24;
