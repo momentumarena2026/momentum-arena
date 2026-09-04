@@ -62,7 +62,13 @@ type ParsedContext = {
 type BotReply =
   | { kind: "needs"; missing: string[]; message: string; parsed?: ParsedContext }
   | { kind: "proposal"; message: string; note: string | null; proposal: Proposal }
-  | { kind: "taken"; message: string; requested: { date: string; timeLabel: string }; suggestions: Suggestion[] };
+  | {
+      kind: "taken";
+      message: string;
+      parsed?: ParsedContext;
+      requested: { date: string; timeLabel: string };
+      suggestions: Suggestion[];
+    };
 
 type Bubble =
   | { id: string; from: "me"; text: string }
@@ -164,7 +170,16 @@ export function BookingBotScreen() {
         setBubbles((b) => [...b, { id: nextId(), from: "bot", reply }]);
         // Carry a partial reading forward; drop it the moment the booking
         // is fully specified so a later message starts fresh.
-        const next = reply.kind === "needs" ? (reply.parsed ?? null) : null;
+        // Keep the reading on BOTH "needs" and "taken". A slot being
+        // unavailable does not un-say the sport and the day — clearing it
+        // there meant "cricket tomorrow 4am" -> alternatives -> "6am"
+        // asked for the sport and date all over again. Cleared only on a
+        // proposal, where the intent is complete and the next message
+        // should start fresh rather than inherit a finished booking.
+        const next =
+          reply.kind === "needs" || reply.kind === "taken"
+            ? (reply.parsed ?? null)
+            : null;
         contextRef.current = next;
         setContext(next);
       } catch (e) {

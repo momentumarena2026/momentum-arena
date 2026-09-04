@@ -429,3 +429,18 @@ test("yesterday parses as yesterday, not as today", () => {
   assert.equal(p.date, "2026-09-03", "the day before NOW");
   assert.equal(p.assumedToday, false);
 });
+
+test("an unavailable slot does not erase the sport and day", () => {
+  // Reported from use: "cricket tomorrow 4am" comes back unavailable with
+  // alternatives, and answering "6am" then asked for the sport and date
+  // again — the client only carried context on a "needs" reply, not on
+  // "taken". A slot being taken does not un-say what you asked for.
+  const first = parseBookingText("cricket tomorrow 4 am", NOW);
+  assert.deepEqual(first.missing, [], "fully specified, just unavailable");
+
+  const second = mergeParsed(first, parseBookingText("6 am", NOW));
+  assert.equal(second.sport, "CRICKET");
+  assert.equal(second.date, "2026-09-05");
+  assert.equal(second.startHour, 6);
+  assert.deepEqual(second.missing, []);
+});

@@ -57,6 +57,8 @@ type Ok =
   | {
       kind: "taken";
       message: string;
+      /** Carried forward so the next turn keeps the sport and date. */
+      parsed: unknown;
       requested: { date: string; timeLabel: string };
       suggestions: {
         courtConfigId: string;
@@ -252,6 +254,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json<Ok>({
     kind: "taken",
+    parsed,
     message:
       suggestions.length > 0
         ? `${timeLabel} is booked. Closest I have:`
