@@ -8,6 +8,8 @@ import {
   formatHourRange,
   fillGaps,
   mentionsBowlingMachine,
+  parseChangeIntent,
+  isOutsideVenueHours,
   VOCABULARY,
   type ParsedBooking,
 } from "@/lib/booking-bot/parse";
@@ -161,6 +163,21 @@ function buildNote(p: {
     : null;
 }
 
+/**
+ * Chips whose labels the parser can actually read.
+ *
+ * Every chip this route offers must round-trip: the label is sent back
+ * as a message, so a chip saying "Another time" produces the message
+ * "Another time", which the parser cannot use. That produced a loop the
+ * customer could not leave — the bot failing to understand its own
+ * suggestion, over and over.
+ */
+const CONCRETE_CHIPS: Record<"sport" | "date" | "time", string[]> = {
+  sport: ["Cricket", "Football", "Pickleball"],
+  date: ["today", "tomorrow", "saturday"],
+  time: ["6-7 pm", "7-8 pm", "8-9 pm"],
+};
+
 const MISSING_COPY: Record<string, string> = {
   sport: "which sport",
   date: "which day",
@@ -257,6 +274,44 @@ export async function POST(request: NextRequest) {
       chips: ["Cricket", "Football", "Pickleball"],
       parsed: ruleParsed,
       logId: bowlingLog,
+      note: null,
+    });
+  }
+
+  // ── "Change the day / time / sport" ───────────────────────────────
+  //
+  // Handled here, before anything else, because the bot offers exactly
+  // these words as chips. Deciding it deterministically also means the
+  // reply can offer values the parser is guaranteed to understand.
+  const change = parseChangeIntent(text);
+  if (change) {
+    const changeLog = await logMessage({
+      userId,
+      text,
+      normalized,
+      parserResult: ruleParsed,
+      llmResult: null,
+      route: `change-${change}`,
+      rejected: null,
+      finalResult: ruleParsed,
+      latencyMs: null,
+    }).catch(() => null);
+    // Drop the field being changed so the answer replaces it rather than
+    // merging into it — otherwise the old value survives and the customer
+    // is asked a question their answer cannot affect.
+    const cleared = {
+      ...ruleParsed,
+      ...(change === "sport" ? { sport: null } : {}),
+      ...(change === "date" ? { date: null, assumedToday: false } : {}),
+      ...(change === "time" ? { startHour: null, endHour: null } : {}),
+    };
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: [change],
+      message: `Sure — which ${change === "date" ? "day" : change}?`,
+      chips: CONCRETE_CHIPS[change],
+      parsed: cleared,
+      logId: changeLog,
       note: null,
     });
   }
@@ -365,7 +420,9 @@ export async function POST(request: NextRequest) {
       message: lost
         ? `I didn't understand ${lost}. I still have ${describeHeld(parsed)} — tell me what to change.`
         : `I still have ${describeHeld(parsed)} — tell me what to change.`,
-      chips: ["Another day", "Another time", "Another sport"],
+      // Concrete values, not "Another time": a chip's label is the
+      // message it sends, so it has to be something we can read back.
+      chips: ["tomorrow", "7-8 pm", "Cricket"],
       parsed,
       logId,
       note: null,
@@ -485,6 +542,22 @@ export async function POST(request: NextRequest) {
       missing: ["date"],
       message: `${date} has already passed — which day did you mean?`,
       parsed,
+    });
+  }
+
+  // Closed is not the same as taken. "12 am to 2 am" came back as
+  // "booked, and nothing close is free either" — a slot that does not
+  // exist, described as bad luck, with no way for the customer to learn
+  // the opening hours from the answer.
+  if (isOutsideVenueHours(startHour, endHour)) {
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: ["time"],
+      message: `We're open 5:00 AM to 1:00 AM, so ${formatHourRange(startHour, endHour)} isn't bookable — what time works?`,
+      chips: CONCRETE_CHIPS.time,
+      parsed,
+      logId,
+      note: null,
     });
   }
 

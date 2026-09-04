@@ -359,6 +359,58 @@ function parseDate(text: string, now: Date): { date: string | null; assumedToday
  */
 const MAX_BOOKABLE_HOURS = 12;
 
+/**
+ * The venue's day runs 05:00 to 01:00, and the hours after midnight are
+ * modelled as 24 and 25 rather than 0 and 1 — a booking at "1 AM" belongs
+ * to the evening it grew out of, not to the calendar day it lands in.
+ *
+ * An hour parsed as 0-4 is therefore never "the small hours of today";
+ * it is the tail of tonight. Left un-normalised, "12 am to 2 am" came out
+ * as 0-2, matched nothing in an availability grid that starts at 5, and
+ * was reported to the customer as "booked, and nothing close is free
+ * either" — a slot that does not exist, described as taken.
+ */
+const OPEN_HOUR = 5;
+
+/** 01:00, expressed in the same 24/25 scale. */
+export const VENUE_OPEN_HOUR = 5;
+export const VENUE_CLOSE_HOUR = 25;
+
+/**
+ * What the customer asked for happens when the venue is shut.
+ *
+ * Distinct from "that slot is taken", and the distinction matters: a
+ * request for midnight-to-2am came back as "booked, and nothing close is
+ * free either", which reads as bad luck rather than as the venue being
+ * closed. The customer has no way to learn the opening hours from that.
+ */
+export function isOutsideVenueHours(startHour: number, endHour: number): boolean {
+  return startHour < VENUE_OPEN_HOUR || endHour > VENUE_CLOSE_HOUR;
+}
+
+/**
+ * "Another day" / "another time" / "another sport" — a request to change
+ * one field, not a booking detail.
+ *
+ * These exist because the bot itself offers them as chips. Tapping one
+ * sent literal text the parser could not read, so it answered `I didn't
+ * understand "Another" or "time"` — the bot failing to understand its own
+ * suggestion, twice in a row, with no way out of the loop. A chip whose
+ * label the parser cannot read is a dead end by construction.
+ */
+export function parseChangeIntent(text: string): "sport" | "date" | "time" | null {
+  if (!/\b(another|other|different|change|badal|koi\s*aur)\b/i.test(text)) return null;
+  if (/\b(sport|game|khel)\b/i.test(text)) return "sport";
+  if (/\b(day|date|din|tarikh)\b/i.test(text)) return "date";
+  if (/\b(time|slot|hour|samay|waqt)\b/i.test(text)) return "time";
+  return null;
+}
+
+function toVenueHours(start: number, end: number): { start: number; end: number } {
+  if (start < OPEN_HOUR) return { start: start + 24, end: end + 24 };
+  return { start, end };
+}
+
 type TimeParse = {
   startHour: number;
   endHour: number;
@@ -429,9 +481,10 @@ function parseTime(text: string, partOfDay: PartOfDay = null): TimeParse {
       endHour += 24;
     }
     if (endHour - s.hour > 0 && endHour - s.hour <= MAX_BOOKABLE_HOURS) {
+      const v = toVenueHours(s.hour, endHour);
       return {
-        startHour: s.hour,
-        endHour,
+        startHour: v.start,
+        endHour: v.end,
         assumedPm: s.assumed || e.assumed,
         span: [range.index!, range.index! + range[0].length],
       };
@@ -447,9 +500,10 @@ function parseTime(text: string, partOfDay: PartOfDay = null): TimeParse {
     const s = resolveMeridiem(Number(dur[1]), (dur[3] as "am" | "pm" | undefined) ?? null, partOfDay);
     const hours = Number(dur[4]);
     if (hours >= 1 && hours <= MAX_BOOKABLE_HOURS) {
+      const v = toVenueHours(s.hour, s.hour + hours);
       return {
-        startHour: s.hour,
-        endHour: s.hour + hours,
+        startHour: v.start,
+        endHour: v.end,
         assumedPm: s.assumed,
         span: [dur.index!, dur.index! + dur[0].length],
       };
@@ -468,9 +522,10 @@ function parseTime(text: string, partOfDay: PartOfDay = null): TimeParse {
     ?? t.match(/\b(?:at|from)\s+(\d{1,2})\b/);
   if (single) {
     const s = resolveMeridiem(Number(single[1]), (single[3] as "am" | "pm" | undefined) ?? null, partOfDay);
+    const v = toVenueHours(s.hour, s.hour + 1);
     return {
-      startHour: s.hour,
-      endHour: s.hour + 1,
+      startHour: v.start,
+      endHour: v.end,
       assumedPm: s.assumed,
       span: [single.index!, single.index! + single[0].length],
     };

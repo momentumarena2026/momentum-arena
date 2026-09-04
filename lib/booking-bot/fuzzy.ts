@@ -180,6 +180,12 @@ const NOT_CONTENT = new Set([
   "lets", "let", "yaar", "yar", "bhai", "bro", "dude", "sir", "maam",
   "thanks", "thank", "okay", "cool", "nice", "good", "sure",
   "also", "just", "day", "days",
+  // Affirmations. Answering the bot's own "Try another day?" with "yes"
+  // was met with `I didn't understand "yes"`, which is the bot failing to
+  // read a reply to its own question. An affirmation carries no booking
+  // detail, so it is scaffolding — unlike a NEGATION, which stays content
+  // because it is the customer telling us we are wrong.
+  "yes", "yeah", "yep", "yup", "haan", "han", "ha", "ji", "theek", "thik",
 ]);
 
 export type Correction = { from: string; to: string };

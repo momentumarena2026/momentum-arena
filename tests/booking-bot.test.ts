@@ -17,6 +17,8 @@ import {
   formatHourRange,
   fillGaps,
   mentionsBowlingMachine,
+  parseChangeIntent,
+  isOutsideVenueHours,
   VOCABULARY,
 } from "../lib/booking-bot/parse";
 import { spellcheck, editDistance } from "../lib/booking-bot/fuzzy";
@@ -88,9 +90,16 @@ test("24-hour input is never re-interpreted", () => {
   assert.equal(p.assumedPm, false);
 });
 
-test("noon and midnight are not shifted", () => {
+test("noon is noon, and midnight belongs to the night before", () => {
   assert.equal(parseBookingText("cricket 12 pm", NOW).startHour, 12);
-  assert.equal(parseBookingText("cricket 12 am", NOW).startHour, 0);
+  // 24, not 0. The venue's day runs 05:00-01:00 and models the hours
+  // after midnight as 24/25 — a 1 AM booking belongs to the evening it
+  // grew out of, not to the calendar day it lands in. Left as 0 it
+  // matched nothing in an availability grid that starts at 5, and
+  // "12 am to 2 am" was reported to the customer as "booked, and nothing
+  // close is free either": a slot that does not exist, described as
+  // bad luck.
+  assert.equal(parseBookingText("cricket 12 am", NOW).startHour, 24);
 });
 
 // ── ranges, durations, wrap-around ─────────────────────────────────
@@ -923,4 +932,68 @@ test("the word named back is the one that carried the meaning", () => {
   // language is still scaffolding.
   const p = parseBookingText("mujhe singing seekhni hai", NOW);
   assert.equal(p.unknown[0], "singing");
+});
+
+// ── the dead-end loop ──────────────────────────────────────────────
+
+/**
+ * A customer asked for midnight-to-2am, was told it was "booked, and
+ * nothing close is free either", answered "yes" to the bot's own "try
+ * another day?" and was told `I didn't understand "yes"`, then tapped
+ * the bot's own "Another time" chip and was told `I didn't understand
+ * "Another" or "time"`. Three replies, no way out.
+ */
+test("hours before opening belong to the night before, not to a void", () => {
+  const p = parseBookingText("cricket tomorrow 12 am to 1 am", NOW);
+  assert.equal(p.startHour, 24, "midnight is the tail of the previous evening");
+  assert.equal(p.endHour, 25);
+  assert.equal(isOutsideVenueHours(p.startHour!, p.endHour!), false, "1 AM is closing time");
+});
+
+test("past closing is reported as closed, not as taken", () => {
+  const p = parseBookingText("cricket tomorrow 12 am to 2 am", NOW);
+  assert.equal(p.startHour, 24);
+  assert.equal(p.endHour, 26);
+  assert.equal(isOutsideVenueHours(p.startHour!, p.endHour!), true, "2 AM is an hour after closing");
+});
+
+test("ordinary evening hours are inside the venue's day", () => {
+  const p = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+  assert.equal(isOutsideVenueHours(p.startHour!, p.endHour!), false);
+});
+
+test("the bot understands the chips it offers", () => {
+  // A chip's label IS the message it sends, so a label the parser cannot
+  // read is a dead end by construction. These three were offered and
+  // then rejected by the bot that offered them.
+  assert.equal(parseChangeIntent("Another time"), "time");
+  assert.equal(parseChangeIntent("Another day"), "date");
+  assert.equal(parseChangeIntent("Another sport"), "sport");
+  assert.equal(parseChangeIntent("change the day"), "date");
+  assert.equal(parseChangeIntent("koi aur time"), "time");
+});
+
+test("an ordinary booking is not mistaken for a change request", () => {
+  for (const t of ["cricket tomorrow 7 to 8 pm", "football saturday", "half court"]) {
+    assert.equal(parseChangeIntent(t), null, t);
+  }
+});
+
+test("an affirmation is not reported as gibberish", () => {
+  // "yes" was answered with `I didn't understand "yes"` — the bot
+  // failing to read a reply to its own question.
+  for (const w of ["yes", "haan", "ok", "sure", "yeah"]) {
+    const first = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+    const merged = mergeParsed(first, parseBookingText(w, NOW));
+    assert.deepEqual(merged.unknown, [], w);
+  }
+});
+
+test("a negation is still content, unlike an affirmation", () => {
+  // The asymmetry is deliberate: "no" is the customer telling us we are
+  // wrong, which is the most important thing they can say.
+  const first = parseBookingText("cricket tomorrow 7 to 8 pm", NOW);
+  const merged = mergeParsed(first, parseBookingText("no", NOW));
+  assert.ok(merged.unknown.length > 0);
+  assert.equal(merged.contributed, false);
 });
