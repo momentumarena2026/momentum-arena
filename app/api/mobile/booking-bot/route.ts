@@ -196,6 +196,7 @@ export async function POST(request: NextRequest) {
       const out = await readWithLlm(text, {
         todayIst: today,
         weekdayIst: weekday,
+        missing: ruleParsed.missing,
         // Only what the conversation established — never the customer.
         context: body.context
           ? {
@@ -249,7 +250,16 @@ export async function POST(request: NextRequest) {
   // Its own clarifying question, offered before any proposal. This is
   // the output that generalises: it covers phrasings nobody enumerated,
   // which is the entire reason a model is here rather than more regexes.
-  if (clarify && Array.isArray(clarify.options) && clarify.options.length > 0) {
+  // The guard behind the prompt. A question is only worth asking if
+  // answering it completes the booking, so a clarify with nothing
+  // required outstanding is discarded and the proposal path runs — the
+  // model asking "which court size?" must not stall a bookable request.
+  if (
+    clarify &&
+    parsed.missing.length > 0 &&
+    Array.isArray(clarify.options) &&
+    clarify.options.length > 0
+  ) {
     return NextResponse.json<Ok>({
       kind: "needs",
       missing: [],

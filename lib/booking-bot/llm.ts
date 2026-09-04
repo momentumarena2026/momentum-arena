@@ -97,7 +97,7 @@ export type LlmReading = {
   learned: { term: string; canonical: string }[];
 };
 
-function systemPrompt(todayIst: string, weekdayIst: string): string {
+function systemPrompt(todayIst: string, weekdayIst: string, missing: string[]): string {
   // Deliberately terse and closed-world. Every instruction that narrows
   // the output narrows what validation has to reject.
   return [
@@ -121,7 +121,21 @@ function systemPrompt(todayIst: string, weekdayIst: string): string {
     "- Bare hours mean PM unless stated (7 means 19:00). Evening 18:00, morning 08:00, night 21:00.",
     "- Understand Hinglish: kal=tomorrow, aaj=today, shaam=evening, subah=morning, aadha=half.",
     '- If the message is unclear or you had to guess, set confidence "low" and write a clarify question.',
-    "- clarify.options must be short, tappable answers (max 4).",
+    // Left to itself the model asked "Which court size?" on a message
+    // whose only missing field was the TIME, and offered "ANY" and "NOT
+    // SURE" — answers no parser can read, so the chips led nowhere. A
+    // clarifying question is only useful if answering it completes the
+    // booking.
+    missing.length > 0
+      ? `- STILL MISSING: ${missing.join(", ")}. A clarify question MUST ask for one of these.`
+      : "- Nothing required is missing. Set clarify to null unless the message is contradictory.",
+    "- NEVER ask about court size. It is optional and a booking completes without it.",
+    "- clarify.options must be literal answers a customer can tap and we can parse:",
+    '    sport → "Cricket" / "Football" / "Pickleball"',
+    '    date  → "today" / "tomorrow" / a weekday name',
+    '    time  → "6-7 pm" / "7-8 pm" / "8-9 pm"',
+    '- NEVER offer "any", "not sure", "I don\'t know" or similar. They answer nothing.',
+    "- clarify.options: 2 to 4 entries.",
     "- learned: any non-obvious word you resolved, mapped to a plain English equivalent. Else [].",
     "- Never invent a price, a court name, or availability. You do not know what is free.",
   ].join("\n");
@@ -140,6 +154,9 @@ export async function readWithLlm(
     todayIst: string;
     weekdayIst: string;
     context?: Record<string, unknown> | null;
+    /** What the rule parser still needs, so a clarifying question asks
+     *  for something that actually completes the booking. */
+    missing?: string[];
   },
 ): Promise<{ reading: LlmReading | null; latencyMs: number; raw: unknown }> {
   const key = process.env.GROQ_API_KEY;
@@ -183,7 +200,10 @@ export async function readWithLlm(
         max_completion_tokens: 1500,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: systemPrompt(opts.todayIst, opts.weekdayIst) },
+          {
+            role: "system",
+            content: systemPrompt(opts.todayIst, opts.weekdayIst, opts.missing ?? []),
+          },
           { role: "user", content: userContent },
         ],
       }),
