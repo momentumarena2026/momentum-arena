@@ -26,16 +26,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import { fetchTournamentHub } from "../../lib/tournaments";
 import { fetchCampsHub } from "../../lib/camps";
-import {
-  Bell,
-  Camera,
-  Clock,
-  Mail,
-  MapPin,
-  MessageCircle,
-  Phone as PhoneIcon,
-  Video,
-} from "lucide-react-native";
+import { Bell, Camera, ChevronRight, Clock, Mail, MapPin, MessageCircle, Phone as PhoneIcon, Sparkles, Video } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -247,12 +238,11 @@ export function HomeScreen() {
           {signedIn ? (
             <View style={styles.topNavRight}>
               <Pressable
-                onPress={() =>
-                  navigation.navigate("Account", {
-                    screen: "Notifications",
-                    initial: false,
-                  })
-                }
+                // Push within the HOME stack, not across to the Account
+                // tab. Jumping tabs meant Back dropped the customer on
+                // Account — a screen they had never visited — instead of
+                // returning them to Home where they tapped the bell.
+                onPress={() => homeNav.navigate("Notifications")}
                 hitSlop={8}
                 style={styles.bellBtn}
               >
@@ -321,6 +311,40 @@ export function HomeScreen() {
               Camps only appears while the module is on — otherwise
               Tournaments takes the full width rather than leaving a gap. */}
           <View style={styles.heroCtas}>
+            {/* Quick book sits ABOVE the tile grid and full-width, because
+                it is the fastest route to the app's one revenue action and
+                because nobody discovers a feature they have never heard of
+                from a tile that looks like the four beside it. The NEW
+                badge is deliberately temporary — see the note on the
+                style — and the tile grid below is untouched, so the
+                familiar path stays exactly where regulars expect it. */}
+            <Pressable
+              onPress={() =>
+                navigation.navigate("Sports", { screen: "BookingBot" })
+              }
+              style={({ pressed }) => [styles.quickBook, pressed && styles.pressed]}
+            >
+              <View style={styles.quickBookIcon}>
+                <Sparkles size={17} color={colors.emerald400} />
+              </View>
+              <View style={styles.quickBookBody}>
+                <View style={styles.quickBookTitleRow}>
+                  <Text variant="bodyStrong" color={colors.foreground}>
+                    Quick book
+                  </Text>
+                  <View style={styles.newPill}>
+                    <Text variant="tiny" weight="700" color="#032016">
+                      NEW
+                    </Text>
+                  </View>
+                </View>
+                <Text variant="tiny" color={colors.zinc400}>
+                  Just type “football tomorrow 7 to 8 pm”
+                </Text>
+              </View>
+              <ChevronRight size={18} color={colors.zinc500} />
+            </Pressable>
+
             <View style={styles.heroRow}>
               <Pressable
                 onPress={() => {
@@ -1096,6 +1120,37 @@ function SocialPill({
 }
 
 const styles = StyleSheet.create({
+  quickBook: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+    backgroundColor: colors.emerald500_10,
+    borderRadius: radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  quickBookIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+  },
+  quickBookBody: { flex: 1, gap: 2 },
+  quickBookTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // Retire this once the feature stops being new — a NEW badge that never
+  // goes away stops meaning anything and starts reading as decoration.
+  newPill: {
+    backgroundColor: colors.emerald400,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+  },
   scroll: {
     paddingBottom: spacing["12"],
   },

@@ -11,6 +11,12 @@ import type { Sport } from "../lib/types";
  */
 export type HomeStackParamList = {
   HomeMain: undefined;
+  // Registered here AND in AccountStack, same route name — the shared
+  // screen resolves in whichever stack it is mounted in (the
+  // MyPasses / ShopOrderDetail precedent). Without this the Home bell had
+  // to jump to the Account TAB to reach it, so Back landed the customer
+  // on Account rather than where they started.
+  Notifications: undefined;
   TournamentsList: undefined;
   Camps: undefined;
   TournamentDetail: { slug: string };

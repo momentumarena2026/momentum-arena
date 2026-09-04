@@ -50,9 +50,29 @@ export async function notifyUser(
   }
 }
 
-export async function listNotifications(userId: string, limit = 50) {
+/**
+ * One page of a customer's notifications, newest first.
+ *
+ * `limit` used to be a silent ceiling: the endpoint took 50 and there was
+ * no way to ask for more, so anyone past 50 simply lost their older
+ * notifications with nothing saying so. Production's heaviest user is at
+ * 26 today, which is exactly why this is worth fixing now rather than
+ * after someone notices history disappearing.
+ *
+ * Keyset paging on createdAt, not offset: rows arrive at the top while a
+ * customer is scrolling, and an offset would make that shift duplicate or
+ * skip a row.
+ */
+export async function listNotifications(
+  userId: string,
+  limit = 20,
+  cursor?: string | null,
+) {
   return db.userNotification.findMany({
-    where: { userId },
+    where: {
+      userId,
+      ...(cursor ? { createdAt: { lt: new Date(cursor) } } : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: limit,
     select: {
