@@ -146,6 +146,13 @@ function systemPrompt(todayIst: string, weekdayIst: string, missing: string[]): 
     "- clarify.options: 2 to 4 entries.",
     "- learned: any non-obvious word you resolved, mapped to a plain English equivalent. Else [].",
     "- Never invent a price, a court name, or availability. You do not know what is free.",
+    // Handed the previous turn's context, the model echoed it back and
+    // ignored the new message entirely: "monday ko kardo shaam ko 8-9"
+    // came back as the Sunday 7pm slot from the turn before. Context is
+    // there to complete a message, never to answer instead of it.
+    '- "Already established" is from EARLIER messages. Anything the new message states',
+    "  REPLACES it. Only carry an established value forward for something the new",
+    "  message does not mention at all.",
   ].join("\n");
 }
 

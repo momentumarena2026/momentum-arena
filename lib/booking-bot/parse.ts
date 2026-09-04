@@ -543,7 +543,76 @@ export function mergeParsed(
   };
 }
 
-/** "7:00–8:00 PM" for the confirmation card. Handles the 24/25 late window. *//** "7:00–8:00 PM" for the confirmation card. Handles the 24/25 late window. */
+/**
+ * Layer a model reading UNDER the rule parser's, not over it.
+ *
+ * The model fills gaps. It does not overrule a value the rules read
+ * straight out of the customer's words.
+ *
+ * This was learnt the expensive way. "monday ko kardo shaam ko 8-9
+ * cricket" was parsed correctly by the rules — Monday the 7th, 20:00 to
+ * 21:00, cricket — and the model, which had been handed the previous
+ * turn's context, echoed that context instead of re-reading the message
+ * and answered Sunday the 6th, 19:00 to 20:00. A plain merge treated the
+ * model as the fresher, better source and replaced three correct fields
+ * with three wrong ones. The customer had explicitly said Monday and
+ * eight-to-nine, and was shown Sunday, seven-to-eight, ready to pay.
+ *
+ * So the precedence is: an explicit reading beats an inferred one. Rules
+ * win wherever they resolved a field from a real token; the model wins
+ * only where the rules had nothing, or where the rules ADMITTED to
+ * guessing (assumedToday, unresolvedDay) — which is exactly the set of
+ * cases the model was brought in for.
+ *
+ * The rules' own doubts survive too. `ambiguous` and `unknown` describe
+ * the message, and the model produces neither; dropping them let a
+ * flagged ambiguity ("mundy" — Monday or Sunday?) turn into a silent
+ * booking on the wrong day.
+ */
+export function fillGaps(rules: ParsedBooking, model: ParsedBooking): ParsedBooking {
+  // A date the rules resolved from a real day word, rather than defaulted
+  // to today or failed to read, is not up for revision.
+  const rulesDateIsFirm = rules.date != null && !rules.assumedToday && !rules.unresolvedDay;
+  const date = rulesDateIsFirm ? rules.date : (model.date ?? rules.date);
+  const dateFromModel = !rulesDateIsFirm && model.date != null;
+
+  // Time moves as a unit. Half from each source would invent a window
+  // nobody asked for.
+  const rulesHasTime = rules.startHour != null && rules.endHour != null;
+  const modelHasTime = model.startHour != null && model.endHour != null;
+  const useModelTime = !rulesHasTime && modelHasTime;
+  const startHour = useModelTime ? model.startHour : rules.startHour;
+  const endHour = useModelTime ? model.endHour : rules.endHour;
+
+  const sport = rules.sport ?? model.sport;
+
+  const missing: ParsedBooking["missing"] = [];
+  if (!sport) missing.push("sport");
+  if (!date) missing.push("date");
+  if (startHour == null || endHour == null) missing.push("time");
+
+  return {
+    sport,
+    date,
+    startHour,
+    endHour,
+    // A flag describes the source it came from. The model resolves
+    // meridiems itself and is given today's date, so its values carry no
+    // assumption to announce.
+    assumedPm: useModelTime ? false : rules.assumedPm,
+    assumedToday: dateFromModel ? false : rules.assumedToday,
+    courtSize: rules.courtSize ?? model.courtSize,
+    missing,
+    corrections: rules.corrections,
+    unknown: rules.unknown,
+    ambiguous: rules.ambiguous,
+    // Answered only if the model actually produced the day that was
+    // missing. Otherwise the question still stands.
+    unresolvedDay: dateFromModel ? false : rules.unresolvedDay,
+  };
+}
+
+/** "7:00–8:00 PM" for the confirmation card. Handles the 24/25 late window. */
 export function formatHourRange(startHour: number, endHour: number): string {
   const label = (h: number) => {
     const wall = h % 24;

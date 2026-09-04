@@ -6,6 +6,7 @@ import {
   parseBookingText,
   mergeParsed,
   formatHourRange,
+  fillGaps,
   VOCABULARY,
   type ParsedBooking,
 } from "@/lib/booking-bot/parse";
@@ -162,11 +163,16 @@ export async function POST(request: NextRequest) {
   const horizon = istDateKey(new Date(now.getTime() + BOOKING_HORIZON_DAYS * 86400000));
   const normalized = normalizeMessage(text);
 
+  // An ambiguity the rules found is NOT a job for the model. Two
+  // vocabulary words equally close ("mundy" — Monday or Sunday?) is
+  // knowledge, not a gap: we know for a fact that two readings fit. The
+  // model, asked anyway, answered Sunday with high confidence and the
+  // question never reached the customer. Ask, and skip the call.
   const needsHelp =
-    ruleParsed.missing.length > 0 ||
-    ruleParsed.ambiguous.length > 0 ||
-    ruleParsed.unresolvedDay ||
-    ruleParsed.unknown.length > 0;
+    ruleParsed.ambiguous.length === 0 &&
+    (ruleParsed.missing.length > 0 ||
+      ruleParsed.unresolvedDay ||
+      ruleParsed.unknown.length > 0);
 
   let parsed = ruleParsed;
   let route = "";
@@ -181,14 +187,10 @@ export async function POST(request: NextRequest) {
     // this is the number that should climb as the log fills.
     const cached = await cachedReading(normalized, today);
     if (cached && typeof cached === "object") {
-      parsed = mergeParsed(ruleParsed, cached as ParsedBooking);
+      parsed = fillGaps(ruleParsed, cached as ParsedBooking);
       route = "cache-hit";
     } else {
-      route = ruleParsed.ambiguous.length > 0
-        ? "ambiguous"
-        : ruleParsed.unresolvedDay
-          ? "unresolved-day"
-          : "missing";
+      route = ruleParsed.unresolvedDay ? "unresolved-day" : "missing";
 
       const weekday = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][
         toIst(now).getUTCDay()
@@ -213,9 +215,10 @@ export async function POST(request: NextRequest) {
 
       const verdict = validateLlmReading(out.reading, { todayIst: today, horizonIst: horizon });
       if (verdict.ok) {
-        // The model's reading LAYERS OVER the rules' — anything it left
-        // null keeps whatever the conversation already knew.
-        parsed = mergeParsed(ruleParsed, verdict.parsed);
+        // UNDER the rules, not over them. See fillGaps: the model fills
+        // what the rules could not read and never overrules what they
+        // read straight out of the customer's words.
+        parsed = fillGaps(ruleParsed, verdict.parsed);
         // Asked to always ask before proposing when only partly
         // understood: low confidence never becomes a card.
         if (out.reading?.confidence === "low" && out.reading.clarify) {

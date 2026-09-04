@@ -15,6 +15,7 @@ import {
   parseBookingText,
   mergeParsed,
   formatHourRange,
+  fillGaps,
   VOCABULARY,
 } from "../lib/booking-bot/parse";
 import { spellcheck, editDistance } from "../lib/booking-bot/fuzzy";
@@ -719,4 +720,65 @@ test("an answer from an earlier turn settles an unresolved day", () => {
   assert.equal(merged.unresolvedDay, false, "the question has been answered");
   assert.equal(merged.date, "2026-09-06");
   assert.equal(merged.startHour, 13, "the time survives the correction");
+});
+
+// ── the model fills gaps; it does not overrule the rules ───────────
+
+/**
+ * Found on device, and the worst failure of the lot: the rules read
+ * "monday ko kardo shaam ko 8-9 cricket" perfectly — Monday the 7th,
+ * 20:00-21:00 — and the model, handed the previous turn's context,
+ * echoed that context back as Sunday the 6th, 19:00-20:00. A plain merge
+ * treated the model as the fresher source and replaced three correct
+ * fields with three wrong ones, then offered it ready to pay.
+ */
+test("an explicit rule reading survives a contradicting model reading", () => {
+  const rules = parseBookingText("monday ko shaam ko 8-9 cricket", NOW);
+  assert.equal(rules.date, "2026-09-07", "precondition: rules read Monday");
+  assert.equal(rules.startHour, 20);
+
+  const model = { ...rules, date: "2026-09-06", startHour: 19, endHour: 20 };
+  const out = fillGaps(rules, model);
+
+  assert.equal(out.date, "2026-09-07", "the customer said Monday");
+  assert.equal(out.startHour, 20, "and said 8-9");
+  assert.equal(out.endHour, 21);
+});
+
+test("the model fills what the rules could not read", () => {
+  const rules = parseBookingText("cricket kal shaam", NOW);
+  assert.ok(rules.startHour == null, "precondition: rules find no time");
+  const model = { ...rules, date: "2026-09-05", startHour: 18, endHour: 20 };
+  const out = fillGaps(rules, model);
+  assert.equal(out.startHour, 18, "the gap is the model's to fill");
+  assert.equal(out.endHour, 20);
+  assert.deepEqual(out.missing, []);
+});
+
+test("a date the rules only ASSUMED is the model's to correct", () => {
+  // assumedToday is the rules admitting they guessed. That is precisely
+  // the case the model was brought in for, so it must win there.
+  const rules = parseBookingText("cricket 7 pm", NOW);
+  assert.equal(rules.assumedToday, true);
+  const out = fillGaps(rules, { ...rules, date: "2026-09-09", assumedToday: false });
+  assert.equal(out.date, "2026-09-09");
+  assert.equal(out.assumedToday, false, "no longer an assumption");
+});
+
+test("the rules' own doubts are not erased by a confident model", () => {
+  // "mundy" is equidistant from Monday and Sunday. The model answered
+  // Sunday with high confidence, the flag was dropped in the merge, and
+  // the question never reached the customer — a silent booking on the
+  // wrong day.
+  const rules = parseBookingText("mundy ko 7-8 cricket", NOW);
+  assert.equal(rules.ambiguous.length, 1, "precondition: rules are unsure");
+  const out = fillGaps(rules, { ...rules, date: "2026-09-06", ambiguous: [] });
+  assert.equal(out.ambiguous.length, 1, "still unsure, so still asks");
+});
+
+test("a half window from the model is refused, not spliced in", () => {
+  const rules = parseBookingText("cricket tomorrow", NOW);
+  const out = fillGaps(rules, { ...rules, startHour: 19, endHour: null });
+  assert.equal(out.startHour, null, "half a window invents the other half");
+  assert.ok(out.missing.includes("time"));
 });
