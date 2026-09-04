@@ -382,3 +382,50 @@ test("durations inside the limit still work", () => {
     assert.equal(p.endHour, end, `${h}h`);
   }
 });
+
+/**
+ * Findings from an independent tester who had never seen the code.
+ * Both of these silently sold something other than what was typed.
+ */
+test("a backwards range asks instead of silently flipping", () => {
+  // Typed "8 to 7 pm" (meaning 6-7, fat-fingered). The range was rejected
+  // for being backwards, then the SINGLE-time branch matched the trailing
+  // "7 pm" and quietly booked 7-8 PM. The customer would never have known
+  // the app chose a different hour than the one they asked for.
+  const p = parseBookingText("football tomorrow 8 to 7 pm", NOW);
+  assert.equal(p.startHour, null);
+  assert.equal(p.endHour, null);
+  assert.ok(p.missing.includes("time"));
+});
+
+test("a genuine overnight range still works", () => {
+  // The fix must not break "11pm to 1am", where the meridiems differ and
+  // wrapping past midnight is exactly what was meant.
+  const p = parseBookingText("cricket tomorrow 11pm to 1am", NOW);
+  assert.equal(p.startHour, 23);
+  assert.equal(p.endHour, 25);
+});
+
+test("a bare '11 to 1' is genuinely ambiguous, so it asks", () => {
+  // No meridiem, so both ends default to PM: 23 to 13, which is nonsense.
+  // 11am-1pm and 11pm-1am are both plausible and the text cannot settle
+  // it, so asking beats guessing on a payment path.
+  const p = parseBookingText("cricket tomorrow 11 to 1", NOW);
+  assert.equal(p.startHour, null);
+  assert.ok(p.missing.includes("time"));
+});
+
+test("spelling out the meridiems resolves that ambiguity", () => {
+  const am = parseBookingText("cricket tomorrow 11 am to 1 pm", NOW);
+  assert.equal(am.startHour, 11);
+  assert.equal(am.endHour, 13);
+});
+
+test("yesterday parses as yesterday, not as today", () => {
+  // Unrecognised, "yesterday 5 to 6 pm" fell through to today-by-default
+  // and the tester was offered today's slots with no indication the day
+  // had changed under them.
+  const p = parseBookingText("cricket yesterday 5 to 6 pm", NOW);
+  assert.equal(p.date, "2026-09-03", "the day before NOW");
+  assert.equal(p.assumedToday, false);
+});

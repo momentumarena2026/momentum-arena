@@ -209,6 +209,31 @@ export function BookingBotScreen() {
     [navigation],
   );
 
+  /**
+   * Answer the bot with an offered alternative.
+   *
+   * Renders it as an ordinary proposal so the customer confirms it the
+   * same way they would any other — the server already priced this exact
+   * window, so no round trip is needed to restate it.
+   */
+  const choose = useCallback((s: Suggestion) => {
+    setBubbles((b) => [
+      ...b,
+      { id: nextId(), from: "me", text: `${dayLabel(s.date)}, ${s.timeLabel}` },
+      {
+        id: nextId(),
+        from: "bot",
+        reply: {
+          kind: "proposal",
+          message: `${s.courtLabel} is free then.`,
+          note: null,
+          proposal: s,
+        },
+      },
+    ]);
+    scrollDown();
+  }, [scrollDown]);
+
   const renderBubble = useCallback(
     ({ item }: { item: Bubble }) => {
       if (item.from === "me") {
@@ -271,13 +296,25 @@ export function BookingBotScreen() {
                 {r.suggestions.map((s) => (
                   <Pressable
                     key={`${s.courtConfigId}-${s.startHour}`}
-                    onPress={() => void confirm(s)}
+                    // Picking an alternative does NOT book it. It answers
+                    // the bot with that choice, which comes back as a
+                    // normal proposal card needing an explicit Confirm.
+                    // Before this, one tap on a row a customer was only
+                    // reading reserved real inventory, started a 5-minute
+                    // hold and spent their loyalty points by default —
+                    // with no confirm step, unlike the main flow. An
+                    // independent tester flagged it as the riskiest thing
+                    // on the screen and they were right.
+                    onPress={() => void choose(s)}
                     style={({ pressed }) => [styles.sug, pressed && { opacity: 0.8 }]}
                   >
                     <View style={styles.sugMain}>
                       <Text style={styles.sugTime}>{s.timeLabel}</Text>
+                      {/* The date was missing entirely. Testing several
+                          days back to back, the tester could not tell
+                          which day an alternative was even for. */}
                       <Text style={styles.sugMeta}>
-                        {s.courtLabel}
+                        {dayLabel(s.date)} · {s.courtLabel}
                         {s.differentCourt ? " · other court" : ""}
                       </Text>
                     </View>
@@ -290,7 +327,7 @@ export function BookingBotScreen() {
         </View>
       );
     },
-    [confirm, locking, send],
+    [choose, confirm, locking, send],
   );
   // Belt and braces: even with stable callbacks, tell FlatList when the
   // things a row RENDERS (the confirm spinner) have changed.

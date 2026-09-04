@@ -117,6 +117,11 @@ function parseDate(text: string, now: Date): { date: string | null; assumedToday
   if (/\bday\s*after\s*tomorrow\b/i.test(text)) return { date: dayKeyFromOffset(now, 2), assumedToday: false };
   if (/\b(tomorrow|tmrw|tmr|kal)\b/i.test(text)) return { date: dayKeyFromOffset(now, 1), assumedToday: false };
   if (/\b(today|tonight|aaj)\b/i.test(text)) return { date: dayKeyFromOffset(now, 0), assumedToday: false };
+  // Recognised ONLY so the route can say "that has passed". Unparsed, it
+  // fell through to the today-by-default branch and a tester asking for
+  // "yesterday 5 to 6 pm" was quietly offered slots on today instead.
+  if (/\b(yesterday|kal\s+tha|beeta)\b/i.test(text)) return { date: dayKeyFromOffset(now, -1), assumedToday: false };
+  if (/\bday\s*before\s*yesterday\b/i.test(text)) return { date: dayKeyFromOffset(now, -2), assumedToday: false };
 
   // Weekday name → the NEXT such day. "monday" said on a Monday means the
   // Monday coming, not today: someone booking same-day says "today".
@@ -195,10 +200,25 @@ function parseTime(text: string): TimeParse {
     const e = resolveMeridiem(Number(range[4]), endMer ?? startMer);
     let endHour = e.hour;
     // "11pm to 1am" wraps past midnight; the venue models that as 24/25.
-    if (endHour <= s.hour) endHour += 24;
-    if (endHour - s.hour > 0 && endHour - s.hour <= 12) {
+    // But only when the END has its own am/pm, or neither side does — an
+    // explicit "8 to 7 pm" is a typo, not a booking until 7am tomorrow.
+    const bothPm = startMer != null && endMer != null && startMer === endMer;
+    if (endHour <= s.hour) {
+      if (bothPm) {
+        // "8 to 7 pm" — same meridiem, backwards. A tester typed exactly
+        // this and the parser silently sold them 7-8 PM: it fell through
+        // to the single-time branch, which matched the "7 pm" at the end.
+        // Somebody who meant 6-7 and typed 8-7 would never have known.
+        return null;
+      }
+      endHour += 24;
+    }
+    if (endHour - s.hour > 0 && endHour - s.hour <= MAX_BOOKABLE_HOURS) {
       return { startHour: s.hour, endHour, assumedPm: s.assumed || e.assumed };
     }
+    // An explicit range we cannot honour must not fall through to the
+    // single-time branch and quietly become something else.
+    return null;
   }
 
   // 2. Single time + explicit duration: "7pm for 2 hours"

@@ -139,6 +139,24 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // An hour that has already gone today is not bookable, and saying
+  // "that's booked, here's 9pm" for a 6pm slot at 8:51pm reads as though
+  // somebody else took it. A tester hit exactly this and could not tell
+  // whether the alternatives offered were even on the right day.
+  if (date === today) {
+    const istHourNow = Number(
+      new Date(now.getTime() + 330 * 60000).toISOString().slice(11, 13),
+    );
+    if (endHour <= istHourNow) {
+      return NextResponse.json<Ok>({
+        kind: "needs",
+        missing: ["time"],
+        message: `${formatHourRange(startHour, endHour)} has already gone today — what time were you thinking?`,
+        parsed,
+      });
+    }
+  }
+
   // Same horizon the slot picker offers (DATE_WINDOW_DAYS = 30 in
   // BookSlotsScreen). Without this the bot would quote and hold dates no
   // other surface will show — it quoted three months out in testing —
