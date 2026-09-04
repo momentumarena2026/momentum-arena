@@ -3797,3 +3797,80 @@ model PublicMatch {
   @@index([status, createdAt])
   @@index([createdByUserId])
 }
+
+/// One Quick book message and everything we understood from it.
+///
+/// This table is the whole point of the learning loop. The venue does not
+/// want to depend on a third-party LLM forever, and the way out is not to
+/// train a neural net — it is to harvest deterministic knowledge from the
+/// model's answers and promote it into rules that then run for free.
+///
+/// Three signals come out of it:
+///   1. Repeats. The same phrasing arrives again and again; a normalised
+///      hit skips the model entirely.
+///   2. Vocabulary. Words the model resolved and our parser didn't
+///      ("shaam", a court nickname) become BookingBotTerm rows.
+///   3. Disagreements. Rows where the parser AND the model both produced
+///      a reading and they differ are the highest-value review queue —
+///      they say which of our own rules are wrong.
+///
+/// `confirmed` is ground truth: what the customer actually booked. A
+/// reading nobody confirmed is a hypothesis; one they paid for is a fact.
+model BookingBotLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  /// The message as typed. No other customer data is ever stored here,
+  /// and none is ever sent to the model — see lib/booking-bot/llm.ts.
+  text         String
+  /// Normalised form used as the cache key (lowercased, collapsed
+  /// whitespace, relative days left intact since they resolve per-day).
+  normalized   String
+  /// What the rule parser made of it, before any model call.
+  parserResult Json?
+  /// What the model returned, raw, before validation. Null when the
+  /// parser was confident enough that no call was made — which is the
+  /// number we want to see climb.
+  llmResult    Json?
+  /// Why the model was called, or "" when it wasn't: "missing",
+  /// "ambiguous", "unresolved-day", "cache-hit".
+  route        String   @default("")
+  /// Validation verdict on the model's output. A rejected reading never
+  /// reaches availability; it becomes a clarifying question instead.
+  rejected     String?
+  /// The reading finally shown to the customer.
+  finalResult  Json?
+  /// True once this message's proposal became a real booking. The only
+  /// unambiguous label we get.
+  confirmed    Boolean  @default(false)
+  /// Round-trip milliseconds for the model call, for latency budgeting.
+  latencyMs    Int?
+  createdAt    DateTime @default(now())
+
+  @@index([normalized])
+  @@index([createdAt])
+  @@index([route])
+}
+
+/// A word the system has LEARNED, promoted out of BookingBotLog.
+///
+/// This is the mechanism by which dependency on the model shrinks: once a
+/// term is here, the rule parser resolves it with no network call, for
+/// free, forever. Rows are reviewed before they go live — `approved`
+/// gates that — because an unreviewed vocabulary is just the model's
+/// mistakes written down permanently.
+model BookingBotTerm {
+  id        String   @id @default(cuid())
+  /// The word as customers type it, lowercased.
+  term      String   @unique
+  /// What it means, in the parser's own vocabulary ("evening", "cricket").
+  canonical String
+  /// How many distinct messages have used it. Drives review priority.
+  seenCount Int      @default(1)
+  /// Off until a human has looked at it.
+  approved  Boolean  @default(false)
+  source    String   @default("llm")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([approved])
+}

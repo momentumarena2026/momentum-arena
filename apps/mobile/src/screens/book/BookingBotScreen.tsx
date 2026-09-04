@@ -68,6 +68,7 @@ type BotReply =
       /** Server-chosen chips, when the question is specific to the
        *  message (e.g. "Thursday or Tuesday?"). Beats QUICK below. */
       chips?: string[];
+      logId?: string | null;
     }
   | {
       kind: "proposal";
@@ -75,6 +76,10 @@ type BotReply =
       note: string | null;
       parsed?: ParsedContext;
       proposal: Proposal;
+      /** The server's log row for the message that produced this offer.
+       *  Sent back on a successful hold so the system can learn which
+       *  phrasings it read correctly. */
+      logId?: string | null;
     }
   | {
       kind: "taken";
@@ -82,6 +87,7 @@ type BotReply =
       parsed?: ParsedContext;
       requested: { date: string; timeLabel: string };
       suggestions: Suggestion[];
+      logId?: string | null;
     };
 
 type Bubble =
@@ -215,7 +221,7 @@ export function BookingBotScreen() {
    * this tap fails here rather than double-selling.
    */
   const confirm = useCallback(
-    async (p: Proposal) => {
+    async (p: Proposal, logId?: string | null) => {
       if (lockingRef.current) return;
       lockingRef.current = true;
       setLocking(true);
@@ -227,6 +233,15 @@ export function BookingBotScreen() {
           hours: p.hours,
         });
         if (!res?.holdId) throw new Error("That slot just went — try another time.");
+        // Ground truth for the learning loop: this phrasing was read
+        // correctly enough that the customer went through with it.
+        // Deliberately not awaited and deliberately swallowed — the loop
+        // must never stand between a customer and their booking.
+        if (logId) {
+          void api
+            .post("/api/mobile/booking-bot/confirm", { logId })
+            .catch(() => undefined);
+        }
         navigation.navigate("Checkout", { holdId: res.holdId });
       } catch (e) {
         setError(
@@ -313,7 +328,7 @@ export function BookingBotScreen() {
                 <ProposalCard p={r.proposal} />
                 {r.note ? <Text style={styles.note}>{r.note}</Text> : null}
                 <Pressable
-                  onPress={() => void confirm(r.proposal)}
+                  onPress={() => void confirm(r.proposal, r.logId)}
                   disabled={locking}
                   style={({ pressed }) => [
                     styles.cta,

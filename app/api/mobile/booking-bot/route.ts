@@ -6,6 +6,7 @@ import {
   parseBookingText,
   mergeParsed,
   formatHourRange,
+  VOCABULARY,
   type ParsedBooking,
 } from "@/lib/booking-bot/parse";
 import {
@@ -14,7 +15,15 @@ import {
   suggestAlternatives,
   type CourtDay,
 } from "@/lib/booking-bot/suggest";
-import { istDateKey } from "@/lib/ist";
+import { istDateKey, toIst } from "@/lib/ist";
+import { readWithLlm } from "@/lib/booking-bot/llm";
+import { validateLlmReading, usefulTerms } from "@/lib/booking-bot/validate";
+import {
+  normalizeMessage,
+  cachedReading,
+  logMessage,
+  rememberTerms,
+} from "@/lib/booking-bot/learn";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +58,9 @@ type Ok =
        * in a fixed list.
        */
       chips?: string[];
+      /** BookingBotLog row, echoed back so a confirmed booking can be
+       *  attributed to the reading that produced it. */
+      logId?: string | null;
     }
   | {
       kind: "proposal";
@@ -56,6 +68,10 @@ type Ok =
       note: string | null;
       /** Carried forward so a refinement like "no, only half court" works. */
       parsed: unknown;
+      /** BookingBotLog row. Echoed back so that a booking the customer
+       *  actually completes can be attributed to the reading that
+       *  produced it — the only unambiguous label the loop ever gets. */
+      logId?: string | null;
       proposal: {
         sport: string;
         courtConfigId: string;
@@ -73,6 +89,7 @@ type Ok =
       message: string;
       /** Carried forward so the next turn keeps the sport and date. */
       parsed: unknown;
+      logId?: string | null;
       requested: { date: string; timeLabel: string };
       suggestions: {
         courtConfigId: string;
@@ -128,7 +145,120 @@ export async function POST(request: NextRequest) {
   // time, and answering "7-8 pm" then asks for a sport, because each
   // message is parsed in isolation. The client hands back the last
   // incomplete reading; the server stays stateless.
-  const parsed = mergeParsed(body.context ?? null, parseBookingText(text, now));
+  const ruleParsed = mergeParsed(body.context ?? null, parseBookingText(text, now));
+
+  // ── Rules first, model only on what rules could not settle ────────
+  //
+  // The rule parser is fast, free, deterministic and already correct for
+  // the sentences people mostly type. What it cannot be is COMPLETE:
+  // every new phrasing found one more gap, and patching gaps only
+  // terminates if the set of phrasings is finite. It isn't.
+  //
+  // So the model runs on the residual — the messages rules could not
+  // read — and nowhere else. That keeps the common path free of a
+  // network hop, keeps cost near zero, and leaves the deterministic
+  // reading in hand as the fallback if the provider is slow or down.
+  const today = istDateKey(now);
+  const horizon = istDateKey(new Date(now.getTime() + BOOKING_HORIZON_DAYS * 86400000));
+  const normalized = normalizeMessage(text);
+
+  const needsHelp =
+    ruleParsed.missing.length > 0 ||
+    ruleParsed.ambiguous.length > 0 ||
+    ruleParsed.unresolvedDay ||
+    ruleParsed.unknown.length > 0;
+
+  let parsed = ruleParsed;
+  let route = "";
+  let llmRaw: unknown = null;
+  let rejected: string | null = null;
+  let latencyMs: number | null = null;
+  let clarify: { question: string; options: string[] } | null = null;
+
+  if (needsHelp) {
+    // A phrasing this customer base has used before, on this same day,
+    // that someone actually booked. Costs nothing and skips the call —
+    // this is the number that should climb as the log fills.
+    const cached = await cachedReading(normalized, today);
+    if (cached && typeof cached === "object") {
+      parsed = mergeParsed(ruleParsed, cached as ParsedBooking);
+      route = "cache-hit";
+    } else {
+      route = ruleParsed.ambiguous.length > 0
+        ? "ambiguous"
+        : ruleParsed.unresolvedDay
+          ? "unresolved-day"
+          : "missing";
+
+      const weekday = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][
+        toIst(now).getUTCDay()
+      ];
+      const out = await readWithLlm(text, {
+        todayIst: today,
+        weekdayIst: weekday,
+        // Only what the conversation established — never the customer.
+        context: body.context
+          ? {
+              sport: body.context.sport ?? null,
+              date: body.context.date ?? null,
+              startHour: body.context.startHour ?? null,
+              endHour: body.context.endHour ?? null,
+              courtSize: body.context.courtSize ?? null,
+            }
+          : null,
+      });
+      llmRaw = out.raw;
+      latencyMs = out.latencyMs;
+
+      const verdict = validateLlmReading(out.reading, { todayIst: today, horizonIst: horizon });
+      if (verdict.ok) {
+        // The model's reading LAYERS OVER the rules' — anything it left
+        // null keeps whatever the conversation already knew.
+        parsed = mergeParsed(ruleParsed, verdict.parsed);
+        // Asked to always ask before proposing when only partly
+        // understood: low confidence never becomes a card.
+        if (out.reading?.confidence === "low" && out.reading.clarify) {
+          clarify = out.reading.clarify;
+        }
+        void rememberTerms(usefulTerms(out.reading?.learned, new Set(VOCABULARY.map((v) => v.word))));
+      } else {
+        // A reading that failed validation is discarded entirely, not
+        // partially adopted. We fall back to the rules' answer, which is
+        // at worst an honest question.
+        rejected = verdict.reason;
+      }
+    }
+  }
+
+  // Fire-and-forget: the row makes tomorrow's parser better, and is
+  // never worth delaying today's customer for.
+  const logId = await logMessage({
+    userId,
+    text,
+    normalized,
+    parserResult: ruleParsed,
+    llmResult: llmRaw,
+    route,
+    rejected,
+    finalResult: parsed,
+    latencyMs,
+  }).catch(() => null);
+
+  // ── The model said it wasn't sure ─────────────────────────────────
+  //
+  // Its own clarifying question, offered before any proposal. This is
+  // the output that generalises: it covers phrasings nobody enumerated,
+  // which is the entire reason a model is here rather than more regexes.
+  if (clarify && Array.isArray(clarify.options) && clarify.options.length > 0) {
+    return NextResponse.json<Ok>({
+      kind: "needs",
+      missing: [],
+      message: String(clarify.question).slice(0, 200),
+      chips: clarify.options.slice(0, 4).map((o) => String(o).slice(0, 24)),
+      parsed,
+      logId,
+    });
+  }
 
   // ── Ambiguity beats everything else ────────────────────────────────
   //
@@ -197,7 +327,6 @@ export async function POST(request: NextRequest) {
 
   // A date in the past is a typo, not a request. Say so plainly instead
   // of returning an empty availability grid the bot would read as "taken".
-  const today = istDateKey(now);
   if (date < today) {
     return NextResponse.json<Ok>({
       kind: "needs",
@@ -230,8 +359,7 @@ export async function POST(request: NextRequest) {
   // other surface will show — it quoted three months out in testing —
   // which quietly routes around whatever the 30-day window is there to
   // protect (pricing changes, seasonal closures, staffing).
-  const horizon = new Date(now.getTime() + BOOKING_HORIZON_DAYS * 86400000);
-  if (date > istDateKey(horizon)) {
+  if (date > horizon) {
     return NextResponse.json<Ok>({
       kind: "needs",
       missing: ["date"],
@@ -316,6 +444,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json<Ok>({
       kind: "proposal",
       parsed,
+      logId,
       message: `${hit.court.courtLabel} is free.`,
       // NOT "tap Change if not": there is no Change control on the card,
       // and pointing at a button that doesn't exist is worse than saying
@@ -346,6 +475,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json<Ok>({
     kind: "taken",
     parsed,
+    logId,
     message:
       suggestions.length > 0
         ? `${timeLabel} is booked. Closest I have:`
