@@ -127,6 +127,8 @@ export type TournamentListItem = {
   startDate: string | null;
   liveScoringEnabled: boolean;
   confirmedTeams: number;
+  /** Present only on the paged endpoint; which chip this row belongs to. */
+  group?: "UPCOMING" | "ONGOING" | "COMPLETED";
 };
 
 export type TournamentHub = { enabled: boolean; dqrAvailable?: boolean; tournaments: TournamentListItem[] };
@@ -135,6 +137,49 @@ export type TournamentHub = { enabled: boolean; dqrAvailable?: boolean; tourname
  *  `enabled` from the same cached query the list screen uses. */
 export async function fetchTournamentHub(): Promise<TournamentHub> {
   return api.get<TournamentHub>("/api/mobile/tournaments", { auth: false });
+}
+
+/**
+ * The three filter chips on the tournaments list. They partition every
+ * publicly-visible status, so all three selected == the unfiltered list.
+ * Order here IS the display order and the listing priority.
+ */
+export const TOURNAMENT_GROUPS = ["UPCOMING", "ONGOING", "COMPLETED"] as const;
+export type TournamentGroup = (typeof TOURNAMENT_GROUPS)[number];
+
+export const TOURNAMENT_GROUP_LABEL: Record<TournamentGroup, string> = {
+  UPCOMING: "Upcoming",
+  ONGOING: "Ongoing",
+  COMPLETED: "Completed",
+};
+
+export type TournamentHubPage = TournamentHub & {
+  /** Null when this was the last page. */
+  nextOffset: number | null;
+};
+
+/**
+ * One page of the filtered hub list.
+ *
+ * The server does the group ordering (upcoming → ongoing → completed,
+ * soonest-first inside the first two and newest-first inside completed),
+ * so the client never re-sorts — a client-side sort would only apply
+ * within the page it can see and would scramble the sequence at every
+ * page boundary.
+ */
+export async function fetchTournamentHubPage(params: {
+  groups: TournamentGroup[];
+  offset: number;
+  limit?: number;
+}): Promise<TournamentHubPage> {
+  const q = new URLSearchParams({
+    groups: params.groups.join(","),
+    offset: String(params.offset),
+    limit: String(params.limit ?? 10),
+  });
+  return api.get<TournamentHubPage>(`/api/mobile/tournaments?${q.toString()}`, {
+    auth: false,
+  });
 }
 
 export async function getTournament(slug: string): Promise<TournamentPublic> {
