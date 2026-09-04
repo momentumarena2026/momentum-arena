@@ -193,6 +193,13 @@ export function TournamentsListScreen() {
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      // style, NOT just contentContainerStyle: a horizontal ScrollView is
+      // a flex child and will happily grow to fill the whole screen
+      // height. With borderRadius 999 on the chips that turned three
+      // pills into three large circles. flexGrow 0 pins the strip to its
+      // content height; alignItems centre stops each chip stretching to
+      // fill whatever height remains.
+      style={styles.chipScroll}
       contentContainerStyle={styles.chipRow}
     >
       {TOURNAMENT_GROUPS.map((g) => {
@@ -274,20 +281,31 @@ const styles = StyleSheet.create({
   // padded={false} on <Screen> — this is the ONLY horizontal
   // padding, matching camps/passes at spacing 5. Leaving Screen
   // padded stacked 24 + 16 and made these screens 40px a side.
-  content: { padding: spacing["5"], gap: 12, paddingBottom: 32 },
+  content: {
+    paddingHorizontal: spacing["5"],
+    paddingTop: spacing["2"],
+    gap: 12,
+    paddingBottom: 32,
+  },
+  chipScroll: { flexGrow: 0, flexShrink: 0 },
   chipRow: {
     paddingHorizontal: spacing["5"],
-    paddingTop: spacing["5"],
-    paddingBottom: 4,
-    gap: 8,
+    paddingTop: spacing["4"],
+    paddingBottom: spacing["2"],
+    gap: spacing["2"],
+    alignItems: "center",
   },
   chip: {
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: spacing["4"],
+    // Fixed height rather than vertical padding: it makes the pill shape
+    // independent of the font metrics, which differ between iOS and
+    // Android and were letting the chips grow taller than intended.
+    height: 34,
+    justifyContent: "center",
   },
   chipActive: {
     borderColor: colors.emerald500_30,
