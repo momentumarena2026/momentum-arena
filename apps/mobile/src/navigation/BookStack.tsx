@@ -1,5 +1,6 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BookSportScreen } from "../screens/book/BookSportScreen";
+import { BookingBotScreen } from "../screens/book/BookingBotScreen";
 import { BookCourtScreen } from "../screens/book/BookCourtScreen";
 import { BookSlotsScreen } from "../screens/book/BookSlotsScreen";
 import { BookBowlingSlotsScreen } from "../screens/book/BookBowlingSlotsScreen";
@@ -35,6 +36,11 @@ export function BookStack() {
         name="BookBowlingSlots"
         component={BookBowlingSlotsScreen}
         options={({ route }) => ({ title: route.params.courtLabel })}
+      />
+      <Stack.Screen
+        name="BookingBot"
+        component={BookingBotScreen}
+        options={{ title: "Quick book" }}
       />
       <Stack.Screen
         name="Checkout"

@@ -94,6 +94,10 @@ export type BookStackParamList = {
   BookBowlingSlots: { courtConfigId: string; courtLabel: string; sport: Sport };
   Checkout: { holdId: string };
   BookingConfirmed: { bookingId: string };
+  // Conversational booking. Lives in BookStack so confirming a proposal
+  // can push straight to Checkout with the hold it just created — the
+  // bot has no payment path of its own.
+  BookingBot: undefined;
 };
 
 // Passes tab stack. MyPasses / PassesStore / PassDetail keep the SAME

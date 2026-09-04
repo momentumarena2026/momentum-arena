@@ -1,13 +1,13 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { ChevronRight } from "lucide-react-native";
+import { ChevronRight, Sparkles } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { RainBanner } from "../../components/RainBanner";
 import { SportIcon } from "../../components/booking/SportIcon";
 import { SportCardGradient } from "../../components/booking/SportCardGradient";
-import { colors, spacing } from "../../theme";
+import { colors, radius, spacing } from "../../theme";
 import type { Sport } from "../../lib/types";
 import { sportLabel } from "../../lib/format";
 import { trackSportSelected } from "../../lib/analytics";
@@ -88,6 +88,29 @@ export function BookSportScreen() {
         </Text>
       </View>
 
+      {/* Quick book — type it instead of tapping through sport, court,
+          date and slot. Sits ABOVE the sport tiles but is styled as a
+          secondary row, not a hero: the tile grid stays the obvious path
+          for anyone who does not already know what they want, and this
+          is the shortcut for the regular who does. */}
+      <Pressable
+        onPress={() => navigation.navigate("BookingBot")}
+        style={({ pressed }) => [styles.quickBook, pressed && { opacity: 0.85 }]}
+      >
+        <View style={styles.quickIcon}>
+          <Sparkles size={16} color={colors.emerald400} />
+        </View>
+        <View style={styles.quickBody}>
+          <Text variant="body" weight="700" color={colors.foreground}>
+            Quick book
+          </Text>
+          <Text variant="tiny" color={colors.zinc500}>
+            Type &ldquo;football tomorrow 7 to 8 pm&rdquo;
+          </Text>
+        </View>
+        <ChevronRight size={18} color={colors.zinc600} />
+      </Pressable>
+
       {/* Admin-managed promotion banners for this screen. */}
       <PromoBannerSlot screen="BOOK_SPORT" style={{ marginBottom: spacing["4"] }} />
 
@@ -146,6 +169,29 @@ export function BookSportScreen() {
 }
 
 const styles = StyleSheet.create({
+  quickBook: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: spacing["4"],
+  },
+  quickIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.emerald500_10,
+    borderWidth: 1,
+    borderColor: colors.emerald500_30,
+  },
+  quickBody: { flex: 1, gap: 1 },
   header: {
     marginTop: spacing["4"],
   },
