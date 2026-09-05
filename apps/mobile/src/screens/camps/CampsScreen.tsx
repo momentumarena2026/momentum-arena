@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,7 +22,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, radius, spacing } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
 import { formatRupees } from "../../lib/format";
-import {
+import { fetchJoinedCampIds,
   fetchCamps,
   initiateCampDqr,
   pollCampDqr,
@@ -57,16 +57,37 @@ const hour = (h: number) => {
   return `${v}${am ? "am" : "pm"}`;
 };
 
-/** What the customer pays now — mirrors onlinePayable on the server. */
-function payNowFor(c: CampSummary): number {
-  if (c.feeMode === "FREE" || c.fee <= 0) return 0;
+/**
+ * What the customer pays now — mirrors onlinePayable on the server, plus
+ * the one-time joining fee when this is their first registration.
+ *
+ * The joining fee is NOT split by the advance percentage. An advance is a
+ * part-payment of a recurring price; a joining fee is a one-off the venue
+ * has already incurred, and splitting it would put a one-time charge on a
+ * bill the customer expects to be monthly.
+ */
+function payNowFor(c: CampSummary, joining: number): number {
+  if (c.feeMode === "FREE" || c.fee <= 0) return joining;
   if (c.feeMode === "ADVANCE") {
-    return Math.max(1, Math.round((c.fee * c.advancePct) / 100));
+    return Math.max(1, Math.round((c.fee * c.advancePct) / 100)) + joining;
   }
-  return c.fee;
+  return c.fee + joining;
 }
 
 export function CampsScreen() {
+  // Which camps this customer has already joined, so a returning
+  // participant is never quoted a joining fee they will not be charged.
+  // Signed out returns empty, which is the right quote for someone the
+  // venue cannot recognise.
+  const { data: joinedIds } = useQuery({
+    queryKey: ["camps-joined"],
+    queryFn: fetchJoinedCampIds,
+    staleTime: 60 * 1000,
+  });
+  const joiningFeeFor = useCallback(
+    (c: CampSummary) => (joinedIds?.includes(c.id) ? 0 : c.registrationFee ?? 0),
+    [joinedIds],
+  );
   const qc = useQueryClient();
   const { state: authState } = useAuth();
   const [sheet, setSheet] = useState<CampSummary | null>(null);
@@ -250,7 +271,8 @@ export function CampsScreen() {
         {camps.map((c) => {
           const open = c.status === "REGISTRATIONS_OPEN";
           const full = c.seatsLeft <= 0;
-          const now = payNowFor(c);
+          const joining = joiningFeeFor(c);
+          const now = payNowFor(c, joining);
           const t = sportTheme(c.sport);
           return (
             <View key={c.id} style={styles.card}>
@@ -324,8 +346,13 @@ export function CampsScreen() {
                   {full ? "Full" : `${c.seatsLeft} of ${c.capacity} spots left`}
                 </Row>
                 <Row icon={<IndianRupee size={14} color={colors.emerald400} />}>
-                  {c.fee > 0 ? formatRupees(c.fee) : "Free"}
-                  {now > 0 && now < c.fee
+                  {c.fee > 0 ? `${formatRupees(c.fee)}/month` : "Free"}
+                  {/* Named as a joining fee, not just added to the total.
+                      A customer seeing a bigger number than the advertised
+                      monthly price needs to know WHY, and that it happens
+                      once. */}
+                  {joining > 0 ? ` + ${formatRupees(joining)} joining (one-time)` : ""}
+                  {now > 0 && now < c.fee + joining
                     ? ` — ${formatRupees(now)} to book`
                     : ""}
                 </Row>
@@ -399,7 +426,7 @@ export function CampsScreen() {
               />
             ))}
 
-            {dqrAvailable && sheet.seatsLeft > 0 && payNowFor(sheet) > 0 && (
+            {dqrAvailable && sheet.seatsLeft > 0 && payNowFor(sheet, joiningFeeFor(sheet)) > 0 && (
               <View style={styles.methodRow}>
                 {(["upi", "razorpay"] as const).map((v) => (
                   <Pressable
@@ -422,8 +449,8 @@ export function CampsScreen() {
               label={
                 sheet.seatsLeft <= 0
                   ? "Join waitlist"
-                  : payNowFor(sheet) > 0
-                    ? `Pay ${formatRupees(payNowFor(sheet))} & register`
+                  : payNowFor(sheet, joiningFeeFor(sheet)) > 0
+                    ? `Pay ${formatRupees(payNowFor(sheet, joiningFeeFor(sheet)))} & register`
                     : "Register"
               }
               variant="primary"

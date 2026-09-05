@@ -41,6 +41,7 @@ type Camp = {
   venueNote: string | null;
   capacity: number;
   fee: number;
+  registrationFee: number;
   feeMode: string;
   advancePct: number;
   allowCoupons: boolean;
@@ -85,11 +86,15 @@ function loadRazorpay(): Promise<boolean> {
  */
 export function CampRegisterClient({
   camp,
+  joiningFee,
   signedIn,
   prefill,
   dqrAvailable,
 }: {
   camp: Camp;
+  /** The one-time joining fee as it applies to THIS visitor — already
+   *  zeroed by the server for a returning participant. */
+  joiningFee: number;
   signedIn: boolean;
   prefill: { name: string; phone: string; email: string };
   dqrAvailable: boolean;
@@ -157,13 +162,18 @@ export function CampRegisterClient({
 
   const open = camp.status === "REGISTRATIONS_OPEN";
   const full = camp.seatsLeft <= 0;
-  const payNow =
+  // The joining fee is added on top and is never split by the advance
+  // percentage: an advance is a part-payment of a recurring price, and a
+  // one-off enrolment cost does not belong on a bill the customer expects
+  // to repeat.
+  const monthlyNow =
     camp.feeMode === "FREE" || camp.fee === 0
       ? 0
       : camp.feeMode === "ADVANCE"
         ? Math.max(1, Math.round((camp.fee * camp.advancePct) / 100))
         : camp.fee;
-  const atVenue = Math.max(0, camp.fee - payNow);
+  const payNow = monthlyNow + joiningFee;
+  const atVenue = Math.max(0, camp.fee - monthlyNow);
 
   const set = (k: keyof typeof form, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -387,8 +397,16 @@ export function CampRegisterClient({
         )}
         <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 sm:col-span-2">
           <IndianRupee className="h-4 w-4" />
-          {camp.fee > 0 ? inr(camp.fee) : "Free"}
-          {payNow > 0 && payNow < camp.fee && (
+          {camp.fee > 0 ? `${inr(camp.fee)} / month` : "Free"}
+          {/* Named, not silently added. A visitor seeing a larger number
+              than the advertised monthly price needs to know what it is
+              and that it happens once. */}
+          {joiningFee > 0 && (
+            <span className="text-zinc-400">
+              {" "}+ {inr(joiningFee)} one-time registration
+            </span>
+          )}
+          {payNow > 0 && payNow < camp.fee + joiningFee && (
             <span className="text-xs font-normal text-zinc-400">
               — {inr(payNow)} to book, {inr(atVenue)} at the venue
             </span>

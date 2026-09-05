@@ -27,6 +27,8 @@ export type CampSummary = {
   coachName: string | null;
   capacity: number;
   fee: number;
+  /** One-time joining fee, charged on a first registration only. */
+  registrationFee: number;
   feeMode: string;
   advancePct: number;
   waitlistEnabled: boolean;
@@ -71,6 +73,17 @@ export async function fetchCampsHub(): Promise<CampsHub> {
 }
 
 export type CampsList = { camps: CampSummary[]; dqrAvailable: boolean };
+
+/**
+ * Camps this customer has already joined, so the app does not quote a
+ * returning participant a one-time joining fee they will not be charged.
+ * Empty when signed out, which is the right quote for someone the venue
+ * cannot recognise.
+ */
+export async function fetchJoinedCampIds(): Promise<string[]> {
+  const res = await api.get<{ campIds: string[] }>("/api/mobile/camps/joined");
+  return res.campIds ?? [];
+}
 
 /** The list plus whether UPI (PhonePe DQR) may be offered at checkout. */
 export async function fetchCamps(): Promise<CampsList> {

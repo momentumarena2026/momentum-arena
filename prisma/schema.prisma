@@ -3717,7 +3717,20 @@ model Camp {
 
   // Money (rupees), mirroring the tournament fee model.
   capacity          Int
+  /// The RECURRING fee — what a participant pays for a month of the camp,
+  /// and the only thing they pay when they renew.
   fee               Int     @default(0)
+  /// A one-time joining fee, charged on a participant's FIRST confirmed
+  /// registration for this camp and never again. Added on top of `fee`,
+  /// so a first payment is registrationFee + fee and every renewal is fee
+  /// alone. Zero means no joining fee, which is the default and leaves
+  /// every existing camp priced exactly as it is today.
+  ///
+  /// Deliberately NOT discountable: coupons and reward points apply to
+  /// the monthly fee, which is what they applied to before this existed.
+  /// A joining fee is the venue's cost of enrolling someone, not part of
+  /// the recurring price a promotion is meant to discount.
+  registrationFee   Int     @default(0)
   feeMode           String  @default("FULL") // FULL | ADVANCE | FREE
   advancePct        Int     @default(50)
   allowCoupons      Boolean @default(true)
@@ -3751,15 +3764,21 @@ model CampRegistration {
 
   // Money — accumulates like a tournament team: advance online, the rest
   // collected at the venue.
-  paidAmount    Int       @default(0)
-  dueAmount     Int       @default(0)
-  paymentMethod String?
-  paymentRef    String?
+  paidAmount      Int       @default(0)
+  dueAmount       Int       @default(0)
+  /// How much of this registration's total was the one-time joining fee.
+  /// Recorded rather than re-derived, because whether it applied depended
+  /// on the participant's history AT THE TIME — and that history changes
+  /// the moment this row is created. Also lets reporting separate joining
+  /// income from recurring income without guessing.
+  registrationFee Int       @default(0)
+  paymentMethod   String?
+  paymentRef      String?
   // Cash-basis date the money arrived (see TournamentTeam.paidAt).
-  paidAt        DateTime?
-  couponCode    String?
-  discount      Int       @default(0)
-  pointsUsed    Int       @default(0)
+  paidAt          DateTime?
+  couponCode      String?
+  discount        Int       @default(0)
+  pointsUsed      Int       @default(0)
 
   // Soft delete, so a withdrawn registration keeps its payment trail.
   archivedAt DateTime?

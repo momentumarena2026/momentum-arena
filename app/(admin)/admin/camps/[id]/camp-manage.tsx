@@ -56,6 +56,7 @@ type Camp = {
   venueNote: string | null;
   capacity: number;
   fee: number;
+  registrationFee: number;
   feeMode: string;
   advancePct: number;
   allowCoupons: boolean;
@@ -116,7 +117,7 @@ export function CampManage({ camp }: { camp: Camp }) {
     phone: "",
     guardianName: "",
     participantAge: "",
-    paidAmount: String(camp.fee),
+    paidAmount: String(camp.fee + camp.registrationFee),
     method: "CASH",
   });
 
@@ -140,6 +141,7 @@ export function CampManage({ camp }: { camp: Camp }) {
     venueNote: camp.venueNote ?? "",
     capacity: camp.capacity,
     fee: camp.fee,
+    registrationFee: camp.registrationFee,
     feeMode: camp.feeMode as CampInput["feeMode"],
     advancePct: camp.advancePct,
     allowCoupons: camp.allowCoupons,
@@ -290,6 +292,18 @@ export function CampManage({ camp }: { camp: Camp }) {
                   value={walkIn.paidAmount}
                   onChange={(e) => setWalkIn((w) => ({ ...w, paidAmount: e.target.value }))}
                 />
+                {camp.registrationFee > 0 ? (
+                  // The prefill assumes a first registration, which is what
+                  // a desk sign-up nearly always is. The server still
+                  // decides on its own whether the joining fee applies, so
+                  // collecting the monthly fee alone from a returning
+                  // participant leaves nothing owing.
+                  <p className="text-xs text-zinc-500">
+                    ₹{camp.fee.toLocaleString("en-IN")} monthly + ₹
+                    {camp.registrationFee.toLocaleString("en-IN")} one-time registration.
+                    Charge the monthly fee alone if they have joined before.
+                  </p>
+                ) : null}
                 <select
                   className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   value={walkIn.method}
@@ -323,7 +337,7 @@ export function CampManage({ camp }: { camp: Camp }) {
                         phone: "",
                         guardianName: "",
                         participantAge: "",
-                        paidAmount: String(camp.fee),
+                        paidAmount: String(camp.fee + camp.registrationFee),
                         method: "CASH",
                       });
                     }

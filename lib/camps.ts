@@ -38,6 +38,72 @@ export async function campSeatsTaken(campId: string): Promise<number> {
   });
 }
 
+/**
+ * Has this participant already joined this camp?
+ *
+ * Decides whether the one-time joining fee applies. Only a CONFIRMED,
+ * un-archived registration counts: an abandoned PENDING_PAYMENT attempt
+ * is somebody who never joined, and letting it waive the fee would mean
+ * a customer could skip it by starting a registration and walking away.
+ *
+ * Matched on the ACCOUNT or the PHONE, either alone. A family often
+ * registers several children from one account, and a walk-in the venue
+ * entered at the desk has no account at all — so a person can easily be
+ * a returning participant under one identifier and a stranger under the
+ * other. Matching on either is the forgiving direction, and forgiving is
+ * correct here: charging a joining fee twice is a refund and an argument,
+ * while missing one is a few hundred rupees.
+ */
+export async function hasJoinedCampBefore(
+  campId: string,
+  who: { userId?: string | null; phone?: string | null },
+): Promise<boolean> {
+  const phone = (who.phone ?? "").trim();
+  const identifiers: { userId?: string; phone?: string }[] = [];
+  if (who.userId) identifiers.push({ userId: who.userId });
+  if (phone) identifiers.push({ phone });
+  if (identifiers.length === 0) return false;
+
+  try {
+    const prior = await db.campRegistration.findFirst({
+      where: {
+        campId,
+        status: "CONFIRMED",
+        archivedAt: null,
+        OR: identifiers,
+      },
+      select: { id: true },
+    });
+    return prior != null;
+  } catch {
+    // Unreadable history is not proof of a first registration. Treat it
+    // as a returning participant: the failure then costs the venue a
+    // joining fee rather than charging a customer one they do not owe.
+    return true;
+  }
+}
+
+/**
+ * What a registration costs, split into its two parts.
+ *
+ * Pure, so the arithmetic is testable without a database. Coupons and
+ * reward points apply to the MONTHLY fee only — that is what they
+ * discounted before joining fees existed, and a promotion on a camp's
+ * monthly price should not quietly waive the venue's cost of enrolling
+ * someone.
+ */
+export function priceCampRegistration(input: {
+  monthlyFee: number;
+  registrationFee: number;
+  discount: number;
+  pointsRupees: number;
+  firstTime: boolean;
+}): { monthly: number; joining: number; total: number } {
+  const monthly = Math.max(0, input.monthlyFee - input.discount - input.pointsRupees);
+  const joining = input.firstTime ? Math.max(0, input.registrationFee) : 0;
+  return { monthly, joining, total: monthly + joining };
+}
+
 export interface CampRegistrationInput {
   campId: string;
   userId?: string | null;
@@ -82,6 +148,7 @@ export async function registerForCamp(
       status: true,
       capacity: true,
       fee: true,
+      registrationFee: true,
       feeMode: true,
       advancePct: true,
       allowCoupons: true,
@@ -143,10 +210,30 @@ export async function registerForCamp(
       ? Math.max(0, Math.min(input.pointsRupees ?? 0, camp.fee - discount))
       : 0;
 
-  const netFee = Math.max(0, camp.fee - discount - pointsRupees);
+  // The joining fee applies only the first time this participant signs
+  // up for THIS camp; every renewal is the monthly fee alone.
+  const firstTime =
+    camp.registrationFee > 0
+      ? !(await hasJoinedCampBefore(camp.id, { userId: input.userId, phone }))
+      : false;
+  const price = priceCampRegistration({
+    monthlyFee: camp.fee,
+    registrationFee: camp.registrationFee,
+    discount,
+    pointsRupees,
+    firstTime,
+  });
+
+  const netFee = price.total;
+  // ADVANCE mode splits the MONTHLY fee, and the joining fee is then
+  // collected in full up front. Letting an advance percentage apply to it
+  // would leave the venue carrying part of an enrolment cost it has
+  // already incurred, and would put a one-time charge on a bill the
+  // customer expects to be recurring.
   const payableNow = isAdminEntry
     ? 0
-    : onlinePayable(netFee, camp.feeMode as "FULL" | "ADVANCE" | "FREE", camp.advancePct);
+    : onlinePayable(price.monthly, camp.feeMode as "FULL" | "ADVANCE" | "FREE", camp.advancePct) +
+      price.joining;
   const paidNow = isAdminEntry ? Math.max(0, input.offline!.paidAmount) : 0;
   const dueAmount = Math.max(0, netFee - payableNow - paidNow);
 
@@ -166,6 +253,7 @@ export async function registerForCamp(
       pointsUsed: pointsRupees,
       paidAmount: paidNow,
       dueAmount,
+      registrationFee: price.joining,
       paymentMethod: isAdminEntry ? input.offline!.method : null,
       // A desk walk-in is money in hand right now; an online registration
       // gets its stamp when the payment confirms.
@@ -313,6 +401,7 @@ export async function listPublicCamps() {
       coachName: true,
       capacity: true,
       fee: true,
+      registrationFee: true,
       feeMode: true,
       advancePct: true,
       waitlistEnabled: true,
@@ -356,6 +445,7 @@ export async function getPublicCamp(slug: string) {
       venueNote: true,
       capacity: true,
       fee: true,
+      registrationFee: true,
       feeMode: true,
       advancePct: true,
       allowCoupons: true,

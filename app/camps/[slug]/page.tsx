@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isDqrConfigured } from "@/lib/phonepe-dqr";
-import { areCampsEnabled, getPublicCamp } from "@/lib/camps";
+import { areCampsEnabled, getPublicCamp, hasJoinedCampBefore } from "@/lib/camps";
 import { CampRegisterClient } from "./register-client";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +25,21 @@ export default async function CampDetailPage({
     .catch(() => null);
   const dqrAvailable = isDqrConfigured() && !!gatewayCfg?.dqrEnabled;
 
+  // Whether the one-time joining fee applies to THIS visitor. Computed
+  // here, on the server, because the answer depends on who is asking and
+  // the page is already per-request. A visitor the venue cannot
+  // recognise sees the fee, which is the correct quote for them.
+  const userId = (session?.user as { id?: string } | undefined)?.id ?? null;
+  const phone = (session?.user as { phone?: string } | undefined)?.phone ?? null;
+  const joiningFee =
+    camp.registrationFee > 0 && !(await hasJoinedCampBefore(camp.id, { userId, phone }))
+      ? camp.registrationFee
+      : 0;
+
   return (
     <CampRegisterClient
       camp={JSON.parse(JSON.stringify(camp))}
+      joiningFee={joiningFee}
       signedIn={!!session?.user}
       dqrAvailable={dqrAvailable}
       prefill={{

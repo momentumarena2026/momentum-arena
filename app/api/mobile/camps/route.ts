@@ -110,6 +110,10 @@ export async function GET(request: NextRequest) {
       coachName: c.coachName,
       capacity: c.capacity,
       fee: c.fee,
+      // The joining fee is exposed unconditionally; whether it applies to
+      // THIS person is a separate flag below, because the payload is
+      // cached and must not vary per customer.
+      registrationFee: c.registrationFee,
       feeMode: c.feeMode,
       advancePct: c.advancePct,
       waitlistEnabled: c.waitlistEnabled,

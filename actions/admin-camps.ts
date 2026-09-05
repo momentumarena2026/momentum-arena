@@ -63,6 +63,10 @@ const campSchema = z.object({
   venueNote: z.string().optional(),
   capacity: z.number().int().min(1),
   fee: z.number().int().min(0),
+  // One-time joining fee. Zero is meaningful and common — most camps
+  // will not charge one — so it is optional and defaults to 0 rather
+  // than being required.
+  registrationFee: z.number().int().min(0).default(0),
   feeMode: z.enum(["FULL", "ADVANCE", "FREE"]),
   advancePct: z.number().int().min(1).max(99),
   allowCoupons: z.boolean(),
@@ -109,6 +113,7 @@ export async function listCamps() {
       endDate: true,
       capacity: true,
       fee: true,
+      registrationFee: true,
       _count: {
         select: {
           registrations: {
@@ -178,6 +183,7 @@ export async function saveCamp(
     venueNote: d.venueNote?.trim() || null,
     capacity: d.capacity,
     fee: d.fee,
+    registrationFee: d.registrationFee,
     feeMode: d.feeMode,
     advancePct: d.advancePct,
     allowCoupons: d.allowCoupons,

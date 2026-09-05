@@ -17,6 +17,7 @@ type CampRow = {
   endDate: string;
   capacity: number;
   fee: number;
+  registrationFee: number;
   registered: number;
 };
 
@@ -65,6 +66,7 @@ function blankCamp(): CampInput {
     venueNote: "",
     capacity: 20,
     fee: 5000,
+    registrationFee: 0,
     feeMode: "FULL",
     advancePct: 50,
     allowCoupons: true,
@@ -152,7 +154,12 @@ export function CampsClient({ camps }: { camps: CampRow[] }) {
                   /{c.capacity} registered
                 </p>
                 <p className="text-zinc-500">
-                  {c.fee > 0 ? `₹${c.fee.toLocaleString("en-IN")}` : "Free"}
+                  {c.fee > 0 ? `₹${c.fee.toLocaleString("en-IN")}/mo` : "Free"}
+                  {c.registrationFee > 0 ? (
+                    <span className="text-zinc-500">
+                      {" "}+ ₹{c.registrationFee.toLocaleString("en-IN")} joining
+                    </span>
+                  ) : null}
                 </p>
               </div>
             </div>
@@ -326,7 +333,7 @@ export function CampForm({
           />
         </div>
         <div>
-          <label className={label}>Fee (₹)</label>
+          <label className={label}>Monthly fee (₹)</label>
           <input
             type="number"
             min={0}
@@ -334,6 +341,24 @@ export function CampForm({
             value={form.fee}
             onChange={(e) => set("fee", Number(e.target.value))}
           />
+          <p className="mt-1 text-xs text-zinc-500">Charged every month, including renewals.</p>
+        </div>
+        <div>
+          <label className={label}>Registration fee (₹)</label>
+          <input
+            type="number"
+            min={0}
+            className={field}
+            value={form.registrationFee}
+            onChange={(e) => set("registrationFee", Number(e.target.value))}
+          />
+          {/* Says what it DOES, not what it is. "One-time" alone leaves
+              the reader working out when it stops applying. */}
+          <p className="mt-1 text-xs text-zinc-500">
+            {form.registrationFee > 0
+              ? `First payment ₹${(form.fee + form.registrationFee).toLocaleString("en-IN")}, then ₹${form.fee.toLocaleString("en-IN")} a month.`
+              : "One-time joining fee. Leave 0 for none."}
+          </p>
         </div>
         <div>
           <label className={label}>Collect</label>
