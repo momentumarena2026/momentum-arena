@@ -54,14 +54,3 @@ jobs:
       - name: Seed production database
         run: npx tsx prisma/seed.ts
 
-      # Runs on every schema push, like the seed above, and for the same
-      # reason: a one-off that needs someone to remember to click it is a
-      # one-off that does not happen. Safe to repeat — it only fills in
-      # blocks whose owner was never recorded, so once every row has a
-      # source it finds nothing and exits.
-      #
-      # Never fails the job. This makes calendar labels nicer; it must not
-      # be able to block a schema deploy.
-      - name: Backfill slot-block provenance (idempotent)
-        continue-on-error: true
-        run: npx tsx scripts/backfill-block-provenance.ts --apply

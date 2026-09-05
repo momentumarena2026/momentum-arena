@@ -1,18 +1,29 @@
 name: Backfill slot-block provenance (production)
 
-# NOTE: this normally runs on its own, as a step in seed-production.yml on
-# every push that touches prisma/**. This workflow is the manual recovery
-# hatch and the dry-run view — useful for SEEING what would change without
-# writing, which the automatic step deliberately does not offer.
-#
 # Blocks raised before provenance existed say only "Tournament window" —
 # true of every tournament and every sport, and so useless to an admin
 # deciding whether a blocked Tuesday can move. This traces each one back
 # to the tournament or camp that claims it (via slotBlockIds) and writes
 # the real label. Blocks nothing claims are left untouched.
 #
-# Manual only. Defaults to a DRY RUN — you must tick `apply` to write.
+# ── Why this runs on EVERY push to main, with no path filter ──────────
+#
+# It first shipped as a manual workflow, and the button was never pressed
+# — the calendar kept saying "Tournament window" through two promotions.
+# It was then folded into seed-production.yml, which is path-filtered to
+# prisma/**; the commit that added it touched no schema files, so it did
+# not run either. Both attempts failed the same way: the fix was gated
+# behind something that did not happen.
+#
+# So: no gate. It is a single indexed query on an empty result set once
+# the data is clean, which is cheaper than reasoning about when it ought
+# to run.
 on:
+  push:
+    branches:
+      - main
+  # Manual runs can DRY RUN, which the automatic path deliberately cannot
+  # — seeing what would change is a thing you ask for, not a default.
   workflow_dispatch:
     inputs:
       apply:
@@ -24,6 +35,9 @@ jobs:
   backfill:
     name: Backfill block provenance
     runs-on: ubuntu-latest
+    # Never fails the pipeline. This makes calendar labels nicer; it must
+    # not be able to redden a deploy that was otherwise fine.
+    continue-on-error: true
     env:
       DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
 
@@ -53,8 +67,12 @@ jobs:
 
       - name: Run backfill
         run: |
+          # A push always applies — that is the whole point of it being
+          # automatic. A manual run honours the tickbox.
           ARGS=""
-          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="$ARGS --apply"; fi
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.apply }}" = "true" ]; then
+            ARGS="--apply"
+          fi
           echo "Running: npx tsx scripts/backfill-block-provenance.ts $ARGS"
           npx tsx scripts/backfill-block-provenance.ts $ARGS 2>&1 | tee backfill.log
 
@@ -62,7 +80,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "### Block provenance — ${{ inputs.apply == true && 'APPLIED' || 'DRY RUN' }}"
+            echo "### Block provenance — ${{ github.event_name == 'push' && 'APPLIED (automatic)' || (inputs.apply == true && 'APPLIED' || 'DRY RUN') }}"
             echo ""
             echo '```'
             tail -60 backfill.log 2>/dev/null || echo "(no output captured)"
