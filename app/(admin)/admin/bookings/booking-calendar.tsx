@@ -159,7 +159,7 @@ interface HourEntry {
     sport: Sport;
     courtLabel: string;
   }>;
-  blocks: Array<{ courtLabel: string; reason?: string }>;
+  blocks: Array<{ courtLabel: string; reason?: string; source?: string }>;
 }
 
 function buildHourMap(data: CalendarData): Map<number, HourEntry> {
@@ -198,6 +198,7 @@ function buildHourMap(data: CalendarData): Map<number, HourEntry> {
         entry.blocks.push({
           courtLabel: config.label,
           reason: cell.blockReason,
+          source: cell.blockSource,
         });
       }
     }
@@ -535,11 +536,16 @@ function HourCell({
       ) : (
         <div className="flex flex-col gap-1">
           {entry!.blocks.length > 0 && (
+            // The full reason goes in the title, because the cell is a
+            // few characters wide and the truncated half of "Tournament:
+            // Summer Cup (cricket)" is the half that identifies it.
             <div
               className="flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-300"
-              title={entry!.blocks.map((b) => b.courtLabel).join(", ")}
+              title={entry!.blocks
+                .map((b) => `${b.reason || "Blocked"} — ${b.courtLabel}`)
+                .join("\n")}
             >
-              <Lock className="h-3 w-3" />
+              <Lock className="h-3 w-3 shrink-0" />
               <span className="truncate">
                 {entry!.blocks[0].reason || "Blocked"}
                 {entry!.blocks.length > 1 ? ` +${entry!.blocks.length - 1}` : ""}

@@ -43,6 +43,10 @@ export const ALL_PERMISSIONS = [
   // scoring (incl. live scoring) and the tournament marketing campaign.
   "MANAGE_TOURNAMENTS",
   "MANAGE_CAMPS",
+  // Quick book's comprehension layer: review the words it has learned
+  // from customer messages, and read how often the rules are coping
+  // without a model call.
+  "MANAGE_BOOKING_BOT",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -79,6 +83,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_HR: "Manage HR / Legal (Employee NDA Generator)",
   MANAGE_TOURNAMENTS: "Manage Tournaments",
   MANAGE_CAMPS: "Manage Camps",
+  MANAGE_BOOKING_BOT: "Manage Quick Book (learned words)",
 };
 
 export function hasPermission(

@@ -12,6 +12,12 @@ import {
   type TeamForDraw,
 } from "@/lib/tournament-scheduling";
 import { generateFixtures } from "@/actions/admin-tournament-fixtures";
+import {
+  blockLabel,
+  findBlockConflicts,
+  findBookingConflicts,
+  zonesForConfig,
+} from "@/lib/slot-blocks";
 
 /**
  * Admin-decided match windows, and the draw/schedule they feed.
@@ -31,11 +37,20 @@ const slotSchema = z.object({
   endHour: z.number().int().min(1).max(24),
   courtConfigId: z.string().optional().nullable(),
   label: z.string().max(60).optional().nullable(),
+  /** Set once the admin has seen and accepted the clash warning. */
+  confirmConflicts: z.boolean().optional(),
 });
 
 export async function addTournamentSlot(
   input: z.infer<typeof slotSchema>,
-): Promise<{ success: boolean; error?: string; clashes?: number }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  clashes?: number;
+  /** Waiting on a human, not broken — the UI offers "block anyway". */
+  needsConfirm?: boolean;
+  reasons?: string[];
+}> {
   const admin = await gate();
   const parsed = slotSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: "Invalid slot" };
@@ -54,6 +69,38 @@ export async function addTournamentSlot(
   // Block the venue hours NOW, not at approval. A window that is only
   // reserved once the draw is approved stays on sale in the meantime,
   // and the tournament can lose its own slots to public bookings.
+  // ── Is this ground already spoken for? ────────────────────────────
+  //
+  // The question is about SPACE, not sport. A cricket tournament holding
+  // Saturday evening is in the way of a football tournament on the same
+  // turf, and nothing about the two events matches — only their zones
+  // do. Checked before a single block is raised, because raising half a
+  // window and then refusing leaves the calendar in a state nobody asked
+  // for.
+  if (d.courtConfigId && !d.confirmConflicts) {
+    const windows = hours.map((h) => ({ date, hour: h }));
+    const claimZones = await zonesForConfig(d.courtConfigId);
+    const [blockClash, bookingClash] = await Promise.all([
+      findBlockConflicts(windows, {
+        claimZones,
+        ignore: { sourceType: "TOURNAMENT", sourceId: d.tournamentId },
+      }),
+      findBookingConflicts(windows, claimZones),
+    ]);
+    const reasons = [
+      ...blockClash.map((c) => `${c.date} ${c.hour}:00 is already held by ${c.label}.`),
+      ...bookingClash.map((b) => `${b.date} ${b.hour}:00 is already booked on ${b.label}.`),
+    ];
+    if (reasons.length > 0) {
+      return {
+        success: false,
+        needsConfirm: true,
+        reasons,
+        error: reasons[0],
+      };
+    }
+  }
+
   const blockIds: string[] = [];
   let clashes = 0;
   if (d.courtConfigId) {
@@ -67,14 +114,26 @@ export async function addTournamentSlot(
         slots: { some: { startHour: { in: hours } } },
       },
     });
+    // "Tournament window" was the same six words on every block, for
+    // every tournament and every sport. An admin looking at a blocked
+    // Tuesday could not tell which event owned it, and therefore could
+    // not tell whether it was safe to move.
+    const meta = await db.tournament.findUnique({
+      where: { id: d.tournamentId },
+      select: { name: true, sport: true },
+    });
+    const label = blockLabel("TOURNAMENT", meta?.name ?? "Tournament", meta?.sport ?? null);
     for (const h of hours) {
       const b = await db.slotBlock.create({
         data: {
           courtConfigId: d.courtConfigId,
           date,
           startHour: h,
-          reason: "Tournament window",
+          reason: label,
           blockedBy: admin.id,
+          sourceType: "TOURNAMENT",
+          sourceId: d.tournamentId,
+          sourceLabel: label,
         },
       });
       blockIds.push(b.id);

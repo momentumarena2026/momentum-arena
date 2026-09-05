@@ -17,6 +17,8 @@ type CampRow = {
   endDate: string;
   capacity: number;
   fee: number;
+  registrationFee: number;
+  blockSlots?: boolean;
   registered: number;
 };
 
@@ -65,6 +67,8 @@ function blankCamp(): CampInput {
     venueNote: "",
     capacity: 20,
     fee: 5000,
+    registrationFee: 0,
+    blockSlots: false,
     feeMode: "FULL",
     advancePct: 50,
     allowCoupons: true,
@@ -152,7 +156,12 @@ export function CampsClient({ camps }: { camps: CampRow[] }) {
                   /{c.capacity} registered
                 </p>
                 <p className="text-zinc-500">
-                  {c.fee > 0 ? `₹${c.fee.toLocaleString("en-IN")}` : "Free"}
+                  {c.fee > 0 ? `₹${c.fee.toLocaleString("en-IN")}/mo` : "Free"}
+                  {c.registrationFee > 0 ? (
+                    <span className="text-zinc-500">
+                      {" "}+ ₹{c.registrationFee.toLocaleString("en-IN")} joining
+                    </span>
+                  ) : null}
                 </p>
               </div>
             </div>
@@ -326,7 +335,7 @@ export function CampForm({
           />
         </div>
         <div>
-          <label className={label}>Fee (₹)</label>
+          <label className={label}>Monthly fee (₹)</label>
           <input
             type="number"
             min={0}
@@ -334,6 +343,24 @@ export function CampForm({
             value={form.fee}
             onChange={(e) => set("fee", Number(e.target.value))}
           />
+          <p className="mt-1 text-xs text-zinc-500">Charged every month, including renewals.</p>
+        </div>
+        <div>
+          <label className={label}>Registration fee (₹)</label>
+          <input
+            type="number"
+            min={0}
+            className={field}
+            value={form.registrationFee}
+            onChange={(e) => set("registrationFee", Number(e.target.value))}
+          />
+          {/* Says what it DOES, not what it is. "One-time" alone leaves
+              the reader working out when it stops applying. */}
+          <p className="mt-1 text-xs text-zinc-500">
+            {form.registrationFee > 0
+              ? `First payment ₹${(form.fee + form.registrationFee).toLocaleString("en-IN")}, then ₹${form.fee.toLocaleString("en-IN")} a month.`
+              : "One-time joining fee. Leave 0 for none."}
+          </p>
         </div>
         <div>
           <label className={label}>Collect</label>
@@ -445,6 +472,31 @@ export function CampForm({
           </label>
         ))}
       </div>
+
+      {/* Blocking is its own block, not a fourth checkbox in the row
+          above: it is the only setting here that changes what the PUBLIC
+          can book, and burying it beside "Allow coupons" would let it be
+          switched on without anyone registering what it does. */}
+      <label className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 accent-emerald-500"
+          checked={!!form.blockSlots}
+          onChange={(e) => set("blockSlots", e.target.checked)}
+        />
+        <span className="text-sm">
+          <span className="font-medium text-white">Hold the courts for this camp</span>
+          <span className="mt-1 block text-xs text-zinc-500">
+            Every session in the schedule above is taken off public sale —
+            {" "}
+            {form.daysOfWeek.length > 0
+              ? `${form.daysOfWeek.length} day${form.daysOfWeek.length === 1 ? "" : "s"} a week, ${Math.max(0, form.endHour - form.startHour)} hour${form.endHour - form.startHour === 1 ? "" : "s"} each`
+              : "pick the days above first"}
+            . Changing the dates later re-applies it, and you'll be asked
+            before any extra time is held.
+          </span>
+        </span>
+      </label>
 
       <div className="flex gap-2">
         <button

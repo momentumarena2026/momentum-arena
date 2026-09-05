@@ -30,6 +30,7 @@ export default async function AdminCampsPage() {
           endDate: c.endDate.toISOString(),
           capacity: c.capacity,
           fee: c.fee,
+          registrationFee: c.registrationFee,
           registered: c._count.registrations,
         }))}
       />

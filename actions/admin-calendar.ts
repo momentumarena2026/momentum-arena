@@ -73,6 +73,11 @@ export interface CellData {
   bookings?: CellBooking[];
   blocked?: boolean;
   blockReason?: string;
+  /** "TOURNAMENT" | "CAMP" | "MANUAL" — lets the cell be styled and read
+   *  by WHAT holds it, not just that something does. */
+  blockSource?: string;
+  /** The event's id, so the cell can link to whatever owns the block. */
+  blockSourceId?: string;
 }
 
 export interface CalendarConfig {
@@ -270,7 +275,14 @@ export async function getCalendarData(
           return false;
         });
         cellData.blocked = true;
-        cellData.blockReason = matchingBlock?.reason || undefined;
+        // sourceLabel first: it names the event AND its sport, where
+        // `reason` on older rows is the bare words "Tournament window" —
+        // true for every tournament, and so useless for deciding whether
+        // a blocked Tuesday can move.
+        cellData.blockReason =
+          matchingBlock?.sourceLabel || matchingBlock?.reason || undefined;
+        cellData.blockSource = matchingBlock?.sourceType || undefined;
+        cellData.blockSourceId = matchingBlock?.sourceId || undefined;
       }
 
       // Check bookings with zone overlap for this hour. A booking

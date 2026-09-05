@@ -11,12 +11,36 @@ import type { Sport } from "../lib/types";
  */
 export type HomeStackParamList = {
   HomeMain: undefined;
+  // Registered here AND in AccountStack, same route name — the shared
+  // screen resolves in whichever stack it is mounted in (the
+  // MyPasses / ShopOrderDetail precedent). Without this the Home bell had
+  // to jump to the Account TAB to reach it, so Back landed the customer
+  // on Account rather than where they started.
+  Notifications: undefined;
   TournamentsList: undefined;
   Camps: undefined;
   TournamentDetail: { slug: string };
   TournamentRegister: { slug: string };
   TournamentLive: { matchId: string; slug: string };
   TournamentMatch: { matchId: string; slug: string };
+  // Quick book and the booking tail it hands to. Registered here as well
+  // as in BookStack so a customer who starts on Home stays in the Home
+  // stack the whole way — Back then walks back to Home instead of
+  // stranding them on the Sports tab's root, which is what a cross-tab
+  // navigate() does. Same route names, so the shared screens resolve in
+  // whichever stack they are mounted in.
+  BookingBot: undefined;
+  Checkout: { holdId: string };
+  BookingConfirmed: { bookingId: string };
+  // Destinations Home links to. Registered here as well as in AccountStack
+  // so tapping them from Home pushes IN the Home stack — a cross-tab
+  // navigate() puts AccountHome underneath and Back drops the customer on
+  // a screen they never opened. RewardsHowItWorks comes along because
+  // Rewards links to it and would otherwise dead-end.
+  BookingsList: undefined;
+  BookingDetail: { bookingId: string };
+  Rewards: undefined;
+  RewardsHowItWorks: undefined;
 };
 
 export type AccountStackParamList = {
@@ -94,6 +118,10 @@ export type BookStackParamList = {
   BookBowlingSlots: { courtConfigId: string; courtLabel: string; sport: Sport };
   Checkout: { holdId: string };
   BookingConfirmed: { bookingId: string };
+  // Conversational booking. Lives in BookStack so confirming a proposal
+  // can push straight to Checkout with the hold it just created — the
+  // bot has no payment path of its own.
+  BookingBot: undefined;
 };
 
 // Passes tab stack. MyPasses / PassesStore / PassDetail keep the SAME

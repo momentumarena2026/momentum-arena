@@ -744,11 +744,30 @@ model SlotBlock {
   startMinute   Int          @default(0)
   reason        String?
   blockedBy     String
+  /// WHAT put this block here, structured rather than parsed back out of
+  /// `reason`. The calendar used to render every tournament block as the
+  /// bare words "Tournament window" — true, useless, and identical for
+  /// every tournament and every sport. An admin looking at a blocked
+  /// Tuesday could not tell which event owned it, and so could not tell
+  /// whether it was safe to move.
+  ///
+  /// "TOURNAMENT" | "CAMP" | "MANUAL". Null on rows raised before this
+  /// existed, which still render from `reason` alone.
+  sourceType    String?
+  /// The tournament or camp id, so a block can be traced to its owner and
+  /// released with it.
+  sourceId      String?
+  /// The event's name at the time of blocking, denormalised on purpose:
+  /// the calendar renders hundreds of cells and must not join per cell,
+  /// and a block should still say what put it there after its owner is
+  /// deleted.
+  sourceLabel   String?
 
   createdAt DateTime @default(now())
 
   @@index([date, courtConfigId])
   @@index([date, sport])
+  @@index([sourceType, sourceId])
 }
 
 model Notification {
@@ -1856,6 +1875,20 @@ model ArenaSettings {
   /// and the footer download section. Off by default — the prompts only
   /// make sense once the store listings are live and worth pointing at.
   downloadAppBannerEnabled Boolean  @default(false)
+  /// Master switch for Quick book (the conversational booking screen).
+  /// OFF hides its home-screen entry and makes its API refuse, so the
+  /// feature can be pulled in seconds without a store release or an OTA
+  /// — which matters more than usual here, because a comprehension layer
+  /// can start reading messages wrong for reasons outside this codebase
+  /// (a provider outage, a model retirement, a prompt regression).
+  quickBookEnabled         Boolean  @default(true)
+  /// The two badges on the home-screen entry, separately switchable.
+  /// NEW invites a tap and should be retired once the feature stops
+  /// being new; BETA warns that a reply is a READING of a sentence and
+  /// should be checked before paying, and should stay until that stops
+  /// being true. They retire on different days, so they are two flags.
+  quickBookNewBadge        Boolean  @default(true)
+  quickBookBetaBadge       Boolean  @default(true)
   updatedAt                DateTime @updatedAt
 }
 
@@ -3703,12 +3736,37 @@ model Camp {
 
   // Money (rupees), mirroring the tournament fee model.
   capacity          Int
-  fee               Int     @default(0)
-  feeMode           String  @default("FULL") // FULL | ADVANCE | FREE
-  advancePct        Int     @default(50)
-  allowCoupons      Boolean @default(true)
-  allowRewardPoints Boolean @default(true)
-  waitlistEnabled   Boolean @default(true)
+  /// The RECURRING fee — what a participant pays for a month of the camp,
+  /// and the only thing they pay when they renew.
+  fee               Int      @default(0)
+  /// A one-time joining fee, charged on a participant's FIRST confirmed
+  /// registration for this camp and never again. Added on top of `fee`,
+  /// so a first payment is registrationFee + fee and every renewal is fee
+  /// alone. Zero means no joining fee, which is the default and leaves
+  /// every existing camp priced exactly as it is today.
+  ///
+  /// Deliberately NOT discountable: coupons and reward points apply to
+  /// the monthly fee, which is what they applied to before this existed.
+  /// A joining fee is the venue's cost of enrolling someone, not part of
+  /// the recurring price a promotion is meant to discount.
+  registrationFee   Int      @default(0)
+  feeMode           String   @default("FULL") // FULL | ADVANCE | FREE
+  advancePct        Int      @default(50)
+  allowCoupons      Boolean  @default(true)
+  allowRewardPoints Boolean  @default(true)
+  waitlistEnabled   Boolean  @default(true)
+  /// Hold the courts for this camp's sessions.
+  ///
+  /// On, the schedule above (startDate..endDate, daysOfWeek, startHour..
+  /// endHour) is mirrored into SlotBlocks so the public cannot book over
+  /// a session. Off, the camp runs without reserving anything — which is
+  /// the default, because a camp sharing a ground with casual play is a
+  /// real arrangement and turning this on for existing camps would
+  /// silently withdraw inventory that is already on sale.
+  blockSlots        Boolean  @default(false)
+  /// The blocks currently raised for this camp, so they can be released
+  /// or recomputed as a set. Mirrors TournamentSlot.slotBlockIds.
+  slotBlockIds      String[] @default([])
 
   createdBy String?
   createdAt DateTime @default(now())
@@ -3737,15 +3795,21 @@ model CampRegistration {
 
   // Money — accumulates like a tournament team: advance online, the rest
   // collected at the venue.
-  paidAmount    Int       @default(0)
-  dueAmount     Int       @default(0)
-  paymentMethod String?
-  paymentRef    String?
+  paidAmount      Int       @default(0)
+  dueAmount       Int       @default(0)
+  /// How much of this registration's total was the one-time joining fee.
+  /// Recorded rather than re-derived, because whether it applied depended
+  /// on the participant's history AT THE TIME — and that history changes
+  /// the moment this row is created. Also lets reporting separate joining
+  /// income from recurring income without guessing.
+  registrationFee Int       @default(0)
+  paymentMethod   String?
+  paymentRef      String?
   // Cash-basis date the money arrived (see TournamentTeam.paidAt).
-  paidAt        DateTime?
-  couponCode    String?
-  discount      Int       @default(0)
-  pointsUsed    Int       @default(0)
+  paidAt          DateTime?
+  couponCode      String?
+  discount        Int       @default(0)
+  pointsUsed      Int       @default(0)
 
   // Soft delete, so a withdrawn registration keeps its payment trail.
   archivedAt DateTime?
@@ -3796,4 +3860,81 @@ model PublicMatch {
 
   @@index([status, createdAt])
   @@index([createdByUserId])
+}
+
+/// One Quick book message and everything we understood from it.
+///
+/// This table is the whole point of the learning loop. The venue does not
+/// want to depend on a third-party LLM forever, and the way out is not to
+/// train a neural net — it is to harvest deterministic knowledge from the
+/// model's answers and promote it into rules that then run for free.
+///
+/// Three signals come out of it:
+///   1. Repeats. The same phrasing arrives again and again; a normalised
+///      hit skips the model entirely.
+///   2. Vocabulary. Words the model resolved and our parser didn't
+///      ("shaam", a court nickname) become BookingBotTerm rows.
+///   3. Disagreements. Rows where the parser AND the model both produced
+///      a reading and they differ are the highest-value review queue —
+///      they say which of our own rules are wrong.
+///
+/// `confirmed` is ground truth: what the customer actually booked. A
+/// reading nobody confirmed is a hypothesis; one they paid for is a fact.
+model BookingBotLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  /// The message as typed. No other customer data is ever stored here,
+  /// and none is ever sent to the model — see lib/booking-bot/llm.ts.
+  text         String
+  /// Normalised form used as the cache key (lowercased, collapsed
+  /// whitespace, relative days left intact since they resolve per-day).
+  normalized   String
+  /// What the rule parser made of it, before any model call.
+  parserResult Json?
+  /// What the model returned, raw, before validation. Null when the
+  /// parser was confident enough that no call was made — which is the
+  /// number we want to see climb.
+  llmResult    Json?
+  /// Why the model was called, or "" when it wasn't: "missing",
+  /// "ambiguous", "unresolved-day", "cache-hit".
+  route        String   @default("")
+  /// Validation verdict on the model's output. A rejected reading never
+  /// reaches availability; it becomes a clarifying question instead.
+  rejected     String?
+  /// The reading finally shown to the customer.
+  finalResult  Json?
+  /// True once this message's proposal became a real booking. The only
+  /// unambiguous label we get.
+  confirmed    Boolean  @default(false)
+  /// Round-trip milliseconds for the model call, for latency budgeting.
+  latencyMs    Int?
+  createdAt    DateTime @default(now())
+
+  @@index([normalized])
+  @@index([createdAt])
+  @@index([route])
+}
+
+/// A word the system has LEARNED, promoted out of BookingBotLog.
+///
+/// This is the mechanism by which dependency on the model shrinks: once a
+/// term is here, the rule parser resolves it with no network call, for
+/// free, forever. Rows are reviewed before they go live — `approved`
+/// gates that — because an unreviewed vocabulary is just the model's
+/// mistakes written down permanently.
+model BookingBotTerm {
+  id        String   @id @default(cuid())
+  /// The word as customers type it, lowercased.
+  term      String   @unique
+  /// What it means, in the parser's own vocabulary ("evening", "cricket").
+  canonical String
+  /// How many distinct messages have used it. Drives review priority.
+  seenCount Int      @default(1)
+  /// Off until a human has looked at it.
+  approved  Boolean  @default(false)
+  source    String   @default("llm")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([approved])
 }

@@ -1,15 +1,18 @@
 import { Pressable, StyleSheet } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react-native";
 import { Text } from "./ui/Text";
 import { colors, radius, spacing } from "../theme";
 import { rewardsApi } from "../lib/rewards";
 import { trackRewardsTileTap } from "../lib/analytics";
-import type { MainTabsParamList } from "../navigation/types";
+import type { HomeStackParamList } from "../navigation/types";
 
-type Nav = BottomTabNavigationProp<MainTabsParamList>;
+/** This chip renders only inside HomeStack (HomeScreen). Typing it to the
+ *  stack rather than the tabs is what lets it push in place, so Back
+ *  returns to Home instead of AccountHome. */
+type Nav = NativeStackNavigationProp<HomeStackParamList>;
 
 /**
  * Header pill showing the signed-in user's Momentum Points balance.
@@ -51,10 +54,11 @@ export function RewardsChip({ enabled = true }: Props) {
 
   function go() {
     trackRewardsTileTap(points);
-    navigation.navigate("Account", {
-      screen: "Rewards",
-      initial: false,
-    });
+    // In-stack. This chip only renders on Home, so pushing here keeps
+    // Back pointing at Home instead of stranding the customer on
+    // AccountHome. If it is ever reused on another screen, that stack
+    // needs its own Rewards registration — same pattern.
+    navigation.navigate("Rewards");
   }
 
   return (
