@@ -1,5 +1,10 @@
 name: Backfill slot-block provenance (production)
 
+# NOTE: this normally runs on its own, as a step in seed-production.yml on
+# every push that touches prisma/**. This workflow is the manual recovery
+# hatch and the dry-run view — useful for SEEING what would change without
+# writing, which the automatic step deliberately does not offer.
+#
 # Blocks raised before provenance existed say only "Tournament window" —
 # true of every tournament and every sport, and so useless to an admin
 # deciding whether a blocked Tuesday can move. This traces each one back
