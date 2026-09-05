@@ -3783,6 +3783,14 @@ model Camp {
   /// the default, because a camp sharing a ground with casual play is a
   /// real arrangement and turning this on for existing camps would
   /// silently withdraw inventory that is already on sale.
+  /// Where this camp sits in the customer-facing list, low first.
+  ///
+  /// The venue decides the order, not the database: "starts soonest" is a
+  /// reasonable default and a poor rule, because the camp the venue most
+  /// wants filled is rarely the one that happens to start next. Ties fall
+  /// back to start date so a camp nobody has positioned still lands
+  /// somewhere sensible.
+  sortOrder         Int      @default(0)
   blockSlots        Boolean  @default(false)
   /// The blocks currently raised for this camp, so they can be released
   /// or recomputed as a set. Mirrors TournamentSlot.slotBlockIds.

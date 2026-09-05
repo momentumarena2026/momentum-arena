@@ -149,6 +149,7 @@ export async function registerForCamp(
       capacity: true,
       fee: true,
       registrationFee: true,
+      sortOrder: true,
       feeMode: true,
       advancePct: true,
       allowCoupons: true,
@@ -385,7 +386,9 @@ export async function listPublicCamps() {
     where: {
       status: { in: ["REGISTRATIONS_OPEN", "REGISTRATIONS_CLOSED", "ONGOING"] },
     },
-    orderBy: [{ startDate: "asc" }],
+    // The venue's chosen order first; start date only breaks ties, so a
+    // camp nobody has positioned still lands somewhere sensible.
+    orderBy: [{ sortOrder: "asc" }, { startDate: "asc" }],
     select: {
       id: true,
       slug: true,
@@ -405,6 +408,7 @@ export async function listPublicCamps() {
       capacity: true,
       fee: true,
       registrationFee: true,
+      sortOrder: true,
       feeMode: true,
       advancePct: true,
       waitlistEnabled: true,
@@ -449,6 +453,7 @@ export async function getPublicCamp(slug: string) {
       capacity: true,
       fee: true,
       registrationFee: true,
+      sortOrder: true,
       feeMode: true,
       advancePct: true,
       allowCoupons: true,

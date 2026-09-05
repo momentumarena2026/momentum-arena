@@ -18,8 +18,10 @@ import {
   updatePromoBanner,
   togglePromoBanner,
   deletePromoBanner,
+  reorderPromoBanners,
   type PromoBannerInput,
 } from "@/actions/admin-promo-banners";
+import { ReorderableList } from "@/components/admin/reorderable-list";
 import { PROMO_SCREENS } from "@/lib/promo-banner-screens";
 
 interface BannerRow {
@@ -80,11 +82,19 @@ export function PromoBannersManager({
   initialBanners: BannerRow[];
   coupons: CouponOption[];
 }) {
+  // Hidden banners are usually between runs rather than retired, so the
+  // default view shows everything — a list that hides them makes it easy
+  // to build a second banner for a slot one already covers.
+  const [filter, setFilter] = useState<"all" | "live" | "hidden">("all");
   const router = useRouter();
   // Render straight from the server prop — router.refresh() re-renders
   // the page with fresh data, which a useState snapshot would ignore
   // (the list looked stale after create/edit).
   const banners = initialBanners;
+  const visibleBanners =
+    filter === "all"
+      ? banners
+      : banners.filter((b) => (filter === "live" ? b.isActive : !b.isActive));
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -189,12 +199,47 @@ export function PromoBannersManager({
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {banners.map((b) => (
-          <div
-            key={b.id}
-            className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900"
-          >
+      {/* Filter + reorder controls. A single column while reordering,
+          because a two-column grid gives "position 3" no meaning a reader
+          can act on — is it the second row, or the first row's right
+          side? */}
+      {banners.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["all", `All (${banners.length})`],
+              ["live", `Live (${banners.filter((b) => b.isActive).length})`],
+              ["hidden", `Hidden (${banners.filter((b) => !b.isActive).length})`],
+            ] as const
+          ).map(([key, text]) => (
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                filter === key
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                  : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              {text}
+            </button>
+          ))}
+          <span className="ml-auto text-xs text-zinc-500">
+            {filter === "all"
+              ? "Drag to reorder — this is the order customers see. Saves as you drop."
+              : "Switch to All to reorder."}
+          </span>
+        </div>
+      )}
+
+      <ReorderableList
+        items={visibleBanners}
+        onReorder={reorderPromoBanners}
+        // Reordering a filtered subset would write positions that ignore
+        // the banners not on screen, silently shuffling them.
+        disabled={filter !== "all"}
+        renderItem={(b) => (
+          <div className="overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={b.imageUrl}
@@ -277,8 +322,8 @@ export function PromoBannersManager({
               </div>
             </div>
           </div>
-        ))}
-      </div>
+        )}
+      />
 
       {/* ── Create / edit modal ── */}
       {formOpen && (

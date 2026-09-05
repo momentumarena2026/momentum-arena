@@ -93,6 +93,28 @@ function resolveLink(nav: NavLike, linkUrl: string) {
     });
     return;
   }
+  // Camps had no branch at all, so a banner pointing at one fell through
+  // to the browser below — dropping the customer out of the app
+  // mid-session and losing the native back stack and their sign-in. The
+  // exact failure the tournament branches above were added to prevent.
+  const campMatch = path.match(/^\/camps\/([^/?#]+)/);
+  if (campMatch) {
+    nav.navigate("Main", {
+      // Home stack, not the tab: a banner tapped on Home should back out
+      // to Home. `initial: false` keeps HomeMain underneath so it does.
+      screen: "Home",
+      params: {
+        screen: "Camps",
+        params: { slug: decodeURIComponent(campMatch[1]) },
+        initial: false,
+      },
+    });
+    return;
+  }
+  if (path.startsWith("/camps")) {
+    nav.navigate("Main", { screen: "Home", params: { screen: "Camps" } });
+    return;
+  }
   // Unrecognised → browser (absolutise site-relative paths).
   const url = /^https?:\/\//.test(linkUrl) ? linkUrl : `${env.apiUrl}${linkUrl}`;
   Linking.openURL(url).catch(() => {});

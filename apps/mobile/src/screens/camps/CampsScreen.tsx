@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import RazorpayCheckout from "react-native-razorpay";
 import { CalendarDays, Clock, Users, IndianRupee } from "lucide-react-native";
@@ -75,6 +76,12 @@ function payNowFor(c: CampSummary, joining: number): number {
 }
 
 export function CampsScreen() {
+  // A promo banner or deep link can name a camp. The sheet is opened
+  // once — `openedFor` — so closing it does not immediately reopen on the
+  // next render, which is what makes a deep-linked sheet feel stuck.
+  const route = useRoute<RouteProp<{ Camps: { slug?: string } | undefined }, "Camps">>();
+  const wantedSlug = route.params?.slug ?? null;
+  const openedFor = useRef<string | null>(null);
   // Which camps this customer has already joined, so a returning
   // participant is never quoted a joining fee they will not be charged.
   // Signed out returns empty, which is the right quote for someone the
@@ -231,6 +238,18 @@ export function CampsScreen() {
   });
 
   const camps = q.data?.camps ?? [];
+
+  // Open the deep-linked camp as soon as the list arrives. Guarded by
+  // `openedFor` so dismissing the sheet does not reopen it on the next
+  // render — a deep-linked sheet that will not close is worse than one
+  // that never opened.
+  useEffect(() => {
+    if (!wantedSlug || openedFor.current === wantedSlug) return;
+    const match = camps.find((c) => c.slug === wantedSlug);
+    if (!match) return;
+    openedFor.current = wantedSlug;
+    setSheet(match);
+  }, [wantedSlug, camps]);
 
   return (
     <Screen padded={false}>

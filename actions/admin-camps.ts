@@ -137,10 +137,43 @@ export async function listCourtOptions(): Promise<
     .map((c) => ({ id: c.id, label: c.label, sport: c.sport }));
 }
 
+/**
+ * Persist the order an admin dragged the camps into.
+ *
+ * The whole visible list is sent and rewritten, not a single moved item.
+ * Sending one "moved to position 3" would need the server to reconstruct
+ * what the admin was looking at, and it would be wrong the moment two
+ * people reorder at once; a full list is unambiguous and idempotent.
+ *
+ * Positions are the array index, so they are always dense and always
+ * match what was on screen.
+ */
+export async function reorderCamps(
+  ids: string[],
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  if (ids.length === 0) return { success: true };
+  try {
+    await db.$transaction(
+      ids.map((id, i) =>
+        db.camp.update({ where: { id }, data: { sortOrder: i } }),
+      ),
+    );
+  } catch {
+    return { success: false, error: "Couldn't save the new order." };
+  }
+  revalidatePath("/admin/camps");
+  // The customer-facing lists read this too.
+  revalidatePath("/camps");
+  return { success: true };
+}
+
 export async function listCamps() {
   await gate();
   const camps = await db.camp.findMany({
-    orderBy: [{ startDate: "desc" }],
+    // Same order the customer sees, so the admin list IS the thing being
+    // arranged rather than a differently-sorted view of it.
+    orderBy: [{ sortOrder: "asc" }, { startDate: "asc" }],
     select: {
       id: true,
       slug: true,

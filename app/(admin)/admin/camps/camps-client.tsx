@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CampBannerPicker } from "./banner-picker";
-import { saveCamp, type CampInput } from "@/actions/admin-camps";
+import { saveCamp, reorderCamps, type CampInput } from "@/actions/admin-camps";
+import { ReorderableList } from "@/components/admin/reorderable-list";
 
 type CampRow = {
   id: string;
@@ -139,12 +140,20 @@ export function CampsClient({
         </p>
       )}
 
-      <div className="space-y-2">
-        {camps.map((c) => (
+      {camps.length > 1 ? (
+        <p className="text-xs text-zinc-500">
+          Drag to reorder — this is the order customers see on the app and the
+          website. Saves as you drop.
+        </p>
+      ) : null}
+
+      <ReorderableList
+        items={camps}
+        onReorder={reorderCamps}
+        renderItem={(c) => (
           <Link
-            key={c.id}
             href={`/admin/camps/${c.id}`}
-            className="block rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-colors hover:border-zinc-700"
+            className="block p-4 transition-colors hover:bg-zinc-800/40"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
@@ -174,8 +183,8 @@ export function CampsClient({
               </div>
             </div>
           </Link>
-        ))}
-      </div>
+        )}
+      />
     </div>
   );
 }
