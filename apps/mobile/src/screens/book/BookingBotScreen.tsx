@@ -44,6 +44,13 @@ type Proposal = {
   hours: number[];
   timeLabel: string;
   price: number;
+  /** Set when the customer holds a pass that settles this window. */
+  passCoverage?: {
+    passName: string;
+    coveredAmount: number;
+    remainderAmount: number;
+    fullCoverage: boolean;
+  } | null;
 };
 
 type Suggestion = Proposal & { differentCourt: boolean };
@@ -367,7 +374,12 @@ export function BookingBotScreen() {
                     <ActivityIndicator color="#04140e" size="small" />
                   ) : (
                     <Text style={styles.ctaText}>
-                      Confirm &amp; pay {inr(r.proposal.price)}
+                      {r.proposal.passCoverage?.fullCoverage
+                        ? "Confirm with your pass"
+                        : `Confirm & pay ${inr(
+                            r.proposal.passCoverage?.remainderAmount ??
+                              r.proposal.price,
+                          )}`}
                     </Text>
                   )}
                 </Pressable>
@@ -489,7 +501,25 @@ function ProposalCard({ p }: { p: Proposal }) {
       <Text style={styles.cardWhen}>
         {dayLabel(p.date)} · {p.timeLabel}
       </Text>
-      <Text style={styles.cardPrice}>{inr(p.price)}</Text>
+      {/* A pass holder sees what their pass does, not just the list
+          price. Shown here rather than left to checkout because the
+          decision to confirm is made on this card — and "pay Rs2,000"
+          for a window a pass covers reads as "passes don't work here". */}
+      {p.passCoverage?.fullCoverage ? (
+        <>
+          <Text style={styles.cardPrice}>Covered by your pass</Text>
+          <Text style={styles.cardPass}>{p.passCoverage.passName}</Text>
+        </>
+      ) : p.passCoverage && p.passCoverage.coveredAmount > 0 ? (
+        <>
+          <Text style={styles.cardPrice}>{inr(p.passCoverage.remainderAmount)}</Text>
+          <Text style={styles.cardPass}>
+            {inr(p.passCoverage.coveredAmount)} covered by {p.passCoverage.passName}
+          </Text>
+        </>
+      ) : (
+        <Text style={styles.cardPrice}>{inr(p.price)}</Text>
+      )}
     </View>
   );
 }
@@ -549,6 +579,11 @@ const styles = StyleSheet.create({
   cardHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   cardCourt: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
   cardWhen: { color: colors.zinc400, fontSize: 13 },
+  cardPass: {
+    color: colors.emerald400,
+    fontSize: 11,
+    marginTop: 2,
+  },
   cardPrice: {
     color: colors.emerald400,
     fontSize: 19,

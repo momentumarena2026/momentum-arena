@@ -20,6 +20,7 @@ import {
   type CourtDay,
 } from "@/lib/booking-bot/suggest";
 import { istDateKey, toIst } from "@/lib/ist";
+import { getPassOfferForHold } from "@/lib/passes";
 import { getQuickBookSettings } from "@/lib/booking-bot/settings";
 import { readWithLlm } from "@/lib/booking-bot/llm";
 import { validateLlmReading, usefulTerms } from "@/lib/booking-bot/validate";
@@ -91,6 +92,23 @@ type Ok =
         hours: number[];
         timeLabel: string;
         price: number;
+        /**
+         * What the customer's pass would settle on this window, if any.
+         *
+         * The bot quotes the LIST price, because that is what availability
+         * returns. A pass holder shown "Confirm & pay Rs2,000" for a
+         * window their pass covers can reasonably conclude passes do not
+         * work here and give up — on the thing they have already paid
+         * for. The pass itself always applied (confirming runs the same
+         * lock and checkout as the slot picker); only the number was
+         * wrong.
+         */
+        passCoverage: {
+          passName: string;
+          coveredAmount: number;
+          remainderAmount: number;
+          fullCoverage: boolean;
+        } | null;
       };
     }
   | {
@@ -656,6 +674,22 @@ export async function POST(request: NextRequest) {
     // Surface every assumption the parser made. A customer who meant 7am
     // sees "7:00 PM" and one tap fixes it — which is the entire reason
     // defaulting is acceptable at all.
+    // Priced against the customer, not just the court. getPassOfferForHold
+    // takes a plain object rather than a DB row, so the proposal can be
+    // costed before any hold exists — the same function checkout will run
+    // a moment later, so the two cannot disagree.
+    const passOffer = await getPassOfferForHold({
+      userId,
+      courtConfigId: hit.court.courtConfigId,
+      date: new Date(`${date}T00:00:00.000Z`),
+      hours: hoursOf(startHour, endHour),
+      totalAmount: hit.price,
+      slotPrices: hoursOf(startHour, endHour).map((h) => ({
+        hour: h,
+        price: hit.court.slots.find((s) => s.hour === h)?.price ?? 0,
+      })),
+    }).catch(() => null);
+
     return NextResponse.json<Ok>({
       kind: "proposal",
       parsed,
@@ -672,6 +706,14 @@ export async function POST(request: NextRequest) {
         hours: hoursOf(startHour, endHour),
         timeLabel,
         price: hit.price,
+        passCoverage: passOffer
+          ? {
+              passName: passOffer.passName,
+              coveredAmount: passOffer.coveredAmount,
+              remainderAmount: passOffer.remainderAmount,
+              fullCoverage: passOffer.fullCoverage,
+            }
+          : null,
       },
     });
   }
