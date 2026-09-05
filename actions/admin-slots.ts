@@ -50,6 +50,12 @@ export async function blockSlot(
       startHour: parsed.data.startHour ?? null,
       reason: parsed.data.reason || null,
       blockedBy: adminId,
+      // A hand-raised block has no event behind it, but it is still worth
+      // saying so: without this it is indistinguishable from a block
+      // whose owner was never recorded, and the backfill would have to
+      // guess which it was looking at.
+      sourceType: "MANUAL",
+      sourceLabel: parsed.data.reason || "Blocked by admin",
     },
   });
 
