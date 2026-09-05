@@ -13,7 +13,7 @@ import {
   archiveCampRegistration,
   type CampInput,
 } from "@/actions/admin-camps";
-import { CampForm } from "../camps-client";
+import { CampForm, type CourtOption } from "../camps-client";
 
 type Registration = {
   id: string;
@@ -38,7 +38,7 @@ type Camp = {
   id: string;
   slug: string;
   name: string;
-  sport: string;
+  sport: string | null;
   status: string;
   description: string | null;
   rules: string | null;
@@ -58,6 +58,7 @@ type Camp = {
   fee: number;
   registrationFee: number;
   blockSlots: boolean;
+  courtConfigId: string | null;
   feeMode: string;
   advancePct: number;
   allowCoupons: boolean;
@@ -105,7 +106,13 @@ function toLocalInput(iso: string | null, withTime: boolean): string {
   return withTime ? `${date}T${get("hour")}:${get("minute")}` : date;
 }
 
-export function CampManage({ camp }: { camp: Camp }) {
+export function CampManage({
+  camp,
+  courts,
+}: {
+  camp: Camp;
+  courts: CourtOption[];
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<"roster" | "settings">("roster");
   const [busy, setBusy] = useState<string | null>(null);
@@ -126,7 +133,7 @@ export function CampManage({ camp }: { camp: Camp }) {
   // Settings form seeded from the stored camp
   const [form, setForm] = useState<CampInput>({
     name: camp.name,
-    sport: camp.sport as CampInput["sport"],
+    sport: (camp.sport ?? null) as CampInput["sport"],
     description: camp.description ?? "",
     rules: camp.rules ?? "",
     bannerImageUrl: camp.bannerImageUrl ?? "",
@@ -145,6 +152,7 @@ export function CampManage({ camp }: { camp: Camp }) {
     fee: camp.fee,
     registrationFee: camp.registrationFee,
     blockSlots: camp.blockSlots,
+    courtConfigId: camp.courtConfigId,
     feeMode: camp.feeMode as CampInput["feeMode"],
     advancePct: camp.advancePct,
     allowCoupons: camp.allowCoupons,
@@ -191,7 +199,7 @@ export function CampManage({ camp }: { camp: Camp }) {
           </span>
         </div>
         <p className="text-sm text-zinc-500">
-          {camp.sport} · {camp.daysOfWeek.map((d) => DAYS[d]).join(", ")} ·{" "}
+          {camp.sport ?? "Other"} · {camp.daysOfWeek.map((d) => DAYS[d]).join(", ")} ·{" "}
           {camp.startHour}:00–{camp.endHour}:00 · Public URL: /camps/{camp.slug}
         </p>
       </div>
@@ -499,6 +507,7 @@ export function CampManage({ camp }: { camp: Camp }) {
 
       {tab === "settings" && (
         <CampForm
+          courts={courts}
           form={form}
           set={set}
           busy={busy === "save"}

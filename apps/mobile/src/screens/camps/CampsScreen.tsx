@@ -273,7 +273,10 @@ export function CampsScreen() {
           const full = c.seatsLeft <= 0;
           const joining = joiningFeeFor(c);
           const now = payNowFor(c, joining);
-          const t = sportTheme(c.sport);
+          // sportTheme falls back to a neutral palette for an unknown
+          // or absent sport, so a Taekwondo camp still gets a card that
+          // looks deliberate rather than broken.
+          const t = sportTheme(c.sport ?? "");
           return (
             <View key={c.id} style={styles.card}>
               {/* Banner — the admin's upload, else the sport's stock
@@ -297,8 +300,12 @@ export function CampsScreen() {
                         { backgroundColor: t.chipBg, borderColor: t.chipBorder },
                       ]}
                     >
+                      {/* A camp without a sport shows its own name rather
+                          than borrowing a sport's label — calling a
+                          Taekwondo camp "CRICKET" is worse than saying
+                          nothing. */}
                       <Text variant="tiny" weight="700" color={t.hex}>
-                        {t.emoji} {t.label.toUpperCase()}
+                        {c.sport ? `${t.emoji} ${t.label.toUpperCase()}` : "CAMP"}
                       </Text>
                     </View>
                     {open && !full && c.seatsLeft <= 5 ? (

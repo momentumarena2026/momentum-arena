@@ -1,12 +1,16 @@
 import Link from "next/link";
-import { listCamps, getCampsEnabled } from "@/actions/admin-camps";
+import { listCourtOptions, listCamps, getCampsEnabled } from "@/actions/admin-camps";
 import { CampsClient } from "./camps-client";
 import { CampsModuleToggle } from "./module-toggle";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminCampsPage() {
-  const [camps, enabled] = await Promise.all([listCamps(), getCampsEnabled()]);
+  const [camps, enabled, courts] = await Promise.all([
+    listCamps(),
+    getCampsEnabled(),
+    listCourtOptions(),
+  ]);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -20,6 +24,7 @@ export default async function AdminCampsPage() {
         <CampsModuleToggle initialEnabled={enabled} />
       </div>
       <CampsClient
+        courts={courts}
         camps={camps.map((c) => ({
           id: c.id,
           slug: c.slug,

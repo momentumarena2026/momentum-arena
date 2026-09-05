@@ -13,7 +13,8 @@ export type CampSummary = {
   id: string;
   slug: string;
   name: string;
-  sport: string;
+  /** Null for an activity that is not one of the venue's sports. */
+  sport: string | null;
   status: string;
   description: string | null;
   bannerImageUrl: string | null;

@@ -194,7 +194,10 @@ export async function registerForCamp(
     const verdict = await validateCoupon(input.couponCode, {
       scope: "SPORTS",
       amount: camp.fee,
-      sport: camp.sport,
+      // A camp with no sport carries no sport context — a coupon
+      // restricted to a sport then correctly refuses to apply, rather
+      // than matching by accident.
+      sport: camp.sport ?? undefined,
       userId: input.userId ?? undefined,
       platform: "web",
     });

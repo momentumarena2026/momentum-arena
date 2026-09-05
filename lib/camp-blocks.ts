@@ -24,6 +24,7 @@ import {
   expandWindows,
   findBlockConflicts,
   findBookingConflicts,
+  zonesForConfig,
   zonesForSport,
   type BlockWindow,
   type Conflict,
@@ -32,7 +33,10 @@ import {
 export type CampSchedule = {
   id: string;
   name: string;
-  sport: Sport;
+  /** Optional — a camp is not always one of the sports the venue sells. */
+  sport: Sport | null;
+  /** The court the camp occupies. Blocking needs this, not the sport. */
+  courtConfigId: string | null;
   startDate: Date;
   endDate: Date;
   daysOfWeek: number[];
@@ -59,11 +63,19 @@ export async function campBlockConflicts(camp: CampSchedule): Promise<{
   bookings: { date: string; hour: number; label: string }[];
 }> {
   const windows = campWindows(camp);
-  // The GROUND the camp will occupy, not its sport. A cricket tournament
-  // already holding this Saturday evening is in the way of a football
-  // camp when the two share a turf, and nothing about the sports says so
-  // — only the zones do.
-  const claimZones = await zonesForSport(camp.sport);
+  // The GROUND the camp will occupy. Read from the chosen COURT, because
+  // that is the physical truth and because a camp need not have a sport
+  // at all — Taekwondo on the cricket turf occupies the turf, and no
+  // sport field describes that.
+  //
+  // A cricket tournament already holding this Saturday evening is in the
+  // way of a Taekwondo camp on the same turf, and nothing about the two
+  // says so — only the zones do.
+  const claimZones = camp.courtConfigId
+    ? await zonesForConfig(camp.courtConfigId)
+    : camp.sport
+      ? await zonesForSport(camp.sport)
+      : [];
   const [blocks, bookings] = await Promise.all([
     findBlockConflicts(windows, {
       claimZones,
@@ -90,6 +102,13 @@ export async function syncCampBlocks(
 ): Promise<number> {
   const windows = campWindows(camp);
   const label = blockLabel("CAMP", camp.name, camp.sport);
+  if (!camp.courtConfigId && !camp.sport) {
+    // Nothing to hold: without a court or a sport there is no ground to
+    // reserve, and a block scoped to neither would silently close the
+    // ENTIRE venue.
+    await releaseCampBlocks(camp.id);
+    return 0;
+  }
 
   const created = await db.$transaction(async (tx) => {
     const existing = await tx.camp.findUnique({
@@ -107,8 +126,13 @@ export async function syncCampBlocks(
     // released later — so they are generated here and written to both
     // tables from the same list.
     const rows = windows.map((w) => ({
-      sport: camp.sport,
-      courtConfigId: null,
+      // The COURT is what holds the ground. Availability reads a
+      // config-scoped block through zone overlap, so blocking the full
+      // field also blocks its half-courts — which is what "hold the turf"
+      // has to mean. `sport` is carried only when there is one, and only
+      // as a label.
+      sport: camp.courtConfigId ? null : camp.sport,
+      courtConfigId: camp.courtConfigId,
       date: w.date,
       startHour: w.hour,
       reason: label,
