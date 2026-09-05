@@ -57,6 +57,7 @@ type Camp = {
   capacity: number;
   fee: number;
   registrationFee: number;
+  blockSlots: boolean;
   feeMode: string;
   advancePct: number;
   allowCoupons: boolean;
@@ -109,6 +110,7 @@ export function CampManage({ camp }: { camp: Camp }) {
   const [tab, setTab] = useState<"roster" | "settings">("roster");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ reasons: string[]; title: string } | null>(null);
 
   // Desk registration
   const [adding, setAdding] = useState(false);
@@ -142,6 +144,7 @@ export function CampManage({ camp }: { camp: Camp }) {
     capacity: camp.capacity,
     fee: camp.fee,
     registrationFee: camp.registrationFee,
+    blockSlots: camp.blockSlots,
     feeMode: camp.feeMode as CampInput["feeMode"],
     advancePct: camp.advancePct,
     allowCoupons: camp.allowCoupons,
@@ -450,6 +453,50 @@ export function CampManage({ camp }: { camp: Camp }) {
         </div>
       )}
 
+      {confirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-amber-500/40 bg-zinc-900 p-5">
+            <h3 className="text-lg font-semibold text-white">{confirm.title}</h3>
+            <ul className="mt-3 space-y-1.5 text-sm text-zinc-300">
+              {confirm.reasons.map((r, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-amber-400">•</span>
+                  <span>{r}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs text-zinc-500">
+              Held time stops NEW bookings. Anything already sold stays sold —
+              those customers have to be moved by hand.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirm(null)}
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setConfirm(null);
+                  void run("save", async () => {
+                    const res = await saveCamp({
+                      ...form,
+                      id: camp.id,
+                      confirmBlocking: true,
+                    });
+                    return { success: res.success, error: res.error };
+                  });
+                }}
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-200 hover:bg-amber-500/20"
+              >
+                Extend and hold the time
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === "settings" && (
         <CampForm
           form={form}
@@ -460,6 +507,15 @@ export function CampManage({ camp }: { camp: Camp }) {
           onSubmit={() =>
             run("save", async () => {
               const res = await saveCamp({ ...form, id: camp.id });
+              // Not a failure — a question. Extending a camp with
+              // blocking on takes real inventory off sale, and the
+              // person editing the form is thinking about the camp, not
+              // about the booking grid. They are told the number and
+              // asked once, rather than finding out from a customer.
+              if (res.needsConfirm) {
+                setConfirm({ reasons: res.reasons ?? [], title: res.confirmTitle ?? "Confirm" });
+                return { success: true };
+              }
               return { success: res.success, error: res.error };
             })
           }

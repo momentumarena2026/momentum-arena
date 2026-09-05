@@ -2,6 +2,13 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import {
+  campBlockConflicts,
+  newlyBlockedWindows,
+  releaseCampBlocks,
+  syncCampBlocks,
+  type CampSchedule,
+} from "@/lib/camp-blocks";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { registerForCamp, campSeatsTaken } from "@/lib/camps";
@@ -72,6 +79,8 @@ const campSchema = z.object({
   allowCoupons: z.boolean(),
   allowRewardPoints: z.boolean(),
   waitlistEnabled: z.boolean(),
+  /// Hold the courts for every session this camp's schedule describes.
+  blockSlots: z.boolean().default(false),
 });
 
 export type CampInput = z.infer<typeof campSchema>;
@@ -114,6 +123,7 @@ export async function listCamps() {
       capacity: true,
       fee: true,
       registrationFee: true,
+      blockSlots: true,
       _count: {
         select: {
           registrations: {
@@ -142,8 +152,24 @@ export async function getCampAdmin(id: string) {
 }
 
 export async function saveCamp(
-  input: CampInput & { id?: string },
-): Promise<{ success: boolean; error?: string; id?: string }> {
+  input: CampInput & {
+    id?: string;
+    /** Set once the admin has seen and accepted the blocking warning. */
+    confirmBlocking?: boolean;
+  },
+): Promise<{
+  success: boolean;
+  error?: string;
+  id?: string;
+  /**
+   * The save did not happen and is not wrong — it is waiting on a human.
+   * Distinct from `error` so the UI can offer "go ahead" rather than
+   * just reporting a failure the admin cannot act on.
+   */
+  needsConfirm?: boolean;
+  confirmTitle?: string;
+  reasons?: string[];
+}> {
   const admin = await gate();
   const parsed = campSchema.safeParse(input);
   if (!parsed.success) {
@@ -189,6 +215,7 @@ export async function saveCamp(
     allowCoupons: d.allowCoupons,
     allowRewardPoints: d.allowRewardPoints,
     waitlistEnabled: d.waitlistEnabled,
+    blockSlots: d.blockSlots,
   };
 
   if (input.id) {
@@ -201,9 +228,84 @@ export async function saveCamp(
         error: `${taken} seats are already taken — capacity can't go below that.`,
       };
     }
+
+    const before = await db.camp.findUnique({
+      where: { id: input.id },
+      select: {
+        id: true, name: true, sport: true, startDate: true, endDate: true,
+        daysOfWeek: true, startHour: true, endHour: true, blockSlots: true,
+      },
+    });
+    if (!before) return { success: false, error: "Camp not found" };
+
+    const after: CampSchedule = {
+      id: input.id,
+      name: data.name,
+      sport: data.sport,
+      startDate: start,
+      endDate: end,
+      daysOfWeek: data.daysOfWeek,
+      startHour: data.startHour,
+      endHour: data.endHour,
+    };
+
+    // ── Ask before withdrawing inventory ──────────────────────────
+    //
+    // Moving an end date is a small edit to a form and a large change to
+    // the calendar: extending a camp by three months takes three months
+    // of evenings off sale, and only if this toggle happens to be on.
+    // The person making that edit is thinking about the camp, not about
+    // the booking grid, so they are told the number and asked — once —
+    // rather than finding out from a customer.
+    if (data.blockSlots && !input.confirmBlocking) {
+      const reasons: string[] = [];
+      const added = before.blockSlots
+        ? newlyBlockedWindows({ ...before, name: before.name }, after)
+        : (await campBlockConflicts(after)).windows;
+
+      if (!before.blockSlots && added > 0) {
+        reasons.push(`Blocking is being turned on — ${added} session hours will be held.`);
+      } else if (added > 0) {
+        reasons.push(`This change blocks ${added} more session hours than before.`);
+      }
+
+      // And what is already there. Another event on the same window is a
+      // clash somebody must resolve; a booking already sold is a customer
+      // who has to be rung, because a block hides a slot but cannot
+      // un-sell it.
+      const clash = await campBlockConflicts(after);
+      for (const c of clash.blocks) {
+        reasons.push(`${c.date} ${c.hour}:00 is already held by ${c.label}.`);
+      }
+      for (const b of clash.bookings) {
+        reasons.push(`${b.date} ${b.hour}:00 is already booked on ${b.label}.`);
+      }
+
+      if (reasons.length > 0) {
+        return {
+          success: false,
+          needsConfirm: true,
+          confirmTitle: "This will hold court time",
+          reasons,
+          error: reasons[0],
+        };
+      }
+    }
+
     await db.camp.update({ where: { id: input.id }, data });
+
+    // Recompute rather than patch: the schedule is small, and keeping a
+    // second description of which hours are held is how a blocked Tuesday
+    // outlives a camp that stopped meeting on Tuesdays.
+    if (data.blockSlots) {
+      await syncCampBlocks(after, admin.email ?? "admin");
+    } else if (before.blockSlots) {
+      await releaseCampBlocks(input.id);
+    }
+
     revalidatePath("/admin/camps");
     revalidatePath(`/admin/camps/${input.id}`);
+    revalidatePath("/admin/bookings/calendar");
     return { success: true, id: input.id };
   }
 
@@ -217,10 +319,39 @@ export async function saveCamp(
     data: { ...data, slug, createdBy: admin.id },
     select: { id: true },
   });
+
+  // A new camp created with blocking already on holds its courts
+  // immediately. No confirmation here: nothing existed a moment ago, so
+  // there is no change to warn about — the admin is describing the camp,
+  // not altering one.
+  if (data.blockSlots) {
+    await syncCampBlocks(
+      {
+        id: created.id,
+        name: data.name,
+        sport: data.sport,
+        startDate: start,
+        endDate: end,
+        daysOfWeek: data.daysOfWeek,
+        startHour: data.startHour,
+        endHour: data.endHour,
+      },
+      admin.email ?? "admin",
+    );
+    revalidatePath("/admin/bookings/calendar");
+  }
+
   revalidatePath("/admin/camps");
   return { success: true, id: created.id };
 }
 
+/**
+ * Cancelling a camp gives the courts back.
+ *
+ * A cancelled camp holding evenings nobody will use is inventory lost to
+ * an event that is not happening, and the block outlives every screen
+ * that would remind anyone it exists.
+ */
 export async function setCampStatus(
   campId: string,
   status: "DRAFT" | "REGISTRATIONS_OPEN" | "REGISTRATIONS_CLOSED" | "ONGOING" | "COMPLETED" | "CANCELLED",
@@ -232,6 +363,14 @@ export async function setCampStatus(
   });
   if (!camp) return { success: false, error: "Camp not found" };
   await db.camp.update({ where: { id: campId }, data: { status } });
+
+  // A cancelled camp must not keep holding evenings nobody will use. The
+  // block would outlive every screen that would remind anyone it exists.
+  if (status === "CANCELLED") {
+    await releaseCampBlocks(campId);
+    revalidatePath("/admin/bookings/calendar");
+  }
+
   revalidatePath("/admin/camps");
   revalidatePath(`/admin/camps/${campId}`);
   return { success: true };

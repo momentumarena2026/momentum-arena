@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { blockLabel } from "@/lib/slot-blocks";
 
 /**
  * The venue hours a tournament holds, released and re-taken as a unit.
@@ -73,6 +74,15 @@ export async function restoreTournamentBlocks(
   tournamentId: string,
   adminId: string,
 ): Promise<{ raised: number; clashes: number }> {
+  // The name and sport go ONTO each block, so a calendar cell can say
+  // which tournament owns it without joining per cell — and can still
+  // say it after the tournament is gone.
+  const meta = await db.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { name: true, sport: true },
+  });
+  const label = blockLabel("TOURNAMENT", meta?.name ?? "Tournament", meta?.sport ?? null);
+
   const slots = await db.tournamentSlot.findMany({
     where: { tournamentId },
     select: {
@@ -111,8 +121,11 @@ export async function restoreTournamentBlocks(
         courtConfigId: s.courtConfigId as string,
         date: s.date,
         startHour: h,
-        reason: BLOCK_REASON,
+        reason: label,
         blockedBy: adminId,
+        sourceType: "TOURNAMENT",
+        sourceId: tournamentId,
+        sourceLabel: label,
       })),
       select: { id: true },
     });

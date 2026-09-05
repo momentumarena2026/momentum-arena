@@ -18,6 +18,7 @@ type CampRow = {
   capacity: number;
   fee: number;
   registrationFee: number;
+  blockSlots?: boolean;
   registered: number;
 };
 
@@ -67,6 +68,7 @@ function blankCamp(): CampInput {
     capacity: 20,
     fee: 5000,
     registrationFee: 0,
+    blockSlots: false,
     feeMode: "FULL",
     advancePct: 50,
     allowCoupons: true,
@@ -470,6 +472,31 @@ export function CampForm({
           </label>
         ))}
       </div>
+
+      {/* Blocking is its own block, not a fourth checkbox in the row
+          above: it is the only setting here that changes what the PUBLIC
+          can book, and burying it beside "Allow coupons" would let it be
+          switched on without anyone registering what it does. */}
+      <label className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 accent-emerald-500"
+          checked={!!form.blockSlots}
+          onChange={(e) => set("blockSlots", e.target.checked)}
+        />
+        <span className="text-sm">
+          <span className="font-medium text-white">Hold the courts for this camp</span>
+          <span className="mt-1 block text-xs text-zinc-500">
+            Every session in the schedule above is taken off public sale —
+            {" "}
+            {form.daysOfWeek.length > 0
+              ? `${form.daysOfWeek.length} day${form.daysOfWeek.length === 1 ? "" : "s"} a week, ${Math.max(0, form.endHour - form.startHour)} hour${form.endHour - form.startHour === 1 ? "" : "s"} each`
+              : "pick the days above first"}
+            . Changing the dates later re-applies it, and you'll be asked
+            before any extra time is held.
+          </span>
+        </span>
+      </label>
 
       <div className="flex gap-2">
         <button

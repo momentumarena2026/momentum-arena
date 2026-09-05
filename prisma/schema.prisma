@@ -744,11 +744,30 @@ model SlotBlock {
   startMinute   Int          @default(0)
   reason        String?
   blockedBy     String
+  /// WHAT put this block here, structured rather than parsed back out of
+  /// `reason`. The calendar used to render every tournament block as the
+  /// bare words "Tournament window" — true, useless, and identical for
+  /// every tournament and every sport. An admin looking at a blocked
+  /// Tuesday could not tell which event owned it, and so could not tell
+  /// whether it was safe to move.
+  ///
+  /// "TOURNAMENT" | "CAMP" | "MANUAL". Null on rows raised before this
+  /// existed, which still render from `reason` alone.
+  sourceType    String?
+  /// The tournament or camp id, so a block can be traced to its owner and
+  /// released with it.
+  sourceId      String?
+  /// The event's name at the time of blocking, denormalised on purpose:
+  /// the calendar renders hundreds of cells and must not join per cell,
+  /// and a block should still say what put it there after its owner is
+  /// deleted.
+  sourceLabel   String?
 
   createdAt DateTime @default(now())
 
   @@index([date, courtConfigId])
   @@index([date, sport])
+  @@index([sourceType, sourceId])
 }
 
 model Notification {
@@ -3719,7 +3738,7 @@ model Camp {
   capacity          Int
   /// The RECURRING fee — what a participant pays for a month of the camp,
   /// and the only thing they pay when they renew.
-  fee               Int     @default(0)
+  fee               Int      @default(0)
   /// A one-time joining fee, charged on a participant's FIRST confirmed
   /// registration for this camp and never again. Added on top of `fee`,
   /// so a first payment is registrationFee + fee and every renewal is fee
@@ -3730,12 +3749,24 @@ model Camp {
   /// the monthly fee, which is what they applied to before this existed.
   /// A joining fee is the venue's cost of enrolling someone, not part of
   /// the recurring price a promotion is meant to discount.
-  registrationFee   Int     @default(0)
-  feeMode           String  @default("FULL") // FULL | ADVANCE | FREE
-  advancePct        Int     @default(50)
-  allowCoupons      Boolean @default(true)
-  allowRewardPoints Boolean @default(true)
-  waitlistEnabled   Boolean @default(true)
+  registrationFee   Int      @default(0)
+  feeMode           String   @default("FULL") // FULL | ADVANCE | FREE
+  advancePct        Int      @default(50)
+  allowCoupons      Boolean  @default(true)
+  allowRewardPoints Boolean  @default(true)
+  waitlistEnabled   Boolean  @default(true)
+  /// Hold the courts for this camp's sessions.
+  ///
+  /// On, the schedule above (startDate..endDate, daysOfWeek, startHour..
+  /// endHour) is mirrored into SlotBlocks so the public cannot book over
+  /// a session. Off, the camp runs without reserving anything — which is
+  /// the default, because a camp sharing a ground with casual play is a
+  /// real arrangement and turning this on for existing camps would
+  /// silently withdraw inventory that is already on sale.
+  blockSlots        Boolean  @default(false)
+  /// The blocks currently raised for this camp, so they can be released
+  /// or recomputed as a set. Mirrors TournamentSlot.slotBlockIds.
+  slotBlockIds      String[] @default([])
 
   createdBy String?
   createdAt DateTime @default(now())
