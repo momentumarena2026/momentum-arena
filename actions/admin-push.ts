@@ -301,6 +301,15 @@ export interface BroadcastInput {
   // matching tab; deepLinkBookingId/CafeOrderId pin a specific entity.
   // Leave all unset and the tap just opens the app to its current screen.
   destination?: BroadcastDestination;
+  /**
+   * A typed destination URL, taking precedence over `destination`.
+   *
+   * Same shape a promo banner takes ("/camps/taekwondo"), and resolved
+   * by the same code in the app — so a link that works on a banner works
+   * here, and a screen the fixed list has never heard of is reachable
+   * without shipping an app update.
+   */
+  deepLinkUrl?: string;
   deepLinkBookingId?: string;
   deepLinkCafeOrderId?: string;
   // When true, the call returns the audience size without actually
@@ -382,6 +391,12 @@ export async function sendBroadcast(input: BroadcastInput) {
   } else if (input.deepLinkCafeOrderId) {
     data.kind = "cafe_order_status";
     data.cafeOrderId = input.deepLinkCafeOrderId;
+  } else if (input.deepLinkUrl?.trim()) {
+    data.kind = "open_screen";
+    // The app resolves this; anything it cannot place opens in the
+    // browser, and an empty or unusable value leaves the tap on Home.
+    // There is no path that ends nowhere.
+    data.url = input.deepLinkUrl.trim().slice(0, 300);
   } else if (input.destination) {
     data.kind = "open_screen";
     data.screen = input.destination;

@@ -48,7 +48,10 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
   const [kind, setKind] = useState<AudienceKind>("all");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [destination, setDestination] = useState<BroadcastDestination | "">("");
+  // "__url" is a UI-only sentinel: it means "the admin is typing a link",
+  // and is never sent as a destination.
+  const [destination, setDestination] = useState<BroadcastDestination | "" | "__url">("");
+  const [deepLinkUrl, setDeepLinkUrl] = useState("");
   const [userQuery, setUserQuery] = useState("");
   const [userMatches, setUserMatches] = useState<UserMatch[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserMatch | null>(null);
@@ -114,7 +117,11 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
         audience,
         title,
         body,
-        destination: destination || undefined,
+        destination:
+          destination && destination !== "__url"
+            ? (destination as BroadcastDestination)
+            : undefined,
+        deepLinkUrl: destination === "__url" ? deepLinkUrl.trim() || undefined : undefined,
         dryRun,
       });
       if (!r.ok) {
@@ -364,7 +371,9 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
         </label>
         <select
           value={destination}
-          onChange={(e) => setDestination(e.target.value as BroadcastDestination | "")}
+          onChange={(e) =>
+            setDestination(e.target.value as BroadcastDestination | "" | "__url")
+          }
           className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
         >
           <option value="">Just open the app (no specific screen)</option>
@@ -373,10 +382,32 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
           <option value="cafe">Cafe</option>
           <option value="shop">Shop</option>
           <option value="rewards">Momentum Points (Rewards)</option>
+          <option value="__url">A specific page (paste a link)…</option>
         </select>
-        <p className="text-[10px] text-zinc-600">
-          Where the customer lands when they tap the notification.
-        </p>
+
+        {destination === "__url" ? (
+          <>
+            <input
+              value={deepLinkUrl}
+              onChange={(e) => setDeepLinkUrl(e.target.value)}
+              placeholder="/camps/taekwondo"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+            />
+            {/* Same links promo banners take, resolved by the same code in
+                the app — so a link that works on a banner works here. */}
+            <p className="text-[10px] text-zinc-600">
+              The same links promotion banners accept — <code>/camps/&lt;slug&gt;</code>,{" "}
+              <code>/tournaments/&lt;slug&gt;</code>, <code>/passes</code>,{" "}
+              <code>/book/cricket</code>, <code>/cafe</code>, <code>/shop</code>.
+              Anything else opens in the browser. If it can&apos;t be
+              resolved the tap lands on Home, so it never goes nowhere.
+            </p>
+          </>
+        ) : (
+          <p className="text-[10px] text-zinc-600">
+            Where the customer lands when they tap the notification.
+          </p>
+        )}
       </div>
 
       {/* Result banner */}

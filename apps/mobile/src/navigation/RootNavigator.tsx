@@ -27,6 +27,7 @@ import { OtpScreen } from "../screens/auth/OtpScreen";
 import { AdminLoginScreen } from "../screens/admin/AdminLoginScreen";
 import { AdminNavigator } from "./AdminNavigator";
 import { adminTokenStorage } from "../lib/storage";
+import { resolveDeepLink } from "../lib/deep-link";
 import { useAdminAuth } from "../providers/AdminAuthProvider";
 import { ChatScreen } from "../screens/chat/ChatScreen";
 import type { RootStackParamList } from "./types";
@@ -210,6 +211,20 @@ export function RootNavigator() {
           });
           break;
         case "open_screen": {
+          // A typed destination URL wins over the fixed tab list. It runs
+          // through the SAME resolver promo banners use, so a link that
+          // works on a banner works on a push — and a camp or tournament
+          // deep link works without this switch needing a case for every
+          // screen the app will ever have.
+          //
+          // resolveDeepLink falls back to the browser for anything it
+          // cannot place, and an unusable url leaves us on the tab
+          // switch below, whose default is Home. There is no path here
+          // that ends nowhere.
+          if (payload.raw.url) {
+            resolveDeepLink(navigationRef, payload.raw.url);
+            break;
+          }
           // Admin broadcast with a chosen destination tab (data.screen).
           switch (payload.raw.screen) {
             case "book":
