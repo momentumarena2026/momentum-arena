@@ -149,6 +149,7 @@ export async function registerForCamp(
       capacity: true,
       fee: true,
       registrationFee: true,
+      sortOrder: true,
       feeMode: true,
       advancePct: true,
       allowCoupons: true,
@@ -194,7 +195,10 @@ export async function registerForCamp(
     const verdict = await validateCoupon(input.couponCode, {
       scope: "SPORTS",
       amount: camp.fee,
-      sport: camp.sport,
+      // A camp with no sport carries no sport context — a coupon
+      // restricted to a sport then correctly refuses to apply, rather
+      // than matching by accident.
+      sport: camp.sport ?? undefined,
       userId: input.userId ?? undefined,
       platform: "web",
     });
@@ -382,7 +386,9 @@ export async function listPublicCamps() {
     where: {
       status: { in: ["REGISTRATIONS_OPEN", "REGISTRATIONS_CLOSED", "ONGOING"] },
     },
-    orderBy: [{ startDate: "asc" }],
+    // The venue's chosen order first; start date only breaks ties, so a
+    // camp nobody has positioned still lands somewhere sensible.
+    orderBy: [{ sortOrder: "asc" }, { startDate: "asc" }],
     select: {
       id: true,
       slug: true,
@@ -402,6 +408,7 @@ export async function listPublicCamps() {
       capacity: true,
       fee: true,
       registrationFee: true,
+      sortOrder: true,
       feeMode: true,
       advancePct: true,
       waitlistEnabled: true,
@@ -446,6 +453,7 @@ export async function getPublicCamp(slug: string) {
       capacity: true,
       fee: true,
       registrationFee: true,
+      sortOrder: true,
       feeMode: true,
       advancePct: true,
       allowCoupons: true,

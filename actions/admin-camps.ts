@@ -53,7 +53,11 @@ export async function setCampsEnabled(enabled: boolean): Promise<{ ok: true }> {
 
 const campSchema = z.object({
   name: z.string().min(1).max(80),
-  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]),
+  // Optional: a camp is not always one of the three sports the venue
+  // sells. Taekwondo runs on the turf and is not a Sport.
+  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]).nullish(),
+  /// The court the camp occupies, and the one its sessions block.
+  courtConfigId: z.string().nullish(),
   description: z.string().optional(),
   rules: z.string().optional(),
   bannerImageUrl: z.string().optional(),
@@ -108,10 +112,68 @@ function slugify(name: string): string {
     .slice(0, 60);
 }
 
+/**
+ * Courts a camp can be run on.
+ *
+ * Active configs only — an inactive one is not a place anything happens,
+ * and offering it would let an admin hold ground the venue no longer
+ * sells. Ordered so the big surfaces come first, since a camp is far more
+ * often on a full field than on a subdivision of one.
+ */
+export async function listCourtOptions(): Promise<
+  { id: string; label: string; sport: string }[]
+> {
+  await gate();
+  const configs = await db.courtConfig.findMany({
+    where: { isActive: true },
+    select: { id: true, label: true, sport: true, size: true },
+    orderBy: [{ sport: "asc" }, { label: "asc" }],
+  });
+  const RANK: Record<string, number> = {
+    FULL: 0, XL: 1, LARGE: 2, MEDIUM: 3, SMALL: 4, XS: 5, SHARED: 6,
+  };
+  return configs
+    .sort((a, b) => (RANK[a.size] ?? 9) - (RANK[b.size] ?? 9))
+    .map((c) => ({ id: c.id, label: c.label, sport: c.sport }));
+}
+
+/**
+ * Persist the order an admin dragged the camps into.
+ *
+ * The whole visible list is sent and rewritten, not a single moved item.
+ * Sending one "moved to position 3" would need the server to reconstruct
+ * what the admin was looking at, and it would be wrong the moment two
+ * people reorder at once; a full list is unambiguous and idempotent.
+ *
+ * Positions are the array index, so they are always dense and always
+ * match what was on screen.
+ */
+export async function reorderCamps(
+  ids: string[],
+): Promise<{ success: boolean; error?: string }> {
+  await gate();
+  if (ids.length === 0) return { success: true };
+  try {
+    await db.$transaction(
+      ids.map((id, i) =>
+        db.camp.update({ where: { id }, data: { sortOrder: i } }),
+      ),
+    );
+  } catch {
+    return { success: false, error: "Couldn't save the new order." };
+  }
+  revalidatePath("/admin/camps");
+  // The customer-facing lists read this too.
+  revalidatePath("/camps");
+  return { success: true };
+}
+
 export async function listCamps() {
   await gate();
   const camps = await db.camp.findMany({
-    orderBy: [{ startDate: "desc" }],
+    // Same order the customer sees, so the admin list IS the thing being
+    // arranged rather than a differently-sorted view of it.
+    orderBy: [{ sortOrder: "asc" }, { startDate: "asc" }],
     select: {
       id: true,
       slug: true,
@@ -124,6 +186,7 @@ export async function listCamps() {
       fee: true,
       registrationFee: true,
       blockSlots: true,
+      courtConfigId: true,
       _count: {
         select: {
           registrations: {
@@ -183,6 +246,16 @@ export async function saveCamp(
   if (d.daysOfWeek.length === 0) {
     return { success: false, error: "Pick at least one session day" };
   }
+  // Blocking needs to know WHAT to hold. Without a court the block would
+  // be scoped to a sport at best and to nothing at worst — and a block
+  // scoped to nothing closes the entire venue.
+  if (d.blockSlots && !d.courtConfigId) {
+    return {
+      success: false,
+      error: "Pick the court this camp runs on before holding its sessions.",
+    };
+  }
+
   const start = toDate(d.startDate);
   const end = toDate(d.endDate);
   if (!start || !end) return { success: false, error: "Invalid dates" };
@@ -192,7 +265,8 @@ export async function saveCamp(
 
   const data = {
     name: d.name.trim(),
-    sport: d.sport,
+    sport: d.sport ?? null,
+    courtConfigId: d.courtConfigId || null,
     description: d.description?.trim() || null,
     rules: d.rules?.trim() || null,
     bannerImageUrl: d.bannerImageUrl?.trim() || null,
@@ -232,7 +306,8 @@ export async function saveCamp(
     const before = await db.camp.findUnique({
       where: { id: input.id },
       select: {
-        id: true, name: true, sport: true, startDate: true, endDate: true,
+        id: true, name: true, sport: true, courtConfigId: true,
+        startDate: true, endDate: true,
         daysOfWeek: true, startHour: true, endHour: true, blockSlots: true,
       },
     });
@@ -242,6 +317,7 @@ export async function saveCamp(
       id: input.id,
       name: data.name,
       sport: data.sport,
+      courtConfigId: data.courtConfigId,
       startDate: start,
       endDate: end,
       daysOfWeek: data.daysOfWeek,
@@ -330,6 +406,7 @@ export async function saveCamp(
         id: created.id,
         name: data.name,
         sport: data.sport,
+        courtConfigId: data.courtConfigId,
         startDate: start,
         endDate: end,
         daysOfWeek: data.daysOfWeek,

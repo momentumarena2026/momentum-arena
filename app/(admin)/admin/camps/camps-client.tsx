@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CampBannerPicker } from "./banner-picker";
-import { saveCamp, type CampInput } from "@/actions/admin-camps";
+import { saveCamp, reorderCamps, type CampInput } from "@/actions/admin-camps";
+import { ReorderableList } from "@/components/admin/reorderable-list";
 
 type CampRow = {
   id: string;
   slug: string;
   name: string;
-  sport: string;
+  sport: string | null;
   status: string;
   startDate: string;
   endDate: string;
@@ -69,6 +70,7 @@ function blankCamp(): CampInput {
     fee: 5000,
     registrationFee: 0,
     blockSlots: false,
+    courtConfigId: null,
     feeMode: "FULL",
     advancePct: 50,
     allowCoupons: true,
@@ -77,7 +79,13 @@ function blankCamp(): CampInput {
   };
 }
 
-export function CampsClient({ camps }: { camps: CampRow[] }) {
+export function CampsClient({
+  camps,
+  courts,
+}: {
+  camps: CampRow[];
+  courts: CourtOption[];
+}) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<CampInput>(blankCamp);
@@ -112,6 +120,7 @@ export function CampsClient({ camps }: { camps: CampRow[] }) {
 
       {creating && (
         <CampForm
+          courts={courts}
           form={form}
           set={set}
           busy={busy}
@@ -131,12 +140,20 @@ export function CampsClient({ camps }: { camps: CampRow[] }) {
         </p>
       )}
 
-      <div className="space-y-2">
-        {camps.map((c) => (
+      {camps.length > 1 ? (
+        <p className="text-xs text-zinc-500">
+          Drag to reorder — this is the order customers see on the app and the
+          website. Saves as you drop.
+        </p>
+      ) : null}
+
+      <ReorderableList
+        items={camps}
+        onReorder={reorderCamps}
+        renderItem={(c) => (
           <Link
-            key={c.id}
             href={`/admin/camps/${c.id}`}
-            className="block rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-colors hover:border-zinc-700"
+            className="block p-4 transition-colors hover:bg-zinc-800/40"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
@@ -147,7 +164,7 @@ export function CampsClient({ camps }: { camps: CampRow[] }) {
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs text-zinc-500">
-                  {c.sport} · {istDate(c.startDate)} – {istDate(c.endDate)}
+                  {c.sport ?? "Other"} · {istDate(c.startDate)} – {istDate(c.endDate)}
                 </p>
               </div>
               <div className="text-right text-xs text-zinc-400">
@@ -166,16 +183,19 @@ export function CampsClient({ camps }: { camps: CampRow[] }) {
               </div>
             </div>
           </Link>
-        ))}
-      </div>
+        )}
+      />
     </div>
   );
 }
 
 /** Shared create/edit form — the camp detail page reuses it. */
+export type CourtOption = { id: string; label: string; sport: string };
+
 export function CampForm({
   form,
   set,
+  courts,
   busy,
   error,
   onCancel,
@@ -183,6 +203,8 @@ export function CampForm({
   submitLabel,
 }: {
   form: CampInput;
+  /** Active courts, so the camp can name the ground it occupies. */
+  courts: CourtOption[];
   set: <K extends keyof CampInput>(k: K, v: CampInput[K]) => void;
   busy: boolean;
   error: string | null;
@@ -213,16 +235,27 @@ export function CampForm({
           />
         </div>
         <div>
-          <label className={label}>Sport</label>
+          <label className={label}>Sport (optional)</label>
           <select
             className={field}
-            value={form.sport}
-            onChange={(e) => set("sport", e.target.value as CampInput["sport"])}
+            value={form.sport ?? ""}
+            onChange={(e) =>
+              set("sport", (e.target.value || null) as CampInput["sport"])
+            }
           >
+            {/* Blank first, because it is a real answer. A camp is not
+                always one of the three sports the venue sells — Taekwondo
+                runs on the turf and is not a Sport — and making it pick
+                one would put a false label on every customer surface. */}
+            <option value="">— none / other activity —</option>
             <option value="CRICKET">Cricket</option>
             <option value="FOOTBALL">Football</option>
             <option value="PICKLEBALL">Pickleball</option>
           </select>
+          <p className="mt-1 text-xs text-zinc-500">
+            Only used for colour and coupon targeting. What the camp occupies
+            is the court below.
+          </p>
         </div>
       </div>
 
@@ -477,7 +510,32 @@ export function CampForm({
           above: it is the only setting here that changes what the PUBLIC
           can book, and burying it beside "Allow coupons" would let it be
           switched on without anyone registering what it does. */}
-      <label className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+      <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+        <div>
+          <label className={label}>Court this camp runs on</label>
+          <select
+            className={field}
+            value={form.courtConfigId ?? ""}
+            onChange={(e) => set("courtConfigId", e.target.value || null)}
+          >
+            <option value="">— not set —</option>
+            {courts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label} ({c.sport.toLowerCase()})
+              </option>
+            ))}
+          </select>
+          {/* The one that actually matters. Holding the full field also
+              holds its half-courts, because availability reads a block
+              through zone overlap — so this is "which ground", not
+              "which listing". */}
+          <p className="mt-1 text-xs text-zinc-500">
+            Required to hold sessions. Holding a full field also holds its
+            half-courts.
+          </p>
+        </div>
+
+      <label className="flex items-start gap-3">
         <input
           type="checkbox"
           className="mt-0.5 h-4 w-4 accent-emerald-500"
@@ -497,6 +555,7 @@ export function CampForm({
           </span>
         </span>
       </label>
+      </div>
 
       <div className="flex gap-2">
         <button

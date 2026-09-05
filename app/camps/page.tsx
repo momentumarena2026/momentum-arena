@@ -49,7 +49,7 @@ export default async function CampsPage() {
           const taken = c._count.registrations;
           const left = Math.max(0, c.capacity - taken);
           const open = c.status === "REGISTRATIONS_OPEN";
-          const t = sportTheme(c.sport);
+          const t = sportTheme(c.sport ?? "");
           return (
             <Link
               key={c.id}
@@ -75,7 +75,10 @@ export default async function CampsPage() {
                     <span
                       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${t.chip}`}
                     >
-                      {t.emoji} {t.label}
+                      {/* A camp without a sport must not borrow one's
+                          label — calling a Taekwondo camp "Cricket" is
+                          worse than saying nothing at all. */}
+                      {c.sport ? `${t.emoji} ${t.label}` : "Camp"}
                     </span>
                     {!open && (
                       <span className="rounded-full border border-zinc-600 bg-zinc-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wider text-zinc-300">

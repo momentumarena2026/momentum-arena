@@ -18,7 +18,9 @@ export type HomeStackParamList = {
   // on Account rather than where they started.
   Notifications: undefined;
   TournamentsList: undefined;
-  Camps: undefined;
+  /** Optional slug — a promo banner or deep link opens that camp's
+   *  sheet directly instead of dropping the customer on the list. */
+  Camps: { slug?: string } | undefined;
   TournamentDetail: { slug: string };
   TournamentRegister: { slug: string };
   TournamentLive: { matchId: string; slug: string };
@@ -53,7 +55,9 @@ export type AccountStackParamList = {
   // registration and the live match screen. Registered in AccountStack so
   // Home tiles + promo-banner deep links can reach them without a new tab.
   TournamentsList: undefined;
-  Camps: undefined;
+  /** Optional slug — a promo banner or deep link opens that camp's
+   *  sheet directly instead of dropping the customer on the list. */
+  Camps: { slug?: string } | undefined;
   MatchStart: undefined;
   MatchScore: { code: string };
   TournamentDetail: { slug: string };

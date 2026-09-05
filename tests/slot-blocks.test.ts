@@ -112,7 +112,7 @@ test("extending the end date reports only the NEW hours", () => {
   // whole schedule instead would say "480 hours will be held" for a
   // one-week extension and teach them to ignore the warning.
   const before = {
-    id: "c1", name: "Camp", sport: Sport.FOOTBALL,
+    id: "c1", name: "Camp", sport: Sport.FOOTBALL, courtConfigId: null,
     startDate: d("2026-09-07"), endDate: d("2026-09-13"),
     daysOfWeek: [MON, WED], startHour: 16, endHour: 18,
   };
@@ -122,7 +122,7 @@ test("extending the end date reports only the NEW hours", () => {
 
 test("shrinking a camp adds nothing", () => {
   const before = {
-    id: "c1", name: "Camp", sport: Sport.FOOTBALL,
+    id: "c1", name: "Camp", sport: Sport.FOOTBALL, courtConfigId: null,
     startDate: d("2026-09-07"), endDate: d("2026-09-20"),
     daysOfWeek: [MON], startHour: 16, endHour: 18,
   };
@@ -134,7 +134,7 @@ test("widening the hours counts as newly blocked time", () => {
   // Not just the end date: adding an hour to every session withdraws
   // inventory just as surely as adding a week.
   const before = {
-    id: "c1", name: "Camp", sport: Sport.CRICKET,
+    id: "c1", name: "Camp", sport: Sport.CRICKET, courtConfigId: null,
     startDate: d("2026-09-07"), endDate: d("2026-09-13"),
     daysOfWeek: [MON, WED], startHour: 16, endHour: 18,
   };

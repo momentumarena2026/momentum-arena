@@ -409,6 +409,7 @@ model CourtConfig {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   tournamentSlots TournamentSlot[]
+  camps           Camp[]
 
   @@unique([sport, size, position])
 }
@@ -3709,11 +3710,30 @@ enum CampRegistrationStatus {
 }
 
 model Camp {
-  id             String     @id @default(cuid())
-  slug           String     @unique
+  id             String       @id @default(cuid())
+  slug           String       @unique
   name           String
-  sport          Sport
-  status         CampStatus @default(DRAFT)
+  /// Optional, because a camp is not always one of the three sports the
+  /// venue SELLS. Taekwondo runs on the cricket/football turf and is not
+  /// a Sport — forcing it to claim one would put a false label on every
+  /// customer-facing surface, and adding it to the enum would leak a
+  /// non-bookable activity into courts, bookings and pricing.
+  ///
+  /// Used for theming and coupon targeting only. What the camp OCCUPIES
+  /// is `courtConfigId`, which is a different question and the one that
+  /// matters for blocking.
+  sport          Sport?
+  /// The court this camp runs on, and the one its sessions block.
+  ///
+  /// A court, not a sport, because that is the physical truth: the
+  /// cricket/football full field and the pickleball court are the two
+  /// playing zones, and an activity occupies one of them whatever it is
+  /// called. Blocking a full-field config cascades to every config
+  /// sharing its zones (see the zone-overlap read in lib/availability),
+  /// so holding the turf holds its half-courts too, automatically.
+  courtConfigId  String?
+  courtConfig    CourtConfig? @relation(fields: [courtConfigId], references: [id])
+  status         CampStatus   @default(DRAFT)
   description    String?
   rules          String?
   bannerImageUrl String?
@@ -3763,6 +3783,14 @@ model Camp {
   /// the default, because a camp sharing a ground with casual play is a
   /// real arrangement and turning this on for existing camps would
   /// silently withdraw inventory that is already on sale.
+  /// Where this camp sits in the customer-facing list, low first.
+  ///
+  /// The venue decides the order, not the database: "starts soonest" is a
+  /// reasonable default and a poor rule, because the camp the venue most
+  /// wants filled is rarely the one that happens to start next. Ties fall
+  /// back to start date so a camp nobody has positioned still lands
+  /// somewhere sensible.
+  sortOrder         Int      @default(0)
   blockSlots        Boolean  @default(false)
   /// The blocks currently raised for this camp, so they can be released
   /// or recomputed as a set. Mirrors TournamentSlot.slotBlockIds.

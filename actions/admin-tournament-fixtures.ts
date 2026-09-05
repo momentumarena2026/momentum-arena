@@ -382,7 +382,7 @@ export async function scheduleMatch(
       tournamentId: true,
       roundLabel: true,
       slotBlockIds: true,
-      tournament: { select: { name: true } },
+      tournament: { select: { name: true, sport: true } },
     },
   });
   if (!match) return { success: false, error: "Match not found" };
@@ -454,6 +454,15 @@ export async function scheduleMatch(
             startHour: h,
             reason: `Tournament: ${match.tournament.name} — ${match.roundLabel || "match"}`,
             blockedBy: admin.id,
+            // Provenance, so the calendar can name the owner and a
+            // recomputation can tell this block apart from another
+            // event's. This path already wrote a descriptive reason, but
+            // a string is not a link — nothing could trace it back to a
+            // tournament, and the conflict check had no way to know a
+            // tournament was clashing with itself.
+            sourceType: "TOURNAMENT",
+            sourceId: match.tournamentId,
+            sourceLabel: `Tournament: ${match.tournament.name} — ${match.roundLabel || "match"}${match.tournament.sport ? ` (${match.tournament.sport.toLowerCase()})` : ""}`,
           },
           select: { id: true },
         })

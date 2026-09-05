@@ -260,3 +260,33 @@ function revalidateBannerSurfaces() {
     // write already landed; revalidation is best-effort
   }
 }
+
+/**
+ * Persist the order an admin dragged the banners into.
+ *
+ * The whole visible list is rewritten rather than the one item that
+ * moved: a single index is ambiguous the moment two people reorder at
+ * once, and a full list is idempotent. Positions are the array index, so
+ * they stay dense and always match what was on screen.
+ *
+ * Hidden banners keep positions too. A banner is usually hidden because
+ * it is between runs, and losing its place means rebuilding the order
+ * every time one is switched back on.
+ */
+export async function reorderPromoBanners(
+  ids: string[],
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin("MANAGE_PROMO_BANNERS");
+  if (ids.length === 0) return { success: true };
+  try {
+    await db.$transaction(
+      ids.map((id, i) =>
+        db.promoBanner.update({ where: { id }, data: { sortOrder: i } }),
+      ),
+    );
+  } catch {
+    return { success: false, error: "Couldn't save the new order." };
+  }
+  revalidatePath("/admin/config/promo-banners");
+  return { success: true };
+}

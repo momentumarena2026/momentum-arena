@@ -339,7 +339,7 @@ export function CampRegisterClient({
     );
   }
 
-  const theme = sportTheme(camp.sport);
+  const theme = sportTheme(camp.sport ?? "");
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
