@@ -22,6 +22,7 @@ import {
   TrendingUp,
   Utensils,
   XCircle,
+  Camera,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -194,6 +195,17 @@ export function AdminCafeOrdersScreen() {
           <Plus size={14} color={colors.emerald400} />
           <Text variant="small" color={colors.emerald400} weight="600">
             New order
+          </Text>
+        </Pressable>
+        {/* The paper register, typed for you. Sits beside the other
+            order entry points because that is what it produces. */}
+        <Pressable
+          onPress={() => navigation.navigate("AdminCafeRegister")}
+          style={({ pressed }) => [styles.menuBtn, pressed && { opacity: 0.7 }]}
+        >
+          <Camera size={14} color={colors.zinc300} />
+          <Text variant="small" color={colors.zinc300} weight="600">
+            From register
           </Text>
         </Pressable>
         <Pressable
