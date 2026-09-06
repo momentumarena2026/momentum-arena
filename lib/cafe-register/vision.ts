@@ -115,7 +115,15 @@ export async function readRegisterImage(
       body: JSON.stringify({
         model: VISION_MODEL,
         temperature: 0,
-        max_completion_tokens: 4000,
+        // Under the free tier's 1000 output-tokens-per-minute ceiling.
+        // Groq rejects a request outright when its max_completion_tokens
+        // EXCEEDS the per-minute limit, so asking for 4000 failed with a
+        // 429 before the model read a pixel — nothing to do with how busy
+        // the account was. A row of this JSON is roughly 30 tokens, so
+        // this comfortably covers a full page; a genuinely enormous one
+        // truncates, which the admin sees as missing rows rather than
+        // wrong ones.
+        max_completion_tokens: Number(process.env.CAFE_VISION_MAX_TOKENS) || 900,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM },
@@ -136,11 +144,19 @@ export async function readRegisterImage(
       // whether the url, the key or the model was wrong last time this
       // pattern bit — the body names the model and says it is gone.
       const detail = await res.text().catch(() => "");
+      // A rate limit is a wait, not a fault, and saying so is the
+      // difference between someone retrying in a minute and someone
+      // concluding the feature is broken. The raw provider error still
+      // goes to the log, where it is diagnostic rather than alarming.
+      const friendly =
+        res.status === 429
+          ? "The image reader is rate-limited right now — wait a minute and try again."
+          : `Couldn't read the image (${res.status}). Try again, or enter the rows by hand.`;
       return {
         rows: [],
-        error: `Couldn't read the image (${res.status}). ${detail.slice(0, 200)}`,
+        error: friendly,
         latencyMs,
-        raw: detail.slice(0, 500),
+        raw: `HTTP ${res.status} ${VISION_MODEL} ${detail.slice(0, 300)}`,
       };
     }
 
