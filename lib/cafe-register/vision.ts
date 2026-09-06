@@ -60,19 +60,36 @@ export type VisionResult = {
   raw: unknown;
 };
 
+/**
+ * Rows come back as ARRAYS, not objects.
+ *
+ * Groq's free tier allows 1000 output tokens per minute, and it refuses a
+ * request whose ESTIMATED output exceeds that — so the format is not a
+ * style choice, it is the difference between working and a 429. Named
+ * keys with pretty-printed indentation cost roughly 40 tokens a row and
+ * blew the ceiling at six rows; a positional array costs about 15 and
+ * fits a page of thirty.
+ *
+ * The cost is that position now carries meaning, which is exactly the
+ * kind of thing that breaks silently when someone reorders it. Hence the
+ * explicit index constants below and a parser that checks length.
+ */
 const SYSTEM = [
   "You transcribe a handwritten daily sales register from an Indian sports-venue cafe.",
   "",
   "The page is a table. Typical columns: Item, Qty, Price, Time, and two tick",
   "columns for payment — Online and Cash. Column order and headings vary.",
   "",
-  "Return ONLY JSON: { \"rows\": [ { item, qty, price, time, payment } ] }",
-  "  item    string  the Item cell EXACTLY as written, including any brackets",
-  "                  or abbreviations. Do NOT expand, correct or guess at it.",
-  "  qty     number or null",
-  "  price   number or null   (the figure written on that line, in rupees)",
-  "  time    string or null   (e.g. \"7-8PM\")",
-  "  payment \"cash\" | \"online\" | null",
+  "Return ONLY compact JSON, no markdown, no explanation, minimal whitespace:",
+  '  {"r":[[item,qty,price,time,payment], ...]}',
+  "",
+  "Each row is an array of exactly 5 values, in this order:",
+  "  0 item     string  the Item cell EXACTLY as written, including brackets",
+  "                     and abbreviations. Do NOT expand, correct or guess.",
+  "  1 qty      number or null",
+  "  2 price    number or null   (the figure on that line, in rupees)",
+  "  3 time     string or null   (e.g. \"7-8PM\")",
+  "  4 payment  \"cash\" | \"online\" | null",
   "",
   "Rules:",
   "- Transcribe. Do not interpret. \"W.B (F)\" stays \"W.B (F)\".",
@@ -81,7 +98,12 @@ const SYSTEM = [
   "- A cell you cannot read is null. A null is useful; a wrong number is not.",
   "- Skip the header row and any blank rows.",
   "- Keep the rows in the order they appear on the page.",
+  "- Output nothing but the JSON. Do not pretty-print it.",
 ].join("\n");
+
+/** Positions in each returned row. Named because position now carries
+ *  meaning, and an unnamed index is how that breaks quietly. */
+const I_ITEM = 0, I_QTY = 1, I_PRICE = 2, I_TIME = 3, I_PAYMENT = 4;
 
 /**
  * Transcribe one register photograph.
@@ -168,9 +190,12 @@ export async function readRegisterImage(
       return { rows: [], error: "The image reader returned nothing.", latencyMs, raw: body };
     }
 
-    const parsed = JSON.parse(content) as { rows?: unknown };
+    const parsed = JSON.parse(content) as { r?: unknown; rows?: unknown };
     return {
-      rows: sanitizeRows(parsed.rows),
+      // `rows` accepted as a fallback: the model occasionally answers in
+      // the older shape, and rejecting a good transcription over its
+      // envelope would be perverse.
+      rows: sanitizeRows(parsed.r ?? parsed.rows),
       error: null,
       latencyMs,
       raw: content.slice(0, 8000),
@@ -205,16 +230,31 @@ function sanitizeRows(raw: unknown): RegisterRow[] {
   // A register page is a day of counter sales, not a ledger. Far past
   // this and something has gone wrong with the transcription.
   for (const r of raw.slice(0, 100)) {
-    if (!r || typeof r !== "object") continue;
-    const o = r as Record<string, unknown>;
-    const item = String(o.item ?? "").trim().slice(0, 80);
+    // Positional arrays are the format asked for; objects are accepted
+    // because a model that ignores the instruction still produced a
+    // usable reading, and throwing it away helps nobody.
+    const cells: unknown[] = Array.isArray(r)
+      ? r
+      : r && typeof r === "object"
+        ? [
+            (r as Record<string, unknown>).item,
+            (r as Record<string, unknown>).qty,
+            (r as Record<string, unknown>).price,
+            (r as Record<string, unknown>).time,
+            (r as Record<string, unknown>).payment,
+          ]
+        : [];
+    const item = String(cells[I_ITEM] ?? "").trim().slice(0, 80);
     if (!item) continue;
+    const time = cells[I_TIME];
+    const payment = cells[I_PAYMENT];
     out.push({
       item,
-      qty: toNumber(o.qty),
-      price: toNumber(o.price),
-      time: o.time == null ? null : String(o.time).trim().slice(0, 30) || null,
-      payment: o.payment == null ? null : String(o.payment).toLowerCase().trim() || null,
+      qty: toNumber(cells[I_QTY]),
+      price: toNumber(cells[I_PRICE]),
+      time: time == null ? null : String(time).trim().slice(0, 30) || null,
+      payment:
+        payment == null ? null : String(payment).toLowerCase().trim() || null,
     });
   }
   return out;
