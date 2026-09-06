@@ -56,7 +56,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Momentum Arena needs access to your photos so you can set a logo for your tournament team.</string>
+	<string>Momentum Arena uses your photos to set a team logo, and for staff to upload a page of the cafe register.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<!-- Allow the OS to wake the app to process remote pushes for
