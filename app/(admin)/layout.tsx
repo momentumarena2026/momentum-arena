@@ -29,6 +29,7 @@ const allNavItems = [
   { href: "/admin/cafe-menu", label: "Menu", group: "Cafe", permission: "MANAGE_CAFE_MENU" },
   { href: "/admin/cafe-orders", label: "Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/cafe-live", label: "Live Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
+  { href: "/admin/cafe-register", label: "Register → Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/products", label: "Products", group: "Shop", permission: "MANAGE_SHOP_CATALOG" },
   { href: "/admin/product-orders", label: "Orders", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
   { href: "/admin/pos", label: "Walk-in Sale", group: "Shop", permission: "MANAGE_SHOP_ORDERS" },
