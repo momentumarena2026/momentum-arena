@@ -118,7 +118,16 @@ export default function App() {
 
   // Hard gate: a forced update blocks the ENTIRE app tree. Rendered even
   // over the splash so a too-old build can't slip a session through.
-  if (versionInfo?.native.forced) {
+  //
+  // Never in a dev build. The gate exists to move REAL users off old
+  // store binaries, and a local debug build is not one — its build
+  // number comes from the Xcode project (1), not from CI, so it is
+  // permanently below any gate ever set. Without this exemption nobody
+  // can run the app from Metro against a staging environment at all:
+  // it launches straight into "Update Required" with no way past.
+  // `__DEV__` is false in every release build, so nothing about what
+  // customers see changes.
+  if (versionInfo?.native.forced && !__DEV__) {
     return (
       <AppProviders>
         <ForceUpdateScreen
