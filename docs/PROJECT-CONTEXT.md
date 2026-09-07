@@ -496,6 +496,27 @@ its templates here, or it ships with no push voice at all.
 
 ## 7. Current state
 
+### Owed to the next NATIVE build
+
+- **The photo-permission string.** `NSPhotoLibraryUsageDescription` still says "so you can
+  set a logo for your tournament team" — written when tournament logos were the only thing
+  that needed the library, and now the first thing a staff member reads before photographing
+  a page of the cafe register in Admin → Cafe → From register.
+  The fix is a one-line change in **both** `apps/mobile/app.json` (`photosPermission`) and
+  `apps/mobile/ios/MomentumArena/Info.plist` — they diverge, and only one reaches the device
+  depending on the build path. Suggested wording: *"Momentum Arena uses your photos to set a
+  team logo, and for staff to upload a page of the cafe register."*
+  It was written once (53b00b5) and **reverted on purpose** (2026-09-07): native config
+  changes the Expo fingerprint, so it blocked the production OTA for every JS change promoted
+  alongside it — the bookings payment-status pill and the whole register screen included. A
+  cosmetic string is not worth holding a release hostage; re-apply it with the next store
+  build, when the fingerprint is changing anyway.
+
+  **The general rule this is an instance of:** anything touching `app.json`, `ios/` or
+  `android/` blocks the OTA for everything promoted with it. Batch native-config edits with a
+  planned store release rather than letting one ride along with JS work.
+
+
 - **`main` = `8204a2c`** (2026-08-24). `development` is level with it — the promotion gate
   prints nothing, the two trees are byte-identical. (`development` had drifted 52 commits
   *behind* `main` while staying content-identical, because every promotion is a `--no-ff`
