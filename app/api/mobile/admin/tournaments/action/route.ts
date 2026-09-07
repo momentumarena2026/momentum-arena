@@ -78,6 +78,16 @@ export async function POST(request: NextRequest) {
     result = await adminEditTeam(String(body.teamId || ""), {
       members: Array.isArray(body.members) ? body.members.map((m: unknown) => String(m)) : [],
     });
+  // Logo set/clear. Its own op rather than folding into editSquad: that
+  // one sends the WHOLE roster, so reusing it to change a picture would
+  // rewrite every member row as a side effect.
+  else if (op === "teamLogo")
+    result = await adminEditTeam(String(body.teamId || ""), {
+      logoUrl:
+        typeof body.logoUrl === "string" && body.logoUrl.trim()
+          ? body.logoUrl.trim()
+          : null,
+    });
   else if (op === "dealPools") result = await autoAssignPools(body.tournamentId);
   else if (op === "generateFixtures") result = await generateFixtures(body.tournamentId);
   else if (op === "enterResult") result = await enterMatchResult(body.matchId, body.result);

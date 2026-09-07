@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -8,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Radio, Trophy } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -23,6 +26,7 @@ import {
   type AdminSlotWindow,
   type AdminTournamentDetail,
   type OrganizerLedger,
+  setAdminTeamLogo,
 } from "../../lib/admin-tournaments";
 import {
   BracketTab,
@@ -107,6 +111,55 @@ function preferredSummary(
 
 export function AdminTournamentsScreen() {
   const queryClient = useQueryClient();
+  const [logoBusy, setLogoBusy] = useState<string | null>(null);
+
+  /**
+   * Set a team's logo from the admin app.
+   *
+   * Library only, never the camera: the Android build strips
+   * expo-image-picker's CAMERA permission (it cost the Play listing 427
+   * devices), so launchCameraAsync is denied on the phones staff use.
+   * A logo is a file someone was sent anyway, not something photographed
+   * at the venue.
+   */
+  const pickTeamLogo = useCallback(
+    async (teamId: string) => {
+      if (logoBusy) return;
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert("Photo access needed", "Allow photo access to set a team logo.");
+        return;
+      }
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        // Square, because every surface renders a logo in a circle. The
+        // server crops too; cropping here as well means the admin sees
+        // what they are actually choosing.
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (picked.canceled || !picked.assets?.[0]) return;
+      const asset = picked.assets[0];
+      setLogoBusy(teamId);
+      try {
+        await setAdminTeamLogo(teamId, {
+          uri: asset.uri,
+          name: asset.fileName ?? "team-logo.jpg",
+          type: asset.mimeType ?? "image/jpeg",
+        });
+        await queryClient.invalidateQueries({ queryKey: ["admin", "tournaments"] });
+      } catch (e) {
+        Alert.alert(
+          "Couldn't set the logo",
+          e instanceof Error ? e.message : "Try again.",
+        );
+      } finally {
+        setLogoBusy(null);
+      }
+    },
+    [logoBusy, queryClient],
+  );
   // Push onto THIS stack — the console is registered here as well as at
   // the root, so opening it never has to cross a navigator boundary.
   const navigation = useNavigation<NativeStackNavigationProp<AdminMoreStackParamList>>();
@@ -686,7 +739,26 @@ export function AdminTournamentsScreen() {
           {t.teams.map((team) => (
             <View key={team.id} style={styles.card}>
               <View style={styles.rowBetween}>
-                <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>{team.name}</Text>
+                {/* Logo + name together: they are the team's identity, and
+                    an admin fixing one is usually fixing the other. */}
+                <Pressable
+                  onPress={() => void pickTeamLogo(team.id)}
+                  disabled={logoBusy === team.id}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}
+                >
+                  <View style={styles.teamLogo}>
+                    {logoBusy === team.id ? (
+                      <ActivityIndicator size="small" color={colors.emerald400} />
+                    ) : team.logoUrl ? (
+                      <Image source={{ uri: team.logoUrl }} style={styles.teamLogoImg} />
+                    ) : (
+                      <Text style={{ color: colors.zinc600, fontWeight: "700", fontSize: 13 }}>
+                        {team.name.charAt(0).toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>{team.name}</Text>
+                </Pressable>
                 <Text style={{ color: team.status === "CONFIRMED" ? colors.emerald400 : "#fbbf24", fontSize: 11 }}>
                   {team.status.replace("_", " ")}
                   {team.pool ? ` · ${team.pool.name}` : ""}
@@ -1472,6 +1544,17 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginTop: 10,
   },
+  teamLogo: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  teamLogoImg: { width: "100%", height: "100%" },
   card: {
     borderRadius: radius.xl,
     borderWidth: 1,

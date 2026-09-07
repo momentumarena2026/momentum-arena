@@ -1,4 +1,4 @@
-import { request } from "./admin-api";
+import { request, uploadAdmin } from "./admin-api";
 
 // Mobile admin client for the tournament engine. Mirrors the web manage
 // screen's server actions through two thin routes (list/detail + action
@@ -23,6 +23,8 @@ export interface AdminTournamentCard {
 export interface AdminTeamRow {
   id: string;
   name: string;
+  /** Set by the captain or by an admin; rendered in a circle everywhere. */
+  logoUrl?: string | null;
   status: string;
   captainName: string;
   captainPhone: string;
@@ -221,4 +223,33 @@ export interface OrganizerLedger {
     receivedAt: string;
     note: string | null;
   }[];
+}
+
+/**
+ * Set or clear a team's logo from the admin app.
+ *
+ * Upload then save, as two steps, because they can fail for unrelated
+ * reasons — a bad image and a storage outage need different answers, and
+ * one call reporting both as "couldn't set the logo" is what makes an
+ * upload problem impossible to diagnose from a phone.
+ *
+ * Passing `file: null` clears it without touching storage.
+ */
+export async function setAdminTeamLogo(
+  teamId: string,
+  file: { uri: string; name: string; type: string } | null,
+): Promise<string | null> {
+  let url: string | null = null;
+  if (file) {
+    const res = await uploadAdmin<{ url: string }>(
+      "/api/mobile/admin/tournaments/team-logo-upload",
+      file,
+    );
+    url = res.url;
+  }
+  await request("/api/mobile/admin/tournaments/action", {
+    method: "POST",
+    body: { op: "teamLogo", teamId, logoUrl: url },
+  });
+  return url;
 }
