@@ -59,3 +59,58 @@ export async function request<T>(
 
   return payload as T;
 }
+
+/**
+ * Multipart upload on the admin bearer token.
+ *
+ * `request` above sets Content-Type: application/json, which is exactly
+ * wrong for a file — the boundary has to come from FormData, so this is a
+ * separate function rather than a flag. The only other upload path in the
+ * app (lib/api.upload) carries the CUSTOMER token, and an admin has no
+ * customer session, so neither could be reused.
+ */
+export async function uploadAdmin<T>(
+  path: string,
+  file: { uri: string; name: string; type: string },
+): Promise<T> {
+  const token = await adminTokenStorage.read();
+  if (!token) throw new AdminApiError("Not signed in as admin", 401);
+
+  const form = new FormData();
+  // React Native's FormData takes this shape for a file; the cast is the
+  // usual one, since the DOM lib types expect a Blob.
+  form.append("file", file as unknown as Blob);
+
+  let res: Response;
+  try {
+    res = await fetch(`${env.apiUrl}${path}`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        "X-Platform": Platform.OS === "ios" ? "ios" : "android",
+        // Deliberately NO Content-Type: fetch fills in the multipart
+        // boundary, and setting it by hand produces a body the server
+        // cannot parse.
+      },
+      body: form,
+    });
+  } catch (err) {
+    throw new AdminApiError(err instanceof Error ? err.message : "Network error", 0);
+  }
+
+  const text = await res.text();
+  let json: unknown = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    /* a non-JSON body is handled by the status check below */
+  }
+  if (!res.ok) {
+    const msg =
+      (json as { error?: string } | null)?.error ??
+      `Upload failed (${res.status})`;
+    throw new AdminApiError(msg, res.status);
+  }
+  return json as T;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { uploadAdminImage } from "@/lib/client-image";
 import { X, Plus, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import {
   adminEditTeam,
@@ -108,6 +109,8 @@ export function TeamDetailModal({
     team.members.map((m) => ({ name: m.name, phone: m.phone ?? "" })),
   );
   const [teamName, setTeamName] = useState(team.name);
+  const [logoUrl, setLogoUrl] = useState<string | null>(team.logoUrl);
+  const [logoBusy, setLogoBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingSlots, setEditingSlots] = useState(false);
@@ -430,6 +433,91 @@ export function TeamDetailModal({
               onChange={(e) => setTeamName(e.target.value)}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
             />
+          </section>
+
+          {/* Team logo.
+              Sits beside the name because the two are the team's
+              identity, and an admin fixing one is usually fixing the
+              other. Uploads immediately rather than waiting for Save:
+              the file is already stored by then, so holding the URL back
+              would leave an uploaded image nothing points at if the
+              modal is closed. */}
+          <section className="mb-5">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Team logo
+            </label>
+            <div className="flex items-center gap-3">
+              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border border-zinc-700 bg-zinc-900">
+                {logoUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-lg font-bold text-zinc-600">
+                    {(teamName || team.name).charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="cursor-pointer rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">
+                  {logoBusy ? "Uploading…" : logoUrl ? "Replace" : "Upload"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={logoBusy}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      // Clear the input so re-picking the same file fires
+                      // change again — otherwise a retry after a failure
+                      // silently does nothing.
+                      e.target.value = "";
+                      if (!file) return;
+                      setLogoBusy(true);
+                      setError(null);
+                      try {
+                        const url = await uploadAdminImage(
+                          "/api/admin/tournaments/team-logo-upload",
+                          file,
+                        );
+                        const res = await adminEditTeam(team.id, { logoUrl: url });
+                        if (!res.success) throw new Error(res.error ?? "Couldn't save the logo");
+                        setLogoUrl(url);
+                        onSaved();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Couldn't upload the logo");
+                      } finally {
+                        setLogoBusy(false);
+                      }
+                    }}
+                  />
+                </label>
+                {logoUrl && (
+                  <button
+                    disabled={logoBusy}
+                    onClick={async () => {
+                      setLogoBusy(true);
+                      setError(null);
+                      try {
+                        const res = await adminEditTeam(team.id, { logoUrl: null });
+                        if (!res.success) throw new Error(res.error ?? "Couldn't remove the logo");
+                        setLogoUrl(null);
+                        onSaved();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Couldn't remove the logo");
+                      } finally {
+                        setLogoBusy(false);
+                      }
+                    }}
+                    className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                )}
+                <span className="text-[11px] text-zinc-600">
+                  Squared and resized automatically.
+                </span>
+              </div>
+            </div>
           </section>
 
           {/* Squad */}
