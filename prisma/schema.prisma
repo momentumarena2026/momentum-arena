@@ -1219,6 +1219,7 @@ model CafeItem {
   tags        String[] // "Bestseller", "New", "Spicy", etc.
 
   orderItems CafeOrderItem[]
+  aliases    CafeItemAlias[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3965,4 +3966,61 @@ model BookingBotTerm {
   updatedAt DateTime @updatedAt
 
   @@index([approved])
+}
+
+/// What a scribble in the cafe register means.
+///
+/// The register is written in a shorthand only the counter staff share —
+/// "W.B (F)", "Sprite (P)", "Sticks Chips (P)". Nobody needs to decode
+/// that notation, and guessing at it would be worse than useless: the
+/// system is TOLD, once, by the admin correcting a row, and it never has
+/// to ask again.
+///
+/// No approval queue, unlike the booking bot's learned words. The
+/// correction happens on a review screen where the admin is already
+/// confirming every line before orders are created — that review IS the
+/// approval, and a second one would be ceremony.
+model CafeItemAlias {
+  id         String   @id @default(cuid())
+  /// The raw text as written, normalised (lowercased, spaces collapsed).
+  term       String   @unique
+  cafeItemId String
+  cafeItem   CafeItem @relation(fields: [cafeItemId], references: [id], onDelete: Cascade)
+  /// How many uploads have used it. Nothing depends on this yet; it is
+  /// how you find out which shorthand is actually in use.
+  seenCount  Int      @default(1)
+  /// "admin" when a human corrected a row into existence; "menu" for the
+  /// item's own name, seeded so exact matches are one lookup.
+  source     String   @default("admin")
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([cafeItemId])
+}
+
+/// One photographed register page, and what came of it.
+///
+/// Kept because the interesting question is not "did this upload work"
+/// but "is it getting better" — the share of rows matched by rules alone,
+/// with no model call, should climb as aliases accumulate. Also an audit
+/// trail: these rows create real orders and real money, so what the model
+/// read and what the admin changed both have to be recoverable.
+model CafeRegisterUpload {
+  id                String   @id @default(cuid())
+  imageUrl          String
+  /// Exactly what the vision model returned, before any matching.
+  rawResult         Json?
+  rowCount          Int      @default(0)
+  /// Rows the rules matched with no help. The number to watch.
+  autoMatchedCount  Int      @default(0)
+  /// Rows the admin changed before creating. The corpus for improvement.
+  correctedCount    Int      @default(0)
+  createdOrderIds   String[] @default([])
+  uploadedByAdminId String?
+  error             String?
+  latencyMs         Int?
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
 }

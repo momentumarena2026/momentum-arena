@@ -29,6 +29,7 @@ import { AdminCheckinScreen } from "../screens/admin/AdminCheckinScreen";
 import { AdminCalendarScreen } from "../screens/admin/AdminCalendarScreen";
 import { AdminSlotBlocksScreen } from "../screens/admin/AdminSlotBlocksScreen";
 import { AdminCafeOrdersScreen } from "../screens/admin/AdminCafeOrdersScreen";
+import { AdminCafeRegisterScreen } from "../screens/admin/AdminCafeRegisterScreen";
 import { AdminCafeOrderDetailScreen } from "../screens/admin/AdminCafeOrderDetailScreen";
 import { AdminCafeAllOrdersScreen } from "../screens/admin/AdminCafeAllOrdersScreen";
 import { AdminCafeMenuScreen } from "../screens/admin/AdminCafeMenuScreen";
@@ -346,6 +347,13 @@ function AdminCafeStackNav() {
         name="AdminCafeAllOrders"
         component={AdminCafeAllOrdersScreen}
         options={{ title: "All orders" }}
+      />
+      {/* Register -> Orders. Lives on the phone because the register is a
+          paper book on the counter and the camera is already in the room. */}
+      <CafeStack.Screen
+        name="AdminCafeRegister"
+        component={AdminCafeRegisterScreen}
+        options={{ title: "Register → Orders" }}
       />
       {/* Order detail — opened by tapping a row in All orders, which used
           to be inert. Mirrors the web detail's sections. */}

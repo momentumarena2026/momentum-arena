@@ -394,6 +394,26 @@ function BookingRow({ booking, isSeriesChild = false, sportInfo }: { booking: Bo
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
             <span className={`text-[10px] ${status.color}`}>{status.label}</span>
           </div>
+          {/* Payment status, under the booking status.
+              This column exists on the wide layout and was missing here,
+              so on a phone a CONFIRMED booking looked identical whether
+              the money had arrived or not — the only hint was the "at
+              venue" line below, which appears solely for PARTIAL
+              payments. "Confirmed" and "paid" are different facts and the
+              screen has to say both. */}
+          {booking.payment ? (
+            <span
+              className={`mt-1 inline-block rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${PAYMENT_STATUS_STYLES[booking.payment.status] ?? "text-zinc-400 border-zinc-700"}`}
+            >
+              {booking.payment.status === "COMPLETED" ? "PAID" : booking.payment.status}
+            </span>
+          ) : (
+            /* No payment row at all is its own state, and a silent gap
+               reads as "fine". It is the one that needs chasing. */
+            <span className="mt-1 inline-block rounded-full border border-zinc-700 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+              No payment
+            </span>
+          )}
           {booking.payment?.isPartialPayment && (booking.payment.remainingAmount ?? 0) > 0 && (
             <p className="mt-0.5 text-[10px] font-semibold text-amber-300">
               {formatPrice(venueAmountStillDue(booking.totalAmount, booking.payment))} at venue

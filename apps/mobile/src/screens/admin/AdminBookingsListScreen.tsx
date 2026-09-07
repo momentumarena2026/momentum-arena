@@ -171,6 +171,29 @@ function platformPill(platform: string | null | undefined) {
 // (the venue kept the advance), so they read as their own states
 // rather than a red "Cancelled". Same labels/tones as the detail
 // screen's BANNER.
+/**
+ * Payment state, shown UNDER the booking status.
+ *
+ * "Confirmed" and "paid" are different facts and the row used to state
+ * only the first. The one hint at money was the amber "at venue" line,
+ * which appears solely for PARTIAL payments — so a confirmed booking
+ * looked identical whether the money had arrived, was still pending, or
+ * had failed. Front-desk staff had to open each row to find out.
+ *
+ * Deliberately different hues from the booking status beside it: green
+ * for money in, yellow for money owed, red for money that failed. A row
+ * that is green-on-green needs nothing; anything else is work.
+ */
+const PAYMENT_TEXT: Record<string, { label: string; tone: string }> = {
+  // "PAID" rather than "COMPLETED" — the word staff use, and shorter in
+  // a column this narrow.
+  COMPLETED: { label: "Paid", tone: colors.emerald400 },
+  PENDING: { label: "Unpaid", tone: colors.yellow400 },
+  PARTIAL: { label: "Part-paid", tone: colors.yellow400 },
+  REFUNDED: { label: "Refunded", tone: "#93c5fd" },
+  FAILED: { label: "Failed", tone: colors.destructive_300 },
+};
+
 const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
   CONFIRMED: { label: "Confirmed", tone: colors.emerald400 },
   PENDING: { label: "Pending", tone: colors.yellow400 },
@@ -690,6 +713,12 @@ function BookingRow({
   const courtLabel = booking.courtConfig.label;
   // Partial bookings still owe at venue → small amber chip on the row.
   const venueDue = venueAmountStillDue(booking.totalAmount, booking.payment);
+  const pay = booking.payment
+    ? (PAYMENT_TEXT[booking.payment.status] ?? {
+        label: booking.payment.status,
+        tone: colors.zinc400,
+      })
+    : { label: "No payment", tone: colors.zinc500 };
   const platform = platformPill(booking.platform);
 
   return (
@@ -769,6 +798,11 @@ function BookingRow({
             {status.label}
           </Text>
         </View>
+        {/* No payment row at all is its own state, and a silent gap reads
+            as "fine" — it is the one that most needs chasing. */}
+        <Text variant="tiny" color={pay.tone} weight="600">
+          {pay.label}
+        </Text>
         {venueDue > 0 ? (
           <Text variant="tiny" color={colors.yellow400} weight="600">
             {formatRupees(venueDue)} at venue
