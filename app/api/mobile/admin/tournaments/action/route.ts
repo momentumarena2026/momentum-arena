@@ -20,6 +20,7 @@ import {
   generateFixtures,
   scheduleMatch,
   unscheduleMatch,
+  swapMatchSlots,
 } from "@/actions/admin-tournament-fixtures";
 import { enterMatchResult, reopenMatch } from "@/actions/admin-tournament-scores";
 import {
@@ -140,6 +141,11 @@ export async function POST(request: NextRequest) {
     });
   else if (op === "unscheduleMatch")
     result = await unscheduleMatch(String(body.matchId || ""));
+  else if (op === "swapMatchSlots")
+    result = await swapMatchSlots(
+      String(body.matchId || ""),
+      String(body.otherMatchId || ""),
+    );
   else if (op === "deleteMatch")
     result = await deleteManualMatch(String(body.matchId || ""));
   else if (op === "archiveTournament")

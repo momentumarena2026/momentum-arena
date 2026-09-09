@@ -10,6 +10,7 @@ import {
   buildKnockoutSkeleton,
   poolQualifierSlots,
   shuffle,
+  swapBlocker,
   type BracketSlot,
 } from "@/lib/tournament-fixtures";
 
@@ -365,6 +366,129 @@ const scheduleSchema = z.object({
   startHour: z.number().int().min(0).max(23),
   hours: z.number().int().min(1).max(6),
 });
+
+/**
+ * Swap the slots of two scheduled fixtures.
+ *
+ * Captains ask for this once the draw is out — two teams agree between
+ * themselves that one will take the other's evening and give up its
+ * morning. Before this the organiser had to unschedule both and
+ * reschedule each by hand, and the moment the first was unscheduled its
+ * hours went back on public sale: a customer could book the very slot
+ * the tournament was mid-way through moving a match into.
+ *
+ * Each fixture takes the other's window WHOLE — court, time and duration
+ * together. That is what makes a swap safe without a clash check: the
+ * ground held before and after is identical, so nothing new is claimed
+ * and nothing is released. Swapping the times but not the durations
+ * would leave a 2-hour match in a 1-hour hole, which is a clash the
+ * checks here would not have been asked about.
+ *
+ * Blocks are rebuilt rather than relabelled, because each carries its
+ * match's name — a swapped block still reading "Pool A · Match 1" on the
+ * calendar would point an organiser at the wrong fixture.
+ */
+export async function swapMatchSlots(
+  matchAId: string,
+  matchBId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const admin = await gate();
+
+  const select = {
+    id: true,
+    tournamentId: true,
+    roundLabel: true,
+    status: true,
+    courtConfigId: true,
+    scheduledAt: true,
+    durationMins: true,
+    slotBlockIds: true,
+    homeScore: true,
+    awayScore: true,
+    tournament: { select: { name: true, sport: true } },
+  } as const;
+
+  const [a, b] = await Promise.all([
+    db.tournamentMatch.findUnique({ where: { id: matchAId }, select }),
+    db.tournamentMatch.findUnique({ where: { id: matchBId }, select }),
+  ]);
+  if (!a || !b) return { success: false, error: "Match not found" };
+
+  const blocked = swapBlocker(a, b);
+  if (blocked) return { success: false, error: blocked };
+
+  const slotOf = (m: typeof a) => ({
+    courtConfigId: m.courtConfigId as string,
+    scheduledAt: m.scheduledAt as Date,
+    durationMins: m.durationMins,
+  });
+  // Each takes the OTHER's window.
+  const assignments = [
+    { match: a, slot: slotOf(b) },
+    { match: b, slot: slotOf(a) },
+  ];
+
+  await db.$transaction(async (tx) => {
+    // Every old block first, then every new one. Interleaving would let
+    // one fixture's create collide with the other's not-yet-deleted
+    // block — the two windows are being exchanged, so they overlap by
+    // definition during the move.
+    const stale = [...a.slotBlockIds, ...b.slotBlockIds];
+    if (stale.length) {
+      await tx.slotBlock.deleteMany({ where: { id: { in: stale } } });
+    }
+
+    for (const { match, slot } of assignments) {
+      // The stored instant is IST wall-clock; the date column is the
+      // calendar day that instant falls on in IST, which is not the same
+      // thing near midnight and is why this is derived rather than
+      // reusing the UTC date.
+      const istDay = new Date(slot.scheduledAt.getTime() + 330 * 60000);
+      const day = new Date(
+        `${istDay.toISOString().slice(0, 10)}T00:00:00.000Z`,
+      );
+      const startHour = Number(istDay.toISOString().slice(11, 13));
+      const hours = Math.max(1, Math.round(slot.durationMins / 60));
+      const hoursList = Array.from({ length: hours }, (_, i) => startHour + i);
+
+      const label = `Tournament: ${match.tournament.name} — ${match.roundLabel || "match"}`;
+      const blocks = await Promise.all(
+        hoursList.map((h) =>
+          tx.slotBlock.create({
+            data: {
+              courtConfigId: slot.courtConfigId,
+              date: day,
+              startHour: h,
+              reason: label,
+              blockedBy: admin.id,
+              sourceType: "TOURNAMENT",
+              sourceId: match.tournamentId,
+              sourceLabel: `${label}${
+                match.tournament.sport
+                  ? ` (${match.tournament.sport.toLowerCase()})`
+                  : ""
+              }`,
+            },
+            select: { id: true },
+          }),
+        ),
+      );
+
+      await tx.tournamentMatch.update({
+        where: { id: match.id },
+        data: {
+          courtConfigId: slot.courtConfigId,
+          scheduledAt: slot.scheduledAt,
+          durationMins: slot.durationMins,
+          slotBlockIds: blocks.map((x) => x.id),
+        },
+      });
+    }
+  });
+
+  revalidatePath(`/admin/tournaments/${a.tournamentId}`);
+  return { success: true };
+}
 
 export async function scheduleMatch(
   matchId: string,

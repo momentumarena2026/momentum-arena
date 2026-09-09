@@ -3,12 +3,14 @@
 import { useEffect, useState, useRef } from "react";
 import { reorderStageFixtures } from "@/actions/admin-tournament-manual-fixtures";
 import { useRouter } from "next/navigation";
-import { Loader2, Wand2, CalendarClock, X, GripVertical } from "lucide-react";
+import { Loader2, Wand2, CalendarClock, X, GripVertical, ArrowLeftRight } from "lucide-react";
 import {
   generateFixtures,
   scheduleMatch,
   unscheduleMatch,
+  swapMatchSlots,
 } from "@/actions/admin-tournament-fixtures";
+import { swapBlocker, type SwapCandidate } from "@/lib/tournament-fixtures";
 import { deleteManualMatch, assignMatchTeam } from "@/actions/admin-tournament-manual-fixtures";
 import { getSlotPlanning } from "@/actions/admin-tournament-slots";
 
@@ -31,6 +33,7 @@ export type MatchRow = {
   pool: { name: string } | null;
   poolId: string | null;
   courtConfig: { label: string } | null;
+  courtConfigId: string | null;
   scheduledAt: string | null;
   durationMins: number;
   isDraw: boolean;
@@ -163,6 +166,58 @@ export function FixturesTab({
       setBusy(null);
     }
   };
+
+  /**
+   * Swapping two fixtures' slots.
+   *
+   * Captains negotiate this between themselves once the draw is out — one
+   * side can't field a team in the morning, the other would rather not
+   * play under lights — and the organiser is recording an agreement that
+   * has already been reached, not making a scheduling decision.
+   *
+   * Before this the only route was unschedule-both-then-reschedule-both,
+   * and the moment the first was unscheduled its hours went back on
+   * public sale. A customer could buy the very slot the tournament was
+   * halfway through moving a match into.
+   */
+  const [swapFor, setSwapFor] = useState<string | null>(null);
+  const [swapWith, setSwapWith] = useState<string>("");
+
+  const asCandidate = (m: MatchRow): SwapCandidate => ({
+    id: m.id,
+    tournamentId,
+    roundLabel: m.roundLabel,
+    status: m.status,
+    courtConfigId: m.courtConfigId,
+    scheduledAt: m.scheduledAt ? new Date(m.scheduledAt) : null,
+    homeScore: m.homeScore,
+    awayScore: m.awayScore,
+  });
+
+  /** Fixtures this one may exchange with — the same rules the server
+   *  applies, so the list can't offer a partner that would be refused. */
+  const swapPartners = (m: MatchRow) =>
+    matches.filter((o) => swapBlocker(asCandidate(m), asCandidate(o)) === null);
+
+  const doSwap = async (matchId: string) => {
+    if (!swapWith) return;
+    setBusy(matchId);
+    setError(null);
+    try {
+      const res = await swapMatchSlots(matchId, swapWith);
+      if (!res.success) setError(res.error || "Failed");
+      else {
+        setSwapFor(null);
+        setSwapWith("");
+        router.refresh();
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const slotText = (m: MatchRow) =>
+    `${fmtWhen(m.scheduledAt)} · ${m.courtConfig?.label ?? "court"} · ${m.durationMins / 60}h`;
 
   // Drag-to-reorder. The list shows the server's order until a drop, then
   // this override takes over so the row moves under the cursor rather than
@@ -378,14 +433,37 @@ export function FixturesTab({
                           {fmtWhen(m.scheduledAt)} · {m.courtConfig?.label} · {m.durationMins / 60}h
                         </span>
                         {m.status === "SCHEDULED" && (
-                          <button
-                            onClick={() => doUnschedule(m.id)}
-                            disabled={busy === m.id}
-                            className="rounded-lg border border-zinc-700 p-1.5 text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
-                            title="Unschedule (frees the slots)"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
+                          <>
+                            {/* Only offered when there is somebody to swap
+                                with — a button that can only ever say "no
+                                eligible fixtures" is worse than no button. */}
+                            {swapPartners(m).length > 0 && (
+                              <button
+                                onClick={() => {
+                                  setSwapFor(swapFor === m.id ? null : m.id);
+                                  setSwapWith("");
+                                  setSchedFor(null);
+                                }}
+                                disabled={busy === m.id}
+                                className={`rounded-lg border p-1.5 disabled:opacity-50 ${
+                                  swapFor === m.id
+                                    ? "border-amber-500/60 bg-amber-500/10 text-amber-300"
+                                    : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                                }`}
+                                title="Swap this slot with another fixture"
+                              >
+                                <ArrowLeftRight className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => doUnschedule(m.id)}
+                              disabled={busy === m.id}
+                              className="rounded-lg border border-zinc-700 p-1.5 text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                              title="Unschedule (frees the slots)"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </>
                         )}
                       </>
                     ) : (
@@ -413,6 +491,62 @@ export function FixturesTab({
                     </button>
                   </div>
                 </div>
+
+                {swapFor === m.id && (
+                  <div className="mt-3 space-y-2 border-t border-zinc-800 pt-3">
+                    <p className="text-[11px] text-zinc-500">
+                      Both fixtures keep their opponents and trade court, time
+                      and duration. Use this when the two captains have agreed.
+                    </p>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="min-w-0">
+                        <label className="mb-1 block text-[10px] uppercase text-zinc-500">
+                          Swap with
+                        </label>
+                        <select
+                          className="max-w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-xs text-white"
+                          value={swapWith}
+                          onChange={(e) => setSwapWith(e.target.value)}
+                        >
+                          <option value="">— pick a fixture —</option>
+                          {swapPartners(m).map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.roundLabel || "Match"} — {slotText(o)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        onClick={() => doSwap(m.id)}
+                        disabled={!swapWith || busy === m.id}
+                        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
+                      >
+                        {busy === m.id ? "Swapping…" : "Swap slots"}
+                      </button>
+                    </div>
+                    {/* Spell the result out before it happens. "Swap" reads
+                        as obvious until an organiser is looking at two
+                        fixtures on two courts and has to hold both moves in
+                        their head in front of two waiting captains. */}
+                    {swapWith &&
+                      (() => {
+                        const o = matches.find((x) => x.id === swapWith);
+                        if (!o) return null;
+                        return (
+                          <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 text-[11px] text-zinc-400">
+                            <div>
+                              <span className="text-zinc-200">{m.roundLabel || "This match"}</span>{" "}
+                              moves to <span className="text-amber-300">{slotText(o)}</span>
+                            </div>
+                            <div className="mt-0.5">
+                              <span className="text-zinc-200">{o.roundLabel || "That match"}</span>{" "}
+                              moves to <span className="text-amber-300">{slotText(m)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                  </div>
+                )}
 
                 {schedFor === m.id && (
                   <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-zinc-800 pt-3">
