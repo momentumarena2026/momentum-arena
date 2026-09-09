@@ -50,7 +50,24 @@ export function PoolsTab({
   const [error, setError] = useState<string | null>(null);
 
   const confirmed = teams.filter((t) => t.status === "CONFIRMED");
+  /**
+   * Two different locks, because they were one and should not have been.
+   *
+   * Re-dealing, emptying and clearing rearrange EVERY pool at once. After
+   * the reveal each team has already been told where it is, so those stay
+   * shut — that is the promise the reveal makes.
+   *
+   * Moving ONE team is the opposite: it is how a captain's request gets
+   * honoured, and the reveal is precisely when those start arriving.
+   * Sharing a flag meant unlocking the drag board would also have
+   * unlocked a random re-deal, so the board was locked instead and the
+   * organiser was left with no answer.
+   *
+   * The per-team limits (a team that has already played) live on the
+   * server, which refuses in a sentence this tab shows.
+   */
   const locked = !["REG_OPEN", "REG_CLOSED"].includes(status);
+  const movesLocked = !["REG_OPEN", "REG_CLOSED", "POOLS_REVEALED", "LIVE"].includes(status);
 
   const deal = async () => {
     setBusy("deal");
@@ -127,7 +144,13 @@ export function PoolsTab({
             {new Date(revealAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
           </span>
         )}
-        {locked && <span className="text-xs text-zinc-500">Pools are locked after the reveal.</span>}
+        {locked && (
+          <span className="text-xs text-zinc-500">
+            {movesLocked
+              ? "Pools are locked."
+              : "Re-dealing is locked after the reveal — teams have been told their pool. You can still move a team on request below."}
+          </span>
+        )}
       </div>
       <p className="text-xs text-zinc-500">
         Pools stay hidden from customers until you move the tournament to{" "}
@@ -148,7 +171,7 @@ export function PoolsTab({
           teams={confirmed}
           slots={slots}
           teamsPerPool={teamsPerPool}
-          locked={locked}
+          locked={movesLocked}
         />
       )}
     </div>
