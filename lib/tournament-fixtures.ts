@@ -315,3 +315,54 @@ export function renumberedLabels(
   }
   return out;
 }
+
+/** The parts of a fixture that decide whether its slot may be exchanged. */
+export type SwapCandidate = {
+  id: string;
+  tournamentId: string;
+  roundLabel: string | null;
+  status: string;
+  courtConfigId: string | null;
+  scheduledAt: Date | null;
+  homeScore: number | null;
+  awayScore: number | null;
+};
+
+/**
+ * Why these two fixtures cannot exchange slots — or null if they can.
+ *
+ * Captains negotiate this between themselves once the draw is out ("we
+ * can't field a side at 7am, they'll take the morning and give us their
+ * evening"), and the organiser is only recording an agreement that has
+ * already been reached. So the checks here are about whether the MOVE is
+ * coherent, not about whether it is a good idea.
+ *
+ * Kept separate from the write so the rules can be asserted directly and
+ * so the button can be disabled with the same sentence the server would
+ * have answered with — a swap refused only on submit is a swap the
+ * organiser argues with in front of two captains.
+ */
+export function swapBlocker(a: SwapCandidate, b: SwapCandidate): string | null {
+  if (a.id === b.id) return "Pick two different fixtures";
+  // Across tournaments the exchange would move one event's held hours
+  // onto another's calendar, and each block records a sourceId that would
+  // then name the wrong owner.
+  if (a.tournamentId !== b.tournamentId) {
+    return "Both fixtures must be in the same tournament";
+  }
+  for (const m of [a, b]) {
+    if (!m.courtConfigId || !m.scheduledAt) {
+      return "Both fixtures must already have a slot — schedule them first";
+    }
+    // A match that has started or finished cannot move: its hours are
+    // spent, and a played result filed against a future slot is a record
+    // nobody can reconcile afterwards.
+    if (m.status === "LIVE" || m.status === "COMPLETED" || m.status === "WALKOVER") {
+      return `Can't move ${m.roundLabel || "a fixture"} — it is ${m.status.toLowerCase()}`;
+    }
+    if (m.homeScore != null || m.awayScore != null) {
+      return `${m.roundLabel || "A fixture"} has a score — clear it first`;
+    }
+  }
+  return null;
+}

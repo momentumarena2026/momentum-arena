@@ -174,6 +174,10 @@ export function AdminTournamentsScreen() {
   const [orgOpen, setOrgOpen] = useState(false);
   const [fxOpen, setFxOpen] = useState(false);
   const [schedFor, setSchedFor] = useState<string | null>(null);
+  /** Which fixture is looking for a slot to trade. Captains agree this
+   *  between themselves after the draw ("we can't field a side at 7am");
+   *  the organiser is recording the agreement, not deciding it. */
+  const [swapFor, setSwapFor] = useState<string | null>(null);
   const [sched, setSched] = useState({ date: "", startHour: "", hours: "1", courtConfigId: "" });
   const [fx, setFx] = useState({
     stage: "LEAGUE",
@@ -917,7 +921,7 @@ export function AdminTournamentsScreen() {
                   keyOf={(m) => m.id}
                   // A row with its scheduling form open must not move under
                   // the finger while someone is typing into it.
-                  canDrag={(m) => schedFor !== m.id}
+                  canDrag={(m) => schedFor !== m.id && swapFor !== m.id}
                   onReorder={(ids) => void reorderFixtures(t.id, stage, ids)}
                   renderItem={(m) => (
             <View key={m.id} style={styles.card}>
@@ -1032,11 +1036,80 @@ export function AdminTournamentsScreen() {
                       <Text style={{ color: colors.zinc400, fontSize: 12 }}>Unschedule</Text>
                     </Pressable>
                   )}
+                  {/* Swap, rather than unschedule-both-and-redo: the moment
+                      a fixture is unscheduled its hours go back on public
+                      sale, and a customer can buy the very slot the
+                      tournament is halfway through moving a match into. */}
+                  {m.scheduledAt && m.status === "SCHEDULED" && (
+                    <Pressable
+                      disabled={busy}
+                      onPress={() => {
+                        setSwapFor(swapFor === m.id ? null : m.id);
+                        setSchedFor(null);
+                      }}
+                      style={[styles.chipBtn, swapFor === m.id && { borderColor: "#fbbf24" }]}
+                    >
+                      <Text style={{ color: swapFor === m.id ? "#fbbf24" : colors.zinc400, fontSize: 12 }}>
+                        ⇄ Swap slot
+                      </Text>
+                    </Pressable>
+                  )}
                   {/* Server refuses once a match is played or scored, so this
                       cannot quietly rewrite the points table. */}
                   <Pressable disabled={busy} onPress={() => act({ op: "deleteMatch", matchId: m.id }, "Delete this fixture?")} style={styles.chipBtn}>
                     <Text style={{ color: "#f87171", fontSize: 12 }}>Delete</Text>
                   </Pressable>
+                </View>
+              )}
+
+              {swapFor === m.id && (
+                <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: colors.zinc800, paddingTop: 8 }}>
+                  <Text style={{ color: colors.zinc500, fontSize: 11 }}>
+                    Trade court, time and duration with:
+                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    {(() => {
+                      // Only "has a slot to trade" is filtered here. The
+                      // full eligibility rules live on the server and it
+                      // answers in a sentence this screen already shows —
+                      // a second copy of them on the phone is one that can
+                      // drift.
+                      const partners = t.matches.filter(
+                        (o) => o.id !== m.id && o.scheduledAt && o.status === "SCHEDULED",
+                      );
+                      if (partners.length === 0) {
+                        return (
+                          <Text style={{ color: colors.zinc600, fontSize: 11 }}>
+                            No other scheduled fixture to swap with.
+                          </Text>
+                        );
+                      }
+                      return partners.map((o) => {
+                        const when = new Date(o.scheduledAt as string).toLocaleString("en-IN", {
+                          day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+                          timeZone: "Asia/Kolkata",
+                        });
+                        return (
+                          <Pressable
+                            key={o.id}
+                            disabled={busy}
+                            onPress={async () => {
+                              await act(
+                                { op: "swapMatchSlots", matchId: m.id, otherMatchId: o.id },
+                                `Swap slots?\n\n${m.roundLabel || "This match"} moves to ${when}.\n${o.roundLabel || "That match"} takes this one's slot.`,
+                              );
+                              setSwapFor(null);
+                            }}
+                            style={styles.chipBtn}
+                          >
+                            <Text style={{ color: colors.zinc300, fontSize: 11 }}>
+                              {o.roundLabel || "Match"} · {when}
+                            </Text>
+                          </Pressable>
+                        );
+                      });
+                    })()}
+                  </View>
                 </View>
               )}
             </View>
