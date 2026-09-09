@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 // A "use server" module may only export async functions — the constant
 // lives in lib/ for that reason.
 import { MANUAL_STAGES } from "@/lib/tournament-manual-stages";
+import { renumberedLabels } from "@/lib/tournament-fixtures";
 
 /**
  * Hand-entered fixtures.
@@ -123,6 +124,8 @@ export async function deleteManualMatch(
       id: true,
       tournamentId: true,
       status: true,
+      // Needed to renumber the remaining fixtures in this stage below.
+      stage: true,
       homeScore: true,
       awayScore: true,
       slotBlockIds: true,
@@ -163,6 +166,12 @@ export async function deleteManualMatch(
     await tx.tournamentMatch.delete({ where: { id: m.id } });
   });
 
+  // Close the gap the deletion leaves. Removing the middle fixture of
+  // three otherwise leaves "Match 1, Match 3", and an organiser reading
+  // that down a printed sheet has to work out whether Match 2 was
+  // cancelled or is simply missing from the page.
+  await renumberStageLabels(m.tournamentId, m.stage);
+
   revalidatePath(`/admin/tournaments/${m.tournamentId}`);
   return { success: true };
 }
@@ -181,6 +190,48 @@ export async function deleteManualMatch(
  * matches because someone dragged a row would be a worse surprise than a
  * list whose labels aren't in numeric order.
  */
+/**
+ * Make the "Match N" in each label match the order fixtures are actually
+ * listed in.
+ *
+ * `sequence` and `roundLabel` are written together when fixtures are
+ * generated and then drift apart, because everything that changes the
+ * order afterwards only touched `sequence`. A dragged pool read
+ * "Match 2, Match 1, Match 3" down the screen, and deleting the middle
+ * fixture of three left "Match 1, Match 3".
+ *
+ * That matters more than it looks: the number is the only thing an
+ * organiser calls a fixture by — over the PA, on a printed sheet, to a
+ * captain — so a list where it does not count upwards is worse than one
+ * with no numbers at all.
+ *
+ * Numbered PER POOL, not per stage. Pool matches from different pools
+ * interleave in the list because it is ordered by play order, and
+ * numbering across the whole stage would produce "Pool B · Match 7" in a
+ * pool that has three.
+ *
+ * Only labels that already ARE a match number are rewritten. Knockout
+ * rounds carry names — "Semi Final 1", "Final", "3rd Place" — which are
+ * positional in their own right and must not become "Match 1".
+ */
+async function renumberStageLabels(tournamentId: string, stage: string): Promise<void> {
+  const rows = await db.tournamentMatch.findMany({
+    where: { tournamentId, stage: stage as never },
+    orderBy: { sequence: "asc" },
+    select: { id: true, roundLabel: true, pool: { select: { name: true } } },
+  });
+
+  const updates = renumberedLabels(
+    rows.map((r) => ({ id: r.id, roundLabel: r.roundLabel, poolName: r.pool?.name ?? null })),
+  );
+  if (updates.length === 0) return;
+  await db.$transaction(
+    updates.map((u) =>
+      db.tournamentMatch.update({ where: { id: u.id }, data: { roundLabel: u.roundLabel } }),
+    ),
+  );
+}
+
 export async function reorderStageFixtures(
   tournamentId: string,
   stage: string,
@@ -207,6 +258,9 @@ export async function reorderStageFixtures(
       db.tournamentMatch.update({ where: { id }, data: { sequence: i + 1 } }),
     ),
   );
+  // The number is half the identity of a fixture; renumbering the sort
+  // key without it is what left a pool reading "Match 2, Match 1".
+  await renumberStageLabels(tournamentId, stage);
 
   revalidatePath(`/admin/tournaments/${tournamentId}`);
   return { success: true };

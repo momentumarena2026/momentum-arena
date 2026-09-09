@@ -269,3 +269,49 @@ export function shuffle<T>(arr: T[]): T[] {
   }
   return a;
 }
+
+/**
+ * Renumber "Match N" labels to match the order fixtures are listed in.
+ *
+ * `sequence` and `roundLabel` are written together when a draw is
+ * generated and then drift apart, because everything that changes the
+ * order afterwards touched only `sequence`. A dragged pool read
+ * "Match 2, Match 1, Match 3" down the screen, and deleting the middle
+ * fixture of three left "Match 1, Match 3".
+ *
+ * That matters more than it looks: the number is the only thing an
+ * organiser calls a fixture by — over the PA, on a printed sheet, to a
+ * captain — so a list whose numbers do not count upwards is worse than
+ * one with no numbers at all.
+ *
+ * Pure so it can be tested without a draw, a database or a clock. Takes
+ * rows ALREADY in display order and returns only the ones whose label
+ * needs to change.
+ */
+export function renumberedLabels(
+  rows: { id: string; roundLabel: string | null; poolName: string | null }[],
+): { id: string; roundLabel: string }[] {
+  const seen = new Map<string, number>();
+  const out: { id: string; roundLabel: string }[] = [];
+
+  for (const row of rows) {
+    // Only rewrite labels that ARE a match number. Knockout rounds carry
+    // names — "Semi Final 1", "Final", "3rd Place" — which are already
+    // positional and must never become "Match 1".
+    if (!/(^|·\s*)Match\s+\d+\s*$/i.test(row.roundLabel ?? "")) continue;
+
+    // Numbered PER POOL, not per stage. Pool matches from different
+    // pools interleave in the list because it is ordered by play order,
+    // and numbering across the whole stage would produce
+    // "Pool B · Match 7" in a pool that has three.
+    const key = row.poolName ?? "";
+    const next = (seen.get(key) ?? 0) + 1;
+    seen.set(key, next);
+
+    const label = row.poolName ? `${row.poolName} · Match ${next}` : `Match ${next}`;
+    // Skip rows already correct: a no-op write per fixture on every
+    // delete adds up on a 40-match draw, for nothing.
+    if (label !== row.roundLabel) out.push({ id: row.id, roundLabel: label });
+  }
+  return out;
+}
