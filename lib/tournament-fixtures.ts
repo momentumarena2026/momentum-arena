@@ -366,3 +366,60 @@ export function swapBlocker(a: SwapCandidate, b: SwapCandidate): string | null {
   }
   return null;
 }
+
+/** A team's match, as far as "may this team change pool?" is concerned. */
+export type PlayedCheck = {
+  status: string;
+  homeScore: number | null;
+  awayScore: number | null;
+};
+
+/**
+ * Why this team cannot be moved to another pool — or null if it can.
+ *
+ * Pools were locked outright at the reveal, which was too blunt. The
+ * reveal is exactly when captains start asking for changes: they see who
+ * they have been drawn against and come back with a clash, a withdrawal,
+ * or a request to be moved. Locking at that moment left the organiser
+ * with no answer at all.
+ *
+ * What genuinely cannot be undone is a match that has been PLAYED. Points
+ * are computed per pool, so moving a team that already has a result
+ * silently rewrites two pools' standings — the team's wins leave with it
+ * and the opponents it beat are left with a table that no longer adds up.
+ * That is the line, and it is a per-TEAM line rather than a
+ * per-tournament one: a tournament can be mid-way through Pool A while
+ * Pool D has not started, and Pool D's captains have as much right to ask
+ * as anyone.
+ *
+ * Re-dealing or clearing ALL pools stays locked at the reveal. That is a
+ * different act — teams have already been told where they are, and a
+ * random re-deal after the reveal breaks every one of those promises at
+ * once, not one by agreement.
+ */
+export function poolMoveBlocker(
+  tournamentStatus: string,
+  teamMatches: PlayedCheck[],
+): string | null {
+  if (tournamentStatus === "CANCELLED") {
+    return "This tournament is cancelled";
+  }
+  if (tournamentStatus === "COMPLETED") {
+    return "This tournament is finished — its pools are part of the record";
+  }
+  if (!["REG_OPEN", "REG_CLOSED", "POOLS_REVEALED", "LIVE"].includes(tournamentStatus)) {
+    return "Deal the pools first";
+  }
+  const played = teamMatches.find(
+    (m) =>
+      m.status === "LIVE" ||
+      m.status === "COMPLETED" ||
+      m.status === "WALKOVER" ||
+      m.homeScore != null ||
+      m.awayScore != null,
+  );
+  if (played) {
+    return "This team has already played — moving it would rewrite the points table";
+  }
+  return null;
+}

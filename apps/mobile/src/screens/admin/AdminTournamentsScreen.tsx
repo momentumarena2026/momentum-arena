@@ -260,7 +260,16 @@ export function AdminTournamentsScreen() {
 
   // Pools stop being editable once they are public — the same rule the web
   // tab enforces, so a phone can't quietly reshuffle a revealed draw.
+  // Two locks, not one. Re-dealing and clearing rearrange EVERY pool, so
+  // they shut at the reveal — that is the promise the reveal makes to the
+  // teams. Moving ONE team is how a captain's request gets honoured, and
+  // the reveal is exactly when those start arriving. The per-team limits
+  // (a team that has already played) live on the server, which refuses in
+  // a sentence this screen shows.
   const poolsLocked = !["REG_OPEN", "REG_CLOSED"].includes(t?.status ?? "");
+  const poolMovesLocked = !["REG_OPEN", "REG_CLOSED", "POOLS_REVEALED", "LIVE"].includes(
+    t?.status ?? "",
+  );
 
   const loadCampaign = useCallback(async () => {
     if (!t) return;
@@ -1144,7 +1153,9 @@ export function AdminTournamentsScreen() {
               </View>
               {poolsLocked && (
                 <Text style={{ color: colors.zinc500, fontSize: 11 }}>
-                  Pools are locked after the reveal.
+                  {poolMovesLocked
+                    ? "Pools are locked."
+                    : "Re-dealing is locked after the reveal — teams have been told their pool. You can still move a team on request."}
                 </Text>
               )}
               {t.pools.length === 0 ? (
@@ -1167,7 +1178,7 @@ export function AdminTournamentsScreen() {
                             {tm.name}
                           </Text>
                           <Pressable
-                            disabled={busy || poolsLocked}
+                            disabled={busy || poolMovesLocked}
                             onPress={() => act({ op: "moveTeamToPool", teamId: tm.id, poolId: null })}
                             style={styles.chipBtn}
                           >
@@ -1200,7 +1211,7 @@ export function AdminTournamentsScreen() {
                             {t.pools.map((pl) => (
                               <Pressable
                                 key={pl.id}
-                                disabled={busy || poolsLocked}
+                                disabled={busy || poolMovesLocked}
                                 onPress={() => act({ op: "moveTeamToPool", teamId: tm.id, poolId: pl.id })}
                                 style={styles.chipBtn}
                               >

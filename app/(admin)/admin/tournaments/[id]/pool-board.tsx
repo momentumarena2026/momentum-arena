@@ -74,6 +74,10 @@ export function PoolBoard({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  /** Fixtures the move left pairing this team with its old pool. Not an
+   *  error — the move succeeded — but the organiser has to decide what to
+   *  do about matches they may already have scheduled and announced. */
+  const [warning, setWarning] = useState<string | null>(null);
   const [busyTeam, setBusyTeam] = useState<string | null>(null);
   const [dragTeam, setDragTeam] = useState<string | null>(null);
   const [overPool, setOverPool] = useState<string | null>(null);
@@ -114,6 +118,7 @@ export function PoolBoard({
     setHeld(null);
     setBusyTeam(teamId);
     setError(null);
+    setWarning(null);
     try {
       // A thrown action — an expired admin session is the likely one — has
       // to revert too, or the board keeps showing a move that never
@@ -129,6 +134,7 @@ export function PoolBoard({
         setError(res.error || "Could not move that team");
         return;
       }
+      if (res.warning) setWarning(res.warning);
       // Let the board settle before re-syncing, so a run of quick drops
       // isn't interrupted by a refresh between each one.
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -145,6 +151,11 @@ export function PoolBoard({
       {error && (
         <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-400">
           {error}
+        </p>
+      )}
+      {warning && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
+          {warning}
         </p>
       )}
       {held && (

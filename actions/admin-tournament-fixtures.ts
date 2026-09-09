@@ -11,6 +11,7 @@ import {
   poolQualifierSlots,
   shuffle,
   swapBlocker,
+  poolMoveBlocker,
   type BracketSlot,
 } from "@/lib/tournament-fixtures";
 
@@ -86,22 +87,80 @@ export async function autoAssignPools(
   return { success: true };
 }
 
+/**
+ * Move one team into another pool.
+ *
+ * This stays open after the reveal, which is when captains actually start
+ * asking — they see the draw, and come back with a clash, a withdrawal,
+ * or a swap the two sides have agreed between themselves. Refusing at
+ * that moment left the organiser with no answer at all, and the tab said
+ * only "Pools are locked after the reveal".
+ *
+ * The real limit is a team that has PLAYED: points are computed per pool,
+ * so moving it takes its results into another table and leaves the teams
+ * it played holding a standings that no longer adds up. See
+ * poolMoveBlocker.
+ *
+ * Fixtures are NOT regenerated here. They pair named teams, so a move
+ * after they exist leaves matches that read against the old pool — real,
+ * but stale. Rewriting them silently would delete fixtures an organiser
+ * may already have scheduled, told captains about, and blocked courts
+ * for. So the count comes back as a warning and the decision stays with
+ * the person who knows what was promised.
+ */
 export async function moveTeamToPool(
   teamId: string,
   poolId: string | null
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; warning?: string }> {
   await gate();
   const team = await db.tournamentTeam.findUnique({
     where: { id: teamId },
-    select: { tournamentId: true, tournament: { select: { status: true } } },
+    select: {
+      tournamentId: true,
+      poolId: true,
+      tournament: { select: { status: true } },
+      homeMatches: { select: { status: true, homeScore: true, awayScore: true } },
+      awayMatches: { select: { status: true, homeScore: true, awayScore: true } },
+    },
   });
   if (!team) return { success: false, error: "Team not found" };
-  if (!["REG_OPEN", "REG_CLOSED"].includes(team.tournament.status)) {
-    return { success: false, error: "Pools are locked after the reveal" };
+
+  const blocked = poolMoveBlocker(team.tournament.status, [
+    ...team.homeMatches,
+    ...team.awayMatches,
+  ]);
+  if (blocked) return { success: false, error: blocked };
+
+  // The destination must belong to this tournament — otherwise a stale
+  // page could park a team in another event's pool.
+  if (poolId) {
+    const pool = await db.tournamentPool.findUnique({
+      where: { id: poolId },
+      select: { tournamentId: true },
+    });
+    if (!pool || pool.tournamentId !== team.tournamentId) {
+      return { success: false, error: "That pool belongs to another tournament" };
+    }
   }
+
+  const stale =
+    team.poolId && team.poolId !== poolId
+      ? await db.tournamentMatch.count({
+          where: {
+            tournamentId: team.tournamentId,
+            OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
+          },
+        })
+      : 0;
+
   await db.tournamentTeam.update({ where: { id: teamId }, data: { poolId } });
   revalidatePath(`/admin/tournaments/${team.tournamentId}`);
-  return { success: true };
+  return {
+    success: true,
+    warning: stale
+      ? `${stale} existing fixture${stale === 1 ? "" : "s"} still pair this team with its old pool. Regenerate fixtures, or fix them on the Fixtures tab.`
+      : undefined,
+  };
 }
 
 /**
