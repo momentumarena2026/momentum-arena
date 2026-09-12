@@ -142,7 +142,13 @@ export async function reopenMatch(
     select: { id: true, tournamentId: true, status: true },
   });
   if (!match) return { success: false, error: "Match not found" };
-  if (match.status !== "COMPLETED") return { success: false, error: "Match is not completed" };
+  // WALKOVER reopens too. It is a result awarded at a desk rather than
+  // won on a pitch — conceded, wrong team, a no-show that turned out to
+  // be a late arrival — which makes it the one most likely to need taking
+  // back, and it was the only result with no way out.
+  if (match.status !== "COMPLETED" && match.status !== "WALKOVER") {
+    return { success: false, error: "This match has no result to clear" };
+  }
 
   const dependent = await db.tournamentMatch.findFirst({
     where: {

@@ -397,7 +397,10 @@ export function ScoresTab({
                 {m.awayTeam?.name || "—"}
               </div>
             </div>
-            {m.status === "COMPLETED" && (
+            {/* Walkovers too — the list already shows them, and an
+                awarded result is the one most likely to need taking
+                back. Without this they were displayed with no way out. */}
+            {(m.status === "COMPLETED" || m.status === "WALKOVER") && (
               <button
                 onClick={() => reopen(m)}
                 disabled={busy === m.id}

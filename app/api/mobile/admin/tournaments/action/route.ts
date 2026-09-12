@@ -21,6 +21,7 @@ import {
   scheduleMatch,
   unscheduleMatch,
   swapMatchSlots,
+  withdrawTeam,
 } from "@/actions/admin-tournament-fixtures";
 import { enterMatchResult, reopenMatch } from "@/actions/admin-tournament-scores";
 import {
@@ -146,6 +147,8 @@ export async function POST(request: NextRequest) {
       String(body.matchId || ""),
       String(body.otherMatchId || ""),
     );
+  else if (op === "withdrawTeam")
+    result = await withdrawTeam(String(body.teamId || ""));
   else if (op === "deleteMatch")
     result = await deleteManualMatch(String(body.matchId || ""));
   else if (op === "archiveTournament")

@@ -5,8 +5,12 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { dealPools } from "@/lib/tournament-scheduling";
+import { setTeamStatus } from "@/actions/admin-tournaments";
+import { renumberStageLabels } from "@/lib/tournament-renumber";
 import {
   roundRobinRounds,
+  poolLegs,
+  missingPoolPairings,
   buildKnockoutSkeleton,
   poolQualifierSlots,
   shuffle,
@@ -250,6 +254,189 @@ export async function clearPools(
   return { success: true };
 }
 
+/**
+ * A team pulls out — withdraw it and repair the pool it leaves behind.
+ *
+ * A no-show is not an admin problem, it is a scheduling one. Marking the
+ * team withdrawn on its own leaves its fixtures standing: the pool's
+ * remaining teams still have matches against an opponent who will never
+ * arrive, and the points table quietly shrinks to whatever is left. A
+ * pool of three becomes two teams with a single fixture between them,
+ * which decides a qualifier on one afternoon and gives net run rate — the
+ * thing meant to separate them — one innings each to work with.
+ *
+ * So this does the whole thing:
+ *   · the team is marked WITHDRAWN, which drops it from the standings,
+ *     since those count CONFIRMED teams only;
+ *   · its UNPLAYED fixtures are deleted and their court hours released;
+ *   · the pool it leaves is topped back up to a full schedule for the
+ *     teams that remain — two legs when two are left, so the decider is a
+ *     series rather than a coin toss.
+ *
+ * Played matches are never touched, the team's own included. A result
+ * that happened is a fact about the tournament, and a withdrawal later in
+ * the week does not unmake the afternoon it was won on. That is also why
+ * the pool is topped up rather than regenerated: regeneration would take
+ * the played matches with it.
+ *
+ * The team keeps its poolId. It is the record of where it was drawn, the
+ * board already shows confirmed teams only, and erasing it would make the
+ * withdrawal impossible to explain afterwards.
+ */
+export async function withdrawTeam(
+  teamId: string,
+): Promise<{
+  success: boolean;
+  error?: string;
+  removedFixtures?: number;
+  addedFixtures?: number;
+  keptPlayed?: number;
+}> {
+  await gate();
+  const team = await db.tournamentTeam.findUnique({
+    where: { id: teamId },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      poolId: true,
+      tournamentId: true,
+      tournament: { select: { status: true, name: true, sport: true } },
+    },
+  });
+  if (!team) return { success: false, error: "Team not found" };
+  // An already-WITHDRAWN team is NOT refused. The repair below is a
+  // shortfall calculation, so running it twice creates nothing the second
+  // time — and that idempotence is what makes the action safe to retry if
+  // the status write lands and the repair then fails.
+  if (["COMPLETED", "CANCELLED"].includes(team.tournament.status)) {
+    return { success: false, error: "This tournament is already over" };
+  }
+
+  const played = (m: { status: string; homeScore: number | null; awayScore: number | null }) =>
+    m.status === "LIVE" ||
+    m.status === "COMPLETED" ||
+    m.status === "WALKOVER" ||
+    m.homeScore != null ||
+    m.awayScore != null;
+
+  const mine = await db.tournamentMatch.findMany({
+    where: {
+      tournamentId: team.tournamentId,
+      OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
+    },
+    select: {
+      id: true,
+      status: true,
+      homeScore: true,
+      awayScore: true,
+      slotBlockIds: true,
+    },
+  });
+  const dead = mine.filter((m) => !played(m));
+  const keptPlayed = mine.length - dead.length;
+
+  // What the pool will look like once this team is gone.
+  const survivors = team.poolId
+    ? await db.tournamentTeam.findMany({
+        where: {
+          poolId: team.poolId,
+          status: "CONFIRMED",
+          id: { not: teamId },
+        },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+
+  const deadIds = new Set(dead.map((d) => d.id));
+  const poolMatches = team.poolId
+    ? await db.tournamentMatch.findMany({
+        where: { poolId: team.poolId },
+        select: {
+          id: true,
+          homeTeamId: true,
+          awayTeamId: true,
+          sequence: true,
+        },
+      })
+    : [];
+  const surviving = poolMatches.filter((m) => !deadIds.has(m.id));
+
+  const ids = survivors.map((x) => x.id);
+  // Below two teams there is no pool left to play — one team cannot be
+  // given a schedule, and the organiser has a bigger decision to make
+  // about the bracket than this action should take for them.
+  const toCreate =
+    ids.length >= 2 ? missingPoolPairings(ids, poolLegs(ids.length), surviving) : [];
+
+  const poolName = team.poolId
+    ? (await db.tournamentPool.findUnique({
+        where: { id: team.poolId },
+        select: { name: true },
+      }))?.name ?? "Pool"
+    : "";
+
+  // Withdrawing is not just a status: it returns the reward points the
+  // captain redeemed at registration and strips the points leg from their
+  // discount. That lives in setTeamStatus and must not be reimplemented
+  // here — a second copy of a refund is how money goes missing. Done
+  // BEFORE the repair, because it is the part that must not be skipped;
+  // the repair is idempotent and can be re-run if it fails.
+  if (team.status !== "WITHDRAWN") {
+    const res = await setTeamStatus(teamId, "WITHDRAWN");
+    if (!res.success) return { success: false, error: res.error };
+  }
+
+  // Sequence is unique per STAGE, and every pool's matches share the POOL
+  // stage — so the next number has to clear the whole stage, not just this
+  // pool. Taking this pool's max would collide with another pool's rows
+  // and scramble the order both are listed in.
+  const stageMax = await db.tournamentMatch.aggregate({
+    where: { tournamentId: team.tournamentId, stage: "POOL" },
+    _max: { sequence: true },
+  });
+
+  await db.$transaction(async (tx) => {
+    const blockIds = dead.flatMap((d) => d.slotBlockIds);
+    if (blockIds.length) {
+      // Give the hours back. A withdrawn team's matches were holding
+      // courts that can now be sold or used by the fixtures added below.
+      await tx.slotBlock.deleteMany({ where: { id: { in: blockIds } } });
+    }
+    if (deadIds.size) {
+      await tx.tournamentMatch.deleteMany({ where: { id: { in: [...deadIds] } } });
+    }
+    let seq = stageMax._max.sequence ?? 0;
+    for (const [home, away] of toCreate) {
+      seq += 1;
+      await tx.tournamentMatch.create({
+        data: {
+          tournamentId: team.tournamentId,
+          stage: "POOL",
+          poolId: team.poolId,
+          roundLabel: `${poolName} · Match ${seq}`,
+          sequence: seq,
+          homeTeamId: home,
+          awayTeamId: away,
+        },
+      });
+    }
+  });
+
+  // The pool's numbering runs 1..n after the deletions and additions, so
+  // it reads as a schedule rather than as the history of its own repair.
+  await renumberStageLabels(team.tournamentId, "POOL");
+
+  revalidatePath(`/admin/tournaments/${team.tournamentId}`);
+  return {
+    success: true,
+    removedFixtures: dead.length,
+    addedFixtures: toCreate.length,
+    keptPlayed,
+  };
+}
+
 // ── Fixture generation ──────────────────────────────────────────────
 /** Generate the full fixture list. Round-robin matches for pools/league,
  *  and the knockout skeleton with source labels + winner-of chains.
@@ -309,7 +496,10 @@ export async function generateFixtures(
     if (t.format === "POOLS_KNOCKOUT") {
       for (const pool of t.pools) {
         let seq = 0;
-        for (const round of roundRobinRounds(pool.teams.map((x) => x.id))) {
+        // A pool of two plays twice — see poolLegs. Usually that pool got
+        // there by subtraction, a withdrawal from a pool of three.
+        const ids = pool.teams.map((x) => x.id);
+        for (const round of roundRobinRounds(ids, poolLegs(ids.length))) {
           for (const [home, away] of round.pairs) {
             seq += 1;
             rows.push({
