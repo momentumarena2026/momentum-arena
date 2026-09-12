@@ -54,6 +54,23 @@ export type ScoreEvent =
       fielder?: string;
       /** Who walks in; the log stays replayable without it. */
       newBatter?: string;
+      /**
+       * Which END the dismissal happened at — run outs only.
+       *
+       * Every other dismissal takes the batter at their own end, so the
+       * end is implied by who is out. A run out is not: the striker can
+       * be run out at the NON-striker's end, having crossed. Omitted
+       * means "their own end", which is what every pre-existing event in
+       * the log meant.
+       */
+      outAtEnd?: "STRIKER" | "NON_STRIKER";
+      /**
+       * Runs completed before the dismissal — run outs only. Out going
+       * for the second with the first already run is 1 run and a wicket,
+       * and there is no way to log it as two events: RUN then WICKET
+       * would count the delivery twice.
+       */
+      runs?: number;
     }
   | { t: "RETIRE"; batter?: string; newBatter?: string }
   | { t: "SWAP" }
@@ -306,30 +323,79 @@ export function replay(
       case "WICKET": {
         if (batA) s.wicketsA += 1;
         else s.wicketsB += 1;
-        const who = e.batter ?? s.striker;
+
+        // The ends as they stood for THIS delivery, captured before
+        // anything moves — every decision below is relative to them.
+        const striker0 = s.striker;
+        const nonStriker0 = s.nonStriker;
+        const who = e.batter ?? striker0;
+        const outIsNonStriker = who === nonStriker0;
+        const notOut = outIsNonStriker ? striker0 : nonStriker0;
+
+        // Runs completed before the dismissal. They belong to whoever
+        // FACED the ball, never to whoever happened to be run out — a
+        // non-striker dismissed going for the second does not take the
+        // first run off the striker. No fours or sixes: a boundary is a
+        // dead ball, so it cannot coexist with a run out.
+        const runs = Math.max(0, Math.min(7, e.runs ?? 0));
+        if (runs > 0) {
+          addRuns(runs);
+          const sc = bat(striker0);
+          if (sc) sc.runs += runs;
+        }
+
+        // The delivery is faced by the striker. Crediting it to the
+        // dismissed batter — which is what this did while only the
+        // striker could ever be out — hands the ball to the wrong player
+        // the moment a non-striker is run out.
+        const faced = bat(striker0);
+        if (faced) faced.balls += 1;
+
         const card = bat(who);
         if (card) {
-          card.balls += 1;
           card.out = e.kind ?? "OTHER";
           card.outBy = e.fielder ?? s.bowler ?? null;
         }
         // A run-out isn't the bowler's wicket.
         const bo = bowl(s.bowler);
         if (bo && e.kind !== "RUN_OUT") bo.wickets += 1;
-        note("W");
-        legalBall();
-        // The incoming batter takes the departed one's end. legalBall()
-        // may have swapped on the over change, so resolve against
-        // whichever end the out batter is standing at now.
+        note(runs > 0 ? `${runs}+W` : "W");
+
+        /**
+         * Where everyone stands now.
+         *
+         * One rule covers it: THE NEW BATTER TAKES THE END THE DISMISSAL
+         * HAPPENED AT, and the survivor takes the other. That is the
+         * whole of it, and it is why no extra swap is applied for an odd
+         * number of completed runs — the end of dismissal already says
+         * where both batters finished up.
+         *
+         * The case this was written for: a striker run out at the
+         * NON-striker's end must have crossed, so the survivor is now at
+         * the striker's end and keeps strike, while the new batter walks
+         * to the far end. Resolving from the dismissed batter's own end
+         * instead — the old behaviour — put the new batter on strike and
+         * had the wrong man facing the next ball.
+         */
+        const outEnd: "STRIKER" | "NON_STRIKER" =
+          e.outAtEnd ?? (outIsNonStriker ? "NON_STRIKER" : "STRIKER");
+        const newAtStriker = outEnd === "STRIKER";
         if (e.newBatter) {
           bat(e.newBatter);
-          if (s.nonStriker === who) s.nonStriker = e.newBatter;
-          else s.striker = e.newBatter;
-        } else if (s.striker === who) {
-          s.striker = null;
-        } else if (s.nonStriker === who) {
-          s.nonStriker = null;
+          s.striker = newAtStriker ? e.newBatter : notOut;
+          s.nonStriker = newAtStriker ? notOut : e.newBatter;
+        } else {
+          // Nobody named yet: the dismissal end is vacant, the survivor
+          // holds the other.
+          s.striker = newAtStriker ? null : notOut;
+          s.nonStriker = newAtStriker ? notOut : null;
         }
+
+        // Last, so the over-change swap applies to the ends decided
+        // above rather than being compensated for afterwards. A batter
+        // out on the sixth ball is replaced, and THEN the ends turn
+        // over — which is why the new batter does not face next.
+        legalBall();
         break;
       }
 
@@ -529,6 +595,22 @@ export function validateScoreEvent(
     if (event.t === "WICKET") {
       const who = event.batter ?? state.striker;
       if (who && state.batting[who]?.out) return `${who} is already out`;
+      // Naming somebody who isn't at the crease would silently displace a
+      // batter who is, because the ends are resolved from this name.
+      if (
+        event.batter &&
+        event.batter !== state.striker &&
+        event.batter !== state.nonStriker
+      ) {
+        return `${event.batter} isn't at the crease`;
+      }
+      // The end and any completed runs only mean something for a run out;
+      // every other dismissal takes the batter at their own end off a ball
+      // that scored nothing.
+      if (event.kind !== "RUN_OUT") {
+        if (event.runs != null) return "Only a run out can carry completed runs";
+        if (event.outAtEnd) return "Only a run out needs an end";
+      }
       if (event.newBatter) {
         if (!inSquad(batting, event.newBatter)) {
           return "The incoming batter isn't in the batting side";

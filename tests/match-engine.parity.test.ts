@@ -175,6 +175,24 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
     mixedOver,
     [...mixedOver, { t: "END_INNINGS" }],
     [...mixedOver, { t: "WICKET", kind: "BOWLED", batter: "Asha", newBatter: "Chen" }],
+    // Run outs carry an end and completed runs, and both decide where the
+    // batters stand afterwards — the richest event in the log, so both
+    // engines must agree on every combination of it.
+    [
+      ...mixedOver,
+      { t: "WICKET", kind: "RUN_OUT", outAtEnd: "NON_STRIKER", newBatter: "Chen" },
+    ],
+    [
+      ...mixedOver,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        batter: "Bala",
+        outAtEnd: "STRIKER",
+        runs: 1,
+        newBatter: "Chen",
+      },
+    ],
   ];
 
   for (const rules of ruleSets) {
@@ -193,6 +211,11 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         { t: "SQUAD", side: "A", players: ["Asha", "asha"] } as ScoreEvent,
         { t: "POINT", side: "A", player: "Nobody" } as ScoreEvent,
         { t: "WICKET", kind: "BOWLED", batter: "Asha" } as ScoreEvent,
+        // The new refusals: a batter who isn't at the crease, and an end
+        // or completed runs on a dismissal that can't have them.
+        { t: "WICKET", kind: "RUN_OUT", batter: "Nobody" } as ScoreEvent,
+        { t: "WICKET", kind: "BOWLED", runs: 1 } as ScoreEvent,
+        { t: "WICKET", kind: "CAUGHT", outAtEnd: "STRIKER" } as ScoreEvent,
       ]) {
         assert.deepEqual(
           mobileValidate(mv as never, e as never, rules as never),
