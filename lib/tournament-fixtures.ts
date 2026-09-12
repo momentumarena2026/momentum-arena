@@ -330,6 +330,14 @@ export function shuffle<T>(arr: T[]): T[] {
  * rows ALREADY in display order and returns only the ones whose label
  * needs to change.
  */
+function isMatchNumberLabel(label: string | null, poolName: string | null): boolean {
+  let text = (label ?? "").trim();
+  if (poolName && text.toLowerCase().startsWith(poolName.toLowerCase())) {
+    text = text.slice(poolName.length).replace(/^\s*[·:\-—]?\s*/, "");
+  }
+  return /^Match\s+\d+$/i.test(text);
+}
+
 export function renumberedLabels(
   rows: { id: string; roundLabel: string | null; poolName: string | null }[],
 ): { id: string; roundLabel: string }[] {
@@ -340,7 +348,14 @@ export function renumberedLabels(
     // Only rewrite labels that ARE a match number. Knockout rounds carry
     // names — "Semi Final 1", "Final", "3rd Place" — which are already
     // positional and must never become "Match 1".
-    if (!/(^|·\s*)Match\s+\d+\s*$/i.test(row.roundLabel ?? "")) continue;
+    //
+    // The pool name is stripped first, with or without the "·" this
+    // module writes. A hand-typed "Pool A Match 1" is the same statement
+    // as the generated "Pool A · Match 1", but only the second used to be
+    // recognised — so an adopted fixture kept its typed number while the
+    // pool renumbered around it, and a pool ended up showing Match 1
+    // twice.
+    if (!isMatchNumberLabel(row.roundLabel, row.poolName)) continue;
 
     // Numbered PER POOL, not per stage. Pool matches from different
     // pools interleave in the list because it is ordered by play order,

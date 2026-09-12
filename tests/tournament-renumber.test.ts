@@ -117,3 +117,27 @@ test("an unlabelled or oddly-labelled fixture is left alone", () => {
   ]);
   assert.deepEqual(out, [], "only a bare trailing 'Match N' is ours to rewrite");
 });
+
+test("a hand-typed pool label is renumbered like a generated one", () => {
+  // "Pool A Match 1" and "Pool A · Match 1" say the same thing. Only the
+  // second used to be recognised, so a fixture adopted into a pool kept
+  // its typed number while the pool renumbered around it — leaving two
+  // rows both reading Match 1.
+  const out = renumberedLabels([
+    { id: "a", roundLabel: "Pool A Match 1", poolName: "Pool A" },
+    { id: "b", roundLabel: "Pool A · Match 1", poolName: "Pool A" },
+  ]);
+  assert.deepEqual(out, [
+    { id: "a", roundLabel: "Pool A · Match 1" },
+    { id: "b", roundLabel: "Pool A · Match 2" },
+  ]);
+});
+
+test("knockout names still survive a pool name that prefixes them", () => {
+  const out = renumberedLabels([
+    { id: "a", roundLabel: "Semi Final 1", poolName: null },
+    { id: "b", roundLabel: "Final", poolName: null },
+    { id: "c", roundLabel: "Pool A Quarter Final 2", poolName: "Pool A" },
+  ]);
+  assert.deepEqual(out, []);
+});
