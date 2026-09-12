@@ -277,22 +277,122 @@ export function MatchScoreScreen() {
       },
     });
 
+  /**
+   * Finish a wicket.
+   *
+   * Everything except a run out is one tap — the batter is the striker,
+   * dismissed at their own end, off a ball that scored nothing, so the
+   * only open question is who walks in.
+   *
+   * A run out is the exception and needs three things the scorer alone
+   * knows: WHICH batter went, WHICH END it happened at, and how many runs
+   * they had already completed. The end is the one people are surprised
+   * by — a striker run out at the non-striker's end has crossed, so the
+   * survivor keeps strike and the new batter walks to the far end. Asking
+   * is the only way to know; it cannot be inferred from the dismissal.
+   */
   const confirmWicket = () => {
     setWicketOpen(false);
-    // A wicket needs a replacement or the crease is left empty — ask
-    // straight away, unless there's nobody left to come in.
-    if (availableBatters.length > 0) {
+
+    const askNewBatter = (extra: Partial<ScoreEvent & { t: "WICKET" }>) => {
+      // A wicket needs a replacement or the crease is left empty — ask
+      // straight away, unless there's nobody left to come in.
+      if (availableBatters.length === 0) {
+        push({ t: "WICKET", kind: wicketKind, ...extra });
+        return;
+      }
       setPick({
         title: "Next batter in",
         names: availableBatters,
         onPick: (newBatter) => {
-          push({ t: "WICKET", kind: wicketKind, newBatter });
+          push({ t: "WICKET", kind: wicketKind, newBatter, ...extra });
           setPick(null);
         },
       });
+    };
+
+    if (wicketKind !== "RUN_OUT" || !s.striker || !s.nonStriker) {
+      askNewBatter({});
       return;
     }
-    push({ t: "WICKET", kind: wicketKind });
+
+    // Who and where, in one question. Four rows rather than two questions,
+    // because a scorer watching a run out is holding the whole picture at
+    // once and splitting it makes them translate it twice.
+    const options: { label: string; batter: string; end: "STRIKER" | "NON_STRIKER" }[] = [
+      { label: `${s.striker} — out at the striker's end`, batter: s.striker, end: "STRIKER" },
+      {
+        label: `${s.striker} — out at the non-striker's end`,
+        batter: s.striker,
+        end: "NON_STRIKER",
+      },
+      {
+        label: `${s.nonStriker} — out at the non-striker's end`,
+        batter: s.nonStriker,
+        end: "NON_STRIKER",
+      },
+      {
+        label: `${s.nonStriker} — out at the striker's end`,
+        batter: s.nonStriker,
+        end: "STRIKER",
+      },
+    ];
+
+    setPick({
+      title: "Run out — who, and at which end?",
+      names: options.map((o) => o.label),
+      onPick: (label) => {
+        const chosen = options.find((o) => o.label === label);
+        if (!chosen) {
+          setPick(null);
+          return;
+        }
+        const askRuns = () =>
+          setPick({
+            title: "Runs completed before the run out",
+            names: ["None", "1 run", "2 runs", "3 runs"],
+            onPick: (r) => {
+              const runs = r === "None" ? 0 : Number(r[0]);
+              askNewBatter({
+                batter: chosen.batter,
+                outAtEnd: chosen.end,
+                ...(runs > 0 ? { runs } : {}),
+              });
+            },
+          });
+
+        // The one combination that can be a Mankad: the non-striker,
+        // dismissed at their own end. Asked only here, so the other three
+        // paths stay two taps — a question that appears on every run out
+        // to catch a once-a-season dismissal is a question that gets
+        // answered without reading.
+        const couldBeMankad =
+          chosen.batter === s.nonStriker && chosen.end === "NON_STRIKER";
+        if (!couldBeMankad) {
+          askRuns();
+          return;
+        }
+        setPick({
+          title: "Had the bowler delivered the ball?",
+          names: [
+            "Yes — run out going for a run",
+            "No — backing up, before the delivery",
+          ],
+          onPick: (answer) => {
+            if (answer.startsWith("Yes")) {
+              askRuns();
+              return;
+            }
+            // No ball, so no runs to ask about and none possible.
+            askNewBatter({
+              batter: chosen.batter,
+              outAtEnd: chosen.end,
+              beforeDelivery: true,
+            });
+          },
+        });
+      },
+    });
   };
 
   /** +1 for football / pickleball, tagging the scorer when we know the XI. */
