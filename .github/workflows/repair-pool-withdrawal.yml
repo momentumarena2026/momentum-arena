@@ -1,0 +1,80 @@
+name: Repair pool after a withdrawal (production)
+
+# One-off data repair, run by hand against the production database.
+#
+# Unlike the provenance backfill, this is NOT wired to a push. It deletes
+# fixtures — results included — for a named team in a named tournament,
+# and a destructive operation that runs itself on every deploy is a
+# different class of thing entirely. It runs when somebody asks for it,
+# names the target, and has read the dry run.
+#
+# The withdrawTeam action covers this case going forward. This exists for
+# tournaments already repaired by hand before it shipped.
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Tournament slug (e.g. momentum-t10-cup)"
+        required: true
+        type: string
+      team:
+        description: "Exact name of the team that withdrew"
+        required: true
+        type: string
+      apply:
+        description: "Actually write (unticked = dry run, prints what would change)"
+        type: boolean
+        default: false
+
+jobs:
+  repair:
+    name: Repair pool
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty! Add PRODUCTION_DB_URL to repository secrets."
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run repair
+        run: |
+          ARGS=""
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="--apply"; fi
+          npx tsx scripts/repair-pool-withdrawal.ts \
+            --slug="${{ inputs.slug }}" \
+            --team="${{ inputs.team }}" \
+            $ARGS 2>&1 | tee repair.log
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Pool repair — ${{ inputs.apply == true && 'APPLIED' || 'DRY RUN' }}"
+            echo ""
+            echo "Tournament: \`${{ inputs.slug }}\` · Withdrawing: \`${{ inputs.team }}\`"
+            echo ""
+            echo '```'
+            cat repair.log 2>/dev/null || echo "(no output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

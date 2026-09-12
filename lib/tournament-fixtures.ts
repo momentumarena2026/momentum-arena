@@ -3,9 +3,51 @@
 
 export type PairingRound<T> = { round: number; pairs: [T, T][] };
 
-/** Circle-method round robin. Every team meets every other exactly once;
- *  rounds are balanced so no team plays twice in a round. */
-export function roundRobinRounds<T>(teams: T[]): PairingRound<T>[] {
+/**
+ * Circle-method round robin. Every team meets every other `legs` times;
+ * rounds are balanced so no team plays twice in a round.
+ *
+ * A second leg replays the whole schedule with the sides reversed, so
+ * neither team gets both home slots — which in this venue's terms means
+ * neither bats first twice.
+ */
+export function roundRobinRounds<T>(
+  teams: T[],
+  legs = 1,
+): PairingRound<T>[] {
+  const single = singleRoundRobin(teams);
+  if (legs <= 1) return single;
+  const out: PairingRound<T>[] = [...single];
+  for (let leg = 1; leg < legs; leg += 1) {
+    for (const r of single) {
+      out.push({
+        round: out.length + 1,
+        // Reversed, not repeated.
+        pairs: r.pairs.map(([a, b]) => [b, a] as [T, T]),
+      });
+    }
+  }
+  return out.map((r, i) => ({ ...r, round: i + 1 }));
+}
+
+/**
+ * How many times each pair in a pool of this size should meet.
+ *
+ * A pool of two plays twice. One match cannot separate two teams on
+ * anything but the result itself: the loser is out on a single afternoon,
+ * and net run rate — the thing that is supposed to do the separating — is
+ * computed from one innings apiece, which is noise. Two legs give a
+ * decided series or a level one that NRR can actually rank.
+ *
+ * This is most often reached by subtraction rather than by design: a pool
+ * of three loses a team to a withdrawal and the survivors are left with a
+ * single fixture between them deciding who goes through.
+ */
+export function poolLegs(teamCount: number): number {
+  return teamCount === 2 ? 2 : 1;
+}
+
+function singleRoundRobin<T>(teams: T[]): PairingRound<T>[] {
   const list: (T | null)[] = [...teams];
   if (list.length < 2) return [];
   if (list.length % 2 === 1) list.push(null); // bye slot
@@ -422,4 +464,57 @@ export function poolMoveBlocker(
     return "This team has already played — moving it would rewrite the points table";
   }
   return null;
+}
+
+/**
+ * The pairings a pool still needs, given what it already has.
+ *
+ * Used after a withdrawal. The obvious implementation — wipe the pool's
+ * fixtures and regenerate — destroys results: a pool of three that has
+ * already played one match and then loses its third team would have that
+ * result deleted along with the dead fixtures. So this works out the
+ * SHORTFALL instead, and the caller only ever creates.
+ *
+ * Sides are balanced as it goes: each new pairing gives home to whichever
+ * of the two has been home less often, counting the matches already
+ * played as well as the ones just decided. Without that, a two-leg pool
+ * built on top of one existing match hands the same team both.
+ */
+export function missingPoolPairings(
+  teamIds: string[],
+  legs: number,
+  existing: { homeTeamId: string | null; awayTeamId: string | null }[],
+): [string, string][] {
+  const live = new Set(teamIds);
+  const key = (a: string, b: string) => [a, b].sort().join("|");
+
+  const have = new Map<string, number>();
+  const homeCount = new Map<string, number>();
+  for (const m of existing) {
+    const { homeTeamId: h, awayTeamId: a } = m;
+    // A fixture involving somebody no longer in the pool does not count
+    // towards what the pool owes — it is the very thing being replaced.
+    if (!h || !a || !live.has(h) || !live.has(a)) continue;
+    have.set(key(h, a), (have.get(key(h, a)) ?? 0) + 1);
+    homeCount.set(h, (homeCount.get(h) ?? 0) + 1);
+  }
+
+  const out: [string, string][] = [];
+  const sorted = [...teamIds].sort();
+  for (let i = 0; i < sorted.length; i += 1) {
+    for (let j = i + 1; j < sorted.length; j += 1) {
+      const a = sorted[i];
+      const b = sorted[j];
+      const short = legs - (have.get(key(a, b)) ?? 0);
+      for (let n = 0; n < short; n += 1) {
+        const aHome = homeCount.get(a) ?? 0;
+        const bHome = homeCount.get(b) ?? 0;
+        const home = aHome <= bHome ? a : b;
+        const away = home === a ? b : a;
+        out.push([home, away]);
+        homeCount.set(home, (homeCount.get(home) ?? 0) + 1);
+      }
+    }
+  }
+  return out;
 }

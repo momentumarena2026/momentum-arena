@@ -33,6 +33,7 @@ import {
   setTournamentArchived,
   deleteTournamentTeam,
 } from "@/actions/admin-tournaments";
+import { withdrawTeam } from "@/actions/admin-tournament-fixtures";
 // Type comes from the schema module, not the action: a "use server" file
 // cannot re-export a type (see the note in actions/admin-tournaments.ts).
 import type { TournamentWizardInput } from "@/lib/tournament-wizard-schema";
@@ -315,6 +316,48 @@ export function TournamentManage({
         if (res.note) setNote(res.note);
         router.refresh();
       }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * A team pulls out — withdraw it and let the server repair the pool.
+   *
+   * Plain "set status to WITHDRAWN" is not enough on its own: the team's
+   * fixtures stay standing, so the pool keeps matches against an opponent
+   * who will never arrive, and the teams left behind are short of cricket.
+   * withdrawTeam deletes those fixtures, gives their court hours back, and
+   * tops the pool up — two legs when two teams are left, so who goes
+   * through is settled by a series and a run rate rather than one game.
+   */
+  const doWithdraw = async (teamId: string, name: string) => {
+    if (
+      !confirm(
+        `${name} pulls out of the tournament?\n\nTheir unplayed fixtures are deleted and the court hours released. The pool they leave is topped back up so the remaining teams have a full schedule \u2014 two matches against each other if two are left.\n\nAnything already played is kept.`,
+      )
+    )
+      return;
+    setBusy(`team-${teamId}`);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await withdrawTeam(teamId).catch(() => ({
+        success: false as const,
+        error: "Could not reach the server \u2014 check you are still signed in",
+      }));
+      if (!res.success) {
+        setError(("error" in res && res.error) || "Could not withdraw that team");
+        return;
+      }
+      const bits: string[] = [];
+      if (res.removedFixtures)
+        bits.push(`${res.removedFixtures} fixture${res.removedFixtures === 1 ? "" : "s"} removed`);
+      if (res.addedFixtures) bits.push(`${res.addedFixtures} added for the teams left`);
+      if (res.keptPlayed)
+        bits.push(`${res.keptPlayed} played match${res.keptPlayed === 1 ? "" : "es"} kept`);
+      setNote(bits.length ? `${name} withdrawn \u2014 ${bits.join(", ")}.` : `${name} withdrawn.`);
+      router.refresh();
     } finally {
       setBusy(null);
     }
@@ -801,6 +844,19 @@ export function TournamentManage({
                   )}
                   {team.status !== "WITHDRAWN" && team.status !== "REJECTED" && (
                     <button onClick={() => doTeamStatus(team.id, "REJECTED")} disabled={busy === `team-${team.id}`} className="rounded-lg border border-red-500/30 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-600/10 disabled:opacity-50">Reject</button>
+                  )}
+                  {/* Withdraw is for a team that was IN and is now out — a
+                      no-show on the day. Reject is for a registration never
+                      accepted, which has no fixtures to repair. */}
+                  {team.status === "CONFIRMED" && (
+                    <button
+                      onClick={() => doWithdraw(team.id, team.name)}
+                      disabled={busy === `team-${team.id}`}
+                      title="Team pulled out — remove their fixtures and repair the pool"
+                      className="rounded-lg border border-amber-500/30 px-2.5 py-1.5 text-xs text-amber-400 hover:bg-amber-600/10 disabled:opacity-50"
+                    >
+                      Withdraw
+                    </button>
                   )}
                   {/* Only offered where it can actually succeed. A team that
                       has paid is refused by the server so its money stays on

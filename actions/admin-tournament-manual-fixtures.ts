@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 // A "use server" module may only export async functions — the constant
 // lives in lib/ for that reason.
 import { MANUAL_STAGES } from "@/lib/tournament-manual-stages";
-import { renumberedLabels } from "@/lib/tournament-fixtures";
+import { renumberStageLabels } from "@/lib/tournament-renumber";
 
 /**
  * Hand-entered fixtures.
@@ -59,7 +59,7 @@ export async function createManualMatch(
 
   const t = await db.tournament.findUnique({
     where: { id: d.tournamentId },
-    select: { id: true, teams: { select: { id: true } } },
+    select: { id: true, teams: { select: { id: true, poolId: true } } },
   });
   if (!t) return { success: false, error: "Tournament not found" };
 
@@ -91,10 +91,30 @@ export async function createManualMatch(
     select: { sequence: true },
   });
 
+  /**
+   * Put the fixture in a pool when both sides share one.
+   *
+   * The points table selects a pool's matches by `poolId`, so a hand-added
+   * match without one is invisible to the table it was added to affect —
+   * an organiser adds the decider between the two teams left in Pool A,
+   * plays it, and Pool A's standings never move. Nothing said so; the
+   * fixture simply sat outside the pool it obviously belonged to.
+   *
+   * Only inferred when the two agree. Teams from different pools have no
+   * single right answer, and guessing one would put a result into a table
+   * it does not belong in — the same failure in the other direction.
+   */
+  const poolOf = new Map(t.teams.map((x) => [x.id, x.poolId]));
+  const homePool = d.homeTeamId ? poolOf.get(d.homeTeamId) : null;
+  const awayPool = d.awayTeamId ? poolOf.get(d.awayTeamId) : null;
+  const poolId =
+    d.stage === "POOL" && homePool && homePool === awayPool ? homePool : null;
+
   const match = await db.tournamentMatch.create({
     data: {
       tournamentId: d.tournamentId,
       stage: d.stage,
+      poolId,
       roundLabel: d.roundLabel,
       sequence: (last?.sequence ?? 0) + 1,
       homeTeamId: d.homeTeamId || null,
@@ -132,11 +152,31 @@ export async function deleteManualMatch(
     },
   });
   if (!m) return { success: false, error: "Match not found" };
-  if (m.status === "COMPLETED" || m.status === "LIVE" || m.status === "WALKOVER") {
-    return { success: false, error: `Can't delete a ${m.status.toLowerCase()} match` };
+  // Naming the way out, not just the refusal. "Can't delete a completed
+  // match" is true and useless: the result CAN be cleared, by reopening
+  // the match — but that button lives on the Scores tab, so an organiser
+  // staring at the Fixtures list has no way to know the door exists.
+  if (m.status === "COMPLETED") {
+    return {
+      success: false,
+      error: "This match has a result. Reopen it on the Scores tab first, then delete it.",
+    };
+  }
+  if (m.status === "LIVE") {
+    return { success: false, error: "This match is being scored right now" };
+  }
+  if (m.status === "WALKOVER") {
+    return {
+      success: false,
+      error:
+        "This match was awarded as a walkover. Reopen it on the Scores tab first, then delete it.",
+    };
   }
   if (m.homeScore != null || m.awayScore != null) {
-    return { success: false, error: "This match has a score — clear it first" };
+    return {
+      success: false,
+      error: "This match has a score. Reopen it on the Scores tab first, then delete it.",
+    };
   }
   // A later round may take its side from this match's winner or loser.
   // Deleting it leaves that round permanently unresolvable — the Final
@@ -190,48 +230,6 @@ export async function deleteManualMatch(
  * matches because someone dragged a row would be a worse surprise than a
  * list whose labels aren't in numeric order.
  */
-/**
- * Make the "Match N" in each label match the order fixtures are actually
- * listed in.
- *
- * `sequence` and `roundLabel` are written together when fixtures are
- * generated and then drift apart, because everything that changes the
- * order afterwards only touched `sequence`. A dragged pool read
- * "Match 2, Match 1, Match 3" down the screen, and deleting the middle
- * fixture of three left "Match 1, Match 3".
- *
- * That matters more than it looks: the number is the only thing an
- * organiser calls a fixture by — over the PA, on a printed sheet, to a
- * captain — so a list where it does not count upwards is worse than one
- * with no numbers at all.
- *
- * Numbered PER POOL, not per stage. Pool matches from different pools
- * interleave in the list because it is ordered by play order, and
- * numbering across the whole stage would produce "Pool B · Match 7" in a
- * pool that has three.
- *
- * Only labels that already ARE a match number are rewritten. Knockout
- * rounds carry names — "Semi Final 1", "Final", "3rd Place" — which are
- * positional in their own right and must not become "Match 1".
- */
-async function renumberStageLabels(tournamentId: string, stage: string): Promise<void> {
-  const rows = await db.tournamentMatch.findMany({
-    where: { tournamentId, stage: stage as never },
-    orderBy: { sequence: "asc" },
-    select: { id: true, roundLabel: true, pool: { select: { name: true } } },
-  });
-
-  const updates = renumberedLabels(
-    rows.map((r) => ({ id: r.id, roundLabel: r.roundLabel, poolName: r.pool?.name ?? null })),
-  );
-  if (updates.length === 0) return;
-  await db.$transaction(
-    updates.map((u) =>
-      db.tournamentMatch.update({ where: { id: u.id }, data: { roundLabel: u.roundLabel } }),
-    ),
-  );
-}
-
 export async function reorderStageFixtures(
   tournamentId: string,
   stage: string,

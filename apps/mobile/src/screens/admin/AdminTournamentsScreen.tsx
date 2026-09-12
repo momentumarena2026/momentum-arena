@@ -870,6 +870,25 @@ export function AdminTournamentsScreen() {
                       </Text>
                     </Pressable>
                   ))}
+                {/* Withdraw is for a team that was IN and did not turn up.
+                    Marking the status alone would leave its fixtures
+                    standing and the pool short of cricket, so this goes
+                    through withdrawTeam, which deletes those fixtures,
+                    releases the court hours and tops the pool back up. */}
+                {team.status === "CONFIRMED" && (
+                  <Pressable
+                    disabled={busy}
+                    onPress={() =>
+                      act(
+                        { op: "withdrawTeam", teamId: team.id },
+                        `${team.name} pulls out?\n\nTheir unplayed fixtures go and the court hours are released. The pool is topped back up so the teams left have a full schedule — two matches against each other if two remain. Anything already played is kept.`,
+                      )
+                    }
+                    style={styles.chipBtn}
+                  >
+                    <Text style={{ color: "#fbbf24", fontSize: 12 }}>Withdraw</Text>
+                  </Pressable>
+                )}
                 {!["REJECTED", "WITHDRAWN"].includes(team.status) && (
                   <Pressable disabled={busy} onPress={() => act({ op: "teamStatus", teamId: team.id, status: "REJECTED" }, "Reject this team? Redeemed points are refunded.")} style={styles.chipBtn}>
                     <Text style={{ color: "#f87171", fontSize: 12 }}>Reject</Text>
