@@ -149,3 +149,94 @@ test("a caught batter still takes strike — MCC Law 18.11, 2022", () => {
   assert.equal(s.striker, "Chetan");
   assert.equal(s.nonStriker, "Bala");
 });
+
+/**
+ * Mankad — the non-striker run out backing up, before the ball is
+ * delivered. Legal since the 2022 code moved it from Unfair Play into
+ * Run out.
+ *
+ * The whole difficulty is that no delivery happened: it is not a ball in
+ * the over, nobody faced it, and nothing was scored off it.
+ */
+test("a Mankad costs no ball in the over", () => {
+  const s = replay(
+    [
+      ...open,
+      { t: "RUN", runs: 1 }, // ends swap, so Bala is on strike, Amit backing up
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        batter: "Amit",
+        outAtEnd: "NON_STRIKER",
+        beforeDelivery: true,
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.ballsA, 1, "still one ball bowled in this over");
+  assert.equal(s.wicketsA, 1);
+});
+
+test("nobody is charged a ball they never faced", () => {
+  const s = replay(
+    [
+      ...open,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        batter: "Bala",
+        outAtEnd: "NON_STRIKER",
+        beforeDelivery: true,
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.batting["Amit"].balls, 0, "the striker never faced it");
+  assert.equal(s.batting["Bala"].balls, 0);
+  assert.equal(s.bowling["Dev"].balls, 0, "and it is not the bowler's ball either");
+});
+
+test("a Mankad leaves the striker on strike", () => {
+  // Dismissed at the non-striker's end, so the new batter fills that end
+  // and the striker is still to face.
+  const s = replay(
+    [
+      ...open,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        batter: "Bala",
+        outAtEnd: "NON_STRIKER",
+        beforeDelivery: true,
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.striker, "Amit");
+  assert.equal(s.nonStriker, "Chetan");
+});
+
+test("a Mankad on what would have been the last ball doesn't end the over", () => {
+  // Five balls gone. A Mankad consumes none, so the over still owes one.
+  const s = replay(
+    [
+      ...open,
+      ...Array.from({ length: 5 }, () => ({ t: "RUN", runs: 0 }) as ScoreEvent),
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        batter: "Bala",
+        outAtEnd: "NON_STRIKER",
+        beforeDelivery: true,
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.ballsA, 5, "the over is not complete");
+  assert.equal(s.bowler, "Dev", "so the scorer isn't asked for a new bowler");
+  assert.equal(s.striker, "Amit", "and the ends have not turned over");
+});

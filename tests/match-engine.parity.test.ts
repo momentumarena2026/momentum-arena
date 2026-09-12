@@ -193,6 +193,19 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         newBatter: "Chen",
       },
     ],
+    // A Mankad consumes no ball, so the two engines must also agree on
+    // where the over got to — not just on the scorecard.
+    [
+      ...mixedOver,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        batter: "Bala",
+        outAtEnd: "NON_STRIKER",
+        beforeDelivery: true,
+        newBatter: "Chen",
+      },
+    ],
   ];
 
   for (const rules of ruleSets) {
@@ -216,6 +229,8 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         { t: "WICKET", kind: "RUN_OUT", batter: "Nobody" } as ScoreEvent,
         { t: "WICKET", kind: "BOWLED", runs: 1 } as ScoreEvent,
         { t: "WICKET", kind: "CAUGHT", outAtEnd: "STRIKER" } as ScoreEvent,
+        { t: "WICKET", kind: "RUN_OUT", beforeDelivery: true } as ScoreEvent,
+        { t: "WICKET", kind: "BOWLED", beforeDelivery: true } as ScoreEvent,
       ]) {
         assert.deepEqual(
           mobileValidate(mv as never, e as never, rules as never),

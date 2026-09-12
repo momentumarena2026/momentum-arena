@@ -347,15 +347,47 @@ export function MatchScoreScreen() {
           setPick(null);
           return;
         }
+        const askRuns = () =>
+          setPick({
+            title: "Runs completed before the run out",
+            names: ["None", "1 run", "2 runs", "3 runs"],
+            onPick: (r) => {
+              const runs = r === "None" ? 0 : Number(r[0]);
+              askNewBatter({
+                batter: chosen.batter,
+                outAtEnd: chosen.end,
+                ...(runs > 0 ? { runs } : {}),
+              });
+            },
+          });
+
+        // The one combination that can be a Mankad: the non-striker,
+        // dismissed at their own end. Asked only here, so the other three
+        // paths stay two taps — a question that appears on every run out
+        // to catch a once-a-season dismissal is a question that gets
+        // answered without reading.
+        const couldBeMankad =
+          chosen.batter === s.nonStriker && chosen.end === "NON_STRIKER";
+        if (!couldBeMankad) {
+          askRuns();
+          return;
+        }
         setPick({
-          title: "Runs completed before the run out",
-          names: ["None", "1 run", "2 runs", "3 runs"],
-          onPick: (r) => {
-            const runs = r === "None" ? 0 : Number(r[0]);
+          title: "Had the bowler delivered the ball?",
+          names: [
+            "Yes — run out going for a run",
+            "No — backing up, before the delivery",
+          ],
+          onPick: (answer) => {
+            if (answer.startsWith("Yes")) {
+              askRuns();
+              return;
+            }
+            // No ball, so no runs to ask about and none possible.
             askNewBatter({
               batter: chosen.batter,
               outAtEnd: chosen.end,
-              ...(runs > 0 ? { runs } : {}),
+              beforeDelivery: true,
             });
           },
         });

@@ -70,6 +70,16 @@ export type ScoreEvent =
        * would count the delivery twice.
        */
       runs?: number;
+      /**
+       * Run out BEFORE the ball was delivered — the non-striker backing up,
+       * dismissed by the bowler. Legal since the 2022 code moved it out of
+       * Unfair Play and into Run out.
+       *
+       * No delivery happened, so it is not a ball in the over, nobody faced
+       * it, and nothing can have been scored off it. Without this the over
+       * ends a ball early and the striker is charged a ball they never had.
+       */
+      beforeDelivery?: boolean;
     }
   | { t: "RETIRE"; batter?: string; newBatter?: string }
   | { t: "SWAP" }
@@ -336,7 +346,11 @@ export function replay(
         // non-striker dismissed going for the second does not take the
         // first run off the striker. No fours or sixes: a boundary is a
         // dead ball, so it cannot coexist with a run out.
-        const runs = Math.max(0, Math.min(7, e.runs ?? 0));
+        // A Mankad is not a delivery: no ball in the over, nobody faced
+        // it, nothing scored off it.
+        const bowled = !e.beforeDelivery;
+
+        const runs = bowled ? Math.max(0, Math.min(7, e.runs ?? 0)) : 0;
         if (runs > 0) {
           addRuns(runs);
           const sc = bat(striker0);
@@ -347,8 +361,10 @@ export function replay(
         // dismissed batter — which is what this did while only the
         // striker could ever be out — hands the ball to the wrong player
         // the moment a non-striker is run out.
-        const faced = bat(striker0);
-        if (faced) faced.balls += 1;
+        if (bowled) {
+          const faced = bat(striker0);
+          if (faced) faced.balls += 1;
+        }
 
         const card = bat(who);
         if (card) {
@@ -394,7 +410,10 @@ export function replay(
         // above rather than being compensated for afterwards. A batter
         // out on the sixth ball is replaced, and THEN the ends turn
         // over — which is why the new batter does not face next.
-        legalBall();
+        //
+        // Skipped for a Mankad, which consumes no ball: the over carries
+        // on from wherever it was, and the striker is still to face.
+        if (bowled) legalBall();
         break;
       }
 
@@ -609,6 +628,18 @@ export function validateScoreEvent(
       if (event.kind !== "RUN_OUT") {
         if (event.runs != null) return "Only a run out can carry completed runs";
         if (event.outAtEnd) return "Only a run out needs an end";
+        if (event.beforeDelivery) {
+          return "Only a run out can happen before the ball is delivered";
+        }
+      }
+      if (event.beforeDelivery) {
+        // The bowler can only do this to the non-striker backing up. The
+        // striker leaving their ground before a delivery is a stumping,
+        // and that needs a ball to have been bowled.
+        if (event.batter !== state.nonStriker) {
+          return "Only the non-striker can be run out before the delivery";
+        }
+        if (event.runs) return "No runs can be scored before the ball is bowled";
       }
       if (event.newBatter) {
         if (!inSquad(batting, event.newBatter)) {
