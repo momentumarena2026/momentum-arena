@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-05 · accurate as of `main` = `8baf264` (app 1.0.7).
+**Last substantive update:** 2026-09-14 · accurate as of `main` = `bebd692` (app 1.0.7).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -154,6 +154,17 @@ Anything else means main has drifted — stop and investigate, do not push.
 ---
 
 ## 4. Hard-won gotchas (these cost real debugging time)
+
+0. **Cricket rules live in exactly ONE file: `lib/cricket-rules.ts`.** Until 2026-09-14
+   cricket was scored *twice* — `lib/public-match.ts` for casual matches and
+   `lib/tournament-live.ts` for tournaments — sharing no code. They drifted, and the
+   expensive part was not the drift itself: a run-out bug reported from a real Cup match
+   was diagnosed and fixed in the casual engine, with tests, and shipped, and did nothing,
+   because the Cup does not use that engine. **Before fixing any cricket rule, establish
+   which engine the reporter was actually using** — tournaments go through `/score/[code]`
+   and the app Scorer Console, casual games through `/match/[code]` and the app Match
+   Score screen. Both now call `cricket-rules.ts`, so a fix there lands in both; a fix
+   anywhere else lands in one.
 
 1. **The analytics four-surface trap.** Any new revenue stream (tournaments, camps, …) must
    be merged into **all four** of these or the numbers silently disagree:
@@ -571,6 +582,22 @@ its templates here, or it ships with no push voice at all.
   then is operating profit in full (owner's ruling, 2026-09-02). `isExpenseGap()` therefore
   only flags an expense-free month at or after the first RUNNING expense — where it means
   somebody stopped entering, and an unflagged 100% margin would be believed.
+- `lib/cricket-rules.ts` — **the Laws of Cricket, and the only implementation of them.**
+  Who the wicket belongs to, which end the new batter takes after a run out, whether a
+  delivery costs a ball, who faced it, whose column each run lands in, what a free hit
+  permits, when a bowler is spent. Pure: no state shape, no player model, so the casual
+  engine (players as names) and the tournament fold (players as member ids) both use it.
+  Mirrored at `apps/mobile/src/lib/cricket-rules.ts` only because Metro roots at
+  `apps/mobile` and cannot resolve the web lib; `tests/cricket-rules.test.ts` drives both
+  across every kind, delivery, end, run split and over cap (~900 comparisons).
+- `lib/tournament-live.ts` — tournament fold (event log → `liveState`). Owns tournament
+  concerns — commentary, player stats, partnerships, targets, super overs — and delegates
+  every shared rule to `cricket-rules.ts`. Super overs are modelled as MORE INNINGS
+  (1–2 the match, 3–4 the first super over, 5–6 the second) so the fold, scorecard and
+  over-strip needed no changes; the match score deliberately stays the match score.
+- `lib/cricket-dismissal.ts` — adapter, not a rulebook. Tournament events store lowercase
+  strings (`"runout"`) and every stored event must keep folding the same, so the wire
+  format stays; the questions it used to answer itself are delegated.
 - `lib/public-match.ts` — scratch-match event log + `replay()`. **Source of truth**; mirrored
   at `apps/mobile/src/lib/match-engine.ts` — keep the two in sync. **This is now enforced:**
   `tests/match-engine.parity.test.ts` drives both `replay()`s with identical logs (including a
