@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { replay, validateScoreEvent, type ScoreEvent } from "../lib/public-match";
+import { replay, validateScoreEvent, inningsOver, type ScoreEvent } from "../lib/public-match";
 
 const open: ScoreEvent[] = [
   { t: "SQUAD", side: "A", players: ["Amit", "Bala", "Chetan", "Dinesh"] },
@@ -165,4 +165,59 @@ test("a wide can be stumped but never caught", () => {
     validateScoreEvent(s, { t: "WICKET", kind: "CAUGHT", delivery: "WIDE" }, rules) ?? "",
     /wide can only produce/i,
   );
+});
+
+// ── Agreed match conditions ────────────────────────────────────────
+test("a bowler can't exceed their agreed overs", () => {
+  const rules = { sport: "CRICKET", maxOversPerBowler: 2 } as const;
+  const overOf = (name: string): ScoreEvent[] => [
+    { t: "BOWLER", name },
+    ...Array.from({ length: 6 }, () => ({ t: "RUN", runs: 0 }) as ScoreEvent),
+  ];
+  // Bowler, Other, Bowler, Other — so Bowler has two overs and did NOT
+  // send down the last one. Without that the consecutive-over law fires
+  // first and the quota never gets asked.
+  const log: ScoreEvent[] = [
+    ...open,
+    ...overOf("Bowler"),
+    ...overOf("Other"),
+    ...overOf("Bowler"),
+    ...overOf("Other"),
+  ];
+
+  const spent = replay(log, "CRICKET");
+  assert.equal(spent.bowling["Bowler"].balls, 12, "two overs gone");
+  assert.equal(spent.lastOverBowler, "Other", "so the back-to-back rule is not the one firing");
+  assert.match(
+    validateScoreEvent(spent, { t: "BOWLER", name: "Bowler" }, rules) ?? "",
+    /bowled their 2 overs/i,
+  );
+  // With no cap agreed they can carry on all day.
+  assert.equal(
+    validateScoreEvent(spent, { t: "BOWLER", name: "Bowler" }, { sport: "CRICKET" }),
+    null,
+  );
+
+  // One over in, they are still fine.
+  const fresh = replay([...open, ...overOf("Bowler"), ...overOf("Other")], "CRICKET");
+  assert.equal(fresh.bowling["Bowler"].balls, 6);
+  assert.equal(validateScoreEvent(fresh, { t: "BOWLER", name: "Bowler" }, rules), null);
+});
+
+test("an agreed wickets-per-side beats the squad count", () => {
+  // Four in the squad, so "all out" would normally be three. Agreeing two
+  // ends it sooner.
+  const log: ScoreEvent[] = [
+    ...open,
+    { t: "WICKET", kind: "BOWLED", newBatter: "Chetan" },
+    { t: "WICKET", kind: "BOWLED", newBatter: "Dinesh" },
+  ];
+  const s = replay(log, "CRICKET");
+  assert.equal(s.wicketsA, 2);
+  assert.match(
+    inningsOver(s, { sport: "CRICKET", wicketsPerInnings: 2 }) ?? "",
+    /all out/i,
+  );
+  // Without one, the squad decides and there is still a wicket in hand.
+  assert.equal(inningsOver(s, { sport: "CRICKET" }), null);
 });

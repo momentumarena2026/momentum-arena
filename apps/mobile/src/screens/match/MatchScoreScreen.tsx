@@ -95,6 +95,8 @@ export function MatchScoreScreen() {
   // stable across renders or every tap would re-create the flush timer.
   const sportRef = useRef<MatchRules["sport"]>("CRICKET");
   const oversRef = useRef<number | null>(null);
+  const bowlerOversRef = useRef<number | null>(null);
+  const wicketsRef = useRef<number | null>(null);
 
   // Seed the local log once from the server. Re-seeding on every refetch
   // would stomp taps that haven't flushed yet.
@@ -154,6 +156,8 @@ export function MatchScoreScreen() {
         const problem = validateScoreEvent(replay(log, sportRef.current), e, {
           sport: sportRef.current,
           oversPerInnings: oversRef.current,
+          maxOversPerBowler: bowlerOversRef.current,
+          wicketsPerInnings: wicketsRef.current,
         });
         if (problem) {
           Alert.alert("Can't do that", problem);
@@ -196,6 +200,8 @@ export function MatchScoreScreen() {
   const cricket = sport === "CRICKET";
   sportRef.current = sport;
   oversRef.current = match?.oversPerInnings ?? null;
+  bowlerOversRef.current = match?.maxOversPerBowler ?? null;
+  wicketsRef.current = match?.wicketsPerInnings ?? null;
 
   // The board: replayed locally for the scorer, straight from the server
   // for everyone else.

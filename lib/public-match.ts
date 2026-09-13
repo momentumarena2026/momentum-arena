@@ -8,6 +8,7 @@ import {
   crossed,
   endsAfterWicket,
   dismissalRefusal,
+  bowlerSpent,
   type WicketKind,
   type Delivery,
   type CreaseEnd,
@@ -614,10 +615,26 @@ export interface MatchRules {
   sport: PublicMatchSport;
   /** null / 0 = unlimited (a casual knock with no agreed length). */
   oversPerInnings?: number | null;
+  /** Overs one bowler may send down. null / 0 = no limit. */
+  maxOversPerBowler?: number | null;
+  /**
+   * Wickets a side has. null / 0 falls back to squad size minus one,
+   * which is what a pickup game means by "all out" when nobody agreed a
+   * number — a side of six is all out at five, not at ten.
+   */
+  wicketsPerInnings?: number | null;
 }
 
-/** Wickets that end the current innings, given who's actually playing. */
-function maxWickets(state: PublicMatchState): number {
+/**
+ * Wickets that end the current innings.
+ *
+ * An agreed number wins when there is one — a short-format game routinely
+ * plays fewer than the side has players. Otherwise it is squad size minus
+ * one, because the last batter has nobody to bat with.
+ */
+function maxWickets(state: PublicMatchState, rules?: MatchRules): number {
+  const agreed = rules?.wicketsPerInnings ?? 0;
+  if (agreed > 0) return agreed;
   const squad = state.innings === 0 ? state.squadA : state.squadB;
   return squad.length > 1 ? squad.length - 1 : DEFAULT_MAX_WICKETS;
 }
@@ -641,7 +658,7 @@ export function inningsOver(
   if (limit > 0 && balls >= limit * 6) {
     return `Over limit reached — ${limit} ${limit === 1 ? "over" : "overs"} bowled.`;
   }
-  if (wickets >= maxWickets(state)) return "All out.";
+  if (wickets >= maxWickets(state, rules)) return "All out.";
   // Second innings only: once the target is passed the game is decided.
   if (state.innings === 1 && state.runsB > state.runsA) {
     return "Target chased.";
@@ -733,6 +750,16 @@ export function validateScoreEvent(
     if (state.bowler === event.name) return `${event.name} is already bowling`;
     // Only bites when an over is actually starting; mid-over the bowler is
     // already committed. thisOver is cleared the moment an over closes.
+    // The quota bites when a bowler is about to START an over — mid-over
+    // they are already committed and cannot be pulled out by a rule.
+    if (
+      bowlerSpent({
+        ballsBowled: state.bowling[event.name]?.balls ?? 0,
+        maxOvers: rules.maxOversPerBowler,
+      })
+    ) {
+      return `${event.name} has bowled their ${rules.maxOversPerBowler} overs`;
+    }
     if (state.thisOver.length === 0 && state.lastOverBowler === event.name) {
       return "A bowler can't bowl two overs in a row";
     }
@@ -874,6 +901,8 @@ export async function createPublicMatch(input: {
   teamAName: string;
   teamBName: string;
   oversPerInnings?: number | null;
+  maxOversPerBowler?: number | null;
+  wicketsPerInnings?: number | null;
   createdByUserId?: string | null;
 }): Promise<{ ok: boolean; error?: string; code?: string }> {
   const a = input.teamAName.trim().slice(0, 40);
@@ -896,6 +925,10 @@ export async function createPublicMatch(input: {
         teamBName: b,
         oversPerInnings:
           input.sport === "CRICKET" ? (input.oversPerInnings ?? null) : null,
+        maxOversPerBowler:
+          input.sport === "CRICKET" ? (input.maxOversPerBowler ?? null) : null,
+        wicketsPerInnings:
+          input.sport === "CRICKET" ? (input.wicketsPerInnings ?? null) : null,
         createdByUserId: input.createdByUserId ?? null,
         state: EMPTY as unknown as object,
         events: [] as unknown as object,
@@ -919,6 +952,8 @@ export async function getPublicMatch(code: string) {
     teamAName: m.teamAName,
     teamBName: m.teamBName,
     oversPerInnings: m.oversPerInnings,
+    maxOversPerBowler: m.maxOversPerBowler,
+    wicketsPerInnings: m.wicketsPerInnings,
     createdByUserId: m.createdByUserId,
     state: replay(events, m.sport as PublicMatchSport),
     // The raw log goes out with the board so a scorer's phone can append
@@ -954,6 +989,8 @@ export async function scorePublicMatch(args: {
       createdByUserId: true,
       events: true,
       oversPerInnings: true,
+      maxOversPerBowler: true,
+      wicketsPerInnings: true,
     },
   });
   if (!m) return { ok: false, error: "Match not found" };
@@ -993,6 +1030,8 @@ export async function scorePublicMatch(args: {
     const problem = validateScoreEvent(replay(events, sport), e, {
       sport,
       oversPerInnings: m.oversPerInnings,
+      maxOversPerBowler: m.maxOversPerBowler,
+      wicketsPerInnings: m.wicketsPerInnings,
     });
     if (problem) return { ok: false, error: problem };
     events.push(e);

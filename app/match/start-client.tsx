@@ -14,6 +14,10 @@ export function MatchStartClient() {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const [overs, setOvers] = useState("6");
+  // Both optional, and blank means no limit — a pickup game should not
+  // have to answer two extra questions to get started.
+  const [bowlerOvers, setBowlerOvers] = useState("");
+  const [wickets, setWickets] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState("");
@@ -34,6 +38,8 @@ export function MatchStartClient() {
           teamAName: a,
           teamBName: b,
           oversPerInnings: sport === "CRICKET" ? Number(overs) || null : null,
+          maxOversPerBowler: sport === "CRICKET" ? Number(bowlerOvers) || null : null,
+          wicketsPerInnings: sport === "CRICKET" ? Number(wickets) || null : null,
         }),
       });
       const data = await res.json();
@@ -79,13 +85,35 @@ export function MatchStartClient() {
         <input className={field} placeholder="Team A" value={a} onChange={(e) => setA(e.target.value)} />
         <input className={field} placeholder="Team B" value={b} onChange={(e) => setB(e.target.value)} />
         {sport === "CRICKET" && (
-          <input
-            className={field}
-            placeholder="Overs per innings"
-            inputMode="numeric"
-            value={overs}
-            onChange={(e) => setOvers(e.target.value)}
-          />
+          <>
+            <input
+              className={field}
+              placeholder="Overs per innings"
+              inputMode="numeric"
+              value={overs}
+              onChange={(e) => setOvers(e.target.value)}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                className={field}
+                placeholder="Overs per bowler"
+                inputMode="numeric"
+                value={bowlerOvers}
+                onChange={(e) => setBowlerOvers(e.target.value)}
+              />
+              <input
+                className={field}
+                placeholder="Wickets per side"
+                inputMode="numeric"
+                value={wickets}
+                onChange={(e) => setWickets(e.target.value)}
+              />
+            </div>
+            <p className="-mt-1 text-xs text-zinc-500">
+              Both optional. Leave them blank for no bowler limit, and to be
+              all out one short of your squad.
+            </p>
+          </>
         )}
         <button
           onClick={start}

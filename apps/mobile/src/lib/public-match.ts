@@ -29,6 +29,8 @@ export interface PublicMatch {
   teamAName: string;
   teamBName: string;
   oversPerInnings: number | null;
+  maxOversPerBowler: number | null;
+  wicketsPerInnings: number | null;
   state: MatchState;
   /** The raw log, so the scorer's phone can append and replay locally. */
   events: ScoreEvent[];
@@ -66,6 +68,8 @@ export async function createMatch(input: {
   teamAName: string;
   teamBName: string;
   oversPerInnings?: number | null;
+  maxOversPerBowler?: number | null;
+  wicketsPerInnings?: number | null;
 }): Promise<{ code?: string; error?: string }> {
   return api.post("/api/match", { action: "create", ...input });
 }
