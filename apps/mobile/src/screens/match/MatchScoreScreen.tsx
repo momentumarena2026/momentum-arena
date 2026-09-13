@@ -277,6 +277,24 @@ export function MatchScoreScreen() {
       },
     });
 
+  /** Ask who walks in, then log the wicket. A wicket needs a replacement
+   *  or the crease is left empty, so this is always the last step —
+   *  unless there is nobody left to come in. */
+  const askNewBatterWith = (extra: Partial<Extract<ScoreEvent, { t: "WICKET" }>>) => {
+    if (availableBatters.length === 0) {
+      push({ t: "WICKET", kind: wicketKind, ...extra });
+      return;
+    }
+    setPick({
+      title: "Next batter in",
+      names: availableBatters,
+      onPick: (newBatter) => {
+        push({ t: "WICKET", kind: wicketKind, newBatter, ...extra });
+        setPick(null);
+      },
+    });
+  };
+
   /**
    * Finish a wicket.
    *
@@ -294,27 +312,31 @@ export function MatchScoreScreen() {
   const confirmWicket = () => {
     setWicketOpen(false);
 
-    const askNewBatter = (extra: Partial<ScoreEvent & { t: "WICKET" }>) => {
-      // A wicket needs a replacement or the crease is left empty — ask
-      // straight away, unless there's nobody left to come in.
-      if (availableBatters.length === 0) {
-        push({ t: "WICKET", kind: wicketKind, ...extra });
-        return;
-      }
-      setPick({
-        title: "Next batter in",
-        names: availableBatters,
-        onPick: (newBatter) => {
-          push({ t: "WICKET", kind: wicketKind, newBatter, ...extra });
-          setPick(null);
-        },
-      });
-    };
-
     if (wicketKind !== "RUN_OUT" || !s.striker || !s.nonStriker) {
-      askNewBatter({});
+      askNewBatterWith({});
       return;
     }
+
+    // Which delivery it fell on, asked first because it changes what the
+    // later questions mean — runs off a wide are extras, runs off a
+    // no-ball are the striker's. A run out is the only dismissal the
+    // scorer can reach here that a wide or a no-ball can produce, so no
+    // other path pays for this tap.
+    setPick({
+      title: "What was the delivery?",
+      names: ["Legal ball", "Wide", "No-ball"],
+      onPick: (d) => {
+        const delivery =
+          d === "Wide" ? ("WIDE" as const) : d === "No-ball" ? ("NO_BALL" as const) : null;
+        askRunOut(delivery);
+      },
+    });
+  };
+
+  /** The rest of a run out, once the delivery is known. */
+  const askRunOut = (delivery: "WIDE" | "NO_BALL" | null) => {
+    if (!s.striker || !s.nonStriker) return;
+    const onExtra = delivery !== null;
 
     // Who and where, in one question. Four rows rather than two questions,
     // because a scorer watching a run out is holding the whole picture at
@@ -349,13 +371,22 @@ export function MatchScoreScreen() {
         }
         const askRuns = () =>
           setPick({
-            title: "Runs completed before the run out",
+            // What "runs" means changes with the delivery, so the question
+            // says which: off a wide they are extras and the wide itself
+            // is already counted, off a no-ball they are the striker's.
+            title:
+              delivery === "WIDE"
+                ? "Runs they ran, besides the wide"
+                : delivery === "NO_BALL"
+                  ? "Runs off the bat before the run out"
+                  : "Runs completed before the run out",
             names: ["None", "1 run", "2 runs", "3 runs"],
             onPick: (r) => {
               const runs = r === "None" ? 0 : Number(r[0]);
-              askNewBatter({
+              askNewBatterWith({
                 batter: chosen.batter,
                 outAtEnd: chosen.end,
+                ...(delivery ? { delivery } : {}),
                 ...(runs > 0 ? { runs } : {}),
               });
             },
@@ -366,8 +397,11 @@ export function MatchScoreScreen() {
         // paths stay two taps — a question that appears on every run out
         // to catch a once-a-season dismissal is a question that gets
         // answered without reading.
+        // A Mankad happens before the ball leaves the hand, so it can be
+        // neither a wide nor a no-ball — the question is skipped entirely
+        // once the scorer has said it was an extra.
         const couldBeMankad =
-          chosen.batter === s.nonStriker && chosen.end === "NON_STRIKER";
+          !onExtra && chosen.batter === s.nonStriker && chosen.end === "NON_STRIKER";
         if (!couldBeMankad) {
           askRuns();
           return;
@@ -384,7 +418,7 @@ export function MatchScoreScreen() {
               return;
             }
             // No ball, so no runs to ask about and none possible.
-            askNewBatter({
+            askNewBatterWith({
               batter: chosen.batter,
               outAtEnd: chosen.end,
               beforeDelivery: true,

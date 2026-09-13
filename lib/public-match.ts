@@ -81,6 +81,16 @@ export type ScoreEvent =
        * ends a ball early and the striker is charged a ball they never had.
        */
       beforeDelivery?: boolean;
+      /**
+       * Which delivery this wicket fell on. Omitted means a legal ball.
+       *
+       * A wide and a no-ball both sit outside the over, and the batters
+       * are entitled to run at either — so either can produce a run out,
+       * and a wide can also produce a stumping. The extra still has to be
+       * scored, which is why this cannot be two events: WIDE followed by
+       * WICKET would advance the over by a ball that was never bowled.
+       */
+      delivery?: "WIDE" | "NO_BALL";
     }
   | { t: "RETIRE"; batter?: string; newBatter?: string }
   | { t: "SWAP" }
@@ -342,27 +352,45 @@ export function replay(
         const outIsNonStriker = who === nonStriker0;
         const notOut = outIsNonStriker ? striker0 : nonStriker0;
 
-        // Runs completed before the dismissal. They belong to whoever
-        // FACED the ball, never to whoever happened to be run out — a
-        // non-striker dismissed going for the second does not take the
-        // first run off the striker. No fours or sixes: a boundary is a
-        // dead ball, so it cannot coexist with a run out.
-        // A Mankad is not a delivery: no ball in the over, nobody faced
-        // it, nothing scored off it.
+        // A Mankad is no delivery at all: no ball in the over, nobody
+        // faced it, nothing scored off it.
         const bowled = !e.beforeDelivery;
+        const delivery = bowled ? (e.delivery ?? "LEGAL") : "LEGAL";
+        // Only a legal ball advances the over. A wide and a no-ball are
+        // re-bowled, exactly as they are when nobody is dismissed.
+        const legal = bowled && delivery === "LEGAL";
 
+        // Runs the batters completed before the dismissal. Who they
+        // belong to depends entirely on the delivery:
+        //   legal    off the bat, to whoever FACED it — a non-striker
+        //            run out going for the second does not take the
+        //            first run off the striker
+        //   no-ball  off the bat too, on top of the penalty run
+        //   wide     never off the bat; every run of it is an extra
+        // No fours or sixes anywhere here: a boundary is a dead ball, so
+        // it cannot coexist with a dismissal off that same delivery.
         const runs = bowled ? Math.max(0, Math.min(7, e.runs ?? 0)) : 0;
-        if (runs > 0) {
-          addRuns(runs);
-          const sc = bat(striker0);
-          if (sc) sc.runs += runs;
+        const conceded = runs + (delivery === "LEGAL" ? 0 : 1);
+        const bo = bowl(s.bowler);
+
+        if (bowled) {
+          addRuns(conceded);
+          if (delivery === "WIDE") s.extras.wide += conceded;
+          else if (delivery === "NO_BALL") s.extras.noBall += 1;
+          if (delivery !== "WIDE" && runs > 0) {
+            const sc = bat(striker0);
+            if (sc) sc.runs += runs;
+          }
+          // The bowler concedes all of it, penalty included — and on a
+          // legal ball the completed runs too, which went uncharged when
+          // runs were first allowed on a wicket.
+          if (bo) bo.runs += conceded;
         }
 
-        // The delivery is faced by the striker. Crediting it to the
-        // dismissed batter — which is what this did while only the
-        // striker could ever be out — hands the ball to the wrong player
-        // the moment a non-striker is run out.
-        if (bowled) {
+        // The ball is FACED by the striker, never by the dismissed
+        // batter — which is what this credited while only the striker
+        // could ever be out. Nobody faces a wide.
+        if (bowled && delivery !== "WIDE") {
           const faced = bat(striker0);
           if (faced) faced.balls += 1;
         }
@@ -373,9 +401,11 @@ export function replay(
           card.outBy = e.fielder ?? s.bowler ?? null;
         }
         // A run-out isn't the bowler's wicket.
-        const bo = bowl(s.bowler);
         if (bo && e.kind !== "RUN_OUT") bo.wickets += 1;
-        note(runs > 0 ? `${runs}+W` : "W");
+        note(
+          `${delivery === "WIDE" ? "wd+" : delivery === "NO_BALL" ? "nb+" : ""}` +
+            `${runs > 0 ? `${runs}+` : ""}W`,
+        );
 
         /**
          * Where everyone stands now.
@@ -414,7 +444,7 @@ export function replay(
         //
         // Skipped for a Mankad, which consumes no ball: the over carries
         // on from wherever it was, and the striker is still to face.
-        if (bowled) legalBall();
+        if (legal) legalBall();
         break;
       }
 
@@ -641,6 +671,19 @@ export function validateScoreEvent(
           return "Only the non-striker can be run out before the delivery";
         }
         if (event.runs) return "No runs can be scored before the ball is bowled";
+        if (event.delivery) {
+          return "A run out before the delivery is neither a wide nor a no-ball";
+        }
+      }
+      // What a wide or a no-ball can actually produce. Nothing the bowler
+      // earns off the stumps counts off either of them.
+      if (event.delivery === "NO_BALL" && event.kind && event.kind !== "OTHER") {
+        if (event.kind !== "RUN_OUT") return "A no-ball can only produce a run out";
+      }
+      if (event.delivery === "WIDE" && event.kind && event.kind !== "OTHER") {
+        if (!["RUN_OUT", "STUMPED", "HIT_WICKET"].includes(event.kind)) {
+          return "A wide can only produce a run out, a stumping or hit wicket";
+        }
       }
       if (event.newBatter) {
         if (!inSquad(batting, event.newBatter)) {

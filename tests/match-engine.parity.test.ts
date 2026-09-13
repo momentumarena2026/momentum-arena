@@ -193,6 +193,32 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         newBatter: "Chen",
       },
     ],
+    // A wide and a no-ball are re-bowled even when they take a wicket, and
+    // the runs land in different columns for each — extras for one, the
+    // striker's for the other. Both engines have to agree on all of it.
+    [
+      ...mixedOver,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        delivery: "WIDE",
+        runs: 2,
+        outAtEnd: "STRIKER",
+        newBatter: "Chen",
+      },
+    ],
+    [
+      ...mixedOver,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        delivery: "NO_BALL",
+        batter: "Bala",
+        runs: 1,
+        outAtEnd: "STRIKER",
+        newBatter: "Chen",
+      },
+    ],
     // A Mankad consumes no ball, so the two engines must also agree on
     // where the over got to — not just on the scorecard.
     [
@@ -231,6 +257,9 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         { t: "WICKET", kind: "CAUGHT", outAtEnd: "STRIKER" } as ScoreEvent,
         { t: "WICKET", kind: "RUN_OUT", beforeDelivery: true } as ScoreEvent,
         { t: "WICKET", kind: "BOWLED", beforeDelivery: true } as ScoreEvent,
+        { t: "WICKET", kind: "BOWLED", delivery: "NO_BALL" } as ScoreEvent,
+        { t: "WICKET", kind: "CAUGHT", delivery: "WIDE" } as ScoreEvent,
+        { t: "WICKET", kind: "RUN_OUT", delivery: "WIDE" } as ScoreEvent,
       ]) {
         assert.deepEqual(
           mobileValidate(mv as never, e as never, rules as never),
