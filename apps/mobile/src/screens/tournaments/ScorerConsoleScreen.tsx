@@ -46,6 +46,8 @@ type CricketCurrent = {
   batters: { id: string; runs: number; balls: number }[];
   bowler: { id: string; balls: number; runs: number; wickets: number } | null;
   thisOver: string[];
+  /** The next delivery is a free hit, because the last was a no-ball. */
+  freeHit?: boolean;
   ballsThisOver: number;
   partnership: { runs: number; balls: number };
   needsBatter: boolean;
@@ -192,8 +194,17 @@ export function ScorerConsoleScreen() {
    *  they didn't see it) and the whole thing is logged as one delivery.
    *  Mirrors needsFielder() in lib/cricket-dismissal.ts on the server. */
   const [fielderFor, setFielderFor] = useState<
-    { dismissal: string; outBatterId?: string } | null
+    {
+      dismissal: string;
+      outBatterId?: string;
+      outAtEnd?: "STRIKER" | "NON_STRIKER";
+      beforeDelivery?: boolean;
+    } | null
   >(null);
+  /** Step two of a run out: which END. A striker run out at the
+   *  non-striker's end must have crossed, so the survivor keeps strike —
+   *  it cannot be inferred from who went, only asked. */
+  const [endFor, setEndFor] = useState<string | null>(null);
   /** Run out only: which batter was out. A run-out is the one dismissal
    *  that can take either end, so it can't be inferred — and it must be
    *  asked from a row that is visible without scrolling, which is why
@@ -340,6 +351,10 @@ export function ScorerConsoleScreen() {
     wicket?: boolean;
     /** How they got out — run-outs are the ones that need naming. */
     dismissal?: string;
+    /** Which end a run out happened at — the new batter takes that end. */
+    outAtEnd?: "STRIKER" | "NON_STRIKER";
+    /** A Mankad: no ball was bowled, so the over doesn't advance. */
+    beforeDelivery?: boolean;
     /** Who went. Omitted means the striker, right for all but a run-out. */
     outBatterId?: string;
     /** Who caught / stumped / ran them out, so the card can say so. */
@@ -614,6 +629,22 @@ export function ScorerConsoleScreen() {
 
               <View style={s.overRow}>
                 <View style={s.overStrip}>
+                  {liveCur?.freeHit ? (
+                    <View
+                      style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderWidth: 1,
+                        borderColor: "#fbbf24",
+                        backgroundColor: "rgba(251,191,36,0.12)",
+                        marginRight: 6,
+                      }}
+                    >
+                      <Text style={{ color: "#fbbf24", fontSize: 10, fontWeight: "700" }}>
+                        FREE HIT
+                      </Text>
+                    </View>
+                  ) : null}
                   {(liveCur?.thisOver.length ?? 0) === 0 ? (
                     <Text style={s.overEmpty}>New over</Text>
                   ) : (
@@ -933,6 +964,11 @@ export function ScorerConsoleScreen() {
                   ["stumped", "Stumped"],
                   ["hitwicket", "Hit wicket"],
                   ["runout", "Run out"],
+                  // The rest of the ten. None of them is the bowler's.
+                  ["obstructing", "Obstructing the field"],
+                  ["hitballtwice", "Hit the ball twice"],
+                  ["timedout", "Timed out"],
+                  ["retiredout", "Retired out"],
                 ] as const
               ).map(([kind, label]) => (
                 <Pressable
@@ -987,7 +1023,7 @@ export function ScorerConsoleScreen() {
                     style={s.sheetRow}
                     onPress={() => {
                       setOutBatterFor(null);
-                      setFielderFor({ dismissal: "runout", outBatterId: id });
+                      setEndFor(id);
                     }}
                   >
                     <Text style={s.sheetRowText}>{nameOf(id)}</Text>
@@ -996,6 +1032,75 @@ export function ScorerConsoleScreen() {
                     </Text>
                   </Pressable>
                 ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Run out: at WHICH end? ──────────────────────────────────
+          The rule people are surprised by. A striker run out at the
+          non-striker's end must have crossed, so the survivor keeps strike
+          and the new batter walks to the far end. */}
+      <Modal
+        visible={!!endFor}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEndFor(null)}
+      >
+        <Pressable style={s.sheetBackdrop} onPress={() => setEndFor(null)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>At which end?</Text>
+              <Pressable onPress={() => setEndFor(null)} hitSlop={10}>
+                <X size={20} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            <ScrollView>
+              {(
+                [
+                  ["STRIKER", "The striker's end", "the batting end"],
+                  ["NON_STRIKER", "The non-striker's end", "the bowler's end"],
+                ] as const
+              ).map(([end, label, hint]) => (
+                <Pressable
+                  key={end}
+                  style={s.sheetRow}
+                  onPress={() => {
+                    const outBatterId = endFor;
+                    setEndFor(null);
+                    if (outBatterId) {
+                      setFielderFor({ dismissal: "runout", outBatterId, outAtEnd: end });
+                    }
+                  }}
+                >
+                  <Text style={s.sheetRowText}>{label}</Text>
+                  <Text style={s.sheetRowMeta}>{hint}</Text>
+                </Pressable>
+              ))}
+              {/* Only the non-striker, at their own end, can be Mankaded,
+                  and it is not a delivery — so it costs no ball. */}
+              {endFor === nonStrikerId && (
+                <Pressable
+                  style={s.sheetRow}
+                  onPress={() => {
+                    const outBatterId = endFor;
+                    setEndFor(null);
+                    void ball({
+                      runs: 0,
+                      wicket: true,
+                      dismissal: "runout",
+                      outBatterId: outBatterId || undefined,
+                      outAtEnd: "NON_STRIKER",
+                      beforeDelivery: true,
+                    });
+                  }}
+                >
+                  <Text style={[s.sheetRowText, { color: "#fbbf24" }]}>
+                    Backing up, before the delivery
+                  </Text>
+                  <Text style={s.sheetRowMeta}>costs no ball</Text>
+                </Pressable>
+              )}
             </ScrollView>
           </Pressable>
         </Pressable>
