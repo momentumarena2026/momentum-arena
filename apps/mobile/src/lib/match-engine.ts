@@ -12,41 +12,24 @@
  * the server would reject, the whole batch bounces and the scorer loses
  * the over. Both sides must reach the same verdict from the same log.
  */
+import {
+  creditsBowler,
+  consumesBall,
+  isFaced,
+  armsFreeHit,
+  splitRuns,
+  crossed,
+  endsAfterWicket,
+  dismissalRefusal,
+  type WicketKind,
+  type Delivery,
+  type CreaseEnd,
+} from "./cricket-rules";
+
 
 export type PublicMatchSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
 
-export type WicketKind =
-  | "BOWLED"
-  | "CAUGHT"
-  | "LBW"
-  | "RUN_OUT"
-  | "STUMPED"
-  | "HIT_WICKET"
-  // The rare four. All ten methods in the Laws are now nameable; these
-  // used to fall into OTHER, which meant the scorecard couldn't say how a
-  // batter went AND the bowler was paid for it.
-  | "OBSTRUCTING_FIELD"
-  | "HIT_BALL_TWICE"
-  | "TIMED_OUT"
-  | "RETIRED_OUT"
-  | "OTHER";
-
-/**
- * Dismissals that are NOT the bowler's.
- *
- * An exclusion list rather than an allow-list on purpose: a wicket logged
- * with no kind at all — which the minimal web pad still does — has always
- * counted for the bowler, and rewriting the history of every match already
- * played to say otherwise would be worse than the ambiguity. Anything the
- * scorer can actually NAME is now classified correctly.
- */
-const NOT_THE_BOWLERS: WicketKind[] = [
-  "RUN_OUT",
-  "OBSTRUCTING_FIELD",
-  "HIT_BALL_TWICE",
-  "TIMED_OUT",
-  "RETIRED_OUT",
-];
+export type { WicketKind, Delivery, CreaseEnd };
 
 /**
  * The event log. Everything the scoreboard knows is derived from this by
@@ -399,14 +382,14 @@ export function replay(
       }
 
       case "WIDE": {
-        const extra = Math.max(0, Math.min(6, e.runs ?? 0));
-        addRuns(1 + extra);
-        s.extras.wide += 1 + extra;
+        const split = splitRuns({ delivery: "WIDE", runs: e.runs });
+        addRuns(split.team);
+        s.extras.wide += split.toWideExtras;
         const bo = bowl(s.bowler);
-        if (bo) bo.runs += 1 + extra;
-        note(extra > 0 ? `wd+${extra}` : "wd");
+        if (bo) bo.runs += split.toBowler;
+        note(split.ran > 0 ? `wd+${split.ran}` : "wd");
         // No legal ball. Batters cross on the extras they run.
-        if (extra % 2 === 1) swap();
+        if (crossed(split.ran)) swap();
         break;
       }
 
@@ -451,11 +434,9 @@ export function replay(
 
         // A Mankad is no delivery at all: no ball in the over, nobody
         // faced it, nothing scored off it.
+        const delivery: Delivery = e.beforeDelivery ? "LEGAL" : (e.delivery ?? "LEGAL");
         const bowled = !e.beforeDelivery;
-        const delivery = bowled ? (e.delivery ?? "LEGAL") : "LEGAL";
-        // Only a legal ball advances the over. A wide and a no-ball are
-        // re-bowled, exactly as they are when nobody is dismissed.
-        const legal = bowled && delivery === "LEGAL";
+        const legal = consumesBall({ delivery, beforeDelivery: e.beforeDelivery });
 
         // Runs the batters completed before the dismissal. Who they
         // belong to depends entirely on the delivery:
@@ -466,28 +447,25 @@ export function replay(
         //   wide     never off the bat; every run of it is an extra
         // No fours or sixes anywhere here: a boundary is a dead ball, so
         // it cannot coexist with a dismissal off that same delivery.
-        const runs = bowled ? Math.max(0, Math.min(7, e.runs ?? 0)) : 0;
-        const conceded = runs + (delivery === "LEGAL" ? 0 : 1);
+        const split = splitRuns({ delivery, runs: bowled ? e.runs : 0 });
+        const runs = split.toStriker;
         const bo = bowl(s.bowler);
 
         if (bowled) {
-          addRuns(conceded);
-          if (delivery === "WIDE") s.extras.wide += conceded;
-          else if (delivery === "NO_BALL") s.extras.noBall += 1;
-          if (delivery !== "WIDE" && runs > 0) {
+          addRuns(split.team);
+          s.extras.wide += split.toWideExtras;
+          s.extras.noBall += split.toNoBallExtras;
+          if (split.toStriker > 0) {
             const sc = bat(striker0);
-            if (sc) sc.runs += runs;
+            if (sc) sc.runs += split.toStriker;
           }
-          // The bowler concedes all of it, penalty included — and on a
-          // legal ball the completed runs too, which went uncharged when
-          // runs were first allowed on a wicket.
-          if (bo) bo.runs += conceded;
+          if (bo) bo.runs += split.toBowler;
         }
 
         // The ball is FACED by the striker, never by the dismissed
         // batter — which is what this credited while only the striker
         // could ever be out. Nobody faces a wide.
-        if (bowled && delivery !== "WIDE") {
+        if (isFaced({ delivery, beforeDelivery: e.beforeDelivery })) {
           const faced = bat(striker0);
           if (faced) faced.balls += 1;
         }
@@ -498,7 +476,7 @@ export function replay(
           card.outBy = e.fielder ?? s.bowler ?? null;
         }
         // Only what the bowler actually earned off the stumps.
-        if (bo && !NOT_THE_BOWLERS.includes(e.kind ?? "OTHER")) bo.wickets += 1;
+        if (bo && creditsBowler(e.kind)) bo.wickets += 1;
         note(
           `${delivery === "WIDE" ? "wd+" : delivery === "NO_BALL" ? "nb+" : ""}` +
             `${runs > 0 ? `${runs}+` : ""}W`,
@@ -520,19 +498,16 @@ export function replay(
          * instead — the old behaviour — put the new batter on strike and
          * had the wrong man facing the next ball.
          */
-        const outEnd: "STRIKER" | "NON_STRIKER" =
-          e.outAtEnd ?? (outIsNonStriker ? "NON_STRIKER" : "STRIKER");
-        const newAtStriker = outEnd === "STRIKER";
-        if (e.newBatter) {
-          resume(e.newBatter);
-          s.striker = newAtStriker ? e.newBatter : notOut;
-          s.nonStriker = newAtStriker ? notOut : e.newBatter;
-        } else {
-          // Nobody named yet: the dismissal end is vacant, the survivor
-          // holds the other.
-          s.striker = newAtStriker ? null : notOut;
-          s.nonStriker = newAtStriker ? notOut : null;
-        }
+        const placed = endsAfterWicket({
+          striker: striker0,
+          nonStriker: nonStriker0,
+          outBatter: who,
+          outAtEnd: e.outAtEnd,
+          newBatter: e.newBatter ?? null,
+        });
+        if (e.newBatter) resume(e.newBatter);
+        s.striker = placed.striker;
+        s.nonStriker = placed.nonStriker;
 
         // Last, so the over-change swap applies to the ends decided
         // above rather than being compensated for afterwards. A batter
@@ -543,7 +518,7 @@ export function replay(
         // on from wherever it was, and the striker is still to face.
         if (legal) legalBall();
         // A wicket off a no-ball still earns the free hit.
-        if (delivery === "NO_BALL") s.freeHit = true;
+        if (armsFreeHit(delivery)) s.freeHit = true;
         break;
       }
 
