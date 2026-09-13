@@ -119,3 +119,124 @@ test("a wide on a free hit leaves it standing", () => {
   ]);
   assert.equal(st.current.freeHit, true);
 });
+
+/**
+ * Super overs.
+ *
+ * A tied knockout has to resolve. Modelled as more innings — 1 and 2 are
+ * the match, 3 and 4 the first super over, 5 and 6 the second — so the
+ * fold, the scorecard and the over-strip all keep working untouched.
+ */
+import {
+  superOverRound,
+  inningsLimits,
+  roundIsTied,
+  nextSuperOverBattingTeam,
+  superOverWinner,
+  validateLiveEvent,
+} from "../lib/tournament-live";
+
+test("innings 1 and 2 are the match; 3 and 4 are the first super over", () => {
+  assert.equal(superOverRound(1), 0);
+  assert.equal(superOverRound(2), 0);
+  assert.equal(superOverRound(3), 1);
+  assert.equal(superOverRound(4), 1);
+  assert.equal(superOverRound(5), 2);
+  assert.equal(superOverRound(6), 2);
+});
+
+test("a super over is one over and two wickets, whatever the tournament plays", () => {
+  const ctx = { oversPerInnings: 10, wicketsPerInnings: 8 };
+  assert.deepEqual(inningsLimits(2, ctx), { overs: 10, wickets: 8 });
+  assert.deepEqual(inningsLimits(3, ctx), { overs: 1, wickets: 2 });
+});
+
+/** A finished innings of `runs` for `teamId`. */
+const innings = (teamId: string, runs: number) => ({ teamId, runs, wickets: 0, balls: 6 });
+
+const stateOf = (inns: ReturnType<typeof innings>[]) =>
+  ({
+    sport: "CRICKET" as const,
+    inning: inns.length,
+    battingTeamId: inns[inns.length - 1]?.teamId ?? null,
+    innings: inns,
+    target: null,
+    current: {
+      strikerId: null, nonStrikerId: null, bowlerId: null, batters: [], bowler: null,
+      thisOver: [], ballsThisOver: 0, partnership: { runs: 0, balls: 0 },
+      needsBatter: false, needsBowler: false, dismissed: [], spells: [],
+      lastOverBowlerId: null, freeHit: false,
+    },
+  });
+
+test("a tie is only called on a finished round", () => {
+  assert.equal(roundIsTied(stateOf([innings(A, 40)])), null, "half a match is not a tie");
+  assert.equal(roundIsTied(stateOf([innings(A, 40), innings(B, 40)])), true);
+  assert.equal(roundIsTied(stateOf([innings(A, 40), innings(B, 39)])), false);
+});
+
+test("the side that batted second opens the super over", () => {
+  const st = stateOf([innings(A, 40), innings(B, 40)]);
+  assert.equal(nextSuperOverBattingTeam(st), B);
+  // And it alternates: B batted second in super over one, so B opens two.
+  const st2 = stateOf([innings(A, 40), innings(B, 40), innings(B, 11), innings(A, 11)]);
+  assert.equal(nextSuperOverBattingTeam(st2), A);
+});
+
+test("a super over can only be started after a tie, by the right side", () => {
+  const ctx = {
+    sport: "CRICKET",
+    homeTeamId: A,
+    awayTeamId: B,
+    memberTeam: new Map<string, string>(),
+    maxOversPerBowler: 2,
+    oversPerInnings: 10,
+    wicketsPerInnings: 8,
+  };
+  /** A finished round: one legal ball each, `a` and `b` off the bat.
+   *  Kept under the per-ball ceiling — a single delivery cannot produce
+   *  forty runs, and the sanitiser quite rightly clamps it. */
+  const round = (first: string, second: string, a: number, b: number): EventRow[] => {
+    seq = 0;
+    return [
+      ev("INNINGS_START", {}, first),
+      ev("BALL", { runs: a, batterId: "x", bowlerId: "y" }),
+      ev("INNINGS_START", {}, second),
+      ev("BALL", { runs: b, batterId: "p", bowlerId: "q" }),
+    ];
+  };
+  const start = (teamId: string) => ({ kind: "INNINGS_START", teamId });
+
+  const decided = round(A, B, 5, 4);
+  assert.match(
+    validateLiveEvent(ctx as never, decided, start(B) as never) ?? "",
+    /already has a winner/i,
+  );
+
+  const tied = round(A, B, 4, 4);
+  assert.equal(
+    validateLiveEvent(ctx as never, tied, start(B) as never),
+    null,
+    "the side that batted second may open the super over",
+  );
+  assert.match(
+    validateLiveEvent(ctx as never, tied, start(A) as never) ?? "",
+    /batted second bats first/i,
+  );
+});
+
+test("the super over decides it, and the match score is left alone", () => {
+  const tiedStill = stateOf([innings(A, 40), innings(B, 40), innings(B, 11), innings(A, 11)]);
+  assert.equal(superOverWinner(tiedStill), null, "still level — another one is owed");
+
+  const decided = stateOf([innings(A, 40), innings(B, 40), innings(B, 12), innings(A, 11)]);
+  assert.equal(superOverWinner(decided), B);
+
+  // Won on the SECOND super over, the first having been tied.
+  const twice = stateOf([
+    innings(A, 40), innings(B, 40),
+    innings(B, 11), innings(A, 11),
+    innings(A, 9), innings(B, 8),
+  ]);
+  assert.equal(superOverWinner(twice), A);
+});

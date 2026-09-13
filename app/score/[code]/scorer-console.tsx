@@ -386,6 +386,14 @@ export function ScorerConsole({ code }: { code: string }) {
 
   const sport = boot.tournament.sport;
   const cs = (match.liveState || null) as CricketState | null;
+  /** Level after a COMPLETE round — the only state a super over answers.
+   *  A half-played round is not a tie, it is an unfinished one. */
+  const tiedNow = (() => {
+    if (!cs || cs.inning < 2 || cs.inning % 2 === 1) return false;
+    const a = cs.innings[cs.inning - 2];
+    const b = cs.innings[cs.inning - 1];
+    return !!a && !!b && a.runs === b.runs;
+  })();
   const ps = (match.liveState || null) as PickleState | null;
 
   const battingTeam = cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
@@ -707,7 +715,7 @@ export function ScorerConsole({ code }: { code: string }) {
                       >
                         Retire
                       </button>
-                      {cs && cs.inning === 1 && (
+                      {cs && cs.inning % 2 === 1 && (
                         <button
                           onClick={() => {
                             const other =
@@ -719,6 +727,25 @@ export function ScorerConsole({ code }: { code: string }) {
                           className={`${bigBtn} h-12 border-sky-500/40 bg-sky-600/10 text-sm text-sky-300`}
                         >
                           End Innings
+                        </button>
+                      )}
+                      {/* Tied, and both sides have batted. A knockout has to
+                          resolve, so offer the super over right here rather
+                          than making the organiser work out that the game
+                          isn't actually over. The side that batted SECOND
+                          opens it — the server refuses any other. */}
+                      {cs && cs.inning >= 2 && cs.inning % 2 === 0 && tiedNow && (
+                        <button
+                          onClick={() => {
+                            const opensNext = cs.innings[cs.inning - 1]?.teamId;
+                            if (!opensNext) return;
+                            resetPlayers();
+                            ev("INNINGS_START", { teamId: opensNext });
+                          }}
+                          disabled={busy}
+                          className={`${bigBtn} h-12 border-amber-500/50 bg-amber-500/10 text-sm font-semibold text-amber-300`}
+                        >
+                          {cs.inning === 2 ? "Tied — start super over" : "Still tied — another super over"}
                         </button>
                       )}
                     </div>

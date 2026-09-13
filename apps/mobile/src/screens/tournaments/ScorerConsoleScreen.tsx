@@ -447,6 +447,14 @@ export function ScorerConsoleScreen() {
 
   const sport = boot.tournament.sport;
   const cs = (match.liveState || null) as CricketState | null;
+  /** Level after a COMPLETE round — the only state a super over answers.
+   *  A half-played round is not a tie, it is an unfinished one. */
+  const tiedNow = (() => {
+    if (!cs || cs.inning < 2 || cs.inning % 2 === 1) return false;
+    const a = cs.innings[cs.inning - 2];
+    const b = cs.innings[cs.inning - 1];
+    return !!a && !!b && a.runs === b.runs;
+  })();
   const ps = (match.liveState || null) as PickleState | null;
   const batting = cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
   // Whoever isn't batting is in the field — catchers, keeper and run-out
@@ -811,7 +819,7 @@ export function ScorerConsoleScreen() {
                       busy={busy || (!strikerId && !nonStrikerId)}
                       onPress={() => setRetireSheet(true)}
                     />
-                    {cs.inning === 1 ? (
+                    {cs.inning % 2 === 1 ? (
                       <PadKey
                         glyph="⤁"
                         caption="END INNS"
@@ -821,6 +829,23 @@ export function ScorerConsoleScreen() {
                           const other = cs.battingTeamId === match.homeTeam.id ? match.awayTeam.id : match.homeTeam.id;
                           resetPlayers();
                           ev("INNINGS_START", { teamId: other });
+                        }}
+                      />
+                    ) : tiedNow ? (
+                      // Tied with both sides done. A knockout has to
+                      // resolve, so the way out is offered here rather than
+                      // leaving the organiser to work out that the game is
+                      // not over. The side that batted SECOND opens it.
+                      <PadKey
+                        glyph="⚖"
+                        caption="SUPER OVER"
+                        tone="extra"
+                        busy={busy}
+                        onPress={() => {
+                          const opensNext = cs.innings[cs.inning - 1]?.teamId;
+                          if (!opensNext) return;
+                          resetPlayers();
+                          ev("INNINGS_START", { teamId: opensNext });
                         }}
                       />
                     ) : (
