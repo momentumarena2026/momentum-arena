@@ -1,4 +1,18 @@
 import { db } from "@/lib/db";
+import {
+  creditsBowler,
+  consumesBall,
+  isFaced,
+  armsFreeHit,
+  splitRuns,
+  crossed,
+  endsAfterWicket,
+  dismissalRefusal,
+  bowlerSpent,
+  type WicketKind,
+  type Delivery,
+  type CreaseEnd,
+} from "@/lib/cricket-rules";
 import { randomInt } from "crypto";
 
 /**
@@ -16,14 +30,7 @@ import { randomInt } from "crypto";
 
 export type PublicMatchSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
 
-export type WicketKind =
-  | "BOWLED"
-  | "CAUGHT"
-  | "LBW"
-  | "RUN_OUT"
-  | "STUMPED"
-  | "HIT_WICKET"
-  | "OTHER";
+export type { WicketKind, Delivery, CreaseEnd };
 
 /**
  * The event log. Everything the scoreboard knows is derived from this by
@@ -45,7 +52,17 @@ export type ScoreEvent =
   | { t: "BYE"; runs: number }
   | { t: "LEG_BYE"; runs: number }
   | { t: "WIDE"; runs?: number }
-  | { t: "NO_BALL"; runs?: number }
+  | {
+      t: "NO_BALL";
+      /** Runs off the BAT. These are the striker's. */
+      runs?: number;
+      /**
+       * Runs the batters ran that did NOT come off the bat — it beat them
+       * and went through. Credited as no-ball extras, never to the striker,
+       * who otherwise ends the innings with runs they never hit.
+       */
+      byes?: number;
+    }
   | {
       t: "WICKET";
       kind?: WicketKind;
@@ -81,8 +98,37 @@ export type ScoreEvent =
        * ends a ball early and the striker is charged a ball they never had.
        */
       beforeDelivery?: boolean;
+      /**
+       * Which delivery this wicket fell on. Omitted means a legal ball.
+       *
+       * A wide and a no-ball both sit outside the over, and the batters
+       * are entitled to run at either — so either can produce a run out,
+       * and a wide can also produce a stumping. The extra still has to be
+       * scored, which is why this cannot be two events: WIDE followed by
+       * WICKET would advance the over by a ball that was never bowled.
+       */
+      delivery?: "WIDE" | "NO_BALL";
     }
-  | { t: "RETIRE"; batter?: string; newBatter?: string }
+  | {
+      t: "RETIRE";
+      batter?: string;
+      newBatter?: string;
+      /**
+       * true = retired OUT: a dismissal, and a wicket down, though never
+       * the bowler's. false or omitted = retired hurt, which is not a
+       * dismissal at all — the batter is still not out and may resume when
+       * the next wicket falls.
+       */
+      out?: boolean;
+    }
+  | {
+      t: "PENALTY";
+      /** Which side receives them — penalties can go either way. */
+      side: "A" | "B";
+      /** Almost always 5 (Law 41). */
+      runs: number;
+      reason?: string;
+    }
   | { t: "SWAP" }
   | { t: "END_INNINGS" }
   // Football / pickleball
@@ -94,8 +140,14 @@ export interface BatterCard {
   balls: number;
   fours: number;
   sixes: number;
-  /** null while not out; otherwise how they went. */
-  out: WicketKind | "RETIRED" | null;
+  /**
+   * null while not out; otherwise how they went.
+   *
+   * RETIRED_HURT is the odd one: it is NOT a dismissal. The batter may come
+   * back when the next wicket falls, and it costs the side nothing. Retired
+   * OUT is a real dismissal and lives in WicketKind.
+   */
+  out: WicketKind | "RETIRED_HURT" | null;
   outBy: string | null;
 }
 
@@ -128,10 +180,26 @@ export interface PublicMatchState {
   /** Who bowled the over that just finished, so the "no two overs in a
    *  row" rule has something to check against. */
   lastOverBowler: string | null;
+  /**
+   * The NEXT delivery is a free hit, because the last one was a no-ball.
+   *
+   * On it the batter cannot be bowled, caught, LBW, stumped or hit wicket
+   * — only run out, obstructing the field or hitting the ball twice. It
+   * survives the end of an over, and if the free hit is itself a wide or
+   * another no-ball then the ball after that is a free hit too.
+   */
+  freeHit: boolean;
   /** Batting card for the side currently in, keyed by player name. */
   batting: Record<string, BatterCard>;
   bowling: Record<string, BowlerCard>;
-  extras: { wide: number; noBall: number; bye: number; legBye: number };
+  extras: {
+    wide: number;
+    noBall: number;
+    bye: number;
+    legBye: number;
+    /** Law 41 penalty runs, which belong to neither bat nor bowler. */
+    penalty: number;
+  };
   /** Short labels for the over in progress: ["1", "W", "wd", "4"]. */
   thisOver: string[];
 
@@ -154,9 +222,10 @@ const EMPTY: PublicMatchState = {
   nonStriker: null,
   bowler: null,
   lastOverBowler: null,
+  freeHit: false,
   batting: {},
   bowling: {},
-  extras: { wide: 0, noBall: 0, bye: 0, legBye: 0 },
+  extras: { wide: 0, noBall: 0, bye: 0, legBye: 0, penalty: 0 },
   thisOver: [],
   scorers: [],
   cards: [],
@@ -169,7 +238,7 @@ function emptyState(): PublicMatchState {
     squadB: [],
     batting: {},
     bowling: {},
-    extras: { wide: 0, noBall: 0, bye: 0, legBye: 0 },
+    extras: { wide: 0, noBall: 0, bye: 0, legBye: 0, penalty: 0 },
     thisOver: [],
     scorers: [],
     cards: [],
@@ -231,6 +300,10 @@ export function replay(
     };
     /** A legal delivery: counts for the over, the bowler and the batter. */
     const legalBall = () => {
+      // A legal delivery consumes the free hit, whatever came of it. Wides
+      // and no-balls never reach here, which is exactly why they leave it
+      // standing for the next ball.
+      s.freeHit = false;
       if (batA) s.ballsA += 1;
       else s.ballsB += 1;
       const b = bowl(s.bowler);
@@ -244,6 +317,16 @@ export function replay(
         s.bowler = null;
         s.thisOver = [];
       }
+    };
+    /**
+     * Bring a batter to the crease. A batter who retired hurt is resuming,
+     * not arriving: their runs and balls stand and the "out" mark is
+     * cleared, because it never was a dismissal.
+     */
+    const resume = (name: string) => {
+      const card = bat(name);
+      if (card && card.out === "RETIRED_HURT") card.out = null;
+      return card;
     };
     const note = (label: string) => {
       // Only the over in progress; legalBall() clears it on the sixth.
@@ -300,21 +383,25 @@ export function replay(
       }
 
       case "WIDE": {
-        const extra = Math.max(0, Math.min(6, e.runs ?? 0));
-        addRuns(1 + extra);
-        s.extras.wide += 1 + extra;
+        const split = splitRuns({ delivery: "WIDE", runs: e.runs });
+        addRuns(split.team);
+        s.extras.wide += split.toWideExtras;
         const bo = bowl(s.bowler);
-        if (bo) bo.runs += 1 + extra;
-        note(extra > 0 ? `wd+${extra}` : "wd");
+        if (bo) bo.runs += split.toBowler;
+        note(split.ran > 0 ? `wd+${split.ran}` : "wd");
         // No legal ball. Batters cross on the extras they run.
-        if (extra % 2 === 1) swap();
+        if (crossed(split.ran)) swap();
         break;
       }
 
       case "NO_BALL": {
         const off = Math.max(0, Math.min(7, e.runs ?? 0));
-        addRuns(1 + off);
-        s.extras.noBall += 1;
+        // Runs that beat the bat. They are the bowler's to concede and the
+        // team's to keep, but they were never the striker's.
+        const byes = Math.max(0, Math.min(7, e.byes ?? 0));
+        addRuns(1 + off + byes);
+        // The penalty and anything not off the bat are both no-ball extras.
+        s.extras.noBall += 1 + byes;
         const b = bat(s.striker);
         if (b) {
           b.runs += off;
@@ -323,10 +410,14 @@ export function replay(
           if (off === 6) b.sixes += 1;
         }
         const bo = bowl(s.bowler);
-        if (bo) bo.runs += 1 + off;
-        note(off > 0 ? `nb+${off}` : "nb");
-        // No legal ball — the over doesn't advance.
-        if (off % 2 === 1) swap();
+        if (bo) bo.runs += 1 + off + byes;
+        note(byes > 0 ? `nb+${off}+${byes}b` : off > 0 ? `nb+${off}` : "nb");
+        // No legal ball — the over doesn't advance. The batters cross on
+        // whatever they actually ran, off the bat or not.
+        if ((off + byes) % 2 === 1) swap();
+        // Every no-ball earns a free hit, and it carries across the end of
+        // an over.
+        s.freeHit = true;
         break;
       }
 
@@ -342,27 +433,40 @@ export function replay(
         const outIsNonStriker = who === nonStriker0;
         const notOut = outIsNonStriker ? striker0 : nonStriker0;
 
-        // Runs completed before the dismissal. They belong to whoever
-        // FACED the ball, never to whoever happened to be run out — a
-        // non-striker dismissed going for the second does not take the
-        // first run off the striker. No fours or sixes: a boundary is a
-        // dead ball, so it cannot coexist with a run out.
-        // A Mankad is not a delivery: no ball in the over, nobody faced
-        // it, nothing scored off it.
+        // A Mankad is no delivery at all: no ball in the over, nobody
+        // faced it, nothing scored off it.
+        const delivery: Delivery = e.beforeDelivery ? "LEGAL" : (e.delivery ?? "LEGAL");
         const bowled = !e.beforeDelivery;
+        const legal = consumesBall({ delivery, beforeDelivery: e.beforeDelivery });
 
-        const runs = bowled ? Math.max(0, Math.min(7, e.runs ?? 0)) : 0;
-        if (runs > 0) {
-          addRuns(runs);
-          const sc = bat(striker0);
-          if (sc) sc.runs += runs;
+        // Runs the batters completed before the dismissal. Who they
+        // belong to depends entirely on the delivery:
+        //   legal    off the bat, to whoever FACED it — a non-striker
+        //            run out going for the second does not take the
+        //            first run off the striker
+        //   no-ball  off the bat too, on top of the penalty run
+        //   wide     never off the bat; every run of it is an extra
+        // No fours or sixes anywhere here: a boundary is a dead ball, so
+        // it cannot coexist with a dismissal off that same delivery.
+        const split = splitRuns({ delivery, runs: bowled ? e.runs : 0 });
+        const runs = split.toStriker;
+        const bo = bowl(s.bowler);
+
+        if (bowled) {
+          addRuns(split.team);
+          s.extras.wide += split.toWideExtras;
+          s.extras.noBall += split.toNoBallExtras;
+          if (split.toStriker > 0) {
+            const sc = bat(striker0);
+            if (sc) sc.runs += split.toStriker;
+          }
+          if (bo) bo.runs += split.toBowler;
         }
 
-        // The delivery is faced by the striker. Crediting it to the
-        // dismissed batter — which is what this did while only the
-        // striker could ever be out — hands the ball to the wrong player
-        // the moment a non-striker is run out.
-        if (bowled) {
+        // The ball is FACED by the striker, never by the dismissed
+        // batter — which is what this credited while only the striker
+        // could ever be out. Nobody faces a wide.
+        if (isFaced({ delivery, beforeDelivery: e.beforeDelivery })) {
           const faced = bat(striker0);
           if (faced) faced.balls += 1;
         }
@@ -372,10 +476,12 @@ export function replay(
           card.out = e.kind ?? "OTHER";
           card.outBy = e.fielder ?? s.bowler ?? null;
         }
-        // A run-out isn't the bowler's wicket.
-        const bo = bowl(s.bowler);
-        if (bo && e.kind !== "RUN_OUT") bo.wickets += 1;
-        note(runs > 0 ? `${runs}+W` : "W");
+        // Only what the bowler actually earned off the stumps.
+        if (bo && creditsBowler(e.kind)) bo.wickets += 1;
+        note(
+          `${delivery === "WIDE" ? "wd+" : delivery === "NO_BALL" ? "nb+" : ""}` +
+            `${runs > 0 ? `${runs}+` : ""}W`,
+        );
 
         /**
          * Where everyone stands now.
@@ -393,19 +499,16 @@ export function replay(
          * instead — the old behaviour — put the new batter on strike and
          * had the wrong man facing the next ball.
          */
-        const outEnd: "STRIKER" | "NON_STRIKER" =
-          e.outAtEnd ?? (outIsNonStriker ? "NON_STRIKER" : "STRIKER");
-        const newAtStriker = outEnd === "STRIKER";
-        if (e.newBatter) {
-          bat(e.newBatter);
-          s.striker = newAtStriker ? e.newBatter : notOut;
-          s.nonStriker = newAtStriker ? notOut : e.newBatter;
-        } else {
-          // Nobody named yet: the dismissal end is vacant, the survivor
-          // holds the other.
-          s.striker = newAtStriker ? null : notOut;
-          s.nonStriker = newAtStriker ? notOut : null;
-        }
+        const placed = endsAfterWicket({
+          striker: striker0,
+          nonStriker: nonStriker0,
+          outBatter: who,
+          outAtEnd: e.outAtEnd,
+          newBatter: e.newBatter ?? null,
+        });
+        if (e.newBatter) resume(e.newBatter);
+        s.striker = placed.striker;
+        s.nonStriker = placed.nonStriker;
 
         // Last, so the over-change swap applies to the ends decided
         // above rather than being compensated for afterwards. A batter
@@ -414,16 +517,27 @@ export function replay(
         //
         // Skipped for a Mankad, which consumes no ball: the over carries
         // on from wherever it was, and the striker is still to face.
-        if (bowled) legalBall();
+        if (legal) legalBall();
+        // A wicket off a no-ball still earns the free hit.
+        if (armsFreeHit(delivery)) s.freeHit = true;
         break;
       }
 
       case "RETIRE": {
         const who = e.batter ?? s.striker;
         const card = bat(who);
-        if (card) card.out = "RETIRED";
+        if (card) card.out = e.out ? "RETIRED_OUT" : "RETIRED_HURT";
+        // Retiring OUT costs the side a wicket. Retiring hurt does not —
+        // the batter is still not out and the innings is no further on.
+        if (e.out) {
+          if (batA) s.wicketsA += 1;
+          else s.wicketsB += 1;
+        }
+        // No delivery is bowled either way, so no ball, no runs, and the
+        // ends stand exactly as they were — the replacement simply takes
+        // the departing batter's end.
         if (e.newBatter) {
-          bat(e.newBatter);
+          resume(e.newBatter);
           if (s.nonStriker === who) s.nonStriker = e.newBatter;
           else s.striker = e.newBatter;
         } else if (s.striker === who) {
@@ -431,6 +545,19 @@ export function replay(
         } else if (s.nonStriker === who) {
           s.nonStriker = null;
         }
+        break;
+      }
+
+      case "PENALTY": {
+        // Law 41 penalties — five runs for a fielding-side offence, a ball
+        // striking a helmet on the ground, and so on. They belong to
+        // neither bat nor bowler and cost nobody a delivery, which is why
+        // this cannot be logged as runs off a ball.
+        const n = Math.max(0, Math.min(10, e.runs));
+        if (e.side === "A") s.runsA += n;
+        else s.runsB += n;
+        s.extras.penalty += n;
+        note(`+${n}p`);
         break;
       }
 
@@ -447,9 +574,10 @@ export function replay(
           s.nonStriker = null;
           s.bowler = null;
           s.lastOverBowler = null;
+          s.freeHit = false;
           s.batting = {};
           s.bowling = {};
-          s.extras = { wide: 0, noBall: 0, bye: 0, legBye: 0 };
+          s.extras = { wide: 0, noBall: 0, bye: 0, legBye: 0, penalty: 0 };
           s.thisOver = [];
         }
         break;
@@ -487,10 +615,26 @@ export interface MatchRules {
   sport: PublicMatchSport;
   /** null / 0 = unlimited (a casual knock with no agreed length). */
   oversPerInnings?: number | null;
+  /** Overs one bowler may send down. null / 0 = no limit. */
+  maxOversPerBowler?: number | null;
+  /**
+   * Wickets a side has. null / 0 falls back to squad size minus one,
+   * which is what a pickup game means by "all out" when nobody agreed a
+   * number — a side of six is all out at five, not at ten.
+   */
+  wicketsPerInnings?: number | null;
 }
 
-/** Wickets that end the current innings, given who's actually playing. */
-function maxWickets(state: PublicMatchState): number {
+/**
+ * Wickets that end the current innings.
+ *
+ * An agreed number wins when there is one — a short-format game routinely
+ * plays fewer than the side has players. Otherwise it is squad size minus
+ * one, because the last batter has nobody to bat with.
+ */
+function maxWickets(state: PublicMatchState, rules?: MatchRules): number {
+  const agreed = rules?.wicketsPerInnings ?? 0;
+  if (agreed > 0) return agreed;
   const squad = state.innings === 0 ? state.squadA : state.squadB;
   return squad.length > 1 ? squad.length - 1 : DEFAULT_MAX_WICKETS;
 }
@@ -514,7 +658,7 @@ export function inningsOver(
   if (limit > 0 && balls >= limit * 6) {
     return `Over limit reached — ${limit} ${limit === 1 ? "over" : "overs"} bowled.`;
   }
-  if (wickets >= maxWickets(state)) return "All out.";
+  if (wickets >= maxWickets(state, rules)) return "All out.";
   // Second innings only: once the target is passed the game is decided.
   if (state.innings === 1 && state.runsB > state.runsA) {
     return "Target chased.";
@@ -537,6 +681,16 @@ export function validateScoreEvent(
   event: ScoreEvent,
   rules: MatchRules,
 ): string | null {
+  // Penalty runs are awarded by an umpire, not bowled, so they are legal
+  // whenever a match is in progress — including between overs.
+  if (event.t === "PENALTY") {
+    if (!Number.isInteger(event.runs) || event.runs <= 0) {
+      return "Penalty runs must be a positive whole number";
+    }
+    if (event.runs > 10) return "That is more than any penalty in the Laws";
+    return null;
+  }
+
   // Rosters are always editable — a scorer routinely adds a latecomer.
   if (event.t === "SQUAD") {
     const names = event.players.map((p) => p.trim()).filter(Boolean);
@@ -596,6 +750,16 @@ export function validateScoreEvent(
     if (state.bowler === event.name) return `${event.name} is already bowling`;
     // Only bites when an over is actually starting; mid-over the bowler is
     // already committed. thisOver is cleared the moment an over closes.
+    // The quota bites when a bowler is about to START an over — mid-over
+    // they are already committed and cannot be pulled out by a rule.
+    if (
+      bowlerSpent({
+        ballsBowled: state.bowling[event.name]?.balls ?? 0,
+        maxOvers: rules.maxOversPerBowler,
+      })
+    ) {
+      return `${event.name} has bowled their ${rules.maxOversPerBowler} overs`;
+    }
     if (state.thisOver.length === 0 && state.lastOverBowler === event.name) {
       return "A bowler can't bowl two overs in a row";
     }
@@ -611,6 +775,16 @@ export function validateScoreEvent(
     if (done) return `${done} End the innings.`;
     if (!state.striker) return "Set the openers before scoring a ball";
     if (!state.bowler) return "Pick the bowler for this over first";
+    if (event.t === "WICKET" && state.freeHit && event.delivery !== "NO_BALL") {
+      // A free hit protects the batter from everything the bowler earns.
+      // A no-ball is exempt because it is not the free-hit delivery being
+      // consumed — it re-arms the next one instead.
+      const kind = event.kind ?? "OTHER";
+      const allowed = ["RUN_OUT", "OBSTRUCTING_FIELD", "HIT_BALL_TWICE", "OTHER"];
+      if (!allowed.includes(kind)) {
+        return "It's a free hit — only a run out, obstructing the field or hitting the ball twice";
+      }
+    }
     if (event.t === "WICKET") {
       const who = event.batter ?? state.striker;
       if (who && state.batting[who]?.out) return `${who} is already out`;
@@ -641,12 +815,31 @@ export function validateScoreEvent(
           return "Only the non-striker can be run out before the delivery";
         }
         if (event.runs) return "No runs can be scored before the ball is bowled";
+        if (event.delivery) {
+          return "A run out before the delivery is neither a wide nor a no-ball";
+        }
+      }
+      // What a wide or a no-ball can actually produce. Nothing the bowler
+      // earns off the stumps counts off either of them.
+      if (event.delivery === "NO_BALL" && event.kind && event.kind !== "OTHER") {
+        if (!["RUN_OUT", "OBSTRUCTING_FIELD", "HIT_BALL_TWICE"].includes(event.kind)) {
+          return "A no-ball can only produce a run out, obstructing the field or hitting the ball twice";
+        }
+      }
+      if (event.delivery === "WIDE" && event.kind && event.kind !== "OTHER") {
+        // Not hit the ball twice: a ball you managed to hit was never wide.
+        if (!["RUN_OUT", "STUMPED", "HIT_WICKET", "OBSTRUCTING_FIELD"].includes(event.kind)) {
+          return "A wide can only produce a run out, a stumping, hit wicket or obstructing the field";
+        }
       }
       if (event.newBatter) {
         if (!inSquad(batting, event.newBatter)) {
           return "The incoming batter isn't in the batting side";
         }
-        if (state.batting[event.newBatter]?.out) {
+        // A batter who retired HURT is not out and may resume — that is
+        // the whole point of the distinction.
+        const mark = state.batting[event.newBatter]?.out;
+        if (mark && mark !== "RETIRED_HURT") {
           return `${event.newBatter} is already out`;
         }
         if (
@@ -708,6 +901,8 @@ export async function createPublicMatch(input: {
   teamAName: string;
   teamBName: string;
   oversPerInnings?: number | null;
+  maxOversPerBowler?: number | null;
+  wicketsPerInnings?: number | null;
   createdByUserId?: string | null;
 }): Promise<{ ok: boolean; error?: string; code?: string }> {
   const a = input.teamAName.trim().slice(0, 40);
@@ -730,6 +925,10 @@ export async function createPublicMatch(input: {
         teamBName: b,
         oversPerInnings:
           input.sport === "CRICKET" ? (input.oversPerInnings ?? null) : null,
+        maxOversPerBowler:
+          input.sport === "CRICKET" ? (input.maxOversPerBowler ?? null) : null,
+        wicketsPerInnings:
+          input.sport === "CRICKET" ? (input.wicketsPerInnings ?? null) : null,
         createdByUserId: input.createdByUserId ?? null,
         state: EMPTY as unknown as object,
         events: [] as unknown as object,
@@ -753,6 +952,8 @@ export async function getPublicMatch(code: string) {
     teamAName: m.teamAName,
     teamBName: m.teamBName,
     oversPerInnings: m.oversPerInnings,
+    maxOversPerBowler: m.maxOversPerBowler,
+    wicketsPerInnings: m.wicketsPerInnings,
     createdByUserId: m.createdByUserId,
     state: replay(events, m.sport as PublicMatchSport),
     // The raw log goes out with the board so a scorer's phone can append
@@ -788,6 +989,8 @@ export async function scorePublicMatch(args: {
       createdByUserId: true,
       events: true,
       oversPerInnings: true,
+      maxOversPerBowler: true,
+      wicketsPerInnings: true,
     },
   });
   if (!m) return { ok: false, error: "Match not found" };
@@ -827,6 +1030,8 @@ export async function scorePublicMatch(args: {
     const problem = validateScoreEvent(replay(events, sport), e, {
       sport,
       oversPerInnings: m.oversPerInnings,
+      maxOversPerBowler: m.maxOversPerBowler,
+      wicketsPerInnings: m.wicketsPerInnings,
     });
     if (problem) return { ok: false, error: problem };
     events.push(e);

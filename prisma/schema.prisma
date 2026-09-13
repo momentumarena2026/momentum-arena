@@ -3877,6 +3877,13 @@ model PublicMatch {
 
   // Cricket only.
   oversPerInnings Int?
+  /// Overs one bowler may send down. Null or 0 = no limit, which is the
+  /// right default for a pickup game — the cap only matters when someone
+  /// has organised the match enough to care.
+  maxOversPerBowler Int?
+  /// Wickets a side has. Null falls back to squad size minus one, which is
+  /// what a casual game means by "all out" when nobody said otherwise.
+  wicketsPerInnings Int?
 
   // Compact scoreboard, plus an append-only event log that makes undo a
   // replay rather than a guess at what to subtract.

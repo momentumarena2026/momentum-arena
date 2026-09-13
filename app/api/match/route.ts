@@ -72,6 +72,8 @@ export async function POST(request: NextRequest) {
       teamAName: String(body.teamAName ?? ""),
       teamBName: String(body.teamBName ?? ""),
       oversPerInnings: body.oversPerInnings ? Number(body.oversPerInnings) : null,
+      maxOversPerBowler: body.maxOversPerBowler ? Number(body.maxOversPerBowler) : null,
+      wicketsPerInnings: body.wicketsPerInnings ? Number(body.wicketsPerInnings) : null,
       createdByUserId: userId,
     });
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });

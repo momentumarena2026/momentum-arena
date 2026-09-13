@@ -1,5 +1,12 @@
 import { db } from "@/lib/db";
-import { creditsBowler, isDismissal } from "@/lib/cricket-dismissal";
+import { creditsBowler, isDismissal, toWicketKind } from "@/lib/cricket-dismissal";
+import {
+  endsAfterWicket,
+  dismissalRefusal,
+  armsFreeHit,
+  type CreaseEnd,
+  type Delivery,
+} from "@/lib/cricket-rules";
 
 // Live scoring engine. One append-only event log per match; the live
 // scoreboard state is a FOLD of the events in seq order, so:
@@ -52,7 +59,7 @@ const MEMBER_REF_KEYS = [
 
 
 
-type EventRow = {
+export type EventRow = {
   seq: number;
   kind: string;
   teamId: string | null;
@@ -87,6 +94,12 @@ export type CricketCurrent = {
   spells: { id: string; balls: number }[];
   /** Who bowled the over that just finished — they can't bowl the next one. */
   lastOverBowlerId: string | null;
+  /**
+   * The NEXT delivery is a free hit, because the last one was a no-ball.
+   * The batter can only be run out, obstruct the field or hit the ball
+   * twice on it, and it survives the end of an over.
+   */
+  freeHit: boolean;
 };
 
 export type CricketState = {
@@ -112,6 +125,7 @@ const emptyCurrent = (): CricketCurrent => ({
   dismissed: [],
   spells: [],
   lastOverBowlerId: null,
+  freeHit: false,
 });
 
 /**
@@ -165,6 +179,84 @@ export function bowlerRunsOf(runs: number, extra?: string | null): number {
   return extra === "b" || extra === "lb" ? 0 : runs;
 }
 
+/**
+ * Super overs.
+ *
+ * A tie in a knockout has to resolve, so the innings list simply keeps
+ * growing: 1 and 2 are the match, 3 and 4 are the first super over, 5 and
+ * 6 the second, and so on until somebody wins. Modelling it as more
+ * innings rather than as a separate structure means the fold, the
+ * scorecard and the over-strip all keep working untouched — a super over
+ * IS an innings, just a short one with its own limits.
+ *
+ * One over and two wickets each. Two dismissals end it, which is why
+ * three batters are nominated and only three are needed.
+ */
+export const SUPER_OVER_OVERS = 1;
+export const SUPER_OVER_WICKETS = 2;
+
+/** 0 while the match proper is being played; 1, 2, … once tied. */
+export function superOverRound(inning: number): number {
+  return inning <= 2 ? 0 : Math.ceil((inning - 2) / 2);
+}
+
+/** The over and wicket limits for whichever innings is in progress. */
+export function inningsLimits(
+  inning: number,
+  ctx: { oversPerInnings: number; wicketsPerInnings: number },
+): { overs: number; wickets: number } {
+  if (superOverRound(inning) > 0) {
+    return { overs: SUPER_OVER_OVERS, wickets: SUPER_OVER_WICKETS };
+  }
+  return {
+    overs: ctx.oversPerInnings,
+    wickets: ctx.wicketsPerInnings || DEFAULT_WICKETS_PER_INNINGS,
+  };
+}
+
+/**
+ * Are the two innings of the round just finished level?
+ *
+ * Only asked of a COMPLETE pair — a half-played round is not a tie, it is
+ * an unfinished one. Returns null when the round isn't over yet.
+ */
+export function roundIsTied(st: CricketState): boolean | null {
+  if (st.inning < 2 || st.inning % 2 === 1) return null;
+  const a = st.innings[st.inning - 2];
+  const b = st.innings[st.inning - 1];
+  if (!a || !b) return null;
+  return a.runs === b.runs;
+}
+
+/**
+ * Who bats first in the next super over.
+ *
+ * The side that batted SECOND in the round just finished — true of the
+ * match itself and of every super over after it, which is what keeps the
+ * order alternating.
+ */
+export function nextSuperOverBattingTeam(st: CricketState): string | null {
+  if (st.inning < 2) return null;
+  return st.innings[st.inning - 1]?.teamId ?? null;
+}
+
+/**
+ * Who won on super overs, if anyone has yet.
+ *
+ * Walks the rounds after the match itself, newest last, and returns the
+ * side that won the first one that was not level. Null while every round
+ * so far is tied — which is exactly when another super over is owed.
+ */
+export function superOverWinner(st: CricketState): string | null {
+  for (let i = 2; i + 1 < st.innings.length; i += 2) {
+    const a = st.innings[i];
+    const b = st.innings[i + 1];
+    if (!a || !b || a.runs === b.runs) continue;
+    return a.runs > b.runs ? a.teamId : b.teamId;
+  }
+  return null;
+}
+
 /** Short label for one delivery, as it reads on a scoreboard over-strip. */
 function ballLabel(d: { runs: number; extra?: string | null; wicket?: boolean }): string {
   if (d.wicket) return "W";
@@ -199,7 +291,10 @@ export function foldCricket(
       st.inning += 1;
       st.battingTeamId = e.teamId;
       st.innings.push({ teamId: e.teamId, runs: 0, wickets: 0, balls: 0 });
-      if (st.inning === 2 && st.innings[0]) st.target = st.innings[0].runs + 1;
+      // A super over chases the other side's super-over total, not the
+      // match total — and the first innings of any round chases nothing.
+      const prior = st.innings[st.inning - 2];
+      st.target = st.inning % 2 === 0 && prior ? prior.runs + 1 : null;
       // New innings — everyone leaves the field.
       st.current = emptyCurrent();
       batFigures = new Map();
@@ -241,18 +336,40 @@ export function foldCricket(
         bowlerId?: string;
         /** Run-outs can take either batter, so the scorer names who went. */
         outBatterId?: string;
+        /**
+         * Which END a run out happened at. The striker can be run out at
+         * the NON-striker's end, having crossed — and then the survivor
+         * keeps strike while the new batter walks to the far end. Resolving
+         * from the dismissed batter's own end, which this did, left the
+         * wrong man facing for the rest of the over.
+         */
+        outAtEnd?: CreaseEnd;
+        /** A Mankad: no delivery was bowled, so it costs no ball. */
+        beforeDelivery?: boolean;
+        /** Of `runs`, how many beat the bat — never the striker's. */
+        byes?: number;
         /** "bowled" | "caught" | "lbw" | "runout" | "stumped" | "hitwicket" */
         dismissal?: string;
       };
       const runs = Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(raw.runs) || 0));
       const extra = raw.extra || null;
       const wicket = !!raw.wicket;
-      const legal = extra !== "wd" && extra !== "nb"; // wides/no-balls are re-bowled
+      // Wides and no-balls are re-bowled; a Mankad was never bowled at all.
+      const beforeDelivery = !!raw.beforeDelivery;
+      const legal = extra !== "wd" && extra !== "nb" && !beforeDelivery;
+      const delivery: Delivery =
+        extra === "wd" ? "WIDE" : extra === "nb" ? "NO_BALL" : "LEGAL";
+      // Runs that beat the bat are extras, not the striker's. Absent on
+      // every event stored before this existed, which is the old meaning.
+      const byes = Math.max(0, Math.min(runs, Number(raw.byes) || 0));
       const batterId = raw.batterId || e.memberId || null;
       const bowlerId = raw.bowlerId || null;
 
       inn.runs += runs;
-      if (wicket) inn.wickets = Math.min(maxWickets, inn.wickets + 1);
+      // A super over is two wickets, whatever the tournament plays.
+      const wicketCap =
+        superOverRound(st.inning) > 0 ? SUPER_OVER_WICKETS : maxWickets;
+      if (wicket) inn.wickets = Math.min(wicketCap, inn.wickets + 1);
       if (legal) inn.balls += 1;
 
       const cur = st.current;
@@ -269,8 +386,9 @@ export function foldCricket(
       if (onStrike) {
         cur.strikerId = onStrike;
         const f = batFigures.get(onStrike) || { runs: 0, balls: 0, out: false };
-        if (extra !== "wd") f.balls += 1; // a wide isn't a ball faced
-        f.runs += batterRunsOf(runs, extra);
+        // Nobody faces a wide, and nobody faces a ball that was never bowled.
+        if (extra !== "wd" && !beforeDelivery) f.balls += 1;
+        f.runs += Math.max(0, batterRunsOf(runs, extra) - byes);
         batFigures.set(onStrike, f);
       }
       if (bowlerId) {
@@ -296,7 +414,8 @@ export function foldCricket(
       // single left the same player facing until someone re-tagged by
       // hand. Runs off the bat, byes and leg-byes all rotate; the penalty
       // run on a wide/no-ball does not, because nobody ran it.
-      if (runsRunByBatsmen({ runs, extra }) % 2 === 1) swapEnds(cur);
+      // A Mankad moves nobody: no ball, no runs, no crossing.
+      if (!beforeDelivery && runsRunByBatsmen({ runs, extra }) % 2 === 1) swapEnds(cur);
 
       if (wicket) {
         // Who actually went. Defaults to whoever is now at the striker's
@@ -312,11 +431,27 @@ export function foldCricket(
           const f = batFigures.get(outId);
           if (f) f.out = true;
           if (!cur.dismissed.includes(outId)) cur.dismissed.push(outId);
-          if (cur.nonStrikerId === outId) cur.nonStrikerId = null;
-          else cur.strikerId = null;
+          // The new batter takes the end the DISMISSAL happened at and the
+          // survivor takes the other — one rule covering all four run-out
+          // cases. Nobody is named yet (the console asks next), so the
+          // dismissal end is left vacant for them.
+          const placed = endsAfterWicket({
+            striker: cur.strikerId,
+            nonStriker: cur.nonStrikerId,
+            outBatter: outId,
+            outAtEnd: raw.outAtEnd ?? null,
+            newBatter: null,
+          });
+          cur.strikerId = placed.striker;
+          cur.nonStrikerId = placed.nonStriker;
         }
         cur.partnership = { runs: 0, balls: 0 };
       }
+
+      // A legal delivery consumes the free hit; a wide or another no-ball
+      // leaves it standing for the next ball.
+      if (legal) cur.freeHit = false;
+      if (armsFreeHit(delivery)) cur.freeHit = true;
 
       if (cur.ballsThisOver >= 6) {
         // Over complete: the batsmen keep their ends but change which one
@@ -510,7 +645,10 @@ async function refoldMatch(matchId: string): Promise<void> {
   if (sport === "CRICKET") {
     const st = foldCricket(events);
     liveState = st;
-    for (const inn of st.innings) {
+    // The MATCH score stays the match score. A super over breaks a tie; it
+    // does not rewrite what the two sides made, and a scorecard reading
+    // "11 vs 9" for a game that finished level would be a lie.
+    for (const inn of st.innings.slice(0, 2)) {
       if (inn.teamId === match.homeTeamId) homeScore = inn.runs;
       if (inn.teamId === match.awayTeamId) awayScore = inn.runs;
     }
@@ -586,6 +724,15 @@ function sanitiseEventData(
     if (extra && CRICKET_EXTRAS.has(extra)) out.extra = extra;
     const dismissal = str(raw.dismissal);
     if (isDismissal(dismissal)) out.dismissal = dismissal;
+    // The three facts only a run out needs. Dropped for anything else so a
+    // stray field can't quietly change where the batters stand.
+    if (dismissal === "runout") {
+      const end = str(raw.outAtEnd);
+      if (end === "STRIKER" || end === "NON_STRIKER") out.outAtEnd = end;
+      if (raw.beforeDelivery === true) out.beforeDelivery = true;
+    }
+    const byes = Number(raw.byes);
+    if (Number.isInteger(byes) && byes > 0) out.byes = Math.min(byes, MAX_RUNS_PER_BALL);
     for (const key of MEMBER_REF_KEYS) {
       const ref = str(raw[key]);
       if (ref) out[key] = ref;
@@ -647,7 +794,20 @@ export function validateLiveEvent(
     const st = foldCricket(events, maxWickets);
     if (input.kind === "INNINGS_START") {
       if (!input.teamId) return "Pick which team is batting";
-      if (st.inning >= 2) return "Both innings have already been played";
+      if (st.inning >= 2) {
+        // Past the two innings of the match, the only legal reason to
+        // start another is a tie that has to be broken.
+        const tied = roundIsTied(st);
+        if (tied === null) return "That round isn't finished yet";
+        if (!tied) return "This match already has a winner";
+        // The side that batted second in the round just finished bats
+        // first in the next one, which is what alternates the order.
+        const opensNext = nextSuperOverBattingTeam(st);
+        if (opensNext && input.teamId !== opensNext) {
+          return "The side that batted second bats first in the super over";
+        }
+        return null;
+      }
       if (st.innings.some((i) => i.teamId === input.teamId)) return "That team has already batted";
       return null;
     }
@@ -696,23 +856,58 @@ export function validateLiveEvent(
       if (!batterId) return "Pick the batter on strike first";
       if (!bowlerId) return "Pick the bowler first";
 
+      // What this delivery is allowed to have produced. The free hit is the
+      // one that bites in practice: without it a bowled off a free hit is
+      // recorded happily and a batter who was protected loses their innings.
+      const dismissal = typeof d.dismissal === "string" ? d.dismissal : null;
+      if (d.wicket && dismissal) {
+        const extraKind = typeof d.extra === "string" ? d.extra : null;
+        const refusal = dismissalRefusal(toWicketKind(dismissal), {
+          delivery: extraKind === "wd" ? "WIDE" : extraKind === "nb" ? "NO_BALL" : "LEGAL",
+          freeHit: cur.freeHit,
+          beforeDelivery: d.beforeDelivery === true,
+        });
+        if (refusal) return refusal;
+      }
+
       const bowlingTeamId = other(st.battingTeamId);
       if (teamOf(batterId) !== st.battingTeamId) return "That batter isn't in the batting side";
       if (teamOf(bowlerId) !== bowlingTeamId) return "That bowler isn't in the fielding side";
       if (cur.dismissed.includes(batterId)) return "That batter is already out";
-      if (inn && inn.wickets >= maxWickets) return "All out — end the innings";
-      // The innings is only as long as the tournament says it is.
-      if (ctx.oversPerInnings > 0 && inn && inn.balls >= ctx.oversPerInnings * 6) {
-        return `Innings complete — ${ctx.oversPerInnings} overs bowled. End the innings.`;
+      // A super over has its own, much shorter limits — one over and two
+      // wickets — regardless of what the tournament plays.
+      const limits = inningsLimits(st.inning, {
+        oversPerInnings: ctx.oversPerInnings,
+        wicketsPerInnings: maxWickets,
+      });
+      if (inn && inn.wickets >= limits.wickets) {
+        return superOverRound(st.inning) > 0
+          ? "Two down — the super over is finished. End the innings."
+          : "All out — end the innings";
+      }
+      if (limits.overs > 0 && inn && inn.balls >= limits.overs * 6) {
+        return superOverRound(st.inning) > 0
+          ? "The super over is complete. End the innings."
+          : `Innings complete — ${limits.overs} overs bowled. End the innings.`;
       }
 
       // Quota and the consecutive-overs law both bite only when the bowler
       // is STARTING an over; mid-over they're already committed.
       const startingOver = cur.thisOver.length === 0;
-      if (startingOver && cur.lastOverBowlerId && bowlerId === cur.lastOverBowlerId) {
+      // Neither law applies inside a super over: it is a single over, and
+      // each side nominates one bowler to send it down.
+      const inSuperOver = superOverRound(st.inning) > 0;
+      if (
+        !inSuperOver &&
+        startingOver &&
+        cur.lastOverBowlerId &&
+        bowlerId === cur.lastOverBowlerId
+      ) {
         return "A bowler can't bowl two overs in a row";
       }
-      if (ctx.maxOversPerBowler > 0) {
+      // The match quota has nothing to say about a super over, which is a
+      // separate allocation of exactly one over.
+      if (!inSuperOver && ctx.maxOversPerBowler > 0) {
         const balls = cur.spells.find((s) => s.id === bowlerId)?.balls ?? 0;
         if (balls >= ctx.maxOversPerBowler * 6) {
           return `That bowler has already bowled their ${ctx.maxOversPerBowler} overs`;
@@ -1026,9 +1221,19 @@ export async function endLiveMatch(
   let winner: string | null = null;
   let isDraw = false;
   if (home === away) {
-    if (winnerTeamId && [match.homeTeamId, match.awayTeamId].includes(winnerTeamId)) {
+    // A super over that has been played decides it, and decides it before
+    // anyone is asked to pick — being asked to name a winner after the
+    // teams have just settled it on the field is how the wrong name gets
+    // recorded.
+    const live = match.liveState as CricketState | null;
+    const onSuperOvers =
+      live && live.sport === "CRICKET" ? superOverWinner(live) : null;
+    if (onSuperOvers) {
+      winner = onSuperOvers;
+    } else if (winnerTeamId && [match.homeTeamId, match.awayTeamId].includes(winnerTeamId)) {
       winner = winnerTeamId;
     } else if (isRR) {
+      // A pool game may simply be tied — points are shared.
       isDraw = true;
     } else {
       return { ok: false, needsWinner: true, error: "Tied — pick the winner" };

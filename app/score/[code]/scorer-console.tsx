@@ -44,6 +44,8 @@ type CricketCurrent = {
   bowlerId: string | null;
   batters: { id: string; runs: number; balls: number }[];
   bowler: { id: string; balls: number; runs: number; wickets: number } | null;
+  /** The next delivery is a free hit, because the last was a no-ball. */
+  freeHit?: boolean;
   thisOver: string[];
   ballsThisOver: number;
   partnership: { runs: number; balls: number };
@@ -114,8 +116,17 @@ export function ScorerConsole({ code }: { code: string }) {
    *  half-built wicket until the scorer names them (or says they didn't
    *  see it), then the whole thing is logged as one delivery. */
   const [fielderFor, setFielderFor] = useState<
-    { dismissal: string; outBatterId?: string } | null
+    {
+      dismissal: string;
+      outBatterId?: string;
+      outAtEnd?: "STRIKER" | "NON_STRIKER";
+      beforeDelivery?: boolean;
+    } | null
   >(null);
+  /** Step two of a run out: which END it happened at. The striker can be
+   *  run out at the NON-striker's end, having crossed — and then the
+   *  survivor keeps strike. It cannot be inferred, only asked. */
+  const [endFor, setEndFor] = useState<{ outBatterId: string } | null>(null);
   /** Run out only: which batter was out. It can take either end, so it
    *  can't be inferred — and it has to be asked from a row that is
    *  visible without scrolling, which is why "Run out" sits with the
@@ -272,6 +283,10 @@ export function ScorerConsole({ code }: { code: string }) {
     outBatterId?: string;
     /** Who caught / stumped / ran them out, so the card can say so. */
     fielderId?: string;
+    /** Which end a run out happened at — the new batter takes that end. */
+    outAtEnd?: "STRIKER" | "NON_STRIKER";
+    /** A Mankad: no ball was bowled, so the over doesn't advance. */
+    beforeDelivery?: boolean;
   }) => {
     await send({
       action: "event",
@@ -371,6 +386,14 @@ export function ScorerConsole({ code }: { code: string }) {
 
   const sport = boot.tournament.sport;
   const cs = (match.liveState || null) as CricketState | null;
+  /** Level after a COMPLETE round — the only state a super over answers.
+   *  A half-played round is not a tie, it is an unfinished one. */
+  const tiedNow = (() => {
+    if (!cs || cs.inning < 2 || cs.inning % 2 === 1) return false;
+    const a = cs.innings[cs.inning - 2];
+    const b = cs.innings[cs.inning - 1];
+    return !!a && !!b && a.runs === b.runs;
+  })();
   const ps = (match.liveState || null) as PickleState | null;
 
   const battingTeam = cs?.battingTeamId === match.awayTeam.id ? match.awayTeam : match.homeTeam;
@@ -485,6 +508,15 @@ export function ScorerConsole({ code }: { code: string }) {
                     : "—"}
                 </span>
               </button>
+
+              {/* A free hit the scorer can't see is a free hit they will
+                  score wrong, and the error is silent — the bowler simply
+                  gets a wicket the batter was protected from. */}
+              {liveCur?.freeHit ? (
+                <div className="mt-1.5 rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold tracking-wide text-amber-300">
+                  FREE HIT — only a run out counts
+                </div>
+              ) : null}
 
               <div className="flex items-center justify-between gap-2 pt-1.5">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -683,7 +715,7 @@ export function ScorerConsole({ code }: { code: string }) {
                       >
                         Retire
                       </button>
-                      {cs && cs.inning === 1 && (
+                      {cs && cs.inning % 2 === 1 && (
                         <button
                           onClick={() => {
                             const other =
@@ -695,6 +727,25 @@ export function ScorerConsole({ code }: { code: string }) {
                           className={`${bigBtn} h-12 border-sky-500/40 bg-sky-600/10 text-sm text-sky-300`}
                         >
                           End Innings
+                        </button>
+                      )}
+                      {/* Tied, and both sides have batted. A knockout has to
+                          resolve, so offer the super over right here rather
+                          than making the organiser work out that the game
+                          isn't actually over. The side that batted SECOND
+                          opens it — the server refuses any other. */}
+                      {cs && cs.inning >= 2 && cs.inning % 2 === 0 && tiedNow && (
+                        <button
+                          onClick={() => {
+                            const opensNext = cs.innings[cs.inning - 1]?.teamId;
+                            if (!opensNext) return;
+                            resetPlayers();
+                            ev("INNINGS_START", { teamId: opensNext });
+                          }}
+                          disabled={busy}
+                          className={`${bigBtn} h-12 border-amber-500/50 bg-amber-500/10 text-sm font-semibold text-amber-300`}
+                        >
+                          {cs.inning === 2 ? "Tied — start super over" : "Still tied — another super over"}
                         </button>
                       )}
                     </div>
@@ -882,6 +933,11 @@ export function ScorerConsole({ code }: { code: string }) {
                 ["stumped", "Stumped"],
                 ["hitwicket", "Hit wicket"],
                 ["runout", "Run out"],
+                // The rest of the ten. None of them is the bowler's.
+                ["obstructing", "Obstructing the field"],
+                ["hitballtwice", "Hit the ball twice"],
+                ["timedout", "Timed out"],
+                ["retiredout", "Retired out"],
               ] as const
             ).map(([kind, label]) => (
               <button
@@ -929,7 +985,7 @@ export function ScorerConsole({ code }: { code: string }) {
                 key={id}
                 onClick={() => {
                   setOutBatterFor(null);
-                  setFielderFor({ dismissal: "runout", outBatterId: id });
+                  setEndFor({ outBatterId: id });
                 }}
                 className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
               >
@@ -939,6 +995,76 @@ export function ScorerConsole({ code }: { code: string }) {
                 </span>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Run out: at WHICH end? ──────────────────────────────────
+          The one the Laws surprise people with. A striker run out at the
+          non-striker's end must have crossed, so the survivor keeps strike
+          and the new batter walks to the far end — the opposite of what
+          resolving from the dismissed batter's own end would give. */}
+      {endFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={() => setEndFor(null)}
+        >
+          <div
+            className="max-h-[80vh] w-full overflow-y-auto rounded-t-3xl border-t border-zinc-800 bg-zinc-950 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-4">
+              <div>
+                <h3 className="font-semibold text-white">At which end?</h3>
+                <p className="text-xs text-zinc-500">
+                  {nameOfPlayer(endFor.outBatterId) || "Batter"} was run out
+                </p>
+              </div>
+              <button onClick={() => setEndFor(null)} className="text-zinc-400 hover:text-white">
+                Close
+              </button>
+            </div>
+            {(
+              [
+                ["STRIKER", "The striker's end", "the batting end"],
+                ["NON_STRIKER", "The non-striker's end", "the bowler's end"],
+              ] as const
+            ).map(([end, label, hint]) => (
+              <button
+                key={end}
+                onClick={() => {
+                  const outBatterId = endFor.outBatterId;
+                  setEndFor(null);
+                  setFielderFor({ dismissal: "runout", outBatterId, outAtEnd: end });
+                }}
+                className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
+              >
+                {label}
+                <span className="text-xs text-zinc-500">{hint}</span>
+              </button>
+            ))}
+            {/* Only the non-striker, at their own end, can be Mankaded —
+                and it is not a delivery, so it costs no ball. */}
+            {endFor.outBatterId === nonStrikerId && (
+              <button
+                onClick={() => {
+                  const outBatterId = endFor.outBatterId;
+                  setEndFor(null);
+                  void ball({
+                    runs: 0,
+                    wicket: true,
+                    dismissal: "runout",
+                    outBatterId,
+                    outAtEnd: "NON_STRIKER",
+                    beforeDelivery: true,
+                  });
+                }}
+                className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-amber-300 hover:bg-zinc-800/60"
+              >
+                Backing up, before the delivery
+                <span className="text-xs text-zinc-500">costs no ball</span>
+              </button>
+            )}
           </div>
         </div>
       )}

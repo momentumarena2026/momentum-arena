@@ -58,6 +58,12 @@ const WICKET_KINDS: Array<{ k: WicketKind; label: string }> = [
   { k: "RUN_OUT", label: "Run out" },
   { k: "STUMPED", label: "Stumped" },
   { k: "HIT_WICKET", label: "Hit wicket" },
+  // The rare four. Named rather than lumped into "Other", because the
+  // scorecard should say how a batter went — and because none of them is
+  // the bowler's wicket, which "Other" quietly awarded.
+  { k: "OBSTRUCTING_FIELD", label: "Obstructing the field" },
+  { k: "HIT_BALL_TWICE", label: "Hit the ball twice" },
+  { k: "TIMED_OUT", label: "Timed out" },
   { k: "OTHER", label: "Other" },
 ];
 
@@ -89,6 +95,8 @@ export function MatchScoreScreen() {
   // stable across renders or every tap would re-create the flush timer.
   const sportRef = useRef<MatchRules["sport"]>("CRICKET");
   const oversRef = useRef<number | null>(null);
+  const bowlerOversRef = useRef<number | null>(null);
+  const wicketsRef = useRef<number | null>(null);
 
   // Seed the local log once from the server. Re-seeding on every refetch
   // would stomp taps that haven't flushed yet.
@@ -148,6 +156,8 @@ export function MatchScoreScreen() {
         const problem = validateScoreEvent(replay(log, sportRef.current), e, {
           sport: sportRef.current,
           oversPerInnings: oversRef.current,
+          maxOversPerBowler: bowlerOversRef.current,
+          wicketsPerInnings: wicketsRef.current,
         });
         if (problem) {
           Alert.alert("Can't do that", problem);
@@ -190,6 +200,8 @@ export function MatchScoreScreen() {
   const cricket = sport === "CRICKET";
   sportRef.current = sport;
   oversRef.current = match?.oversPerInnings ?? null;
+  bowlerOversRef.current = match?.maxOversPerBowler ?? null;
+  wicketsRef.current = match?.wicketsPerInnings ?? null;
 
   // The board: replayed locally for the scorer, straight from the server
   // for everyone else.
@@ -219,9 +231,14 @@ export function MatchScoreScreen() {
     ? inningsOver(s, { sport, oversPerInnings: match.oversPerInnings })
     : null;
   // Whoever is out or already at the crease can't walk in again.
-  const availableBatters = battingSquad.filter(
-    (n) => n !== s.striker && n !== s.nonStriker && !s.batting[n]?.out,
-  );
+  // Anyone not currently at the crease and not out — which includes a
+  // batter who retired hurt, since that was never a dismissal and they are
+  // entitled to come back when the next wicket falls.
+  const availableBatters = battingSquad.filter((n) => {
+    if (n === s.striker || n === s.nonStriker) return false;
+    const mark = s.batting[n]?.out;
+    return !mark || mark === "RETIRED_HURT";
+  });
 
   const openSquad = (side: "A" | "B") => {
     setSquadText((side === "A" ? s.squadA : s.squadB).join("\n"));
@@ -277,6 +294,24 @@ export function MatchScoreScreen() {
       },
     });
 
+  /** Ask who walks in, then log the wicket. A wicket needs a replacement
+   *  or the crease is left empty, so this is always the last step —
+   *  unless there is nobody left to come in. */
+  const askNewBatterWith = (extra: Partial<Extract<ScoreEvent, { t: "WICKET" }>>) => {
+    if (availableBatters.length === 0) {
+      push({ t: "WICKET", kind: wicketKind, ...extra });
+      return;
+    }
+    setPick({
+      title: "Next batter in",
+      names: availableBatters,
+      onPick: (newBatter) => {
+        push({ t: "WICKET", kind: wicketKind, newBatter, ...extra });
+        setPick(null);
+      },
+    });
+  };
+
   /**
    * Finish a wicket.
    *
@@ -294,27 +329,31 @@ export function MatchScoreScreen() {
   const confirmWicket = () => {
     setWicketOpen(false);
 
-    const askNewBatter = (extra: Partial<ScoreEvent & { t: "WICKET" }>) => {
-      // A wicket needs a replacement or the crease is left empty — ask
-      // straight away, unless there's nobody left to come in.
-      if (availableBatters.length === 0) {
-        push({ t: "WICKET", kind: wicketKind, ...extra });
-        return;
-      }
-      setPick({
-        title: "Next batter in",
-        names: availableBatters,
-        onPick: (newBatter) => {
-          push({ t: "WICKET", kind: wicketKind, newBatter, ...extra });
-          setPick(null);
-        },
-      });
-    };
-
     if (wicketKind !== "RUN_OUT" || !s.striker || !s.nonStriker) {
-      askNewBatter({});
+      askNewBatterWith({});
       return;
     }
+
+    // Which delivery it fell on, asked first because it changes what the
+    // later questions mean — runs off a wide are extras, runs off a
+    // no-ball are the striker's. A run out is the only dismissal the
+    // scorer can reach here that a wide or a no-ball can produce, so no
+    // other path pays for this tap.
+    setPick({
+      title: "What was the delivery?",
+      names: ["Legal ball", "Wide", "No-ball"],
+      onPick: (d) => {
+        const delivery =
+          d === "Wide" ? ("WIDE" as const) : d === "No-ball" ? ("NO_BALL" as const) : null;
+        askRunOut(delivery);
+      },
+    });
+  };
+
+  /** The rest of a run out, once the delivery is known. */
+  const askRunOut = (delivery: "WIDE" | "NO_BALL" | null) => {
+    if (!s.striker || !s.nonStriker) return;
+    const onExtra = delivery !== null;
 
     // Who and where, in one question. Four rows rather than two questions,
     // because a scorer watching a run out is holding the whole picture at
@@ -349,13 +388,22 @@ export function MatchScoreScreen() {
         }
         const askRuns = () =>
           setPick({
-            title: "Runs completed before the run out",
+            // What "runs" means changes with the delivery, so the question
+            // says which: off a wide they are extras and the wide itself
+            // is already counted, off a no-ball they are the striker's.
+            title:
+              delivery === "WIDE"
+                ? "Runs they ran, besides the wide"
+                : delivery === "NO_BALL"
+                  ? "Runs off the bat before the run out"
+                  : "Runs completed before the run out",
             names: ["None", "1 run", "2 runs", "3 runs"],
             onPick: (r) => {
               const runs = r === "None" ? 0 : Number(r[0]);
-              askNewBatter({
+              askNewBatterWith({
                 batter: chosen.batter,
                 outAtEnd: chosen.end,
+                ...(delivery ? { delivery } : {}),
                 ...(runs > 0 ? { runs } : {}),
               });
             },
@@ -366,8 +414,11 @@ export function MatchScoreScreen() {
         // paths stay two taps — a question that appears on every run out
         // to catch a once-a-season dismissal is a question that gets
         // answered without reading.
+        // A Mankad happens before the ball leaves the hand, so it can be
+        // neither a wide nor a no-ball — the question is skipped entirely
+        // once the scorer has said it was an extra.
         const couldBeMankad =
-          chosen.batter === s.nonStriker && chosen.end === "NON_STRIKER";
+          !onExtra && chosen.batter === s.nonStriker && chosen.end === "NON_STRIKER";
         if (!couldBeMankad) {
           askRuns();
           return;
@@ -384,7 +435,7 @@ export function MatchScoreScreen() {
               return;
             }
             // No ball, so no runs to ask about and none possible.
-            askNewBatter({
+            askNewBatterWith({
               batter: chosen.batter,
               outAtEnd: chosen.end,
               beforeDelivery: true,
@@ -617,6 +668,26 @@ export function MatchScoreScreen() {
                 </Text>
               </View>
             ) : null}
+            {/* A free hit the scorer can't see is a free hit they will score
+                wrong — the bowler gets a wicket the batter was protected
+                from. It has to be unmissable, so it sits above the pad. */}
+            {s.freeHit ? (
+              <View
+                style={{
+                  alignSelf: "flex-start",
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderWidth: 1,
+                  borderColor: "#fbbf24",
+                  backgroundColor: "rgba(251,191,36,0.12)",
+                  marginBottom: 6,
+                }}
+              >
+                <Text variant="tiny" weight="700" color="#fbbf24">
+                  FREE HIT — can only be run out
+                </Text>
+              </View>
+            ) : null}
             {s.thisOver.length > 0 ? (
               <View style={styles.overStrip}>
                 {s.thisOver.map((b, i) => (
@@ -630,9 +701,15 @@ export function MatchScoreScreen() {
             ) : null}
             <Text variant="tiny" color={colors.zinc500}>
               Extras{" "}
-              {s.extras.wide + s.extras.noBall + s.extras.bye + s.extras.legBye} (wd{" "}
+              {s.extras.wide +
+                s.extras.noBall +
+                s.extras.bye +
+                s.extras.legBye +
+                s.extras.penalty}{" "}
+              (wd{" "}
               {s.extras.wide} · nb {s.extras.noBall} · b {s.extras.bye} · lb{" "}
-              {s.extras.legBye})
+              {s.extras.legBye}
+              {s.extras.penalty > 0 ? ` · pen ${s.extras.penalty}` : ""})
             </Text>
           </View>
         ) : null}
@@ -709,19 +786,52 @@ export function MatchScoreScreen() {
                     label="Retire batter"
                     span={2}
                     onPress={() => {
-                      if (availableBatters.length === 0) {
-                        push({ t: "RETIRE" });
-                        return;
-                      }
+                      // Two different things share one word. Retired hurt
+                      // is not a dismissal — the batter keeps their runs
+                      // and may resume. Retired out is a wicket down.
                       setPick({
-                        title: "Who comes in?",
-                        names: availableBatters,
-                        onPick: (newBatter) => {
-                          push({ t: "RETIRE", newBatter });
-                          setPick(null);
+                        title: "Retiring how?",
+                        names: [
+                          "Hurt — can come back later",
+                          "Out — counts as a wicket",
+                        ],
+                        onPick: (how) => {
+                          const out = how.startsWith("Out");
+                          if (availableBatters.length === 0) {
+                            push({ t: "RETIRE", ...(out ? { out } : {}) });
+                            return;
+                          }
+                          setPick({
+                            title: "Who comes in?",
+                            names: availableBatters,
+                            onPick: (newBatter) => {
+                              push({ t: "RETIRE", newBatter, ...(out ? { out } : {}) });
+                              setPick(null);
+                            },
+                          });
                         },
                       });
                     }}
+                  />
+                  <Pad
+                    label="Penalty 5"
+                    span={2}
+                    onPress={() =>
+                      setPick({
+                        // Law 41. They can go either way, so the scorer has
+                        // to say who receives them.
+                        title: "Five penalty runs to…",
+                        names: [
+                          `${match.teamAName} (batting side)`,
+                          `${match.teamBName} (fielding side)`,
+                        ],
+                        onPick: (who) => {
+                          const toA = who.startsWith(match.teamAName);
+                          push({ t: "PENALTY", side: toA ? "A" : "B", runs: 5 });
+                          setPick(null);
+                        },
+                      })
+                    }
                   />
                   <Pad
                     label={s.innings === 0 ? "End innings" : "End of play"}

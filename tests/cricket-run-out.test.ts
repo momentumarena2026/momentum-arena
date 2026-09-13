@@ -240,3 +240,121 @@ test("a Mankad on what would have been the last ball doesn't end the over", () =
   assert.equal(s.bowler, "Dev", "so the scorer isn't asked for a new bowler");
   assert.equal(s.striker, "Amit", "and the ends have not turned over");
 });
+
+/**
+ * Run outs off a wide and off a no-ball.
+ *
+ * Both deliveries sit outside the over and are re-bowled, but the batters
+ * are entitled to run at either — so both can produce a run out, and the
+ * extra still has to be scored. Logging it as two events (WIDE then
+ * WICKET) would advance the over by a ball that was never bowled, which
+ * is why the wicket carries the delivery.
+ */
+test("a run out off a wide costs no ball and still scores the wide", () => {
+  const s = replay(
+    [
+      ...open,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        delivery: "WIDE",
+        outAtEnd: "NON_STRIKER",
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.ballsA, 0, "a wide is re-bowled");
+  assert.equal(s.runsA, 1, "the wide itself still counts");
+  assert.equal(s.extras.wide, 1);
+  assert.equal(s.bowling["Dev"].runs, 1, "charged to the bowler");
+  assert.equal(s.wicketsA, 1);
+});
+
+test("runs run on a wide are extras, never the striker's", () => {
+  // Two run, the second is fatal: 1 wide + 2 = 3 extras, nothing off the bat.
+  const s = replay(
+    [
+      ...open,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        delivery: "WIDE",
+        runs: 2,
+        outAtEnd: "STRIKER",
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.runsA, 3);
+  assert.equal(s.extras.wide, 3);
+  assert.equal(s.batting["Amit"].runs, 0, "no runs off the bat on a wide");
+  assert.equal(s.batting["Amit"].balls, 0, "and nobody faces a wide");
+});
+
+test("a run out off a no-ball keeps the bat's runs with the striker", () => {
+  const s = replay(
+    [
+      ...open,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        delivery: "NO_BALL",
+        batter: "Bala",
+        runs: 1,
+        outAtEnd: "STRIKER",
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.ballsA, 0, "a no-ball is re-bowled");
+  assert.equal(s.runsA, 2, "one penalty plus the run they took");
+  assert.equal(s.extras.noBall, 1, "the penalty only");
+  assert.equal(s.batting["Amit"].runs, 1, "the run is off the bat");
+  assert.equal(s.batting["Amit"].balls, 1, "a no-ball is faced");
+  assert.equal(s.bowling["Dev"].runs, 2);
+});
+
+test("a wicket off a wide or no-ball doesn't end the over", () => {
+  // Five legal balls, then a wide with a run out. The over still owes one.
+  const s = replay(
+    [
+      ...open,
+      ...Array.from({ length: 5 }, () => ({ t: "RUN", runs: 0 }) as ScoreEvent),
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        delivery: "WIDE",
+        outAtEnd: "STRIKER",
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.ballsA, 5);
+  assert.equal(s.bowler, "Dev", "same bowler still to finish the over");
+});
+
+test("completed runs on a legal ball are charged to the bowler", () => {
+  // Regression: the runs were added to the team and the striker but never
+  // to the bowler's analysis, so a run out going for the second lost the
+  // bowler a run.
+  const s = replay(
+    [
+      ...open,
+      {
+        t: "WICKET",
+        kind: "RUN_OUT",
+        batter: "Bala",
+        runs: 1,
+        outAtEnd: "STRIKER",
+        newBatter: "Chetan",
+      },
+    ],
+    "CRICKET",
+  );
+  assert.equal(s.runsA, 1);
+  assert.equal(s.bowling["Dev"].runs, 1);
+});

@@ -1,13 +1,18 @@
 /**
- * How a batter got out — the one place that decides both whether the
- * bowler is credited and how the scorecard line reads.
+ * How a batter got out, in the tournament scorer's vocabulary.
  *
- * Kept pure and separate because the two questions are answered in
- * different files (the fold credits figures, the match centre renders
- * the line) and they must not drift: a dismissal the fold treats as the
- * bowler's while the card prints "run out" is a contradiction the
- * scorer can see.
+ * This file is now an ADAPTER, not a second rulebook. Tournament events
+ * store lowercase strings ("runout") and were written that way long before
+ * lib/cricket-rules.ts existed; every stored event has to keep folding the
+ * same, so the wire format stays. What changed is that the questions —
+ * does the bowler get this? can it have happened off that delivery? — are
+ * answered by the shared Laws module rather than restated here, which is
+ * how the casual engine and this one came to disagree.
  */
+import {
+  creditsBowler as creditsBowlerRule,
+  type WicketKind,
+} from "@/lib/cricket-rules";
 
 /** The kinds a scorer can record. Anything else is refused, not stored. */
 export const DISMISSALS = [
@@ -17,7 +22,32 @@ export const DISMISSALS = [
   "stumped",
   "runout",
   "hitwicket",
+  // The rare four, added when the engine was audited against the Laws.
+  // All ten methods are now recordable, so a scorecard can say how a
+  // batter went instead of falling back to "out".
+  "obstructing",
+  "hitballtwice",
+  "timedout",
+  "retiredout",
 ] as const;
+
+/** The stored string, as the shared Laws module names it. */
+const AS_KIND: Record<string, WicketKind> = {
+  bowled: "BOWLED",
+  caught: "CAUGHT",
+  lbw: "LBW",
+  stumped: "STUMPED",
+  runout: "RUN_OUT",
+  hitwicket: "HIT_WICKET",
+  obstructing: "OBSTRUCTING_FIELD",
+  hitballtwice: "HIT_BALL_TWICE",
+  timedout: "TIMED_OUT",
+  retiredout: "RETIRED_OUT",
+};
+
+export function toWicketKind(d: string | null | undefined): WicketKind {
+  return (d && AS_KIND[d]) || "OTHER";
+}
 
 export type Dismissal = (typeof DISMISSALS)[number];
 
@@ -38,12 +68,17 @@ export function isDismissal(v: unknown): v is Dismissal {
  * rewrite bowling figures in matches that are already finished.
  */
 export function creditsBowler(dismissal: string | null | undefined): boolean {
-  return dismissal !== "runout";
+  return creditsBowlerRule(toWicketKind(dismissal));
 }
 
 /** Does this kind involve a fielder the scorer should name? */
 export function needsFielder(dismissal: string | null | undefined): boolean {
   return dismissal === "caught" || dismissal === "stumped" || dismissal === "runout";
+}
+
+/** Only a run out can take the batter at the other end. */
+export function needsEnd(dismissal: string | null | undefined): boolean {
+  return dismissal === "runout";
 }
 
 /**
@@ -84,6 +119,14 @@ export function dismissalLine(args: {
       return bowledBy ? `hit wicket ${bowledBy}` : "hit wicket";
     case "bowled":
       return bowledBy ?? "bowled";
+    case "obstructing":
+      return "obstructing the field";
+    case "hitballtwice":
+      return "hit the ball twice";
+    case "timedout":
+      return "timed out";
+    case "retiredout":
+      return "retired out";
     default:
       // Older rows carry no kind at all: say who bowled if we know, and
       // otherwise just that they were out. Never invent a manner.

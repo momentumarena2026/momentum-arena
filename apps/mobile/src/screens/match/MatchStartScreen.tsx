@@ -40,6 +40,10 @@ export function MatchStartScreen() {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const [oversInput, setOvers] = useState("6");
+  // Both optional, and blank means no limit — a pickup game should not
+  // have to answer two extra questions to get started.
+  const [bowlerOvers, setBowlerOvers] = useState("");
+  const [wickets, setWickets] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [scorerCode, setScorerCode] = useState("");
   const headerHeight = useHeaderHeight();
@@ -63,6 +67,8 @@ export function MatchStartScreen() {
         teamAName: a.trim(),
         teamBName: b.trim(),
         oversPerInnings: sport === "CRICKET" ? Number(oversInput) || null : null,
+        maxOversPerBowler: sport === "CRICKET" ? Number(bowlerOvers) || null : null,
+        wicketsPerInnings: sport === "CRICKET" ? Number(wickets) || null : null,
       }),
     onSuccess: (res) => {
       if (res.error || !res.code) {
@@ -148,14 +154,38 @@ export function MatchStartScreen() {
             onChangeText={setB}
           />
           {sport === "CRICKET" && (
-            <TextInput
-              style={styles.input}
-              placeholder="Overs per innings"
-              placeholderTextColor={colors.zinc600}
-              keyboardType="numeric"
-              value={oversInput}
-              onChangeText={setOvers}
-            />
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="Overs per innings"
+                placeholderTextColor={colors.zinc600}
+                keyboardType="numeric"
+                value={oversInput}
+                onChangeText={setOvers}
+              />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  placeholder="Overs per bowler"
+                  placeholderTextColor={colors.zinc600}
+                  keyboardType="numeric"
+                  value={bowlerOvers}
+                  onChangeText={setBowlerOvers}
+                />
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  placeholder="Wickets per side"
+                  placeholderTextColor={colors.zinc600}
+                  keyboardType="numeric"
+                  value={wickets}
+                  onChangeText={setWickets}
+                />
+              </View>
+              <Text variant="tiny" color={colors.zinc500}>
+                Both optional. Leave blank for no bowler limit, and to be all
+                out one short of your squad.
+              </Text>
+            </>
           )}
           <Button
             label="Start scoring"
