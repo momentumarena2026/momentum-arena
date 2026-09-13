@@ -1,5 +1,12 @@
 import { db } from "@/lib/db";
-import { creditsBowler, isDismissal } from "@/lib/cricket-dismissal";
+import { creditsBowler, isDismissal, toWicketKind } from "@/lib/cricket-dismissal";
+import {
+  endsAfterWicket,
+  dismissalRefusal,
+  armsFreeHit,
+  type CreaseEnd,
+  type Delivery,
+} from "@/lib/cricket-rules";
 
 // Live scoring engine. One append-only event log per match; the live
 // scoreboard state is a FOLD of the events in seq order, so:
@@ -52,7 +59,7 @@ const MEMBER_REF_KEYS = [
 
 
 
-type EventRow = {
+export type EventRow = {
   seq: number;
   kind: string;
   teamId: string | null;
@@ -87,6 +94,12 @@ export type CricketCurrent = {
   spells: { id: string; balls: number }[];
   /** Who bowled the over that just finished — they can't bowl the next one. */
   lastOverBowlerId: string | null;
+  /**
+   * The NEXT delivery is a free hit, because the last one was a no-ball.
+   * The batter can only be run out, obstruct the field or hit the ball
+   * twice on it, and it survives the end of an over.
+   */
+  freeHit: boolean;
 };
 
 export type CricketState = {
@@ -112,6 +125,7 @@ const emptyCurrent = (): CricketCurrent => ({
   dismissed: [],
   spells: [],
   lastOverBowlerId: null,
+  freeHit: false,
 });
 
 /**
@@ -241,13 +255,32 @@ export function foldCricket(
         bowlerId?: string;
         /** Run-outs can take either batter, so the scorer names who went. */
         outBatterId?: string;
+        /**
+         * Which END a run out happened at. The striker can be run out at
+         * the NON-striker's end, having crossed — and then the survivor
+         * keeps strike while the new batter walks to the far end. Resolving
+         * from the dismissed batter's own end, which this did, left the
+         * wrong man facing for the rest of the over.
+         */
+        outAtEnd?: CreaseEnd;
+        /** A Mankad: no delivery was bowled, so it costs no ball. */
+        beforeDelivery?: boolean;
+        /** Of `runs`, how many beat the bat — never the striker's. */
+        byes?: number;
         /** "bowled" | "caught" | "lbw" | "runout" | "stumped" | "hitwicket" */
         dismissal?: string;
       };
       const runs = Math.min(MAX_RUNS_PER_BALL, Math.max(0, Number(raw.runs) || 0));
       const extra = raw.extra || null;
       const wicket = !!raw.wicket;
-      const legal = extra !== "wd" && extra !== "nb"; // wides/no-balls are re-bowled
+      // Wides and no-balls are re-bowled; a Mankad was never bowled at all.
+      const beforeDelivery = !!raw.beforeDelivery;
+      const legal = extra !== "wd" && extra !== "nb" && !beforeDelivery;
+      const delivery: Delivery =
+        extra === "wd" ? "WIDE" : extra === "nb" ? "NO_BALL" : "LEGAL";
+      // Runs that beat the bat are extras, not the striker's. Absent on
+      // every event stored before this existed, which is the old meaning.
+      const byes = Math.max(0, Math.min(runs, Number(raw.byes) || 0));
       const batterId = raw.batterId || e.memberId || null;
       const bowlerId = raw.bowlerId || null;
 
@@ -269,8 +302,9 @@ export function foldCricket(
       if (onStrike) {
         cur.strikerId = onStrike;
         const f = batFigures.get(onStrike) || { runs: 0, balls: 0, out: false };
-        if (extra !== "wd") f.balls += 1; // a wide isn't a ball faced
-        f.runs += batterRunsOf(runs, extra);
+        // Nobody faces a wide, and nobody faces a ball that was never bowled.
+        if (extra !== "wd" && !beforeDelivery) f.balls += 1;
+        f.runs += Math.max(0, batterRunsOf(runs, extra) - byes);
         batFigures.set(onStrike, f);
       }
       if (bowlerId) {
@@ -296,7 +330,8 @@ export function foldCricket(
       // single left the same player facing until someone re-tagged by
       // hand. Runs off the bat, byes and leg-byes all rotate; the penalty
       // run on a wide/no-ball does not, because nobody ran it.
-      if (runsRunByBatsmen({ runs, extra }) % 2 === 1) swapEnds(cur);
+      // A Mankad moves nobody: no ball, no runs, no crossing.
+      if (!beforeDelivery && runsRunByBatsmen({ runs, extra }) % 2 === 1) swapEnds(cur);
 
       if (wicket) {
         // Who actually went. Defaults to whoever is now at the striker's
@@ -312,11 +347,27 @@ export function foldCricket(
           const f = batFigures.get(outId);
           if (f) f.out = true;
           if (!cur.dismissed.includes(outId)) cur.dismissed.push(outId);
-          if (cur.nonStrikerId === outId) cur.nonStrikerId = null;
-          else cur.strikerId = null;
+          // The new batter takes the end the DISMISSAL happened at and the
+          // survivor takes the other — one rule covering all four run-out
+          // cases. Nobody is named yet (the console asks next), so the
+          // dismissal end is left vacant for them.
+          const placed = endsAfterWicket({
+            striker: cur.strikerId,
+            nonStriker: cur.nonStrikerId,
+            outBatter: outId,
+            outAtEnd: raw.outAtEnd ?? null,
+            newBatter: null,
+          });
+          cur.strikerId = placed.striker;
+          cur.nonStrikerId = placed.nonStriker;
         }
         cur.partnership = { runs: 0, balls: 0 };
       }
+
+      // A legal delivery consumes the free hit; a wide or another no-ball
+      // leaves it standing for the next ball.
+      if (legal) cur.freeHit = false;
+      if (armsFreeHit(delivery)) cur.freeHit = true;
 
       if (cur.ballsThisOver >= 6) {
         // Over complete: the batsmen keep their ends but change which one
@@ -586,6 +637,15 @@ function sanitiseEventData(
     if (extra && CRICKET_EXTRAS.has(extra)) out.extra = extra;
     const dismissal = str(raw.dismissal);
     if (isDismissal(dismissal)) out.dismissal = dismissal;
+    // The three facts only a run out needs. Dropped for anything else so a
+    // stray field can't quietly change where the batters stand.
+    if (dismissal === "runout") {
+      const end = str(raw.outAtEnd);
+      if (end === "STRIKER" || end === "NON_STRIKER") out.outAtEnd = end;
+      if (raw.beforeDelivery === true) out.beforeDelivery = true;
+    }
+    const byes = Number(raw.byes);
+    if (Number.isInteger(byes) && byes > 0) out.byes = Math.min(byes, MAX_RUNS_PER_BALL);
     for (const key of MEMBER_REF_KEYS) {
       const ref = str(raw[key]);
       if (ref) out[key] = ref;
@@ -695,6 +755,20 @@ export function validateLiveEvent(
       // strike and nobody bowling is not a delivery, it's a typo.
       if (!batterId) return "Pick the batter on strike first";
       if (!bowlerId) return "Pick the bowler first";
+
+      // What this delivery is allowed to have produced. The free hit is the
+      // one that bites in practice: without it a bowled off a free hit is
+      // recorded happily and a batter who was protected loses their innings.
+      const dismissal = typeof d.dismissal === "string" ? d.dismissal : null;
+      if (d.wicket && dismissal) {
+        const extraKind = typeof d.extra === "string" ? d.extra : null;
+        const refusal = dismissalRefusal(toWicketKind(dismissal), {
+          delivery: extraKind === "wd" ? "WIDE" : extraKind === "nb" ? "NO_BALL" : "LEGAL",
+          freeHit: cur.freeHit,
+          beforeDelivery: d.beforeDelivery === true,
+        });
+        if (refusal) return refusal;
+      }
 
       const bowlingTeamId = other(st.battingTeamId);
       if (teamOf(batterId) !== st.battingTeamId) return "That batter isn't in the batting side";
