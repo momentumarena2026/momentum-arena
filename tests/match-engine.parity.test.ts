@@ -227,6 +227,10 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
     [...mixedOver, { t: "RETIRE", batter: "Asha", out: true, newBatter: "Chen" }],
     [...mixedOver, { t: "NO_BALL", runs: 1, byes: 2 }],
     [...mixedOver, { t: "PENALTY", side: "A", runs: 5 }],
+    // A free hit left standing, and one consumed.
+    [...mixedOver, { t: "NO_BALL" }],
+    [...mixedOver, { t: "NO_BALL" }, { t: "WIDE" }],
+    [...mixedOver, { t: "NO_BALL" }, { t: "RUN", runs: 2 }],
     // A Mankad consumes no ball, so the two engines must also agree on
     // where the over got to — not just on the scorecard.
     [
@@ -272,6 +276,10 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         { t: "PENALTY", side: "A", runs: 5 } as ScoreEvent,
         { t: "PENALTY", side: "A", runs: 0 } as ScoreEvent,
         { t: "PENALTY", side: "B", runs: 99 } as ScoreEvent,
+        // Validation depends on state.freeHit, so the two engines have to
+        // agree on when a bowled is refused as well as on the scorecard.
+        { t: "WICKET", kind: "BOWLED" } as ScoreEvent,
+        { t: "WICKET", kind: "RUN_OUT" } as ScoreEvent,
       ]) {
         assert.deepEqual(
           mobileValidate(mv as never, e as never, rules as never),

@@ -662,6 +662,26 @@ export function MatchScoreScreen() {
                 </Text>
               </View>
             ) : null}
+            {/* A free hit the scorer can't see is a free hit they will score
+                wrong — the bowler gets a wicket the batter was protected
+                from. It has to be unmissable, so it sits above the pad. */}
+            {s.freeHit ? (
+              <View
+                style={{
+                  alignSelf: "flex-start",
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderWidth: 1,
+                  borderColor: "#fbbf24",
+                  backgroundColor: "rgba(251,191,36,0.12)",
+                  marginBottom: 6,
+                }}
+              >
+                <Text variant="tiny" weight="700" color="#fbbf24">
+                  FREE HIT — can only be run out
+                </Text>
+              </View>
+            ) : null}
             {s.thisOver.length > 0 ? (
               <View style={styles.overStrip}>
                 {s.thisOver.map((b, i) => (
@@ -675,9 +695,15 @@ export function MatchScoreScreen() {
             ) : null}
             <Text variant="tiny" color={colors.zinc500}>
               Extras{" "}
-              {s.extras.wide + s.extras.noBall + s.extras.bye + s.extras.legBye} (wd{" "}
+              {s.extras.wide +
+                s.extras.noBall +
+                s.extras.bye +
+                s.extras.legBye +
+                s.extras.penalty}{" "}
+              (wd{" "}
               {s.extras.wide} · nb {s.extras.noBall} · b {s.extras.bye} · lb{" "}
-              {s.extras.legBye})
+              {s.extras.legBye}
+              {s.extras.penalty > 0 ? ` · pen ${s.extras.penalty}` : ""})
             </Text>
           </View>
         ) : null}

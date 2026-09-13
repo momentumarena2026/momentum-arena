@@ -197,6 +197,15 @@ export interface PublicMatchState {
   /** Who bowled the over that just finished, so the "no two overs in a
    *  row" rule has something to check against. */
   lastOverBowler: string | null;
+  /**
+   * The NEXT delivery is a free hit, because the last one was a no-ball.
+   *
+   * On it the batter cannot be bowled, caught, LBW, stumped or hit wicket
+   * — only run out, obstructing the field or hitting the ball twice. It
+   * survives the end of an over, and if the free hit is itself a wide or
+   * another no-ball then the ball after that is a free hit too.
+   */
+  freeHit: boolean;
   /** Batting card for the side currently in, keyed by player name. */
   batting: Record<string, BatterCard>;
   bowling: Record<string, BowlerCard>;
@@ -230,6 +239,7 @@ const EMPTY: PublicMatchState = {
   nonStriker: null,
   bowler: null,
   lastOverBowler: null,
+  freeHit: false,
   batting: {},
   bowling: {},
   extras: { wide: 0, noBall: 0, bye: 0, legBye: 0, penalty: 0 },
@@ -307,6 +317,10 @@ export function replay(
     };
     /** A legal delivery: counts for the over, the bowler and the batter. */
     const legalBall = () => {
+      // A legal delivery consumes the free hit, whatever came of it. Wides
+      // and no-balls never reach here, which is exactly why they leave it
+      // standing for the next ball.
+      s.freeHit = false;
       if (batA) s.ballsA += 1;
       else s.ballsB += 1;
       const b = bowl(s.bowler);
@@ -418,6 +432,9 @@ export function replay(
         // No legal ball — the over doesn't advance. The batters cross on
         // whatever they actually ran, off the bat or not.
         if ((off + byes) % 2 === 1) swap();
+        // Every no-ball earns a free hit, and it carries across the end of
+        // an over.
+        s.freeHit = true;
         break;
       }
 
@@ -526,6 +543,8 @@ export function replay(
         // Skipped for a Mankad, which consumes no ball: the over carries
         // on from wherever it was, and the striker is still to face.
         if (legal) legalBall();
+        // A wicket off a no-ball still earns the free hit.
+        if (delivery === "NO_BALL") s.freeHit = true;
         break;
       }
 
@@ -580,6 +599,7 @@ export function replay(
           s.nonStriker = null;
           s.bowler = null;
           s.lastOverBowler = null;
+          s.freeHit = false;
           s.batting = {};
           s.bowling = {};
           s.extras = { wide: 0, noBall: 0, bye: 0, legBye: 0, penalty: 0 };
@@ -754,6 +774,16 @@ export function validateScoreEvent(
     if (done) return `${done} End the innings.`;
     if (!state.striker) return "Set the openers before scoring a ball";
     if (!state.bowler) return "Pick the bowler for this over first";
+    if (event.t === "WICKET" && state.freeHit && event.delivery !== "NO_BALL") {
+      // A free hit protects the batter from everything the bowler earns.
+      // A no-ball is exempt because it is not the free-hit delivery being
+      // consumed — it re-arms the next one instead.
+      const kind = event.kind ?? "OTHER";
+      const allowed = ["RUN_OUT", "OBSTRUCTING_FIELD", "HIT_BALL_TWICE", "OTHER"];
+      if (!allowed.includes(kind)) {
+        return "It's a free hit — only a run out, obstructing the field or hitting the ball twice";
+      }
+    }
     if (event.t === "WICKET") {
       const who = event.batter ?? state.striker;
       if (who && state.batting[who]?.out) return `${who} is already out`;
