@@ -219,6 +219,14 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         newBatter: "Chen",
       },
     ],
+    // The rare dismissals, both retirements, runs that beat the bat off a
+    // no-ball, and penalty runs — each lands in a different column, so a
+    // drift here shows up as a wrong scorecard rather than a crash.
+    [...mixedOver, { t: "WICKET", kind: "OBSTRUCTING_FIELD", newBatter: "Chen" }],
+    [...mixedOver, { t: "RETIRE", batter: "Asha", newBatter: "Chen" }],
+    [...mixedOver, { t: "RETIRE", batter: "Asha", out: true, newBatter: "Chen" }],
+    [...mixedOver, { t: "NO_BALL", runs: 1, byes: 2 }],
+    [...mixedOver, { t: "PENALTY", side: "A", runs: 5 }],
     // A Mankad consumes no ball, so the two engines must also agree on
     // where the over got to — not just on the scorecard.
     [
@@ -260,6 +268,10 @@ test("inningsOver, validateScoreEvent and oversLabel agree", () => {
         { t: "WICKET", kind: "BOWLED", delivery: "NO_BALL" } as ScoreEvent,
         { t: "WICKET", kind: "CAUGHT", delivery: "WIDE" } as ScoreEvent,
         { t: "WICKET", kind: "RUN_OUT", delivery: "WIDE" } as ScoreEvent,
+        { t: "WICKET", kind: "CAUGHT", delivery: "WIDE" } as ScoreEvent,
+        { t: "PENALTY", side: "A", runs: 5 } as ScoreEvent,
+        { t: "PENALTY", side: "A", runs: 0 } as ScoreEvent,
+        { t: "PENALTY", side: "B", runs: 99 } as ScoreEvent,
       ]) {
         assert.deepEqual(
           mobileValidate(mv as never, e as never, rules as never),

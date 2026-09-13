@@ -58,6 +58,12 @@ const WICKET_KINDS: Array<{ k: WicketKind; label: string }> = [
   { k: "RUN_OUT", label: "Run out" },
   { k: "STUMPED", label: "Stumped" },
   { k: "HIT_WICKET", label: "Hit wicket" },
+  // The rare four. Named rather than lumped into "Other", because the
+  // scorecard should say how a batter went — and because none of them is
+  // the bowler's wicket, which "Other" quietly awarded.
+  { k: "OBSTRUCTING_FIELD", label: "Obstructing the field" },
+  { k: "HIT_BALL_TWICE", label: "Hit the ball twice" },
+  { k: "TIMED_OUT", label: "Timed out" },
   { k: "OTHER", label: "Other" },
 ];
 
@@ -219,9 +225,14 @@ export function MatchScoreScreen() {
     ? inningsOver(s, { sport, oversPerInnings: match.oversPerInnings })
     : null;
   // Whoever is out or already at the crease can't walk in again.
-  const availableBatters = battingSquad.filter(
-    (n) => n !== s.striker && n !== s.nonStriker && !s.batting[n]?.out,
-  );
+  // Anyone not currently at the crease and not out — which includes a
+  // batter who retired hurt, since that was never a dismissal and they are
+  // entitled to come back when the next wicket falls.
+  const availableBatters = battingSquad.filter((n) => {
+    if (n === s.striker || n === s.nonStriker) return false;
+    const mark = s.batting[n]?.out;
+    return !mark || mark === "RETIRED_HURT";
+  });
 
   const openSquad = (side: "A" | "B") => {
     setSquadText((side === "A" ? s.squadA : s.squadB).join("\n"));
@@ -743,19 +754,52 @@ export function MatchScoreScreen() {
                     label="Retire batter"
                     span={2}
                     onPress={() => {
-                      if (availableBatters.length === 0) {
-                        push({ t: "RETIRE" });
-                        return;
-                      }
+                      // Two different things share one word. Retired hurt
+                      // is not a dismissal — the batter keeps their runs
+                      // and may resume. Retired out is a wicket down.
                       setPick({
-                        title: "Who comes in?",
-                        names: availableBatters,
-                        onPick: (newBatter) => {
-                          push({ t: "RETIRE", newBatter });
-                          setPick(null);
+                        title: "Retiring how?",
+                        names: [
+                          "Hurt — can come back later",
+                          "Out — counts as a wicket",
+                        ],
+                        onPick: (how) => {
+                          const out = how.startsWith("Out");
+                          if (availableBatters.length === 0) {
+                            push({ t: "RETIRE", ...(out ? { out } : {}) });
+                            return;
+                          }
+                          setPick({
+                            title: "Who comes in?",
+                            names: availableBatters,
+                            onPick: (newBatter) => {
+                              push({ t: "RETIRE", newBatter, ...(out ? { out } : {}) });
+                              setPick(null);
+                            },
+                          });
                         },
                       });
                     }}
+                  />
+                  <Pad
+                    label="Penalty 5"
+                    span={2}
+                    onPress={() =>
+                      setPick({
+                        // Law 41. They can go either way, so the scorer has
+                        // to say who receives them.
+                        title: "Five penalty runs to…",
+                        names: [
+                          `${match.teamAName} (batting side)`,
+                          `${match.teamBName} (fielding side)`,
+                        ],
+                        onPick: (who) => {
+                          const toA = who.startsWith(match.teamAName);
+                          push({ t: "PENALTY", side: toA ? "A" : "B", runs: 5 });
+                          setPick(null);
+                        },
+                      })
+                    }
                   />
                   <Pad
                     label={s.innings === 0 ? "End innings" : "End of play"}
