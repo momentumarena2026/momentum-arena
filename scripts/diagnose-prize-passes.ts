@@ -99,30 +99,33 @@ async function main() {
     // since. Match on the last ten digits, because the same person is
     // stored as 9876543210, +919876543210 and 09876543210 depending on
     // where they typed it.
-    const digits = (team.captainPhone || "").replace(/\D/g, "");
-    const last10 = digits.slice(-10);
-    if (last10.length !== 10) {
+    // Exactly the rule registration now applies, imported rather than
+    // restated — a diagnostic that disagrees with the thing it diagnoses
+    // is worse than none.
+    const { matchUserByPhone } = await import("../lib/phone-match");
+    const m = await matchUserByPhone(db, team.captainPhone);
+    if (m.kind === "unusable") {
       console.log(`         captain phone unusable: "${team.captainPhone}"`);
       continue;
     }
-    const users = await db.user.findMany({
-      where: { phone: { endsWith: last10 } },
-      select: { id: true, name: true, phone: true },
-    });
-    if (users.length === 0) {
+    if (m.kind === "none") {
       console.log(`         ${team.captainName} (${team.captainPhone}) has no account at all`);
       console.log(`         → they must sign up, then gift the pass from Promotions → Passes`);
       continue;
     }
-    if (users.length > 1) {
-      console.log(`         ${users.length} accounts match ${team.captainPhone} — link by hand`);
+    if (m.kind === "many") {
+      console.log(`         ${m.count} accounts match ${team.captainPhone} — link by hand`);
       continue;
     }
+    const u = await db.user.findUnique({
+      where: { id: m.userId },
+      select: { name: true, phone: true },
+    });
     console.log(
-      `         ✓ account EXISTS but was never linked: ${users[0].name || "(no name)"} ${users[0].phone}`,
+      `         ✓ account EXISTS but was never linked: ${u?.name || "(no name)"} ${u?.phone || ""}`,
     );
     linkable.push({
-      teamId: team.id, teamName: team.name, userId: users[0].id, phone: users[0].phone || "",
+      teamId: team.id, teamName: team.name, userId: m.userId, phone: u?.phone || "",
     });
   }
 

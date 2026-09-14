@@ -250,6 +250,10 @@ export function TournamentManage({
       else {
         setShowVenueForm(false);
         setVenueForm({ teamName: "", captainName: "", captainPhone: "", members: "", collectedAmount: "", method: "CASH" });
+        // The team registered either way — this is about whether a prize
+        // pass could ever reach the captain, and it is only actionable
+        // while they are still at the counter.
+        if (res.note) setNote(res.note);
         router.refresh();
       }
     } finally {
