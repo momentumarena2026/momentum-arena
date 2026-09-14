@@ -254,6 +254,72 @@ export function bowlerSpent(args: {
   return args.ballsBowled >= cap * 6;
 }
 
+/**
+ * The run choices a scorer is offered for each kind of extra.
+ *
+ * Shared because they were hand-written per pad and promptly diverged: the
+ * tournament console could record a wide they ran three off, and the
+ * casual pad could only record a plain wide — with the engine accepting
+ * both the whole time. A capability that exists in the engine and not on
+ * the pad is a capability nobody has.
+ *
+ * Values are runs the BATTERS ran, on top of the delivery's own penalty.
+ * The pad adds the penalty; callers never have to remember to.
+ */
+export const EXTRA_RUN_OPTIONS: {
+  kind: "WIDE" | "NO_BALL" | "BYE" | "LEG_BYE";
+  label: string;
+  /** Short pad caption, and the runs it means. */
+  options: { text: string; ran: number }[];
+}[] = [
+  {
+    kind: "WIDE",
+    label: "Wide",
+    // Five off a wide is the overthrow case and does happen; beyond that a
+    // scorer is better served by the plain wide plus a correction.
+    options: [
+      { text: "wd", ran: 0 },
+      { text: "+1", ran: 1 },
+      { text: "+2", ran: 2 },
+      { text: "+3", ran: 3 },
+      { text: "+4", ran: 4 },
+    ],
+  },
+  {
+    kind: "NO_BALL",
+    label: "No ball",
+    // 4 and 6 are here because a no-ball hit to the boundary is common and
+    // +3 off one is not.
+    options: [
+      { text: "nb", ran: 0 },
+      { text: "+1", ran: 1 },
+      { text: "+2", ran: 2 },
+      { text: "+4", ran: 4 },
+      { text: "+6", ran: 6 },
+    ],
+  },
+  {
+    kind: "BYE",
+    label: "Byes",
+    options: [
+      { text: "1", ran: 1 },
+      { text: "2", ran: 2 },
+      { text: "3", ran: 3 },
+      { text: "4", ran: 4 },
+    ],
+  },
+  {
+    kind: "LEG_BYE",
+    label: "Leg byes",
+    options: [
+      { text: "1", ran: 1 },
+      { text: "2", ran: 2 },
+      { text: "3", ran: 3 },
+      { text: "4", ran: 4 },
+    ],
+  },
+];
+
 function clamp(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(7, Math.trunc(n)));

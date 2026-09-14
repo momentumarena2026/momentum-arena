@@ -27,6 +27,7 @@ import {
   type ScoreEvent,
   type WicketKind,
 } from "../../lib/public-match";
+import { EXTRA_RUN_OPTIONS } from "../../lib/cricket-rules";
 import {
   inningsOver,
   replay,
@@ -771,10 +772,6 @@ export function MatchScoreScreen() {
                       onPress={() => push({ t: "RUN", runs: n })}
                     />
                   ))}
-                  <Pad label="Wide" onPress={() => push({ t: "WIDE" })} />
-                  <Pad label="No ball" onPress={() => push({ t: "NO_BALL" })} />
-                  <Pad label="Bye" onPress={() => push({ t: "BYE", runs: 1 })} />
-                  <Pad label="Leg bye" onPress={() => push({ t: "LEG_BYE", runs: 1 })} />
                   <Pad
                     label="Wicket"
                     tone="danger"
@@ -782,6 +779,72 @@ export function MatchScoreScreen() {
                     onPress={() => setWicketOpen(true)}
                   />
                   <Pad label="Swap ends" span={2} onPress={() => push({ t: "SWAP" })} />
+                  {/* Extras carry runs, and the pad has to let a scorer say
+                      so — a wide they ran three off is four to the team, and
+                      the engine has always accepted it. One tap each, because
+                      a scorer has a ball every twenty seconds and should not
+                      be inside a menu. The options come from cricket-rules so
+                      this pad and the tournament console cannot drift apart
+                      again. */}
+                  {EXTRA_RUN_OPTIONS.map((row) => (
+                    <View key={row.kind} style={styles.extraRow}>
+                      <Text variant="tiny" color={colors.zinc500} style={{ width: 62 }}>
+                        {row.label}
+                      </Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, flex: 1 }}>
+                        {row.options.map((opt) => (
+                          <Pressable
+                            key={opt.text}
+                            onPress={() =>
+                              push(
+                                row.kind === "WIDE"
+                                  ? { t: "WIDE", runs: opt.ran }
+                                  : row.kind === "NO_BALL"
+                                    ? { t: "NO_BALL", runs: opt.ran }
+                                    : row.kind === "BYE"
+                                      ? { t: "BYE", runs: opt.ran }
+                                      : { t: "LEG_BYE", runs: opt.ran },
+                              )
+                            }
+                            style={styles.extraChip}
+                          >
+                            <Text
+                              variant="small"
+                              weight="700"
+                              color={
+                                row.kind === "WIDE" || row.kind === "NO_BALL"
+                                  ? "#fbbf24"
+                                  : colors.zinc300
+                              }
+                            >
+                              {opt.text}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+                  {/* Runs off a no-ball that beat the bat. Extras, never the
+                      striker's — without this the batter is credited with
+                      runs they did not hit. */}
+                  <View style={styles.extraRow}>
+                    <Text variant="tiny" color={colors.zinc500} style={{ width: 62 }}>
+                      Nb + byes
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, flex: 1 }}>
+                      {[1, 2, 3, 4].map((n) => (
+                        <Pressable
+                          key={n}
+                          onPress={() => push({ t: "NO_BALL", byes: n })}
+                          style={styles.extraChip}
+                        >
+                          <Text variant="small" weight="700" color="#fbbf24">
+                            {`+${n}b`}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
                   <Pad
                     label="Retire batter"
                     span={2}
@@ -1142,6 +1205,24 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   overStrip: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: 2 },
+  // One row per kind of extra: a fixed-width label, then its run chips.
+  extraRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+    width: "100%",
+  },
+  extraChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.card,
+    minWidth: 44,
+    alignItems: "center",
+  },
   ballChip: {
     minWidth: 26,
     alignItems: "center",

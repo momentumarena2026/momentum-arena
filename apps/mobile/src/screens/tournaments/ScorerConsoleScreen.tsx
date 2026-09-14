@@ -205,6 +205,9 @@ export function ScorerConsoleScreen() {
    *  non-striker's end must have crossed, so the survivor keeps strike —
    *  it cannot be inferred from who went, only asked. */
   const [endFor, setEndFor] = useState<string | null>(null);
+  /** Step two of a retirement: hurt (not a dismissal, may resume) or out
+   *  (a wicket down, though never the bowler's). */
+  const [retireHow, setRetireHow] = useState<string | null>(null);
   /** Run out only: which batter was out. A run-out is the one dismissal
    *  that can take either end, so it can't be inferred — and it must be
    *  asked from a row that is visible without scrolling, which is why
@@ -1062,6 +1065,50 @@ export function ScorerConsoleScreen() {
         </Pressable>
       </Modal>
 
+      {/* ── Retiring hurt, or retiring out? ─────────────────────────
+          One word, two different things. Hurt is not a dismissal and the
+          batter may come back; out costs the side a wicket. */}
+      <Modal
+        visible={!!retireHow}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRetireHow(null)}
+      >
+        <Pressable style={s.sheetBackdrop} onPress={() => setRetireHow(null)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>Retiring how?</Text>
+              <Pressable onPress={() => setRetireHow(null)} hitSlop={10}>
+                <X size={20} color={colors.zinc400} />
+              </Pressable>
+            </View>
+            {(
+              [
+                ["hurt", "Hurt", "not out — can come back"],
+                ["out", "Out", "counts as a wicket"],
+              ] as const
+            ).map(([how, label, hint]) => (
+              <Pressable
+                key={how}
+                style={s.sheetRow}
+                onPress={() => {
+                  const id = retireHow;
+                  setRetireHow(null);
+                  if (!id) return;
+                  void ev("RETIRE", {
+                    memberId: id,
+                    data: { batterId: id, ...(how === "out" ? { out: true } : {}) },
+                  });
+                }}
+              >
+                <Text style={s.sheetRowText}>{label}</Text>
+                <Text style={s.sheetRowMeta}>{hint}</Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* ── Run out: at WHICH end? ──────────────────────────────────
           The rule people are surprised by. A striker run out at the
           non-striker's end must have crossed, so the survivor keeps strike
@@ -1224,7 +1271,7 @@ export function ScorerConsoleScreen() {
                   style={s.sheetRow}
                   onPress={() => {
                     setRetireSheet(false);
-                    void ev("RETIRE", { memberId: id, data: { batterId: id } });
+                    setRetireHow(id);
                   }}
                 >
                   <Text style={s.sheetRowText}>{nameOf(id)}</Text>
