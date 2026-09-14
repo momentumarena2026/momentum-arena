@@ -269,7 +269,33 @@ export async function transitionTournament(
   // the admin sees the reason on the manage page.
   if (toStatus === "COMPLETED") {
     const { issuePrizePasses } = await import("@/lib/tournament-prizes");
-    await issuePrizePasses(id, admin.id).catch(() => {});
+    // The result was being thrown away. The admin docs promise "the
+    // completion summary lists the reason", and it never could: a pass
+    // that failed to issue was indistinguishable from a tournament with
+    // no prize passes configured, so the first anyone knew was a winner
+    // asking where their pass was.
+    const prizes = await issuePrizePasses(id, admin.id).catch(
+      (e: unknown) => ({
+        issued: [],
+        skipped: [
+          {
+            position: 0,
+            reason: e instanceof Error ? e.message : "unexpected error",
+          },
+        ],
+      }),
+    );
+    for (const i of prizes.issued) {
+      notes.push(`Prize pass issued to ${i.teamName} (place ${i.position}).`);
+    }
+    for (const sk of prizes.skipped) {
+      // "already issued" is the idempotency guard doing its job on a
+      // re-completion; it is not news.
+      if (sk.reason === "already issued") continue;
+      notes.push(
+        `Prize pass for place ${sk.position || "?"} NOT issued — ${sk.reason}.`,
+      );
+    }
   }
   // Fire the milestone mapped to this transition (enabled items only).
   const { TRANSITION_MILESTONE, fireMilestone } = await import("@/lib/tournament-campaign");
