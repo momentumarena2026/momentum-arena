@@ -580,7 +580,14 @@ const adminRegisterSchema = z.object({
  *  stays on dueAmount for the Collect button. */
 export async function adminRegisterTeam(
   input: unknown
-): Promise<{ success: boolean; error?: string; teamId?: string }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  teamId?: string;
+  /** Set when the captain could NOT be linked to a customer account —
+   *  the team registered fine, but a prize pass could never reach them. */
+  note?: string;
+}> {
   await gate();
   const parsed = adminRegisterSchema.safeParse(input);
   if (!parsed.success) {
@@ -615,11 +622,30 @@ export async function adminRegisterTeam(
   const fee = t.feeMode === "FREE" || d.method === "FREE" ? 0 : t.entryFee;
   const paid = Math.min(d.collectedAmount, fee);
   const squad = d.members.length > 0 ? d.members : [d.captainName];
+
+  /**
+   * Attach the captain's customer account if they already have one.
+   *
+   * This path never did, so every team registered at the counter was an
+   * orphan: a row holding the captain's phone number with no link to the
+   * person behind it. The bill arrives much later and somewhere else — a
+   * prize pass that cannot be issued because there is nobody to issue it
+   * to, weeks after the tournament, with nothing saying why.
+   *
+   * Left null when nothing matches (they have not signed up) or when
+   * several accounts share the number. Linking the wrong one would hand a
+   * stranger somebody else's passes and booking history, which is a good
+   * deal worse than staying unlinked.
+   */
+  const { matchUserByPhone } = await import("@/lib/phone-match");
+  const match = await matchUserByPhone(db, d.captainPhone);
+  const captainUserId = match.kind === "one" ? match.userId : null;
   const team = await db.tournamentTeam.create({
     data: {
       tournamentId: t.id,
       status: "CONFIRMED",
       name: d.teamName,
+      captainUserId,
       captainName: d.captainName,
       captainPhone: d.captainPhone.replace(/[^\d+]/g, ""),
       paidAmount: paid,
@@ -639,7 +665,18 @@ export async function adminRegisterTeam(
     select: { id: true },
   });
   revalidatePath(`/admin/tournaments/${t.id}`);
-  return { success: true, teamId: team.id };
+  // Say so, because an unlinked captain is invisible until it costs
+  // somebody a prize pass. The admin can point the captain at signing up
+  // with that number while they are still standing there.
+  const note =
+    match.kind === "one"
+      ? undefined
+      : match.kind === "many"
+        ? `Heads up: ${match.count} accounts use that number, so the captain wasn't linked to one. Prize passes can't be issued until it is.`
+        : match.kind === "none"
+          ? "Heads up: no customer account uses that number. Ask the captain to sign up with it, or a prize pass can't be issued to them."
+          : "Heads up: that phone number couldn't be matched to an account, so prize passes can't be issued to this captain.";
+  return { success: true, teamId: team.id, ...(note ? { note } : {}) };
 }
 
 /** Admin-side edit of a team's identity/roster (moderation). Roster edits
