@@ -33,7 +33,12 @@ async function main() {
     },
     select: {
       id: true, name: true, slug: true, status: true, format: true, prizes: true,
-      teams: { select: { id: true, name: true, captainUserId: true } },
+      teams: {
+        select: {
+          id: true, name: true,
+          captainUserId: true, captainName: true, captainPhone: true,
+        },
+      },
       matches: {
         select: {
           stage: true, status: true, winnerTeamId: true,
@@ -79,9 +84,46 @@ async function main() {
   const places = await resolvePlacements(t.id);
   console.log("");
   console.log(`Placements resolved: ${places.length}`);
+  /** Teams whose captain has an account we could link but nobody did. */
+  const linkable: { teamId: string; teamName: string; userId: string; phone: string }[] = [];
   for (const p of places) {
-    const captain = p.captainUserId ? "linked account" : "NO LINKED ACCOUNT";
-    console.log(`   ${p.position}. ${p.teamName.padEnd(24)} captain: ${captain}`);
+    const team = t.teams.find((x) => x.id === p.teamId);
+    if (p.captainUserId) {
+      console.log(`   ${p.position}. ${p.teamName.padEnd(24)} captain: linked account`);
+      continue;
+    }
+    console.log(`   ${p.position}. ${p.teamName.padEnd(24)} captain: NO LINKED ACCOUNT`);
+    if (!team) continue;
+    // Registering at the venue captures a phone but does not always attach
+    // the account behind it — the captain may well have signed up before or
+    // since. Match on the last ten digits, because the same person is
+    // stored as 9876543210, +919876543210 and 09876543210 depending on
+    // where they typed it.
+    const digits = (team.captainPhone || "").replace(/\D/g, "");
+    const last10 = digits.slice(-10);
+    if (last10.length !== 10) {
+      console.log(`         captain phone unusable: "${team.captainPhone}"`);
+      continue;
+    }
+    const users = await db.user.findMany({
+      where: { phone: { endsWith: last10 } },
+      select: { id: true, name: true, phone: true },
+    });
+    if (users.length === 0) {
+      console.log(`         ${team.captainName} (${team.captainPhone}) has no account at all`);
+      console.log(`         → they must sign up, then gift the pass from Promotions → Passes`);
+      continue;
+    }
+    if (users.length > 1) {
+      console.log(`         ${users.length} accounts match ${team.captainPhone} — link by hand`);
+      continue;
+    }
+    console.log(
+      `         ✓ account EXISTS but was never linked: ${users[0].name || "(no name)"} ${users[0].phone}`,
+    );
+    linkable.push({
+      teamId: team.id, teamName: team.name, userId: users[0].id, phone: users[0].phone || "",
+    });
   }
 
   // Anything already minted.
@@ -102,8 +144,18 @@ async function main() {
     return;
   }
 
-  const res = await issuePrizePasses(t.id, null);
   console.log("APPLYING");
+  // Link first. Without a captain there is nobody to mint to, and the
+  // account was there the whole time — registration just never attached it.
+  for (const l of linkable) {
+    await db.tournamentTeam.update({
+      where: { id: l.teamId },
+      data: { captainUserId: l.userId },
+    });
+    console.log(`   ✓ linked ${l.teamName} captain → account ${l.phone}`);
+  }
+
+  const res = await issuePrizePasses(t.id, null);
   for (const i of res.issued) {
     console.log(`   ✓ place ${i.position} → ${i.teamName}  (pass ${i.userPassId})`);
   }
