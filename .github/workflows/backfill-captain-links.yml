@@ -1,0 +1,65 @@
+name: Backfill captain account links (production)
+
+# Venue registration never set captainUserId, so every team entered at the
+# counter is an orphan — a row holding the captain's phone with no link to
+# the person behind it. Registration links them now; this catches the ones
+# already in the database, whose only symptom is a prize pass that cannot
+# be issued weeks later.
+#
+# Links only where exactly one account uses the number. Idempotent: an
+# already-linked team is never touched.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually link (unticked = dry run, prints what would change)"
+        type: boolean
+        default: false
+
+jobs:
+  backfill:
+    name: Link captains
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty! Add PRODUCTION_DB_URL to repository secrets."
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run
+        run: |
+          ARGS=""
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="--apply"; fi
+          npx tsx scripts/backfill-captain-links.ts $ARGS 2>&1 | tee links.log
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Captain links — ${{ inputs.apply == true && 'APPLIED' || 'DRY RUN' }}"
+            echo ""
+            echo '```'
+            tail -70 links.log 2>/dev/null || echo "(no output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
