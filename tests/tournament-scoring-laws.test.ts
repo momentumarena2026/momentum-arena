@@ -240,3 +240,20 @@ test("the super over decides it, and the match score is left alone", () => {
   ]);
   assert.equal(superOverWinner(twice), A);
 });
+
+test("retiring out costs a wicket; retiring hurt does not", () => {
+  const hurt = foldCricket([
+    ...start(),
+    ev("RETIRE", { batterId: "amit" }),
+  ]);
+  assert.equal(hurt.innings[0].wickets, 0, "hurt is not a dismissal");
+  assert.ok(!hurt.current.dismissed.includes("amit"), "so they can come back");
+
+  const out = foldCricket([
+    ...start(),
+    ev("RETIRE", { batterId: "amit", out: true }),
+  ]);
+  assert.equal(out.innings[0].wickets, 1, "retired out is a wicket");
+  assert.ok(out.current.dismissed.includes("amit"), "and they are gone for good");
+  assert.equal(out.current.bowler?.wickets ?? 0, 0, "but never the bowler's");
+});

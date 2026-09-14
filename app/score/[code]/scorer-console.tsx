@@ -127,6 +127,9 @@ export function ScorerConsole({ code }: { code: string }) {
    *  run out at the NON-striker's end, having crossed — and then the
    *  survivor keeps strike. It cannot be inferred, only asked. */
   const [endFor, setEndFor] = useState<{ outBatterId: string } | null>(null);
+  /** Step two of a retirement: hurt (not a dismissal, may resume) or out
+   *  (a wicket down, though never the bowler's). */
+  const [retireHow, setRetireHow] = useState<string | null>(null);
   /** Run out only: which batter was out. It can take either end, so it
    *  can't be inferred — and it has to be asked from a row that is
    *  visible without scrolling, which is why "Run out" sits with the
@@ -999,6 +1002,54 @@ export function ScorerConsole({ code }: { code: string }) {
         </div>
       )}
 
+      {/* ── Retiring hurt, or retiring out? ─────────────────────────
+          One word, two different things. Hurt is not a dismissal and the
+          batter may come back; out costs the side a wicket. */}
+      {retireHow && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={() => setRetireHow(null)}
+        >
+          <div
+            className="w-full rounded-t-3xl border-t border-zinc-800 bg-zinc-950 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-4">
+              <div>
+                <h3 className="font-semibold text-white">Retiring how?</h3>
+                <p className="text-xs text-zinc-500">{nameOfPlayer(retireHow)}</p>
+              </div>
+              <button onClick={() => setRetireHow(null)} className="text-zinc-400 hover:text-white">
+                Close
+              </button>
+            </div>
+            {(
+              [
+                ["hurt", "Hurt", "not out — can come back"],
+                ["out", "Out", "counts as a wicket"],
+              ] as const
+            ).map(([how, label, hint]) => (
+              <button
+                key={how}
+                onClick={() => {
+                  const id = retireHow;
+                  setRetireHow(null);
+                  if (!id) return;
+                  void ev("RETIRE", {
+                    memberId: id,
+                    data: { batterId: id, ...(how === "out" ? { out: true } : {}) },
+                  });
+                }}
+                className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
+              >
+                {label}
+                <span className="text-xs text-zinc-500">{hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Run out: at WHICH end? ──────────────────────────────────
           The one the Laws surprise people with. A striker run out at the
           non-striker's end must have crossed, so the survivor keeps strike
@@ -1158,7 +1209,7 @@ export function ScorerConsole({ code }: { code: string }) {
                 key={id}
                 onClick={() => {
                   setRetireSheet(false);
-                  void ev("RETIRE", { memberId: id, data: { batterId: id } });
+                  setRetireHow(id);
                 }}
                 className="flex w-full items-center justify-between border-b border-zinc-800/60 px-5 py-4 text-left text-zinc-200 hover:bg-zinc-800/60"
               >

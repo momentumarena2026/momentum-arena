@@ -315,16 +315,30 @@ export function foldCricket(
         cur.nonStrikerId = null;
       }
     } else if (e.kind === "RETIRE" && st.innings.length > 0) {
-      // Retired hurt: the batter leaves but is NOT out. They stay off the
-      // dismissed list so they can come back later in the innings, and no
-      // wicket is recorded — the whole difference from a dismissal.
-      const d = (e.data || {}) as { batterId?: string };
+      // Two different things share one word. Retired HURT is not a
+      // dismissal: the batter stays off the dismissed list so they can come
+      // back later in the innings, and no wicket is recorded. Retired OUT
+      // is a real dismissal and costs the side a wicket — though never the
+      // bowler's, which creditsBowler already knows.
+      const d = (e.data || {}) as { batterId?: string; out?: boolean };
       const cur = st.current;
       const id = d.batterId || e.memberId || null;
+      const retiredOut = d.out === true;
       if (id) {
         if (cur.strikerId === id) cur.strikerId = null;
         else if (cur.nonStrikerId === id) cur.nonStrikerId = null;
         cur.partnership = { runs: 0, balls: 0 };
+        if (retiredOut) {
+          if (!cur.dismissed.includes(id)) cur.dismissed.push(id);
+          const f = batFigures.get(id);
+          if (f) f.out = true;
+          const inn = st.innings[st.innings.length - 1];
+          if (inn) {
+            const cap =
+              superOverRound(st.inning) > 0 ? SUPER_OVER_WICKETS : maxWickets;
+            inn.wickets = Math.min(cap, inn.wickets + 1);
+          }
+        }
       }
     } else if (e.kind === "BALL" && st.innings.length > 0) {
       const inn = st.innings[st.innings.length - 1];
@@ -738,11 +752,13 @@ function sanitiseEventData(
       if (ref) out[key] = ref;
     }
   } else if (sport === "CRICKET" && (kind === "CREASE" || kind === "RETIRE")) {
-    // Player ids only — these events carry nothing else.
     for (const key of ["strikerId", "nonStrikerId", "batterId"] as const) {
       const ref = str(raw[key]);
       if (ref) out[key] = ref;
     }
+    // Retired OUT is a dismissal; retired hurt is not. Absent means hurt,
+    // which is what every RETIRE event stored before this meant.
+    if (kind === "RETIRE" && raw.out === true) out.out = true;
   } else if (sport === "FOOTBALL" && kind === "GOAL") {
     const assist = str(raw.assistId);
     if (assist) out.assistId = assist;

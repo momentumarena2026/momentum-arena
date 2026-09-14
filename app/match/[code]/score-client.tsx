@@ -1,5 +1,7 @@
 "use client";
 
+import { EXTRA_RUN_OPTIONS } from "@/lib/cricket-rules";
+
 import { useCallback, useEffect, useState } from "react";
 import { Undo2, Flag, Share2, Radio } from "lucide-react";
 
@@ -191,8 +193,6 @@ export function MatchScoreClient({ initial }: { initial: Match }) {
                   ...[0, 1, 2, 3, 4, 6].map((n) =>
                     pad(String(n), { action: "score", event: { t: "RUN", runs: n } }),
                   ),
-                  pad("Wd", { action: "score", event: { t: "WIDE" } }),
-                  pad("Nb", { action: "score", event: { t: "NO_BALL" } }),
                   pad(
                     "Wicket",
                     { action: "score", event: { t: "WICKET" } },
@@ -217,6 +217,63 @@ export function MatchScoreClient({ initial }: { initial: Match }) {
                   ),
                 ]}
           </div>
+
+          {/* Extras carry runs. The pad offered a bare wide and a bare
+              no-ball, so a wide they ran three off — four to the team — could
+              not be entered at all, though the engine has always taken it.
+              The options come from cricket-rules, shared with the app pad and
+              the tournament console, so the three cannot drift again. */}
+          {cricket && (
+            <div className="mt-3 space-y-1.5">
+              {EXTRA_RUN_OPTIONS.map((row) => (
+                <div key={row.kind} className="flex items-center gap-2">
+                  <span className="w-16 shrink-0 text-[11px] uppercase tracking-wide text-zinc-500">
+                    {row.label}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {row.options.map((opt) => (
+                      <button
+                        key={opt.text}
+                        onClick={() =>
+                          send({
+                            action: "score",
+                            event: { t: row.kind, runs: opt.ran },
+                          })
+                        }
+                        disabled={busy || done}
+                        className={`min-w-11 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors disabled:opacity-40 ${
+                          row.kind === "WIDE" || row.kind === "NO_BALL"
+                            ? "border-amber-500/40 bg-amber-500/5 text-amber-300 hover:bg-amber-500/15"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                        }`}
+                      >
+                        {opt.text}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <span className="w-16 shrink-0 text-[11px] uppercase tracking-wide text-zinc-500">
+                  Nb + byes
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 3, 4].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() =>
+                        send({ action: "score", event: { t: "NO_BALL", byes: n } })
+                      }
+                      disabled={busy || done}
+                      className="min-w-11 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-1.5 text-sm font-semibold text-amber-300 transition-colors hover:bg-amber-500/15 disabled:opacity-40"
+                    >
+                      {`+${n}b`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 flex gap-2">
             <button
