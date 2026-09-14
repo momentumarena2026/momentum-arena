@@ -62,7 +62,7 @@ test("every pad can record runs that beat the bat off a no-ball", () => {
 });
 
 test("every pad that records a wicket can say which end a run out was", () => {
-  for (const name of ["casual app", "tournament app", "tournament web"] as const) {
+  for (const name of ["casual app", "casual web", "tournament app", "tournament web"] as const) {
     const src = read(PADS[name]);
     assert.match(src, /outAtEnd/, `${name} must ask which end`);
     assert.match(src, /beforeDelivery/, `${name} must be able to log a Mankad`);
@@ -70,15 +70,45 @@ test("every pad that records a wicket can say which end a run out was", () => {
 });
 
 test("every console can retire a batter out, not only hurt", () => {
-  for (const name of ["casual app", "tournament app", "tournament web"] as const) {
+  for (const name of ["casual app", "casual web", "tournament app", "tournament web"] as const) {
     const src = read(PADS[name]);
     assert.match(src, /out: true|out\b/, `${name} must offer retired out`);
   }
 });
 
 test("every surface that shows a scoreboard shows the free hit", () => {
-  for (const name of ["casual app", "tournament app", "tournament web"] as const) {
+  for (const name of ["casual app", "casual web", "tournament app", "tournament web"] as const) {
     const src = read(PADS[name]);
     assert.match(src, /freeHit/i, `${name} must show the free hit`);
+  }
+});
+
+test("a cricket scorer can set up the innings it is going to score", () => {
+  // The casual web page could not: no squad, no openers, no bowler — and
+  // the engine refuses every ball without them, so the whole page was dead
+  // for cricket and nothing said so.
+  for (const name of ["casual app", "casual web"] as const) {
+    const src = read(PADS[name]);
+    assert.match(src, /t: "SQUAD"/, `${name} must be able to name the players`);
+    assert.match(src, /t: "OPEN"/, `${name} must be able to set the openers`);
+    assert.match(src, /t: "BOWLER"/, `${name} must be able to pick a bowler`);
+  }
+});
+
+test("every scorer can record all ten dismissals", () => {
+  for (const name of ["casual app", "casual web", "tournament app", "tournament web"] as const) {
+    const src = read(PADS[name]);
+    for (const kind of ["OBSTRUCTING", "HIT_BALL_TWICE", "TIMED", "obstructing", "hitballtwice", "timedout"]) {
+      if (src.includes(kind)) continue;
+      // Web/app tournaments use the lowercase wire format, casual uses the
+      // enum — one of the two spellings must appear.
+      assert.ok(
+        /OBSTRUCTING_FIELD|obstructing/.test(src) &&
+          /HIT_BALL_TWICE|hitballtwice/.test(src) &&
+          /TIMED_OUT|timedout/.test(src),
+        `${name} is missing one of the rare dismissals`,
+      );
+      break;
+    }
   }
 });
