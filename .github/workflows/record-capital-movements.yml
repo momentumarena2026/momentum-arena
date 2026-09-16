@@ -1,4 +1,4 @@
-name: Capital movements — correct history & record today (production)
+name: Capital figures — correct to the expense record (production)
 
 # The seed laid down a flat ₹7L each. That was right in total and wrong for
 # two of the three: Utkarsh was ₹1.5L short and Anand covered the gap. This
@@ -31,7 +31,7 @@ jobs:
       - run: |
           ARGS=""
           if [ "${{ inputs.apply }}" = "true" ]; then ARGS="--apply"; fi
-          npx tsx scripts/record-capital-movements.ts $ARGS 2>&1 | tee capital.log
+          npx tsx scripts/correct-capital-figures.ts $ARGS 2>&1 | tee capital.log
       - if: always()
         run: |
           {

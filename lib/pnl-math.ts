@@ -200,10 +200,21 @@ export type PnlFunding = {
   equityTotal: number;
   loans: { name: string; amount: number; ratePct: number; from: string }[];
   loanTotal: number;
+  /** Capex the business funded from its own account — neither equity nor
+   *  a loan, but real money that paid for part of the build-out. */
+  companyFunded: number;
   fundingTotal: number;
   /** Expense(GENERAL) total — what the build-out actually cost. */
   capexRecorded: number;
-  /** fundingTotal − capexRecorded. Non-zero = something is unrecorded. */
+  /**
+   * fundingTotal − capexRecorded.
+   *
+   * NEGATIVE means capex nobody is recorded as having funded — a missing
+   * contribution or a miskeyed expense. POSITIVE means more has been put
+   * in than the build-out cost, which is not an error: it is money sitting
+   * in the business as working capital, and happens the moment a founder
+   * tops up after the capex is done.
+   */
   fundingGap: number;
   /** Net profit summed across every period shown. */
   cumulativeNetProfit: number;

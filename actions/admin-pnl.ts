@@ -385,6 +385,9 @@ export async function getProfitAndLoss(
       from: monthKey(l.startDate),
     }));
     const loanTotal = loanRows.reduce((s, l) => s + l.amount, 0);
+    const companyFunded = contributions
+      .filter((c) => c.kind === "COMPANY")
+      .reduce((s, c) => s + c.amount, 0);
     const capexRecorded = capexAgg._sum.amount ?? 0;
     const cumulativeNetProfit = columns.reduce((s, c) => s + c.netProfit, 0);
 
@@ -406,9 +409,10 @@ export async function getProfitAndLoss(
           equityTotal,
           loans: loanRows,
           loanTotal,
-          fundingTotal: equityTotal + loanTotal,
+          companyFunded,
+          fundingTotal: equityTotal + loanTotal + companyFunded,
           capexRecorded,
-          fundingGap: equityTotal + loanTotal - capexRecorded,
+          fundingGap: equityTotal + loanTotal + companyFunded - capexRecorded,
           cumulativeNetProfit,
           paybackRemaining:
             capexRecorded > 0
@@ -479,15 +483,19 @@ function emptyFunding(
       from: monthKey(l.startDate),
     }));
   const loanTotal = loans.reduce((s, l) => s + l.amount, 0);
+  const companyFunded = contributions
+    .filter((c) => c.kind === "COMPANY")
+    .reduce((s, c) => s + c.amount, 0);
   return {
     equity,
     equityMovements: equityMovementsOf(contributions),
     equityTotal,
     loans,
     loanTotal,
-    fundingTotal: equityTotal + loanTotal,
+    companyFunded,
+    fundingTotal: equityTotal + loanTotal + companyFunded,
     capexRecorded,
-    fundingGap: equityTotal + loanTotal - capexRecorded,
+    fundingGap: equityTotal + loanTotal + companyFunded - capexRecorded,
     cumulativeNetProfit: 0,
     paybackRemaining: capexRecorded > 0 ? capexRecorded : null,
   };
