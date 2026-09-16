@@ -2312,6 +2312,11 @@ enum ExpenseOptionField {
 enum CapitalKind {
   EQUITY
   LOAN
+  /// Capex the business paid for out of its own account. Not founder
+  /// money, so it belongs in neither equity nor a loan — but it did fund
+  /// part of the build-out, and leaving it out makes the funding side
+  /// look short of the spend side by exactly that amount.
+  COMPANY
 }
 
 model CapitalContribution {

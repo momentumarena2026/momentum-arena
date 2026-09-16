@@ -297,6 +297,7 @@ function FundingBlock({ funding }: { funding: PnlResult["funding"] }) {
     equityTotal,
     loans,
     loanTotal,
+    companyFunded,
     fundingTotal,
     capexRecorded,
     fundingGap,
@@ -360,6 +361,17 @@ function FundingBlock({ funding }: { funding: PnlResult["funding"] }) {
               <dd className="tabular-nums text-zinc-200">₹{inr(l.amount)}</dd>
             </div>
           ))}
+          {companyFunded > 0 && (
+            <div className="flex justify-between gap-4">
+              <dt className="text-zinc-400">
+                Sportive Ventures — company funds
+                <span className="ml-1 text-xs text-zinc-600">
+                  build-out paid from the business account
+                </span>
+              </dt>
+              <dd className="tabular-nums text-zinc-200">₹{inr(companyFunded)}</dd>
+            </div>
+          )}
           <div className="flex justify-between gap-4 border-t border-zinc-800 pt-2">
             <dt className="font-medium text-zinc-300">Total funding</dt>
             <dd className="tabular-nums font-semibold text-white">₹{inr(fundingTotal)}</dd>
@@ -368,15 +380,28 @@ function FundingBlock({ funding }: { funding: PnlResult["funding"] }) {
             <dt className="text-zinc-400">Capex recorded (build-out expenses)</dt>
             <dd className="tabular-nums text-zinc-200">₹{inr(capexRecorded)}</dd>
           </div>
+          {/* A SHORTFALL is a problem — capex nobody is recorded as having
+              funded, so either a contribution is missing or an expense is
+              miskeyed. A SURPLUS is not: it is money put in beyond what the
+              build-out cost, sitting in the business as working capital,
+              which is exactly what happens when a founder tops up after the
+              capex is done. Calling both "unreconciled" made the second one
+              look like an error every time. */}
           {fundingGap !== 0 && (
             <div className="flex justify-between gap-4">
-              <dt className="text-amber-400">
-                Unreconciled
+              <dt className={fundingGap > 0 ? "text-zinc-400" : "text-amber-400"}>
+                {fundingGap > 0 ? "Held as working capital" : "Unreconciled"}
                 <span className="ml-1 text-xs text-zinc-500">
-                  funding {fundingGap > 0 ? "exceeds" : "short of"} recorded spend
+                  {fundingGap > 0
+                    ? "funded beyond the build-out cost"
+                    : "capex with no recorded funding — check for a missing contribution"}
                 </span>
               </dt>
-              <dd className="tabular-nums text-amber-400">₹{inr(Math.abs(fundingGap))}</dd>
+              <dd
+                className={`tabular-nums ${fundingGap > 0 ? "text-zinc-200" : "text-amber-400"}`}
+              >
+                ₹{inr(Math.abs(fundingGap))}
+              </dd>
             </div>
           )}
         </dl>
