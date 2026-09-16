@@ -27,20 +27,6 @@ async function main() {
   });
   console.log(`   capex recorded (GENERAL) ₹${(capex._sum.amount ?? 0).toLocaleString("en-IN")}`);
 
-  // Anything already recorded against these names on the expense side.
-  const named = await db.expense.findMany({
-    where: { OR: [{ toName: { in: ["Nakul", "Anand", "Utkarsh"] } }] },
-    select: { date: true, amount: true, toName: true, module: true, spentType: true, notes: true },
-    orderBy: { date: "asc" },
-    take: 20,
-  });
-  console.log("");
-  console.log(`Expense rows paid to a founder: ${named.length}`);
-  for (const e of named) {
-    console.log(
-      `   ${e.date.toISOString().slice(0, 10)} ${String(e.toName).padEnd(9)} ₹${e.amount.toLocaleString("en-IN").padStart(10)}  ${e.module}/${e.spentType ?? "—"}  ${e.notes ?? ""}`,
-    );
-  }
   await db.$disconnect();
 }
 main().catch((e) => { console.error(e); process.exitCode = 1; });

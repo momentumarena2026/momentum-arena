@@ -293,6 +293,7 @@ export function PnlTable({ initial }: { initial: PnlResult }) {
 function FundingBlock({ funding }: { funding: PnlResult["funding"] }) {
   const {
     equity,
+    equityMovements,
     equityTotal,
     loans,
     loanTotal,
@@ -318,6 +319,38 @@ function FundingBlock({ funding }: { funding: PnlResult["funding"] }) {
               <dd className="tabular-nums text-zinc-200">₹{inr(e.amount)}</dd>
             </div>
           ))}
+          {/* Each founder's position above is a NET figure. When somebody
+              has topped up or taken money out, the total alone hides who
+              actually paid what and when — which is the only question the
+              founders ask of this page. */}
+          {equityMovements.length > equity.length && (
+            <div className="border-t border-zinc-800 pt-2">
+              <p className="mb-1.5 text-[11px] uppercase tracking-wide text-zinc-600">
+                Equity movements
+              </p>
+              <div className="space-y-1">
+                {equityMovements.map((m, i) => (
+                  <div
+                    key={`${m.name}-${m.date}-${i}`}
+                    className="flex justify-between gap-3 text-xs"
+                  >
+                    <span className="min-w-0 text-zinc-500">
+                      <span className="text-zinc-400">{m.name}</span>
+                      <span className="ml-1.5 tabular-nums text-zinc-600">{m.date}</span>
+                      {m.note && <span className="ml-1.5 text-zinc-600">· {m.note}</span>}
+                    </span>
+                    <span
+                      className={`shrink-0 tabular-nums ${
+                        m.amount < 0 ? "text-amber-400" : "text-zinc-300"
+                      }`}
+                    >
+                      {m.amount < 0 ? "−" : "+"}₹{inr(Math.abs(m.amount))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {loans.map((l) => (
             <div key={`${l.name}-${l.amount}`} className="flex justify-between gap-4">
               <dt className="text-zinc-400">
