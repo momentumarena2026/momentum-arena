@@ -15,6 +15,7 @@ import {
   extendPassValidity,
   adjustPassMinutes,
   cancelUserPass,
+  getPassCancellationImpact,
   setPassSharingLimit,
 } from "@/actions/admin-passes";
 import { parseBands } from "@/lib/pass-bands";
@@ -150,7 +151,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(result);
       }
       case "cancel": {
-        const result = await cancelUserPass(str("id"));
+        // The phone gets the same reversal as the web: the sale stops
+        // counting and the bookings made on the pass are cancelled unless
+        // the caller says otherwise.
+        const result = await cancelUserPass(str("id"), {
+          reason: str("reason") || undefined,
+          cancelBookings: body?.cancelBookings !== false,
+        });
+        return NextResponse.json(result);
+      }
+      case "cancel-impact": {
+        const result = await getPassCancellationImpact(str("id"));
         return NextResponse.json(result);
       }
       case "set-sharing": {

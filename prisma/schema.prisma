@@ -1005,6 +1005,16 @@ model UserPass {
   issuedByAdminId String?
   offlineRef      String?
 
+  /// Cancellation reverses the SALE, not just the pass. The price stops
+  /// counting as revenue everywhere it was counted, and any bookings made
+  /// on the pass are cancelled — so the books read as they did before the
+  /// pass was ever sold. Recorded rather than derived from `status`
+  /// because the date it stopped counting is a different fact from the
+  /// date it was sold, and a report run over last month needs both.
+  cancelledAt    DateTime?
+  cancelledBy    String?
+  cancelReason   String?
+
   redemptions PassRedemption[]
   members     PassMember[]
 

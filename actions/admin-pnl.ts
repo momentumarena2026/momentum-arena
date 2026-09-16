@@ -2,6 +2,7 @@
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { SOLD_PASS_SQL } from "@/lib/pass-revenue";
 import { requireSuperadmin } from "@/lib/admin-auth";
 import {
   monthlyInterest,
@@ -161,7 +162,7 @@ export async function getProfitAndLoss(
         SELECT to_char(up."purchasedAt" + ${IST_SHIFT}, 'YYYY-MM') AS key,
                SUM(up.price)::bigint AS amount
         FROM "UserPass" up
-        WHERE up.price > 0
+        WHERE ${SOLD_PASS_SQL}
         GROUP BY key
       `),
       // Team entry fees AND third-party venue hire. A THIRD_PARTY

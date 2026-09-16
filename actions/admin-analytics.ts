@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { SOLD_PASS_WHERE, SOLD_PASS_SQL } from "@/lib/pass-revenue";
 import { requireAdmin } from "@/lib/admin-auth";
 import { Prisma } from "@prisma/client";
 
@@ -125,7 +126,7 @@ export async function getRevenueOverTime(
             SELECT DATE_TRUNC(${Prisma.raw(`'${truncUnit}'`)}, up."purchasedAt") AS period,
                    SUM(up.price)::bigint AS revenue
             FROM "UserPass" up
-            WHERE up.price > 0
+            WHERE ${SOLD_PASS_SQL}
               AND up."purchasedAt" >= ${from}
               AND up."purchasedAt" <= ${to}
             GROUP BY period
@@ -320,7 +321,7 @@ export async function getSportRevenueBreakdown(
       db.userPass.findMany({
         where: {
           purchasedAt: { gte: from, lte: to },
-          price: { gt: 0 },
+          ...SOLD_PASS_WHERE,
         },
         select: { sport: true, price: true },
       }),
@@ -427,7 +428,7 @@ export async function getSportRevenueByMonth(
       db.userPass.findMany({
         where: {
           purchasedAt: { gte: from, lte: to },
-          price: { gt: 0 },
+          ...SOLD_PASS_WHERE,
         },
         select: { sport: true, price: true, purchasedAt: true },
       }),
@@ -686,7 +687,7 @@ export async function getTopCustomers(
       db.userPass.findMany({
         where: {
           purchasedAt: { gte: from, lte: to },
-          price: { gt: 0 },
+          ...SOLD_PASS_WHERE,
         },
         select: { userId: true, price: true },
       }),
@@ -927,7 +928,7 @@ export async function getKPIStats(
       db.userPass.aggregate({
         where: {
           purchasedAt: { gte: from, lte: to },
-          price: { gt: 0 },
+          ...SOLD_PASS_WHERE,
         },
         _sum: { price: true },
       }),
@@ -1164,7 +1165,7 @@ export async function getDailyEarningsForMonth(
         SUM(up.price)::bigint AS earnings,
         COUNT(*)::bigint AS pass_count
       FROM "UserPass" up
-      WHERE up.price > 0
+      WHERE ${SOLD_PASS_SQL}
         AND up."purchasedAt" >= ${istStart}
         AND up."purchasedAt" < ${istNextStart}
       GROUP BY day
@@ -1350,7 +1351,7 @@ export async function getMonthlyEarningsForYear(
         SUM(up.price)::bigint AS earnings,
         COUNT(*)::bigint AS pass_count
       FROM "UserPass" up
-      WHERE up.price > 0
+      WHERE ${SOLD_PASS_SQL}
         AND up."purchasedAt" >= ${istStart}
         AND up."purchasedAt" < ${istNextStart}
       GROUP BY month

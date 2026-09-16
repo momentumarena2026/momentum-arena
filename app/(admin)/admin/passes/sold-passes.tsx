@@ -7,6 +7,7 @@ import { Users, X, Loader2, UserPlus, Trash2, MessageCircle, CalendarCog } from 
 import {
   adjustPassMinutes,
   cancelUserPass,
+  getPassCancellationImpact,
   extendPassValidity,
   adminGetPassMembers,
   adminAddPassMember,
@@ -50,6 +51,10 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
   const [error, setError] = useState<string | null>(null);
   const [membersFor, setMembersFor] = useState<Sold | null>(null);
   const [editFor, setEditFor] = useState<Sold | null>(null);
+  /** Cancelling reverses the sale AND cancels the bookings made on the
+   *  pass, and neither is visible from this table — so the confirmation
+   *  goes and asks what those bookings are before anyone commits. */
+  const [cancelFor, setCancelFor] = useState<Sold | null>(null);
 
   const filtered = passes.filter(
     (p) =>
@@ -200,10 +205,7 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
                         </button>
                         <button
                           disabled={pending}
-                          onClick={() => {
-                            if (!window.confirm(`Cancel ${p.customer}'s pass? Refund (if any) is manual via the gateway dashboard.`)) return;
-                            run(() => cancelUserPass(p.id));
-                          }}
+                          onClick={() => setCancelFor(p)}
                           className="rounded-md border border-red-900/50 px-2 py-1 text-red-400 hover:bg-red-500/10"
                         >
                           Cancel
@@ -220,6 +222,17 @@ export function SoldPasses({ passes }: { passes: Sold[] }) {
 
       {membersFor && (
         <MembersModal pass={membersFor} onClose={() => setMembersFor(null)} />
+      )}
+
+      {cancelFor && (
+        <CancelPassDialog
+          pass={cancelFor}
+          onClose={() => setCancelFor(null)}
+          onDone={() => {
+            setCancelFor(null);
+            router.refresh();
+          }}
+        />
       )}
 
       {editFor && (
@@ -515,6 +528,160 @@ function MembersModal({ pass, onClose }: { pass: Sold; onClose: () => void }) {
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Confirming a pass cancellation.
+ *
+ * The destructive half is invisible from the table: a pass with hours
+ * spent on it has bookings behind it, and those are somebody's Saturday
+ * evening. So this asks the server what is actually at stake and shows
+ * it — dates, court and hours — before the button is live.
+ */
+function CancelPassDialog({
+  pass,
+  onClose,
+  onDone,
+}: {
+  pass: Sold;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [impact, setImpact] = useState<Awaited<
+    ReturnType<typeof getPassCancellationImpact>
+  > | null>(null);
+  const [reason, setReason] = useState("");
+  const [alsoCancelBookings, setAlsoCancelBookings] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void getPassCancellationImpact(pass.id).then((r) => {
+      if (live) setImpact(r);
+    });
+    return () => {
+      live = false;
+    };
+  }, [pass.id]);
+
+  const live = (impact?.bookings ?? []).filter((b) => b.status !== "CANCELLED");
+
+  const hourLabel = (h: number) =>
+    h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950">
+        <div className="sticky top-0 border-b border-zinc-800 bg-zinc-950 px-5 py-4">
+          <h3 className="text-base font-semibold text-white">Cancel this pass?</h3>
+          <p className="mt-1 text-xs text-zinc-500">
+            {pass.customer} · {pass.name}
+          </p>
+        </div>
+
+        <div className="space-y-4 px-5 py-4 text-sm">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-200">
+            The sale is reversed: ₹{(impact?.price ?? 0).toLocaleString("en-IN")} stops
+            counting as revenue in the analytics, the P&amp;L and the CA report, as
+            though the pass had never been sold.{" "}
+            <span className="text-amber-300/80">
+              Any money actually taken is refunded by you, through whichever
+              gateway or counter it came in.
+            </span>
+          </div>
+
+          {!impact ? (
+            <p className="text-zinc-500">Checking what this affects…</p>
+          ) : live.length === 0 ? (
+            <p className="text-zinc-400">
+              No live bookings were made on this pass, so nothing else changes.
+            </p>
+          ) : (
+            <div>
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={alsoCancelBookings}
+                  onChange={(e) => setAlsoCancelBookings(e.target.checked)}
+                  className="mt-0.5 accent-red-500"
+                />
+                <span className="text-zinc-300">
+                  Also cancel the {live.length} booking{live.length === 1 ? "" : "s"}{" "}
+                  made on this pass
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    Frees the court, tells the customer, and unwinds their reward
+                    points. Untick only if those games were actually played and you
+                    are reversing the sale alone.
+                  </span>
+                </span>
+              </label>
+              <ul className="mt-3 space-y-1 border-t border-zinc-800 pt-3">
+                {live.map((b) => (
+                  <li key={b.id} className="flex justify-between gap-3 text-xs text-zinc-400">
+                    <span>
+                      {b.date} · {b.court}
+                    </span>
+                    <span className="shrink-0 font-mono text-zinc-500">
+                      {b.hours.map(hourLabel).join(", ")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">
+              Reason
+            </label>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. sold in error, customer refunded"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-red-500/50"
+            />
+            <p className="mt-1 text-xs text-zinc-600">
+              Stored on the pass, and shown to the customer on any booking this
+              cancels.
+            </p>
+          </div>
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+        </div>
+
+        <div className="sticky bottom-0 flex gap-2 border-t border-zinc-800 bg-zinc-950 px-5 py-4">
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="flex-1 rounded-lg border border-zinc-700 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            Keep the pass
+          </button>
+          <button
+            disabled={busy || !impact || impact.alreadyCancelled}
+            onClick={async () => {
+              setBusy(true);
+              setError(null);
+              const res = await cancelUserPass(pass.id, {
+                reason,
+                cancelBookings: alsoCancelBookings,
+              }).catch(() => ({ ok: false as const, error: "Couldn't reach the server" }));
+              setBusy(false);
+              if (!res.ok) {
+                setError(res.error);
+                return;
+              }
+              onDone();
+            }}
+            className="flex-1 rounded-lg bg-red-600 py-2.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+          >
+            {busy ? "Cancelling…" : "Cancel pass & reverse sale"}
+          </button>
+        </div>
       </div>
     </div>
   );

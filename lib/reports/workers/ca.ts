@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
+import { UNCANCELLED_PASS_WHERE } from "@/lib/pass-revenue";
 import {
   splitBookingPayment,
   splitCafePayment,
@@ -265,7 +266,10 @@ export async function generateCaMonthlyReport(input: {
   // 4. Pass sales — revenue recognised at PURCHASE (pass-paid
   // bookings show ₹0 in the sheets above, so nothing double-counts).
   const passSales = await db.userPass.findMany({
-    where: { purchasedAt: { gte: monthStart, lt: monthEnd } },
+    // A reversed sale never happened, so it must not appear on the return
+    // either — a cancelled pass left in this sheet is money the CA files
+    // against and the bank statement never shows.
+    where: { purchasedAt: { gte: monthStart, lt: monthEnd }, ...UNCANCELLED_PASS_WHERE },
     select: {
       purchasedAt: true,
       name: true,

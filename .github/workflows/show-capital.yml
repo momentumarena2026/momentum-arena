@@ -1,0 +1,30 @@
+name: Capital structure — read only (production)
+
+# Prints the capital rows and what they reconcile against. Reads nothing
+# it could change; exists so a founder's actual paid-in position can be
+# checked before anyone edits it.
+on:
+  workflow_dispatch:
+
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsx scripts/show-capital.ts 2>&1 | tee capital.log
+      - if: always()
+        run: |
+          {
+            echo "### Capital structure (read only)"
+            echo '```'
+            tail -60 capital.log 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
