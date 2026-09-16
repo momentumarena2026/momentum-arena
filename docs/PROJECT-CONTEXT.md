@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-14 · accurate as of `main` = `bebd692` (app 1.0.7).
+**Last substantive update:** 2026-09-16 · accurate as of `main` = `48b83d0d` (app 1.0.7).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -165,6 +165,20 @@ Anything else means main has drifted — stop and investigate, do not push.
    and the app Scorer Console, casual games through `/match/[code]` and the app Match
    Score screen. Both now call `cricket-rules.ts`, so a fix there lands in both; a fix
    anywhere else lands in one.
+
+0b. **A total that reconciles can still be wrong per person.** The capital
+   structure was seeded as a flat ₹7,00,000 of equity each. Two of the three
+   figures were wrong — one founder was ₹1,42,865 short and another had
+   covered him — and nothing ever flagged it, because the only check was
+   `equity + loan == capex` and the *sum* was right. Worse, the founder loan
+   was DERIVED as "capex minus a flat ₹21L", so every odd amount, including
+   ₹31,285 the company paid from its own account, was silently absorbed into
+   one person's loan and earned him 12% a year. Capital is a ledger now
+   (several dated rows per person, withdrawals negative, `CapitalKind.COMPANY`
+   for company-funded capex) and the real record of who paid is
+   `Expense.doneBy` — compare against it before trusting any capital figure.
+   A drawing is never an expense: booking one would charge the business for
+   an owner taking their own money out.
 
 1. **The analytics four-surface trap.** Any new revenue stream (tournaments, camps, …) must
    be merged into **all four** of these or the numbers silently disagree:
@@ -582,6 +596,20 @@ its templates here, or it ships with no push voice at all.
   then is operating profit in full (owner's ruling, 2026-09-02). `isExpenseGap()` therefore
   only flags an expense-free month at or after the first RUNNING expense — where it means
   somebody stopped entering, and an unflagged 100% margin would be believed.
+- `lib/pass-revenue.ts` — **the only definition of which pass sales count as
+  revenue** (`price > 0`, not `CANCELLED`). It was counted in NINE places —
+  revenue chart, KPI tiles, sport split, monthly and daily earnings, P&L, CA
+  report — none of which filtered on status, so cancelling a pass flipped a
+  status and left the money on the books. Cancelling now reverses the sale:
+  the price stops counting, and the bookings made on the pass are cancelled
+  (which frees the court, unwinds rewards, and returns minutes to any OTHER
+  pass that part-covered them). Order matters — `restorePassForBooking` sets
+  a pass back to ACTIVE, so bookings must be cancelled BEFORE the pass is
+  marked, and `tests/pass-revenue.test.ts` asserts that ordering.
+- `lib/phone-match.ts` — matching a typed phone to an account, on the last
+  ten digits. Venue registration never linked a team's captain, and the bill
+  arrived weeks later as a prize pass with nobody to issue it to. Links only
+  on exactly one match; several accounts on a number are left alone.
 - `lib/cricket-rules.ts` — **the Laws of Cricket, and the only implementation of them.**
   Who the wicket belongs to, which end the new batter takes after a run out, whether a
   delivery costs a ball, who faced it, whose column each run lands in, what a free hit
