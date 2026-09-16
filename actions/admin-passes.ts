@@ -898,13 +898,144 @@ export async function setPassStartDate(
   return { ok: true };
 }
 
+/**
+ * What cancelling this pass would undo.
+ *
+ * Shown before the admin commits, because the destructive half is
+ * invisible from the passes screen: a pass with hours spent on it has
+ * bookings behind it, and those bookings are somebody's Saturday evening.
+ */
+export async function getPassCancellationImpact(id: string): Promise<{
+  ok: boolean;
+  error?: string;
+  price?: number;
+  customer?: string;
+  alreadyCancelled?: boolean;
+  bookings?: { id: string; date: string; court: string; hours: number[]; status: string }[];
+}> {
+  await gate();
+  const pass = await db.userPass.findUnique({
+    where: { id },
+    select: {
+      price: true,
+      status: true,
+      user: { select: { name: true, phone: true } },
+      redemptions: { select: { bookingId: true } },
+    },
+  });
+  if (!pass) return { ok: false, error: "Pass not found." };
+
+  const ids = [...new Set(pass.redemptions.map((r) => r.bookingId))];
+  const bookings = ids.length
+    ? await db.booking.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          date: true,
+          status: true,
+          courtConfig: { select: { label: true } },
+          slots: { select: { startHour: true } },
+        },
+        orderBy: { date: "asc" },
+      })
+    : [];
+
+  return {
+    ok: true,
+    price: pass.price,
+    customer: pass.user?.name || pass.user?.phone || "—",
+    alreadyCancelled: pass.status === "CANCELLED",
+    bookings: bookings.map((b) => ({
+      id: b.id,
+      date: b.date.toISOString().slice(0, 10),
+      court: b.courtConfig?.label ?? "—",
+      hours: b.slots.map((x) => x.startHour).sort((a, z) => a - z),
+      status: b.status,
+    })),
+  };
+}
+
+/**
+ * Cancel a pass and reverse the sale with it.
+ *
+ * Cancelling used to flip a status and nothing else, which left the money
+ * exactly where it was: the price kept counting as revenue in the chart,
+ * the KPI tiles, the sport split, the P&L and the CA return, and the
+ * bookings bought with it stayed on the calendar. The pass was cancelled;
+ * the sale was not.
+ *
+ * Now it puts things back as they were before the pass existed:
+ *   · the price stops counting as revenue (one rule, in lib/pass-revenue)
+ *   · every booking made on the pass is cancelled, which frees the court,
+ *     tells the customer, unwinds their reward points, and offers the
+ *     hours to anyone waitlisted
+ *   · minutes that OTHER passes had spent on those same bookings go back
+ *     to those passes — a booking part-covered by a second pass must not
+ *     take that pass's hours down with this one
+ *
+ * Order matters and is not arbitrary: bookings are cancelled FIRST,
+ * because restoring a booking's minutes sets its passes back to ACTIVE.
+ * Marking this pass cancelled before that would quietly un-cancel it.
+ */
 export async function cancelUserPass(
   id: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  await gate();
-  await db.userPass.update({ where: { id }, data: { status: "CANCELLED" } });
+  opts?: { reason?: string; cancelBookings?: boolean },
+): Promise<
+  | { ok: true; cancelledBookings: number; failedBookings: string[] }
+  | { ok: false; error: string }
+> {
+  const admin = await gate();
+  const reason = (opts?.reason || "").trim() || "Pass cancelled by admin";
+
+  const pass = await db.userPass.findUnique({
+    where: { id },
+    select: { status: true, redemptions: { select: { bookingId: true } } },
+  });
+  if (!pass) return { ok: false, error: "Pass not found." };
+  if (pass.status === "CANCELLED") {
+    return { ok: false, error: "That pass is already cancelled." };
+  }
+
+  const failedBookings: string[] = [];
+  let cancelledBookings = 0;
+
+  // Default ON: a pass whose hours were spent has bookings standing on
+  // money that is being reversed. Leaving them would give away the court
+  // for nothing. The caller can opt out where the games were genuinely
+  // played and only the sale is being unwound.
+  if (opts?.cancelBookings !== false) {
+    const ids = [...new Set(pass.redemptions.map((r) => r.bookingId))];
+    const live = await db.booking.findMany({
+      where: { id: { in: ids }, status: { not: "CANCELLED" } },
+      select: { id: true },
+    });
+    const { cancelBooking } = await import("@/actions/admin-booking");
+    for (const b of live) {
+      // Sequential on purpose. Each cancel frees slots, notifies and
+      // unwinds rewards; running them at once against a pooled Neon
+      // connection is how the 5s transaction ceiling gets hit.
+      const res = await cancelBooking(b.id, reason).catch(() => ({
+        success: false as const,
+      }));
+      if (res.success) cancelledBookings += 1;
+      else failedBookings.push(b.id);
+    }
+  }
+
+  await db.userPass.update({
+    where: { id },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancelledBy: admin.id,
+      cancelReason: reason,
+    },
+  });
+
   revalidatePath("/admin/passes");
-  return { ok: true };
+  revalidatePath("/admin/bookings");
+  revalidatePath("/admin/analytics");
+  return { ok: true, cancelledBookings, failedBookings };
 }
 
 // ─── Pass sharing (members) ─────────────────────────────────────────
