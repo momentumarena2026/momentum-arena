@@ -375,9 +375,8 @@ export async function getProfitAndLoss(
       return c;
     });
 
-    const equity = contributions
-      .filter((c) => c.kind === "EQUITY")
-      .map((c) => ({ name: c.name, amount: c.amount }));
+    const equity = equityPositions(contributions);
+    const equityMovements = equityMovementsOf(contributions);
     const equityTotal = equity.reduce((s, e) => s + e.amount, 0);
     const loanRows = loans.map((l) => ({
       name: l.name,
@@ -403,6 +402,7 @@ export async function getProfitAndLoss(
           .map(([c]) => c),
         funding: {
           equity,
+          equityMovements,
           equityTotal,
           loans: loanRows,
           loanTotal,
@@ -423,13 +423,52 @@ export async function getProfitAndLoss(
   }
 }
 
+
+/**
+ * Roll a founder's dated movements into their net position.
+ *
+ * There may be several rows per person now — an original contribution, a
+ * top-up, a withdrawal — and the funding panel wants one line each. Order
+ * is by first appearance so the list does not reshuffle when somebody
+ * withdraws.
+ */
+function equityPositions(
+  rows: { name: string; kind: string; amount: number }[],
+): { name: string; amount: number }[] {
+  const byName = new Map<string, number>();
+  for (const r of rows) {
+    if (r.kind !== "EQUITY") continue;
+    byName.set(r.name, (byName.get(r.name) ?? 0) + r.amount);
+  }
+  return [...byName.entries()].map(([name, amount]) => ({ name, amount }));
+}
+
+function equityMovementsOf(
+  rows: { name: string; kind: string; amount: number; startDate: Date; note: string | null }[],
+): { name: string; amount: number; date: string; note: string | null }[] {
+  return rows
+    .filter((r) => r.kind === "EQUITY")
+    .map((r) => ({
+      name: r.name,
+      amount: r.amount,
+      date: r.startDate.toISOString().slice(0, 10),
+      note: r.note,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function emptyFunding(
-  contributions: { name: string; kind: string; amount: number; ratePct: number; startDate: Date }[],
+  contributions: {
+    name: string;
+    kind: string;
+    amount: number;
+    ratePct: number;
+    startDate: Date;
+    note: string | null;
+  }[],
   capexRecorded: number,
 ): PnlFunding {
-  const equity = contributions
-    .filter((c) => c.kind === "EQUITY")
-    .map((c) => ({ name: c.name, amount: c.amount }));
+  const equity = equityPositions(contributions);
   const equityTotal = equity.reduce((s, e) => s + e.amount, 0);
   const loans = contributions
     .filter((c) => c.kind === "LOAN")
@@ -442,6 +481,7 @@ function emptyFunding(
   const loanTotal = loans.reduce((s, l) => s + l.amount, 0);
   return {
     equity,
+    equityMovements: equityMovementsOf(contributions),
     equityTotal,
     loans,
     loanTotal,

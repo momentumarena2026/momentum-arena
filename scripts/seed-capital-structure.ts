@@ -37,6 +37,22 @@ const LOAN_FROM = "Nakul";
 const LOAN_RATE_PCT = 12;
 
 async function main() {
+  // Refuse once capital has become a ledger.
+  //
+  // This script writes ONE row per founder and updates by findFirst. Once
+  // a founder has several dated rows — an original contribution, a top-up,
+  // a withdrawal — re-running would update whichever row came back first
+  // and leave the rest, quietly restating everybody's paid-in position to
+  // a flat 7L. That is how the real picture got lost the first time.
+  const equityRows = await db.capitalContribution.count({ where: { kind: "EQUITY" } });
+  if (equityRows > FOUNDERS.length) {
+    console.log(
+      `Refusing to run: ${equityRows} equity rows for ${FOUNDERS.length} founders — capital is a ledger now.`,
+    );
+    console.log("Edit the movements directly; this seed only lays down the opening position.");
+    return;
+  }
+
   const capex = await db.expense.aggregate({
     where: { module: "GENERAL" },
     _sum: { amount: true },

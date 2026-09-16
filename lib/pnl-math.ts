@@ -170,8 +170,33 @@ export type PnlColumn = {
   expensesUntracked: boolean;
 };
 
+/**
+ * One dated movement of a founder's money.
+ *
+ * Capital is a ledger, not a number. The build-out was funded on the
+ * understanding that each founder put in ₹7L, but one of them was short
+ * and another covered the gap — so the flat figure was right in total and
+ * wrong for both of them, and there was nowhere to say so. A position
+ * without its movements cannot answer "who has actually paid what", which
+ * is the only question the founders ever ask of this page.
+ *
+ * Withdrawals are negative. A drawing is not an expense: it is the owner
+ * taking their own money out, and putting it in the P&L would charge the
+ * business for it.
+ */
+export type CapitalMovement = {
+  name: string;
+  amount: number;
+  /** ISO date, so it reads the same wherever it is rendered. */
+  date: string;
+  note: string | null;
+};
+
 export type PnlFunding = {
+  /** Net position per founder — the sum of their movements. */
   equity: { name: string; amount: number }[];
+  /** Every equity movement, newest last. Empty for a flat structure. */
+  equityMovements: CapitalMovement[];
   equityTotal: number;
   loans: { name: string; amount: number; ratePct: number; from: string }[];
   loanTotal: number;

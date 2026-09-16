@@ -1,0 +1,42 @@
+name: Capital movements — correct history & record today (production)
+
+# The seed laid down a flat ₹7L each. That was right in total and wrong for
+# two of the three: Utkarsh was ₹1.5L short and Anand covered the gap. This
+# restates the opening position to what was actually transferred and
+# records today's two movements — Utkarsh repaying, Anand withdrawing.
+#
+# Dry run by default. Refuses to run twice.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually write (unticked = dry run)"
+        type: boolean
+        default: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx prisma generate
+      - run: |
+          ARGS=""
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="--apply"; fi
+          npx tsx scripts/record-capital-movements.ts $ARGS 2>&1 | tee capital.log
+      - if: always()
+        run: |
+          {
+            echo "### Capital movements — ${{ inputs.apply == true && 'APPLIED' || 'DRY RUN' }}"
+            echo '```'
+            tail -60 capital.log 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
